@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoApp, openSettingsDrawer } from "../helpers/flows";
+import { gotoApp, openSettingsDrawer, waitForAppReady } from "../helpers/flows";
 
 const getNextQuotePoll = (current: string): string =>
   current === "12" ? "10" : "12";
@@ -72,6 +72,7 @@ test.describe("settings", () => {
     await expect(page.getByTestId("settings-cost-basis-value")).toContainText("LIFO");
 
     await page.reload();
+    await waitForAppReady(page);
     await expect(page.getByTestId("hero-title")).toContainText("台灣投資組合控制台", { timeout: 10_000 });
     await expect(page.getByTestId("topbar-title")).toContainText("市場帳本");
   });
@@ -109,6 +110,7 @@ test.describe("settings", () => {
     await expect(page).not.toHaveURL(/drawer=settings/, { timeout: 15_000 });
 
     await page.reload();
+    await waitForAppReady(page);
     await openSettingsDrawer(page);
     await page.getByTestId("settings-tab-fees").click();
 

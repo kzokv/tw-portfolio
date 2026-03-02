@@ -20,8 +20,11 @@ export function useSettingsSave({ refresh, closeDrawer }: UseSettingsSaveOptions
 
     try {
       await saveFullSettings(toSaveSettingsRequest(model));
-      await refresh();
       closeDrawer();
+
+      void refresh().catch((error) => {
+        setErrorMessage(`Settings saved but dashboard refresh failed: ${String(error)}`);
+      });
     } catch (error) {
       setErrorMessage(String(error));
     } finally {
