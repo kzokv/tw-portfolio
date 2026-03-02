@@ -26,11 +26,16 @@ export function resolveTransactionDraftAccount(
   accounts: AccountDto[],
 ): TransactionInput {
   const defaultAccountId = accounts[0]?.id ?? "";
+  const nextAccountId = accounts.some((account) => account.id === previous.accountId)
+    ? previous.accountId
+    : defaultAccountId;
+
+  if (nextAccountId === previous.accountId) {
+    return previous;
+  }
 
   return {
     ...previous,
-    accountId: accounts.some((account) => account.id === previous.accountId)
-      ? previous.accountId
-      : defaultAccountId,
+    accountId: nextAccountId,
   };
 }

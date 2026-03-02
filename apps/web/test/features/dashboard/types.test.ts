@@ -22,10 +22,20 @@ describe("resolveTransactionDraftAccount", () => {
   });
 
   it("preserves the selected account when it still exists", () => {
-    const next = resolveTransactionDraftAccount({ ...transaction, accountId: "account-1" }, [
+    const previous = { ...transaction, accountId: "account-1" };
+    const next = resolveTransactionDraftAccount(previous, [
       { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" },
     ]);
 
+    expect(next).toBe(previous);
     expect(next.accountId).toBe("account-1");
+  });
+
+  it("returns the same object when there are no accounts and nothing changes", () => {
+    const previous = { ...transaction, accountId: "" };
+    const next = resolveTransactionDraftAccount(previous, []);
+
+    expect(next).toBe(previous);
+    expect(next.accountId).toBe("");
   });
 });

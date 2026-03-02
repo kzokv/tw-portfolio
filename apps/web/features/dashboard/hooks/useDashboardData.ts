@@ -75,6 +75,10 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
     (previous: TransactionInput) => resolveTransactionDraftAccount(previous, snapshot.accounts),
     [snapshot.accounts],
   );
+  const synchronizeInitialTransactionDraft = useCallback(
+    () => resolveTransactionDraftAccount(initialTransaction, []),
+    [initialTransaction],
+  );
 
   return {
     ...snapshot,
@@ -87,6 +91,6 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
     refresh,
     synchronizeTransactionDraft: snapshot.accounts.length > 0
       ? synchronizeTransactionDraft
-      : () => resolveTransactionDraftAccount(initialTransaction, []),
+      : synchronizeInitialTransactionDraft,
   };
 }
