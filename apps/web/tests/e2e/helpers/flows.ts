@@ -8,15 +8,23 @@ export function appUrl(path = "/"): string {
   return path.startsWith("http") ? path : new URL(path, e2eBaseURL).href;
 }
 
-/** Navigate to app root and wait for hero to be visible. */
+/** Wait for the dashboard shell to finish bootstrapping and become interactive. */
+export async function waitForAppReady(page: Page): Promise<void> {
+  await page.waitForLoadState("domcontentloaded");
+  await page.getByTestId("hero-title").waitFor({ state: "visible", timeout: 15_000 });
+  await page.getByTestId("avatar-button").waitFor({ state: "visible", timeout: 15_000 });
+}
+
+/** Navigate to app root and wait for the dashboard shell to be interactive. */
 export async function gotoApp(page: Page, path = "/"): Promise<void> {
   await page.goto(appUrl(path));
-  await page.getByTestId("hero-title").waitFor({ state: "visible" });
+  await waitForAppReady(page);
 }
 
 /** Open settings drawer via avatar and assert it is visible and URL updated. */
 export async function openSettingsDrawer(page: Page): Promise<void> {
+  await waitForAppReady(page);
   await page.getByTestId("avatar-button").click();
-  await expect(page.getByTestId("settings-drawer")).toBeVisible();
+  await page.getByTestId("settings-drawer").waitFor({ state: "visible", timeout: 10_000 });
   await expect(page).toHaveURL(/drawer=settings/);
 }

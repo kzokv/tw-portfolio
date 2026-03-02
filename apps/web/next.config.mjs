@@ -7,6 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   output: "standalone",
   outputFileTracingRoot: resolve(__dirname, "../../"),
+  outputFileTracingIncludes: {
+    ".": ["./node_modules/next/dist/build/webpack/loaders/postcss-loader/**"],
+  },
   typedRoutes: false,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
 };
