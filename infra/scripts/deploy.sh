@@ -73,7 +73,7 @@ Usage: ${SCRIPT_PATH} [OPTIONS] [DEPLOY_SHA]
 Options:
   -h, --help                   Show this help message and exit (optional)
   -e, --environment ENV        Deploy environment: production or dev (optional, default: production)
-  -b, --branch BRANCH          Deploy from this branch; local branch is reset to remote tip when DEPLOY_SHA is omitted (optional, default: main)
+  -b, --branch BRANCH          Deploy from this branch (optional, default: main)
   -s, --select-branch          Select deploy branch from numbered local/remote list (optional)
   -t, --image-tag TAG          Use this tag for all app images in the selected environment (optional, default: short deployed SHA)
   -f, --force                  Allow deploy with uncommitted changes (optional)
@@ -83,7 +83,6 @@ Requirements:
   - Clean git working tree in the tw-portfolio repo (unless --force is used)
   - Docker and docker compose available on PATH
   - Configured env file for the selected environment
-  - Branch-based deploys follow the selected remote branch tip when DEPLOY_SHA is omitted
 
 Exit codes:
   0  Successful deployment
@@ -383,8 +382,7 @@ checkout_deploy_ref() {
     log "Advancing $branch to CI-tested SHA: $sha"
     git reset --hard "$sha"
   else
-    log "Aligning $branch to $remote/$branch"
-    git reset --hard "$remote/$branch"
+    git pull --ff-only "$remote" "$branch"
   fi
 }
 
