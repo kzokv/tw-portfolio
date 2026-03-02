@@ -8,29 +8,35 @@
     "build": "npx next build --webpack",
     "start": "[ -f ../../.env ] && set -a && . ../../.env && set +a; next start -p ${WEB_PORT:-3000}",
     "test": "npx playwright test --config=tests/e2e/playwright.config.ts",
+    "test:unit": "vitest run",
     "test:e2e:ci": "npx playwright test --config=tests/e2e/playwright.config.ts --reporter=junit",
-    "test:e2e:show-report": "npx playwright show-report playwright-report"
+    "test:e2e:show-report": "npx playwright show-report playwright-report",
+    "test:html": "vitest run --reporter=verbose --reporter=html",
+    "test:json": "vitest run --reporter=verbose --reporter=json",
+    "test:junit": "vitest run --reporter=verbose --reporter=junit"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "next": "16.1.6",
-    "lucide-react": "^0.468.0",
+    "@tw-portfolio/shared-types": "0.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.5",
-    "@tw-portfolio/shared-types": "0.1.0"
+    "lucide-react": "^0.468.0",
+    "next": "16.1.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.1",
-    "typescript": "^5.6.3",
     "@types/node": "^22.8.6",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
-    "tailwindcss": "^3.4.17",
+    "@vitest/ui": "^4.0.18",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20"
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.18"
   }
 }

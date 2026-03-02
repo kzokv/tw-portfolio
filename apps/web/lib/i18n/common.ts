@@ -1,0 +1,56 @@
+import type { AppDictionary } from "./types";
+
+export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" | "actions">> = {
+  en: {
+    feedback: {
+      requestFailedPrefix: "Request failed",
+      loadingDashboard: "Loading dashboard...",
+      loadingSettings: "Loading settings...",
+      noAccounts: "No account is available. Open settings to bind an account profile first.",
+    },
+    actions: {
+      recomputeHistory: "Recompute History",
+      recomputing: "Recomputing...",
+      submitTransaction: "Submit Transaction",
+      submitting: "Submitting...",
+      saveSettings: "Save Settings",
+      savingSettings: "Saving...",
+      cancel: "Cancel",
+      discardChanges: "Discard Changes",
+      addProfile: "Add Profile",
+      addOverride: "Add Override",
+      remove: "Remove",
+      keepEditing: "Keep Editing",
+      closeWithoutSaving: "Close Without Saving",
+      openSettings: "Open Settings",
+      dismiss: "Dismiss",
+      retry: "Retry",
+    },
+  },
+  "zh-TW": {
+    feedback: {
+      requestFailedPrefix: "請求失敗",
+      loadingDashboard: "儀表板載入中...",
+      loadingSettings: "設定載入中...",
+      noAccounts: "目前沒有可用帳戶，請先在設定中綁定帳戶預設費率。",
+    },
+    actions: {
+      recomputeHistory: "重算歷史",
+      recomputing: "重算中...",
+      submitTransaction: "送出交易",
+      submitting: "送出中...",
+      saveSettings: "儲存設定",
+      savingSettings: "儲存中...",
+      cancel: "取消",
+      discardChanges: "捨棄變更",
+      addProfile: "新增設定檔",
+      addOverride: "新增覆寫",
+      remove: "移除",
+      keepEditing: "繼續編輯",
+      closeWithoutSaving: "直接關閉",
+      openSettings: "開啟設定",
+      dismiss: "關閉提示",
+      retry: "重試",
+    },
+  },
+};

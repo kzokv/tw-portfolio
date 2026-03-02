@@ -17,7 +17,7 @@ function SkeletonCard({
 }: { delayClass?: string; className?: string; children: React.ReactNode }) {
   return (
     <div
-      className={`dashboard-skeleton-card rounded-2xl border border-line bg-surface p-5 ${delayClass} ${className}`}
+      className={`dashboard-skeleton-card glass-panel rounded-[24px] p-5 ${delayClass} ${className}`}
     >
       {children}
     </div>
@@ -39,7 +39,7 @@ export function DashboardLoading({ standalone = false }: { standalone?: boolean 
           <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
           <div className="skeleton-line skeleton-line--delay mt-1 h-4 max-w-[80%] rounded" />
           <div className="mt-4 flex gap-2">
-            <div className="skeleton-line h-10 w-28 rounded-lg" />
+            <div className="skeleton-line h-11 w-28 rounded-xl" />
           </div>
         </SkeletonCard>
         <SkeletonCard delayClass="dashboard-skeleton-card--delay-2">
@@ -47,8 +47,8 @@ export function DashboardLoading({ standalone = false }: { standalone?: boolean 
           <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
           <div className="skeleton-line skeleton-line--delay mt-1 h-4 max-w-[75%] rounded" />
           <div className="mt-4 flex gap-2">
-            <div className="skeleton-line h-10 w-24 rounded-lg" />
-            <div className="skeleton-line h-10 w-24 rounded-lg" />
+            <div className="skeleton-line h-11 w-24 rounded-xl" />
+            <div className="skeleton-line h-11 w-24 rounded-xl" />
           </div>
         </SkeletonCard>
         <SkeletonCard delayClass="dashboard-skeleton-card--delay-2" className="md:col-span-2">

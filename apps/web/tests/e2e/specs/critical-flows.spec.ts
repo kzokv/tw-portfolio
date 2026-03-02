@@ -4,6 +4,8 @@ import { gotoApp, openSettingsDrawer } from "../helpers/flows";
 const getNextQuotePoll = (current: string): string =>
   current === "12" ? "10" : "12";
 
+const uniqueProfileName = (): string => `E2E Profile ${Date.now()}`;
+
 test.describe("transaction flow", () => {
   test("add transaction and verify holdings", async ({ page }) => {
     await gotoApp(page);
@@ -73,6 +75,80 @@ test.describe("settings", () => {
     await expect(page.getByTestId("hero-title")).toContainText("台灣投資組合控制台", { timeout: 10_000 });
     await expect(page.getByTestId("topbar-title")).toContainText("市場帳本");
   });
+
+  test("save fee profile changes and persist them after reload", async ({ page }) => {
+    await gotoApp(page);
+    await openSettingsDrawer(page);
+    await page.getByTestId("settings-tab-fees").click();
+
+    const profileName = uniqueProfileName();
+    const bindingSymbol = `QA${String(Date.now()).slice(-4)}`;
+    const accountSelect = page.locator('[data-testid^="settings-account-profile-"]').first();
+
+    await page.getByTestId("settings-add-profile-button").click();
+    const profileCount = await page.locator('[data-testid^="settings-profile-name-"]').count();
+    const newProfileIndex = profileCount - 1;
+
+    await page.getByTestId(`settings-profile-name-${newProfileIndex}`).fill(profileName);
+    await accountSelect.selectOption({ label: profileName });
+
+    await page.getByTestId("settings-add-binding-button").click();
+    const bindingCount = await page.locator('[data-testid^="settings-binding-row-"]').count();
+    const newBindingIndex = bindingCount - 1;
+
+    await page.getByTestId(`settings-binding-symbol-${newBindingIndex}`).fill(bindingSymbol);
+    await page.getByTestId(`settings-binding-profile-${newBindingIndex}`).selectOption({ label: profileName });
+
+    const settingsSaved = page.waitForResponse((response) => {
+      return response.request().method() === "PUT" && response.url().includes("/settings/full") && response.ok();
+    });
+
+    await page.getByTestId("settings-save-button").click();
+    await settingsSaved;
+
+    await expect(page).not.toHaveURL(/drawer=settings/, { timeout: 15_000 });
+
+    await page.reload();
+    await openSettingsDrawer(page);
+    await page.getByTestId("settings-tab-fees").click();
+
+    await expect(page.getByTestId(`settings-profile-name-${newProfileIndex}`)).toHaveValue(profileName);
+    const savedAccountProfileId = await accountSelect.inputValue();
+    await expect(accountSelect).toHaveValue(savedAccountProfileId);
+
+    const bindingSymbols = page.locator('[data-testid^="settings-binding-symbol-"]');
+    const bindingProfiles = page.locator('[data-testid^="settings-binding-profile-"]');
+    const bindingInputsCount = await bindingSymbols.count();
+    let matchedBindingIndex = -1;
+
+    for (let index = 0; index < bindingInputsCount; index += 1) {
+      if ((await bindingSymbols.nth(index).inputValue()) === bindingSymbol) {
+        matchedBindingIndex = index;
+        break;
+      }
+    }
+
+    expect(matchedBindingIndex).toBeGreaterThanOrEqual(0);
+    await expect(bindingSymbols.nth(matchedBindingIndex)).toHaveValue(bindingSymbol);
+    await expect(bindingProfiles.nth(matchedBindingIndex)).toHaveValue(savedAccountProfileId);
+  });
+
+  test("blocks invalid settings saves and keeps the drawer open", async ({ page }) => {
+    await gotoApp(page);
+    await openSettingsDrawer(page);
+    await page.getByTestId("settings-tab-fees").click();
+
+    await page.getByTestId("settings-add-profile-button").click();
+    const profileCount = await page.locator('[data-testid^="settings-profile-name-"]').count();
+    const newProfileIndex = profileCount - 1;
+    await page.getByTestId(`settings-profile-name-${newProfileIndex}`).fill("");
+
+    await page.getByTestId("settings-save-button").click();
+
+    await expect(page).toHaveURL(/drawer=settings/);
+    await expect(page.getByTestId("settings-validation-error")).toBeVisible();
+    await expect(page.getByTestId("settings-drawer")).toBeVisible();
+  });
 });
 
 test.describe("tooltips", () => {
@@ -98,7 +174,7 @@ test.describe("tooltips", () => {
   });
 
   test("critical flow: settings and term tooltips are visible", async ({ page }) => {
-    await page.goto("/?drawer=settings");
+    await gotoApp(page, "/?drawer=settings");
 
     await expect(page.getByTestId("settings-drawer")).toBeVisible();
 
@@ -111,7 +187,7 @@ test.describe("tooltips", () => {
     await page.getByTestId("tooltip-fifo-trigger").hover();
     await expect(page.getByTestId("tooltip-fifo-content")).toBeVisible();
 
-    await page.goto("/");
+    await gotoApp(page);
     await page.getByTestId("tooltip-tx-account-trigger").hover();
     await expect(page.getByTestId("tooltip-tx-account-content")).toBeVisible();
   });
@@ -119,7 +195,7 @@ test.describe("tooltips", () => {
 
 test("responsive: key UI visible at 375px with English locale", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
-  await page.goto("/");
+  await gotoApp(page);
 
   await expect(page.getByTestId("topbar-title")).toBeVisible();
   await expect(page.getByTestId("hero-title")).toContainText(/Taiwan Portfolio Control Room|台灣投資組合控制台/);
@@ -131,4 +207,28 @@ test("responsive: key UI visible at 375px with English locale", async ({ page })
     clientWidth: document.documentElement.clientWidth,
   }));
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 2);
+});
+
+test("responsive: settings drawer remains usable at 1280x800", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await gotoApp(page);
+  await openSettingsDrawer(page);
+  await page.getByTestId("settings-tab-fees").click();
+
+  const drawerBox = await page.getByTestId("settings-drawer").boundingBox();
+  expect(drawerBox?.width ?? 0).toBeGreaterThanOrEqual(840);
+
+  const scrollMetrics = await page.getByTestId("settings-content-scroll").evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+
+  expect(scrollMetrics.scrollWidth).toBeLessThanOrEqual(scrollMetrics.clientWidth + 2);
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+
+  await expect(page.getByTestId("settings-add-profile-button")).toBeVisible();
+  await page.getByTestId("settings-add-binding-button").scrollIntoViewIfNeeded();
+  await expect(page.getByTestId("settings-add-binding-button")).toBeVisible();
 });

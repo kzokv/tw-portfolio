@@ -2,14 +2,14 @@ import { UserCircle2 } from "lucide-react";
 import { Button } from "../ui/Button";
 
 const AVATAR_COLORS = [
-  "#2A6F97",
-  "#9D4EDD",
-  "#386641",
-  "#9C6644",
-  "#3A86FF",
-  "#D35400",
-  "#0E9F6E",
-  "#8A1538",
+  "#4F46E5",
+  "#4338CA",
+  "#2563EB",
+  "#0F766E",
+  "#334155",
+  "#6D5EFC",
+  "#1D4ED8",
+  "#312E81",
 ];
 
 function deriveAvatar(userId: string | undefined) {
@@ -45,13 +45,13 @@ export function UserAvatarButton({ userId, onOpenSettings, openSettingsLabel }: 
   return (
     <Button
       variant="ghost"
-      className="h-11 w-11 rounded-full border border-line p-0"
+      className="h-12 w-12 rounded-full border border-white/10 bg-white/5 p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:bg-white/10"
       onClick={onOpenSettings}
       aria-label={openSettingsLabel}
       data-testid="avatar-button"
     >
       <span
-        className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold text-white"
+        className="flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
         style={{ backgroundColor: avatar.color }}
         aria-hidden="true"
       >

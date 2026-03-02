@@ -1,35 +1,24 @@
 "use client";
 
-import * as Dialog from "@radix-ui/react-dialog";
-import { AlertTriangle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type {
-  AccountDto,
-  FeeProfileBindingDto,
-  FeeProfileDto,
-  LocaleCode,
-  UserSettings,
-} from "@tw-portfolio/shared-types";
-import { getJson, postJson, putJson } from "../../lib/api";
-import { formatRecomputeMessage, getDictionary } from "../../lib/i18n";
+import type { LocaleCode } from "@tw-portfolio/shared-types";
+import { getDictionary } from "../../lib/i18n";
 import { AddTransactionCard } from "../portfolio/AddTransactionCard";
 import { HoldingsTable } from "../portfolio/HoldingsTable";
 import { RecomputeCard } from "../portfolio/RecomputeCard";
-import type { Holding, TransactionInput } from "../portfolio/types";
-import { SettingsDrawer, type SettingsDraft } from "../settings/SettingsDrawer";
+import type { TransactionInput } from "../portfolio/types";
+import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { HeroSkeleton } from "../dashboard/HeroSkeleton";
 import { Button } from "../ui/Button";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { TopBar } from "./TopBar";
-
-interface FeeConfigResponse {
-  accounts: AccountDto[];
-  feeProfiles: FeeProfileDto[];
-  feeProfileBindings: FeeProfileBindingDto[];
-  integrityIssue: { code: string; message: string } | null;
-}
+import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
+import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
+import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
+import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
+import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
 
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
@@ -46,35 +35,35 @@ export function AppShell() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [accounts, setAccounts] = useState<AccountDto[]>([]);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [profiles, setProfiles] = useState<FeeProfileDto[]>([]);
-  const [feeProfileBindings, setFeeProfileBindings] = useState<FeeProfileBindingDto[]>([]);
-  const [integrityIssue, setIntegrityIssue] = useState<FeeConfigResponse["integrityIssue"]>(null);
-  const [showIntegrityDialog, setShowIntegrityDialog] = useState(false);
-  const [newTx, setNewTx] = useState<TransactionInput>(DEFAULT_TRANSACTION);
+  const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
 
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSubmittingTx, setIsSubmittingTx] = useState(false);
-  const [isRunningRecompute, setIsRunningRecompute] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-
-  const [globalError, setGlobalError] = useState("");
-  const [recomputeMessage, setRecomputeMessage] = useState("");
-  const [settingsError, setSettingsError] = useState("");
-
-  const locale: LocaleCode = settings?.locale ?? "en";
+  const locale: LocaleCode = dashboard.settings?.locale ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
 
+  const transactionSubmission = useTransactionSubmission({
+    initialValue: DEFAULT_TRANSACTION,
+    noAccountsMessage: dict.feedback.noAccounts,
+    refresh: dashboard.refresh,
+  });
+
+  const recomputeAction = useRecomputeAction({
+    locale,
+    fallbackConfirm: dict.recompute.fallbackConfirm,
+    refresh: dashboard.refresh,
+  });
+
+  const settingsSave = useSettingsSave({
+    refresh: dashboard.refresh,
+    closeDrawer: () => setDrawerOpen(false),
+  });
+
   /** Ready when we have user settings (locale). Later: set false until async i18n load completes. */
-  const isI18nReady = !!settings;
-  const showPageSkeleton = isBootstrapping || isRefreshing || !isI18nReady;
+  const isI18nReady = !!dashboard.settings;
+  const showPageSkeleton = dashboard.isBootstrapping || dashboard.isRefreshing || !isI18nReady;
 
   const drawerOpen = searchParams.get("drawer") === "settings";
 
@@ -90,165 +79,18 @@ export function AppShell() {
     [pathname, router, searchParams],
   );
 
-  const refresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      const [nextSettings, nextHoldings, nextFeeConfig] = await Promise.all([
-        getJson<UserSettings>("/settings"),
-        getJson<Holding[]>("/portfolio/holdings"),
-        getJson<FeeConfigResponse>("/settings/fee-config"),
-      ]);
-
-      setSettings(nextSettings);
-      setHoldings(nextHoldings);
-      setAccounts(nextFeeConfig.accounts);
-      setProfiles(nextFeeConfig.feeProfiles);
-      setFeeProfileBindings(nextFeeConfig.feeProfileBindings);
-      setIntegrityIssue(nextFeeConfig.integrityIssue);
-      setShowIntegrityDialog(Boolean(nextFeeConfig.integrityIssue));
-
-      const defaultAccountId = nextFeeConfig.accounts[0]?.id ?? "";
-      setNewTx((previous) => ({
-        ...previous,
-        accountId: nextFeeConfig.accounts.some((account) => account.id === previous.accountId)
-          ? previous.accountId
-          : defaultAccountId,
-      }));
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
-
   useEffect(() => {
-    let mounted = true;
+    transactionSubmission.setDraftTransaction((previous) => dashboard.synchronizeTransactionDraft(previous));
+  }, [dashboard.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
 
-    async function load() {
-      try {
-        await refresh();
-      } catch (error) {
-        if (!mounted) return;
-        setGlobalError(String(error));
-      } finally {
-        if (mounted) setIsBootstrapping(false);
-      }
-    }
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
-  }, [refresh]);
-
-  const handleSubmitTransaction = useCallback(async () => {
-    if (!newTx.accountId) {
-      setGlobalError(dict.feedback.noAccounts);
-      return;
-    }
-
-    setIsSubmittingTx(true);
-    setGlobalError("");
-
-    try {
-      await postJson("/portfolio/transactions", newTx, {
-        "idempotency-key": `web-${Date.now()}`,
-      });
-      await refresh();
-    } catch (error) {
-      setGlobalError(String(error));
-    } finally {
-      setIsSubmittingTx(false);
-    }
-  }, [dict.feedback.noAccounts, newTx, refresh]);
-
-  const handleRecompute = useCallback(async () => {
-    const proceed = window.confirm(dict.recompute.fallbackConfirm);
-    if (!proceed) return;
-
-    setIsRunningRecompute(true);
-    setGlobalError("");
-
-    try {
-      const preview = await postJson<{ id: string; items: Array<{ transactionId: string }> }>(
-        "/portfolio/recompute/preview",
-        {
-          useFallbackBindings: true,
-        },
-      );
-
-      const confirmed = await postJson<{ status: string }>("/portfolio/recompute/confirm", {
-        jobId: preview.id,
-      });
-
-      setRecomputeMessage(formatRecomputeMessage(locale, confirmed.status, preview.items.length));
-      await refresh();
-    } catch (error) {
-      setGlobalError(String(error));
-    } finally {
-      setIsRunningRecompute(false);
-    }
-  }, [dict.recompute.fallbackConfirm, locale, refresh]);
-
-  const handleSaveSettings = useCallback(async (draft: SettingsDraft) => {
-    setIsSavingSettings(true);
-    setSettingsError("");
-
-    try {
-      await putJson<{
-        settings: UserSettings;
-        accounts: AccountDto[];
-        feeProfiles: FeeProfileDto[];
-        feeProfileBindings: FeeProfileBindingDto[];
-      }>("/settings/full", {
-        settings: {
-          locale: draft.locale,
-          costBasisMethod: draft.costBasisMethod,
-          quotePollIntervalSeconds: draft.quotePollIntervalSeconds,
-        },
-        feeProfiles: draft.feeProfiles.map((profile) => {
-          const payload = {
-            name: profile.name,
-            commissionRateBps: profile.commissionRateBps,
-            commissionDiscountBps: profile.commissionDiscountBps,
-            minCommissionNtd: profile.minCommissionNtd,
-            commissionRoundingMode: profile.commissionRoundingMode,
-            taxRoundingMode: profile.taxRoundingMode,
-            stockSellTaxRateBps: profile.stockSellTaxRateBps,
-            stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
-            etfSellTaxRateBps: profile.etfSellTaxRateBps,
-            bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
-          };
-
-          if (profile.id.startsWith("tmp-")) {
-            return { ...payload, tempId: profile.id };
-          }
-          return { ...payload, id: profile.id };
-        }),
-        accounts: draft.accounts.map((account) => ({
-          id: account.id,
-          feeProfileRef: account.feeProfileId,
-        })),
-        feeProfileBindings: draft.feeProfileBindings.map((binding) => ({
-          accountId: binding.accountId,
-          symbol: binding.symbol,
-          feeProfileRef: binding.feeProfileId,
-        })),
-      });
-
-      await refresh();
-      setDrawerOpen(false);
-    } catch (error) {
-      setSettingsError(String(error));
-    } finally {
-      setIsSavingSettings(false);
-    }
-  }, [refresh, setDrawerOpen]);
+  const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || dashboard.errorMessage;
+  const recomputeMessage = recomputeAction.message;
 
   return (
-    <div className="min-h-screen min-w-0 overflow-x-hidden">
+    <div className="app-shell relative min-h-screen min-w-0 overflow-x-hidden">
       <TopBar
-        skeleton={isBootstrapping}
-        userId={settings?.userId}
+        skeleton={dashboard.isBootstrapping}
+        userId={dashboard.settings?.userId}
         onOpenSettings={() => setDrawerOpen(true)}
         productName={dict.topBar.productName}
         title={dict.topBar.title}
@@ -256,14 +98,17 @@ export function AppShell() {
         openSettingsLabel={dict.topBar.openSettingsLabel}
       />
 
-      <main className="mx-auto min-w-0 w-full max-w-7xl px-4 py-6 md:px-8 md:py-8">
+      <main className="relative mx-auto min-w-0 w-full max-w-7xl px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
         {showPageSkeleton ? (
           <HeroSkeleton />
         ) : (
-          <div className="mb-6 min-w-0 rounded-2xl border border-line bg-surface px-5 py-4 shadow-card">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted">{dict.hero.eyebrow}</p>
-            <div className="mt-2 flex min-w-0 items-center gap-2">
-              <h2 className="text-xl leading-tight sm:text-2xl md:text-3xl md:leading-none" data-testid="hero-title">
+          <div className="glass-panel mb-6 min-w-0 rounded-[28px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8 md:py-8">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">{dict.hero.eyebrow}</p>
+            <div className="mt-3 flex min-w-0 items-start gap-2">
+              <h2
+                className="max-w-3xl text-2xl leading-tight text-ink sm:text-3xl md:text-4xl lg:text-5xl"
+                data-testid="hero-title"
+              >
                 {dict.hero.title}
               </h2>
               <TooltipInfo
@@ -273,23 +118,35 @@ export function AppShell() {
                 contentTestId="tooltip-hero-title-content"
               />
             </div>
-            <p className="mt-2 text-sm text-muted">{dict.hero.description}</p>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">{dict.hero.description}</p>
           </div>
         )}
 
         {globalError ? (
-          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="mb-4 rounded-[20px] border border-[rgba(251,113,133,0.35)] bg-[rgba(251,113,133,0.12)] px-4 py-3 text-sm text-rose-100" role="status" aria-live="polite">
             <p>{dict.feedback.requestFailedPrefix}: {globalError}</p>
             <div className="mt-2 flex justify-end">
-              <Button type="button" variant="secondary" size="sm" onClick={() => { setGlobalError(""); refresh(); }}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  dashboard.setErrorMessage("");
+                  transactionSubmission.setErrorMessage("");
+                  recomputeAction.setErrorMessage("");
+                  void dashboard.refresh().catch(() => undefined);
+                }}
+              >
                 {dict.actions.retry}
               </Button>
             </div>
           </div>
         ) : recomputeMessage ? (
           <p
-            className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            className="mb-4 rounded-[20px] border border-[rgba(52,211,153,0.35)] bg-[rgba(52,211,153,0.12)] px-4 py-3 text-sm text-emerald-50"
             data-testid="recompute-status"
+            role="status"
+            aria-live="polite"
           >
             {recomputeMessage}
           </p>
@@ -301,69 +158,45 @@ export function AppShell() {
           <DashboardLoading />
         ) : (
           <div className="stagger grid min-w-0 gap-6 md:grid-cols-2">
-            <RecomputeCard settings={settings} pending={isRunningRecompute} onRecompute={handleRecompute} dict={dict} />
+            <RecomputeCard
+              settings={dashboard.settings}
+              pending={recomputeAction.isRunning}
+              onRecompute={recomputeAction.runRecompute}
+              dict={dict}
+            />
             <AddTransactionCard
-              value={newTx}
-              accountOptions={accounts.map((account) => ({ id: account.id, name: account.name }))}
-              pending={isSubmittingTx}
-              onChange={setNewTx}
-              onSubmit={handleSubmitTransaction}
+              value={transactionSubmission.draftTransaction}
+              accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
+              pending={transactionSubmission.isSubmitting}
+              onChange={transactionSubmission.setDraftTransaction}
+              onSubmit={transactionSubmission.submit}
               dict={dict}
             />
             <div className="md:col-span-2 min-w-0">
-              <HoldingsTable holdings={holdings} dict={dict} locale={locale} />
+              <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} />
             </div>
           </div>
         )}
       </main>
 
-      {integrityIssue && (
-        <Dialog.Root open={showIntegrityDialog} onOpenChange={(open) => setShowIntegrityDialog(open)}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/30" />
-            <Dialog.Content
-              className="fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-rose-200 bg-white p-5 shadow-2xl focus:outline-none"
-              data-testid="integrity-dialog"
-            >
-              <div className="mb-3 flex items-start gap-2 text-rose-700">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                <div>
-                  <Dialog.Title className="text-base font-semibold">{dict.dialogs.integrityTitle}</Dialog.Title>
-                  <Dialog.Description className="text-sm text-rose-600">{dict.dialogs.integrityDescription}</Dialog.Description>
-                </div>
-              </div>
-
-              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{integrityIssue.message}</p>
-
-              <div className="mt-4 flex justify-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => setShowIntegrityDialog(false)}>
-                  {dict.actions.dismiss}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setShowIntegrityDialog(false);
-                    setDrawerOpen(true);
-                  }}
-                >
-                  {dict.actions.openSettings}
-                </Button>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
-      )}
+      <IntegrityIssueDialog
+        issue={dashboard.integrityIssue}
+        open={dashboard.showIntegrityDialog}
+        onOpenChange={dashboard.setShowIntegrityDialog}
+        onOpenSettings={() => setDrawerOpen(true)}
+        dict={dict}
+      />
 
       <SettingsDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        settings={settings}
-        accounts={accounts}
-        feeProfiles={profiles}
-        feeProfileBindings={feeProfileBindings}
-        isSaving={isSavingSettings}
-        errorMessage={settingsError}
-        onSave={handleSaveSettings}
+        settings={dashboard.settings}
+        accounts={dashboard.accounts}
+        feeProfiles={dashboard.feeProfiles}
+        feeProfileBindings={dashboard.feeProfileBindings}
+        isSaving={settingsSave.isSaving}
+        errorMessage={settingsSave.errorMessage}
+        onSave={settingsSave.save}
         dict={dict}
       />
     </div>

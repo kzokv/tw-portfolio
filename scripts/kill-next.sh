@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ENV_FILE=".env"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WEB_LOCK_FILE="$ROOT_DIR/apps/web/.next/dev/lock"
 declare -A DEFAULT_PORTS=( ["web"]="3333" ["api"]="4000" )
 
 error() {
@@ -51,6 +53,44 @@ kill_by_port() {
   printf 'Signal sent; verify the port is free with: lsof -iTCP:%s -sTCP:LISTEN\n' "$port"
 }
 
+collect_lock_holder_pids() {
+  local lock_file="$1"
+
+  if [[ ! -e "$lock_file" ]]; then
+    return 0
+  fi
+
+  if command -v lslocks >/dev/null 2>&1; then
+    lslocks --noheadings --output PID,PATH 2>/dev/null \
+      | awk -v lock_file="$lock_file" '$2 == lock_file { print $1 }' \
+      | sort -u
+    return 0
+  fi
+
+  lsof -t "$lock_file" 2>/dev/null | sort -u || true
+}
+
+kill_web_lock_holders() {
+  local pids
+  pids="$(collect_lock_holder_pids "$WEB_LOCK_FILE")"
+
+  printf 'Checking for Next.js dev lock holders at %s...\n' "$WEB_LOCK_FILE"
+
+  if [[ -z "$pids" ]]; then
+    printf 'No active process holds %s.\n' "$WEB_LOCK_FILE"
+    return 0
+  fi
+
+  printf 'Killing process(es) %s holding the Next.js dev lock...\n' "$pids"
+  kill $pids
+  sleep 1
+
+  if [[ -e "$WEB_LOCK_FILE" ]] && [[ -z "$(collect_lock_holder_pids "$WEB_LOCK_FILE")" ]]; then
+    rm -f "$WEB_LOCK_FILE"
+    printf 'Removed stale lock file %s after terminating its holder.\n' "$WEB_LOCK_FILE"
+  fi
+}
+
 if ! command -v lsof >/dev/null 2>&1; then
   error "This script requires lsof to find the listening process."
 fi
@@ -85,4 +125,8 @@ for service in "${services[@]}"; do
   fi
 
   kill_by_port "$port" "$service"
+
+  if [[ "$service" == "web" ]]; then
+    kill_web_lock_holders
+  fi
 done

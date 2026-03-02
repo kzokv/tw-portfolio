@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "npm run build -w libs/domain -w libs/shared-types && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
-    "dev": "set -a; [ -f ./.env ] && . ./.env; set +a; npm run dev -w apps/api & npm run dev -w apps/web",
+    "dev": "bash scripts/dev.sh",
     "test": "npm run test --workspaces",
     "test:unit": "npm run test -w libs/domain",
     "test:integration": "npm run test:integration -w apps/api",

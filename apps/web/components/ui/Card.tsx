@@ -5,7 +5,7 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <section
       className={cn(
-        "min-w-0 rounded-2xl border border-line bg-surface px-5 py-4 shadow-card transition hover:-translate-y-0.5 hover:shadow-[0_18px_42px_rgba(15,36,66,0.11)]",
+        "glass-panel min-w-0 rounded-[24px] px-5 py-5 shadow-glass transition duration-200 hover:-translate-y-0.5 hover:border-white/15 sm:px-6 sm:py-6",
         className,
       )}
       {...props}

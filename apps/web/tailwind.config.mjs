@@ -15,14 +15,20 @@ const config = {
         bg: "var(--bg)",
         surface: "var(--surface)",
         "surface-soft": "var(--surface-soft)",
+        "surface-glass": "var(--surface-glass)",
         ink: "var(--text)",
         muted: "var(--muted)",
         accent: "var(--accent)",
+        "accent-strong": "var(--accent-strong)",
         line: "var(--line)",
+        success: "var(--success)",
+        warning: "var(--warning)",
+        danger: "var(--danger)",
       },
       boxShadow: {
-        card: "0 16px 40px rgba(15, 36, 66, 0.08)",
-        focus: "0 0 0 4px rgba(196, 149, 56, 0.22)",
+        card: "0 24px 80px rgba(2, 6, 23, 0.45)",
+        focus: "0 0 0 4px rgba(111, 76, 255, 0.28)",
+        glass: "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 56px rgba(2, 6, 23, 0.42)",
       },
       keyframes: {
         "fade-in-up": {
@@ -32,6 +38,9 @@ const config = {
       },
       animation: {
         "fade-in-up": "fade-in-up 0.45s ease-out both",
+      },
+      backgroundImage: {
+        sheen: "linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0))",
       },
     },
   },

@@ -7,12 +7,12 @@
 export function HeroSkeleton() {
   return (
     <div
-      className="mb-6 rounded-2xl border border-line bg-surface px-5 py-4 shadow-card"
+      className="glass-panel mb-6 rounded-[28px] px-5 py-5 shadow-glass sm:px-6 sm:py-6"
       aria-hidden="true"
       data-testid="hero-skeleton"
     >
       <div className="skeleton-line h-3 w-24 rounded" />
-      <div className="skeleton-line skeleton-line--delay mt-2 h-8 w-48 rounded" />
+      <div className="skeleton-line skeleton-line--delay mt-3 h-10 w-56 rounded-2xl" />
       <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full max-w-md rounded" />
       <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-3/4 max-w-sm rounded" />
     </div>

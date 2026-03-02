@@ -18,7 +18,7 @@ export function TooltipInfo({ label, content, triggerTestId, contentTestId }: To
           <button
             type="button"
             aria-label={label}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted transition hover:bg-[#e9dcc4] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(109,94,252,0.6)]"
             data-testid={triggerTestId}
           >
             <CircleHelp className="h-3.5 w-3.5" />
@@ -28,11 +28,11 @@ export function TooltipInfo({ label, content, triggerTestId, contentTestId }: To
           <Tooltip.Content
             side="top"
             sideOffset={6}
-            className="z-[60] max-w-xs break-words rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink shadow-card"
+            className="glass-panel z-[60] max-w-xs break-words rounded-2xl px-3 py-2 text-xs leading-5 text-slate-100 shadow-glass"
             data-testid={contentTestId}
           >
             {content}
-            <Tooltip.Arrow className="fill-surface" />
+            <Tooltip.Arrow className="fill-slate-900/90" />
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
