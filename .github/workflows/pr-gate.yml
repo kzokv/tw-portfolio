@@ -1,0 +1,56 @@
+name: PR Gate
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches: [main, dev]
+
+jobs:
+  pr-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Validate PR title, metadata, and body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const title = pr.title || "";
+            const body = pr.body || "";
+            const assignees = pr.assignees || [];
+            const labels = (pr.labels || []).map((label) => label.name);
+
+            const titlePattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)\([^)]+\): [A-Z]+-\d+: .+/;
+            if (!titlePattern.test(title)) {
+              core.setFailed(
+                "PR title must match `type(scope): LINEAR-TICKET: subject`, for example `docs(accounting): KZO-11: canonical accounting model handoff`.",
+              );
+              return;
+            }
+
+            if (assignees.length === 0) {
+              core.setFailed("PR must have an assignee.");
+              return;
+            }
+
+            const allowedPrimaryLabels = ["bug", "enhancement", "documentation"];
+            const hasPrimaryLabel = labels.some((label) => allowedPrimaryLabels.includes(label));
+            if (!hasPrimaryLabel) {
+              core.setFailed("PR must have one primary label: bug, enhancement, or documentation.");
+              return;
+            }
+
+            const requiredSections = ["## Problem", "## Solution", "## Testing", "## Risk/Rollback"];
+            for (const section of requiredSections) {
+              if (!body.includes(section)) {
+                core.setFailed(`PR body is missing required section: ${section}`);
+                return;
+              }
+            }
+
+            const hasEvidence = /## Testing[\s\S]*Evidence:/m.test(body);
+            const hasWaiver = /## Testing[\s\S]*Waiver:/m.test(body);
+            if (!hasEvidence && !hasWaiver) {
+              core.setFailed("## Testing must include either `Evidence:` or `Waiver:`.");
+            }
