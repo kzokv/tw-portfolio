@@ -26,8 +26,14 @@ All ports are configurable via env vars:
 1. Copy `.env.example` to `.env` (or use `npm run onboard` to do this automatically).
 2. Install dependencies: `npm run install:full` or `npm install`
    - Onboarding already builds `@tw-portfolio/domain` and `@tw-portfolio/shared-types`. If you install dependencies without running `npm run onboard`, or if you edit either lib, rerun `npm run build -w libs/domain -w libs/shared-types` before starting the dev servers.
-3. Start infra: `docker compose -f infra/docker/docker-compose.yml up -d`
-4. Start API and web: `npm run dev`. `npm run dev` and the onboarding flow already build the workspace libs when needed, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
+3. Choose one dev mode:
+   - Memory mode (default): set `PERSISTENCE_BACKEND=memory`, then run `npm run dev`.
+   - Postgres + local Docker mode: set `PERSISTENCE_BACKEND=postgres`, set local `DB_URL`/`REDIS_URL` (or rely on localhost defaults), run `docker compose -f infra/docker/docker-compose.yml up -d`, then run `npm run dev`.
+   - Postgres + external service mode (for example QNAP-hosted DB/Redis): set `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`, then run `npm run dev`.
+4. `npm run dev` and onboarding build workspace libs when needed, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
+
+Notes:
+- `infra/docker/docker-compose.yml` is a local fallback Postgres/Redis provider and is not required when using memory mode or external DB/Redis URLs.
 
 ## Test
 

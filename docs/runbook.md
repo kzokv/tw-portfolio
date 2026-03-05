@@ -17,12 +17,14 @@ This document is the single source of truth for deploying and operating the **tw
 
 ### Start services
 
-- Infra: `docker compose -f infra/docker/docker-compose.yml up -d`
-- API: `npm run dev -w apps/api`
-- Web: `npm run dev -w apps/web`
+- Choose one local mode:
+- Memory mode (default): set `PERSISTENCE_BACKEND=memory`, then run `npm run dev`.
+- Postgres + local Docker mode: set `PERSISTENCE_BACKEND=postgres`, run `docker compose -f infra/docker/docker-compose.yml up -d`, then run `npm run dev`.
+- Postgres + external services mode: set `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`, then run `npm run dev`.
+- `infra/docker/docker-compose.yml` is local fallback Postgres/Redis and is not required for memory mode or external URL mode.
 
-Tip: When `next dev` can't bind to `WEB_PORT` (default `3333`), a previous instance likely still owns the port. Identify the orphaned process with `ps -ef | grep -i "next dev"` and stop it via `kill <pid>` or `pkill -f "next dev -p"`, then rerun `npm run dev -w apps/web`.
-`scripts/kill-next.sh` now clears the default web (`WEB_PORT`=3333) and API (`API_PORT`=4000) ports from `.env`. Run `./scripts/kill-next.sh` to target both, `./scripts/kill-next.sh web`/`api` for a specific service, or supply any port number directly.
+Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example`), a previous instance likely still owns the port. Identify the orphaned process with `ps -ef | grep -i "next dev"` and stop it via `kill <pid>` or `pkill -f "next dev -p"`, then rerun `npm run dev -w apps/web`.
+`scripts/kill-next.sh` clears the web and API ports from `.env`. Run `./scripts/kill-next.sh` to target both, `./scripts/kill-next.sh web`/`api` for a specific service, or supply any port number directly.
 
 
 ### Build model
@@ -36,21 +38,21 @@ Tip: When `next dev` can't bind to `WEB_PORT` (default `3333`), a previous insta
 
 - `WEB_PORT`, `API_PORT`, `DB_PORT`, `REDIS_PORT`
 - `AUTH_MODE`, `PERSISTENCE_BACKEND`
-- `DB_URL`, `REDIS_URL` (optional overrides)
+- `DB_URL`, `REDIS_URL` (required for external Postgres/Redis mode; optional in local Postgres mode)
 - `ALLOWED_ORIGINS` (comma-separated CORS allowlist)
 - `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_MUTATIONS`
 
 What these settings mean:
 
-- `WEB_PORT`: local port where the Next.js web app listens. Example: `3333`.
+- `WEB_PORT`: local port where the Next.js web app listens. Example: `3000`.
 - `API_PORT`: local port where the API server listens. Example: `4000`.
-- `DB_PORT`: local port mapped to Postgres for development. Example: `5432`.
-- `REDIS_PORT`: local port mapped to Redis for development. Example: `6379`.
+- `DB_PORT`: local compose Postgres mapped port used when `DB_URL` is unset. Example: `5432`.
+- `REDIS_PORT`: local compose Redis mapped port used when `REDIS_URL` is unset. Example: `6379`.
 - `AUTH_MODE`: authentication strategy. `dev_bypass` skips real auth for local development; `oauth` expects an authenticated user id header from the web app or a fronting auth layer.
 - `PERSISTENCE_BACKEND`: storage mode used by the API. Example values: `memory` for local tests, `postgres` for normal development and production-like runs.
-- `DB_URL`: Postgres connection string used by the API. Example: `postgres://app:app@localhost:5432/tw_portfolio`.
-- `REDIS_URL`: Redis connection string used by the API. Example: `redis://localhost:6379`.
-- `ALLOWED_ORIGINS`: comma-separated list of browser origins allowed to call the API. Example: `http://localhost:3333,https://twp-web.example.com`.
+- `DB_URL`: Postgres connection string used by the API. Local mode example: `postgres://app:app@localhost:5432/tw_portfolio`. External mode example: `postgres://<user>:<password>@192.168.2.10:5454/tw_portfolio`.
+- `REDIS_URL`: Redis connection string used by the API. Local mode example: `redis://localhost:6379`. External mode example: `redis://:<password>@192.168.2.10:6363`.
+- `ALLOWED_ORIGINS`: comma-separated list of browser origins allowed to call the API. Example: `http://localhost:3000,https://twp-web.example.com`.
 - `RATE_LIMIT_WINDOW_MS`: rolling time window for mutation rate limiting, in milliseconds. Example: `60000` for a one-minute window.
 - `RATE_LIMIT_MAX_MUTATIONS`: maximum number of allowed write operations within the rate-limit window. Example: `60`.
 
@@ -61,12 +63,13 @@ What these settings mean:
 - With `AUTH_USER_ID` / `NEXT_PUBLIC_AUTH_USER_ID`, the user id is embedded in the client bundle and is visible to anyone who can load the web app. This is acceptable for the intended single-user home-lab deployment; do not reuse for multi-tenant or untrusted-user environments.
 - Recompute history is explicit and audited via preview/confirm APIs.
 - For local tests without DB/Redis, set `PERSISTENCE_BACKEND=memory`.
+- For external Postgres/Redis mode, keep `PERSISTENCE_BACKEND=postgres` and set external `DB_URL`/`REDIS_URL`; do not start local compose DB/Redis unless needed for fallback.
 
 ### E2E tests (local)
 
 - **Run**: From repo root, `npm run test:e2e` (or `npm run test:e2e:ci` for JUnit output).
 - **Setup**: Run `npm run onboard` or `npm run install:full` from repo root once per machine (installs npm deps, Playwright browsers, and on Linux prompts for system deps). If Chromium fails with missing shared libraries, run `npx playwright install-deps` manually (may need `sudo`).
-- **Ports**: E2E uses `WEB_PORT` (default `3333`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
+- **Ports**: E2E uses `WEB_PORT` (default `3000` from `.env.example`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
 - **Servers**: Playwright's `webServer` starts API and web automatically; no separate server script needed. Uses `PERSISTENCE_BACKEND=memory` and `AUTH_MODE=dev_bypass`.
 
 ---
