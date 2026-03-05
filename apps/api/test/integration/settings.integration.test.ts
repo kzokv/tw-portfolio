@@ -35,6 +35,49 @@ describe("settings", () => {
     expect(after.json()).toEqual(patched);
   });
 
+  it("rejects legacy cost basis methods in PATCH /settings", async () => {
+    const fifo = await app.inject({
+      method: "PATCH",
+      url: "/settings",
+      payload: { costBasisMethod: "FIFO" },
+    });
+    expect(fifo.statusCode).toBe(400);
+
+    const lifo = await app.inject({
+      method: "PATCH",
+      url: "/settings",
+      payload: { costBasisMethod: "LIFO" },
+    });
+    expect(lifo.statusCode).toBe(400);
+  });
+
+  it("rejects legacy cost basis methods in PUT /settings/full", async () => {
+    const settingsBefore = await app.inject({ method: "GET", url: "/settings" });
+    const settingsBody = settingsBefore.json();
+    const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
+    const feeConfigBody = feeConfig.json();
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/settings/full",
+      payload: {
+        settings: {
+          locale: settingsBody.locale,
+          costBasisMethod: "FIFO",
+          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
+        },
+        feeProfiles: feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
+        accounts: feeConfigBody.accounts.map((account: { id: string; feeProfileId: string }) => ({
+          id: account.id,
+          feeProfileRef: account.feeProfileId,
+        })),
+        feeProfileBindings: [],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it("does not partially apply settings/full when bindings are invalid", async () => {
     const settingsBefore = await app.inject({ method: "GET", url: "/settings" });
     const settingsBody = settingsBefore.json();

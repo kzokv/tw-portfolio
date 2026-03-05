@@ -11,7 +11,7 @@ import type { SettingsFormModel } from "../../../../features/settings/types/sett
 function createModel(): SettingsFormModel {
   return {
     locale: "en",
-    costBasisMethod: "FIFO",
+    costBasisMethod: "WEIGHTED_AVERAGE",
     quotePollIntervalSeconds: 10,
     feeProfiles: [
       createDraftProfile(1),

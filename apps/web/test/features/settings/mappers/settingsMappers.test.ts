@@ -5,7 +5,7 @@ import { toSaveSettingsRequest, toSettingsFormModel } from "../../../../features
 const settings: UserSettings = {
   userId: "user-1",
   locale: "en",
-  costBasisMethod: "FIFO",
+  costBasisMethod: "WEIGHTED_AVERAGE",
   quotePollIntervalSeconds: 10,
 };
 

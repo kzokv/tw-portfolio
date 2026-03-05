@@ -92,7 +92,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     tooltips: {
       recomputeTitle: "Reapplies portfolio calculations to historical transactions.",
       recomputeLocale: "Current UI language loaded from saved settings.",
-      recomputeCostBasis: "Current lot matching method used for PnL and holdings.",
+      recomputeCostBasis: "Current cost basis method used for PnL and holdings.",
       recomputeQuotePoll: "Current quote polling frequency in seconds.",
       txAccount: "Broker account where this transaction should be recorded.",
       txType: "BUY increases lots; SELL reduces lots and realizes PnL.",
@@ -155,7 +155,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     tooltips: {
       recomputeTitle: "對歷史交易重新套用計算規則並回寫結果。",
       recomputeLocale: "目前介面語系，來自已儲存設定。",
-      recomputeCostBasis: "目前使用的庫存配對方法。",
+      recomputeCostBasis: "目前使用的成本計算法。",
       recomputeQuotePoll: "目前報價更新頻率（秒）。",
       txAccount: "本筆交易將寫入的券商帳戶。",
       txType: "買進會增加庫存，賣出會減少庫存並計算已實現損益。",

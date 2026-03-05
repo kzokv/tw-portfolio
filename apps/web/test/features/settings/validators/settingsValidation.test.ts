@@ -6,7 +6,7 @@ import type { SettingsFormModel } from "../../../../features/settings/types/sett
 function createValidModel(): SettingsFormModel {
   return {
     locale: "en",
-    costBasisMethod: "FIFO",
+    costBasisMethod: "WEIGHTED_AVERAGE",
     quotePollIntervalSeconds: 10,
     feeProfiles: [
       {

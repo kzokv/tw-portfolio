@@ -215,7 +215,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = z
       .object({
         locale: z.enum(["en", "zh-TW"]).optional(),
-        costBasisMethod: z.enum(["FIFO", "LIFO"]).optional(),
+        costBasisMethod: z.literal("WEIGHTED_AVERAGE").optional(),
         quotePollIntervalSeconds: z.number().int().positive().max(86_400).optional(),
       })
       .parse(req.body);
@@ -231,7 +231,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .object({
         settings: z.object({
           locale: z.enum(["en", "zh-TW"]),
-          costBasisMethod: z.enum(["FIFO", "LIFO"]),
+          costBasisMethod: z.literal("WEIGHTED_AVERAGE"),
           quotePollIntervalSeconds: z.number().int().positive().max(86_400),
         }),
         feeProfiles: z.array(feeProfileDraftSchema).max(100),

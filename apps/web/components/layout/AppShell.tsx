@@ -123,7 +123,12 @@ export function AppShell() {
         )}
 
         {globalError ? (
-          <div className="mb-4 rounded-[20px] border border-[rgba(251,113,133,0.35)] bg-[rgba(251,113,133,0.12)] px-4 py-3 text-sm text-rose-100" role="status" aria-live="polite">
+          <div
+            className="mb-4 rounded-[20px] border border-[rgba(251,113,133,0.35)] bg-[rgba(251,113,133,0.12)] px-4 py-3 text-sm text-rose-100"
+            role="status"
+            aria-live="polite"
+            data-testid="global-error-banner"
+          >
             <p>{dict.feedback.requestFailedPrefix}: {globalError}</p>
             <div className="mt-2 flex justify-end">
               <Button

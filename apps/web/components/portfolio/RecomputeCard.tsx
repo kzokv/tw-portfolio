@@ -13,6 +13,7 @@ interface RecomputeCardProps {
 
 export function RecomputeCard({ settings, pending, onRecompute, dict }: RecomputeCardProps) {
   const localeLabel = settings?.locale === "zh-TW" ? dict.settings.localeOptionTraditionalChinese : dict.settings.localeOptionEnglish;
+  const costBasisLabel = settings?.costBasisMethod ? dict.settings.costBasisWeightedAverageOption : "-";
 
   return (
     <Card>
@@ -65,7 +66,7 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
             />
           </dt>
           <dd className="mt-2 min-w-0 break-words text-base font-semibold text-ink" data-testid="settings-cost-basis-value">
-            {settings?.costBasisMethod ?? "-"}
+            {costBasisLabel}
           </dd>
         </div>
         <div className="glass-inset min-w-0 rounded-[20px] p-4">

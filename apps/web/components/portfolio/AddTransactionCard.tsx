@@ -69,6 +69,7 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
               value={value.type}
               onChange={(event) => setField("type", event.target.value as "BUY" | "SELL")}
               className={fieldClassName}
+              data-testid="tx-type-select"
             >
               <option value="BUY">{dict.transactions.typeBuy}</option>
               <option value="SELL">{dict.transactions.typeSell}</option>
@@ -89,6 +90,7 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
               value={value.symbol}
               onChange={(event) => setField("symbol", event.target.value)}
               className={fieldClassName}
+              data-testid="tx-symbol-input"
             />
           </label>
 
@@ -145,6 +147,7 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
               value={value.tradeDate}
               onChange={(event) => setField("tradeDate", event.target.value)}
               className={fieldClassName}
+              data-testid="tx-trade-date-input"
             />
           </label>
 
@@ -162,6 +165,7 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
               value={value.isDayTrade ? "yes" : "no"}
               onChange={(event) => setField("isDayTrade", event.target.value === "yes")}
               className={fieldClassName}
+              data-testid="tx-day-trade-select"
             >
               <option value="no">{dict.transactions.dayTradeNo}</option>
               <option value="yes">{dict.transactions.dayTradeYes}</option>
