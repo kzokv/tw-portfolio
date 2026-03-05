@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
@@ -512,9 +512,48 @@ export class PostgresPersistence implements Persistence {
 
   private async runMigrations(): Promise<void> {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const migrationPath = path.resolve(currentDir, "../../../../db/migrations/001_init.sql");
-    const migrationSql = await fs.readFile(migrationPath, "utf8");
-    await this.pool.query(migrationSql);
+    const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
+    const migrationFiles = (await fs.readdir(migrationsDir))
+      .filter((file) => /^\d+_.*\.sql$/.test(file))
+      .sort((a, b) => a.localeCompare(b));
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.ensureMigrationLedger(client);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["tw_portfolio_schema_migrations"]);
+
+      const appliedResult = await client.query<{ name: string }>(
+        "SELECT name FROM schema_migrations",
+      );
+      const applied = new Set(appliedResult.rows.map((row) => row.name));
+
+      for (const file of migrationFiles) {
+        if (applied.has(file)) continue;
+        const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(migrationSql);
+        await client.query(
+          "INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+          [file],
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async ensureMigrationLedger(client: PoolClient): Promise<void> {
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         name TEXT PRIMARY KEY,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`,
+    );
   }
 
   private async seedDefaults(): Promise<void> {
@@ -539,7 +578,7 @@ export class PostgresPersistence implements Persistence {
 
     await this.pool.query(
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
-       VALUES ($1, $2, 'en', 'FIFO', 10)
+       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)
        ON CONFLICT (id) DO NOTHING`,
       [userId, `${userId}@example.com`],
     );

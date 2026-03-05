@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   locale TEXT NOT NULL DEFAULT 'en',
-  cost_basis_method TEXT NOT NULL DEFAULT 'FIFO',
+  cost_basis_method TEXT NOT NULL DEFAULT 'WEIGHTED_AVERAGE',
   quote_poll_interval_seconds INTEGER NOT NULL DEFAULT 10
 );
 

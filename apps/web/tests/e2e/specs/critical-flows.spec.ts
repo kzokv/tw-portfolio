@@ -59,7 +59,7 @@ test.describe("settings", () => {
     await openSettingsDrawer(page);
 
     await page.getByTestId("settings-locale-select").selectOption("zh-TW");
-    await page.getByTestId("settings-cost-basis-select").selectOption("LIFO");
+    await page.getByTestId("settings-cost-basis-select").selectOption("WEIGHTED_AVERAGE");
     const currentQuotePoll = await page.getByTestId("settings-quote-poll-input").inputValue();
     const nextQuotePoll = getNextQuotePoll(currentQuotePoll);
     await page.getByTestId("settings-quote-poll-input").fill(nextQuotePoll);
@@ -69,7 +69,7 @@ test.describe("settings", () => {
     await expect(page.getByTestId("hero-title")).toContainText("台灣投資組合控制台", { timeout: 5_000 });
     await expect(page.getByTestId("topbar-title")).toContainText("市場帳本");
     await expect(page.getByTestId("settings-quote-poll-value")).toContainText(`${nextQuotePoll} 秒`);
-    await expect(page.getByTestId("settings-cost-basis-value")).toContainText("LIFO");
+    await expect(page.getByTestId("settings-cost-basis-value")).toContainText("加權平均");
 
     await page.reload();
     await waitForAppReady(page);
@@ -112,7 +112,9 @@ test.describe("settings", () => {
     await page.reload();
     await waitForAppReady(page);
     await openSettingsDrawer(page);
-    await page.getByTestId("settings-tab-fees").click();
+    const feesTab = page.getByTestId("settings-tab-fees");
+    await expect(feesTab).toBeVisible();
+    await feesTab.click({ force: true });
 
     await expect(page.getByTestId(`settings-profile-name-${newProfileIndex}`)).toHaveValue(profileName);
     const savedAccountProfileId = await accountSelect.inputValue();
@@ -185,9 +187,6 @@ test.describe("tooltips", () => {
 
     await page.getByTestId("tooltip-settings-cost-basis-trigger").focus();
     await expect(page.getByTestId("tooltip-settings-cost-basis-content")).toBeVisible();
-
-    await page.getByTestId("tooltip-fifo-trigger").hover();
-    await expect(page.getByTestId("tooltip-fifo-content")).toBeVisible();
 
     await gotoApp(page);
     await page.getByTestId("tooltip-tx-account-trigger").hover();

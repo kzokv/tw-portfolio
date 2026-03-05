@@ -27,7 +27,7 @@ export function createStore(): Store {
     settings: {
       userId: "user-1",
       locale: "en",
-      costBasisMethod: "FIFO",
+      costBasisMethod: "WEIGHTED_AVERAGE",
       quotePollIntervalSeconds: 10,
     },
     accounts: [

@@ -1,4 +1,4 @@
-export type CostBasisMethod = "FIFO" | "LIFO";
+export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type RoundingMode = "FLOOR" | "ROUND" | "CEIL";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
 export interface FeeProfile {

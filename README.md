@@ -1,6 +1,6 @@
 # Taiwan Portfolio Monorepo
 
-MVP monorepo for Taiwan stock/ETF portfolio tracking with configurable fee/tax rules and FIFO/LIFO lot matching.
+MVP monorepo for Taiwan stock/ETF portfolio tracking with configurable fee/tax rules and weighted-average cost basis.
 
 ## Structure
 
@@ -52,7 +52,7 @@ Notes:
 - Account-level fallback profile + per-security override bindings are configurable in settings.
 - Recompute uses per-security override first, then account fallback profile after confirmation.
 - Drawer warns before closing with unsaved edits and supports explicit `Discard Changes`.
-- Key terms expose contextual tooltips, including detailed FIFO/LIFO guidance.
+- Key terms expose contextual tooltips, including weighted-average cost-basis guidance.
 
 ## API security defaults
 

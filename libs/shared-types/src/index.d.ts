@@ -1,4 +1,4 @@
-export type CostBasisMethod = "FIFO" | "LIFO";
+export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type LocaleCode = "en" | "zh-TW";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
 export interface UserSettings {
@@ -9,7 +9,6 @@ export interface UserSettings {
 }
 export interface FeeProfileDto {
     id: string;
-    accountId: string;
     name: string;
     commissionRateBps: number;
     commissionDiscountBps: number;
@@ -20,4 +19,15 @@ export interface FeeProfileDto {
     stockDayTradeTaxRateBps: number;
     etfSellTaxRateBps: number;
     bondEtfSellTaxRateBps: number;
+}
+export interface AccountDto {
+    id: string;
+    name: string;
+    userId: string;
+    feeProfileId: string;
+}
+export interface FeeProfileBindingDto {
+    accountId: string;
+    symbol: string;
+    feeProfileId: string;
 }

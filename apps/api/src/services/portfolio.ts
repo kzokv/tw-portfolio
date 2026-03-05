@@ -2,7 +2,6 @@ import {
   allocateSellLots,
   calculateBuyFees,
   calculateSellFees,
-  type CostBasisMethod,
   type FeeProfile,
   type Lot,
 } from "@tw-portfolio/domain";
@@ -64,12 +63,12 @@ export function createTransaction(
     feeSnapshot: { ...profile },
   };
 
-  applyToLots(store, tx, store.settings.costBasisMethod);
+  applyToLots(store, tx);
   store.transactions.push(tx);
   return tx;
 }
 
-function applyToLots(store: Store, tx: Transaction, method: CostBasisMethod): void {
+function applyToLots(store: Store, tx: Transaction): void {
   if (tx.type === "BUY") {
     const lot: Lot = {
       id: `lot-${tx.id}`,
@@ -86,7 +85,7 @@ function applyToLots(store: Store, tx: Transaction, method: CostBasisMethod): vo
   const lots = store.lots.filter(
     (lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol && lot.openQuantity > 0,
   );
-  const allocation = allocateSellLots(lots, tx.quantity, method);
+  const allocation = allocateSellLots(lots, tx.quantity);
 
   const netProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
   tx.realizedPnlNtd = netProceeds - allocation.allocatedCostNtd;

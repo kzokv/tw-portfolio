@@ -63,31 +63,13 @@ export function GeneralSettingsSection({
           className={fieldClassName}
           data-testid="settings-cost-basis-select"
         >
-          <option value="FIFO">FIFO</option>
-          <option value="LIFO">LIFO</option>
+          <option value="WEIGHTED_AVERAGE">{dict.settings.costBasisWeightedAverageOption}</option>
         </select>
       </label>
 
       <div className="glass-inset grid gap-2 rounded-[20px] p-4 text-xs text-slate-300">
         <p className="font-semibold text-ink">{dict.settings.costBasisGuideTitle}</p>
-        <div className="flex items-center gap-1">
-          <span className="font-semibold">FIFO</span>
-          <TooltipInfo
-            label="FIFO"
-            content={dict.tooltips.fifoMethod}
-            triggerTestId="tooltip-fifo-trigger"
-            contentTestId="tooltip-fifo-content"
-          />
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="font-semibold">LIFO</span>
-          <TooltipInfo
-            label="LIFO"
-            content={dict.tooltips.lifoMethod}
-            triggerTestId="tooltip-lifo-trigger"
-            contentTestId="tooltip-lifo-content"
-          />
-        </div>
+        <p>{dict.settings.costBasisGuideBody}</p>
       </div>
 
       <label className="block space-y-2">

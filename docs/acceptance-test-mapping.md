@@ -6,7 +6,7 @@
 - Unit: `libs/domain/test/fee.test.ts`
 - Integration: `apps/api/test/integration/`
 
-2. FIFO/LIFO lot matching
+2. Weighted-average lot matching
 - Unit: `libs/domain/test/lot.test.ts`
 
 3. Historical immutability + recompute preview/confirm
@@ -26,7 +26,7 @@
 7. Settings unsaved-change discard flow
 - E2E: `apps/web/tests/e2e/specs/critical-flows.spec.ts`
 
-8. Settings/domain tooltips visibility and accessibility (including FIFO/LIFO details)
+8. Settings/domain tooltips visibility and accessibility (including weighted-average details)
 - E2E: `apps/web/tests/e2e/specs/critical-flows.spec.ts`
 
 9. Fee profile settings UX v2 (drawer tabs, account fallback, per-security overrides)

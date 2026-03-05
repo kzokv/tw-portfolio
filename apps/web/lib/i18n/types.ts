@@ -45,6 +45,7 @@ export interface AppDictionary {
     quotePollLabel: string;
     localeOptionEnglish: string;
     localeOptionTraditionalChinese: string;
+    costBasisWeightedAverageOption: string;
     quotePollUnit: string;
     validationQuotePoll: string;
     validationAtLeastOneProfile: string;
@@ -59,6 +60,7 @@ export interface AppDictionary {
     discardedNotice: string;
     closeDrawerAriaLabel: string;
     costBasisGuideTitle: string;
+    costBasisGuideBody: string;
     profileSectionTitle: string;
     profileSectionDescription: string;
     profileCardTitle: string;
@@ -129,8 +131,6 @@ export interface AppDictionary {
     settingsLocale: string;
     settingsCostBasis: string;
     settingsQuotePoll: string;
-    fifoMethod: string;
-    lifoMethod: string;
     recomputeTitle: string;
     recomputeLocale: string;
     recomputeCostBasis: string;

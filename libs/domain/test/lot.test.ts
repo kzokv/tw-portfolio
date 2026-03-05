@@ -21,13 +21,8 @@ const lots: Lot[] = [
 ];
 
 describe("lot allocation", () => {
-  it("uses fifo", () => {
-    const result = allocateSellLots(lots, 100, "FIFO");
-    expect(result.allocatedCostNtd).toBe(100000);
-  });
-
-  it("uses lifo", () => {
-    const result = allocateSellLots(lots, 100, "LIFO");
-    expect(result.allocatedCostNtd).toBe(120000);
+  it("uses weighted-average allocation", () => {
+    const result = allocateSellLots(lots, 100);
+    expect(result.allocatedCostNtd).toBe(110000);
   });
 });

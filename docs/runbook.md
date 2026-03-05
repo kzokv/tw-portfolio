@@ -965,7 +965,7 @@ The following sections describe product behavior for support and verification. T
 ### 13.2 Settings drawer
 
 - Open settings from the top-right avatar. Drawer URL state is `/?drawer=settings` for direct linking.
-- Tabs: **General** and **Fee Profiles**. **Save Settings** persists locale, cost basis, poll interval, and fee profiles atomically via `/settings/full`. Fee profiles support account fallback and per-security overrides; new profile IDs are system-generated (UUID). **Discard Changes** reverts unsaved edits without closing the drawer. Closing with unsaved edits shows a warning.
+- Tabs: **General** and **Fee Profiles**. **Save Settings** persists locale, poll interval, weighted-average cost basis, and fee profiles atomically via `/settings/full`. Fee profiles support account fallback and per-security overrides; new profile IDs are system-generated (UUID). **Discard Changes** reverts unsaved edits without closing the drawer. Closing with unsaved edits shows a warning.
 
 ### 13.3 Localization
 
@@ -973,4 +973,4 @@ The following sections describe product behavior for support and verification. T
 
 ### 13.4 Tooltips
 
-- Settings terms and key financial terms on the dashboard/forms have hover/focus tooltips. FIFO/LIFO include detailed explanatory content in settings. Tooltips are keyboard-accessible via the info icon triggers.
+- Settings terms and key financial terms on the dashboard/forms have hover/focus tooltips. Weighted-average cost basis includes detailed explanatory content in settings. Tooltips are keyboard-accessible via the info icon triggers.

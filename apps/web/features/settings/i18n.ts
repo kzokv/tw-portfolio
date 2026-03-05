@@ -1,7 +1,7 @@
 import type { AppDictionary } from "../../lib/i18n/types";
 
 export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"> & {
-  tooltips: Pick<AppDictionary["tooltips"], "settingsLocale" | "settingsCostBasis" | "settingsQuotePoll" | "fifoMethod" | "lifoMethod">;
+  tooltips: Pick<AppDictionary["tooltips"], "settingsLocale" | "settingsCostBasis" | "settingsQuotePoll">;
 }> = {
   en: {
     settings: {
@@ -14,6 +14,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       quotePollLabel: "Quote Poll Interval",
       localeOptionEnglish: "English",
       localeOptionTraditionalChinese: "Traditional Chinese",
+      costBasisWeightedAverageOption: "Weighted Average",
       quotePollUnit: "sec",
       validationQuotePoll: "Quote poll interval must be a positive integer.",
       validationAtLeastOneProfile: "At least one fee profile is required.",
@@ -27,7 +28,9 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       discardHint: "Unsaved edits can be reverted with Discard Changes.",
       discardedNotice: "Unsaved changes were discarded.",
       closeDrawerAriaLabel: "Close settings drawer",
-      costBasisGuideTitle: "FIFO / LIFO details",
+      costBasisGuideTitle: "Weighted Average details",
+      costBasisGuideBody:
+        "Weighted Average updates a single blended unit cost per symbol. Sell allocations use the blended cost for realized PnL and remaining holdings cost.",
       profileSectionTitle: "Fee Profile Library",
       profileSectionDescription: "Create and tune multiple fee profiles. System IDs are generated automatically.",
       profileCardTitle: "Profile",
@@ -50,13 +53,8 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
     },
     tooltips: {
       settingsLocale: "Switches all UI wording between English and Traditional Chinese.",
-      settingsCostBasis:
-        "Defines lot matching order for realized PnL and cost tracking. See FIFO/LIFO detail cards below.",
+      settingsCostBasis: "Uses weighted-average cost basis for realized PnL and holdings cost tracking.",
       settingsQuotePoll: "How frequently quote data is refreshed from providers.",
-      fifoMethod:
-        "FIFO (First In, First Out): when you sell, the oldest purchased lots are matched first. Useful for long-held lots and tax lots ordered by time.",
-      lifoMethod:
-        "LIFO (Last In, First Out): when you sell, the newest purchased lots are matched first. Useful for stress testing recent-position cost behavior.",
     },
   },
   "zh-TW": {
@@ -70,6 +68,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       quotePollLabel: "報價更新間隔",
       localeOptionEnglish: "英文",
       localeOptionTraditionalChinese: "繁體中文",
+      costBasisWeightedAverageOption: "加權平均",
       quotePollUnit: "秒",
       validationQuotePoll: "報價更新間隔必須為正整數。",
       validationAtLeastOneProfile: "至少需要保留一個費率設定檔。",
@@ -83,7 +82,8 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       discardHint: "若尚未儲存，可使用「捨棄變更」還原。",
       discardedNotice: "已捨棄未儲存的變更。",
       closeDrawerAriaLabel: "關閉設定抽屜",
-      costBasisGuideTitle: "FIFO / LIFO 詳細說明",
+      costBasisGuideTitle: "加權平均詳細說明",
+      costBasisGuideBody: "加權平均會維護單一平均持股成本。賣出時以平均成本計算已實現損益與剩餘持倉成本。",
       profileSectionTitle: "費率設定檔庫",
       profileSectionDescription: "可建立多個費率設定檔並調整細節。系統會自動產生 ID。",
       profileCardTitle: "設定檔",
@@ -106,12 +106,8 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
     },
     tooltips: {
       settingsLocale: "切換整個介面的語言（英文 / 繁體中文）。",
-      settingsCostBasis: "決定庫存配對順序，會直接影響已實現損益與持倉成本。",
+      settingsCostBasis: "目前固定使用加權平均法計算已實現損益與持倉成本。",
       settingsQuotePoll: "控制向報價來源抓取最新價格的頻率。",
-      fifoMethod:
-        "FIFO（先進先出）：賣出時先配對最早買入的庫存。通常反映較長持有部位，對歷史成本追蹤最直覺。",
-      lifoMethod:
-        "LIFO（後進先出）：賣出時先配對最新買入的庫存。適合分析近期加碼部位對損益與成本的影響。",
     },
   },
 };
