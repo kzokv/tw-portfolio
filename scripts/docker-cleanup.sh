@@ -77,7 +77,12 @@ parse_args() {
 }
 
 log() {
-  echo "[$(date -Is)] $*"
+  local timestamp
+  if timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)"; then
+    echo "[$timestamp] $*"
+  else
+    echo "[unknown-time] $*"
+  fi
 }
 
 require_docker() {
@@ -184,4 +189,3 @@ main() {
 }
 
 main "$@"
-

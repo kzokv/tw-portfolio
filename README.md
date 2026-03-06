@@ -23,6 +23,14 @@ All ports are configurable via env vars:
 
 **Quick setup:** From repo root run `npm run onboard` (installs deps, builds the workspace libs, installs Playwright browsers/system deps, creates `.env` from `.env.example` if missing, and runs lint). Or use `npm run install:full` for install only (npm + Playwright + system deps). Then start infra and dev as below.
 
+### Node toolchain (required)
+
+Use Node `24.13.0` or newer with npm `11.x` for this repo.
+
+- If you use `nvm`: run `nvm install && nvm use` at repo root (reads `.nvmrc`).
+- If you use `nodenv`/`asdf`: `.node-version` is pinned to `24.13.0`.
+- Avoid mixing Homebrew Node and `nvm` Node in the same shell session.
+
 1. Copy `.env.example` to `.env` (or use `npm run onboard` to do this automatically).
 2. Install dependencies: `npm run install:full` or `npm install`
    - Onboarding already builds `@tw-portfolio/domain` and `@tw-portfolio/shared-types`. If you install dependencies without running `npm run onboard`, or if you edit either lib, rerun `npm run build -w libs/domain -w libs/shared-types` before starting the dev servers.

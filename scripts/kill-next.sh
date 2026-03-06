@@ -4,7 +4,7 @@ set -euo pipefail
 ENV_FILE=".env"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_LOCK_FILE="$ROOT_DIR/apps/web/.next/dev/lock"
-declare -A DEFAULT_PORTS=( ["web"]="3333" ["api"]="4000" )
+SCRIPT_PATH="${0##*/}"
 
 error() {
   printf '%s\n' "$1" >&2
@@ -12,7 +12,15 @@ error() {
 }
 
 usage() {
-  error "Usage: $0 [web|api|PORT]"
+  cat <<EOF
+Description:
+  Terminate dev listeners for web/api ports and clean stale Next.js lock holders.
+
+Usage: ${SCRIPT_PATH} [OPTIONS] [web|api|PORT]
+
+Options:
+  -h, --help              Show this help message and exit (optional)
+EOF
 }
 
 map_env_key() {
@@ -23,6 +31,14 @@ map_env_key() {
   esac
 }
 
+default_port_for_service() {
+  case "$1" in
+    web) printf '3333' ;;
+    api) printf '4000' ;;
+    *) printf '' ;;
+  esac
+}
+
 resolve_port() {
   local service="$1"
   local env_key
@@ -30,8 +46,43 @@ resolve_port() {
 
   if [[ -f "$ENV_FILE" ]]; then
     local value
-    value=$(grep -E "^[[:space:]]*${env_key}=" "$ENV_FILE" | head -n 1 | cut -d= -f2- | tr -d '[:space:]')
+    value=$(
+      grep -E "^[[:space:]]*${env_key}=" "$ENV_FILE" 2>/dev/null \
+        | head -n 1 \
+        | cut -d= -f2- \
+        | tr -d '[:space:]' \
+        || true
+    )
     printf '%s' "$value"
+  fi
+}
+
+collect_port_pids() {
+  local port="$1"
+
+  lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :$port" 2>/dev/null \
+      | grep -oE 'pid=[0-9]+' \
+      | cut -d= -f2 \
+      | sort -u \
+      || true
+  fi
+}
+
+filter_alive_pids() {
+  local result=()
+  local pid
+
+  for pid in "$@"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      result+=("$pid")
+    fi
+  done
+
+  if ((${#result[@]} > 0)); then
+    printf '%s\n' "${result[@]}"
   fi
 }
 
@@ -41,7 +92,7 @@ kill_by_port() {
 
   printf 'Looking for processes listening on port %s (%s)...\n' "$port" "$label"
   local pids
-  pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN || true)
+  pids="$(collect_port_pids "$port" | sort -u)"
 
   if [[ -z "$pids" ]]; then
     printf 'No process listening on port %s (%s) was found.\n' "$port" "$label"
@@ -49,8 +100,21 @@ kill_by_port() {
   fi
 
   printf 'Killing process(es) %s that hold port %s (%s)...\n' "$pids" "$port" "$label"
-  kill $pids
-  printf 'Signal sent; verify the port is free with: lsof -iTCP:%s -sTCP:LISTEN\n' "$port"
+  # First, ask processes to terminate gracefully.
+  kill $pids 2>/dev/null || true
+  sleep 1
+
+  local -a pid_array
+  local remaining
+  mapfile -t pid_array <<<"$pids"
+  remaining="$(filter_alive_pids "${pid_array[@]}")"
+
+  if [[ -n "$remaining" ]]; then
+    printf 'Process(es) still alive after SIGTERM: %s. Sending SIGKILL...\n' "$remaining"
+    kill -9 $remaining 2>/dev/null || true
+  fi
+
+  printf 'Signal sent; verify the port is free with: ss -ltnp "( sport = :%s )"\n' "$port"
 }
 
 collect_lock_holder_pids() {
@@ -95,8 +159,15 @@ if ! command -v lsof >/dev/null 2>&1; then
   error "This script requires lsof to find the listening process."
 fi
 
-if [[ "${1:-}" =~ ^- ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
+  exit 0
+fi
+
+if [[ "${1:-}" =~ ^- ]]; then
+  printf 'ERROR: Unknown option: %s\n' "${1:-}" >&2
+  usage
+  exit 1
 fi
 
 if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
@@ -109,7 +180,11 @@ declare -a services=()
 if [[ -n "${1:-}" ]]; then
   case "$1" in
     web|api) services=("$1");;
-    *) usage;;
+    *)
+      printf 'ERROR: Invalid target: %s (expected web|api|PORT)\n' "$1" >&2
+      usage
+      exit 1
+      ;;
   esac
 else
   services=(web api)
@@ -117,7 +192,7 @@ fi
 
 for service in "${services[@]}"; do
   port="$(resolve_port "$service")"
-  port="${port:-${DEFAULT_PORTS[$service]}}"
+  port="${port:-$(default_port_for_service "$service")}"
 
   if [[ -z "$port" ]]; then
     printf 'No port configured for %s; skipping.\n' "$service"

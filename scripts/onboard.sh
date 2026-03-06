@@ -21,6 +21,40 @@
 set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+MIN_NODE_VERSION="24.13.0"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node is required but was not found in PATH." >&2
+  exit 1
+fi
+
+version_gte() {
+  local current="$1"
+  local minimum="$2"
+  local c_major=0 c_minor=0 c_patch=0
+  local m_major=0 m_minor=0 m_patch=0
+
+  IFS=. read -r c_major c_minor c_patch <<<"$current"
+  IFS=. read -r m_major m_minor m_patch <<<"$minimum"
+
+  c_minor="${c_minor:-0}"
+  c_patch="${c_patch:-0}"
+  m_minor="${m_minor:-0}"
+  m_patch="${m_patch:-0}"
+
+  if [ "$c_major" -gt "$m_major" ]; then return 0; fi
+  if [ "$c_major" -lt "$m_major" ]; then return 1; fi
+  if [ "$c_minor" -gt "$m_minor" ]; then return 0; fi
+  if [ "$c_minor" -lt "$m_minor" ]; then return 1; fi
+  [ "$c_patch" -ge "$m_patch" ]
+}
+
+node_version="$(node -p 'process.versions.node' 2>/dev/null || true)"
+if ! version_gte "$node_version" "$MIN_NODE_VERSION"; then
+  echo "ERROR: This repo requires Node >=${MIN_NODE_VERSION} (found $(node -v 2>/dev/null || echo unknown))." >&2
+  echo "Run: nvm use (or install Node ${MIN_NODE_VERSION} and retry)." >&2
+  exit 1
+fi
 
 INSTALL_ONLY=0
 CI_MODE=0
