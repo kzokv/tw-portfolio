@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "[ -f ../../.env ] && set -a && . ../../.env && set +a; next dev -p ${WEB_PORT:-3000}",
+    "dev": "[ -f ../../.env ] && set -a && . ../../.env && set +a; next dev --webpack -p ${WEB_PORT:-3000}",
     "build": "npx next build --webpack",
     "start": "[ -f ../../.env ] && set -a && . ../../.env && set +a; next start -p ${WEB_PORT:-3000}",
-    "test": "npx playwright test --config=tests/e2e/playwright.config.ts",
+    "test": "npx playwright test --workers=2 --config=tests/e2e/playwright.config.ts",
     "test:unit": "vitest run",
     "test:e2e:ci": "npx playwright test --config=tests/e2e/playwright.config.ts --reporter=junit",
     "test:e2e:show-report": "npx playwright show-report playwright-report",

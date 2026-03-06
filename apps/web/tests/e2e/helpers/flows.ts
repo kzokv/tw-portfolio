@@ -2,6 +2,11 @@ import { expect, type Page } from "@playwright/test";
 
 const webPort = Number(process.env.WEB_PORT ?? 3333);
 const e2eBaseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${webPort}`;
+const DEFAULT_APP_READY_TIMEOUT_MS = 45_000;
+
+interface WaitForAppReadyOptions {
+  timeoutMs?: number;
+}
 
 /** Full URL for an app path (use when fixture baseURL is not applied). */
 export function appUrl(path = "/"): string {
@@ -9,10 +14,47 @@ export function appUrl(path = "/"): string {
 }
 
 /** Wait for the dashboard shell to finish bootstrapping and become interactive. */
-export async function waitForAppReady(page: Page): Promise<void> {
+export async function waitForAppReady(page: Page, options: WaitForAppReadyOptions = {}): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_APP_READY_TIMEOUT_MS;
   await page.waitForLoadState("domcontentloaded");
-  await page.getByTestId("hero-title").waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByTestId("avatar-button").waitFor({ state: "visible", timeout: 15_000 });
+
+  const readyState = await page.waitForFunction(
+    () => {
+      const byTestId = (id: string): HTMLElement | null => document.querySelector(`[data-testid="${id}"]`);
+      const isVisible = (element: HTMLElement | null): boolean => {
+        if (!element) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      };
+
+      const globalError = byTestId("global-error-banner");
+      if (isVisible(globalError)) {
+        return {
+          state: "error",
+          message: globalError?.textContent?.trim() || "Global error banner is visible.",
+        };
+      }
+
+      const appLoading = byTestId("app-loading");
+      const heroTitle = byTestId("hero-title");
+      const avatarButton = byTestId("avatar-button");
+      const loadingVisible = isVisible(appLoading);
+
+      if (!loadingVisible && isVisible(heroTitle) && isVisible(avatarButton)) {
+        return { state: "ready" };
+      }
+
+      return null;
+    },
+    { timeout: timeoutMs },
+  );
+
+  const state = (await readyState.jsonValue()) as { state: "ready" | "error"; message?: string };
+  if (state.state === "error") {
+    throw new Error(`Dashboard failed to become ready: ${state.message ?? "Unknown error state."}`);
+  }
 }
 
 /** Navigate to app root and wait for the dashboard shell to be interactive. */

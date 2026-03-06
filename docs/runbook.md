@@ -72,6 +72,69 @@ What these settings mean:
 - **Ports**: E2E uses `WEB_PORT` (default `3000` from `.env.example`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
 - **Servers**: Playwright's `webServer` starts API and web automatically; no separate server script needed. Uses `PERSISTENCE_BACKEND=memory` and `AUTH_MODE=dev_bypass`.
 
+### Integration tests with isolated host DB stack (CI-like local run)
+
+- For macOS guest-VM Docker setup and troubleshooting, see [macos-vm-docker-setup.md](./macos-vm-docker-setup.md).
+
+- **Run from repo root (explicit modes)**:
+  ```bash
+  npm run test:integration:ci:host
+  npm run test:integration:ci:container
+  ```
+- `npm run test:integration:ci` is retired to avoid ambiguous host routing.
+- Both explicit commands:
+  - start `infra/docker/docker-compose.ci-integration.yml`
+  - wait for Postgres/Redis readiness
+  - poll host reachability for mapped DB/Redis ports to absorb startup races
+  - run API integration tests with `RUN_POSTGRES_INTEGRATION=1`
+  - tear down the CI stack automatically (`down -v`) unless `KEEP_CI_STACK=1`
+
+- **Why host-port polling is required**:
+  - Postgres/Redis can report ready from inside the containers before Docker host port forwarding is reachable from the caller shell.
+  - This is common on Linux VM/containerized routing paths where `host.docker.internal` resolves, but mapped ports become reachable moments later.
+  - Without polling, a single immediate probe can fail even though the stack becomes reachable shortly after.
+  - Poll behavior is tunable with:
+    - `CI_HOST_PORT_PROBE_ATTEMPTS` (default `30`)
+    - `CI_HOST_PORT_PROBE_INTERVAL_SECONDS` (default `1`)
+
+- **Isolation**:
+  - CI stack uses non-conflicting ports by default:
+    - Postgres: `15432`
+    - Redis: `16379`
+  - Existing stacks such as `twp-dev-postgres` (`5454`) and `twp-dev-redis` (`6363`) are untouched.
+
+- **Mode-specific host routing**:
+  - `test:integration:ci:host`:
+    - Intended for host shells, including guest VM shells that can access a Docker daemon.
+    - Resolution order:
+      1. `CI_TEST_HOST` (if set)
+      2. `DOCKER_HOST` TCP host (if present)
+      3. OS default gateway (`route` on Darwin, `ip route` on Linux)
+      4. `localhost`
+    - The script probes both DB/Redis ports and fails fast with `CI_TEST_HOST=<host-ip-or-dns>` guidance when no candidate is reachable.
+    - Guest VM note: `localhost` usually points at the guest itself, not the physical host running Docker.
+  - `test:integration:ci:container`:
+    - Intended for Linux/containerized shells.
+    - Uses `host.docker.internal` and requires host-gateway mapping.
+    - `docker run` example:
+      ```bash
+      --add-host=host.docker.internal:host-gateway
+      ```
+    - `docker compose` example:
+      ```yaml
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      ```
+    - The script fails fast if `host.docker.internal` is not resolvable.
+
+- **Optional overrides**:
+  - `CI_DB_PORT` (default `15432`)
+  - `CI_REDIS_PORT` (default `16379`)
+  - `CI_DB_NAME` (default `tw_portfolio_ci`)
+  - `CI_COMPOSE_PROJECT` (default `twp-ci-integration`)
+  - `CI_TEST_HOST` (host mode only; explicit Docker-host IP/DNS override)
+  - `KEEP_CI_STACK=1` keeps containers running for debugging
+
 ---
 
 ## 3. Deployment Overview

@@ -17,6 +17,8 @@
     "test": "npm run test --workspaces",
     "test:unit": "npm run test -w libs/domain",
     "test:integration": "npm run test:integration -w apps/api",
+    "test:integration:ci:host": "bash scripts/test-integration-ci-host.sh",
+    "test:integration:ci:container": "bash scripts/test-integration-ci-container.sh",
     "test:e2e": "npm run test -w @tw-portfolio/web",
     "test:e2e:ci": "npm run test:e2e:ci -w @tw-portfolio/web",
     "test:e2e:show-report": "npm run test:e2e:show-report -w @tw-portfolio/web",

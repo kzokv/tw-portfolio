@@ -18,6 +18,9 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://127.0.0.1:${webPort}`,
+    video: {
+      mode: 'retain-on-failure'
+    }
   },
   webServer: [
     {
