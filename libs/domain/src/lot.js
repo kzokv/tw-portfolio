@@ -1,12 +1,19 @@
+export function applyBuyToLots(lots, buyLot) {
+    assertWholePositiveQuantity(buyLot.openQuantity, "Buy quantity must be a positive integer");
+    assertNonNegativeCost(buyLot.totalCostNtd);
+    const updatedLots = normalizeLotsForWeightedAverage([...lots, buyLot]);
+    const { averageCostNtd } = summarizeOpenLots(updatedLots);
+    return { averageCostNtd, updatedLots };
+}
 export function allocateSellLots(lots, quantityToSell) {
-    const orderedLots = [...lots].sort((a, b) => a.openedAt.localeCompare(b.openedAt));
-    const totalOpenQuantity = orderedLots.reduce((sum, lot) => sum + Math.max(0, lot.openQuantity), 0);
-    const totalOpenCostNtd = orderedLots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostNtd), 0);
+    assertWholePositiveQuantity(quantityToSell, "Sell quantity must be a positive integer");
+    const normalizedLots = normalizeLotsForWeightedAverage(lots);
+    const orderedLots = orderLots(normalizedLots);
+    const { averageCostNtd, totalOpenCostNtd, totalOpenQuantity } = summarizeOpenLots(orderedLots);
     if (quantityToSell > totalOpenQuantity) {
         throw new Error("Insufficient quantity to sell");
     }
-    const allocatedCostNtd = Math.round((totalOpenCostNtd / totalOpenQuantity) * quantityToSell);
-    const remainingOpenQuantity = totalOpenQuantity - quantityToSell;
+    const allocatedCostNtd = Math.round(averageCostNtd * quantityToSell);
     const remainingOpenCostNtd = Math.max(0, totalOpenCostNtd - allocatedCostNtd);
     let remainingQty = quantityToSell;
     const matchedLotIds = [];
@@ -28,20 +35,73 @@ export function allocateSellLots(lots, quantityToSell) {
     const openLots = orderedLots
         .map((lot) => updates.get(lot.id) ?? lot)
         .filter((lot) => lot.openQuantity > 0);
-    let costLeftToAssign = remainingOpenCostNtd;
-    let quantityLeftToAssign = remainingOpenQuantity;
-    for (let index = 0; index < openLots.length; index += 1) {
-        const lot = openLots[index];
-        const isLast = index === openLots.length - 1;
-        const nextCost = isLast ? costLeftToAssign : Math.round((costLeftToAssign * lot.openQuantity) / quantityLeftToAssign);
-        updates.set(lot.id, {
-            ...lot,
-            totalCostNtd: nextCost,
-        });
+    const normalizedOpenLots = normalizeLotsForWeightedAverage(openLots, remainingOpenCostNtd);
+    for (const lot of normalizedOpenLots) {
+        updates.set(lot.id, lot);
+    }
+    const updatedLots = normalizedLots.map((lot) => updates.get(lot.id) ?? lot);
+    return { matchedLotIds, allocatedCostNtd, averageCostNtd, updatedLots };
+}
+function normalizeLotsForWeightedAverage(lots, forcedTotalCostNtd) {
+    if (lots.length === 0)
+        return [];
+    const orderedOpenLots = orderLots(lots.filter((lot) => lot.openQuantity > 0).map((lot) => {
+        assertWholePositiveQuantity(lot.openQuantity, "Lot quantity must be a positive integer");
+        assertNonNegativeCost(lot.totalCostNtd);
+        return lot;
+    }));
+    const totalOpenQuantity = orderedOpenLots.reduce((sum, lot) => sum + lot.openQuantity, 0);
+    if (totalOpenQuantity === 0) {
+        return lots.map((lot) => ({ ...lot, totalCostNtd: 0 }));
+    }
+    let costLeftToAssign = forcedTotalCostNtd ?? orderedOpenLots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostNtd), 0);
+    let quantityLeftToAssign = totalOpenQuantity;
+    const normalizedCosts = new Map();
+    for (let index = 0; index < orderedOpenLots.length; index += 1) {
+        const lot = orderedOpenLots[index];
+        const isLast = index === orderedOpenLots.length - 1;
+        const nextCost = isLast
+            ? costLeftToAssign
+            : Math.round((costLeftToAssign * lot.openQuantity) / quantityLeftToAssign);
+        normalizedCosts.set(lot.id, nextCost);
         costLeftToAssign -= nextCost;
         quantityLeftToAssign -= lot.openQuantity;
     }
-    const updatedLots = lots.map((lot) => updates.get(lot.id) ?? lot);
-    return { matchedLotIds, allocatedCostNtd, updatedLots };
+    return lots.map((lot) => lot.openQuantity > 0
+        ? {
+            ...lot,
+            totalCostNtd: normalizedCosts.get(lot.id) ?? 0,
+        }
+        : {
+            ...lot,
+            totalCostNtd: 0,
+        });
+}
+function orderLots(lots) {
+    return [...lots].sort((a, b) => {
+        const openedAtCompare = a.openedAt.localeCompare(b.openedAt);
+        if (openedAtCompare !== 0)
+            return openedAtCompare;
+        return a.id.localeCompare(b.id);
+    });
+}
+function summarizeOpenLots(lots) {
+    const totalOpenQuantity = lots.reduce((sum, lot) => sum + Math.max(0, lot.openQuantity), 0);
+    const totalOpenCostNtd = lots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostNtd), 0);
+    return {
+        averageCostNtd: totalOpenQuantity === 0 ? 0 : totalOpenCostNtd / totalOpenQuantity,
+        totalOpenCostNtd,
+        totalOpenQuantity,
+    };
+}
+function assertWholePositiveQuantity(quantity, message) {
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+        throw new Error(message);
+    }
+}
+function assertNonNegativeCost(totalCostNtd) {
+    if (!Number.isInteger(totalCostNtd) || totalCostNtd < 0) {
+        throw new Error("Lot cost must be a non-negative integer");
+    }
 }
 //# sourceMappingURL=lot.js.map

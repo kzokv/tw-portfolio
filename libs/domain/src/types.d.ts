@@ -22,8 +22,13 @@ export interface Lot {
     totalCostNtd: number;
     openedAt: string;
 }
+export interface BuyApplicationResult {
+    averageCostNtd: number;
+    updatedLots: Lot[];
+}
 export interface SellAllocationResult {
     matchedLotIds: string[];
     allocatedCostNtd: number;
+    averageCostNtd: number;
     updatedLots: Lot[];
 }
