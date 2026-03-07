@@ -85,13 +85,13 @@ cleanup_unused_images() {
   used_image_ids="$(docker ps -aq | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u)"
   candidate_refs="$(
     {
-      docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
+      docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
         | awk '
             $1 ~ /^twp-[^:]+:/ { print $0; next }
             $1 ~ /^(alpine|alpine\/[^:]+):/ { print $0; next }
             $1 ~ /:.*alpine/ { print $0 }
           '
-      docker images --filter dangling=true --format '<dangling> {{.ID}}' 2>/dev/null
+      docker images --no-trunc --filter dangling=true --format '<dangling> {{.ID}}' 2>/dev/null
     } | awk '!seen[$2]++'
   )"
 
