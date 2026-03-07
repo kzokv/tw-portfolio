@@ -62,6 +62,11 @@ phase_done() {
 
 cleanup_unused_images() {
   set +e
+  local used_image_ids=""
+  local candidate_refs=""
+  local candidate_id=""
+  local candidate_label=""
+  local removed_any=false
 
   if ! command -v docker >/dev/null 2>&1; then
     return 0
@@ -72,18 +77,54 @@ cleanup_unused_images() {
     return 0
   fi
 
-  if [ -z "$(docker images -q -f dangling=false 2>/dev/null)" ] && [ -z "$(docker images -q -f dangling=true 2>/dev/null)" ]; then
+  if [ -z "$(docker images -q 2>/dev/null)" ]; then
     log "No Docker images available for cleanup"
     return 0
   fi
 
-  log "Pruning Docker images not used by any container..."
-  if ! docker image prune -a -f >/dev/null 2>&1; then
-    log "WARNING: Failed to prune unused Docker images"
+  used_image_ids="$(docker ps -aq | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u)"
+  candidate_refs="$(
+    {
+      docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
+        | awk '
+            $1 ~ /^twp-[^:]+:/ { print $0; next }
+            $1 ~ /^(alpine|alpine\/[^:]+):/ { print $0; next }
+            $1 ~ /:.*alpine/ { print $0 }
+          '
+      docker images --filter dangling=true --format '<dangling> {{.ID}}' 2>/dev/null
+    } | awk '!seen[$2]++'
+  )"
+
+  if [ -z "$candidate_refs" ]; then
+    log "No unused twp/alpine-related Docker images found for cleanup"
     return 0
   fi
 
-  log "Unused Docker image cleanup complete"
+  log "Removing unused twp/alpine-related Docker images..."
+  while IFS= read -r image_ref; do
+    [ -z "$image_ref" ] && continue
+    candidate_label="${image_ref% *}"
+    candidate_id="${image_ref##* }"
+
+    if printf '%s\n' "$used_image_ids" | grep -Fxq "$candidate_id"; then
+      continue
+    fi
+
+    if docker image rm "$candidate_id" >/dev/null 2>&1; then
+      log "Removed unused image: ${candidate_label} (${candidate_id})"
+      removed_any=true
+    else
+      log "WARNING: Failed to remove unused image: ${candidate_label} (${candidate_id})"
+    fi
+  done <<EOF
+$candidate_refs
+EOF
+
+  if [ "$removed_any" = false ]; then
+    log "No removable twp/alpine-related Docker images found"
+  else
+    log "Unused twp/alpine-related Docker image cleanup complete"
+  fi
 }
 
 finalize_deploy() {
