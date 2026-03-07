@@ -21,7 +21,6 @@ export function allocateSellLots(lots: Lot[], quantityToSell: number): SellAlloc
   }
 
   const allocatedCostNtd = Math.round(averageCostNtd * quantityToSell);
-  const remainingOpenQuantity = totalOpenQuantity - quantityToSell;
   const remainingOpenCostNtd = Math.max(0, totalOpenCostNtd - allocatedCostNtd);
 
   let remainingQty = quantityToSell;
