@@ -380,13 +380,15 @@ describePostgres("postgres migrations", () => {
     );
     expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source_type: "test" }]);
 
-    const cashEntries = await pool.query<{ id: string; amount_ntd: number }>(
-      `SELECT id, amount_ntd
+    const cashEntries = await pool.query<{ id: string; amount_ntd: number; related_trade_event_id: string | null }>(
+      `SELECT id, amount_ntd, related_trade_event_id
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY id`,
     );
-    expect(cashEntries.rows).toEqual([{ id: "cash-kzo48-1", amount_ntd: -1020 }]);
+    expect(cashEntries.rows).toEqual([
+      { id: "cash-kzo48-1", amount_ntd: -1020, related_trade_event_id: "trade-kzo48-1" },
+    ]);
 
     const snapshots = await pool.query<{ id: string; generation_run_id: string }>(
       `SELECT id, generation_run_id

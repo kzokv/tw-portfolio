@@ -2,6 +2,7 @@ import type { Lot } from "@tw-portfolio/domain";
 import type {
   AccountingPolicy,
   BookedTradeEvent,
+  CashLedgerEntry,
   CorporateAction,
   HoldingProjection,
   Store,
@@ -24,6 +25,25 @@ export function listTradeEvents(store: Store): BookedTradeEvent[] {
 
 export function appendTradeEvent(store: Store, tradeEvent: BookedTradeEvent): void {
   store.accounting.facts.tradeEvents.push(tradeEvent);
+}
+
+export function listCashLedgerEntries(store: Store): CashLedgerEntry[] {
+  return store.accounting.facts.cashLedgerEntries;
+}
+
+export function appendCashLedgerEntry(store: Store, cashLedgerEntry: CashLedgerEntry): void {
+  store.accounting.facts.cashLedgerEntries.push(cashLedgerEntry);
+}
+
+export function replaceCashLedgerEntryForTrade(
+  store: Store,
+  tradeEventId: string,
+  nextCashLedgerEntry: CashLedgerEntry,
+): void {
+  store.accounting.facts.cashLedgerEntries = [
+    ...store.accounting.facts.cashLedgerEntries.filter((entry) => entry.relatedTradeEventId !== tradeEventId),
+    nextCashLedgerEntry,
+  ];
 }
 
 export function listInventoryLots(store: Store): Lot[] {

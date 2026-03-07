@@ -7,13 +7,14 @@ import {
   type Lot,
 } from "@tw-portfolio/domain";
 import {
+  appendCashLedgerEntry,
   appendCorporateAction,
   appendTradeEvent,
   listInventoryLots,
   rebuildHoldingProjection,
   replaceInventoryLots,
 } from "./accountingStore.js";
-import type { CorporateAction, Store, Transaction } from "../types/store.js";
+import type { CashLedgerEntry, CorporateAction, Store, Transaction } from "../types/store.js";
 
 export interface CreateTransactionInput {
   id: string;
@@ -75,6 +76,7 @@ export function createTransaction(
 
   applyToLots(store, tx);
   appendTradeEvent(store, tx);
+  appendCashLedgerEntry(store, buildTradeSettlementCashEntry(tx));
   return tx;
 }
 
@@ -157,4 +159,26 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
 
 function replaceLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
   replaceInventoryLots(store, accountId, symbol, nextLots);
+}
+
+function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
+  const grossTradeValueNtd = tx.quantity * tx.priceNtd;
+  const settlementAmountNtd =
+    tx.type === "BUY"
+      ? -(grossTradeValueNtd + tx.commissionNtd + tx.taxNtd)
+      : grossTradeValueNtd - tx.commissionNtd - tx.taxNtd;
+
+  return {
+    id: `cash-${tx.id}`,
+    userId: tx.userId,
+    accountId: tx.accountId,
+    entryDate: tx.tradeDate,
+    entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
+    amountNtd: settlementAmountNtd,
+    currency: "TWD",
+    relatedTradeEventId: tx.id,
+    sourceType: "trade_settlement",
+    sourceReference: tx.id,
+    bookedAt: tx.bookedAt,
+  };
 }

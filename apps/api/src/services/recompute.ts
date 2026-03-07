@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
-import { listTradeEvents } from "./accountingStore.js";
-import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
+import { listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
+import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
 
 interface PreviewInput {
   userId: string;
@@ -75,6 +75,7 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
     const previousRealizedPnlNtd = tx.realizedPnlNtd;
     tx.commissionNtd = item.nextCommissionNtd;
     tx.taxNtd = item.nextTaxNtd;
+    replaceCashLedgerEntryForTrade(store, tx.id, buildTradeSettlementCashEntry(tx));
 
     if (tx.type === "SELL" && previousRealizedPnlNtd !== undefined) {
       const previousNetProceeds = tx.priceNtd * tx.quantity - previousCommissionNtd - previousTaxNtd;
@@ -92,4 +93,26 @@ function mustGetProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
   if (!profile) throw new Error("Fee profile not found");
   return profile;
+}
+
+function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
+  const grossTradeValueNtd = tx.quantity * tx.priceNtd;
+  const settlementAmountNtd =
+    tx.type === "BUY"
+      ? -(grossTradeValueNtd + tx.commissionNtd + tx.taxNtd)
+      : grossTradeValueNtd - tx.commissionNtd - tx.taxNtd;
+
+  return {
+    id: `cash-${tx.id}`,
+    userId: tx.userId,
+    accountId: tx.accountId,
+    entryDate: tx.tradeDate,
+    entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
+    amountNtd: settlementAmountNtd,
+    currency: "TWD",
+    relatedTradeEventId: tx.id,
+    sourceType: "trade_settlement",
+    sourceReference: tx.id,
+    bookedAt: tx.bookedAt,
+  };
 }

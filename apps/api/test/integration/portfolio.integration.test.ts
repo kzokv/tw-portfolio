@@ -30,6 +30,13 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const store = await app.persistence.loadStore("user-1");
     expect(store.accounting.facts.tradeEvents).toHaveLength(1);
     expect(store.accounting.facts.tradeEvents[0].type).toBe("BUY");
+    expect(store.accounting.facts.cashLedgerEntries).toEqual([
+      expect.objectContaining({
+        relatedTradeEventId: store.accounting.facts.tradeEvents[0].id,
+        entryType: "TRADE_SETTLEMENT_OUT",
+        amountNtd: -(10 * 100 + store.accounting.facts.tradeEvents[0].commissionNtd),
+      }),
+    ]);
     expect(store.accounting.projections.lots).toHaveLength(1);
     expect(store.accounting.projections.holdings).toEqual([
       expect.objectContaining({
@@ -42,6 +49,50 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       inventoryModel: "LOT_CAPABLE",
       disposalPolicy: "WEIGHTED_AVERAGE",
     });
+  });
+
+  it("creates linked cash settlement facts for buys and sells", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-cash-buy" },
+      payload: transactionPayload({ quantity: 10, priceNtd: 100, tradeDate: "2026-01-01" }),
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-cash-sell" },
+      payload: transactionPayload({
+        quantity: 5,
+        priceNtd: 130,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    const tradeEvents = store.accounting.facts.tradeEvents;
+    const cashEntries = store.accounting.facts.cashLedgerEntries;
+    const buyTrade = tradeEvents.find((item) => item.type === "BUY");
+    const sellTrade = tradeEvents.find((item) => item.type === "SELL");
+
+    expect(buyTrade).toBeDefined();
+    expect(sellTrade).toBeDefined();
+    expect(cashEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relatedTradeEventId: buyTrade?.id,
+          entryType: "TRADE_SETTLEMENT_OUT",
+          amountNtd: -(buyTrade!.quantity * buyTrade!.priceNtd + buyTrade!.commissionNtd + buyTrade!.taxNtd),
+        }),
+        expect.objectContaining({
+          relatedTradeEventId: sellTrade?.id,
+          entryType: "TRADE_SETTLEMENT_IN",
+          amountNtd: sellTrade!.quantity * sellTrade!.priceNtd - sellTrade!.commissionNtd - sellTrade!.taxNtd,
+        }),
+      ]),
+    );
   });
 
   it("previews and confirms recompute", async () => {
@@ -190,6 +241,13 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
     expect(beforeSell).toBeDefined();
 
+    const storeBefore = await app.persistence.loadStore("user-1");
+    const sellTradeBefore = storeBefore.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
+    const sellCashBefore = storeBefore.accounting.facts.cashLedgerEntries.find(
+      (entry) => entry.relatedTradeEventId === sellTradeBefore?.id,
+    );
+    expect(sellCashBefore).toBeDefined();
+
     const preview = await app.inject({
       method: "POST",
       url: "/portfolio/recompute/preview",
@@ -208,6 +266,17 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
     expect(afterSell).toBeDefined();
     expect(afterSell.realizedPnlNtd).not.toBe(beforeSell.realizedPnlNtd);
+
+    const storeAfter = await app.persistence.loadStore("user-1");
+    const sellTradeAfter = storeAfter.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
+    const sellCashAfter = storeAfter.accounting.facts.cashLedgerEntries.find(
+      (entry) => entry.relatedTradeEventId === sellTradeAfter?.id,
+    );
+    expect(sellCashAfter).toBeDefined();
+    expect(sellCashAfter?.amountNtd).not.toBe(sellCashBefore?.amountNtd);
+    expect(sellCashAfter?.amountNtd).toBe(
+      sellTradeAfter!.quantity * sellTradeAfter!.priceNtd - sellTradeAfter!.commissionNtd - sellTradeAfter!.taxNtd,
+    );
   });
 
   it("uses weighted-average cost basis for partial sells", async () => {
