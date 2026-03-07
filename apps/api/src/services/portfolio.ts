@@ -1,4 +1,5 @@
 import {
+  applyBuyToLots,
   allocateSellLots,
   calculateBuyFees,
   calculateSellFees,
@@ -69,6 +70,8 @@ export function createTransaction(
 }
 
 function applyToLots(store: Store, tx: Transaction): void {
+  const relevantLots = store.lots.filter((lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol);
+
   if (tx.type === "BUY") {
     const lot: Lot = {
       id: `lot-${tx.id}`,
@@ -78,22 +81,18 @@ function applyToLots(store: Store, tx: Transaction): void {
       totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd,
       openedAt: tx.tradeDate,
     };
-    store.lots.push(lot);
+    const applied = applyBuyToLots(relevantLots, lot);
+    replaceLots(store, tx.accountId, tx.symbol, applied.updatedLots);
     return;
   }
 
-  const lots = store.lots.filter(
-    (lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol && lot.openQuantity > 0,
-  );
+  const lots = relevantLots.filter((lot) => lot.openQuantity > 0);
   const allocation = allocateSellLots(lots, tx.quantity);
 
   const netProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
   tx.realizedPnlNtd = netProceeds - allocation.allocatedCostNtd;
 
-  for (const updatedLot of allocation.updatedLots) {
-    const idx = store.lots.findIndex((lot) => lot.id === updatedLot.id);
-    if (idx >= 0) store.lots[idx] = updatedLot;
-  }
+  replaceLots(store, tx.accountId, tx.symbol, allocation.updatedLots);
 }
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
@@ -155,4 +154,11 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
 
   store.corporateActions.push(action);
   return action;
+}
+
+function replaceLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
+  store.lots = [
+    ...store.lots.filter((lot) => lot.accountId !== accountId || lot.symbol !== symbol),
+    ...nextLots,
+  ];
 }
