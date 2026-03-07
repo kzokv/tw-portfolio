@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { listTradeEvents } from "./accountingStore.js";
 import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 
 interface PreviewInput {
@@ -12,7 +13,7 @@ interface PreviewInput {
 export function previewRecompute(store: Store, input: PreviewInput): RecomputeJob {
   const selectedProfile = input.profileId ? mustGetProfile(store, input.profileId) : undefined;
   const accountsById = new Map(store.accounts.map((account) => [account.id, account]));
-  const candidates = store.transactions.filter(
+  const candidates = listTradeEvents(store).filter(
     (tx) => tx.userId === input.userId && (!input.accountId || tx.accountId === input.accountId),
   );
 
@@ -66,7 +67,7 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
   if (!job) throw new Error("Recompute job not found");
 
   for (const item of job.items) {
-    const tx = store.transactions.find((entry) => entry.id === item.transactionId);
+    const tx = listTradeEvents(store).find((entry) => entry.id === item.transactionId);
     if (!tx) continue;
 
     const previousCommissionNtd = tx.commissionNtd;

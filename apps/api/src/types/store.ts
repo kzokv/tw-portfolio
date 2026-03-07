@@ -21,7 +21,7 @@ export interface SymbolDef {
 
 export type TransactionType = "BUY" | "SELL";
 
-export interface Transaction {
+export interface BookedTradeEvent {
   id: string;
   userId: string;
   accountId: string;
@@ -36,6 +36,33 @@ export interface Transaction {
   isDayTrade: boolean;
   feeSnapshot: FeeProfile;
   realizedPnlNtd?: number;
+}
+
+export type Transaction = BookedTradeEvent;
+
+export type CashLedgerEntryType =
+  | "TRADE_SETTLEMENT_IN"
+  | "TRADE_SETTLEMENT_OUT"
+  | "DIVIDEND_RECEIPT"
+  | "DIVIDEND_DEDUCTION"
+  | "MANUAL_ADJUSTMENT"
+  | "REVERSAL";
+
+export interface CashLedgerEntry {
+  id: string;
+  userId: string;
+  accountId: string;
+  entryDate: string;
+  entryType: CashLedgerEntryType;
+  amountNtd: number;
+  currency: "TWD";
+  relatedTradeEventId?: string;
+  relatedDividendLedgerEntryId?: string;
+  sourceType: string;
+  sourceReference?: string;
+  note?: string;
+  reversalOfCashLedgerEntryId?: string;
+  bookedAt?: string;
 }
 
 export interface RecomputePreviewItem {
@@ -68,16 +95,58 @@ export interface CorporateAction {
   actionDate: string;
 }
 
+export interface HoldingProjection {
+  accountId: string;
+  symbol: string;
+  quantity: number;
+  costNtd: number;
+}
+
+export interface DailyPortfolioSnapshot {
+  id: string;
+  snapshotDate: string;
+  totalMarketValueNtd: number;
+  totalCostNtd: number;
+  totalUnrealizedPnlNtd: number;
+  totalRealizedPnlNtd: number;
+  totalDividendReceivedNtd: number;
+  totalCashBalanceNtd: number;
+  totalNavNtd: number;
+  generatedAt: string;
+  generationRunId: string;
+}
+
+export interface AccountingFacts {
+  tradeEvents: BookedTradeEvent[];
+  cashLedgerEntries: CashLedgerEntry[];
+  corporateActions: CorporateAction[];
+}
+
+export interface AccountingProjections {
+  lots: Lot[];
+  holdings: HoldingProjection[];
+  dailyPortfolioSnapshots: DailyPortfolioSnapshot[];
+}
+
+export interface AccountingPolicy {
+  inventoryModel: "LOT_CAPABLE";
+  disposalPolicy: "WEIGHTED_AVERAGE";
+}
+
+export interface AccountingStore {
+  facts: AccountingFacts;
+  projections: AccountingProjections;
+  policy: AccountingPolicy;
+}
+
 export interface Store {
   userId: string;
   settings: UserSettings;
   accounts: Account[];
   feeProfileBindings: FeeProfileBinding[];
   feeProfiles: FeeProfile[];
-  transactions: Transaction[];
-  lots: Lot[];
+  accounting: AccountingStore;
   symbols: SymbolDef[];
   recomputeJobs: RecomputeJob[];
-  corporateActions: CorporateAction[];
   idempotencyKeys: Set<string>;
 }

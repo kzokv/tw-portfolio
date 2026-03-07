@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
+import { buildAccountingPolicy, rebuildHoldingProjection } from "../services/accountingStore.js";
 import type { RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
 import type { Persistence, ReadinessStatus } from "./types.js";
 
@@ -182,7 +183,7 @@ export class PostgresPersistence implements Persistence {
       items: recomputeItems.get(row.id) ?? [],
     }));
 
-    return {
+    const store: Store = {
       userId,
       settings: {
         userId,
@@ -202,31 +203,43 @@ export class PostgresPersistence implements Persistence {
         feeProfileId: row.fee_profile_id,
       })),
       feeProfiles,
-      transactions,
-      lots: lotsResult.rows.map((row) => ({
-        id: row.id,
-        accountId: row.account_id,
-        symbol: row.symbol,
-        openQuantity: row.open_quantity,
-        totalCostNtd: row.total_cost_ntd,
-        openedAt: normalizeDate(row.opened_at),
-      })),
+      accounting: {
+        facts: {
+          tradeEvents: transactions,
+          cashLedgerEntries: [],
+          corporateActions: actionsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            symbol: row.symbol,
+            actionType: row.action_type,
+            numerator: row.numerator,
+            denominator: row.denominator,
+            actionDate: normalizeDate(row.action_date),
+          })),
+        },
+        projections: {
+          lots: lotsResult.rows.map((row) => ({
+            id: row.id,
+            accountId: row.account_id,
+            symbol: row.symbol,
+            openQuantity: row.open_quantity,
+            totalCostNtd: row.total_cost_ntd,
+            openedAt: normalizeDate(row.opened_at),
+          })),
+          holdings: [],
+          dailyPortfolioSnapshots: [],
+        },
+        policy: buildAccountingPolicy(),
+      },
       symbols: symbolsResult.rows.map((row) => ({
         ticker: row.ticker,
         type: row.instrument_type,
       })),
       recomputeJobs,
-      corporateActions: actionsResult.rows.map((row) => ({
-        id: row.id,
-        accountId: row.account_id,
-        symbol: row.symbol,
-        actionType: row.action_type,
-        numerator: row.numerator,
-        denominator: row.denominator,
-        actionDate: normalizeDate(row.action_date),
-      })),
       idempotencyKeys: new Set<string>(),
     };
+    rebuildHoldingProjection(store);
+    return store;
   }
 
   async saveStore(store: Store): Promise<void> {
@@ -346,7 +359,7 @@ export class PostgresPersistence implements Persistence {
       await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
 
       await client.query(`DELETE FROM transactions WHERE user_id = $1`, [store.userId]);
-      for (const tx of store.transactions) {
+      for (const tx of store.accounting.facts.tradeEvents) {
         await client.query(
           `INSERT INTO transactions (
              id, user_id, account_id, symbol, instrument_type, tx_type,
@@ -390,7 +403,7 @@ export class PostgresPersistence implements Persistence {
 
       if (accountIds.length) {
         await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
-        for (const lot of store.lots) {
+        for (const lot of store.accounting.projections.lots) {
           await client.query(
             `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at)
              VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -399,7 +412,7 @@ export class PostgresPersistence implements Persistence {
         }
 
         await client.query(`DELETE FROM corporate_actions WHERE account_id = ANY($1)`, [accountIds]);
-        for (const action of store.corporateActions) {
+        for (const action of store.accounting.facts.corporateActions) {
           await client.query(
             `INSERT INTO corporate_actions (
                id, account_id, symbol, action_type, numerator, denominator, action_date
@@ -619,6 +632,14 @@ export class PostgresPersistence implements Persistence {
 function validateStoreInvariants(store: Store): void {
   if (!store.userId) {
     throw new Error("store user id is required");
+  }
+
+  if (store.accounting.policy.inventoryModel !== "LOT_CAPABLE") {
+    throw new Error("accounting policy must preserve lot-capable inventory");
+  }
+
+  if (store.accounting.policy.disposalPolicy !== "WEIGHTED_AVERAGE") {
+    throw new Error("accounting policy must define weighted-average disposal behavior");
   }
 
   const profilesById = new Set(store.feeProfiles.map((profile) => profile.id));
