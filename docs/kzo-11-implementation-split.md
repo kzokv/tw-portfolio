@@ -13,10 +13,12 @@ Execution should move in this order:
 1. surface alignment
 2. domain behavior
 3. schema foundation
-4. persistence/store contracts
-5. first write paths
-6. read models and reconciliation
-7. quality hardening
+4. direct cutover contract
+5. canonical store and persistence cutover
+6. canonical write paths and lot traceability
+7. gating correctness coverage
+8. read models and reconciliation
+9. cleanup and hardening
 
 This order preserves forward progress while minimizing rework.
 
@@ -88,7 +90,24 @@ Outputs:
 - keys and foreign keys aligned with canonical relationships
 - enough schema foundation for direct cutover to canonical facts
 
-## Batch 4. Store And Persistence Contract Refactor
+## Batch 4. Direct Cutover Contract
+
+Primary ticket:
+
+- `KZO-14` Define direct cutover architecture and legacy deprecation plan for the accounting model
+
+Goal:
+
+- lock the direct-cutover direction before more execution tickets are expanded
+
+Outputs:
+
+- canonical facts are identified as the long-term source of truth
+- lot-capable inventory is explicitly preserved
+- weighted-average is positioned as a policy/view layer
+- legacy scaffolding retirement assumptions are documented
+
+## Batch 5. Store And Persistence Contract Refactor
 
 Primary ticket:
 
@@ -112,11 +131,12 @@ Outputs:
 - clear write-model vs read-model boundaries
 - load/save behavior aligned with canonical facts and lot-capable projections
 
-## Batch 5. First Accounting Write Paths
+## Batch 6. First Accounting Write Paths And Lot Traceability
 
 Primary tickets:
 
 - `KZO-24` Implement trade event write path with linked cash ledger generation
+- `KZO-46` Add explicit booking sequence and lot allocation traceability for canonical trade disposal
 - `KZO-34` Implement dividend event and dividend ledger persistence
 - `KZO-36` Implement dividend posting API with received cash, stock, and deductions
 
@@ -133,10 +153,28 @@ Outputs:
 
 - posted trades produce explicit cash effects
 - lot-capable inventory remains available as a projection substrate
+- same-day ordering and sell allocation traceability are explicit
 - dividend declaration and posting are separated
 - actual dividend receipts and deductions are bookable
 
-## Batch 6. Reconciliation And Import Behaviors
+## Batch 7. Gating Correctness Coverage
+
+Primary tickets:
+
+- `KZO-26`
+- `KZO-38`
+
+Goal:
+
+- catch canonical cutover regressions before the product surface expands further
+
+Outputs:
+
+- canonical trade posting invariants are covered
+- integration tests target canonical accounting-first APIs
+- lot-capable projection behavior is validated alongside weighted-average views
+
+## Batch 8. Reconciliation And Import Behaviors
 
 Primary tickets:
 
@@ -166,7 +204,7 @@ Outputs:
 - explicit reconciliation records
 - non-destructive review workflow
 
-## Batch 7. Snapshot And Read-Model Completion
+## Batch 9. Snapshot And Read-Model Completion
 
 Primary follow-on scope:
 
@@ -187,7 +225,7 @@ Outputs:
 - reproducible derived read models
 - traceability back to source facts
 
-## Batch 8. Quality Hardening
+## Batch 10. Cleanup And Hardening
 
 Primary tickets:
 
@@ -204,7 +242,7 @@ Outputs:
 
 - canonical domain and integration coverage
 - updated end-to-end coverage
-- rollout and deprecation documentation
+- rollout, legacy cleanup, and deprecation documentation
 
 ## Ownership Guidance
 
