@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ ENV NEXT_PUBLIC_AUTH_USER_ID=${NEXT_PUBLIC_AUTH_USER_ID}
 RUN npm run build -w @tw-portfolio/shared-types \
  && npm run build -w @tw-portfolio/web
 
-FROM node:22-alpine
+FROM node:24-alpine
 
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app

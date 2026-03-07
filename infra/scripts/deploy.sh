@@ -21,6 +21,7 @@ DEPLOY_TS="$(date +%Y%m%d_%H%M%S)"
 DEPLOY_START_EPOCH=""
 PHASE_START_EPOCH=""
 IMAGE_TAG=""
+ENABLE_EXIT_DOCKER_CLEANUP=false
 
 COMPOSE_FILE=""
 COMPOSE_PROJECT=""
@@ -58,6 +59,45 @@ phase_done() {
   local elapsed=$(( $(date +%s) - PHASE_START_EPOCH ))
   log "done (${elapsed}s)"
 }
+
+cleanup_unused_images() {
+  set +e
+
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    log "WARNING: Skipping unused image cleanup because Docker is unavailable"
+    return 0
+  fi
+
+  if [ -z "$(docker images -q -f dangling=false 2>/dev/null)" ] && [ -z "$(docker images -q -f dangling=true 2>/dev/null)" ]; then
+    log "No Docker images available for cleanup"
+    return 0
+  fi
+
+  log "Pruning Docker images not used by any container..."
+  if ! docker image prune -a -f >/dev/null 2>&1; then
+    log "WARNING: Failed to prune unused Docker images"
+    return 0
+  fi
+
+  log "Unused Docker image cleanup complete"
+}
+
+finalize_deploy() {
+  local exit_code=$?
+  trap - EXIT
+
+  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+    cleanup_unused_images
+  fi
+
+  exit "$exit_code"
+}
+
+trap finalize_deploy EXIT
 
 dc() {
   docker compose --project-name "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
@@ -498,6 +538,7 @@ fi
 
 validate_preflight
 setup_deploy_log
+ENABLE_EXIT_DOCKER_CLEANUP=true
 DEPLOY_START_EPOCH=$(date +%s)
 
 if [ "$SELECT_BRANCH" = true ]; then
