@@ -6,6 +6,13 @@ import {
   type FeeProfile,
   type Lot,
 } from "@tw-portfolio/domain";
+import {
+  appendCorporateAction,
+  appendTradeEvent,
+  listInventoryLots,
+  rebuildHoldingProjection,
+  replaceInventoryLots,
+} from "./accountingStore.js";
 import type { CorporateAction, Store, Transaction } from "../types/store.js";
 
 export interface CreateTransactionInput {
@@ -65,12 +72,12 @@ export function createTransaction(
   };
 
   applyToLots(store, tx);
-  store.transactions.push(tx);
+  appendTradeEvent(store, tx);
   return tx;
 }
 
 function applyToLots(store: Store, tx: Transaction): void {
-  const relevantLots = store.lots.filter((lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol);
+  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol);
 
   if (tx.type === "BUY") {
     const lot: Lot = {
@@ -120,23 +127,12 @@ function resolveFeeProfileForTransaction(
 
 export function listHoldings(store: Store, userId: string): HoldingsRow[] {
   const accountIds = new Set(store.accounts.filter((item) => item.userId === userId).map((item) => item.id));
-  const keyMap = new Map<string, HoldingsRow>();
-
-  for (const lot of store.lots) {
-    if (!accountIds.has(lot.accountId) || lot.openQuantity <= 0) continue;
-    const key = `${lot.accountId}:${lot.symbol}`;
-    const current = keyMap.get(key) ?? { accountId: lot.accountId, symbol: lot.symbol, quantity: 0, costNtd: 0 };
-    current.quantity += lot.openQuantity;
-    current.costNtd += lot.totalCostNtd;
-    keyMap.set(key, current);
-  }
-
-  return [...keyMap.values()];
+  return store.accounting.projections.holdings.filter((holding) => accountIds.has(holding.accountId));
 }
 
 export function applyCorporateAction(store: Store, action: CorporateAction): CorporateAction {
   if (action.actionType === "DIVIDEND") {
-    store.corporateActions.push(action);
+    appendCorporateAction(store, action);
     return action;
   }
 
@@ -144,7 +140,7 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
     throw new Error("Invalid split ratio");
   }
 
-  for (const lot of store.lots) {
+  for (const lot of listInventoryLots(store)) {
     if (lot.accountId !== action.accountId || lot.symbol !== action.symbol || lot.openQuantity <= 0) continue;
 
     const splitRatio = action.numerator / action.denominator;
@@ -152,13 +148,11 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
     lot.openQuantity = nextQty;
   }
 
-  store.corporateActions.push(action);
+  appendCorporateAction(store, action);
+  rebuildHoldingProjection(store);
   return action;
 }
 
 function replaceLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
-  store.lots = [
-    ...store.lots.filter((lot) => lot.accountId !== accountId || lot.symbol !== symbol),
-    ...nextLots,
-  ];
+  replaceInventoryLots(store, accountId, symbol, nextLots);
 }

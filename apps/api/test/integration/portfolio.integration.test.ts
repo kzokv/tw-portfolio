@@ -26,6 +26,22 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const holdings = holdingsResponse.json();
     expect(Array.isArray(holdings)).toBe(true);
     expect(holdings[0].quantity).toBe(10);
+
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents).toHaveLength(1);
+    expect(store.accounting.facts.tradeEvents[0].type).toBe("BUY");
+    expect(store.accounting.projections.lots).toHaveLength(1);
+    expect(store.accounting.projections.holdings).toEqual([
+      expect.objectContaining({
+        accountId: "acc-1",
+        symbol: "2330",
+        quantity: 10,
+      }),
+    ]);
+    expect(store.accounting.policy).toEqual({
+      inventoryModel: "LOT_CAPABLE",
+      disposalPolicy: "WEIGHTED_AVERAGE",
+    });
   });
 
   it("previews and confirms recompute", async () => {

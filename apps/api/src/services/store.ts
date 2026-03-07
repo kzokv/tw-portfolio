@@ -1,4 +1,5 @@
 import type { FeeProfile } from "@tw-portfolio/domain";
+import { buildAccountingPolicy } from "./accountingStore.js";
 import type { Store } from "../types/store.js";
 
 const defaultFeeProfile: FeeProfile = {
@@ -40,15 +41,25 @@ export function createStore(): Store {
     ],
     feeProfiles: [seededFeeProfile],
     feeProfileBindings: [],
-    transactions: [],
-    lots: [],
+    accounting: {
+      facts: {
+        tradeEvents: [],
+        cashLedgerEntries: [],
+        corporateActions: [],
+      },
+      projections: {
+        lots: [],
+        holdings: [],
+        dailyPortfolioSnapshots: [],
+      },
+      policy: buildAccountingPolicy(),
+    },
     symbols: [
       { ticker: "2330", type: "STOCK" },
       { ticker: "0050", type: "ETF" },
       { ticker: "00679B", type: "BOND_ETF" },
     ],
     recomputeJobs: [],
-    corporateActions: [],
     idempotencyKeys: new Set<string>(),
   };
 }

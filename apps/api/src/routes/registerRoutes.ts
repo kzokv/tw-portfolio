@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import { env } from "../config/env.js";
 import { getQuotesWithFallback } from "../providers/marketData.js";
+import { listCorporateActions, listTradeEvents, syncAccountingPolicy } from "../services/accountingStore.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import type { Store } from "../types/store.js";
@@ -102,6 +103,7 @@ function resolveUserId(req: FastifyRequest): string {
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   const userId = resolveUserId(req);
   const store = await app.persistence.loadStore(userId);
+  syncAccountingPolicy(store);
   return { userId, store };
 }
 
@@ -463,7 +465,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const isDefaultInUse = store.accounts.some((account) => account.feeProfileId === params.id);
     const isOverrideInUse = store.feeProfileBindings.some((binding) => binding.feeProfileId === params.id);
-    const isTransactionInUse = store.transactions.some((tx) => tx.feeSnapshot.id === params.id);
+    const isTransactionInUse = listTradeEvents(store).some((tx) => tx.feeSnapshot.id === params.id);
     if (isDefaultInUse || isOverrideInUse || isTransactionInUse) {
       throw routeError(
         409,
@@ -535,7 +537,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/transactions", async (req) => {
     const { store } = await loadUserStore(app, req);
-    return store.transactions;
+    return listTradeEvents(store);
   });
 
   app.get("/portfolio/holdings", async (req) => {
@@ -546,7 +548,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/corporate-actions", async (req) => {
     const { store } = await loadUserStore(app, req);
-    return store.corporateActions;
+    return listCorporateActions(store);
   });
 
   app.post("/corporate-actions", async (req) => {
