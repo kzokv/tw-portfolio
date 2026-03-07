@@ -6,7 +6,14 @@ import { createClient, type RedisClientType } from "redis";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
 import { buildAccountingPolicy, rebuildHoldingProjection } from "../services/accountingStore.js";
-import type { RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
+import type {
+  CashLedgerEntry,
+  DailyPortfolioSnapshot,
+  RecomputeJob,
+  RecomputePreviewItem,
+  Store,
+  Transaction,
+} from "../types/store.js";
 import type { Persistence, ReadinessStatus } from "./types.js";
 
 export interface PostgresPersistenceOptions {
@@ -62,6 +69,16 @@ export class PostgresPersistence implements Persistence {
       [userId],
     );
 
+    const tradeEventsResult = await this.pool.query(
+      `SELECT id, user_id, account_id, symbol, instrument_type, trade_type, quantity,
+              price_ntd, trade_date, commission_ntd, tax_ntd, is_day_trade,
+              fee_snapshot_json, source_type, source_reference, booked_at, reversal_of_trade_event_id
+       FROM trade_events
+       WHERE user_id = $1
+       ORDER BY trade_date, booked_at, id`,
+      [userId],
+    );
+
     const transactionsResult = await this.pool.query(
       `SELECT id, user_id, account_id, symbol, instrument_type, tx_type, quantity,
               price_ntd, trade_date, commission_ntd, tax_ntd, is_day_trade,
@@ -111,6 +128,26 @@ export class PostgresPersistence implements Persistence {
       [userId],
     );
 
+    const cashLedgerResult = await this.pool.query(
+      `SELECT id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+              related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+       FROM cash_ledger_entries
+       WHERE user_id = $1
+       ORDER BY entry_date, booked_at, id`,
+      [userId],
+    );
+
+    const snapshotsResult = await this.pool.query(
+      `SELECT id, snapshot_date, total_market_value_ntd, total_cost_ntd,
+              total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
+              total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
+       FROM daily_portfolio_snapshots
+       WHERE user_id = $1
+       ORDER BY snapshot_date DESC, generated_at DESC, id DESC`,
+      [userId],
+    );
+
     const jobIds = jobsResult.rows.map((row) => row.id);
     const jobItemsResult = jobIds.length
       ? await this.pool.query(
@@ -143,21 +180,79 @@ export class PostgresPersistence implements Persistence {
       bondEtfSellTaxRateBps: row.bond_etf_sell_tax_rate_bps,
     }));
 
-    const transactions: Transaction[] = transactionsResult.rows.map((row) => ({
+    const realizedPnlByTradeId = new Map(
+      transactionsResult.rows.map((row) => [row.id as string, row.realized_pnl_ntd as number | null]),
+    );
+
+    const transactions: Transaction[] = tradeEventsResult.rows.length
+      ? tradeEventsResult.rows.map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          accountId: row.account_id,
+          symbol: row.symbol,
+          instrumentType: row.instrument_type,
+          type: row.trade_type,
+          quantity: row.quantity,
+          priceNtd: row.price_ntd,
+          tradeDate: normalizeDate(row.trade_date),
+          commissionNtd: row.commission_ntd,
+          taxNtd: row.tax_ntd,
+          isDayTrade: row.is_day_trade,
+          feeSnapshot: JSON.parse(row.fee_snapshot_json),
+          realizedPnlNtd: realizedPnlByTradeId.get(row.id) ?? undefined,
+          sourceType: row.source_type,
+          sourceReference: row.source_reference ?? undefined,
+          bookedAt: normalizeDateTime(row.booked_at),
+          reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+        }))
+      : transactionsResult.rows.map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          accountId: row.account_id,
+          symbol: row.symbol,
+          instrumentType: row.instrument_type,
+          type: row.tx_type,
+          quantity: row.quantity,
+          priceNtd: row.price_ntd,
+          tradeDate: normalizeDate(row.trade_date),
+          commissionNtd: row.commission_ntd,
+          taxNtd: row.tax_ntd,
+          isDayTrade: row.is_day_trade,
+          feeSnapshot: JSON.parse(row.fee_snapshot_json),
+          realizedPnlNtd: row.realized_pnl_ntd ?? undefined,
+          sourceType: "legacy_transaction",
+          sourceReference: row.id,
+        }));
+
+    const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
       id: row.id,
       userId: row.user_id,
       accountId: row.account_id,
-      symbol: row.symbol,
-      instrumentType: row.instrument_type,
-      type: row.tx_type,
-      quantity: row.quantity,
-      priceNtd: row.price_ntd,
-      tradeDate: normalizeDate(row.trade_date),
-      commissionNtd: row.commission_ntd,
-      taxNtd: row.tax_ntd,
-      isDayTrade: row.is_day_trade,
-      feeSnapshot: JSON.parse(row.fee_snapshot_json),
-      realizedPnlNtd: row.realized_pnl_ntd ?? undefined,
+      entryDate: normalizeDate(row.entry_date),
+      entryType: row.entry_type,
+      amountNtd: row.amount_ntd,
+      currency: row.currency,
+      relatedTradeEventId: row.related_trade_event_id ?? undefined,
+      relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
+      sourceType: row.source_type,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
+    const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
+      id: row.id,
+      snapshotDate: normalizeDate(row.snapshot_date),
+      totalMarketValueNtd: row.total_market_value_ntd,
+      totalCostNtd: row.total_cost_ntd,
+      totalUnrealizedPnlNtd: row.total_unrealized_pnl_ntd,
+      totalRealizedPnlNtd: row.total_realized_pnl_ntd,
+      totalDividendReceivedNtd: row.total_dividend_received_ntd,
+      totalCashBalanceNtd: row.total_cash_balance_ntd,
+      totalNavNtd: row.total_nav_ntd,
+      generatedAt: normalizeDateTime(row.generated_at),
+      generationRunId: row.generation_run_id,
     }));
 
     const recomputeItems = new Map<string, RecomputePreviewItem[]>();
@@ -206,7 +301,7 @@ export class PostgresPersistence implements Persistence {
       accounting: {
         facts: {
           tradeEvents: transactions,
-          cashLedgerEntries: [],
+          cashLedgerEntries,
           corporateActions: actionsResult.rows.map((row) => ({
             id: row.id,
             accountId: row.account_id,
@@ -227,7 +322,7 @@ export class PostgresPersistence implements Persistence {
             openedAt: normalizeDate(row.opened_at),
           })),
           holdings: [],
-          dailyPortfolioSnapshots: [],
+          dailyPortfolioSnapshots: snapshots,
         },
         policy: buildAccountingPolicy(),
       },
@@ -357,6 +452,103 @@ export class PostgresPersistence implements Persistence {
         [store.userId],
       );
       await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
+
+      await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [store.userId]);
+      await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [store.userId]);
+      await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [store.userId]);
+
+      for (const tx of store.accounting.facts.tradeEvents) {
+        await client.query(
+          `INSERT INTO trade_events (
+             id, user_id, account_id, symbol, instrument_type, trade_type,
+             quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
+             is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+             reversal_of_trade_event_id
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6,
+             $7, $8, $9, $10, $11,
+             $12, $13, $14, $15, $16,
+             $17
+           )`,
+          [
+            tx.id,
+            tx.userId,
+            tx.accountId,
+            tx.symbol,
+            tx.instrumentType,
+            tx.type,
+            tx.quantity,
+            tx.priceNtd,
+            tx.tradeDate,
+            tx.commissionNtd,
+            tx.taxNtd,
+            tx.isDayTrade,
+            JSON.stringify(tx.feeSnapshot),
+            tx.sourceType ?? "legacy_transaction",
+            tx.sourceReference ?? tx.id,
+            tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
+            tx.reversalOfTradeEventId ?? null,
+          ],
+        );
+      }
+
+      for (const entry of store.accounting.facts.cashLedgerEntries) {
+        await client.query(
+          `INSERT INTO cash_ledger_entries (
+             id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+             related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10,
+             $11, $12, $13, $14
+           )`,
+          [
+            entry.id,
+            entry.userId,
+            entry.accountId,
+            entry.entryDate,
+            entry.entryType,
+            entry.amountNtd,
+            entry.currency,
+            entry.relatedTradeEventId ?? null,
+            entry.relatedDividendLedgerEntryId ?? null,
+            entry.sourceType,
+            entry.sourceReference ?? null,
+            entry.note ?? null,
+            entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
+            entry.reversalOfCashLedgerEntryId ?? null,
+          ],
+        );
+      }
+
+      for (const snapshot of store.accounting.projections.dailyPortfolioSnapshots) {
+        await client.query(
+          `INSERT INTO daily_portfolio_snapshots (
+             id, user_id, snapshot_date, total_market_value_ntd, total_cost_ntd,
+             total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
+             total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8,
+             $9, $10, $11, $12
+           )`,
+          [
+            snapshot.id,
+            store.userId,
+            snapshot.snapshotDate,
+            snapshot.totalMarketValueNtd,
+            snapshot.totalCostNtd,
+            snapshot.totalUnrealizedPnlNtd,
+            snapshot.totalRealizedPnlNtd,
+            snapshot.totalDividendReceivedNtd,
+            snapshot.totalCashBalanceNtd,
+            snapshot.totalNavNtd,
+            snapshot.generatedAt,
+            snapshot.generationRunId,
+          ],
+        );
+      }
 
       await client.query(`DELETE FROM transactions WHERE user_id = $1`, [store.userId]);
       for (const tx of store.accounting.facts.tradeEvents) {

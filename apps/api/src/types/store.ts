@@ -36,6 +36,10 @@ export interface BookedTradeEvent {
   isDayTrade: boolean;
   feeSnapshot: FeeProfile;
   realizedPnlNtd?: number;
+  sourceType?: string;
+  sourceReference?: string;
+  bookedAt?: string;
+  reversalOfTradeEventId?: string;
 }
 
 export type Transaction = BookedTradeEvent;
