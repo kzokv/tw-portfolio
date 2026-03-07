@@ -9,7 +9,7 @@
 - Setup: `npm run onboard`.
 - Build all workspaces: `npm run build`.
 - Run lint: `npm run lint`.
-- Run core tests: `npm run test:unit`, `npm run test:integration`, `npm run test:e2e`.
+- Run core tests: `npm run test:unit`, the managed API integration command for your runtime (`npm run test:integration:ci:host` on `Darwin`; `npm run test:integration:ci:container` on `Linux`), then `npm run test:e2e`.
 - Start dev by mode:
 - `PERSISTENCE_BACKEND=memory`: run `npm run dev`.
 - `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`: run `npm run dev`.
@@ -23,6 +23,7 @@
 
 ## Testing instructions
 - Run the smallest relevant test scope first, then run broader regression checks.
+- For managed API Postgres integration runs, use `npm run test:integration:ci:host` on the macOS host or lume VM shell, and `npm run test:integration:ci:container` in a Linux container shell.
 - Include `## Testing` evidence in PRs with exact commands and outcomes.
 - If a check is skipped, record reason, approver, and planned follow-up.
 

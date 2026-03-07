@@ -11,8 +11,8 @@
 - Run API tests: `npm run test -w apps/api`.
 - Run integration tests: `npm run test:integration -w apps/api`.
 - Run managed Postgres integration variants from repo root:
-  - `npm run test:integration:ci:host` (host shell / guest VM shell)
-  - `npm run test:integration:ci:container` (Linux/containerized shell)
+  - `npm run test:integration:ci:host` on the macOS host or lume VM shell
+  - `npm run test:integration:ci:container` in a Linux container shell
 - Generate reports: `npm run test:html -w apps/api`, `npm run test:json -w apps/api`, `npm run test:junit -w apps/api`.
 
 ## Code style guidelines
@@ -26,7 +26,7 @@
 - Cover success, validation failure, and persistence failure paths.
 - Rebuild shared libs before API verification when shared packages change.
 - Coordinate with web tests when API contract changes affect UI flows.
-- Use managed integration CI commands when Postgres migration/persistence coverage is required; these commands manage isolated Postgres/Redis containers and set required env vars.
+- Use the managed integration CI commands for Postgres migration or persistence coverage. They start isolated Postgres and Redis containers and set the required environment variables.
 - Do not run `RUN_POSTGRES_INTEGRATION=1` directly with `npm run test:integration`; the Postgres migration suite is guarded to run only via the managed CI variant.
 
 ## Security considerations
