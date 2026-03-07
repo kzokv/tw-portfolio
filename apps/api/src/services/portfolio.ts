@@ -69,6 +69,8 @@ export function createTransaction(
     taxNtd: fees.taxNtd,
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
+    sourceType: "portfolio_transaction_api",
+    sourceReference: input.id,
   };
 
   applyToLots(store, tx);

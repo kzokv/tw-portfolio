@@ -310,4 +310,120 @@ describePostgres("postgres migrations", () => {
       ),
     ).rejects.toThrow(/duplicate key value/i);
   });
+
+  it("round-trips canonical trade facts and snapshots through Postgres persistence", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents = [
+      {
+        id: "trade-kzo48-1",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        priceNtd: 100,
+        tradeDate: "2026-03-01",
+        commissionNtd: 20,
+        taxNtd: 0,
+        isDayTrade: false,
+        feeSnapshot: store.feeProfiles[0],
+        sourceType: "test",
+        sourceReference: "trade-kzo48-1",
+        bookedAt: "2026-03-01T09:00:00.000Z",
+      },
+    ];
+    store.accounting.facts.cashLedgerEntries = [
+      {
+        id: "cash-kzo48-1",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        entryDate: "2026-03-01",
+        entryType: "TRADE_SETTLEMENT_OUT",
+        amountNtd: -1020,
+        currency: "TWD",
+        relatedTradeEventId: "trade-kzo48-1",
+        sourceType: "test",
+        sourceReference: "cash-kzo48-1",
+        bookedAt: "2026-03-01T09:00:01.000Z",
+      },
+    ];
+    store.accounting.projections.dailyPortfolioSnapshots = [
+      {
+        id: "snapshot-kzo48-1",
+        snapshotDate: "2026-03-01",
+        totalMarketValueNtd: 1000,
+        totalCostNtd: 1020,
+        totalUnrealizedPnlNtd: -20,
+        totalRealizedPnlNtd: 0,
+        totalDividendReceivedNtd: 0,
+        totalCashBalanceNtd: -1020,
+        totalNavNtd: -20,
+        generatedAt: "2026-03-01T23:59:59.000Z",
+        generationRunId: "run-kzo48-1",
+      },
+    ];
+
+    await persistence.saveStore(store);
+
+    const tradeEvents = await pool.query<{ id: string; source_type: string }>(
+      `SELECT id, source_type
+       FROM trade_events
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source_type: "test" }]);
+
+    const cashEntries = await pool.query<{ id: string; amount_ntd: number }>(
+      `SELECT id, amount_ntd
+       FROM cash_ledger_entries
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(cashEntries.rows).toEqual([{ id: "cash-kzo48-1", amount_ntd: -1020 }]);
+
+    const snapshots = await pool.query<{ id: string; generation_run_id: string }>(
+      `SELECT id, generation_run_id
+       FROM daily_portfolio_snapshots
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(snapshots.rows).toEqual([{ id: "snapshot-kzo48-1", generation_run_id: "run-kzo48-1" }]);
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.facts.tradeEvents).toEqual([
+      expect.objectContaining({
+        id: "trade-kzo48-1",
+        sourceType: "test",
+        sourceReference: "trade-kzo48-1",
+      }),
+    ]);
+    expect(reloaded.accounting.facts.cashLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: "cash-kzo48-1",
+        entryType: "TRADE_SETTLEMENT_OUT",
+        amountNtd: -1020,
+      }),
+    ]);
+    expect(reloaded.accounting.projections.dailyPortfolioSnapshots).toEqual([
+      expect.objectContaining({
+        id: "snapshot-kzo48-1",
+        generationRunId: "run-kzo48-1",
+      }),
+    ]);
+
+    const mirroredTransactions = await pool.query<{ id: string }>(
+      `SELECT id
+       FROM transactions
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(mirroredTransactions.rows).toEqual([{ id: "trade-kzo48-1" }]);
+  });
 });
