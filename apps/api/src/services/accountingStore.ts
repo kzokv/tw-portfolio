@@ -5,6 +5,7 @@ import type {
   CashLedgerEntry,
   CorporateAction,
   HoldingProjection,
+  LotAllocationProjection,
   Store,
 } from "../types/store.js";
 
@@ -43,6 +44,21 @@ export function replaceCashLedgerEntryForTrade(
   store.accounting.facts.cashLedgerEntries = [
     ...store.accounting.facts.cashLedgerEntries.filter((entry) => entry.relatedTradeEventId !== tradeEventId),
     nextCashLedgerEntry,
+  ];
+}
+
+export function listLotAllocations(store: Store): LotAllocationProjection[] {
+  return store.accounting.projections.lotAllocations;
+}
+
+export function replaceLotAllocationsForTrade(
+  store: Store,
+  tradeEventId: string,
+  nextLotAllocations: LotAllocationProjection[],
+): void {
+  store.accounting.projections.lotAllocations = [
+    ...store.accounting.projections.lotAllocations.filter((allocation) => allocation.tradeEventId !== tradeEventId),
+    ...nextLotAllocations,
   ];
 }
 

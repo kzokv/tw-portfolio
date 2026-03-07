@@ -118,6 +118,7 @@ describePostgres("postgres migrations", () => {
 
     const expectedTables = [
       "trade_events",
+      "lot_allocations",
       "cash_ledger_entries",
       "dividend_events",
       "dividend_ledger_entries",
@@ -136,8 +137,11 @@ describePostgres("postgres migrations", () => {
 
     const expectedIndexes = [
       "idx_trade_events_account_symbol_trade_date",
+      "idx_trade_events_account_symbol_booking_order",
       "ux_trade_events_account_source_reference",
       "ux_trade_events_reversal_of_trade_event_id",
+      "idx_lot_allocations_trade_event_id",
+      "ux_lot_allocations_trade_event_lot",
       "idx_cash_ledger_entries_account_entry_date",
       "ux_cash_ledger_entries_account_source_reference",
       "ux_cash_ledger_entries_reversal_of_cash_ledger_entry_id",
@@ -202,6 +206,16 @@ describePostgres("postgres migrations", () => {
     );
     expect(hasConstraint("trade_events", "trade_type = ANY")).toBe(true);
     expect(hasConstraint("trade_events", "quantity > 0")).toBe(true);
+    expect(hasConstraint("trade_events", "booking_sequence > 0")).toBe(true);
+
+    expect(
+      hasConstraint(
+        "lot_allocations",
+        "FOREIGN KEY (trade_event_id) REFERENCES trade_events(id)",
+      ),
+    ).toBe(true);
+    expect(hasConstraint("lot_allocations", "allocated_quantity > 0")).toBe(true);
+    expect(hasConstraint("lot_allocations", "lot_opened_sequence > 0")).toBe(true);
 
     expect(
       hasConstraint(
@@ -238,11 +252,12 @@ describePostgres("postgres migrations", () => {
     await pool.query(
       `INSERT INTO trade_events (
          id, user_id, account_id, symbol, instrument_type, trade_type, quantity, price_ntd,
-         trade_date, commission_ntd, tax_ntd, is_day_trade, fee_snapshot_json, source_type,
-         source_reference, booked_at
+         trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd, is_day_trade,
+         fee_snapshot_json, source_type, source_reference, booked_at
        ) VALUES (
          'trade-base', $1, $2, '2330', 'STOCK', 'BUY', 100, 600,
-         DATE '2026-03-01', 10, 0, false, '{}', 'manual', 'trade-base', NOW()
+         DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:00', 1, 10, 0, false,
+         '{}', 'manual', 'trade-base', NOW()
        )`,
       [userId, accountId],
     );
@@ -288,11 +303,12 @@ describePostgres("postgres migrations", () => {
     await pool.query(
       `INSERT INTO trade_events (
          id, user_id, account_id, symbol, instrument_type, trade_type, quantity, price_ntd,
-         trade_date, commission_ntd, tax_ntd, is_day_trade, fee_snapshot_json, source_type,
-         source_reference, booked_at, reversal_of_trade_event_id
+         trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd, is_day_trade,
+         fee_snapshot_json, source_type, source_reference, booked_at, reversal_of_trade_event_id
        ) VALUES (
          'trade-reversal-1', $1, $2, '2330', 'STOCK', 'SELL', 100, 600,
-         DATE '2026-03-03', 10, 0, false, '{}', 'manual', 'trade-reversal-1', NOW(), 'trade-base'
+         DATE '2026-03-03', TIMESTAMP '2026-03-03 09:00:00', 1, 10, 0, false,
+         '{}', 'manual', 'trade-reversal-1', NOW(), 'trade-base'
        )`,
       [userId, accountId],
     );
@@ -300,11 +316,12 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO trade_events (
            id, user_id, account_id, symbol, instrument_type, trade_type, quantity, price_ntd,
-           trade_date, commission_ntd, tax_ntd, is_day_trade, fee_snapshot_json, source_type,
-           source_reference, booked_at, reversal_of_trade_event_id
+           trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd, is_day_trade,
+           fee_snapshot_json, source_type, source_reference, booked_at, reversal_of_trade_event_id
          ) VALUES (
            'trade-reversal-2', $1, $2, '2330', 'STOCK', 'SELL', 100, 600,
-           DATE '2026-03-04', 10, 0, false, '{}', 'manual', 'trade-reversal-2', NOW(), 'trade-base'
+           DATE '2026-03-04', TIMESTAMP '2026-03-04 09:00:00', 1, 10, 0, false,
+           '{}', 'manual', 'trade-reversal-2', NOW(), 'trade-base'
          )`,
         [userId, accountId],
       ),
@@ -330,6 +347,8 @@ describePostgres("postgres migrations", () => {
         quantity: 10,
         priceNtd: 100,
         tradeDate: "2026-03-01",
+        tradeTimestamp: "2026-03-01T09:00:00.000Z",
+        bookingSequence: 1,
         commissionNtd: 20,
         taxNtd: 0,
         isDayTrade: false,
@@ -354,6 +373,32 @@ describePostgres("postgres migrations", () => {
         bookedAt: "2026-03-01T09:00:01.000Z",
       },
     ];
+    store.accounting.projections.lots = [
+      {
+        id: "lot-kzo46-1",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        openQuantity: 10,
+        totalCostNtd: 1020,
+        openedAt: "2026-03-01",
+        openedSequence: 1,
+      },
+    ];
+    store.accounting.projections.lotAllocations = [
+      {
+        id: "alloc-kzo46-1",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        tradeEventId: "trade-kzo48-1",
+        symbol: "2330",
+        lotId: "lot-kzo46-1",
+        lotOpenedAt: "2026-03-01",
+        lotOpenedSequence: 1,
+        allocatedQuantity: 10,
+        allocatedCostNtd: 1020,
+        createdAt: "2026-03-01T09:00:02.000Z",
+      },
+    ];
     store.accounting.projections.dailyPortfolioSnapshots = [
       {
         id: "snapshot-kzo48-1",
@@ -372,13 +417,23 @@ describePostgres("postgres migrations", () => {
 
     await persistence.saveStore(store);
 
-    const tradeEvents = await pool.query<{ id: string; source_type: string }>(
-      `SELECT id, source_type
+    const tradeEvents = await pool.query<{ id: string; source_type: string; booking_sequence: number }>(
+      `SELECT id, source_type, booking_sequence
        FROM trade_events
        WHERE user_id = 'user-1'
        ORDER BY id`,
     );
-    expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source_type: "test" }]);
+    expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source_type: "test", booking_sequence: 1 }]);
+
+    const lotAllocations = await pool.query<{ id: string; trade_event_id: string; lot_opened_sequence: number }>(
+      `SELECT id, trade_event_id, lot_opened_sequence
+       FROM lot_allocations
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(lotAllocations.rows).toEqual([
+      { id: "alloc-kzo46-1", trade_event_id: "trade-kzo48-1", lot_opened_sequence: 1 },
+    ]);
 
     const cashEntries = await pool.query<{ id: string; amount_ntd: number; related_trade_event_id: string | null }>(
       `SELECT id, amount_ntd, related_trade_event_id
@@ -404,6 +459,14 @@ describePostgres("postgres migrations", () => {
         id: "trade-kzo48-1",
         sourceType: "test",
         sourceReference: "trade-kzo48-1",
+        bookingSequence: 1,
+      }),
+    ]);
+    expect(reloaded.accounting.projections.lotAllocations).toEqual([
+      expect.objectContaining({
+        id: "alloc-kzo46-1",
+        tradeEventId: "trade-kzo48-1",
+        lotOpenedSequence: 1,
       }),
     ]);
     expect(reloaded.accounting.facts.cashLedgerEntries).toEqual([

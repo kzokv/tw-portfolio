@@ -25,6 +25,7 @@ const symbolSchema = z
   .regex(/^[A-Z0-9]+$/);
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const isoDateTimeSchema = z.string().datetime({ offset: true });
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
@@ -32,6 +33,8 @@ const transactionSchema = z.object({
   quantity: z.number().int().positive(),
   priceNtd: z.number().int().positive(),
   tradeDate: isoDateSchema,
+  tradeTimestamp: isoDateTimeSchema.optional(),
+  bookingSequence: z.number().int().positive().optional(),
   type: z.enum(["BUY", "SELL"]),
   isDayTrade: z.boolean().default(false),
 });

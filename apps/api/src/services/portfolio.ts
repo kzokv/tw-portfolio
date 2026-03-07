@@ -11,10 +11,19 @@ import {
   appendCorporateAction,
   appendTradeEvent,
   listInventoryLots,
+  listTradeEvents,
   rebuildHoldingProjection,
+  replaceLotAllocationsForTrade,
   replaceInventoryLots,
 } from "./accountingStore.js";
-import type { CashLedgerEntry, CorporateAction, Store, Transaction } from "../types/store.js";
+import type {
+  BookedTradeEvent,
+  CashLedgerEntry,
+  CorporateAction,
+  LotAllocationProjection,
+  Store,
+  Transaction,
+} from "../types/store.js";
 
 export interface CreateTransactionInput {
   id: string;
@@ -23,6 +32,8 @@ export interface CreateTransactionInput {
   quantity: number;
   priceNtd: number;
   tradeDate: string;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }
@@ -47,6 +58,8 @@ export function createTransaction(
   if (!instrument) throw new Error("Unsupported symbol");
 
   const tradeValueNtd = input.quantity * input.priceNtd;
+  assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
+  const bookingSequence = resolveBookingSequence(store, input.accountId, input.tradeDate, input.bookingSequence);
   const fees =
     input.type === "BUY"
       ? calculateBuyFees(profile, tradeValueNtd)
@@ -66,12 +79,15 @@ export function createTransaction(
     quantity: input.quantity,
     priceNtd: input.priceNtd,
     tradeDate: input.tradeDate,
+    tradeTimestamp: input.tradeTimestamp ?? new Date(`${input.tradeDate}T00:00:00.000Z`).toISOString(),
     commissionNtd: fees.commissionNtd,
     taxNtd: fees.taxNtd,
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
+    bookingSequence,
     sourceType: "portfolio_transaction_api",
     sourceReference: input.id,
+    bookedAt: new Date().toISOString(),
   };
 
   applyToLots(store, tx);
@@ -91,6 +107,7 @@ function applyToLots(store: Store, tx: Transaction): void {
       openQuantity: tx.quantity,
       totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd,
       openedAt: tx.tradeDate,
+      openedSequence: tx.bookingSequence,
     };
     const applied = applyBuyToLots(relevantLots, lot);
     replaceLots(store, tx.accountId, tx.symbol, applied.updatedLots);
@@ -104,6 +121,7 @@ function applyToLots(store: Store, tx: Transaction): void {
   tx.realizedPnlNtd = netProceeds - allocation.allocatedCostNtd;
 
   replaceLots(store, tx.accountId, tx.symbol, allocation.updatedLots);
+  replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
 }
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
@@ -159,6 +177,68 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
 
 function replaceLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
   replaceInventoryLots(store, accountId, symbol, nextLots);
+}
+
+function buildLotAllocationProjections(
+  tx: BookedTradeEvent,
+  matchedAllocations: Array<{
+    lotId: string;
+    quantity: number;
+    allocatedCostNtd: number;
+    openedAt: string;
+    openedSequence?: number;
+  }>,
+): LotAllocationProjection[] {
+  return matchedAllocations.map((allocation) => ({
+    id: `${tx.id}:${allocation.lotId}`,
+    userId: tx.userId,
+    accountId: tx.accountId,
+    tradeEventId: tx.id,
+    symbol: tx.symbol,
+    lotId: allocation.lotId,
+    lotOpenedAt: allocation.openedAt,
+    lotOpenedSequence: allocation.openedSequence ?? 1,
+    allocatedQuantity: allocation.quantity,
+    allocatedCostNtd: allocation.allocatedCostNtd,
+    createdAt: tx.bookedAt,
+  }));
+}
+
+function nextBookingSequence(store: Store, accountId: string, tradeDate: string): number {
+  const sameDayTrades = listTradeEvents(store).filter(
+    (trade) => trade.accountId === accountId && trade.tradeDate === tradeDate,
+  );
+
+  const highestSequence = sameDayTrades.reduce((max, trade) => Math.max(max, trade.bookingSequence ?? 0), 0);
+  return highestSequence + 1;
+}
+
+function resolveBookingSequence(
+  store: Store,
+  accountId: string,
+  tradeDate: string,
+  requestedSequence?: number,
+): number {
+  if (requestedSequence === undefined) {
+    return nextBookingSequence(store, accountId, tradeDate);
+  }
+
+  const collides = listTradeEvents(store).some(
+    (trade) =>
+      trade.accountId === accountId && trade.tradeDate === tradeDate && trade.bookingSequence === requestedSequence,
+  );
+  if (collides) {
+    throw new Error("Invalid booking sequence: already exists for the same account and trade date");
+  }
+
+  return requestedSequence;
+}
+
+function assertTradeTimestampMatchesTradeDate(tradeDate: string, tradeTimestamp?: string): void {
+  if (!tradeTimestamp) return;
+  if (tradeTimestamp.slice(0, 10) !== tradeDate) {
+    throw new Error("Trade timestamp must match trade date");
+  }
 }
 
 function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {

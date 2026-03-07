@@ -11,6 +11,8 @@ interface TransactionPayloadBase {
   quantity: number;
   priceNtd: number;
   tradeDate: string;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
   type: TransactionType;
   isDayTrade: boolean;
 }

@@ -8,6 +8,7 @@ const existingLot: Lot = {
   openQuantity: 100,
   totalCostNtd: 100_000,
   openedAt: "2026-01-01",
+  openedSequence: 1,
 };
 
 const nextBuyLot: Lot = {
@@ -17,6 +18,7 @@ const nextBuyLot: Lot = {
   openQuantity: 100,
   totalCostNtd: 120_000,
   openedAt: "2026-01-02",
+  openedSequence: 1,
 };
 
 describe("weighted-average lot accounting", () => {
@@ -38,6 +40,10 @@ describe("weighted-average lot accounting", () => {
     expect(result.averageCostNtd).toBe(1_100);
     expect(result.allocatedCostNtd).toBe(220_000);
     expect(result.matchedLotIds).toEqual(["lot-1", "lot-2"]);
+    expect(result.matchedAllocations).toEqual([
+      { lotId: "lot-1", quantity: 100, allocatedCostNtd: 110_000, openedAt: "2026-01-01", openedSequence: 1 },
+      { lotId: "lot-2", quantity: 100, allocatedCostNtd: 110_000, openedAt: "2026-01-02", openedSequence: 1 },
+    ]);
     expect(result.updatedLots).toEqual([
       { ...nextBuyLot, totalCostNtd: 0, openQuantity: 0 },
       { ...existingLot, totalCostNtd: 0, openQuantity: 0 },
@@ -118,6 +124,7 @@ describe("weighted-average lot accounting", () => {
         openQuantity: 50,
         totalCostNtd: 50_000,
         openedAt: "2026-01-01",
+        openedSequence: 1,
       },
       {
         ...existingLot,
@@ -125,6 +132,7 @@ describe("weighted-average lot accounting", () => {
         openQuantity: 50,
         totalCostNtd: 50_000,
         openedAt: "2026-01-01",
+        openedSequence: 1,
       },
     ];
 
@@ -134,6 +142,34 @@ describe("weighted-average lot accounting", () => {
     expect(result.updatedLots).toEqual([
       { ...sameDayLots[0], totalCostNtd: 50_000, openQuantity: 50 },
       { ...sameDayLots[1], totalCostNtd: 0, openQuantity: 0 },
+    ]);
+  });
+
+  it("orders same-day matched lots by opened sequence before lot id", () => {
+    const sameDayLots: Lot[] = [
+      {
+        ...existingLot,
+        id: "lot-b",
+        openQuantity: 50,
+        totalCostNtd: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 2,
+      },
+      {
+        ...existingLot,
+        id: "lot-a",
+        openQuantity: 50,
+        totalCostNtd: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+    ];
+
+    const result = allocateSellLots(sameDayLots, 50);
+
+    expect(result.matchedLotIds).toEqual(["lot-a"]);
+    expect(result.matchedAllocations).toEqual([
+      { lotId: "lot-a", quantity: 50, allocatedCostNtd: 50_000, openedAt: "2026-01-01", openedSequence: 1 },
     ]);
   });
 });

@@ -36,6 +36,8 @@ export interface BookedTradeEvent {
   isDayTrade: boolean;
   feeSnapshot: FeeProfile;
   realizedPnlNtd?: number;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
   sourceType?: string;
   sourceReference?: string;
   bookedAt?: string;
@@ -106,6 +108,20 @@ export interface HoldingProjection {
   costNtd: number;
 }
 
+export interface LotAllocationProjection {
+  id: string;
+  userId: string;
+  accountId: string;
+  tradeEventId: string;
+  symbol: string;
+  lotId: string;
+  lotOpenedAt: string;
+  lotOpenedSequence: number;
+  allocatedQuantity: number;
+  allocatedCostNtd: number;
+  createdAt?: string;
+}
+
 export interface DailyPortfolioSnapshot {
   id: string;
   snapshotDate: string;
@@ -128,6 +144,7 @@ export interface AccountingFacts {
 
 export interface AccountingProjections {
   lots: Lot[];
+  lotAllocations: LotAllocationProjection[];
   holdings: HoldingProjection[];
   dailyPortfolioSnapshots: DailyPortfolioSnapshot[];
 }

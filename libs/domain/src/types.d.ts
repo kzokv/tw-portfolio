@@ -21,6 +21,14 @@ export interface Lot {
     openQuantity: number;
     totalCostNtd: number;
     openedAt: string;
+    openedSequence?: number;
+}
+export interface MatchedLotAllocation {
+    lotId: string;
+    quantity: number;
+    allocatedCostNtd: number;
+    openedAt: string;
+    openedSequence?: number;
 }
 export interface BuyApplicationResult {
     averageCostNtd: number;
@@ -28,6 +36,7 @@ export interface BuyApplicationResult {
 }
 export interface SellAllocationResult {
     matchedLotIds: string[];
+    matchedAllocations: MatchedLotAllocation[];
     allocatedCostNtd: number;
     averageCostNtd: number;
     updatedLots: Lot[];

@@ -17,6 +17,7 @@ export function allocateSellLots(lots, quantityToSell) {
     const remainingOpenCostNtd = Math.max(0, totalOpenCostNtd - allocatedCostNtd);
     let remainingQty = quantityToSell;
     const matchedLotIds = [];
+    const matchedQuantities = [];
     const updates = new Map();
     for (const lot of orderedLots) {
         if (remainingQty <= 0)
@@ -31,7 +32,9 @@ export function allocateSellLots(lots, quantityToSell) {
             totalCostNtd: 0,
         });
         matchedLotIds.push(lot.id);
+        matchedQuantities.push({ lot, quantity: matchedQty });
     }
+    const matchedAllocations = allocateMatchedLotCosts(matchedQuantities, allocatedCostNtd, quantityToSell);
     const openLots = orderedLots
         .map((lot) => updates.get(lot.id) ?? lot)
         .filter((lot) => lot.openQuantity > 0);
@@ -40,7 +43,7 @@ export function allocateSellLots(lots, quantityToSell) {
         updates.set(lot.id, lot);
     }
     const updatedLots = normalizedLots.map((lot) => updates.get(lot.id) ?? lot);
-    return { matchedLotIds, allocatedCostNtd, averageCostNtd, updatedLots };
+    return { matchedLotIds, matchedAllocations, allocatedCostNtd, averageCostNtd, updatedLots };
 }
 function normalizeLotsForWeightedAverage(lots, forcedTotalCostNtd) {
     if (lots.length === 0)
@@ -82,7 +85,27 @@ function orderLots(lots) {
         const openedAtCompare = a.openedAt.localeCompare(b.openedAt);
         if (openedAtCompare !== 0)
             return openedAtCompare;
+        const openedSequenceCompare = (a.openedSequence ?? 0) - (b.openedSequence ?? 0);
+        if (openedSequenceCompare !== 0)
+            return openedSequenceCompare;
         return a.id.localeCompare(b.id);
+    });
+}
+function allocateMatchedLotCosts(matches, allocatedCostNtd, quantityToSell) {
+    let costLeftToAssign = allocatedCostNtd;
+    let quantityLeftToAssign = quantityToSell;
+    return matches.map(({ lot, quantity }, index) => {
+        const isLast = index === matches.length - 1;
+        const nextCost = isLast ? costLeftToAssign : Math.round((costLeftToAssign * quantity) / quantityLeftToAssign);
+        costLeftToAssign -= nextCost;
+        quantityLeftToAssign -= quantity;
+        return {
+            lotId: lot.id,
+            quantity,
+            allocatedCostNtd: nextCost,
+            openedAt: lot.openedAt,
+            openedSequence: lot.openedSequence,
+        };
     });
 }
 function summarizeOpenLots(lots) {

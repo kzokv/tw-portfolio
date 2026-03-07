@@ -49,6 +49,7 @@ export function createStore(): Store {
       },
       projections: {
         lots: [],
+        lotAllocations: [],
         holdings: [],
         dailyPortfolioSnapshots: [],
       },

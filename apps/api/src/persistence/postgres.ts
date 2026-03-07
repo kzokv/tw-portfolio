@@ -9,6 +9,7 @@ import { buildAccountingPolicy, rebuildHoldingProjection } from "../services/acc
 import type {
   CashLedgerEntry,
   DailyPortfolioSnapshot,
+  LotAllocationProjection,
   RecomputeJob,
   RecomputePreviewItem,
   Store,
@@ -71,11 +72,12 @@ export class PostgresPersistence implements Persistence {
 
     const tradeEventsResult = await this.pool.query(
       `SELECT id, user_id, account_id, symbol, instrument_type, trade_type, quantity,
-              price_ntd, trade_date, commission_ntd, tax_ntd, is_day_trade,
-              fee_snapshot_json, source_type, source_reference, booked_at, reversal_of_trade_event_id
+              price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd,
+              is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+              reversal_of_trade_event_id
        FROM trade_events
        WHERE user_id = $1
-       ORDER BY trade_date, booked_at, id`,
+       ORDER BY trade_date, booking_sequence, trade_timestamp, booked_at, id`,
       [userId],
     );
 
@@ -102,13 +104,22 @@ export class PostgresPersistence implements Persistence {
 
     const lotsResult = accountIds.length
       ? await this.pool.query(
-          `SELECT id, account_id, symbol, open_quantity, total_cost_ntd, opened_at
+          `SELECT id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence
            FROM lots
            WHERE account_id = ANY($1)
-           ORDER BY opened_at, id`,
+           ORDER BY opened_at, opened_sequence, id`,
           [accountIds],
         )
       : { rows: [] };
+
+    const lotAllocationsResult = await this.pool.query(
+      `SELECT id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+              lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+       FROM lot_allocations
+       WHERE user_id = $1
+       ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+      [userId],
+    );
 
     const actionsResult = accountIds.length
       ? await this.pool.query(
@@ -195,6 +206,8 @@ export class PostgresPersistence implements Persistence {
           quantity: row.quantity,
           priceNtd: row.price_ntd,
           tradeDate: normalizeDate(row.trade_date),
+          tradeTimestamp: normalizeDateTime(row.trade_timestamp),
+          bookingSequence: row.booking_sequence,
           commissionNtd: row.commission_ntd,
           taxNtd: row.tax_ntd,
           isDayTrade: row.is_day_trade,
@@ -215,6 +228,8 @@ export class PostgresPersistence implements Persistence {
           quantity: row.quantity,
           priceNtd: row.price_ntd,
           tradeDate: normalizeDate(row.trade_date),
+          tradeTimestamp: new Date(`${normalizeDate(row.trade_date)}T00:00:00.000Z`).toISOString(),
+          bookingSequence: undefined,
           commissionNtd: row.commission_ntd,
           taxNtd: row.tax_ntd,
           isDayTrade: row.is_day_trade,
@@ -239,6 +254,20 @@ export class PostgresPersistence implements Persistence {
       note: row.note ?? undefined,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
+    const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      tradeEventId: row.trade_event_id,
+      symbol: row.symbol,
+      lotId: row.lot_id,
+      lotOpenedAt: normalizeDate(row.lot_opened_at),
+      lotOpenedSequence: row.lot_opened_sequence,
+      allocatedQuantity: row.allocated_quantity,
+      allocatedCostNtd: row.allocated_cost_ntd,
+      createdAt: normalizeDateTime(row.created_at),
     }));
 
     const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
@@ -320,7 +349,9 @@ export class PostgresPersistence implements Persistence {
             openQuantity: row.open_quantity,
             totalCostNtd: row.total_cost_ntd,
             openedAt: normalizeDate(row.opened_at),
+            openedSequence: row.opened_sequence,
           })),
+          lotAllocations,
           holdings: [],
           dailyPortfolioSnapshots: snapshots,
         },
@@ -454,6 +485,7 @@ export class PostgresPersistence implements Persistence {
       await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
 
       await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [store.userId]);
+      await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [store.userId]);
       await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [store.userId]);
       await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [store.userId]);
 
@@ -461,14 +493,14 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO trade_events (
              id, user_id, account_id, symbol, instrument_type, trade_type,
-             quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
-             is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+             quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
+             tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
              reversal_of_trade_event_id
            ) VALUES (
              $1, $2, $3, $4, $5, $6,
-             $7, $8, $9, $10, $11,
-             $12, $13, $14, $15, $16,
-             $17
+             $7, $8, $9, $10, $11, $12,
+             $13, $14, $15, $16, $17, $18,
+             $19
            )`,
           [
             tx.id,
@@ -480,6 +512,8 @@ export class PostgresPersistence implements Persistence {
             tx.quantity,
             tx.priceNtd,
             tx.tradeDate,
+            tx.tradeTimestamp ?? tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
+            tx.bookingSequence ?? 1,
             tx.commissionNtd,
             tx.taxNtd,
             tx.isDayTrade,
@@ -518,6 +552,31 @@ export class PostgresPersistence implements Persistence {
             entry.note ?? null,
             entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
             entry.reversalOfCashLedgerEntryId ?? null,
+          ],
+        );
+      }
+
+      for (const allocation of store.accounting.projections.lotAllocations) {
+        await client.query(
+          `INSERT INTO lot_allocations (
+             id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+             lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11
+           )`,
+          [
+            allocation.id,
+            allocation.userId,
+            allocation.accountId,
+            allocation.tradeEventId,
+            allocation.symbol,
+            allocation.lotId,
+            allocation.lotOpenedAt,
+            allocation.lotOpenedSequence,
+            allocation.allocatedQuantity,
+            allocation.allocatedCostNtd,
+            allocation.createdAt ?? new Date().toISOString(),
           ],
         );
       }
@@ -597,9 +656,9 @@ export class PostgresPersistence implements Persistence {
         await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
         for (const lot of store.accounting.projections.lots) {
           await client.query(
-            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt],
+            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
           );
         }
 
@@ -859,6 +918,29 @@ function validateStoreInvariants(store: Store): void {
     }
     if (!/^[A-Za-z0-9]{1,16}$/.test(binding.symbol)) {
       throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
+    }
+  }
+
+  const tradeIds = new Set(store.accounting.facts.tradeEvents.map((trade) => trade.id));
+  const lotIds = new Set(store.accounting.projections.lots.map((lot) => lot.id));
+  for (const trade of store.accounting.facts.tradeEvents) {
+    if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
+      throw new Error(`trade ${trade.id} has invalid booking sequence`);
+    }
+  }
+
+  for (const lot of store.accounting.projections.lots) {
+    if (lot.openedSequence !== undefined && lot.openedSequence <= 0) {
+      throw new Error(`lot ${lot.id} has invalid opened sequence`);
+    }
+  }
+
+  for (const allocation of store.accounting.projections.lotAllocations) {
+    if (!tradeIds.has(allocation.tradeEventId)) {
+      throw new Error(`lot allocation ${allocation.id} references unknown trade ${allocation.tradeEventId}`);
+    }
+    if (!lotIds.has(allocation.lotId)) {
+      throw new Error(`lot allocation ${allocation.id} references unknown lot ${allocation.lotId}`);
     }
   }
 }

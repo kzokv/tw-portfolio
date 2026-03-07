@@ -30,6 +30,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const store = await app.persistence.loadStore("user-1");
     expect(store.accounting.facts.tradeEvents).toHaveLength(1);
     expect(store.accounting.facts.tradeEvents[0].type).toBe("BUY");
+    expect(store.accounting.facts.tradeEvents[0].bookingSequence).toBe(1);
     expect(store.accounting.facts.cashLedgerEntries).toEqual([
       expect.objectContaining({
         relatedTradeEventId: store.accounting.facts.tradeEvents[0].id,
@@ -38,6 +39,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       }),
     ]);
     expect(store.accounting.projections.lots).toHaveLength(1);
+    expect(store.accounting.projections.lots[0].openedSequence).toBe(1);
     expect(store.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "acc-1",
@@ -93,6 +95,108 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         }),
       ]),
     );
+  });
+
+  it("persists same-day booking sequence and sell-to-lot allocations", async () => {
+    const secondBuyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-seq-buy-2" },
+      payload: transactionPayload({
+        quantity: 10,
+        priceNtd: 120,
+        tradeDate: "2026-01-01",
+        tradeTimestamp: "2026-01-01T09:00:02.000Z",
+        bookingSequence: 2,
+      }),
+    });
+    expect(secondBuyResponse.statusCode).toBe(200);
+
+    const firstBuyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-seq-buy-1" },
+      payload: transactionPayload({
+        quantity: 10,
+        priceNtd: 100,
+        tradeDate: "2026-01-01",
+        tradeTimestamp: "2026-01-01T09:00:01.000Z",
+        bookingSequence: 1,
+      }),
+    });
+    expect(firstBuyResponse.statusCode).toBe(200);
+
+    const sellResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-seq-sell" },
+      payload: transactionPayload({
+        quantity: 5,
+        priceNtd: 130,
+        tradeDate: "2026-01-01",
+        tradeTimestamp: "2026-01-01T09:00:03.000Z",
+        bookingSequence: 3,
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(sellResponse.statusCode).toBe(200);
+    const firstBuy = firstBuyResponse.json();
+    const secondBuy = secondBuyResponse.json();
+    const sell = sellResponse.json();
+
+    const store = await app.persistence.loadStore("user-1");
+    const sameDayTrades = store.accounting.facts.tradeEvents
+      .filter((trade) => trade.tradeDate === "2026-01-01")
+      .sort((a, b) => (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+    expect(sameDayTrades.map((trade) => trade.bookingSequence)).toEqual([1, 2, 3]);
+
+    const sameDayLots = store.accounting.projections.lots
+      .filter((lot) => lot.symbol === "2330")
+      .sort((a, b) => (a.openedSequence ?? 0) - (b.openedSequence ?? 0));
+    expect(sameDayLots.map((lot) => lot.id)).toEqual([`lot-${firstBuy.id}`, `lot-${secondBuy.id}`]);
+    expect(sameDayLots.map((lot) => lot.openedSequence)).toEqual([1, 2]);
+
+    expect(store.accounting.projections.lotAllocations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tradeEventId: sell.id,
+          lotId: `lot-${firstBuy.id}`,
+          lotOpenedSequence: 1,
+          allocatedQuantity: 5,
+          allocatedCostNtd: 560,
+        }),
+      ]),
+    );
+  });
+
+  it("rejects duplicate same-day booking sequence for the same account", async () => {
+    const firstResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-seq-dup-1" },
+      payload: transactionPayload({
+        tradeDate: "2026-01-05",
+        tradeTimestamp: "2026-01-05T09:00:01.000Z",
+        bookingSequence: 1,
+      }),
+    });
+    expect(firstResponse.statusCode).toBe(200);
+
+    const secondResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-seq-dup-2" },
+      payload: transactionPayload({
+        tradeDate: "2026-01-05",
+        tradeTimestamp: "2026-01-05T09:00:02.000Z",
+        bookingSequence: 1,
+      }),
+    });
+    expect(secondResponse.statusCode).toBe(400);
+    expect(secondResponse.json()).toMatchObject({
+      error: "invalid_request",
+      message: "Invalid booking sequence: already exists for the same account and trade date",
+    });
   });
 
   it("previews and confirms recompute", async () => {
