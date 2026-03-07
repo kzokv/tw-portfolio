@@ -86,7 +86,7 @@ Outputs:
 
 - additive tables for new accounting entities
 - keys and foreign keys aligned with canonical relationships
-- no destructive cutover of existing transaction/lot tables yet
+- enough schema foundation for direct cutover to canonical facts
 
 ## Batch 4. Store And Persistence Contract Refactor
 
@@ -94,9 +94,13 @@ Primary ticket:
 
 - `KZO-16` Refactor API store and persistence contracts around accounting aggregates
 
+Migration design reference:
+
+- `docs/kzo-14-migration-strategy.md`
+
 Goal:
 
-- make persistence capable of loading and saving the new aggregates
+- make canonical facts and projections the primary persistence model
 
 Dependencies:
 
@@ -105,8 +109,8 @@ Dependencies:
 Outputs:
 
 - store types for trade, cash, dividend, reconciliation, snapshot aggregates
-- load/save behavior aligned with new schema
-- fixture support for mixed old/new model during migration if needed
+- clear write-model vs read-model boundaries
+- load/save behavior aligned with canonical facts and lot-capable projections
 
 ## Batch 5. First Accounting Write Paths
 
@@ -118,7 +122,7 @@ Primary tickets:
 
 Goal:
 
-- move from canonical spec to first real accounting writes
+- move from canonical spec to first authoritative canonical writes
 
 Dependencies:
 
@@ -128,6 +132,7 @@ Dependencies:
 Outputs:
 
 - posted trades produce explicit cash effects
+- lot-capable inventory remains available as a projection substrate
 - dividend declaration and posting are separated
 - actual dividend receipts and deductions are bookable
 
@@ -197,7 +202,7 @@ Goal:
 
 Outputs:
 
-- domain and integration coverage
+- canonical domain and integration coverage
 - updated end-to-end coverage
 - rollout and deprecation documentation
 
