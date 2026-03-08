@@ -1,4 +1,4 @@
-import type { Store } from "../types/store.js";
+import type { AccountingStore, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 
 export interface ReadinessStatus {
@@ -12,6 +12,8 @@ export interface Persistence {
   close(): Promise<void>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
+  loadAccountingStore(userId: string): Promise<AccountingStore>;
+  saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>>;

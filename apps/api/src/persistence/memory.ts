@@ -1,5 +1,5 @@
 import { createStore } from "../services/store.js";
-import type { Store } from "../types/store.js";
+import type { AccountingStore, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { Persistence, ReadinessStatus } from "./types.js";
 
@@ -27,6 +27,17 @@ export class MemoryPersistence implements Persistence {
 
   async saveStore(store: Store): Promise<void> {
     this.stores.set(store.userId, store);
+  }
+
+  async loadAccountingStore(userId: string): Promise<AccountingStore> {
+    const store = await this.loadStore(userId);
+    return store.accounting;
+  }
+
+  async saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void> {
+    const store = await this.loadStore(userId);
+    store.accounting = accounting;
+    this.stores.set(userId, store);
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
