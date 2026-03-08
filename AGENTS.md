@@ -5,6 +5,12 @@
 - Nearest local `AGENTS.md` is authoritative for folder-specific instructions.
 - Use this file for global rules only; avoid adding domain-local implementation details.
 
+## Read-before-work files
+- Read this root `AGENTS.md` first, then the nearest local `AGENTS.md` for the area you are changing.
+- For meaningful resumed work, read `.worklog/latest-handoff.md` first.
+- Read `.worklog/current-focus.md` and `.worklog/open-questions.md` when they exist and are relevant.
+- Use domain-specific `AGENTS.md` files only where behavior genuinely differs, such as `apps/web/AGENTS.md`, `apps/api/AGENTS.md`, and `infra/AGENTS.md`.
+
 ## Build and test commands
 - Setup: `npm run onboard`.
 - Build all workspaces: `npm run build`.
@@ -20,6 +26,20 @@
 - Keep lint clean under the repo ESLint configuration.
 - Prefer small, focused changes with clear intent and minimal churn.
 - Keep commands and docs synchronized when scripts or workflows change.
+
+## Knowledge curation
+- Canonical knowledge for this repo lives in repository markdown. Do not use Basic Memory MCP for this workflow.
+- Use `AGENTS.md` for stable repo-wide rules and repeated corrections.
+- Use `docs/notes/` for durable technical notes, gotchas, caveats, and investigation outcomes.
+- Use `docs/adr/` for meaningful design, architecture, and strategy decisions with rationale.
+- Use `.worklog/` for transient task state, next steps, blockers, risks, and handoff.
+- Promote only repeated corrections, reusable workflows, meaningful decisions, or expensive-to-rediscover gotchas.
+- If nothing meets that threshold, say so explicitly and do not force promotion.
+- Prefer one concept, one home. Avoid duplicating the same guidance across `AGENTS.md`, notes, ADRs, and handoff files unless there is a strong reason.
+- During meaningful work, suggest the single best follow-up action when durable knowledge appears.
+- Before ending meaningful implementation, debugging, refactor, or handoff work, run curation and refresh `.worklog/latest-handoff.md` when resumability matters.
+- Shared workflow assets live outside this repo: use the shared `knowledge-curator` skill discovered via `$HOME/.agents/skills/knowledge-curator/` and the shared prompt wrappers under `~/.codex/prompts/`.
+- Keep `AGENTS.md` lean. Do not put current task status, bug timelines, big narrative progress reports, personal reminders, or long architecture essays here.
 
 ## Testing instructions
 - Run the smallest relevant test scope first, then run broader regression checks.
