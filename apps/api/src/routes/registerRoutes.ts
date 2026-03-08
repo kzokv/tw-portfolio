@@ -529,7 +529,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      await app.persistence.saveAccountingStore(userId, draftStore.accounting);
+      await app.persistence.savePostedTrade(userId, draftStore.accounting, tx.id);
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { createTransaction } from "../../src/services/portfolio.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
@@ -507,12 +508,187 @@ describePostgres("postgres migrations", () => {
        ) VALUES (
          'legacy-transaction-only', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
          10, 100, DATE '2026-03-01', 20, 0,
-         false, 'fp-default', '{}', NULL
+         false, 'user-1-fp-default', '{}', NULL
        )`,
     );
 
     const reloaded = await persistence.loadStore("user-1");
 
     expect(reloaded.accounting.facts.tradeEvents).toEqual([]);
+  });
+
+  it("persists a posted buy through the canonical savePostedTrade path", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const createdTrade = createTransaction(store, "user-1", {
+      id: "trade-kzo24-buy",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 10,
+      priceNtd: 100,
+      tradeDate: "2026-03-01",
+      tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      type: "BUY",
+      isDayTrade: false,
+    });
+
+    await persistence.savePostedTrade("user-1", store.accounting, createdTrade.id);
+
+    const tradeEvents = await pool.query<{
+      id: string;
+      source_type: string;
+      source_reference: string | null;
+      booking_sequence: number;
+    }>(
+      `SELECT id, source_type, source_reference, booking_sequence
+       FROM trade_events
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(tradeEvents.rows).toEqual([
+      {
+        id: createdTrade.id,
+        source_type: "portfolio_transaction_api",
+        source_reference: createdTrade.id,
+        booking_sequence: 1,
+      },
+    ]);
+
+    const cashEntries = await pool.query<{
+      related_trade_event_id: string | null;
+      entry_type: string;
+      amount_ntd: number;
+      source_type: string;
+    }>(
+      `SELECT related_trade_event_id, entry_type, amount_ntd, source_type
+       FROM cash_ledger_entries
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(cashEntries.rows).toEqual([
+      {
+        related_trade_event_id: createdTrade.id,
+        entry_type: "TRADE_SETTLEMENT_OUT",
+        amount_ntd: -(10 * 100 + createdTrade.commissionNtd + createdTrade.taxNtd),
+        source_type: "trade_settlement",
+      },
+    ]);
+
+    const lots = await pool.query<{
+      symbol: string;
+      open_quantity: number;
+      total_cost_ntd: number;
+      opened_sequence: number;
+    }>(
+      `SELECT symbol, open_quantity, total_cost_ntd, opened_sequence
+       FROM lots
+       WHERE account_id = 'user-1-acc-1'
+       ORDER BY id`,
+    );
+    expect(lots.rows).toEqual([
+      {
+        symbol: "2330",
+        open_quantity: 10,
+        total_cost_ntd: 10 * 100 + createdTrade.commissionNtd,
+        opened_sequence: 1,
+      },
+    ]);
+  });
+
+  it("persists a posted sell with lot allocations and reloadable holdings", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const buyTrade = createTransaction(store, "user-1", {
+      id: "trade-kzo24-seeded-buy",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 10,
+      priceNtd: 100,
+      tradeDate: "2026-03-01",
+      tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, buyTrade.id);
+
+    const sellTrade = createTransaction(store, "user-1", {
+      id: "trade-kzo24-sell",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 5,
+      priceNtd: 130,
+      tradeDate: "2026-03-02",
+      tradeTimestamp: "2026-03-02T09:00:00.000Z",
+      type: "SELL",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, sellTrade.id);
+
+    const lotAllocations = await pool.query<{
+      trade_event_id: string;
+      allocated_quantity: number;
+      allocated_cost_ntd: number;
+      lot_opened_sequence: number;
+    }>(
+      `SELECT trade_event_id, allocated_quantity, allocated_cost_ntd, lot_opened_sequence
+       FROM lot_allocations
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(lotAllocations.rows).toEqual([
+      {
+        trade_event_id: sellTrade.id,
+        allocated_quantity: 5,
+        allocated_cost_ntd: 510,
+        lot_opened_sequence: 1,
+      },
+    ]);
+
+    const cashEntries = await pool.query<{
+      related_trade_event_id: string | null;
+      entry_type: string;
+      amount_ntd: number;
+    }>(
+      `SELECT related_trade_event_id, entry_type, amount_ntd
+       FROM cash_ledger_entries
+       WHERE user_id = 'user-1'
+       ORDER BY entry_date, id`,
+    );
+    expect(cashEntries.rows).toEqual([
+      {
+        related_trade_event_id: buyTrade.id,
+        entry_type: "TRADE_SETTLEMENT_OUT",
+        amount_ntd: -1020,
+      },
+      {
+        related_trade_event_id: sellTrade.id,
+        entry_type: "TRADE_SETTLEMENT_IN",
+        amount_ntd: 629,
+      },
+    ]);
+
+    await pool.query(`DELETE FROM transactions WHERE user_id = 'user-1'`);
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.projections.holdings).toEqual([
+      expect.objectContaining({
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        quantity: 5,
+        costNtd: 510,
+      }),
+    ]);
+    const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === sellTrade.id);
+    expect(reloadedSell?.realizedPnlNtd).toBe(119);
   });
 });
