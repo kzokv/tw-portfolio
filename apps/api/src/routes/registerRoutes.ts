@@ -529,7 +529,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      await app.persistence.saveStore(draftStore);
+      await app.persistence.saveAccountingStore(userId, draftStore.accounting);
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;
@@ -565,7 +565,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ...body,
     });
 
-    await app.persistence.saveStore(store);
+    await app.persistence.saveAccountingStore(store.userId, store.accounting);
     return action;
   });
 
@@ -704,7 +704,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }),
     );
 
-    await app.persistence.saveStore(draftStore);
+    await app.persistence.saveAccountingStore(userId, draftStore.accounting);
     return { created };
   });
 }

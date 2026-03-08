@@ -1,8 +1,9 @@
-import Fastify, { type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { env, getAllowedOrigins, normalizeOrigin } from "./config/env.js";
 import { createPersistence } from "./persistence/index.js";
+import type { Persistence } from "./persistence/types.js";
 import { registerRoutes } from "./routes/registerRoutes.js";
 
 interface BuildAppOptions {
@@ -18,6 +19,10 @@ interface HttpishError extends Error {
   statusCode?: number;
   code?: string;
 }
+
+export type AppInstance = FastifyInstance & {
+  persistence: Persistence;
+};
 
 const mutationBuckets = new Map<string, RateCounter>();
 
@@ -42,8 +47,8 @@ function isLocalDevOrigin(origin: string): boolean {
   return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
-export async function buildApp(options: BuildAppOptions = {}) {
-  const app = Fastify({ logger: true });
+export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
+  const app = Fastify({ logger: true }) as AppInstance;
   app.persistence = createPersistence(options.persistenceBackend);
   await app.persistence.init();
 

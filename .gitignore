@@ -15,5 +15,8 @@ coverage
 playwright-report
 test-results
 vitest-report
+apps/api/test/**/*.js
+apps/api/test/**/*.js.map
+apps/api/test/**/*.d.ts
 
 **/plans/**.md

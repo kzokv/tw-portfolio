@@ -7,6 +7,7 @@ import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
 import { buildAccountingPolicy, rebuildHoldingProjection } from "../services/accountingStore.js";
 import type {
+  AccountingStore,
   CashLedgerEntry,
   DailyPortfolioSnapshot,
   LotAllocationProjection,
@@ -81,13 +82,11 @@ export class PostgresPersistence implements Persistence {
       [userId],
     );
 
-    const transactionsResult = await this.pool.query(
-      `SELECT id, user_id, account_id, symbol, instrument_type, tx_type, quantity,
-              price_ntd, trade_date, commission_ntd, tax_ntd, is_day_trade,
-              fee_snapshot_json, realized_pnl_ntd
+    const transactionMirrorResult = await this.pool.query(
+      `SELECT id, realized_pnl_ntd
        FROM transactions
        WHERE user_id = $1
-       ORDER BY trade_date, id`,
+       ORDER BY id`,
       [userId],
     );
 
@@ -192,52 +191,31 @@ export class PostgresPersistence implements Persistence {
     }));
 
     const realizedPnlByTradeId = new Map(
-      transactionsResult.rows.map((row) => [row.id as string, row.realized_pnl_ntd as number | null]),
+      transactionMirrorResult.rows.map((row) => [row.id as string, row.realized_pnl_ntd as number | null]),
     );
 
-    const transactions: Transaction[] = tradeEventsResult.rows.length
-      ? tradeEventsResult.rows.map((row) => ({
-          id: row.id,
-          userId: row.user_id,
-          accountId: row.account_id,
-          symbol: row.symbol,
-          instrumentType: row.instrument_type,
-          type: row.trade_type,
-          quantity: row.quantity,
-          priceNtd: row.price_ntd,
-          tradeDate: normalizeDate(row.trade_date),
-          tradeTimestamp: normalizeDateTime(row.trade_timestamp),
-          bookingSequence: row.booking_sequence,
-          commissionNtd: row.commission_ntd,
-          taxNtd: row.tax_ntd,
-          isDayTrade: row.is_day_trade,
-          feeSnapshot: JSON.parse(row.fee_snapshot_json),
-          realizedPnlNtd: realizedPnlByTradeId.get(row.id) ?? undefined,
-          sourceType: row.source_type,
-          sourceReference: row.source_reference ?? undefined,
-          bookedAt: normalizeDateTime(row.booked_at),
-          reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
-        }))
-      : transactionsResult.rows.map((row) => ({
-          id: row.id,
-          userId: row.user_id,
-          accountId: row.account_id,
-          symbol: row.symbol,
-          instrumentType: row.instrument_type,
-          type: row.tx_type,
-          quantity: row.quantity,
-          priceNtd: row.price_ntd,
-          tradeDate: normalizeDate(row.trade_date),
-          tradeTimestamp: new Date(`${normalizeDate(row.trade_date)}T00:00:00.000Z`).toISOString(),
-          bookingSequence: undefined,
-          commissionNtd: row.commission_ntd,
-          taxNtd: row.tax_ntd,
-          isDayTrade: row.is_day_trade,
-          feeSnapshot: JSON.parse(row.fee_snapshot_json),
-          realizedPnlNtd: row.realized_pnl_ntd ?? undefined,
-          sourceType: "legacy_transaction",
-          sourceReference: row.id,
-        }));
+    const transactions: Transaction[] = tradeEventsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      symbol: row.symbol,
+      instrumentType: row.instrument_type,
+      type: row.trade_type,
+      quantity: row.quantity,
+      priceNtd: row.price_ntd,
+      tradeDate: normalizeDate(row.trade_date),
+      tradeTimestamp: normalizeDateTime(row.trade_timestamp),
+      bookingSequence: row.booking_sequence,
+      commissionNtd: row.commission_ntd,
+      taxNtd: row.tax_ntd,
+      isDayTrade: row.is_day_trade,
+      feeSnapshot: JSON.parse(row.fee_snapshot_json),
+      realizedPnlNtd: realizedPnlByTradeId.get(row.id) ?? undefined,
+      sourceType: row.source_type,
+      sourceReference: row.source_reference ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+      reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+    }));
 
     const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
       id: row.id,
@@ -368,6 +346,11 @@ export class PostgresPersistence implements Persistence {
     return store;
   }
 
+  async loadAccountingStore(userId: string): Promise<AccountingStore> {
+    const store = await this.loadStore(userId);
+    return store.accounting;
+  }
+
   async saveStore(store: Store): Promise<void> {
     validateStoreInvariants(store);
     const client = await this.pool.connect();
@@ -483,163 +466,7 @@ export class PostgresPersistence implements Persistence {
         [store.userId],
       );
       await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
-
-      await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [store.userId]);
-      await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [store.userId]);
-      await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [store.userId]);
-      await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [store.userId]);
-
-      for (const tx of store.accounting.facts.tradeEvents) {
-        await client.query(
-          `INSERT INTO trade_events (
-             id, user_id, account_id, symbol, instrument_type, trade_type,
-             quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
-             tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
-             reversal_of_trade_event_id
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6,
-             $7, $8, $9, $10, $11, $12,
-             $13, $14, $15, $16, $17, $18,
-             $19
-           )`,
-          [
-            tx.id,
-            tx.userId,
-            tx.accountId,
-            tx.symbol,
-            tx.instrumentType,
-            tx.type,
-            tx.quantity,
-            tx.priceNtd,
-            tx.tradeDate,
-            tx.tradeTimestamp ?? tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
-            tx.bookingSequence ?? 1,
-            tx.commissionNtd,
-            tx.taxNtd,
-            tx.isDayTrade,
-            JSON.stringify(tx.feeSnapshot),
-            tx.sourceType ?? "legacy_transaction",
-            tx.sourceReference ?? tx.id,
-            tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
-            tx.reversalOfTradeEventId ?? null,
-          ],
-        );
-      }
-
-      for (const entry of store.accounting.facts.cashLedgerEntries) {
-        await client.query(
-          `INSERT INTO cash_ledger_entries (
-             id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
-             related_trade_event_id, related_dividend_ledger_entry_id, source_type,
-             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10,
-             $11, $12, $13, $14
-           )`,
-          [
-            entry.id,
-            entry.userId,
-            entry.accountId,
-            entry.entryDate,
-            entry.entryType,
-            entry.amountNtd,
-            entry.currency,
-            entry.relatedTradeEventId ?? null,
-            entry.relatedDividendLedgerEntryId ?? null,
-            entry.sourceType,
-            entry.sourceReference ?? null,
-            entry.note ?? null,
-            entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
-            entry.reversalOfCashLedgerEntryId ?? null,
-          ],
-        );
-      }
-
-      for (const allocation of store.accounting.projections.lotAllocations) {
-        await client.query(
-          `INSERT INTO lot_allocations (
-             id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
-             lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10, $11
-           )`,
-          [
-            allocation.id,
-            allocation.userId,
-            allocation.accountId,
-            allocation.tradeEventId,
-            allocation.symbol,
-            allocation.lotId,
-            allocation.lotOpenedAt,
-            allocation.lotOpenedSequence,
-            allocation.allocatedQuantity,
-            allocation.allocatedCostNtd,
-            allocation.createdAt ?? new Date().toISOString(),
-          ],
-        );
-      }
-
-      for (const snapshot of store.accounting.projections.dailyPortfolioSnapshots) {
-        await client.query(
-          `INSERT INTO daily_portfolio_snapshots (
-             id, user_id, snapshot_date, total_market_value_ntd, total_cost_ntd,
-             total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
-             total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
-           ) VALUES (
-             $1, $2, $3, $4, $5,
-             $6, $7, $8,
-             $9, $10, $11, $12
-           )`,
-          [
-            snapshot.id,
-            store.userId,
-            snapshot.snapshotDate,
-            snapshot.totalMarketValueNtd,
-            snapshot.totalCostNtd,
-            snapshot.totalUnrealizedPnlNtd,
-            snapshot.totalRealizedPnlNtd,
-            snapshot.totalDividendReceivedNtd,
-            snapshot.totalCashBalanceNtd,
-            snapshot.totalNavNtd,
-            snapshot.generatedAt,
-            snapshot.generationRunId,
-          ],
-        );
-      }
-
-      await client.query(`DELETE FROM transactions WHERE user_id = $1`, [store.userId]);
-      for (const tx of store.accounting.facts.tradeEvents) {
-        await client.query(
-          `INSERT INTO transactions (
-             id, user_id, account_id, symbol, instrument_type, tx_type,
-             quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
-             is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
-           ) VALUES (
-             $1, $2, $3, $4, $5, $6,
-             $7, $8, $9, $10, $11,
-             $12, $13, $14, $15
-           )`,
-          [
-            tx.id,
-            tx.userId,
-            tx.accountId,
-            tx.symbol,
-            tx.instrumentType,
-            tx.type,
-            tx.quantity,
-            tx.priceNtd,
-            tx.tradeDate,
-            tx.commissionNtd,
-            tx.taxNtd,
-            tx.isDayTrade,
-            tx.feeSnapshot.id,
-            JSON.stringify(tx.feeSnapshot),
-            tx.realizedPnlNtd ?? null,
-          ],
-        );
-      }
+      await this.saveAccountingStoreTx(client, store.userId, store.accounting, accountIds);
 
       if (feeProfileIds.length) {
         await client.query(
@@ -774,6 +601,23 @@ export class PostgresPersistence implements Persistence {
     return status;
   }
 
+  async saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void> {
+    validateAccountingStoreInvariants(accounting);
+    await this.ensureUserSeed(userId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const accountIds = await this.listUserAccountIds(client, userId);
+      await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async runMigrations(): Promise<void> {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
@@ -878,6 +722,210 @@ export class PostgresPersistence implements Persistence {
   private defaultAccountId(userId: string): string {
     return `${userId}-acc-1`;
   }
+
+  private async listUserAccountIds(client: PoolClient, userId: string): Promise<string[]> {
+    const result = await client.query<{ id: string }>(
+      `SELECT id
+       FROM accounts
+       WHERE user_id = $1
+       ORDER BY id`,
+      [userId],
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  private async saveAccountingStoreTx(
+    client: PoolClient,
+    userId: string,
+    accounting: AccountingStore,
+    accountIds: string[],
+  ): Promise<void> {
+    await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
+
+    for (const tx of accounting.facts.tradeEvents) {
+      await client.query(
+        `INSERT INTO trade_events (
+           id, user_id, account_id, symbol, instrument_type, trade_type,
+           quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
+           tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           reversal_of_trade_event_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16, $17, $18,
+           $19
+         )`,
+        [
+          tx.id,
+          tx.userId,
+          tx.accountId,
+          tx.symbol,
+          tx.instrumentType,
+          tx.type,
+          tx.quantity,
+          tx.priceNtd,
+          tx.tradeDate,
+          tx.tradeTimestamp ?? tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
+          tx.bookingSequence ?? 1,
+          tx.commissionNtd,
+          tx.taxNtd,
+          tx.isDayTrade,
+          JSON.stringify(tx.feeSnapshot),
+          tx.sourceType ?? "legacy_transaction",
+          tx.sourceReference ?? tx.id,
+          tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
+          tx.reversalOfTradeEventId ?? null,
+        ],
+      );
+    }
+
+    for (const entry of accounting.facts.cashLedgerEntries) {
+      await client.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10,
+           $11, $12, $13, $14
+         )`,
+        [
+          entry.id,
+          entry.userId,
+          entry.accountId,
+          entry.entryDate,
+          entry.entryType,
+          entry.amountNtd,
+          entry.currency,
+          entry.relatedTradeEventId ?? null,
+          entry.relatedDividendLedgerEntryId ?? null,
+          entry.sourceType,
+          entry.sourceReference ?? null,
+          entry.note ?? null,
+          entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
+          entry.reversalOfCashLedgerEntryId ?? null,
+        ],
+      );
+    }
+
+    for (const allocation of accounting.projections.lotAllocations) {
+      await client.query(
+        `INSERT INTO lot_allocations (
+           id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+           lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11
+         )`,
+        [
+          allocation.id,
+          allocation.userId,
+          allocation.accountId,
+          allocation.tradeEventId,
+          allocation.symbol,
+          allocation.lotId,
+          allocation.lotOpenedAt,
+          allocation.lotOpenedSequence,
+          allocation.allocatedQuantity,
+          allocation.allocatedCostNtd,
+          allocation.createdAt ?? new Date().toISOString(),
+        ],
+      );
+    }
+
+    for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
+      await client.query(
+        `INSERT INTO daily_portfolio_snapshots (
+           id, user_id, snapshot_date, total_market_value_ntd, total_cost_ntd,
+           total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
+           total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7, $8,
+           $9, $10, $11, $12
+         )`,
+        [
+          snapshot.id,
+          userId,
+          snapshot.snapshotDate,
+          snapshot.totalMarketValueNtd,
+          snapshot.totalCostNtd,
+          snapshot.totalUnrealizedPnlNtd,
+          snapshot.totalRealizedPnlNtd,
+          snapshot.totalDividendReceivedNtd,
+          snapshot.totalCashBalanceNtd,
+          snapshot.totalNavNtd,
+          snapshot.generatedAt,
+          snapshot.generationRunId,
+        ],
+      );
+    }
+
+    await client.query(`DELETE FROM transactions WHERE user_id = $1`, [userId]);
+    for (const tx of accounting.facts.tradeEvents) {
+      await client.query(
+        `INSERT INTO transactions (
+           id, user_id, account_id, symbol, instrument_type, tx_type,
+           quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
+           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11,
+           $12, $13, $14, $15
+         )`,
+        [
+          tx.id,
+          tx.userId,
+          tx.accountId,
+          tx.symbol,
+          tx.instrumentType,
+          tx.type,
+          tx.quantity,
+          tx.priceNtd,
+          tx.tradeDate,
+          tx.commissionNtd,
+          tx.taxNtd,
+          tx.isDayTrade,
+          tx.feeSnapshot.id,
+          JSON.stringify(tx.feeSnapshot),
+          tx.realizedPnlNtd ?? null,
+        ],
+      );
+    }
+
+    if (accountIds.length) {
+      await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
+      for (const lot of accounting.projections.lots) {
+        await client.query(
+          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+        );
+      }
+
+      await client.query(`DELETE FROM corporate_actions WHERE account_id = ANY($1)`, [accountIds]);
+      for (const action of accounting.facts.corporateActions) {
+        await client.query(
+          `INSERT INTO corporate_actions (
+             id, account_id, symbol, action_type, numerator, denominator, action_date
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            action.id,
+            action.accountId,
+            action.symbol,
+            action.actionType,
+            action.numerator,
+            action.denominator,
+            action.actionDate,
+          ],
+        );
+      }
+    }
+  }
 }
 
 function validateStoreInvariants(store: Store): void {
@@ -885,13 +933,7 @@ function validateStoreInvariants(store: Store): void {
     throw new Error("store user id is required");
   }
 
-  if (store.accounting.policy.inventoryModel !== "LOT_CAPABLE") {
-    throw new Error("accounting policy must preserve lot-capable inventory");
-  }
-
-  if (store.accounting.policy.disposalPolicy !== "WEIGHTED_AVERAGE") {
-    throw new Error("accounting policy must define weighted-average disposal behavior");
-  }
+  validateAccountingStoreInvariants(store.accounting);
 
   const profilesById = new Set(store.feeProfiles.map((profile) => profile.id));
   if (profilesById.size === 0) {
@@ -920,22 +962,32 @@ function validateStoreInvariants(store: Store): void {
       throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
     }
   }
+}
 
-  const tradeIds = new Set(store.accounting.facts.tradeEvents.map((trade) => trade.id));
-  const lotIds = new Set(store.accounting.projections.lots.map((lot) => lot.id));
-  for (const trade of store.accounting.facts.tradeEvents) {
+function validateAccountingStoreInvariants(accounting: AccountingStore): void {
+  if (accounting.policy.inventoryModel !== "LOT_CAPABLE") {
+    throw new Error("accounting policy must preserve lot-capable inventory");
+  }
+
+  if (accounting.policy.disposalPolicy !== "WEIGHTED_AVERAGE") {
+    throw new Error("accounting policy must define weighted-average disposal behavior");
+  }
+
+  const tradeIds = new Set(accounting.facts.tradeEvents.map((trade) => trade.id));
+  const lotIds = new Set(accounting.projections.lots.map((lot) => lot.id));
+  for (const trade of accounting.facts.tradeEvents) {
     if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
       throw new Error(`trade ${trade.id} has invalid booking sequence`);
     }
   }
 
-  for (const lot of store.accounting.projections.lots) {
+  for (const lot of accounting.projections.lots) {
     if (lot.openedSequence !== undefined && lot.openedSequence <= 0) {
       throw new Error(`lot ${lot.id} has invalid opened sequence`);
     }
   }
 
-  for (const allocation of store.accounting.projections.lotAllocations) {
+  for (const allocation of accounting.projections.lotAllocations) {
     if (!tradeIds.has(allocation.tradeEventId)) {
       throw new Error(`lot allocation ${allocation.id} references unknown trade ${allocation.tradeEventId}`);
     }

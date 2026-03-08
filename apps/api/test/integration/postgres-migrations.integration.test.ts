@@ -491,4 +491,28 @@ describePostgres("postgres migrations", () => {
     );
     expect(mirroredTransactions.rows).toEqual([{ id: "trade-kzo48-1" }]);
   });
+
+  it("does not load legacy mirrored transactions when canonical trade events are absent", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    await pool.query(
+      `INSERT INTO transactions (
+         id, user_id, account_id, symbol, instrument_type, tx_type,
+         quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
+         is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
+       ) VALUES (
+         'legacy-transaction-only', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
+         10, 100, DATE '2026-03-01', 20, 0,
+         false, 'fp-default', '{}', NULL
+       )`,
+    );
+
+    const reloaded = await persistence.loadStore("user-1");
+
+    expect(reloaded.accounting.facts.tradeEvents).toEqual([]);
+  });
 });

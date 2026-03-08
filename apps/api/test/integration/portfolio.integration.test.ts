@@ -285,14 +285,14 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("releases idempotency key when persistence fails", async () => {
-    const originalSaveStore = app.persistence.saveStore.bind(app.persistence);
+    const originalSaveAccountingStore = app.persistence.saveAccountingStore.bind(app.persistence);
     let failOnce = true;
-    app.persistence.saveStore = async (...args) => {
+    app.persistence.saveAccountingStore = async (...args) => {
       if (failOnce) {
         failOnce = false;
         throw new Error("forced save failure");
       }
-      return originalSaveStore(...args);
+      return originalSaveAccountingStore(...args);
     };
 
     const first = await app.inject({
