@@ -1,27 +1,31 @@
 # Latest Handoff
 
 ## Completed
-- Reviewed the Linear project backlog, the execution-queue document, the PRD/backlog strategy, and the current repository cutover state.
-- Verified that the execution queue is the current planning authority for pickup order and that `KZO-24` is the next implementation ticket.
-- Identified that the repo already has canonical schema support but still carries legacy seams in Postgres trade loading and recompute endpoints.
+- Verified the execution queue and picked up `KZO-24` as the active ticket.
+- Implemented a dedicated `savePostedTrade` persistence path and wired `POST /portfolio/transactions` to use it instead of the broad `saveAccountingStore` rewrite path.
+- Updated Postgres loading to derive sell `realizedPnlNtd` from canonical `lot_allocations` when available, removing canonical read dependence on `transactions.realized_pnl_ntd` for the covered path.
+- Added Postgres integration coverage for canonical posted-buy persistence and posted-sell persistence with reloadable holdings and realized P&L.
+- Opened PR `#38` (`feat(api): add KZO-24 posted trade persistence path`) from `feat/kzo-24-posted-trade-persistence` into `dev`.
 
 ## Decisions
 - Treat the Linear `Execution Queue and Session Pickup Order` document as the live source of truth for pickup order.
 - Treat the older PRD/backlog strategy as product-scope context, not the latest execution sequence.
 - Keep write-path cutover ahead of read-model and UI expansion.
+- Keep the legacy `transactions` table as a temporary compatibility mirror for now, but treat canonical trade facts and linked cash facts as the authoritative posted-trade path.
+- Keep new Postgres coverage at the persistence seam for `KZO-24`; broad route-level Postgres app harness changes are separate work.
 
 ## Next steps
-- Start `KZO-24` by tracing the POST `/portfolio/transactions` path through canonical persistence and identifying where legacy transaction mirrors are still required.
-- Define the minimal cutover slice that keeps endpoint behavior stable while shifting authority to canonical trade and cash facts.
-- Re-check how `KZO-46`, `KZO-52`, and `KZO-51` constrain the implementation boundary for realized P&L, ordering, and correction handling.
+- Monitor PR `#38` checks and address any CI failures on `feat/kzo-24-posted-trade-persistence`.
+- If the PR lands cleanly, move to the next ranked ticket in the execution queue unless `KZO-24` review feedback changes the cutover boundary.
+- Follow up in `KZO-52` if the team decides to remove the legacy realized-P&L compatibility mirror entirely.
 
 ## Risks or blockers
-- Postgres loading still reads legacy `transactions.realized_pnl_ntd`, so canonical trade facts are not yet the sole authority for realized sell P&L.
 - Legacy recompute endpoints still exist and may conflict with the intended immutable accounting direction.
 - Correction semantics are still a contract gap before reconciliation/import work can safely expand.
+- The legacy `transactions` mirror is still written during posted-trade persistence, so full legacy table retirement remains follow-on work.
 
 ## Open questions
-- What is the exact cutover boundary for `KZO-24` versus the follow-on `KZO-52` realized P&L cleanup?
+- Should `KZO-52` preserve a temporary realized-P&L fallback for historical migrated Postgres data that lacks `lot_allocations`, or can all pre-cutover data be treated as disposable scaffolding?
 - Should recompute endpoints be frozen during Wave 2 or maintained temporarily as compatibility shims?
 - What read-model freshness or replay guarantees need to be documented once canonical write paths become authoritative?
 
@@ -34,3 +38,4 @@
 - `docs/kzo-11-implementation-split.md`
 - `apps/api/src/routes/registerRoutes.ts`
 - `apps/api/src/persistence/postgres.ts`
+- `apps/api/test/integration/postgres-migrations.integration.test.ts`
