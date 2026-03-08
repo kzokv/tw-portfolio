@@ -82,14 +82,6 @@ export class PostgresPersistence implements Persistence {
       [userId],
     );
 
-    const transactionMirrorResult = await this.pool.query(
-      `SELECT id, realized_pnl_ntd
-       FROM transactions
-       WHERE user_id = $1
-       ORDER BY id`,
-      [userId],
-    );
-
     const accountIds = accountsResult.rows.map((row) => row.id);
     const bindingsResult = accountIds.length
       ? await this.pool.query(
@@ -190,9 +182,27 @@ export class PostgresPersistence implements Persistence {
       bondEtfSellTaxRateBps: row.bond_etf_sell_tax_rate_bps,
     }));
 
-    const realizedPnlByTradeId = new Map(
-      transactionMirrorResult.rows.map((row) => [row.id as string, row.realized_pnl_ntd as number | null]),
-    );
+    const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      tradeEventId: row.trade_event_id,
+      symbol: row.symbol,
+      lotId: row.lot_id,
+      lotOpenedAt: normalizeDate(row.lot_opened_at),
+      lotOpenedSequence: row.lot_opened_sequence,
+      allocatedQuantity: row.allocated_quantity,
+      allocatedCostNtd: row.allocated_cost_ntd,
+      createdAt: normalizeDateTime(row.created_at),
+    }));
+
+    const allocatedCostByTradeId = new Map<string, number>();
+    for (const allocation of lotAllocations) {
+      allocatedCostByTradeId.set(
+        allocation.tradeEventId,
+        (allocatedCostByTradeId.get(allocation.tradeEventId) ?? 0) + allocation.allocatedCostNtd,
+      );
+    }
 
     const transactions: Transaction[] = tradeEventsResult.rows.map((row) => ({
       id: row.id,
@@ -210,7 +220,14 @@ export class PostgresPersistence implements Persistence {
       taxNtd: row.tax_ntd,
       isDayTrade: row.is_day_trade,
       feeSnapshot: JSON.parse(row.fee_snapshot_json),
-      realizedPnlNtd: realizedPnlByTradeId.get(row.id) ?? undefined,
+      realizedPnlNtd: deriveCanonicalRealizedPnlNtd({
+        tradeType: row.trade_type,
+        quantity: row.quantity,
+        priceNtd: row.price_ntd,
+        commissionNtd: row.commission_ntd,
+        taxNtd: row.tax_ntd,
+        allocatedCostNtd: allocatedCostByTradeId.get(row.id),
+      }),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -232,20 +249,6 @@ export class PostgresPersistence implements Persistence {
       note: row.note ?? undefined,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
-    }));
-
-    const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      accountId: row.account_id,
-      tradeEventId: row.trade_event_id,
-      symbol: row.symbol,
-      lotId: row.lot_id,
-      lotOpenedAt: normalizeDate(row.lot_opened_at),
-      lotOpenedSequence: row.lot_opened_sequence,
-      allocatedQuantity: row.allocated_quantity,
-      allocatedCostNtd: row.allocated_cost_ntd,
-      createdAt: normalizeDateTime(row.created_at),
     }));
 
     const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
@@ -618,6 +621,177 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
+  async savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void> {
+    validateAccountingStoreInvariants(accounting);
+    await this.ensureUserSeed(userId);
+
+    const trade = accounting.facts.tradeEvents.find((item) => item.id === tradeEventId);
+    if (!trade) {
+      throw new Error(`trade event ${tradeEventId} not found in accounting store`);
+    }
+
+    const cashEntry = accounting.facts.cashLedgerEntries.find((entry) => entry.relatedTradeEventId === tradeEventId);
+    if (!cashEntry) {
+      throw new Error(`cash ledger entry for trade event ${tradeEventId} not found in accounting store`);
+    }
+
+    const nextAllocations = accounting.projections.lotAllocations.filter(
+      (allocation) => allocation.tradeEventId === tradeEventId,
+    );
+    const nextLots = accounting.projections.lots.filter(
+      (lot) => lot.accountId === trade.accountId && lot.symbol === trade.symbol,
+    );
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `INSERT INTO trade_events (
+           id, user_id, account_id, symbol, instrument_type, trade_type,
+           quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
+           tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           reversal_of_trade_event_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16, $17, $18,
+           $19
+         )`,
+        [
+          trade.id,
+          trade.userId,
+          trade.accountId,
+          trade.symbol,
+          trade.instrumentType,
+          trade.type,
+          trade.quantity,
+          trade.priceNtd,
+          trade.tradeDate,
+          trade.tradeTimestamp ?? trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
+          trade.bookingSequence ?? 1,
+          trade.commissionNtd,
+          trade.taxNtd,
+          trade.isDayTrade,
+          JSON.stringify(trade.feeSnapshot),
+          trade.sourceType ?? "legacy_transaction",
+          trade.sourceReference ?? trade.id,
+          trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
+          trade.reversalOfTradeEventId ?? null,
+        ],
+      );
+
+      await client.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10,
+           $11, $12, $13, $14
+         )`,
+        [
+          cashEntry.id,
+          cashEntry.userId,
+          cashEntry.accountId,
+          cashEntry.entryDate,
+          cashEntry.entryType,
+          cashEntry.amountNtd,
+          cashEntry.currency,
+          cashEntry.relatedTradeEventId ?? null,
+          cashEntry.relatedDividendLedgerEntryId ?? null,
+          cashEntry.sourceType,
+          cashEntry.sourceReference ?? null,
+          cashEntry.note ?? null,
+          cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
+          cashEntry.reversalOfCashLedgerEntryId ?? null,
+        ],
+      );
+
+      await client.query(
+        `INSERT INTO transactions (
+           id, user_id, account_id, symbol, instrument_type, tx_type,
+           quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
+           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6,
+           $7, $8, $9, $10, $11,
+           $12, $13, $14, $15
+         )`,
+        [
+          trade.id,
+          trade.userId,
+          trade.accountId,
+          trade.symbol,
+          trade.instrumentType,
+          trade.type,
+          trade.quantity,
+          trade.priceNtd,
+          trade.tradeDate,
+          trade.commissionNtd,
+          trade.taxNtd,
+          trade.isDayTrade,
+          trade.feeSnapshot.id,
+          JSON.stringify(trade.feeSnapshot),
+          trade.realizedPnlNtd ?? null,
+        ],
+      );
+
+      await client.query(
+        `DELETE FROM lot_allocations
+         WHERE user_id = $1
+           AND trade_event_id = $2`,
+        [userId, tradeEventId],
+      );
+      for (const allocation of nextAllocations) {
+        await client.query(
+          `INSERT INTO lot_allocations (
+             id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+             lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11
+           )`,
+          [
+            allocation.id,
+            allocation.userId,
+            allocation.accountId,
+            allocation.tradeEventId,
+            allocation.symbol,
+            allocation.lotId,
+            allocation.lotOpenedAt,
+            allocation.lotOpenedSequence,
+            allocation.allocatedQuantity,
+            allocation.allocatedCostNtd,
+            allocation.createdAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+
+      await client.query(
+        `DELETE FROM lots
+         WHERE account_id = $1
+           AND symbol = $2`,
+        [trade.accountId, trade.symbol],
+      );
+      for (const lot of nextLots) {
+        await client.query(
+          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async runMigrations(): Promise<void> {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
@@ -962,6 +1136,22 @@ function validateStoreInvariants(store: Store): void {
       throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
     }
   }
+}
+
+function deriveCanonicalRealizedPnlNtd(params: {
+  tradeType: string;
+  quantity: number;
+  priceNtd: number;
+  commissionNtd: number;
+  taxNtd: number;
+  allocatedCostNtd?: number;
+}): number | undefined {
+  if (params.tradeType !== "SELL" || params.allocatedCostNtd === undefined) {
+    return undefined;
+  }
+
+  const netProceeds = params.quantity * params.priceNtd - params.commissionNtd - params.taxNtd;
+  return netProceeds - params.allocatedCostNtd;
 }
 
 function validateAccountingStoreInvariants(accounting: AccountingStore): void {

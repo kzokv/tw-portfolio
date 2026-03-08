@@ -40,6 +40,10 @@ export class MemoryPersistence implements Persistence {
     this.stores.set(userId, store);
   }
 
+  async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
+    await this.saveAccountingStore(userId, accounting);
+  }
+
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
     const existing = this.idempotencyKeys.get(userId) ?? new Set<string>();
     if (existing.has(key)) return false;
