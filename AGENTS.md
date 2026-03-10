@@ -28,18 +28,14 @@
 - Keep commands and docs synchronized when scripts or workflows change.
 
 ## Knowledge curation
-- Canonical knowledge for this repo lives in repository markdown. Do not use Basic Memory MCP for this workflow.
-- Use `AGENTS.md` for stable repo-wide rules and repeated corrections.
-- Use `docs/notes/` for durable technical notes, gotchas, caveats, and investigation outcomes.
-- Use `docs/adr/` for meaningful design, architecture, and strategy decisions with rationale.
-- Use `.worklog/` for transient task state, next steps, blockers, risks, and handoff.
-- Promote only repeated corrections, reusable workflows, meaningful decisions, or expensive-to-rediscover gotchas.
-- If nothing meets that threshold, say so explicitly and do not force promotion.
-- Prefer one concept, one home. Avoid duplicating the same guidance across `AGENTS.md`, notes, ADRs, and handoff files unless there is a strong reason.
-- During meaningful work, suggest the single best follow-up action when durable knowledge appears.
-- Before ending meaningful implementation, debugging, refactor, or handoff work, run curation and refresh `.worklog/latest-handoff.md` when resumability matters.
-- Shared workflow assets live outside this repo: use the shared `knowledge-curator` skill discovered via `$HOME/.agents/skills/knowledge-curator/` and the shared prompt wrappers under `~/.codex/prompts/`.
-- Keep `AGENTS.md` lean. Do not put current task status, bug timelines, big narrative progress reports, personal reminders, or long architecture essays here.
+- Follow the user-level `Knowledge Capture Defaults`, `Knowledge Capture Behavior`, and `Linear Workflow Defaults` unless a nearer local `AGENTS.md` overrides them.
+- This repo uses the standard knowledge layout.
+- `AGENTS.md` for stable repo-wide rules and repeated corrections.
+- `docs/notes/` for durable technical notes, gotchas, caveats, and investigation outcomes.
+- `docs/adr/` for meaningful design, architecture, and strategy decisions with rationale.
+- `.worklog/latest-handoff.md` for transient resumability state.
+- `.worklog/current-focus.md` and `.worklog/open-questions.md` remain optional transient supporting context when useful.
+- No repo-specific curation or Linear workflow overrides currently.
 
 ## Testing instructions
 - Run the smallest relevant test scope first, then run broader regression checks.
