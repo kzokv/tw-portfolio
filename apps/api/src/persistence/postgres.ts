@@ -146,7 +146,7 @@ export class PostgresPersistence implements Persistence {
                   reversal_of_dividend_ledger_entry_id, superseded_at
            FROM dividend_ledger_entries
            WHERE account_id = ANY($1)
-           ORDER BY account_id, booked_at, id`,
+           ORDER BY booked_at, id`,
           [accountIds],
         )
       : { rows: [] };
@@ -1323,99 +1323,6 @@ export class PostgresPersistence implements Persistence {
       );
     }
 
-    for (const event of accounting.facts.dividendEvents) {
-      await client.query(
-        `INSERT INTO dividend_events (
-           id, symbol, event_type, ex_dividend_date, payment_date,
-           cash_dividend_per_share, stock_dividend_per_share,
-           source_type, source_reference, created_at
-         ) VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7,
-           $8, $9, $10
-         )
-         ON CONFLICT (id)
-         DO UPDATE SET
-           symbol = EXCLUDED.symbol,
-           event_type = EXCLUDED.event_type,
-           ex_dividend_date = EXCLUDED.ex_dividend_date,
-           payment_date = EXCLUDED.payment_date,
-           cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
-           stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
-           source_type = EXCLUDED.source_type,
-           source_reference = EXCLUDED.source_reference`,
-        [
-          event.id,
-          event.symbol,
-          event.eventType,
-          event.exDividendDate,
-          event.paymentDate,
-          event.cashDividendPerShare,
-          event.stockDividendPerShare,
-          event.sourceType,
-          event.sourceReference ?? null,
-          event.createdAt ?? new Date(`${event.paymentDate}T00:00:00.000Z`).toISOString(),
-        ],
-      );
-    }
-
-    for (const entry of accounting.facts.dividendLedgerEntries) {
-      await client.query(
-        `INSERT INTO dividend_ledger_entries (
-           id, account_id, dividend_event_id, eligible_quantity,
-           expected_cash_amount_ntd, expected_stock_quantity,
-           received_cash_amount_ntd, received_stock_quantity,
-           posting_status, reconciliation_status, booked_at,
-           reversal_of_dividend_ledger_entry_id, superseded_at
-         ) VALUES (
-           $1, $2, $3, $4,
-           $5, $6,
-           $7, $8,
-           $9, $10, $11,
-           $12, $13
-         )`,
-        [
-          entry.id,
-          entry.accountId,
-          entry.dividendEventId,
-          entry.eligibleQuantity,
-          entry.expectedCashAmountNtd,
-          entry.expectedStockQuantity,
-          entry.receivedCashAmountNtd,
-          entry.receivedStockQuantity,
-          entry.postingStatus,
-          entry.reconciliationStatus,
-          entry.bookedAt ?? new Date().toISOString(),
-          entry.reversalOfDividendLedgerEntryId ?? null,
-          entry.supersededAt ?? null,
-        ],
-      );
-    }
-
-    for (const deduction of accounting.facts.dividendDeductionEntries) {
-      await client.query(
-        `INSERT INTO dividend_deduction_entries (
-           id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-           withheld_at_source, source_type, source_reference, note, booked_at
-         ) VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7, $8, $9, $10
-         )`,
-        [
-          deduction.id,
-          deduction.dividendLedgerEntryId,
-          deduction.deductionType,
-          deduction.amount,
-          deduction.currencyCode,
-          deduction.withheldAtSource,
-          deduction.sourceType,
-          deduction.sourceReference ?? null,
-          deduction.note ?? null,
-          deduction.bookedAt ?? new Date().toISOString(),
-        ],
-      );
-    }
-
     for (const entry of accounting.facts.cashLedgerEntries) {
       await client.query(
         `INSERT INTO cash_ledger_entries (
@@ -1679,7 +1586,7 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     ) {
       const activeKey = `${dividendLedgerEntry.accountId}:${dividendLedgerEntry.dividendEventId}`;
       if (activeDividendKeys.has(activeKey)) {
-        throw new Error(`multiple active dividend ledger entries exist for ${activeKey}`);
+        throw new Error(`dividend ledger entry ${dividendLedgerEntry.id} duplicates active row for ${activeKey}`);
       }
       activeDividendKeys.add(activeKey);
     }
