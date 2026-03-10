@@ -2,16 +2,18 @@ name: PR Gate
 
 on:
   pull_request_target:
-    types: [opened, edited, synchronize, reopened, ready_for_review]
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
     branches: [main, dev]
 
 jobs:
   pr-gate:
     runs-on: ubuntu-latest
     permissions:
+      issues: read
       pull-requests: read
+      contents: read
     steps:
-      - name: Validate PR title, metadata, and body
+      - name: Validate PR title, commits, metadata, and body
         uses: actions/github-script@v7
         with:
           script: |
@@ -20,37 +22,196 @@ jobs:
             const body = pr.body || "";
             const assignees = pr.assignees || [];
             const labels = (pr.labels || []).map((label) => label.name);
+            const authorLogin = pr.user?.login || "";
 
-            const titlePattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)\([^)]+\): [A-Z]+-\d+: .+/;
-            if (!titlePattern.test(title)) {
-              core.setFailed(
-                "PR title must match `type(scope): LINEAR-TICKET: subject`, for example `docs(accounting): KZO-11: canonical accounting model handoff`.",
+            const strictPattern = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)\([^)]+\): [A-Z]+-\d+: .+/;
+            const allowedPrimaryLabels = ["bug", "enhancement", "documentation"];
+            const waiverLabel = "waiver:linear-ticket";
+            const requiresStrictExample = "`type(scope): LINEAR-TICKET: subject` (example: `docs(accounting): KZO-11: canonical accounting model handoff`)";
+            const hasWaiverLabel = labels.includes(waiverLabel);
+            const validPermissions = ["admin", "maintain", "write"];
+
+            function getSection(sectionHeading) {
+              const escaped = sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const sectionRegex = new RegExp(`^## ${escaped}\\s*\\n([\\s\\S]*?)(?:\\n##\\s+|$)`, "m");
+              const match = body.match(sectionRegex);
+              return match ? match[1].trim() : "";
+            }
+
+            const invalidReasons = [];
+            const titleMatchesStrict = strictPattern.test(title);
+
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            const invalidCommitSubjects = commits
+              .map((commit) => (commit.commit?.message || "").split("\n")[0].trim())
+              .filter((subject) => !strictPattern.test(subject));
+
+            const namingViolations = [];
+            if (!titleMatchesStrict) {
+              namingViolations.push(
+                `PR title is invalid. It must match ${requiresStrictExample}.`,
               );
-              return;
+            }
+            if (invalidCommitSubjects.length > 0) {
+              namingViolations.push(
+                `Found commit subjects that do not match ${requiresStrictExample}: ${invalidCommitSubjects
+                  .map((subject) => `"${subject}"`)
+                  .join(", ")}`,
+              );
             }
 
             if (assignees.length === 0) {
-              core.setFailed("PR must have an assignee.");
-              return;
+              invalidReasons.push("PR must have an assignee.");
             }
 
-            const allowedPrimaryLabels = ["bug", "enhancement", "documentation"];
-            const hasPrimaryLabel = labels.some((label) => allowedPrimaryLabels.includes(label));
-            if (!hasPrimaryLabel) {
-              core.setFailed("PR must have one primary label: bug, enhancement, or documentation.");
-              return;
+            const primaryLabels = labels.filter((label) => allowedPrimaryLabels.includes(label));
+            if (primaryLabels.length !== 1) {
+              invalidReasons.push(
+                "PR must have exactly one primary label: bug, enhancement, or documentation.",
+              );
             }
 
-            const requiredSections = ["## Problem", "## Solution", "## Testing", "## Risk/Rollback"];
+            const requiredSections = ["Problem", "Solution", "Testing", "Risk/Rollback"];
             for (const section of requiredSections) {
-              if (!body.includes(section)) {
-                core.setFailed(`PR body is missing required section: ${section}`);
-                return;
+              const sectionHeadingRegex = new RegExp(`^## ${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+              if (!sectionHeadingRegex.test(body)) {
+                invalidReasons.push(`PR body is missing required section heading: ## ${section}`);
               }
             }
 
-            const hasEvidence = /## Testing[\s\S]*Evidence:/m.test(body);
-            const hasWaiver = /## Testing[\s\S]*Waiver:/m.test(body);
+            const testingSection = getSection("Testing");
+            const hasEvidence = /^Evidence:\s*\S+/im.test(testingSection);
+            const hasWaiver = /^Waiver:\s*\S+/im.test(testingSection);
             if (!hasEvidence && !hasWaiver) {
-              core.setFailed("## Testing must include either `Evidence:` or `Waiver:`.");
+              invalidReasons.push("## Testing must include either `Evidence:` or `Waiver:` with content.");
+            }
+
+            let humanWriteCollaborators = [];
+            let collaboratorLookupFailed = false;
+            try {
+              const collaborators = await github.paginate(github.rest.repos.listCollaborators, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                affiliation: "direct",
+                per_page: 100,
+              });
+              humanWriteCollaborators = collaborators.filter((collaborator) => {
+                const isHuman = collaborator.type === "User" && !collaborator.login.endsWith("[bot]");
+                const permission = collaborator.permissions || {};
+                return isHuman && validPermissions.some((key) => permission[key]);
+              });
+            } catch (error) {
+              collaboratorLookupFailed = true;
+            }
+            const isSoloMaintainerRepo =
+              !collaboratorLookupFailed &&
+              humanWriteCollaborators.length === 1 &&
+              humanWriteCollaborators[0].login.toLowerCase() === authorLogin.toLowerCase();
+
+            const hasStrictNamingViolations = namingViolations.length > 0;
+            if (hasStrictNamingViolations) {
+              if (!hasWaiverLabel) {
+                invalidReasons.push(
+                  ...namingViolations,
+                  `Strict naming violations require the \`${waiverLabel}\` label to activate waiver mode.`,
+                );
+              } else {
+                const waiverSection = getSection("Waiver");
+                const waiverReasonMatch = waiverSection.match(/^Reason:\s*(.+)$/im);
+                const approvedByMatch = waiverSection.match(/^Approved-by:\s*@([A-Za-z0-9-]+)$/im);
+                const scopeMatch = waiverSection.match(/^Scope:\s*(title|commits|both)$/im);
+
+                if (!waiverReasonMatch) {
+                  invalidReasons.push("## Waiver must include `Reason: ...`.");
+                }
+                if (!approvedByMatch) {
+                  invalidReasons.push("## Waiver must include `Approved-by: @handle`.");
+                }
+                if (!scopeMatch) {
+                  invalidReasons.push("## Waiver must include `Scope: title|commits|both`.");
+                }
+
+                const waiverScope = scopeMatch ? scopeMatch[1].toLowerCase() : null;
+                if (!titleMatchesStrict && waiverScope && waiverScope !== "title" && waiverScope !== "both") {
+                  invalidReasons.push("## Waiver scope must include `title` when PR title violates strict naming.");
+                }
+                if (invalidCommitSubjects.length > 0 && waiverScope && waiverScope !== "commits" && waiverScope !== "both") {
+                  invalidReasons.push("## Waiver scope must include `commits` when commit subjects violate strict naming.");
+                }
+
+                if (approvedByMatch) {
+                  const approverLogin = approvedByMatch[1];
+                  if (approverLogin.toLowerCase() === authorLogin.toLowerCase()) {
+                    if (!isSoloMaintainerRepo) {
+                      invalidReasons.push("Waiver approver cannot be the PR author unless the repository has only one human collaborator with write, maintain, or admin access.");
+                    }
+                  } else {
+                    try {
+                      const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        username: approverLogin,
+                      });
+                      if (!validPermissions.includes(permission.permission)) {
+                        invalidReasons.push(
+                          `Waiver approver @${approverLogin} must have write, maintain, or admin repository permission.`,
+                        );
+                      }
+                    } catch (error) {
+                      invalidReasons.push(
+                        `Unable to verify waiver approver @${approverLogin} permission level.`,
+                      );
+                    }
+                  }
+                }
+
+                try {
+                  const timelineEvents = await github.paginate(github.rest.issues.listEvents, {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    per_page: 100,
+                  });
+                  const waiverLabelEvents = timelineEvents
+                    .filter((event) => event.event === "labeled" && event.label?.name === waiverLabel)
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                  const latestWaiverEvent = waiverLabelEvents[waiverLabelEvents.length - 1];
+                  const actor = latestWaiverEvent?.actor;
+
+                  if (!latestWaiverEvent || !actor) {
+                    invalidReasons.push(`Could not determine who applied label \`${waiverLabel}\`.`);
+                  } else {
+                    const actorIsHuman = actor.type === "User" && !actor.login.endsWith("[bot]");
+                    if (!actorIsHuman) {
+                      invalidReasons.push(`Label \`${waiverLabel}\` must be applied by a human user.`);
+                    } else {
+                      try {
+                        const { data: actorPermission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          username: actor.login,
+                        });
+                        if (!validPermissions.includes(actorPermission.permission)) {
+                          invalidReasons.push(
+                            `Label \`${waiverLabel}\` must be applied by a user with write, maintain, or admin repository permission.`,
+                          );
+                        }
+                      } catch (error) {
+                        invalidReasons.push("Unable to verify waiver label applier permission level.");
+                      }
+                    }
+                  }
+                } catch (error) {
+                  invalidReasons.push("Unable to verify waiver label application actor.");
+                }
+              }
+            }
+
+            if (invalidReasons.length > 0) {
+              core.setFailed(`PR gate failed:\n- ${invalidReasons.join("\n- ")}`);
             }
