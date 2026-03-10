@@ -71,6 +71,64 @@ export interface CashLedgerEntry {
   bookedAt?: string;
 }
 
+export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";
+
+export interface DividendEvent {
+  id: string;
+  symbol: string;
+  eventType: DividendEventType;
+  exDividendDate: string;
+  paymentDate: string;
+  cashDividendPerShare: number;
+  stockDividendPerShare: number;
+  sourceType: string;
+  sourceReference?: string;
+  createdAt?: string;
+}
+
+export type DividendPostingStatus = "expected" | "posted" | "adjusted";
+
+export type DividendReconciliationStatus = "open" | "matched" | "explained" | "resolved";
+
+export interface DividendLedgerEntry {
+  id: string;
+  accountId: string;
+  dividendEventId: string;
+  eligibleQuantity: number;
+  expectedCashAmountNtd: number;
+  expectedStockQuantity: number;
+  receivedCashAmountNtd: number;
+  receivedStockQuantity: number;
+  postingStatus: DividendPostingStatus;
+  reconciliationStatus: DividendReconciliationStatus;
+  reversalOfDividendLedgerEntryId?: string;
+  supersededAt?: string;
+  bookedAt?: string;
+}
+
+export type DividendDeductionType =
+  | "NHI_SUPPLEMENTAL_PREMIUM"
+  | "WITHHOLDING_TAX"
+  | "BROKER_FEE"
+  | "BANK_FEE"
+  | "TRANSFER_FEE"
+  | "CASH_IN_LIEU_ADJUSTMENT"
+  | "ROUNDING_ADJUSTMENT"
+  | "OTHER";
+
+export interface DividendDeductionEntry {
+  id: string;
+  dividendLedgerEntryId: string;
+  deductionType: DividendDeductionType;
+  amount: number;
+  currencyCode: "TWD";
+  withheldAtSource: boolean;
+  sourceType: string;
+  sourceReference?: string;
+  note?: string;
+  bookedAt?: string;
+}
+
 export interface RecomputePreviewItem {
   transactionId: string;
   previousCommissionNtd: number;
@@ -139,6 +197,9 @@ export interface DailyPortfolioSnapshot {
 export interface AccountingFacts {
   tradeEvents: BookedTradeEvent[];
   cashLedgerEntries: CashLedgerEntry[];
+  dividendEvents: DividendEvent[];
+  dividendLedgerEntries: DividendLedgerEntry[];
+  dividendDeductionEntries: DividendDeductionEntry[];
   corporateActions: CorporateAction[];
 }
 

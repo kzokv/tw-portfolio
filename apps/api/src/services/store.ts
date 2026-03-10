@@ -45,6 +45,9 @@ export function createStore(): Store {
       facts: {
         tradeEvents: [],
         cashLedgerEntries: [],
+        dividendEvents: [],
+        dividendLedgerEntries: [],
+        dividendDeductionEntries: [],
         corporateActions: [],
       },
       projections: {

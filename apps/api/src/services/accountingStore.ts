@@ -5,6 +5,9 @@ import type {
   BookedTradeEvent,
   CashLedgerEntry,
   CorporateAction,
+  DividendDeductionEntry,
+  DividendEvent,
+  DividendLedgerEntry,
   HoldingProjection,
   LotAllocationProjection,
   Store,
@@ -35,6 +38,30 @@ export function listCashLedgerEntries(store: Store): CashLedgerEntry[] {
 
 export function appendCashLedgerEntry(store: Store, cashLedgerEntry: CashLedgerEntry): void {
   store.accounting.facts.cashLedgerEntries.push(cashLedgerEntry);
+}
+
+export function listDividendEvents(store: Store): DividendEvent[] {
+  return store.accounting.facts.dividendEvents;
+}
+
+export function appendDividendEvent(store: Store, dividendEvent: DividendEvent): void {
+  store.accounting.facts.dividendEvents.push(dividendEvent);
+}
+
+export function listDividendLedgerEntries(store: Store): DividendLedgerEntry[] {
+  return store.accounting.facts.dividendLedgerEntries;
+}
+
+export function appendDividendLedgerEntry(store: Store, dividendLedgerEntry: DividendLedgerEntry): void {
+  store.accounting.facts.dividendLedgerEntries.push(dividendLedgerEntry);
+}
+
+export function listDividendDeductionEntries(store: Store): DividendDeductionEntry[] {
+  return store.accounting.facts.dividendDeductionEntries;
+}
+
+export function appendDividendDeductionEntry(store: Store, dividendDeductionEntry: DividendDeductionEntry): void {
+  store.accounting.facts.dividendDeductionEntries.push(dividendDeductionEntry);
 }
 
 export function replaceCashLedgerEntryForTrade(
