@@ -87,7 +87,6 @@ export interface DividendEvent {
 }
 
 export type DividendPostingStatus = "expected" | "posted" | "adjusted";
-
 export type DividendReconciliationStatus = "open" | "matched" | "explained" | "resolved";
 
 export interface DividendLedgerEntry {
@@ -105,7 +104,6 @@ export interface DividendLedgerEntry {
   supersededAt?: string;
   bookedAt?: string;
 }
-
 export type DividendDeductionType =
   | "NHI_SUPPLEMENTAL_PREMIUM"
   | "WITHHOLDING_TAX"
@@ -128,7 +126,6 @@ export interface DividendDeductionEntry {
   note?: string;
   bookedAt?: string;
 }
-
 export interface RecomputePreviewItem {
   transactionId: string;
   previousCommissionNtd: number;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { createDividendEvent, postDividend } from "../../src/services/dividends.js";
 import { createTransaction } from "../../src/services/portfolio.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 
@@ -1393,6 +1394,173 @@ describePostgres("postgres migrations", () => {
     ]);
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === sellTrade.id);
     expect(reloadedSell?.realizedPnlNtd).toBe(121);
+  });
+
+  it("persists a posted dividend with typed deductions and linked cash effects", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const seededBuy = createTransaction(store, "user-1", {
+      id: "trade-kzo36-buy",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 10,
+      priceNtd: 100,
+      tradeDate: "2026-01-15",
+      tradeTimestamp: "2026-01-15T09:00:00.000Z",
+      commissionNtd: 0,
+      taxNtd: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, seededBuy.id);
+
+    const dividendEvent = createDividendEvent(store, {
+      id: "dividend-event-kzo36",
+      symbol: "2330",
+      eventType: "CASH_AND_STOCK",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 12,
+      stockDividendPerShare: 0.1,
+      sourceType: "manual_dividend_event",
+      sourceReference: "dividend-event-kzo36",
+    });
+
+    const posting = postDividend(store, "user-1", {
+      id: "dividend-ledger-kzo36",
+      accountId: "user-1-acc-1",
+      dividendEventId: dividendEvent.id,
+      receivedCashAmountNtd: 108,
+      receivedStockQuantity: 1,
+      deductions: [
+        {
+          id: "dividend-deduction-kzo36",
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: 12,
+          withheldAtSource: true,
+          sourceType: "dividend_posting",
+          sourceReference: "dividend-deduction-kzo36",
+        },
+      ],
+    });
+    await persistence.savePostedDividend("user-1", store.accounting, posting.dividendLedgerEntry.id);
+
+    const dividendEvents = await pool.query<{
+      id: string;
+      event_type: string;
+      cash_dividend_per_share: string;
+      stock_dividend_per_share: string;
+    }>(
+      `SELECT id, event_type, cash_dividend_per_share, stock_dividend_per_share
+       FROM dividend_events
+       WHERE id = 'dividend-event-kzo36'`,
+    );
+    expect(dividendEvents.rows).toEqual([
+      {
+        id: "dividend-event-kzo36",
+        event_type: "CASH_AND_STOCK",
+        cash_dividend_per_share: "12.000000",
+        stock_dividend_per_share: "0.100000",
+      },
+    ]);
+
+    const dividendLedgerEntries = await pool.query<{
+      id: string;
+      eligible_quantity: number;
+      expected_cash_amount_ntd: number;
+      expected_stock_quantity: number;
+      received_cash_amount_ntd: number;
+      received_stock_quantity: number;
+      posting_status: string;
+    }>(
+      `SELECT id, eligible_quantity, expected_cash_amount_ntd, expected_stock_quantity,
+              received_cash_amount_ntd, received_stock_quantity, posting_status
+       FROM dividend_ledger_entries
+       WHERE id = 'dividend-ledger-kzo36'`,
+    );
+    expect(dividendLedgerEntries.rows).toEqual([
+      {
+        id: "dividend-ledger-kzo36",
+        eligible_quantity: 10,
+        expected_cash_amount_ntd: 120,
+        expected_stock_quantity: 1,
+        received_cash_amount_ntd: 108,
+        received_stock_quantity: 1,
+        posting_status: "posted",
+      },
+    ]);
+
+    const dividendDeductions = await pool.query<{
+      deduction_type: string;
+      amount: number;
+      currency_code: string;
+    }>(
+      `SELECT deduction_type, amount, currency_code
+       FROM dividend_deduction_entries
+       WHERE dividend_ledger_entry_id = 'dividend-ledger-kzo36'`,
+    );
+    expect(dividendDeductions.rows).toEqual([
+      {
+        deduction_type: "NHI_SUPPLEMENTAL_PREMIUM",
+        amount: 12,
+        currency_code: "TWD",
+      },
+    ]);
+
+    const cashEntries = await pool.query<{
+      entry_type: string;
+      amount_ntd: number;
+      related_dividend_ledger_entry_id: string | null;
+    }>(
+      `SELECT entry_type, amount_ntd, related_dividend_ledger_entry_id
+       FROM cash_ledger_entries
+       WHERE related_dividend_ledger_entry_id = 'dividend-ledger-kzo36'
+       ORDER BY amount_ntd DESC`,
+    );
+    expect(cashEntries.rows).toEqual([
+      {
+        entry_type: "DIVIDEND_RECEIPT",
+        amount_ntd: 108,
+        related_dividend_ledger_entry_id: "dividend-ledger-kzo36",
+      },
+      {
+        entry_type: "DIVIDEND_DEDUCTION",
+        amount_ntd: -12,
+        related_dividend_ledger_entry_id: "dividend-ledger-kzo36",
+      },
+    ]);
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.facts.dividendLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: "dividend-ledger-kzo36",
+        expectedCashAmountNtd: 120,
+        receivedCashAmountNtd: 108,
+        receivedStockQuantity: 1,
+      }),
+    ]);
+    expect(reloaded.accounting.facts.dividendDeductionEntries).toEqual([
+      expect.objectContaining({
+        id: "dividend-deduction-kzo36",
+        dividendLedgerEntryId: "dividend-ledger-kzo36",
+        deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+        amount: 12,
+        currencyCode: "TWD",
+      }),
+    ]);
+    expect(reloaded.accounting.projections.holdings).toEqual([
+      expect.objectContaining({
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        quantity: 11,
+        costNtd: 1000,
+      }),
+    ]);
   });
 
   it("persists mirrored realized pnl from canonical allocations instead of stale trade state", async () => {
