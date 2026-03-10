@@ -2,9 +2,11 @@
 
 ## Completed
 - Implemented the repo-side `KZO-54` changes: append-only dividend schema alignment migration, migration tests, and doc updates.
+- Validated `KZO-54` on the managed Postgres integration path with `npm run test:integration:ci:host` on March 10, 2026.
+- Confirmed `KZO-54` is landed on `dev` at commit `6ac1b92`.
 - Added `KZO-55` to track broader currency normalization work as explicit backlog rather than hidden debt.
 - Locked the execution direction to typed dividend deductions with explicit `currencyCode = 'TWD'` for the Taiwan MVP Wave 2 path.
-- Updated repo docs and worklog focus so the Wave 2 dividend chain now runs `KZO-54 -> KZO-34 -> KZO-36`.
+- Updated repo docs and worklog focus so the Wave 2 dividend chain now runs `KZO-34 -> KZO-36`, with `KZO-55` still backlog-only.
 
 ## Decisions
 - `DividendEvent` is issuer/reference data only; it is symbol-scoped and does not move account cash by itself.
@@ -18,13 +20,11 @@
 - Global currency normalization remains important, but it is tracked separately in `KZO-55` and does not block `KZO-54`, `KZO-34`, or `KZO-36`.
 
 ## Next steps
-- Validate `KZO-54` under the managed Postgres integration environment and land the repo-side schema alignment changes.
 - Move `KZO-34` onto the normalized dividend schema so persistence loads and saves typed deduction rows.
 - Implement `KZO-36` posting behavior against the normalized schema, including expected-vs-actual comparison and linked cash-ledger effects.
 - Keep `KZO-55` in backlog for later currency normalization across schema, types, settings, and UI labels.
 
 ## Risks or blockers
-- `KZO-54` is implemented in the workspace, but it still needs managed Postgres validation and merge before `KZO-34` and `KZO-36` can rely on it as landed schema.
 - The live API and in-memory model still expose the older account-scoped `CorporateAction` dividend path, so implementation work can drift back to that shortcut if `KZO-34` and `KZO-36` do not follow the new contract closely.
 - Full currency normalization still spans schema, types, settings, and UI; `KZO-55` must remain visible so the explicit TWD hook does not become permanent accidental design.
 
