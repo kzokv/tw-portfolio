@@ -110,6 +110,123 @@ describePostgres("postgres migrations", () => {
     expect(secondPass.rows.map((row) => row.name)).toEqual(migrationFiles);
   });
 
+  it("normalizes legacy duplicate booking and lot sequences before adding uniqueness indexes", async () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
+    const client = await pool.connect();
+
+    try {
+      for (const file of [
+        "002_cost_basis_weighted_average.sql",
+        "003_accounting_core_schema.sql",
+        "004_trade_order_and_lot_allocations.sql",
+      ]) {
+        const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(migrationSql);
+      }
+
+      await client.query(
+        `CREATE TABLE schema_migrations (
+           name TEXT PRIMARY KEY,
+           applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+         )`,
+      );
+      await client.query(
+        `INSERT INTO schema_migrations (name)
+         VALUES
+           ('001_init.sql'),
+           ('002_cost_basis_weighted_average.sql'),
+           ('003_accounting_core_schema.sql'),
+           ('004_trade_order_and_lot_allocations.sql')`,
+      );
+
+      await client.query(
+        `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+         VALUES ('user-1', 'user-1@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+      );
+      await client.query(
+        `INSERT INTO fee_profiles (
+           id, user_id, name, commission_rate_bps, commission_discount_bps,
+           min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
+           stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
+           bond_etf_sell_tax_rate_bps
+         ) VALUES (
+           'user-1-fp-default', 'user-1', 'Default Broker', 14, 10000,
+           20, 'FLOOR', 'FLOOR',
+           30, 15, 10,
+           0
+         )`,
+      );
+      await client.query(
+        `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+         VALUES ('user-1-acc-1', 'user-1', 'Main', 'user-1-fp-default')`,
+      );
+
+      await client.query(
+        `INSERT INTO trade_events (
+           id, user_id, account_id, symbol, instrument_type, trade_type,
+           quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
+           tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at
+         ) VALUES
+           (
+             'legacy-trade-1', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
+             10, 100, DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:00', 1, 20,
+             0, false, '{}', 'legacy_import', 'legacy-trade-1', TIMESTAMP '2026-03-01 09:00:00'
+           ),
+           (
+             'legacy-trade-2', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
+             5, 110, DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:01', 1, 20,
+             0, false, '{}', 'legacy_import', 'legacy-trade-2', TIMESTAMP '2026-03-01 09:00:01'
+           ),
+           (
+             'legacy-trade-3', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
+             3, 120, DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:02', 3, 20,
+             0, false, '{}', 'legacy_import', 'legacy-trade-3', TIMESTAMP '2026-03-01 09:00:02'
+           )`,
+      );
+
+      await client.query(
+        `INSERT INTO lots (
+           id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence
+         ) VALUES
+           ('legacy-lot-1', 'user-1-acc-1', '2330', 10, 1020, DATE '2026-03-01', 1),
+           ('legacy-lot-2', 'user-1-acc-1', '2330', 5, 570, DATE '2026-03-01', 1)`,
+      );
+    } finally {
+      client.release();
+    }
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const tradeEvents = await pool.query<{ id: string; booking_sequence: number }>(
+      `SELECT id, booking_sequence
+       FROM trade_events
+       WHERE account_id = 'user-1-acc-1'
+       ORDER BY booking_sequence`,
+    );
+    expect(tradeEvents.rows).toEqual([
+      { id: "legacy-trade-1", booking_sequence: 1 },
+      { id: "legacy-trade-2", booking_sequence: 2 },
+      { id: "legacy-trade-3", booking_sequence: 3 },
+    ]);
+
+    const lots = await pool.query<{ id: string; opened_sequence: number }>(
+      `SELECT id, opened_sequence
+       FROM lots
+       WHERE account_id = 'user-1-acc-1'
+         AND symbol = '2330'
+       ORDER BY opened_sequence`,
+    );
+    expect(lots.rows).toEqual([
+      { id: "legacy-lot-1", opened_sequence: 1 },
+      { id: "legacy-lot-2", opened_sequence: 2 },
+    ]);
+  });
+
   it("applies accounting schema objects including dividend alignment", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
