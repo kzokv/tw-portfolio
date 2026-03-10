@@ -46,10 +46,26 @@ Use this skill for Taiwan listed equity and ETF bookkeeping work where the outpu
 
 - Record gross amount, deductions, and net received separately.
 - For stock dividends, record both share quantity and the premium base used by the statement.
+- Treat stock dividends as non-cash position changes. On payment date, update holdings or inventory bookkeeping through the stock path; only cash in lieu, withheld deductions, or explicit fees belong in a cash ledger.
 - For ETF distributions, use source composition rather than the label `配息` alone.
 - Ask for or extract the issuer, TDCC, or broker statement source lines when available.
 - If the user has only the net cash received, record it and mark the source as unknown pending issuer disclosure.
 - Do not flatten all ETF cash distributions into dividend income. Tax and NHI treatment depends on source classification.
+- For cash dividends, keep the comparison basis explicit: `gross expected = net received + at-source withholdings`. Do not mix unrelated monthly fees or later manual adjustments into the dividend event comparison.
+
+## Dividend Lifecycle Design Notes
+
+Use these rules when the task is system design, ledger modeling, reconciliation workflow, or API semantics for Taiwan dividend bookkeeping:
+
+- Materialize expected dividend entitlement before payment posting when the declared event and eligible quantity are known. Do not create first-time entitlement state only at posting time.
+- Separate issuer-level declaration from account-level entitlement and from actual posted receipt.
+- Keep expected and actual values visible side by side. Do not overwrite expected values after posting.
+- Use reversal plus replacement for posted dividend corrections. Do not silently edit posted facts in place.
+- Use `explained` only when a difference remains visible but is documented and accepted without changing booked facts, such as statement grouping or cut-off timing differences.
+- Do not use `explained` for wrong quantities, wrong receipt amounts, or wrong deduction amounts. Those require corrective reversal and replacement.
+- Enforce "only one active dividend entry per account per event" at the persistence layer, not only in service logic.
+- Keep deduction modeling extensible. MVP summaries are acceptable, but long-term designs should allow typed deduction line items such as NHI supplemental premium, withholding tax, bank fee, cash-in-lieu adjustment, and rounding adjustment.
+- Treat currency as explicit configuration or field data instead of baking NTD into lifecycle semantics. If the product later supports non-TWD cash flows, carry amount and currency separately.
 
 ## Output Shape
 
@@ -74,6 +90,7 @@ Prefer ledger-ready tables, formula-ready breakdowns, and reconciliations that c
 - Distinguish among transaction tax, annual income tax treatment, and 2nd-generation NHI supplemental premium treatment.
 - If the user asks about broker fees without a statement or contract, store the board rate assumption, discount assumption, minimum-fee assumption, and whether fees are charged upfront, rebated later, or negotiated.
 - Cite the relevant official source URL from the reference file when discussing a rule.
+- For dividend system-design answers, distinguish official Taiwan market or NHI rules from general accounting-system design guidance. Label the latter as modeling guidance rather than Taiwan legal requirements.
 
 Do not answer with certainty without more facts when the task involves:
 
@@ -85,6 +102,20 @@ Do not answer with certainty without more facts when the task involves:
 - estate, gift, inheritance, or trust structures
 
 State the assumptions clearly and advise checking an accountant, tax authority, or lawyer for filing-critical decisions.
+
+## Official Sources And Modeling References
+
+Use these sources when the task needs current rule verification or defensible modeling rationale:
+
+- TWSE trading guide: https://www.twse.com.tw/en/page/about/company/guide.html
+- Ministry of Finance tax overview: https://www.mof.gov.tw/singlehtml/384?cntId=d02e8424db8d4fd8a4bc5d99be058cef
+- National Taxation Bureau of Taipei dividend tax page: https://www.ntbt.gov.tw/singlehtml/5f7032d2498a4f1c81a272dedf36d737?cntId=1cc5036f4d44417cb1a95165d2945208
+- Ministry of Health and Welfare NHI supplemental premium page: https://www.nhi.gov.tw/ch/cp-3145-6c0f2-2082-1.html
+- SITCA ETF tax and distribution notes: https://www.tisa.org.tw/qa
+- Microsoft Learn reverse journal posting guidance: https://learn.microsoft.com/en-us/dynamics365/business-central/finance-how-reverse-journal-posting
+- Oracle reconciliation tolerance rules: https://docs.oracle.com/en/cloud/saas/financials/25c/fairp/overview-of-tolerance-rules.html
+- Oracle Account Reconciliation explained balance and formats docs: https://docs.oracle.com/en/cloud/saas/account-reconcile-cloud/suarc/setup_formats_properties.html and https://docs.oracle.com/en/cloud/saas/account-reconcile-cloud/suarc/setup_formats_rc_about.html
+- PostgreSQL partial index documentation for active-row uniqueness patterns: https://www.postgresql.org/docs/current/indexes-partial.html
 
 ## Scripts
 

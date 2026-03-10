@@ -135,6 +135,7 @@ Outputs:
 
 Primary tickets:
 
+- `KZO-33` Define dividend event and dividend posting lifecycle
 - `KZO-24` Implement trade event write path with linked cash ledger generation
 - `KZO-46` Add explicit booking sequence and lot allocation traceability for canonical trade disposal
 - `KZO-34` Implement dividend event and dividend ledger persistence
@@ -154,6 +155,7 @@ Outputs:
 - posted trades produce explicit cash effects
 - lot-capable inventory remains available as a projection substrate
 - same-day ordering and sell allocation traceability are explicit
+- dividend lifecycle is locked before dividend persistence and posting work expand
 - dividend declaration and posting are separated
 - actual dividend receipts and deductions are bookable
 
