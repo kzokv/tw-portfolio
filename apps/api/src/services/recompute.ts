@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
-import { listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
+import { deriveRealizedPnlForTrade, listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
 import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
 
 interface PreviewInput {
@@ -70,18 +70,12 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
     const tx = listTradeEvents(store).find((entry) => entry.id === item.transactionId);
     if (!tx) continue;
 
-    const previousCommissionNtd = tx.commissionNtd;
-    const previousTaxNtd = tx.taxNtd;
-    const previousRealizedPnlNtd = tx.realizedPnlNtd;
     tx.commissionNtd = item.nextCommissionNtd;
     tx.taxNtd = item.nextTaxNtd;
     replaceCashLedgerEntryForTrade(store, tx.id, buildTradeSettlementCashEntry(tx));
 
-    if (tx.type === "SELL" && previousRealizedPnlNtd !== undefined) {
-      const previousNetProceeds = tx.priceNtd * tx.quantity - previousCommissionNtd - previousTaxNtd;
-      const allocatedCostNtd = previousNetProceeds - previousRealizedPnlNtd;
-      const nextNetProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
-      tx.realizedPnlNtd = nextNetProceeds - allocatedCostNtd;
+    if (tx.type === "SELL") {
+      tx.realizedPnlNtd = deriveRealizedPnlForTrade(store.accounting, tx);
     }
   }
 

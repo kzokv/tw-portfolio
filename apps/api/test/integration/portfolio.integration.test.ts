@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { confirmRecompute, previewRecompute } from "../../src/services/recompute.js";
 import { transactionPayload, feeProfilePayload, type TransactionType } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -454,6 +455,56 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(sellCashAfter?.amountNtd).toBe(
       sellTradeAfter!.quantity * sellTradeAfter!.priceNtd - sellTradeAfter!.commissionNtd - sellTradeAfter!.taxNtd,
     );
+  });
+
+  it("recompute derives sell realized pnl from canonical lot allocations instead of stale trade state", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stale-pnl-buy" },
+      payload: transactionPayload(),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stale-pnl-sell" },
+      payload: transactionPayload({
+        quantity: 5,
+        priceNtd: 120,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const persisted = await app.persistence.loadStore("user-1");
+    persisted.feeProfiles.push({
+      id: "fp-zero",
+      name: "Zero Fee",
+      commissionRateBps: 0,
+      commissionDiscountBps: 10000,
+      minCommissionNtd: 0,
+      commissionRoundingMode: "FLOOR",
+      taxRoundingMode: "FLOOR",
+      stockSellTaxRateBps: 0,
+      stockDayTradeTaxRateBps: 0,
+      etfSellTaxRateBps: 0,
+      bondEtfSellTaxRateBps: 0,
+    });
+
+    const sellTrade = persisted.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
+    expect(sellTrade).toBeDefined();
+    sellTrade!.realizedPnlNtd = 999_999;
+
+    const job = previewRecompute(persisted, {
+      userId: "user-1",
+      profileId: "fp-zero",
+      useFallbackBindings: true,
+    });
+    confirmRecompute(persisted, "user-1", job.id);
+
+    expect(sellTrade?.commissionNtd).toBe(0);
+    expect(sellTrade?.taxNtd).toBe(0);
+    expect(sellTrade?.realizedPnlNtd).toBe(90);
   });
 
   it("uses weighted-average cost basis for partial sells", async () => {

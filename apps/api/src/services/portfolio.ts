@@ -10,6 +10,7 @@ import {
   appendCashLedgerEntry,
   appendCorporateAction,
   appendTradeEvent,
+  deriveRealizedPnlForTrade,
   listInventoryLots,
   listTradeEvents,
   rebuildHoldingProjection,
@@ -123,11 +124,9 @@ function applyToLots(store: Store, tx: Transaction): void {
   const lots = relevantLots.filter((lot) => lot.openQuantity > 0);
   const allocation = allocateSellLots(lots, tx.quantity);
 
-  const netProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
-  tx.realizedPnlNtd = netProceeds - allocation.allocatedCostNtd;
-
   replaceLots(store, tx.accountId, tx.symbol, allocation.updatedLots);
   replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
+  tx.realizedPnlNtd = deriveRealizedPnlForTrade(store.accounting, tx);
 }
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {

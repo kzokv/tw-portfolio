@@ -1,42 +1,38 @@
 # Latest Handoff
 
 ## Completed
-- Verified the live Linear execution queue and corrected the stale local pickup assumption: on `dev`, `KZO-46` was already implemented, so the next ranked incomplete ticket was `KZO-50`.
-- Implemented `KZO-50` for the canonical trade posting path by allowing `POST /portfolio/transactions` to accept optional booked `commissionNtd` and `taxNtd` overrides.
-- Kept fee-profile-derived charges as suggestions only; posted trade facts now persist explicit booked overrides without changing the stored `feeSnapshot`.
-- Updated buy-side lot projection so nonzero booked buy tax contributes to acquisition cost, keeping holdings cost aligned with booked trade charges rather than only the cash settlement entry.
-- Added in-memory API integration coverage for booked buy/sell overrides and validation failure on negative override inputs.
-- Expanded Postgres persistence coverage so canonical `trade_events`, `cash_ledger_entries`, `lots`, reloadable holdings, and derived sell realized P&L reflect booked override values.
+- Implemented `KZO-52` for sell realized P&L derivation.
+- Added shared accounting helpers so sell `realizedPnlNtd` is derived from canonical `trade_events` plus `lot_allocations`.
+- Updated sell posting and recompute flows so realized P&L no longer depends on previously stored in-memory `realizedPnlNtd`.
+- Updated Postgres load/save paths so canonical reloads and legacy `transactions.realized_pnl_ntd` mirror writes both derive from canonical allocations rather than trusting trade-object state.
+- Added regression coverage for stale-state cases in memory and Postgres integration tests.
+- Verified with `npm run test -w apps/api -- portfolio.integration.test.ts`, `npm run build -w @tw-portfolio/api`, and `npm run test:integration:ci:host`.
 
 ## Decisions
-- Treat the Linear `Execution Queue and Session Pickup Order` document as the live source of truth for ranked pickup order over any stale repository handoff text.
-- Treat booked commission and tax as canonical trade facts that may override fee-profile suggestions on a per-posted-trade basis.
-- Keep `feeSnapshot` as reference context for how defaults were suggested, not as authority over booked trade charges after posting.
-- Flow nonzero booked buy tax into lot acquisition cost so holdings and future disposal cost basis remain consistent with booked trade economics.
-- Keep broader recompute/freeze behavior out of `KZO-50`; that contract boundary remains follow-on work.
+- Treat sell `realizedPnlNtd` as a derived value from canonical trade facts plus disposal projections, not as authoritative mutable trade state.
+- Keep the legacy `transactions` mirror as a compatibility write target for now, but derive its `realized_pnl_ntd` from canonical allocations instead of copying `tx.realizedPnlNtd`.
+- Do not add a fallback to legacy mirrored realized P&L reads when canonical `lot_allocations` are absent.
 
 ## Next steps
-- Pick up `KZO-52` next: derive sell `realizedPnlNtd` solely from canonical trade facts and disposal projections and narrow the remaining legacy mirror seam.
-- Re-run the managed Postgres integration suite once Docker access is available; the route-level in-memory suite and package builds passed, but the managed host wrapper could not run in this session.
-- Decide whether recompute endpoints should remain temporary compatibility shims or be frozen as Wave 2 canonical write-path contracts solidify.
+- Refresh `.worklog/current-focus.md` to the next ranked queue item after `KZO-52`.
+- Decide whether the legacy `transactions` mirror should keep being rewritten during Wave 2 or be frozen/retired once downstream compatibility needs are confirmed.
+- Decide whether recompute endpoints remain temporary compatibility shims or should be frozen as canonical write-path contracts solidify.
 
 ## Risks or blockers
-- Docker was unavailable in this environment, so `npm run test:integration:ci:host` could not reach the daemon and the managed Postgres suite was not executed here.
-- Legacy recompute endpoints still exist and may rewrite booked charges in ways that conflict with the intended immutable-accounting direction.
-- The legacy `transactions` mirror is still written during canonical trade persistence, so dual-authority seams remain until `KZO-52` and later cleanup work land.
+- The legacy `transactions` table is still written, so the dual-write seam remains even though canonical derivation now wins.
+- Historical rows without canonical `lot_allocations` still need an explicit product/data-policy decision if they must be supported.
 
 ## Open questions
-- For `KZO-52`, should historical Postgres rows without `lot_allocations` keep any temporary fallback, or can pre-cutover data be treated as disposable scaffolding?
-- When should recompute-era endpoints be frozen or retired relative to `KZO-50`, `KZO-52`, and `KZO-49`?
-- What canonical read-model guarantees need to be documented once sell realized P&L no longer depends on mirrored legacy fields?
+- Should any remaining legacy mirror fields continue to be populated once downstream readers are confirmed off the compatibility table?
+- When should recompute-era endpoints be frozen or retired relative to the remaining Wave 2 work?
 
 ## Relevant files
 - `AGENTS.md`
 - `.worklog/current-focus.md`
 - `.worklog/open-questions.md`
-- `apps/api/src/routes/registerRoutes.ts`
+- `apps/api/src/services/accountingStore.ts`
 - `apps/api/src/services/portfolio.ts`
-- `apps/api/test/helpers/fixtures.ts`
+- `apps/api/src/services/recompute.ts`
+- `apps/api/src/persistence/postgres.ts`
 - `apps/api/test/integration/portfolio.integration.test.ts`
 - `apps/api/test/integration/postgres-migrations.integration.test.ts`
-- `apps/web/components/portfolio/types.ts`
