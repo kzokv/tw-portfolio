@@ -667,6 +667,26 @@ describePostgres("postgres migrations", () => {
       },
     ]);
 
+    const mirroredTransactions = await pool.query<{
+      id: string;
+      realized_pnl_ntd: number | null;
+    }>(
+      `SELECT id, realized_pnl_ntd
+       FROM transactions
+       WHERE user_id = 'user-1'
+       ORDER BY trade_date, id`,
+    );
+    expect(mirroredTransactions.rows).toEqual([
+      {
+        id: buyTrade.id,
+        realized_pnl_ntd: null,
+      },
+      {
+        id: sellTrade.id,
+        realized_pnl_ntd: 121,
+      },
+    ]);
+
     const lotAllocations = await pool.query<{
       trade_event_id: string;
       allocated_quantity: number;
@@ -722,6 +742,59 @@ describePostgres("postgres migrations", () => {
       }),
     ]);
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === sellTrade.id);
+    expect(reloadedSell?.realizedPnlNtd).toBe(121);
+  });
+
+  it("persists mirrored realized pnl from canonical allocations instead of stale trade state", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    createTransaction(store, "user-1", {
+      id: "trade-kzo52-buy",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 10,
+      priceNtd: 100,
+      tradeDate: "2026-03-01",
+      tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      commissionNtd: 7,
+      taxNtd: 3,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    createTransaction(store, "user-1", {
+      id: "trade-kzo52-sell",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 5,
+      priceNtd: 130,
+      tradeDate: "2026-03-02",
+      tradeTimestamp: "2026-03-02T09:00:00.000Z",
+      commissionNtd: 11,
+      taxNtd: 13,
+      type: "SELL",
+      isDayTrade: false,
+    });
+
+    const staleSellTrade = store.accounting.facts.tradeEvents.find((tx) => tx.id === "trade-kzo52-sell");
+    expect(staleSellTrade).toBeDefined();
+    staleSellTrade!.realizedPnlNtd = -999;
+
+    await persistence.saveStore(store);
+
+    const mirrored = await pool.query<{ realized_pnl_ntd: number | null }>(
+      `SELECT realized_pnl_ntd
+       FROM transactions
+       WHERE id = 'trade-kzo52-sell'`,
+    );
+    expect(mirrored.rows).toEqual([{ realized_pnl_ntd: 121 }]);
+
+    const reloaded = await persistence.loadStore("user-1");
+    const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === "trade-kzo52-sell");
     expect(reloadedSell?.realizedPnlNtd).toBe(121);
   });
 });

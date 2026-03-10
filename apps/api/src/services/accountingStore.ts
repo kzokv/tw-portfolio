@@ -1,6 +1,7 @@
 import type { Lot } from "@tw-portfolio/domain";
 import type {
   AccountingPolicy,
+  AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
   CorporateAction,
@@ -60,6 +61,34 @@ export function replaceLotAllocationsForTrade(
     ...store.accounting.projections.lotAllocations.filter((allocation) => allocation.tradeEventId !== tradeEventId),
     ...nextLotAllocations,
   ];
+}
+
+export function deriveRealizedPnlForTrade(
+  accounting: AccountingStore,
+  tradeOrTradeEventId: BookedTradeEvent | string,
+): number | undefined {
+  const trade =
+    typeof tradeOrTradeEventId === "string"
+      ? accounting.facts.tradeEvents.find((item) => item.id === tradeOrTradeEventId)
+      : tradeOrTradeEventId;
+  if (!trade || trade.type !== "SELL") {
+    return undefined;
+  }
+
+  const allocations = accounting.projections.lotAllocations.filter((allocation) => allocation.tradeEventId === trade.id);
+  if (allocations.length === 0) {
+    return undefined;
+  }
+
+  const allocatedCostNtd = allocations.reduce((sum, allocation) => sum + allocation.allocatedCostNtd, 0);
+  const netProceeds = trade.quantity * trade.priceNtd - trade.commissionNtd - trade.taxNtd;
+  return netProceeds - allocatedCostNtd;
+}
+
+export function syncTradeEventRealizedPnl(accounting: AccountingStore): void {
+  for (const trade of accounting.facts.tradeEvents) {
+    trade.realizedPnlNtd = deriveRealizedPnlForTrade(accounting, trade);
+  }
 }
 
 export function listInventoryLots(store: Store): Lot[] {

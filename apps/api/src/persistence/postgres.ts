@@ -5,7 +5,12 @@ import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
-import { buildAccountingPolicy, rebuildHoldingProjection } from "../services/accountingStore.js";
+import {
+  buildAccountingPolicy,
+  deriveRealizedPnlForTrade,
+  rebuildHoldingProjection,
+  syncTradeEventRealizedPnl,
+} from "../services/accountingStore.js";
 import type {
   AccountingStore,
   CashLedgerEntry,
@@ -196,14 +201,6 @@ export class PostgresPersistence implements Persistence {
       createdAt: normalizeDateTime(row.created_at),
     }));
 
-    const allocatedCostByTradeId = new Map<string, number>();
-    for (const allocation of lotAllocations) {
-      allocatedCostByTradeId.set(
-        allocation.tradeEventId,
-        (allocatedCostByTradeId.get(allocation.tradeEventId) ?? 0) + allocation.allocatedCostNtd,
-      );
-    }
-
     const transactions: Transaction[] = tradeEventsResult.rows.map((row) => ({
       id: row.id,
       userId: row.user_id,
@@ -220,14 +217,6 @@ export class PostgresPersistence implements Persistence {
       taxNtd: row.tax_ntd,
       isDayTrade: row.is_day_trade,
       feeSnapshot: JSON.parse(row.fee_snapshot_json),
-      realizedPnlNtd: deriveCanonicalRealizedPnlNtd({
-        tradeType: row.trade_type,
-        quantity: row.quantity,
-        priceNtd: row.price_ntd,
-        commissionNtd: row.commission_ntd,
-        taxNtd: row.tax_ntd,
-        allocatedCostNtd: allocatedCostByTradeId.get(row.id),
-      }),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -345,6 +334,7 @@ export class PostgresPersistence implements Persistence {
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
     };
+    syncTradeEventRealizedPnl(store.accounting);
     rebuildHoldingProjection(store);
     return store;
   }
@@ -641,6 +631,7 @@ export class PostgresPersistence implements Persistence {
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === trade.accountId && lot.symbol === trade.symbol,
     );
+    const mirroredRealizedPnlNtd = deriveRealizedPnlForTrade(accounting, trade);
 
     const client = await this.pool.connect();
     try {
@@ -734,7 +725,7 @@ export class PostgresPersistence implements Persistence {
           trade.isDayTrade,
           trade.feeSnapshot.id,
           JSON.stringify(trade.feeSnapshot),
-          trade.realizedPnlNtd ?? null,
+          mirroredRealizedPnlNtd ?? null,
         ],
       );
 
@@ -1041,6 +1032,7 @@ export class PostgresPersistence implements Persistence {
 
     await client.query(`DELETE FROM transactions WHERE user_id = $1`, [userId]);
     for (const tx of accounting.facts.tradeEvents) {
+      const mirroredRealizedPnlNtd = deriveRealizedPnlForTrade(accounting, tx);
       await client.query(
         `INSERT INTO transactions (
            id, user_id, account_id, symbol, instrument_type, tx_type,
@@ -1066,7 +1058,7 @@ export class PostgresPersistence implements Persistence {
           tx.isDayTrade,
           tx.feeSnapshot.id,
           JSON.stringify(tx.feeSnapshot),
-          tx.realizedPnlNtd ?? null,
+          mirroredRealizedPnlNtd ?? null,
         ],
       );
     }
@@ -1136,22 +1128,6 @@ function validateStoreInvariants(store: Store): void {
       throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
     }
   }
-}
-
-function deriveCanonicalRealizedPnlNtd(params: {
-  tradeType: string;
-  quantity: number;
-  priceNtd: number;
-  commissionNtd: number;
-  taxNtd: number;
-  allocatedCostNtd?: number;
-}): number | undefined {
-  if (params.tradeType !== "SELL" || params.allocatedCostNtd === undefined) {
-    return undefined;
-  }
-
-  const netProceeds = params.quantity * params.priceNtd - params.commissionNtd - params.taxNtd;
-  return netProceeds - params.allocatedCostNtd;
 }
 
 function validateAccountingStoreInvariants(accounting: AccountingStore): void {
