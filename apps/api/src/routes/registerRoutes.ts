@@ -35,6 +35,8 @@ const transactionSchema = z.object({
   tradeDate: isoDateSchema,
   tradeTimestamp: isoDateTimeSchema.optional(),
   bookingSequence: z.number().int().positive().optional(),
+  commissionNtd: z.number().int().nonnegative().optional(),
+  taxNtd: z.number().int().nonnegative().optional(),
   type: z.enum(["BUY", "SELL"]),
   isDayTrade: z.boolean().default(false),
 });

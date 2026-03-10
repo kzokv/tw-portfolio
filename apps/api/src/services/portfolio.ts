@@ -34,6 +34,8 @@ export interface CreateTransactionInput {
   tradeDate: string;
   tradeTimestamp?: string;
   bookingSequence?: number;
+  commissionNtd?: number;
+  taxNtd?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }
@@ -59,8 +61,10 @@ export function createTransaction(
 
   const tradeValueNtd = input.quantity * input.priceNtd;
   assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
+  assertBookedCharge(input.commissionNtd, "Commission must be a non-negative integer");
+  assertBookedCharge(input.taxNtd, "Tax must be a non-negative integer");
   const bookingSequence = resolveBookingSequence(store, input.accountId, input.tradeDate, input.bookingSequence);
-  const fees =
+  const suggestedFees =
     input.type === "BUY"
       ? calculateBuyFees(profile, tradeValueNtd)
       : calculateSellFees(profile, {
@@ -68,6 +72,8 @@ export function createTransaction(
           instrumentType: instrument.type,
           isDayTrade: input.isDayTrade,
         });
+  const commissionNtd = input.commissionNtd ?? suggestedFees.commissionNtd;
+  const taxNtd = input.taxNtd ?? suggestedFees.taxNtd;
 
   const tx: Transaction = {
     id: input.id,
@@ -80,8 +86,8 @@ export function createTransaction(
     priceNtd: input.priceNtd,
     tradeDate: input.tradeDate,
     tradeTimestamp: input.tradeTimestamp ?? new Date(`${input.tradeDate}T00:00:00.000Z`).toISOString(),
-    commissionNtd: fees.commissionNtd,
-    taxNtd: fees.taxNtd,
+    commissionNtd,
+    taxNtd,
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
     bookingSequence,
@@ -105,7 +111,7 @@ function applyToLots(store: Store, tx: Transaction): void {
       accountId: tx.accountId,
       symbol: tx.symbol,
       openQuantity: tx.quantity,
-      totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd,
+      totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd + tx.taxNtd,
       openedAt: tx.tradeDate,
       openedSequence: tx.bookingSequence,
     };
@@ -238,6 +244,13 @@ function assertTradeTimestampMatchesTradeDate(tradeDate: string, tradeTimestamp?
   if (!tradeTimestamp) return;
   if (tradeTimestamp.slice(0, 10) !== tradeDate) {
     throw new Error("Trade timestamp must match trade date");
+  }
+}
+
+function assertBookedCharge(value: number | undefined, message: string): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(message);
   }
 }
 

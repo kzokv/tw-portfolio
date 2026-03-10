@@ -97,6 +97,79 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     );
   });
 
+  it("accepts booked commission and tax overrides and uses them in accounting outputs", async () => {
+    const createBuyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-booked-buy-overrides" },
+      payload: transactionPayload({
+        quantity: 10,
+        priceNtd: 100,
+        commissionNtd: 7,
+        taxNtd: 3,
+      }),
+    });
+    expect(createBuyResponse.statusCode).toBe(200);
+    const buy = createBuyResponse.json();
+    expect(buy.commissionNtd).toBe(7);
+    expect(buy.taxNtd).toBe(3);
+    expect(buy.feeSnapshot.id).toBe("fp-default");
+
+    const buyHoldingsResponse = await app.inject({ method: "GET", url: "/portfolio/holdings" });
+    expect(buyHoldingsResponse.statusCode).toBe(200);
+    expect(buyHoldingsResponse.json()).toEqual([
+      {
+        accountId: "acc-1",
+        symbol: "2330",
+        quantity: 10,
+        costNtd: 1_010,
+      },
+    ]);
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-booked-sell-overrides" },
+      payload: transactionPayload({
+        quantity: 5,
+        priceNtd: 130,
+        tradeDate: "2026-01-02",
+        commissionNtd: 11,
+        taxNtd: 13,
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    const sell = store.accounting.facts.tradeEvents.find((item) => item.type === "SELL");
+    expect(sell).toBeDefined();
+    expect(sell?.commissionNtd).toBe(11);
+    expect(sell?.taxNtd).toBe(13);
+    expect(sell?.realizedPnlNtd).toBe(121);
+    expect(store.accounting.facts.cashLedgerEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relatedTradeEventId: buy.id,
+          entryType: "TRADE_SETTLEMENT_OUT",
+          amountNtd: -1_010,
+        }),
+        expect.objectContaining({
+          relatedTradeEventId: sell?.id,
+          entryType: "TRADE_SETTLEMENT_IN",
+          amountNtd: 626,
+        }),
+      ]),
+    );
+    expect(store.accounting.projections.holdings).toEqual([
+      expect.objectContaining({
+        accountId: "acc-1",
+        symbol: "2330",
+        quantity: 5,
+        costNtd: 505,
+      }),
+    ]);
+  });
+
   it("persists same-day booking sequence and sell-to-lot allocations", async () => {
     const secondBuyResponse = await app.inject({
       method: "POST",
@@ -590,5 +663,27 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const tx = createResponse.json();
     expect(tx.commissionNtd).toBe(0);
     expect(tx.feeSnapshot.id).toBe(createdProfile.id);
+  });
+
+  it("rejects negative booked commission or tax overrides", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-invalid-booked-override" },
+      payload: transactionPayload({
+        commissionNtd: -1,
+      }),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "validation_error",
+      issues: [
+        {
+          path: "commissionNtd",
+          message: "Number must be greater than or equal to 0",
+        },
+      ],
+    });
   });
 });

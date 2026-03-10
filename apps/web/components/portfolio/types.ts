@@ -11,6 +11,8 @@ export interface TransactionInput {
   quantity: number;
   priceNtd: number;
   tradeDate: string;
+  commissionNtd?: number;
+  taxNtd?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }

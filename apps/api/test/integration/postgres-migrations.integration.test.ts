@@ -533,6 +533,8 @@ describePostgres("postgres migrations", () => {
       priceNtd: 100,
       tradeDate: "2026-03-01",
       tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      commissionNtd: 7,
+      taxNtd: 3,
       type: "BUY",
       isDayTrade: false,
     });
@@ -544,8 +546,10 @@ describePostgres("postgres migrations", () => {
       source_type: string;
       source_reference: string | null;
       booking_sequence: number;
+      commission_ntd: number;
+      tax_ntd: number;
     }>(
-      `SELECT id, source_type, source_reference, booking_sequence
+      `SELECT id, source_type, source_reference, booking_sequence, commission_ntd, tax_ntd
        FROM trade_events
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -556,6 +560,8 @@ describePostgres("postgres migrations", () => {
         source_type: "portfolio_transaction_api",
         source_reference: createdTrade.id,
         booking_sequence: 1,
+        commission_ntd: 7,
+        tax_ntd: 3,
       },
     ]);
 
@@ -574,7 +580,7 @@ describePostgres("postgres migrations", () => {
       {
         related_trade_event_id: createdTrade.id,
         entry_type: "TRADE_SETTLEMENT_OUT",
-        amount_ntd: -(10 * 100 + createdTrade.commissionNtd + createdTrade.taxNtd),
+        amount_ntd: -(10 * 100 + 7 + 3),
         source_type: "trade_settlement",
       },
     ]);
@@ -594,7 +600,7 @@ describePostgres("postgres migrations", () => {
       {
         symbol: "2330",
         open_quantity: 10,
-        total_cost_ntd: 10 * 100 + createdTrade.commissionNtd,
+        total_cost_ntd: 10 * 100 + 7 + 3,
         opened_sequence: 1,
       },
     ]);
@@ -616,6 +622,8 @@ describePostgres("postgres migrations", () => {
       priceNtd: 100,
       tradeDate: "2026-03-01",
       tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      commissionNtd: 7,
+      taxNtd: 3,
       type: "BUY",
       isDayTrade: false,
     });
@@ -629,10 +637,35 @@ describePostgres("postgres migrations", () => {
       priceNtd: 130,
       tradeDate: "2026-03-02",
       tradeTimestamp: "2026-03-02T09:00:00.000Z",
+      commissionNtd: 11,
+      taxNtd: 13,
       type: "SELL",
       isDayTrade: false,
     });
     await persistence.savePostedTrade("user-1", store.accounting, sellTrade.id);
+
+    const tradeEvents = await pool.query<{
+      id: string;
+      commission_ntd: number;
+      tax_ntd: number;
+    }>(
+      `SELECT id, commission_ntd, tax_ntd
+       FROM trade_events
+       WHERE user_id = 'user-1'
+       ORDER BY trade_date, booking_sequence, id`,
+    );
+    expect(tradeEvents.rows).toEqual([
+      {
+        id: buyTrade.id,
+        commission_ntd: 7,
+        tax_ntd: 3,
+      },
+      {
+        id: sellTrade.id,
+        commission_ntd: 11,
+        tax_ntd: 13,
+      },
+    ]);
 
     const lotAllocations = await pool.query<{
       trade_event_id: string;
@@ -649,7 +682,7 @@ describePostgres("postgres migrations", () => {
       {
         trade_event_id: sellTrade.id,
         allocated_quantity: 5,
-        allocated_cost_ntd: 510,
+        allocated_cost_ntd: 505,
         lot_opened_sequence: 1,
       },
     ]);
@@ -668,12 +701,12 @@ describePostgres("postgres migrations", () => {
       {
         related_trade_event_id: buyTrade.id,
         entry_type: "TRADE_SETTLEMENT_OUT",
-        amount_ntd: -1020,
+        amount_ntd: -1010,
       },
       {
         related_trade_event_id: sellTrade.id,
         entry_type: "TRADE_SETTLEMENT_IN",
-        amount_ntd: 629,
+        amount_ntd: 626,
       },
     ]);
 
@@ -685,10 +718,10 @@ describePostgres("postgres migrations", () => {
         accountId: "user-1-acc-1",
         symbol: "2330",
         quantity: 5,
-        costNtd: 510,
+        costNtd: 505,
       }),
     ]);
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === sellTrade.id);
-    expect(reloadedSell?.realizedPnlNtd).toBe(119);
+    expect(reloadedSell?.realizedPnlNtd).toBe(121);
   });
 });
