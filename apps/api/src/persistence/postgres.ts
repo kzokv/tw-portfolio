@@ -15,6 +15,9 @@ import type {
   AccountingStore,
   CashLedgerEntry,
   DailyPortfolioSnapshot,
+  DividendDeductionEntry,
+  DividendEvent,
+  DividendLedgerEntry,
   LotAllocationProjection,
   RecomputeJob,
   RecomputePreviewItem,
@@ -126,6 +129,41 @@ export class PostgresPersistence implements Persistence {
           [accountIds],
         )
       : { rows: [] };
+
+    const dividendLedgerEntriesResult = accountIds.length
+      ? await this.pool.query(
+          `SELECT id, account_id, dividend_event_id, eligible_quantity,
+                  expected_cash_amount_ntd, expected_stock_quantity,
+                  received_cash_amount_ntd, received_stock_quantity,
+                  posting_status, reconciliation_status, booked_at,
+                  reversal_of_dividend_ledger_entry_id, superseded_at
+           FROM dividend_ledger_entries
+           WHERE account_id = ANY($1)
+           ORDER BY booked_at, id`,
+          [accountIds],
+        )
+      : { rows: [] };
+
+    const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
+
+    const dividendDeductionsResult = dividendLedgerEntryIds.length
+      ? await this.pool.query(
+          `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                  withheld_at_source, source_type, source_reference, note, booked_at
+           FROM dividend_deduction_entries
+           WHERE dividend_ledger_entry_id = ANY($1)
+           ORDER BY dividend_ledger_entry_id, booked_at, id`,
+          [dividendLedgerEntryIds],
+        )
+      : { rows: [] };
+
+    const dividendEventsResult = await this.pool.query(
+      `SELECT id, symbol, event_type, ex_dividend_date, payment_date,
+              cash_dividend_per_share, stock_dividend_per_share,
+              source_type, source_reference, created_at
+       FROM dividend_events
+       ORDER BY ex_dividend_date, payment_date, id`,
+    );
 
     const jobsResult = await this.pool.query(
       `SELECT id, user_id, account_id, profile_id, status, created_at
@@ -240,6 +278,48 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
     }));
 
+    const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
+      id: row.id,
+      symbol: row.symbol,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(row.ex_dividend_date),
+      paymentDate: normalizeDate(row.payment_date),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      sourceType: row.source_type,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+    }));
+
+    const dividendLedgerEntries: DividendLedgerEntry[] = dividendLedgerEntriesResult.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      dividendEventId: row.dividend_event_id,
+      eligibleQuantity: row.eligible_quantity,
+      expectedCashAmountNtd: row.expected_cash_amount_ntd,
+      expectedStockQuantity: row.expected_stock_quantity,
+      receivedCashAmountNtd: row.received_cash_amount_ntd,
+      receivedStockQuantity: row.received_stock_quantity,
+      postingStatus: row.posting_status,
+      reconciliationStatus: row.reconciliation_status,
+      reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
+      supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
+    const dividendDeductionEntries: DividendDeductionEntry[] = dividendDeductionsResult.rows.map((row) => ({
+      id: row.id,
+      dividendLedgerEntryId: row.dividend_ledger_entry_id,
+      deductionType: row.deduction_type,
+      amount: row.amount,
+      currencyCode: row.currency_code,
+      withheldAtSource: row.withheld_at_source,
+      sourceType: row.source_type,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
     const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
       id: row.id,
       snapshotDate: normalizeDate(row.snapshot_date),
@@ -301,6 +381,9 @@ export class PostgresPersistence implements Persistence {
         facts: {
           tradeEvents: transactions,
           cashLedgerEntries,
+          dividendEvents,
+          dividendLedgerEntries,
+          dividendDeductionEntries,
           corporateActions: actionsResult.rows.map((row) => ({
             id: row.id,
             accountId: row.account_id,
@@ -906,6 +989,16 @@ export class PostgresPersistence implements Persistence {
     accountIds: string[],
   ): Promise<void> {
     await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [userId]);
+    if (accountIds.length) {
+      await client.query(
+        `DELETE FROM dividend_deduction_entries dde
+         USING dividend_ledger_entries dle
+         WHERE dde.dividend_ledger_entry_id = dle.id
+           AND dle.account_id = ANY($1)`,
+        [accountIds],
+      );
+      await client.query(`DELETE FROM dividend_ledger_entries WHERE account_id = ANY($1)`, [accountIds]);
+    }
     await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
@@ -943,6 +1036,99 @@ export class PostgresPersistence implements Persistence {
           tx.sourceReference ?? tx.id,
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.reversalOfTradeEventId ?? null,
+        ],
+      );
+    }
+
+    for (const event of accounting.facts.dividendEvents) {
+      await client.query(
+        `INSERT INTO dividend_events (
+           id, symbol, event_type, ex_dividend_date, payment_date,
+           cash_dividend_per_share, stock_dividend_per_share,
+           source_type, source_reference, created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7,
+           $8, $9, $10
+         )
+         ON CONFLICT (id)
+         DO UPDATE SET
+           symbol = EXCLUDED.symbol,
+           event_type = EXCLUDED.event_type,
+           ex_dividend_date = EXCLUDED.ex_dividend_date,
+           payment_date = EXCLUDED.payment_date,
+           cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
+           stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
+           source_type = EXCLUDED.source_type,
+           source_reference = EXCLUDED.source_reference`,
+        [
+          event.id,
+          event.symbol,
+          event.eventType,
+          event.exDividendDate,
+          event.paymentDate,
+          event.cashDividendPerShare,
+          event.stockDividendPerShare,
+          event.sourceType,
+          event.sourceReference ?? null,
+          event.createdAt ?? new Date(`${event.paymentDate}T00:00:00.000Z`).toISOString(),
+        ],
+      );
+    }
+
+    for (const entry of accounting.facts.dividendLedgerEntries) {
+      await client.query(
+        `INSERT INTO dividend_ledger_entries (
+           id, account_id, dividend_event_id, eligible_quantity,
+           expected_cash_amount_ntd, expected_stock_quantity,
+           received_cash_amount_ntd, received_stock_quantity,
+           posting_status, reconciliation_status, booked_at,
+           reversal_of_dividend_ledger_entry_id, superseded_at
+         ) VALUES (
+           $1, $2, $3, $4,
+           $5, $6,
+           $7, $8,
+           $9, $10, $11,
+           $12, $13
+         )`,
+        [
+          entry.id,
+          entry.accountId,
+          entry.dividendEventId,
+          entry.eligibleQuantity,
+          entry.expectedCashAmountNtd,
+          entry.expectedStockQuantity,
+          entry.receivedCashAmountNtd,
+          entry.receivedStockQuantity,
+          entry.postingStatus,
+          entry.reconciliationStatus,
+          entry.bookedAt ?? new Date().toISOString(),
+          entry.reversalOfDividendLedgerEntryId ?? null,
+          entry.supersededAt ?? null,
+        ],
+      );
+    }
+
+    for (const deduction of accounting.facts.dividendDeductionEntries) {
+      await client.query(
+        `INSERT INTO dividend_deduction_entries (
+           id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+           withheld_at_source, source_type, source_reference, note, booked_at
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7, $8, $9, $10
+         )`,
+        [
+          deduction.id,
+          deduction.dividendLedgerEntryId,
+          deduction.deductionType,
+          deduction.amount,
+          deduction.currencyCode,
+          deduction.withheldAtSource,
+          deduction.sourceType,
+          deduction.sourceReference ?? null,
+          deduction.note ?? null,
+          deduction.bookedAt ?? new Date().toISOString(),
         ],
       );
     }
@@ -1140,8 +1326,11 @@ function validateAccountingStoreInvariants(accounting: AccountingStore): void {
   }
 
   const tradeIds = new Set(accounting.facts.tradeEvents.map((trade) => trade.id));
+  const dividendEventIds = new Set(accounting.facts.dividendEvents.map((event) => event.id));
+  const dividendLedgerIds = new Set(accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
   const lotIds = new Set(accounting.projections.lots.map((lot) => lot.id));
   const tradeBookingKeys = new Set<string>();
+  const activeDividendLedgerKeys = new Set<string>();
   for (const trade of accounting.facts.tradeEvents) {
     if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
       throw new Error(`trade ${trade.id} has invalid booking sequence`);
@@ -1155,6 +1344,24 @@ function validateAccountingStoreInvariants(accounting: AccountingStore): void {
         );
       }
       tradeBookingKeys.add(bookingKey);
+    }
+  }
+
+  for (const entry of accounting.facts.dividendLedgerEntries) {
+    if (!dividendEventIds.has(entry.dividendEventId)) {
+      throw new Error(
+        `dividend ledger entry ${entry.id} references unknown dividend event ${entry.dividendEventId}`,
+      );
+    }
+
+    if (!entry.reversalOfDividendLedgerEntryId && !entry.supersededAt) {
+      const activeKey = `${entry.accountId}:${entry.dividendEventId}`;
+      if (activeDividendLedgerKeys.has(activeKey)) {
+        throw new Error(
+          `dividend ledger entry ${entry.id} duplicates active row for ${entry.accountId} and ${entry.dividendEventId}`,
+        );
+      }
+      activeDividendLedgerKeys.add(activeKey);
     }
   }
 
@@ -1183,11 +1390,37 @@ function validateAccountingStoreInvariants(accounting: AccountingStore): void {
       throw new Error(`lot allocation ${allocation.id} references unknown lot ${allocation.lotId}`);
     }
   }
+
+  for (const cashEntry of accounting.facts.cashLedgerEntries) {
+    if (
+      cashEntry.relatedDividendLedgerEntryId &&
+      !dividendLedgerIds.has(cashEntry.relatedDividendLedgerEntryId)
+    ) {
+      throw new Error(
+        `cash ledger entry ${cashEntry.id} references unknown dividend ledger ${cashEntry.relatedDividendLedgerEntryId}`,
+      );
+    }
+  }
+
+  for (const deduction of accounting.facts.dividendDeductionEntries) {
+    if (!dividendLedgerIds.has(deduction.dividendLedgerEntryId)) {
+      throw new Error(
+        `dividend deduction ${deduction.id} references unknown dividend ledger ${deduction.dividendLedgerEntryId}`,
+      );
+    }
+
+    if (deduction.currencyCode !== "TWD") {
+      throw new Error(`dividend deduction ${deduction.id} must use TWD currency`);
+    }
+  }
 }
 
 function normalizeDate(value: string | Date): string {
   if (typeof value === "string") return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function normalizeDateTime(value: string | Date): string {

@@ -758,6 +758,315 @@ describePostgres("postgres migrations", () => {
     expect(mirroredTransactions.rows).toEqual([{ id: "trade-kzo48-1" }]);
   });
 
+  it("round-trips dividend events, ledger entries, deductions, and linked cash entries", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    store.accounts.push({
+      id: "user-1-acc-2",
+      userId: "user-1",
+      name: "Dividend",
+      feeProfileId: store.feeProfiles[0].id,
+    });
+    store.accounting.facts.dividendEvents = [
+      {
+        id: "dividend-event-kzo34-1",
+        symbol: "0056",
+        eventType: "CASH",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-10",
+        cashDividendPerShare: 1.2,
+        stockDividendPerShare: 0,
+        sourceType: "manual",
+        sourceReference: "dividend-event-kzo34-1",
+        createdAt: "2026-07-01T00:00:00.000Z",
+      },
+    ];
+    store.accounting.facts.dividendLedgerEntries = [
+      {
+        id: "dividend-ledger-kzo34-1",
+        accountId: "user-1-acc-1",
+        dividendEventId: "dividend-event-kzo34-1",
+        eligibleQuantity: 2000,
+        expectedCashAmountNtd: 2400,
+        expectedStockQuantity: 0,
+        receivedCashAmountNtd: 2289,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        bookedAt: "2026-08-10T09:00:00.000Z",
+      },
+      {
+        id: "dividend-ledger-kzo34-2",
+        accountId: "user-1-acc-2",
+        dividendEventId: "dividend-event-kzo34-1",
+        eligibleQuantity: 500,
+        expectedCashAmountNtd: 600,
+        expectedStockQuantity: 0,
+        receivedCashAmountNtd: 0,
+        receivedStockQuantity: 0,
+        postingStatus: "expected",
+        reconciliationStatus: "open",
+        bookedAt: "2026-07-16T09:00:00.000Z",
+      },
+    ];
+    store.accounting.facts.dividendDeductionEntries = [
+      {
+        id: "dividend-deduction-kzo34-tax",
+        dividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        deductionType: "WITHHOLDING_TAX",
+        amount: 100,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        sourceType: "broker_statement",
+        sourceReference: "stmt-tax",
+        note: "withholding tax",
+        bookedAt: "2026-08-10T09:00:01.000Z",
+      },
+      {
+        id: "dividend-deduction-kzo34-nhi",
+        dividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+        amount: 11,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        sourceType: "broker_statement",
+        sourceReference: "stmt-nhi",
+        note: "supplemental premium",
+        bookedAt: "2026-08-10T09:00:02.000Z",
+      },
+    ];
+    store.accounting.facts.cashLedgerEntries = [
+      {
+        id: "cash-kzo34-receipt",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        entryDate: "2026-08-10",
+        entryType: "DIVIDEND_RECEIPT",
+        amountNtd: 2289,
+        currency: "TWD",
+        relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        sourceType: "dividend_posting",
+        sourceReference: "cash-kzo34-receipt",
+        bookedAt: "2026-08-10T09:00:03.000Z",
+      },
+      {
+        id: "cash-kzo34-deduction",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        entryDate: "2026-08-10",
+        entryType: "DIVIDEND_DEDUCTION",
+        amountNtd: -111,
+        currency: "TWD",
+        relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        sourceType: "dividend_posting",
+        sourceReference: "cash-kzo34-deduction",
+        note: "at-source deductions",
+        bookedAt: "2026-08-10T09:00:04.000Z",
+      },
+    ];
+
+    await persistence.saveStore(store);
+
+    const dividendEvents = await pool.query<{
+      id: string;
+      event_type: string;
+      cash_dividend_per_share: string;
+      source_type: string;
+    }>(
+      `SELECT id, event_type, cash_dividend_per_share::text AS cash_dividend_per_share, source_type
+       FROM dividend_events
+       ORDER BY id`,
+    );
+    expect(dividendEvents.rows).toEqual([
+      {
+        id: "dividend-event-kzo34-1",
+        event_type: "CASH",
+        cash_dividend_per_share: "1.200000",
+        source_type: "manual",
+      },
+    ]);
+
+    const dividendLedgers = await pool.query<{
+      id: string;
+      account_id: string;
+      posting_status: string;
+      reconciliation_status: string;
+    }>(
+      `SELECT id, account_id, posting_status, reconciliation_status
+       FROM dividend_ledger_entries
+       ORDER BY id`,
+    );
+    expect(dividendLedgers.rows).toEqual([
+      {
+        id: "dividend-ledger-kzo34-1",
+        account_id: "user-1-acc-1",
+        posting_status: "posted",
+        reconciliation_status: "matched",
+      },
+      {
+        id: "dividend-ledger-kzo34-2",
+        account_id: "user-1-acc-2",
+        posting_status: "expected",
+        reconciliation_status: "open",
+      },
+    ]);
+
+    const dividendDeductions = await pool.query<{
+      id: string;
+      dividend_ledger_entry_id: string;
+      deduction_type: string;
+      currency_code: string;
+    }>(
+      `SELECT id, dividend_ledger_entry_id, deduction_type, currency_code
+       FROM dividend_deduction_entries
+       ORDER BY id`,
+    );
+    expect(dividendDeductions.rows).toEqual([
+      {
+        id: "dividend-deduction-kzo34-nhi",
+        dividend_ledger_entry_id: "dividend-ledger-kzo34-1",
+        deduction_type: "NHI_SUPPLEMENTAL_PREMIUM",
+        currency_code: "TWD",
+      },
+      {
+        id: "dividend-deduction-kzo34-tax",
+        dividend_ledger_entry_id: "dividend-ledger-kzo34-1",
+        deduction_type: "WITHHOLDING_TAX",
+        currency_code: "TWD",
+      },
+    ]);
+
+    const cashEntries = await pool.query<{
+      id: string;
+      related_dividend_ledger_entry_id: string | null;
+      entry_type: string;
+      amount_ntd: number;
+    }>(
+      `SELECT id, related_dividend_ledger_entry_id, entry_type, amount_ntd
+       FROM cash_ledger_entries
+       WHERE user_id = 'user-1'
+       ORDER BY id`,
+    );
+    expect(cashEntries.rows).toEqual([
+      {
+        id: "cash-kzo34-deduction",
+        related_dividend_ledger_entry_id: "dividend-ledger-kzo34-1",
+        entry_type: "DIVIDEND_DEDUCTION",
+        amount_ntd: -111,
+      },
+      {
+        id: "cash-kzo34-receipt",
+        related_dividend_ledger_entry_id: "dividend-ledger-kzo34-1",
+        entry_type: "DIVIDEND_RECEIPT",
+        amount_ntd: 2289,
+      },
+    ]);
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.facts.dividendEvents).toEqual([
+      expect.objectContaining({
+        id: "dividend-event-kzo34-1",
+        eventType: "CASH",
+        cashDividendPerShare: 1.2,
+        sourceType: "manual",
+      }),
+    ]);
+    expect(reloaded.accounting.facts.dividendLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: "dividend-ledger-kzo34-2",
+        accountId: "user-1-acc-2",
+        postingStatus: "expected",
+      }),
+      expect.objectContaining({
+        id: "dividend-ledger-kzo34-1",
+        accountId: "user-1-acc-1",
+        postingStatus: "posted",
+      }),
+    ]);
+    expect(reloaded.accounting.facts.dividendDeductionEntries).toEqual([
+      expect.objectContaining({
+        id: "dividend-deduction-kzo34-tax",
+        dividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        deductionType: "WITHHOLDING_TAX",
+        currencyCode: "TWD",
+      }),
+      expect.objectContaining({
+        id: "dividend-deduction-kzo34-nhi",
+        dividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+        currencyCode: "TWD",
+      }),
+    ]);
+    expect(reloaded.accounting.facts.cashLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: "cash-kzo34-receipt",
+        relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        entryType: "DIVIDEND_RECEIPT",
+      }),
+      expect.objectContaining({
+        id: "cash-kzo34-deduction",
+        relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
+        entryType: "DIVIDEND_DEDUCTION",
+      }),
+    ]);
+  });
+
+  it("rejects duplicate active dividend ledger rows in accounting store saves", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.dividendEvents = [
+      {
+        id: "dividend-event-kzo34-duplicate",
+        symbol: "0056",
+        eventType: "CASH",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-10",
+        cashDividendPerShare: 1.2,
+        stockDividendPerShare: 0,
+        sourceType: "manual",
+        sourceReference: "dividend-event-kzo34-duplicate",
+      },
+    ];
+    store.accounting.facts.dividendLedgerEntries = [
+      {
+        id: "dividend-ledger-kzo34-duplicate-1",
+        accountId: "user-1-acc-1",
+        dividendEventId: "dividend-event-kzo34-duplicate",
+        eligibleQuantity: 1000,
+        expectedCashAmountNtd: 1200,
+        expectedStockQuantity: 0,
+        receivedCashAmountNtd: 0,
+        receivedStockQuantity: 0,
+        postingStatus: "expected",
+        reconciliationStatus: "open",
+      },
+      {
+        id: "dividend-ledger-kzo34-duplicate-2",
+        accountId: "user-1-acc-1",
+        dividendEventId: "dividend-event-kzo34-duplicate",
+        eligibleQuantity: 1000,
+        expectedCashAmountNtd: 1200,
+        expectedStockQuantity: 0,
+        receivedCashAmountNtd: 0,
+        receivedStockQuantity: 0,
+        postingStatus: "expected",
+        reconciliationStatus: "open",
+      },
+    ];
+
+    await expect(persistence.saveStore(store)).rejects.toThrow(/duplicates active row/i);
+  });
+
   it("rejects duplicate persisted booking sequence and opened sequence in accounting store saves", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
