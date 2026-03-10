@@ -43,6 +43,16 @@
 - Include `## Testing` evidence in PRs with exact commands and outcomes.
 - If a check is skipped, record reason, approver, and planned follow-up.
 
+## Git and PR gate rules
+- This repository is Linear-driven. Commit subjects and PR titles must use `type(scope): LINEAR-TICKET: subject` (example: `feat(api): KZO-33: define dividend lifecycle`).
+- The only naming waiver path is PR label `waiver:linear-ticket` plus `## Waiver` fields `Reason:`, `Approved-by: @handle`, and `Scope: title|commits|both`.
+- For solo-maintainer repositories, `Approved-by` may be the PR author only when they are the only human collaborator with write, maintain, or admin access.
+- User-stated waiver intent overrides inferred ticket matching. If the user explicitly says a PR or commit should use the waiver path, do not attach a Linear ticket based only on topic similarity or newly discovered issues.
+- For git/PR flow, determine naming mode in this precedence order: explicit user instruction, existing branch/commit/PR draft evidence, then repository search. Only use a discovered Linear issue when the user has not indicated waiver intent and the issue is already grounded by repository context.
+- If the work is a repo/process improvement and no ticket is already anchored in the branch name, commit history, or explicit user request, pause before creating a ticketed branch, commit, or PR title and confirm whether the waiver path should be used.
+- Git orchestrator must look for a related Linear ticket in branch name, recent commit subjects, current commit message draft, and known PR title/body draft context before using the waiver path.
+- If no related ticket is found, orchestrator must ask whether to use `waiver:linear-ticket`; if the user declines, block non-compliant commit or PR-title flow.
+
 ## Security considerations
 - Never commit secrets, private keys, or real environment credentials.
 - Keep authentication mode expectations explicit for non-development environments.
