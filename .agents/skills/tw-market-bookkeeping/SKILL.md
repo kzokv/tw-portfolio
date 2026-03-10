@@ -1,6 +1,6 @@
 ---
 name: tw-market-bookkeeping
-description: Help with Taiwan stock and ETF bookkeeping and tax-adjacent recordkeeping for individual investors. Use when tasks involve Taiwan listed stocks, ETFs, or bond ETFs and require trade ledger entries, dividend or distribution bookkeeping, brokerage commission or transaction tax handling, NHI supplemental premium considerations, source-breakdown handling for ETF payouts, or concise bookkeeping guidance grounded in Taiwan market rules.
+description: Handle Taiwan stock and ETF bookkeeping questions.
 ---
 
 # Taiwan Market Bookkeeping
