@@ -139,9 +139,11 @@ describePostgres("postgres migrations", () => {
     const expectedIndexes = [
       "idx_trade_events_account_symbol_trade_date",
       "idx_trade_events_account_symbol_booking_order",
+      "ux_trade_events_account_trade_date_booking_sequence",
       "ux_trade_events_account_source_reference",
       "ux_trade_events_reversal_of_trade_event_id",
       "idx_lot_allocations_trade_event_id",
+      "ux_lots_account_symbol_opened_order",
       "ux_lot_allocations_trade_event_lot",
       "idx_cash_ledger_entries_account_entry_date",
       "ux_cash_ledger_entries_account_source_reference",
@@ -327,6 +329,41 @@ describePostgres("postgres migrations", () => {
         [userId, accountId],
       ),
     ).rejects.toThrow(/duplicate key value/i);
+
+    await expect(
+      pool.query(
+        `INSERT INTO trade_events (
+           id, user_id, account_id, symbol, instrument_type, trade_type, quantity, price_ntd,
+           trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd, is_day_trade,
+           fee_snapshot_json, source_type, source_reference, booked_at
+         ) VALUES (
+           'trade-duplicate-sequence', $1, $2, '2330', 'STOCK', 'BUY', 10, 610,
+           DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:01', 1, 10, 0, false,
+           '{}', 'manual', 'trade-duplicate-sequence', NOW()
+         )`,
+        [userId, accountId],
+      ),
+    ).rejects.toThrow(/duplicate key value/i);
+
+    await pool.query(
+      `INSERT INTO lots (
+         id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence
+       ) VALUES (
+         'lot-base', $1, '2330', 100, 60000, DATE '2026-03-01', 1
+       )`,
+      [accountId],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO lots (
+           id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence
+         ) VALUES (
+           'lot-duplicate-order', $1, '2330', 50, 30000, DATE '2026-03-01', 1
+         )`,
+        [accountId],
+      ),
+    ).rejects.toThrow(/duplicate key value/i);
   });
 
   it("round-trips canonical trade facts and snapshots through Postgres persistence", async () => {
@@ -491,6 +528,82 @@ describePostgres("postgres migrations", () => {
        ORDER BY id`,
     );
     expect(mirroredTransactions.rows).toEqual([{ id: "trade-kzo48-1" }]);
+  });
+
+  it("rejects duplicate persisted booking sequence and opened sequence in accounting store saves", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents = [
+      {
+        id: "trade-kzo46-dupe-1",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        priceNtd: 100,
+        tradeDate: "2026-03-01",
+        tradeTimestamp: "2026-03-01T09:00:00.000Z",
+        bookingSequence: 1,
+        commissionNtd: 20,
+        taxNtd: 0,
+        isDayTrade: false,
+        feeSnapshot: store.feeProfiles[0],
+        sourceType: "test",
+        sourceReference: "trade-kzo46-dupe-1",
+        bookedAt: "2026-03-01T09:00:00.000Z",
+      },
+      {
+        id: "trade-kzo46-dupe-2",
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 5,
+        priceNtd: 110,
+        tradeDate: "2026-03-01",
+        tradeTimestamp: "2026-03-01T09:00:01.000Z",
+        bookingSequence: 1,
+        commissionNtd: 20,
+        taxNtd: 0,
+        isDayTrade: false,
+        feeSnapshot: store.feeProfiles[0],
+        sourceType: "test",
+        sourceReference: "trade-kzo46-dupe-2",
+        bookedAt: "2026-03-01T09:00:01.000Z",
+      },
+    ];
+    store.accounting.projections.lots = [
+      {
+        id: "lot-kzo46-dupe-1",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        openQuantity: 10,
+        totalCostNtd: 1000,
+        openedAt: "2026-03-01",
+        openedSequence: 1,
+      },
+      {
+        id: "lot-kzo46-dupe-2",
+        accountId: "user-1-acc-1",
+        symbol: "2330",
+        openQuantity: 5,
+        totalCostNtd: 550,
+        openedAt: "2026-03-01",
+        openedSequence: 1,
+      },
+    ];
+
+    await expect(persistence.saveStore(store)).rejects.toThrow(
+      /duplicates booking sequence 1|duplicates opened sequence 1/i,
+    );
   });
 
   it("does not load legacy mirrored transactions when canonical trade events are absent", async () => {
