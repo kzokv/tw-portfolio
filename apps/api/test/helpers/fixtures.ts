@@ -13,6 +13,8 @@ interface TransactionPayloadBase {
   tradeDate: string;
   tradeTimestamp?: string;
   bookingSequence?: number;
+  commissionNtd?: number;
+  taxNtd?: number;
   type: TransactionType;
   isDayTrade: boolean;
 }
