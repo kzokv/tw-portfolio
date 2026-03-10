@@ -1141,15 +1141,37 @@ function validateAccountingStoreInvariants(accounting: AccountingStore): void {
 
   const tradeIds = new Set(accounting.facts.tradeEvents.map((trade) => trade.id));
   const lotIds = new Set(accounting.projections.lots.map((lot) => lot.id));
+  const tradeBookingKeys = new Set<string>();
   for (const trade of accounting.facts.tradeEvents) {
     if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
       throw new Error(`trade ${trade.id} has invalid booking sequence`);
     }
+
+    if (trade.bookingSequence !== undefined) {
+      const bookingKey = `${trade.accountId}:${trade.tradeDate}:${trade.bookingSequence}`;
+      if (tradeBookingKeys.has(bookingKey)) {
+        throw new Error(
+          `trade ${trade.id} duplicates booking sequence ${trade.bookingSequence} for ${trade.accountId} on ${trade.tradeDate}`,
+        );
+      }
+      tradeBookingKeys.add(bookingKey);
+    }
   }
 
+  const lotOpenedKeys = new Set<string>();
   for (const lot of accounting.projections.lots) {
     if (lot.openedSequence !== undefined && lot.openedSequence <= 0) {
       throw new Error(`lot ${lot.id} has invalid opened sequence`);
+    }
+
+    if (lot.openedSequence !== undefined) {
+      const openedKey = `${lot.accountId}:${lot.symbol}:${lot.openedAt}:${lot.openedSequence}`;
+      if (lotOpenedKeys.has(openedKey)) {
+        throw new Error(
+          `lot ${lot.id} duplicates opened sequence ${lot.openedSequence} for ${lot.accountId} ${lot.symbol} on ${lot.openedAt}`,
+        );
+      }
+      lotOpenedKeys.add(openedKey);
     }
   }
 
