@@ -273,7 +273,7 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 ### MVP Responsibility
 
 - store expected and actual dividend values per account
-- store deductions such as supplemental insurance or other adjustments
+- link to typed deduction rows for supplemental insurance and other adjustments
 - provide posted state for dividend workflow UI and reconciliation
 
 ### Canonical Fields
@@ -286,28 +286,60 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 - `expectedStockQuantity`
 - `receivedCashAmountNtd`
 - `receivedStockQuantity`
-- `supplementalInsuranceNtd`
-- `otherDeductionNtd`
 - `postingStatus`
 - `reconciliationStatus`
+- `reversalOfDividendLedgerEntryId`
+- `supersededAt`
 
 ### Lifecycle
 
 - `expected`
 - `posted`
 - `adjusted`
-- `reconciled`
 
 ### Invariants
 
 - one dividend event may produce zero or more ledger entries across accounts
 - actual received values may differ from expected values
+- typed dividend deductions must be represented through child records with explicit currency
 - related cash effects must be represented through cash ledger entries, not hidden fields alone
 - corrections to posted dividend ledger entries must be represented through reversal
+- at most one active non-reversal row should exist per `(accountId, dividendEventId)`
 
 ### Current Mapping
 
 - not yet implemented
+
+## `DividendDeductionEntry`
+
+### Purpose
+
+Represents one typed deduction or adjustment attached to an account-level dividend posting.
+
+### MVP Responsibility
+
+- preserve deduction detail without flattening all withheld amounts into one summary field
+- keep the dividend posting comparison based on net received cash plus explicit at-source deductions
+- carry an explicit currency hook even while the Taiwan MVP remains TWD-scoped
+
+### Canonical Fields
+
+- `id`
+- `dividendLedgerEntryId`
+- `deductionType`
+- `amount`
+- `currencyCode`
+- `withheldAtSource`
+- `sourceType`
+- `sourceReference`
+- `note`
+
+### Invariants
+
+- one dividend ledger entry may have zero or more deduction rows
+- Wave 2 dividend deductions persist explicit `currencyCode = TWD`
+- deduction rows are source facts, not derived summaries
+- downstream read models may project summary totals, but deduction rows remain the source of truth
 
 ## `ReconciliationRecord`
 
@@ -577,9 +609,11 @@ Input facts:
 
 - update or post `DividendLedgerEntry`
   - receivedCashAmountNtd: `2280`
-  - supplementalInsuranceNtd: `120`
-  - otherDeductionNtd: `0`
   - postingStatus: `posted`
+- one `DividendDeductionEntry`
+  - deductionType: `NHI_SUPPLEMENTAL_PREMIUM`
+  - amount: `120`
+  - currencyCode: `TWD`
 
 Expected outcomes:
 
@@ -756,10 +790,18 @@ The following decisions are locked for the current MVP:
   - `expectedStockQuantity`
   - `receivedCashAmountNtd`
   - `receivedStockQuantity`
-  - `supplementalInsuranceNtd`
-  - `otherDeductionNtd`
   - `postingStatus`
   - `reconciliationStatus`
+  - `reversalOfDividendLedgerEntryId`
+  - `supersededAt`
+- minimum `DividendDeductionEntry` fields:
+  - `id`
+  - `dividendLedgerEntryId`
+  - `deductionType`
+  - `amount`
+  - `currencyCode`
+  - `withheldAtSource`
+  - `sourceType`
 
 ## Explicit Non-Goals for This Issue
 

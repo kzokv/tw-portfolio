@@ -110,7 +110,7 @@ describePostgres("postgres migrations", () => {
     expect(secondPass.rows.map((row) => row.name)).toEqual(migrationFiles);
   });
 
-  it("applies KZO-15 accounting schema objects", async () => {
+  it("applies accounting schema objects including dividend alignment", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
       redisUrl: redisUrl!,
@@ -123,6 +123,7 @@ describePostgres("postgres migrations", () => {
       "cash_ledger_entries",
       "dividend_events",
       "dividend_ledger_entries",
+      "dividend_deduction_entries",
       "reconciliation_records",
       "daily_portfolio_snapshots",
     ];
@@ -151,6 +152,8 @@ describePostgres("postgres migrations", () => {
       "idx_dividend_events_symbol_ex_dividend_date",
       "idx_dividend_ledger_entries_dividend_event_id",
       "ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id",
+      "idx_dividend_deduction_entries_dividend_ledger_entry_id",
+      "ux_dividend_ledger_entries_active_account_event",
       "idx_reconciliation_records_user_account_status",
       "ux_daily_portfolio_snapshots_user_date_run",
     ];
@@ -178,6 +181,12 @@ describePostgres("postgres migrations", () => {
     );
     expect(indexDefByName.get("ux_cash_ledger_entries_account_source_reference")).toMatch(
       /source_reference IS NOT NULL/i,
+    );
+    expect(indexDefByName.get("ux_dividend_ledger_entries_active_account_event")).toMatch(
+      /CREATE UNIQUE INDEX/i,
+    );
+    expect(indexDefByName.get("ux_dividend_ledger_entries_active_account_event")).toMatch(
+      /superseded_at IS NULL/i,
     );
 
     const constraints = await pool.query<{ table_name: string; definition: string }>(
@@ -241,6 +250,12 @@ describePostgres("postgres migrations", () => {
       ),
     ).toBe(true);
     expect(hasConstraint("dividend_ledger_entries", "posting_status = ANY")).toBe(true);
+    expect(
+      hasConstraint(
+        "dividend_deduction_entries",
+        "FOREIGN KEY (dividend_ledger_entry_id) REFERENCES dividend_ledger_entries(id)",
+      ),
+    ).toBe(true);
     expect(hasConstraint("reconciliation_records", "reconciliation_status = ANY")).toBe(true);
 
     expect(
@@ -302,6 +317,102 @@ describePostgres("postgres migrations", () => {
         [userId, accountId],
       ),
     ).rejects.toThrow(/check constraint/i);
+
+    await pool.query(
+      `INSERT INTO dividend_events (
+         id, symbol, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, stock_dividend_per_share, source_type, source_reference
+       ) VALUES (
+         'dividend-base', '0056', 'CASH', DATE '2026-07-15', DATE '2026-08-10',
+         1.2, 0, 'manual', 'dividend-base'
+       )`,
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO dividend_ledger_entries (
+           id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount_ntd,
+           expected_stock_quantity, received_cash_amount_ntd, received_stock_quantity,
+           posting_status, reconciliation_status
+         ) VALUES (
+           'dividend-ledger-invalid-status', $1, 'dividend-base', 2000, 2400,
+           0, 0, 0,
+           'reconciled', 'open'
+         )`,
+        [accountId],
+      ),
+    ).rejects.toThrow(/check constraint/i);
+
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount_ntd,
+         expected_stock_quantity, received_cash_amount_ntd, received_stock_quantity,
+         posting_status, reconciliation_status
+       ) VALUES (
+         'dividend-ledger-active-1', $1, 'dividend-base', 2000, 2400,
+         0, 2280, 0,
+         'posted', 'open'
+       )`,
+      [accountId],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO dividend_ledger_entries (
+           id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount_ntd,
+           expected_stock_quantity, received_cash_amount_ntd, received_stock_quantity,
+           posting_status, reconciliation_status
+         ) VALUES (
+           'dividend-ledger-active-2', $1, 'dividend-base', 2000, 2400,
+           0, 2280, 0,
+           'posted', 'open'
+         )`,
+        [accountId],
+      ),
+    ).rejects.toThrow(/duplicate key value/i);
+
+    await pool.query(
+      `UPDATE dividend_ledger_entries
+       SET superseded_at = NOW()
+       WHERE id = 'dividend-ledger-active-1'`,
+    );
+
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount_ntd,
+         expected_stock_quantity, received_cash_amount_ntd, received_stock_quantity,
+         posting_status, reconciliation_status
+       ) VALUES (
+         'dividend-ledger-active-2', $1, 'dividend-base', 2000, 2400,
+         0, 2280, 0,
+         'adjusted', 'open'
+       )`,
+      [accountId],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO dividend_deduction_entries (
+           id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+           withheld_at_source, source_type, source_reference
+         ) VALUES (
+           'dividend-deduction-invalid-currency', 'dividend-ledger-active-2',
+           'NHI_SUPPLEMENTAL_PREMIUM', 120, 'USD',
+           true, 'manual', 'dividend-deduction-invalid-currency'
+         )`,
+      ),
+    ).rejects.toThrow(/check constraint/i);
+
+    await pool.query(
+      `INSERT INTO dividend_deduction_entries (
+         id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+         withheld_at_source, source_type, source_reference
+       ) VALUES (
+         'dividend-deduction-valid', 'dividend-ledger-active-2',
+         'NHI_SUPPLEMENTAL_PREMIUM', 120, 'TWD',
+         true, 'manual', 'dividend-deduction-valid'
+       )`,
+    );
 
     await pool.query(
       `INSERT INTO trade_events (

@@ -1,7 +1,7 @@
 # Current Focus
 
 ## Active goal
-- Finish `KZO-33` as the dividend lifecycle/spec gate and hand the locked contract to `KZO-34` and `KZO-36`.
+- Execute `KZO-54` so the dividend schema matches the locked `KZO-33` lifecycle contract before `KZO-34` and `KZO-36` expand implementation scope.
 
 ## Constraints
 - Follow the Linear execution queue rather than stale local pickup text when they diverge.
@@ -11,4 +11,4 @@
 - Expect transitional legacy seams in Postgres loading, transaction mirrors, and recompute routes until canonical cutover work is completed.
 
 ## Immediate next check
-- Verify that downstream dividend implementation work uses `docs/kzo-33-dividend-lifecycle.md` as the contract, then apply the active-record and state-transition invariants in `KZO-34`/`KZO-36` instead of re-deciding lifecycle semantics in code.
+- Implement the `KZO-54` migration and schema tests, then move `KZO-34` onto typed dividend deductions with explicit `currencyCode = 'TWD'` and keep `KZO-55` tracked in backlog for later currency normalization.
