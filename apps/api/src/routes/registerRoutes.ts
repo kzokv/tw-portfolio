@@ -4,7 +4,14 @@ import { z } from "zod";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import { env } from "../config/env.js";
 import { getQuotesWithFallback } from "../providers/marketData.js";
-import { listCorporateActions, listTradeEvents, syncAccountingPolicy } from "../services/accountingStore.js";
+import {
+  listCorporateActions,
+  listDividendEvents,
+  listDividendLedgerEntries,
+  listTradeEvents,
+  syncAccountingPolicy,
+} from "../services/accountingStore.js";
+import { createDividendEvent, postDividend } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import type { Store } from "../types/store.js";
@@ -76,6 +83,43 @@ const corporateActionSchema = z.object({
   numerator: z.number().int().positive().default(1),
   denominator: z.number().int().positive().default(1),
   actionDate: isoDateSchema,
+});
+
+const dividendEventSchema = z.object({
+  symbol: symbolSchema,
+  eventType: z.enum(["CASH", "STOCK", "CASH_AND_STOCK"]),
+  exDividendDate: isoDateSchema,
+  paymentDate: isoDateSchema,
+  cashDividendPerShare: z.number().nonnegative(),
+  stockDividendPerShare: z.number().nonnegative(),
+  sourceType: userScopedIdSchema.default("manual_dividend_event"),
+  sourceReference: userScopedIdSchema.optional(),
+});
+
+const dividendDeductionSchema = z.object({
+  deductionType: z.enum([
+    "NHI_SUPPLEMENTAL_PREMIUM",
+    "WITHHOLDING_TAX",
+    "BROKER_FEE",
+    "BANK_FEE",
+    "TRANSFER_FEE",
+    "CASH_IN_LIEU_ADJUSTMENT",
+    "ROUNDING_ADJUSTMENT",
+    "OTHER",
+  ]),
+  amount: z.number().int().positive(),
+  withheldAtSource: z.boolean().default(true),
+  sourceType: userScopedIdSchema.default("dividend_posting"),
+  sourceReference: userScopedIdSchema.optional(),
+  note: z.string().trim().min(1).max(200).optional(),
+});
+
+const dividendPostingSchema = z.object({
+  accountId: userScopedIdSchema,
+  dividendEventId: userScopedIdSchema,
+  receivedCashAmountNtd: z.number().int().nonnegative().default(0),
+  receivedStockQuantity: z.number().int().nonnegative().default(0),
+  deductions: z.array(dividendDeductionSchema).max(20).default([]),
 });
 
 type RouteError = Error & { statusCode: number; code: string };
@@ -549,6 +593,74 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { store, userId } = await loadUserStore(app, req);
     assertStoreIntegrity(store);
     return listHoldings(store, userId);
+  });
+
+  app.get("/dividend-events", async (req) => {
+    const { store } = await loadUserStore(app, req);
+    return listDividendEvents(store);
+  });
+
+  app.post("/dividend-events", async (req) => {
+    const body = dividendEventSchema.parse(req.body);
+    const { store } = await loadUserStore(app, req);
+
+    const dividendEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ...body,
+    });
+
+    await app.persistence.saveAccountingStore(store.userId, store.accounting);
+    return dividendEvent;
+  });
+
+  app.get("/portfolio/dividends/ledger", async (req) => {
+    const { store } = await loadUserStore(app, req);
+    return listDividendLedgerEntries(store);
+  });
+
+  app.post("/portfolio/dividends/postings", async (req) => {
+    const body = dividendPostingSchema.parse(req.body);
+    const idempotencyKey = req.headers["idempotency-key"];
+    if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+      throw routeError(400, "idempotency_key_required", "idempotency-key header required");
+    }
+
+    const userId = resolveUserId(req);
+    const store = await app.persistence.loadStore(userId);
+    const draftStore = structuredClone(store);
+    assertStoreIntegrity(draftStore);
+    requireAccount(draftStore, body.accountId);
+
+    const result = postDividend(draftStore, userId, {
+      id: randomUUID(),
+      accountId: body.accountId,
+      dividendEventId: body.dividendEventId,
+      receivedCashAmountNtd: body.receivedCashAmountNtd,
+      receivedStockQuantity: body.receivedStockQuantity,
+      deductions: body.deductions.map((entry) => ({
+        id: randomUUID(),
+        deductionType: entry.deductionType,
+        amount: entry.amount,
+        withheldAtSource: entry.withheldAtSource,
+        sourceType: entry.sourceType,
+        sourceReference: entry.sourceReference,
+        note: entry.note,
+      })),
+    });
+
+    const claimed = await app.persistence.claimIdempotencyKey(userId, idempotencyKey);
+    if (!claimed) {
+      throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+    }
+
+    try {
+      await app.persistence.savePostedDividend(userId, draftStore.accounting, result.dividendLedgerEntry.id);
+    } catch (error) {
+      await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
+      throw error;
+    }
+
+    return result;
   });
 
   app.get("/corporate-actions", async (req) => {

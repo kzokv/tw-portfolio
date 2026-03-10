@@ -1,7 +1,7 @@
 # Current Focus
 
 ## Active goal
-- Start `KZO-36` now that `KZO-34` is implemented, verified, and submitted for review in PR `#45`.
+- Close out `KZO-36` in workflow state, then pick the next Wave 2 backend ticket from the live Linear execution queue.
 
 ## Constraints
 - Follow the Linear execution queue rather than stale local pickup text when they diverge.
@@ -11,4 +11,4 @@
 - Expect transitional legacy seams in Postgres loading, transaction mirrors, and recompute routes until canonical cutover work is completed.
 
 ## Immediate next check
-- Implement the dividend posting path on top of the normalized persistence layer from `KZO-34`, including expected-vs-actual comparison, typed deductions, and linked cash-ledger effects, while keeping `KZO-55` as backlog-only currency follow-up.
+- Update Linear and PR close-out state for `KZO-36` with the verified build and integration evidence, then choose the next ranked Wave 2 ticket from Linear rather than stale local pickup notes. Keep `KZO-55` backlog-only unless the queue explicitly pulls currency normalization forward.

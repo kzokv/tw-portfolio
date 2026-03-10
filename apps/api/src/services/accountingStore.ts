@@ -64,6 +64,32 @@ export function appendDividendDeductionEntry(store: Store, dividendDeductionEntr
   store.accounting.facts.dividendDeductionEntries.push(dividendDeductionEntry);
 }
 
+export function replaceCashLedgerEntriesForDividend(
+  store: Store,
+  dividendLedgerEntryId: string,
+  nextCashLedgerEntries: CashLedgerEntry[],
+): void {
+  store.accounting.facts.cashLedgerEntries = [
+    ...store.accounting.facts.cashLedgerEntries.filter(
+      (entry) => entry.relatedDividendLedgerEntryId !== dividendLedgerEntryId,
+    ),
+    ...nextCashLedgerEntries,
+  ];
+}
+
+export function replaceDividendDeductionsForLedger(
+  store: Store,
+  dividendLedgerEntryId: string,
+  nextDividendDeductions: DividendDeductionEntry[],
+): void {
+  store.accounting.facts.dividendDeductionEntries = [
+    ...store.accounting.facts.dividendDeductionEntries.filter(
+      (entry) => entry.dividendLedgerEntryId !== dividendLedgerEntryId,
+    ),
+    ...nextDividendDeductions,
+  ];
+}
+
 export function replaceCashLedgerEntryForTrade(
   store: Store,
   tradeEventId: string,
@@ -136,6 +162,24 @@ export function listCorporateActions(store: Store): CorporateAction[] {
 
 export function appendCorporateAction(store: Store, action: CorporateAction): void {
   store.accounting.facts.corporateActions.push(action);
+}
+
+export function upsertDividendEvent(store: Store, dividendEvent: DividendEvent): void {
+  store.accounting.facts.dividendEvents = [
+    ...store.accounting.facts.dividendEvents.filter((entry) => entry.id !== dividendEvent.id),
+    dividendEvent,
+  ].sort((left, right) => left.exDividendDate.localeCompare(right.exDividendDate) || left.id.localeCompare(right.id));
+}
+
+export function upsertDividendLedgerEntry(store: Store, dividendLedgerEntry: DividendLedgerEntry): void {
+  store.accounting.facts.dividendLedgerEntries = [
+    ...store.accounting.facts.dividendLedgerEntries.filter((entry) => entry.id !== dividendLedgerEntry.id),
+    dividendLedgerEntry,
+  ].sort((left, right) => {
+    const leftBookedAt = left.bookedAt ?? "";
+    const rightBookedAt = right.bookedAt ?? "";
+    return left.accountId.localeCompare(right.accountId) || leftBookedAt.localeCompare(rightBookedAt) || left.id.localeCompare(right.id);
+  });
 }
 
 export function rebuildHoldingProjection(store: Store): HoldingProjection[] {
