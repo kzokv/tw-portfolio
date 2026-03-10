@@ -1,7 +1,7 @@
 # Current Focus
 
 ## Active goal
-- Execute `KZO-33` as the next ranked Wave 2 pickup: define the dividend lifecycle and posting contract that gates the downstream dividend implementation tickets.
+- Finish `KZO-33` as the dividend lifecycle/spec gate and hand the locked contract to `KZO-34` and `KZO-36`.
 
 ## Constraints
 - Follow the Linear execution queue rather than stale local pickup text when they diverge.
@@ -11,4 +11,4 @@
 - Expect transitional legacy seams in Postgres loading, transaction mirrors, and recompute routes until canonical cutover work is completed.
 
 ## Immediate next check
-- Inspect `KZO-33` against the existing dividend tables and canonical cash ledger model, then pin down event-vs-posting semantics, expected-vs-actual modeling, and deduction/status rules before promoting `KZO-36`.
+- Verify that downstream dividend implementation work uses `docs/kzo-33-dividend-lifecycle.md` as the contract, then apply the active-record and state-transition invariants in `KZO-34`/`KZO-36` instead of re-deciding lifecycle semantics in code.
