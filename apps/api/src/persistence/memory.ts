@@ -44,7 +44,21 @@ export class MemoryPersistence implements Persistence {
     await this.saveAccountingStore(userId, accounting);
   }
 
-  async savePostedDividend(userId: string, accounting: AccountingStore): Promise<void> {
+  async savePostedDividend(
+    userId: string,
+    accounting: AccountingStore,
+    dividendLedgerEntryId: string,
+  ): Promise<void> {
+    const store = await this.loadStore(userId);
+    const existingDividendLedgerEntry = store.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === dividendLedgerEntryId,
+    );
+    if (existingDividendLedgerEntry && existingDividendLedgerEntry.postingStatus !== "expected") {
+      throw new Error(
+        `posted dividend ledger entry ${dividendLedgerEntryId} already exists and cannot be overwritten in place`,
+      );
+    }
+
     await this.saveAccountingStore(userId, accounting);
   }
 

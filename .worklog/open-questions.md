@@ -7,5 +7,5 @@
 
 ## Needed context
 - Inspect `apps/api/src/routes/registerRoutes.ts`, `apps/api/src/services/dividends.ts`, and any remaining callers of the legacy corporate-action dividend path to decide whether the old endpoint should be blocked for dividend writes or removed entirely.
-- Inspect the canonical accounting and lifecycle docs plus future inventory tickets to decide whether zero-cost lot insertion is an acceptable temporary stock-dividend bridge.
+- Inspect `docs/kzo-33-dividend-lifecycle.md` plus future inventory tickets to decide whether the documented zero-cost lot insertion bridge remains acceptable.
 - Inspect the dividend lifecycle contract and persistence invariants to scope the smallest reversal/supersession API slice that closes the current correction gap.

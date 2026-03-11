@@ -103,6 +103,19 @@ Examples:
 
 Reconciliation and correction workflows must preserve history. The canonical correction model for posted facts is `reversal`. Posted accounting facts must not be silently rewritten in place.
 
+The detailed posted-fact correction contract for `KZO-51` lives in [posted-fact-correction-rules.md](./notes/posted-fact-correction-rules.md). Downstream write, import, and reconciliation work should treat that note as the durable rule set rather than redefining correction behavior ticket by ticket.
+
+### Posted-Fact Correction Contract
+
+For posted `TradeEvent`, `CashLedgerEntry`, and `DividendLedgerEntry` facts:
+
+- material errors are corrected at the parent-fact level through `reversal + replacement`, not by editing child details in place
+- the original economic date remains part of business meaning, while the actual correction booking moment is recorded separately in `bookedAt`
+- stock-dividend corrections must reverse the prior inventory effect through the stock-position path and separately reverse any related cash effects
+- reconciliation status `explained` is not a correction method and must not be used when the booked economic fact is wrong
+- the correction chain must complete atomically across the parent fact, generated reversal rows, replacement rows, and any required projection refresh
+- external traceability metadata such as `sourceReference` remains separate from internal correction-chain linkage
+
 ### Cross-Market Cost Basis Strategy
 
 The MVP currently targets weighted average cost as the primary bookkeeping experience. That remains acceptable for Taiwan-focused bookkeeping views, but it should not become the only long-term cost basis model if the product plans to support US and Australian equities.
@@ -158,6 +171,7 @@ Represents an immutable booked security trade fact for one account and one instr
 - `sourceType`
 - `sourceReference`
 - `bookedAt`
+- `reversalOfTradeEventId`
 
 ### Lifecycle
 
@@ -173,12 +187,13 @@ Represents an immutable booked security trade fact for one account and one instr
 - `tradeType` is `BUY` or `SELL`
 - a `SELL` event cannot exceed available quantity for the account and symbol at booking time
 - booked trade facts are not silently mutated after posting
-- corrections to posted trade facts must be represented through reversal rather than in-place overwrite
+- corrections to posted trade facts must follow the posted-fact correction contract and must be represented through reversal rather than in-place overwrite
 
 ### Current Mapping
 
-- current code name: `Transaction`
-- current storage: `transactions`
+- current code name: `BookedTradeEvent` with `Transaction` retained as a compatibility alias
+- current canonical storage: `trade_events`
+- compatibility mirror: `transactions`
 
 ## `CashLedgerEntry`
 
@@ -206,6 +221,8 @@ Represents a first-class cash movement.
 - `sourceType`
 - `sourceReference`
 - `note`
+- `bookedAt`
+- `reversalOfCashLedgerEntryId`
 
 ### Lifecycle
 
@@ -219,11 +236,11 @@ Represents a first-class cash movement.
 - trade settlement entries must link back to the originating trade event when applicable
 - dividend cash entries must link back to the related dividend ledger entry when applicable
 - orphan ledger entries are invalid unless the entry type explicitly allows it
-- corrections to posted cash ledger entries must be represented through reversal
+- corrections to posted cash ledger entries must follow the posted-fact correction contract and must be represented through reversal
 
 ### Current Mapping
 
-- not yet implemented
+- implemented in the API store and Postgres persistence
 
 ## `DividendEvent`
 
@@ -288,6 +305,7 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 - `receivedStockQuantity`
 - `postingStatus`
 - `reconciliationStatus`
+- `bookedAt`
 - `reversalOfDividendLedgerEntryId`
 - `supersededAt`
 
@@ -303,12 +321,12 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 - actual received values may differ from expected values
 - typed dividend deductions must be represented through child records with explicit currency
 - related cash effects must be represented through cash ledger entries, not hidden fields alone
-- corrections to posted dividend ledger entries must be represented through reversal
+- corrections to posted dividend ledger entries must follow the posted-fact correction contract and must be represented through reversal
 - at most one active non-reversal row should exist per `(accountId, dividendEventId)`
 
 ### Current Mapping
 
-- not yet implemented
+- implemented in the API store and Postgres persistence
 
 ## `DividendDeductionEntry`
 
@@ -763,6 +781,7 @@ The intended downstream mapping is:
 - `KZO-13`: domain-level weighted-average cost basis and realized P&L behavior
 - `KZO-15`: schema foundation for cash ledger, dividends, reconciliation, and snapshots
 - `KZO-16`: store and persistence contracts around accounting aggregates
+- `KZO-51`: immutable correction contract for posted facts
 - `KZO-24`, `KZO-34`, `KZO-36`: first write paths using the canonical model
 - `KZO-29`, `KZO-30`, `KZO-31`: import and reconciliation behaviors constrained by this document
 

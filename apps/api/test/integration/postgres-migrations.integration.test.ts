@@ -1563,6 +1563,96 @@ describePostgres("postgres migrations", () => {
     ]);
   });
 
+  it("rejects overwriting an already-posted dividend ledger entry in place", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const seededBuy = createTransaction(store, "user-1", {
+      id: "trade-kzo51-buy",
+      accountId: "user-1-acc-1",
+      symbol: "2330",
+      quantity: 10,
+      priceNtd: 100,
+      tradeDate: "2026-01-15",
+      tradeTimestamp: "2026-01-15T09:00:00.000Z",
+      commissionNtd: 0,
+      taxNtd: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, seededBuy.id);
+
+    const dividendEvent = createDividendEvent(store, {
+      id: "dividend-event-kzo51",
+      symbol: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 12,
+      stockDividendPerShare: 0,
+      sourceType: "manual_dividend_event",
+      sourceReference: "dividend-event-kzo51",
+    });
+
+    const posting = postDividend(store, "user-1", {
+      id: "dividend-ledger-kzo51",
+      accountId: "user-1-acc-1",
+      dividendEventId: dividendEvent.id,
+      receivedCashAmountNtd: 108,
+      receivedStockQuantity: 0,
+      deductions: [
+        {
+          id: "dividend-deduction-kzo51",
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: 12,
+          withheldAtSource: true,
+          sourceType: "dividend_posting",
+          sourceReference: "dividend-deduction-kzo51",
+        },
+      ],
+    });
+    await persistence.savePostedDividend("user-1", store.accounting, posting.dividendLedgerEntry.id);
+
+    const overwrittenAccounting = structuredClone(store.accounting);
+    const overwrittenDividendLedgerEntry = overwrittenAccounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === posting.dividendLedgerEntry.id,
+    );
+    if (!overwrittenDividendLedgerEntry) {
+      throw new Error("expected posted dividend ledger entry in accounting store");
+    }
+    overwrittenDividendLedgerEntry.receivedCashAmountNtd = 999;
+
+    const overwrittenReceiptEntry = overwrittenAccounting.facts.cashLedgerEntries.find(
+      (entry) => entry.id === `${posting.dividendLedgerEntry.id}:receipt`,
+    );
+    if (!overwrittenReceiptEntry) {
+      throw new Error("expected dividend receipt cash entry in accounting store");
+    }
+    overwrittenReceiptEntry.amountNtd = 999;
+
+    await expect(
+      persistence.savePostedDividend("user-1", overwrittenAccounting, posting.dividendLedgerEntry.id),
+    ).rejects.toThrow(/cannot be overwritten in place/i);
+
+    const persistedDividendLedgerEntries = await pool.query<{ received_cash_amount_ntd: number }>(
+      `SELECT received_cash_amount_ntd
+       FROM dividend_ledger_entries
+       WHERE id = 'dividend-ledger-kzo51'`,
+    );
+    expect(persistedDividendLedgerEntries.rows).toEqual([{ received_cash_amount_ntd: 108 }]);
+
+    const persistedCashEntries = await pool.query<{ amount_ntd: number }>(
+      `SELECT amount_ntd
+       FROM cash_ledger_entries
+       WHERE id = 'dividend-ledger-kzo51:receipt'`,
+    );
+    expect(persistedCashEntries.rows).toEqual([{ amount_ntd: 108 }]);
+  });
+
   it("persists mirrored realized pnl from canonical allocations instead of stale trade state", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,

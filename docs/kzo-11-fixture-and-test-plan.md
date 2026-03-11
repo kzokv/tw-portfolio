@@ -235,7 +235,7 @@ Planned test layers:
 | --- | --- |
 | A, B, C, K | `KZO-13` |
 | E, F | `KZO-34`, `KZO-35`, `KZO-36` |
-| G | correction flow follow-on after `KZO-24` / dividend posting |
+| G | `KZO-51` correction-flow acceptance baseline, then follow-on after `KZO-24` / dividend posting |
 | H, I, J | `KZO-29`, `KZO-30`, `KZO-31` |
 | snapshot assertions from B, J | future snapshot implementation after `KZO-15` and read-model work |
 
@@ -243,5 +243,5 @@ Planned test layers:
 
 - convert Fixtures A, B, C, K into domain and API red-green tests once `KZO-13` starts
 - convert Fixtures E and F into dividend fixture tables once `KZO-34` starts
-- reserve Fixture G as the acceptance baseline for reversal behavior
+- reserve Fixture G as the `KZO-51` acceptance baseline for reversal-plus-replacement behavior
 - use Fixtures H and I as the basis for reconciliation and import idempotency contracts
