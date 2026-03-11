@@ -1,10 +1,11 @@
 export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type RoundingMode = "FLOOR" | "ROUND" | "CEIL";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
+export type CommissionChargeMode = "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 export interface FeeProfile {
     id: string;
     name: string;
-    commissionRateBps: number;
+    boardCommissionRate: number;
     commissionDiscountBps: number;
     minCommissionNtd: number;
     commissionRoundingMode: RoundingMode;
@@ -13,6 +14,7 @@ export interface FeeProfile {
     stockDayTradeTaxRateBps: number;
     etfSellTaxRateBps: number;
     bondEtfSellTaxRateBps: number;
+    commissionChargeMode: CommissionChargeMode;
 }
 export interface Lot {
     id: string;

@@ -71,7 +71,7 @@ export function FeeProfilesTable({ profiles, dict }: FeeProfilesTableProps) {
                 <tr key={profile.id} className="border-b border-white/8 last:border-0">
                   <td className="px-4 py-3.5 font-mono text-xs text-slate-300">{profile.id}</td>
                   <td className="px-4 py-3.5 text-slate-50">{profile.name}</td>
-                  <td className="px-4 py-3.5">{profile.commissionRateBps}</td>
+                  <td className="px-4 py-3.5">{profile.boardCommissionRate}</td>
                   <td className="px-4 py-3.5">{profile.taxRoundingMode}</td>
                 </tr>
               ))}

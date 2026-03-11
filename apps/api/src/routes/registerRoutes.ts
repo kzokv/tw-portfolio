@@ -50,7 +50,7 @@ const transactionSchema = z.object({
 
 const feeProfilePayloadSchema = z.object({
   name: z.string().trim().min(1).max(80),
-  commissionRateBps: z.number().int().nonnegative(),
+  boardCommissionRate: z.number().nonnegative(),
   commissionDiscountBps: z.number().int().positive(),
   minCommissionNtd: z.number().int().nonnegative(),
   commissionRoundingMode: z.enum(["FLOOR", "ROUND", "CEIL"]),
@@ -59,6 +59,7 @@ const feeProfilePayloadSchema = z.object({
   stockDayTradeTaxRateBps: z.number().int().nonnegative(),
   etfSellTaxRateBps: z.number().int().nonnegative(),
   bondEtfSellTaxRateBps: z.number().int().nonnegative(),
+  commissionChargeMode: z.enum(["CHARGED_UPFRONT", "CHARGED_UPFRONT_REBATED_LATER"]),
 });
 
 const feeProfileDraftSchema = feeProfilePayloadSchema
@@ -91,6 +92,7 @@ const dividendEventSchema = z.object({
   exDividendDate: isoDateSchema,
   paymentDate: isoDateSchema,
   cashDividendPerShare: z.number().nonnegative(),
+  cashDividendCurrency: z.literal("TWD").default("TWD"),
   stockDividendPerShare: z.number().nonnegative(),
   sourceType: userScopedIdSchema.default("manual_dividend_event"),
   sourceReference: userScopedIdSchema.optional(),
@@ -330,7 +332,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       nextProfiles.push({
         id: targetId,
         name: draft.name,
-        commissionRateBps: draft.commissionRateBps,
+        boardCommissionRate: draft.boardCommissionRate,
         commissionDiscountBps: draft.commissionDiscountBps,
         minCommissionNtd: draft.minCommissionNtd,
         commissionRoundingMode: draft.commissionRoundingMode,
@@ -339,6 +341,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         stockDayTradeTaxRateBps: draft.stockDayTradeTaxRateBps,
         etfSellTaxRateBps: draft.etfSellTaxRateBps,
         bondEtfSellTaxRateBps: draft.bondEtfSellTaxRateBps,
+        commissionChargeMode: draft.commissionChargeMode,
       });
     }
 

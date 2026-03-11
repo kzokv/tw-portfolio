@@ -80,6 +80,7 @@ export interface DividendEvent {
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
+  cashDividendCurrency: "TWD";
   stockDividendPerShare: number;
   sourceType: string;
   sourceReference?: string;

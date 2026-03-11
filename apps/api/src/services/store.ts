@@ -5,7 +5,7 @@ import type { Store } from "../types/store.js";
 const defaultFeeProfile: FeeProfile = {
   id: "fp-default",
   name: "Default Broker",
-  commissionRateBps: 14,
+  boardCommissionRate: 1.425,
   commissionDiscountBps: 10000,
   minCommissionNtd: 20,
   commissionRoundingMode: "FLOOR",
@@ -14,6 +14,7 @@ const defaultFeeProfile: FeeProfile = {
   stockDayTradeTaxRateBps: 15,
   etfSellTaxRateBps: 10,
   bondEtfSellTaxRateBps: 0,
+  commissionChargeMode: "CHARGED_UPFRONT",
 };
 
 function createDefaultFeeProfile(): FeeProfile {

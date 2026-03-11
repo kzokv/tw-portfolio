@@ -26,6 +26,7 @@ export interface CreateDividendEventInput {
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
+  cashDividendCurrency: "TWD";
   stockDividendPerShare: number;
   sourceType: string;
   sourceReference?: string;
@@ -224,7 +225,7 @@ function buildDividendCashLedgerEntries(
       entryDate,
       entryType: "DIVIDEND_RECEIPT",
       amountNtd: dividendLedgerEntry.receivedCashAmountNtd,
-      currency: "TWD",
+      currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
       sourceType: "dividend_posting",
       sourceReference: dividendLedgerEntry.id,
@@ -240,7 +241,7 @@ function buildDividendCashLedgerEntries(
       entryDate,
       entryType: "DIVIDEND_DEDUCTION",
       amountNtd: -deduction.amount,
-      currency: "TWD",
+      currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
       sourceType: deduction.sourceType,
       sourceReference: deduction.sourceReference ?? deduction.id,

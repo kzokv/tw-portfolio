@@ -10,7 +10,7 @@ export interface UserSettings {
 export interface FeeProfileDto {
     id: string;
     name: string;
-    commissionRateBps: number;
+    boardCommissionRate: number;
     commissionDiscountBps: number;
     minCommissionNtd: number;
     commissionRoundingMode: "FLOOR" | "ROUND" | "CEIL";
@@ -19,6 +19,7 @@ export interface FeeProfileDto {
     stockDayTradeTaxRateBps: number;
     etfSellTaxRateBps: number;
     bondEtfSellTaxRateBps: number;
+    commissionChargeMode: "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 }
 export interface AccountDto {
     id: string;

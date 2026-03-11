@@ -12,7 +12,7 @@ function createValidModel(): SettingsFormModel {
       {
         id: "profile-1",
         name: "Default Profile",
-        commissionRateBps: 14,
+        boardCommissionRate: 1.425,
         commissionDiscountBps: 10000,
         minCommissionNtd: 20,
         commissionRoundingMode: "FLOOR",
@@ -21,6 +21,7 @@ function createValidModel(): SettingsFormModel {
         stockDayTradeTaxRateBps: 15,
         etfSellTaxRateBps: 10,
         bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
       },
     ],
     accounts: [{ id: "account-1", feeProfileId: "profile-1" }],

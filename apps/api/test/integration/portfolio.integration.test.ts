@@ -480,7 +480,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     persisted.feeProfiles.push({
       id: "fp-zero",
       name: "Zero Fee",
-      commissionRateBps: 0,
+      boardCommissionRate: 0,
       commissionDiscountBps: 10000,
       minCommissionNtd: 0,
       commissionRoundingMode: "FLOOR",

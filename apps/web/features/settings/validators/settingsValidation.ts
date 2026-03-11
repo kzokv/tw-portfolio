@@ -18,7 +18,7 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
     }
 
     const numericValues = [
-      profile.commissionRateBps,
+      profile.boardCommissionRate,
       profile.commissionDiscountBps,
       profile.minCommissionNtd,
       profile.stockSellTaxRateBps,
@@ -27,7 +27,7 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
       profile.bondEtfSellTaxRateBps,
     ];
 
-    if (numericValues.some((value) => !Number.isInteger(value) || value < 0)) {
+    if (numericValues.some((value) => !Number.isFinite(value) || value < 0)) {
       return dict.settings.validationProfileNumbers;
     }
 

@@ -4,7 +4,7 @@ import { calculateBuyFees, calculateSellFees, type FeeProfile } from "../src/ind
 const profile: FeeProfile = {
   id: "fp-1",
   name: "default",
-  commissionRateBps: 14,
+  boardCommissionRate: 1.425,
   commissionDiscountBps: 10000,
   minCommissionNtd: 20,
   commissionRoundingMode: "FLOOR",
@@ -13,12 +13,18 @@ const profile: FeeProfile = {
   stockDayTradeTaxRateBps: 15,
   etfSellTaxRateBps: 10,
   bondEtfSellTaxRateBps: 0,
+  commissionChargeMode: "CHARGED_UPFRONT",
 };
 
 describe("fee calculation", () => {
   it("applies min commission", () => {
     const fee = calculateBuyFees(profile, 10_000);
     expect(fee.commissionNtd).toBe(20);
+  });
+
+  it("supports the exact Taiwan default board rate", () => {
+    const fee = calculateBuyFees(profile, 600_000);
+    expect(fee.commissionNtd).toBe(855);
   });
 
   it("applies stock sell tax", () => {

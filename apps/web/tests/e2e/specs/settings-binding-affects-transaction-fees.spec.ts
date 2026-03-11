@@ -49,7 +49,7 @@ test.describe("settings binding affects transaction fees", () => {
       headers: { "x-user-id": testUserId, "content-type": "application/json" },
       data: {
         name: "E2E Zero Fee",
-        commissionRateBps: 0,
+        boardCommissionRate: 0,
         commissionDiscountBps: 10000,
         minCommissionNtd: 0,
         commissionRoundingMode: "FLOOR",
@@ -58,6 +58,7 @@ test.describe("settings binding affects transaction fees", () => {
         stockDayTradeTaxRateBps: 0,
         etfSellTaxRateBps: 0,
         bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
       },
     });
     expect(zeroFeeProfileResponse.ok()).toBe(true);
