@@ -38,7 +38,7 @@ export function transactionPayload(
 const defaultFeeProfile = {
   name: "Test Profile",
   boardCommissionRate: 0,
-  commissionDiscountBps: 10000,
+  commissionDiscountPercent: 0,
   minCommissionNtd: 0,
   commissionRoundingMode: "FLOOR" as const,
   taxRoundingMode: "FLOOR" as const,

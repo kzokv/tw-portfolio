@@ -81,4 +81,26 @@ describe("fee-profiles", () => {
     expect(deleteResponse.statusCode).toBe(409);
     expect(deleteResponse.json().error).toBe("fee_profile_in_use");
   });
+
+  it("rejects the legacy commissionDiscountBps payload shape", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/fee-profiles",
+      payload: {
+        name: "Legacy Shape",
+        boardCommissionRate: 1.425,
+        commissionDiscountBps: 10000,
+        minCommissionNtd: 20,
+        commissionRoundingMode: "FLOOR",
+        taxRoundingMode: "FLOOR",
+        stockSellTaxRateBps: 30,
+        stockDayTradeTaxRateBps: 15,
+        etfSellTaxRateBps: 10,
+        bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
 });

@@ -51,7 +51,7 @@ const transactionSchema = z.object({
 const feeProfilePayloadSchema = z.object({
   name: z.string().trim().min(1).max(80),
   boardCommissionRate: z.number().nonnegative(),
-  commissionDiscountBps: z.number().int().positive(),
+  commissionDiscountPercent: z.number().min(0).max(100),
   minCommissionNtd: z.number().int().nonnegative(),
   commissionRoundingMode: z.enum(["FLOOR", "ROUND", "CEIL"]),
   taxRoundingMode: z.enum(["FLOOR", "ROUND", "CEIL"]),
@@ -333,7 +333,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         id: targetId,
         name: draft.name,
         boardCommissionRate: draft.boardCommissionRate,
-        commissionDiscountBps: draft.commissionDiscountBps,
+        commissionDiscountPercent: draft.commissionDiscountPercent,
         minCommissionNtd: draft.minCommissionNtd,
         commissionRoundingMode: draft.commissionRoundingMode,
         taxRoundingMode: draft.taxRoundingMode,

@@ -191,7 +191,7 @@ Fields:
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
 | `name` | `TEXT` | `NOT NULL` | profile label |
 | `commission_rate_bps` | `INTEGER` | `NOT NULL` | raw commission rate |
-| `commission_discount_bps` | `INTEGER` | `NOT NULL` | discount multiplier |
+| `commission_discount_percent` | `NUMERIC(5,2)` | `NOT NULL` | broker commission percent-off from board rate |
 | `min_commission_ntd` | `INTEGER` | `NOT NULL` | commission floor |
 | `commission_rounding_mode` | `TEXT` | `NOT NULL` | `FLOOR`, `ROUND`, `CEIL` at route layer |
 | `tax_rounding_mode` | `TEXT` | `NOT NULL` | `FLOOR`, `ROUND`, `CEIL` at route layer |

@@ -234,7 +234,7 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 
 ### Current Mapping
 
-- current runtime model stores integer `commissionRateBps`, integer `commissionDiscountBps`, and `minCommissionNtd`
+- current runtime model stores legacy integer `commissionRateBps`, decimal `boardCommissionRate`, decimal `commissionDiscountPercent` (`% off`), and `minCommissionNtd`
 - current runtime precision is insufficient for exact `1.425‰`
 - canonical target is decimal-capable and currency-normalized
 

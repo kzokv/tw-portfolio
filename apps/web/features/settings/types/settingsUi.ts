@@ -4,7 +4,7 @@ export interface SettingsProfileModel {
   id: string;
   name: string;
   boardCommissionRate: number;
-  commissionDiscountBps: number;
+  commissionDiscountPercent: number;
   minCommissionNtd: number;
   commissionRoundingMode: "FLOOR" | "ROUND" | "CEIL";
   taxRoundingMode: "FLOOR" | "ROUND" | "CEIL";

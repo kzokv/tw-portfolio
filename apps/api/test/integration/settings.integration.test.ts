@@ -167,7 +167,7 @@ describe("settings", () => {
             tempId: "tmp-new-profile",
             name: "Temp Profile",
             boardCommissionRate: 1.425,
-            commissionDiscountBps: 10000,
+            commissionDiscountPercent: 60,
             minCommissionNtd: 20,
             commissionRoundingMode: "FLOOR",
             taxRoundingMode: "FLOOR",
@@ -191,6 +191,7 @@ describe("settings", () => {
     expect(firstAccount.feeProfileId).not.toBe("tmp-new-profile");
     const linkedProfile = body.feeProfiles.find((profile: { id: string }) => profile.id === firstAccount.feeProfileId);
     expect(linkedProfile).toBeDefined();
+    expect(linkedProfile.commissionDiscountPercent).toBe(60);
     expect(firstAccount.feeProfileId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );

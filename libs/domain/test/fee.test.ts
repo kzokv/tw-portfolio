@@ -5,7 +5,7 @@ const profile: FeeProfile = {
   id: "fp-1",
   name: "default",
   boardCommissionRate: 1.425,
-  commissionDiscountBps: 10000,
+  commissionDiscountPercent: 0,
   minCommissionNtd: 20,
   commissionRoundingMode: "FLOOR",
   taxRoundingMode: "FLOOR",
@@ -25,6 +25,18 @@ describe("fee calculation", () => {
   it("supports the exact Taiwan default board rate", () => {
     const fee = calculateBuyFees(profile, 600_000);
     expect(fee.commissionNtd).toBe(855);
+  });
+
+  it("applies percent-off discounts before rounding and minimums", () => {
+    const discounted = calculateBuyFees(
+      {
+        ...profile,
+        commissionDiscountPercent: 60,
+        minCommissionNtd: 0,
+      },
+      600_000,
+    );
+    expect(discounted.commissionNtd).toBe(342);
   });
 
   it("applies stock sell tax", () => {

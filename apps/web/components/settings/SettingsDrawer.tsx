@@ -99,6 +99,7 @@ export function SettingsDrawer({
                 <>
                   <FeeProfilesSection
                     profiles={form.draft.feeProfiles}
+                    activeLocale={settings?.locale ?? "en"}
                     onAddProfile={form.addProfile}
                     onRemoveProfile={form.removeProfile}
                     onUpdateProfileField={form.updateProfileField}
