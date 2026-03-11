@@ -7,7 +7,7 @@ export interface FeeProfile {
   id: string;
   name: string;
   boardCommissionRate: number;
-  commissionDiscountBps: number;
+  commissionDiscountPercent: number;
   minCommissionNtd: number;
   commissionRoundingMode: RoundingMode;
   taxRoundingMode: RoundingMode;

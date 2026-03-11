@@ -50,7 +50,7 @@ test.describe("settings binding affects transaction fees", () => {
       data: {
         name: "E2E Zero Fee",
         boardCommissionRate: 0,
-        commissionDiscountBps: 10000,
+        commissionDiscountPercent: 0,
         minCommissionNtd: 0,
         commissionRoundingMode: "FLOOR",
         taxRoundingMode: "FLOOR",

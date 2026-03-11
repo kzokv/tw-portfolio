@@ -152,7 +152,7 @@ describePostgres("postgres migrations", () => {
            stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
            bond_etf_sell_tax_rate_bps
          ) VALUES (
-           'user-1-fp-default', 'user-1', 'Default Broker', 14, 10000,
+           'user-1-fp-default', 'user-1', 'Default Broker', 14, 7200,
            20, 'FLOOR', 'FLOOR',
            30, 15, 10,
            0
@@ -220,12 +220,19 @@ describePostgres("postgres migrations", () => {
        FROM lots
        WHERE account_id = 'user-1-acc-1'
          AND symbol = '2330'
-       ORDER BY opened_sequence`,
+      ORDER BY opened_sequence`,
     );
     expect(lots.rows).toEqual([
       { id: "legacy-lot-1", opened_sequence: 1 },
       { id: "legacy-lot-2", opened_sequence: 2 },
     ]);
+
+    const feeProfile = await pool.query<{ commission_discount_percent: string }>(
+      `SELECT commission_discount_percent
+       FROM fee_profiles
+       WHERE id = 'user-1-fp-default'`,
+    );
+    expect(Number(feeProfile.rows[0]?.commission_discount_percent)).toBe(28);
   });
 
   it("applies accounting schema objects including dividend alignment", async () => {

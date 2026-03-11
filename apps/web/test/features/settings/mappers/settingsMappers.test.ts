@@ -18,7 +18,7 @@ const feeProfiles: FeeProfileDto[] = [
     id: "profile-1",
     name: "Default",
     boardCommissionRate: 1.425,
-    commissionDiscountBps: 10000,
+    commissionDiscountPercent: 60,
     minCommissionNtd: 20,
     commissionRoundingMode: "FLOOR",
     taxRoundingMode: "FLOOR",
@@ -41,6 +41,7 @@ describe("settingsMappers", () => {
     expect(model.locale).toBe("en");
     expect(model.accounts[0]).toEqual({ id: "account-1", feeProfileId: "profile-1" });
     expect(model.feeProfileBindings[0].symbol).toBe("2330");
+    expect(model.feeProfiles[0].commissionDiscountPercent).toBe(60);
   });
 
   it("maps temporary and persisted profiles into the save request contract", () => {

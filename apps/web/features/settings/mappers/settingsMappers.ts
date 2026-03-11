@@ -6,7 +6,7 @@ export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileM
     id: profile.id,
     name: profile.name,
     boardCommissionRate: profile.boardCommissionRate,
-    commissionDiscountBps: profile.commissionDiscountBps,
+    commissionDiscountPercent: profile.commissionDiscountPercent,
     minCommissionNtd: profile.minCommissionNtd,
     commissionRoundingMode: profile.commissionRoundingMode,
     taxRoundingMode: profile.taxRoundingMode,
@@ -52,7 +52,7 @@ export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsReq
       const payload = {
         name: profile.name,
         boardCommissionRate: profile.boardCommissionRate,
-        commissionDiscountBps: profile.commissionDiscountBps,
+        commissionDiscountPercent: profile.commissionDiscountPercent,
         minCommissionNtd: profile.minCommissionNtd,
         commissionRoundingMode: profile.commissionRoundingMode,
         taxRoundingMode: profile.taxRoundingMode,

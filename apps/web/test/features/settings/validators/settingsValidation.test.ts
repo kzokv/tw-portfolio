@@ -13,7 +13,7 @@ function createValidModel(): SettingsFormModel {
         id: "profile-1",
         name: "Default Profile",
         boardCommissionRate: 1.425,
-        commissionDiscountBps: 10000,
+        commissionDiscountPercent: 60,
         minCommissionNtd: 20,
         commissionRoundingMode: "FLOOR",
         taxRoundingMode: "FLOOR",
@@ -55,6 +55,13 @@ describe("validateSettingsForm", () => {
     model.feeProfiles[0].stockSellTaxRateBps = -1;
 
     expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationProfileNumbers);
+  });
+
+  it("rejects discount percentages outside the supported range", () => {
+    const model = createValidModel();
+    model.feeProfiles[0].commissionDiscountPercent = 120;
+
+    expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationDiscount);
   });
 
   it("rejects invalid account profile references", () => {

@@ -1,13 +1,16 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
+import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
+import { fromZhFoldValue, toZhFoldValue } from "../services/commissionDiscount";
 import type { SettingsProfileModel } from "../types/settingsUi";
 
 interface FeeProfilesSectionProps {
   profiles: SettingsProfileModel[];
+  activeLocale: LocaleCode;
   onAddProfile: () => void;
   onRemoveProfile: (profileId: string) => void;
   onUpdateProfileField: (profileId: string, key: keyof SettingsProfileModel, value: string | number) => void;
@@ -21,7 +24,6 @@ const PROFILE_FIELDS: Array<{
   step?: number;
 }> = [
   { key: "boardCommissionRate", label: "profileCommissionLabel", min: 0, step: 0.001 },
-  { key: "commissionDiscountBps", label: "profileDiscountLabel", min: 1 },
   { key: "minCommissionNtd", label: "profileMinCommissionLabel", min: 0 },
   { key: "stockSellTaxRateBps", label: "profileStockTaxLabel", min: 0 },
   { key: "stockDayTradeTaxRateBps", label: "profileDayTradeTaxLabel", min: 0 },
@@ -31,11 +33,16 @@ const PROFILE_FIELDS: Array<{
 
 export function FeeProfilesSection({
   profiles,
+  activeLocale,
   onAddProfile,
   onRemoveProfile,
   onUpdateProfileField,
   dict,
 }: FeeProfilesSectionProps) {
+  const discountLabel = dict.settings.profileDiscountLabel;
+  const discountHint = dict.settings.profileDiscountHint;
+  const isTraditionalChinese = activeLocale === "zh-TW";
+
   return (
     <section className="glass-inset space-y-3 rounded-[24px] p-4">
       <div className="flex items-center justify-between">
@@ -81,6 +88,28 @@ export function FeeProfilesSection({
                   className={fieldClassName}
                   data-testid={`settings-profile-name-${index}`}
                 />
+              </label>
+
+              <label className="space-y-2 text-xs text-slate-400">
+                <span>{discountLabel}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={isTraditionalChinese ? 10 : 100}
+                  step={0.01}
+                  value={isTraditionalChinese ? toZhFoldValue(profile.commissionDiscountPercent) : profile.commissionDiscountPercent}
+                  onChange={(event) => {
+                    const nextValue = Number(event.target.value) || 0;
+                    onUpdateProfileField(
+                      profile.id,
+                      "commissionDiscountPercent",
+                      isTraditionalChinese ? fromZhFoldValue(nextValue) : nextValue,
+                    );
+                  }}
+                  className={fieldClassName}
+                  data-testid={`settings-profile-discount-${index}`}
+                />
+                <p className="text-[11px] text-slate-500">{discountHint}</p>
               </label>
 
               {PROFILE_FIELDS.map((field) => (

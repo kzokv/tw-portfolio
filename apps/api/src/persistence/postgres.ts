@@ -69,7 +69,7 @@ export class PostgresPersistence implements Persistence {
     );
 
     const feeProfilesResult = await this.pool.query(
-      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_bps, min_commission_ntd,
+      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, min_commission_ntd,
               commission_rounding_mode, tax_rounding_mode,
               stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
               etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
@@ -212,7 +212,10 @@ export class PostgresPersistence implements Persistence {
       id: row.id,
       name: row.name,
       boardCommissionRate: Number(row.board_commission_rate ?? row.commission_rate_bps / 10),
-      commissionDiscountBps: row.commission_discount_bps,
+      commissionDiscountPercent:
+        row.commission_discount_percent !== null
+          ? Number(row.commission_discount_percent)
+          : legacyCommissionDiscountPercent(row.commission_discount_bps),
       minCommissionNtd: row.min_commission_ntd,
       commissionRoundingMode: row.commission_rounding_mode,
       taxRoundingMode: row.tax_rounding_mode,
@@ -451,21 +454,22 @@ export class PostgresPersistence implements Persistence {
       for (const profile of store.feeProfiles) {
         const upsertProfile = await client.query(
           `INSERT INTO fee_profiles (
-             id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_bps,
+             id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
              min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
              bond_etf_sell_tax_rate_bps, commission_charge_mode
            ) VALUES (
-             $1, $2, $3, $4, $5, $6,
-             $7, $8, $9,
-             $10, $11, $12,
-             $13, $14
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10,
+             $11, $12, $13,
+             $14, $15
            )
            ON CONFLICT (id)
            DO UPDATE SET
              name = EXCLUDED.name,
              commission_rate_bps = EXCLUDED.commission_rate_bps,
              board_commission_rate = EXCLUDED.board_commission_rate,
+             commission_discount_percent = EXCLUDED.commission_discount_percent,
              commission_discount_bps = EXCLUDED.commission_discount_bps,
              min_commission_ntd = EXCLUDED.min_commission_ntd,
              commission_rounding_mode = EXCLUDED.commission_rounding_mode,
@@ -482,7 +486,8 @@ export class PostgresPersistence implements Persistence {
             profile.name,
             legacyCommissionRateBps(profile.boardCommissionRate),
             profile.boardCommissionRate,
-            profile.commissionDiscountBps,
+            profile.commissionDiscountPercent,
+            legacyCommissionDiscountBps(profile.commissionDiscountPercent),
             profile.minCommissionNtd,
             profile.commissionRoundingMode,
             profile.taxRoundingMode,
@@ -1153,12 +1158,12 @@ export class PostgresPersistence implements Persistence {
 
     await this.pool.query(
       `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_bps,
+         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
          min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
          stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
          etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
        ) VALUES (
-         $1, $2, 'Default Broker', 14, 1.425, 10000,
+         $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
          20, 'FLOOR', 'FLOOR',
          30, 15,
          10, 0, 'CHARGED_UPFRONT'
@@ -1517,6 +1522,11 @@ function validateStoreInvariants(store: Store): void {
   }
 
   const accountIds = new Set(store.accounts.map((account) => account.id));
+  for (const profile of store.feeProfiles) {
+    if (profile.commissionDiscountPercent < 0 || profile.commissionDiscountPercent > 100) {
+      throw new Error(`fee profile ${profile.id} has invalid commission discount percent`);
+    }
+  }
   validateAccountingStoreInvariants(store.accounting, accountIds);
   for (const binding of store.feeProfileBindings) {
     if (!accountIds.has(binding.accountId)) {
@@ -1668,12 +1678,20 @@ function legacyCommissionRateBps(boardCommissionRate: number): number {
   return Math.round(boardCommissionRate * 10);
 }
 
+function legacyCommissionDiscountBps(commissionDiscountPercent: number): number {
+  return Math.round((100 - commissionDiscountPercent) * 100);
+}
+
+function legacyCommissionDiscountPercent(commissionDiscountBps: number | null | undefined): number {
+  return Number(((10_000 - Number(commissionDiscountBps ?? 10_000)) / 100).toFixed(2));
+}
+
 function normalizeFeeProfile(value: unknown): FeeProfile {
   if (!value || typeof value !== "object") {
     throw new Error("invalid fee snapshot");
   }
 
-  const snapshot = value as Partial<FeeProfile> & { commissionRateBps?: number };
+  const snapshot = value as Partial<FeeProfile> & { commissionRateBps?: number; commissionDiscountBps?: number };
   return {
     id: String(snapshot.id),
     name: String(snapshot.name),
@@ -1681,7 +1699,10 @@ function normalizeFeeProfile(value: unknown): FeeProfile {
       typeof snapshot.boardCommissionRate === "number"
         ? snapshot.boardCommissionRate
         : Number((snapshot.commissionRateBps ?? 0) / 10),
-    commissionDiscountBps: Number(snapshot.commissionDiscountBps ?? 0),
+    commissionDiscountPercent:
+      typeof snapshot.commissionDiscountPercent === "number"
+        ? snapshot.commissionDiscountPercent
+        : legacyCommissionDiscountPercent(snapshot.commissionDiscountBps),
     minCommissionNtd: Number(snapshot.minCommissionNtd ?? 0),
     commissionRoundingMode: snapshot.commissionRoundingMode ?? "FLOOR",
     taxRoundingMode: snapshot.taxRoundingMode ?? "FLOOR",

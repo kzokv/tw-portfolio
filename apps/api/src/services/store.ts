@@ -6,7 +6,7 @@ const defaultFeeProfile: FeeProfile = {
   id: "fp-default",
   name: "Default Broker",
   boardCommissionRate: 1.425,
-  commissionDiscountBps: 10000,
+  commissionDiscountPercent: 0,
   minCommissionNtd: 20,
   commissionRoundingMode: "FLOOR",
   taxRoundingMode: "FLOOR",

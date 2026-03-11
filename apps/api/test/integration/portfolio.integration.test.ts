@@ -481,7 +481,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       id: "fp-zero",
       name: "Zero Fee",
       boardCommissionRate: 0,
-      commissionDiscountBps: 10000,
+      commissionDiscountPercent: 0,
       minCommissionNtd: 0,
       commissionRoundingMode: "FLOOR",
       taxRoundingMode: "FLOOR",
@@ -489,6 +489,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       stockDayTradeTaxRateBps: 0,
       etfSellTaxRateBps: 0,
       bondEtfSellTaxRateBps: 0,
+      commissionChargeMode: "CHARGED_UPFRONT",
     });
 
     const sellTrade = persisted.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");

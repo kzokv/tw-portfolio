@@ -19,7 +19,6 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
 
     const numericValues = [
       profile.boardCommissionRate,
-      profile.commissionDiscountBps,
       profile.minCommissionNtd,
       profile.stockSellTaxRateBps,
       profile.stockDayTradeTaxRateBps,
@@ -31,7 +30,7 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
       return dict.settings.validationProfileNumbers;
     }
 
-    if (profile.commissionDiscountBps <= 0) {
+    if (!Number.isFinite(profile.commissionDiscountPercent) || profile.commissionDiscountPercent < 0 || profile.commissionDiscountPercent > 100) {
       return dict.settings.validationDiscount;
     }
   }

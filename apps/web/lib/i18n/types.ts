@@ -67,6 +67,7 @@ export interface AppDictionary {
     profileNameLabel: string;
     profileCommissionLabel: string;
     profileDiscountLabel: string;
+    profileDiscountHint: string;
     profileMinCommissionLabel: string;
     profileCommissionRoundLabel: string;
     profileTaxRoundLabel: string;

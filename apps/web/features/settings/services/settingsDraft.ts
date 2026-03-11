@@ -31,7 +31,7 @@ export function createDraftProfile(seed: number): SettingsProfileModel {
     id: `tmp-${seed}`,
     name: "New Fee Profile",
     boardCommissionRate: 1.425,
-    commissionDiscountBps: 10000,
+    commissionDiscountPercent: 100,
     minCommissionNtd: 20,
     commissionRoundingMode: "FLOOR",
     taxRoundingMode: "FLOOR",

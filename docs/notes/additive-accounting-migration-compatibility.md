@@ -19,6 +19,7 @@ Managed Postgres integration can fail even when route validation and migrations 
 
 - `fee_profiles.board_commission_rate`
 - `fee_profiles.commission_charge_mode`
+- `fee_profiles.commission_discount_percent`, with migration backfill from legacy `commission_discount_bps` and persistence-level normalization for legacy fee snapshots
 - `dividend_events.cash_dividend_currency`
 - dividend-related cash ledger writes that still need `currency = 'TWD'` when older objects omit it
 
