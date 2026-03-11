@@ -72,6 +72,24 @@ describePostgres("postgres migrations", () => {
     }
   }
 
+  async function applyBaselineMigration(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    if (!manifest.baselineMigration) {
+      throw new Error("Expected a baseline migration for postgres migration tests");
+    }
+
+    const client = await pool.connect();
+    try {
+      const baselineSql = await fs.readFile(
+        path.join(migrationsDir, manifest.baselineMigration),
+        "utf8",
+      );
+      await client.query(baselineSql);
+    } finally {
+      client.release();
+    }
+  }
+
   async function captureSchemaSignature(): Promise<{
     tables: string[];
     columns: string[];
@@ -310,6 +328,55 @@ describePostgres("postgres migrations", () => {
     expect(tradeColumns.rows.map((row) => row.column_name)).not.toContain("fee_snapshot_json");
   });
 
+  it("reconciles an empty migration ledger when the current baseline schema already exists", async () => {
+    const manifest = await migrationManifestPromise;
+    await resetPublicSchema();
+    await applyBaselineMigration();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const migrationLedger = await pool.query<{ name: string }>(
+      "SELECT name FROM schema_migrations ORDER BY name",
+    );
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(
+      [...manifest.numberedMigrations, manifest.baselineMigration].filter(Boolean).sort(),
+    );
+  });
+
+  it("reconciles missing 009 and 010 ledger rows when the schema already reflects them", async () => {
+    const manifest = await migrationManifestPromise;
+    await resetPublicSchema();
+    await applyBaselineMigration();
+
+    await pool.query(
+      `CREATE TABLE schema_migrations (
+         name TEXT PRIMARY KEY,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO schema_migrations (name)
+       SELECT migration_name
+       FROM unnest($1::text[]) AS migration_name`,
+      [manifest.numberedMigrations.filter((name) => !["009_retire_twd_ntd_fields.sql", "010_trade_snapshot_recompute_normalization.sql"].includes(name))],
+    );
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const migrationLedger = await pool.query<{ name: string }>(
+      "SELECT name FROM schema_migrations ORDER BY name",
+    );
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+  });
+
   it("keeps the baseline schema in parity with the numbered upgrade path", async () => {
     await resetPublicSchema();
 
@@ -365,12 +432,12 @@ describePostgres("postgres migrations", () => {
       await client.query(
         `INSERT INTO fee_profiles (
            id, user_id, name, commission_rate_bps, commission_discount_bps,
-           minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+           min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
            stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
            bond_etf_sell_tax_rate_bps
          ) VALUES (
            'user-1-fp-default', 'user-1', 'Default Broker', 14, 7200,
-           20, 'TWD', 'FLOOR', 'FLOOR',
+           20, 'FLOOR', 'FLOOR',
            30, 15, 10,
            0
          )`,

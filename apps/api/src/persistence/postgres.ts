@@ -1086,13 +1086,26 @@ export class PostgresPersistence implements Persistence {
         ]);
         applied.add(manifest.baselineMigration!);
         for (const file of manifest.baselineSupersedes) applied.add(file);
+      } else if (await this.shouldReconcileCurrentSchemaToBaseline(client, applied, manifest)) {
+        await this.recordAppliedMigrations(client, [
+          manifest.baselineMigration!,
+          ...manifest.baselineSupersedes,
+        ]);
+        applied.add(manifest.baselineMigration!);
+        for (const file of manifest.baselineSupersedes) applied.add(file);
       }
 
       for (const file of manifest.numberedMigrations) {
         if (applied.has(file)) continue;
+        if (await this.isMigrationAlreadyReflected(client, file)) {
+          await this.recordAppliedMigrations(client, [file]);
+          applied.add(file);
+          continue;
+        }
         const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
         await client.query(migrationSql);
         await this.recordAppliedMigrations(client, [file]);
+        applied.add(file);
       }
 
       await client.query("COMMIT");
@@ -1131,6 +1144,151 @@ export class PostgresPersistence implements Persistence {
     );
 
     return !tableResult.rows[0]?.has_tables;
+  }
+
+  private async shouldReconcileCurrentSchemaToBaseline(
+    client: PoolClient,
+    applied: Set<string>,
+    manifest: { baselineMigration: string | null; baselineSupersedes: string[] },
+  ): Promise<boolean> {
+    if (!manifest.baselineMigration || applied.size > 0) return false;
+    if (!manifest.baselineSupersedes.length) return false;
+
+    const [hasTables, baselineReflected] = await Promise.all([
+      this.hasUserTables(client),
+      this.isCurrentBaselineSchemaReflected(client),
+    ]);
+
+    return hasTables && baselineReflected;
+  }
+
+  private async isCurrentBaselineSchemaReflected(client: PoolClient): Promise<boolean> {
+    const [hasCoreTables, migration009Reflected, migration010Reflected] = await Promise.all([
+      Promise.all([
+        this.tableExists(client, "users"),
+        this.tableExists(client, "fee_profiles"),
+        this.tableExists(client, "accounts"),
+        this.tableExists(client, "trade_events"),
+      ]).then((results) => results.every(Boolean)),
+      this.isMigrationAlreadyReflected(client, "009_retire_twd_ntd_fields.sql"),
+      this.isMigrationAlreadyReflected(client, "010_trade_snapshot_recompute_normalization.sql"),
+    ]);
+
+    return hasCoreTables && migration009Reflected && migration010Reflected;
+  }
+
+  private async isMigrationAlreadyReflected(client: PoolClient, file: string): Promise<boolean> {
+    switch (file) {
+      case "009_retire_twd_ntd_fields.sql":
+        return this.isMigration009Reflected(client);
+      case "010_trade_snapshot_recompute_normalization.sql":
+        return this.isMigration010Reflected(client);
+      default:
+        return false;
+    }
+  }
+
+  private async isMigration009Reflected(client: PoolClient): Promise<boolean> {
+    const [
+      hasMinimumCommissionAmount,
+      hasLegacyMinCommissionNtd,
+      hasTradeEventUnitPrice,
+      hasTradeEventLegacyPrice,
+      hasLotTotalCostAmount,
+      hasLotLegacyTotalCost,
+      hasSnapshotCurrency,
+      hasSnapshotLegacyNav,
+    ] = await Promise.all([
+      this.columnExists(client, "fee_profiles", "minimum_commission_amount"),
+      this.columnExists(client, "fee_profiles", "min_commission_ntd"),
+      this.columnExists(client, "trade_events", "unit_price"),
+      this.columnExists(client, "trade_events", "price_ntd"),
+      this.columnExists(client, "lots", "total_cost_amount"),
+      this.columnExists(client, "lots", "total_cost_ntd"),
+      this.columnExists(client, "daily_portfolio_snapshots", "currency"),
+      this.columnExists(client, "daily_portfolio_snapshots", "total_nav_ntd"),
+    ]);
+
+    return (
+      hasMinimumCommissionAmount &&
+      !hasLegacyMinCommissionNtd &&
+      hasTradeEventUnitPrice &&
+      !hasTradeEventLegacyPrice &&
+      hasLotTotalCostAmount &&
+      !hasLotLegacyTotalCost &&
+      hasSnapshotCurrency &&
+      !hasSnapshotLegacyNav
+    );
+  }
+
+  private async isMigration010Reflected(client: PoolClient): Promise<boolean> {
+    const [
+      hasTradeFeePolicySnapshots,
+      hasTradeEventSnapshotId,
+      hasLegacyTradeEventSnapshotJson,
+      hasRecomputeTradeEventId,
+      hasLegacyRecomputeTransactionId,
+      hasTransactionsTable,
+    ] = await Promise.all([
+      this.tableExists(client, "trade_fee_policy_snapshots"),
+      this.columnExists(client, "trade_events", "fee_policy_snapshot_id"),
+      this.columnExists(client, "trade_events", "fee_snapshot_json"),
+      this.columnExists(client, "recompute_job_items", "trade_event_id"),
+      this.columnExists(client, "recompute_job_items", "transaction_id"),
+      this.tableExists(client, "transactions"),
+    ]);
+
+    return (
+      hasTradeFeePolicySnapshots &&
+      hasTradeEventSnapshotId &&
+      !hasLegacyTradeEventSnapshotJson &&
+      hasRecomputeTradeEventId &&
+      !hasLegacyRecomputeTransactionId &&
+      !hasTransactionsTable
+    );
+  }
+
+  private async hasUserTables(client: PoolClient): Promise<boolean> {
+    const tableResult = await client.query<{ has_tables: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_type = 'BASE TABLE'
+           AND table_name <> 'schema_migrations'
+       ) AS has_tables`,
+    );
+
+    return Boolean(tableResult.rows[0]?.has_tables);
+  }
+
+  private async tableExists(client: PoolClient, tableName: string): Promise<boolean> {
+    const tableResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = $1
+       ) AS exists`,
+      [tableName],
+    );
+
+    return Boolean(tableResult.rows[0]?.exists);
+  }
+
+  private async columnExists(client: PoolClient, tableName: string, columnName: string): Promise<boolean> {
+    const columnResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = $1
+           AND column_name = $2
+       ) AS exists`,
+      [tableName, columnName],
+    );
+
+    return Boolean(columnResult.rows[0]?.exists);
   }
 
   private async recordAppliedMigrations(client: PoolClient, migrationNames: string[]): Promise<void> {
