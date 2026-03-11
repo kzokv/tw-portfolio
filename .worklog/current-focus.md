@@ -1,7 +1,7 @@
 # Current Focus
 
 ## Active goal
-- Close out `KZO-36` in workflow state, then pick the next Wave 2 backend ticket from the live Linear execution queue.
+- Keep Wave 2 backend pickup aligned with the live Linear queue, with immediate attention on clarifying the remaining implementation scope behind `KZO-51`.
 
 ## Constraints
 - Follow the Linear execution queue rather than stale local pickup text when they diverge.
@@ -11,4 +11,4 @@
 - Expect transitional legacy seams in Postgres loading, transaction mirrors, and recompute routes until canonical cutover work is completed.
 
 ## Immediate next check
-- Update Linear and PR close-out state for `KZO-36` with the verified build and integration evidence, then choose the next ranked Wave 2 ticket from Linear rather than stale local pickup notes. Keep `KZO-55` backlog-only unless the queue explicitly pulls currency normalization forward.
+- Confirm whether `KZO-51` should stay as a definition ticket plus follow-on implementation work, then choose the next ranked Wave 2 ticket from Linear rather than stale local pickup notes. Keep `KZO-55` backlog-only unless the queue explicitly pulls currency normalization forward.

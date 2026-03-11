@@ -150,6 +150,7 @@ Dependencies:
 
 - `KZO-15`
 - `KZO-16`
+- `KZO-51`
 
 Outputs:
 
@@ -160,6 +161,7 @@ Outputs:
 - dividend schema is aligned with typed deductions and an explicit `TWD` hook before persistence and posting work expand
 - dividend declaration and posting are separated
 - actual dividend receipts and deductions are bookable
+- posted-fact correction behavior for trade, cash, and dividend writes follows the `KZO-51` reversal-plus-replacement contract
 
 ## Batch 7. Gating Correctness Coverage
 
@@ -194,6 +196,7 @@ Dependencies:
 
 - `KZO-15`
 - `KZO-16`
+- `KZO-51`
 
 Should use fixtures:
 
@@ -207,6 +210,7 @@ Outputs:
 - import staging contract
 - explicit reconciliation records
 - non-destructive review workflow
+- reconciliation uses `explained` only for accepted visible differences and uses `reversal + replacement` when booked economic facts are wrong, per `KZO-51`
 
 ## Batch 9. Snapshot And Read-Model Completion
 

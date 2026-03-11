@@ -136,6 +136,12 @@ For stock dividends:
 - `receivedStockQuantity` is the actually credited stock quantity
 - posting the actual stock receipt must also drive downstream holdings or inventory effects through the stock-position path rather than through cash-ledger inference
 
+Current implementation bridge:
+
+- until a dedicated non-cash position-event model exists, Wave 2 may materialize the stock effect as a zero-cost lot insertion on payment date
+- treat that bridge as temporary implementation scaffolding, not as the long-term canonical representation of stock-position events
+- future correction work must still reverse the stock effect through the inventory path rather than treating it as cash-only activity
+
 If both cash and stock exist, both components live on the same `DividendLedgerEntry`.
 
 ### 4. Adjust Or Correct The Posting

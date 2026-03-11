@@ -67,6 +67,19 @@ Use these rules when the task is system design, ledger modeling, reconciliation 
 - Keep deduction modeling extensible. MVP summaries are acceptable, but long-term designs should allow typed deduction line items such as NHI supplemental premium, withholding tax, bank fee, cash-in-lieu adjustment, and rounding adjustment.
 - Treat currency as explicit configuration or field data instead of baking NTD into lifecycle semantics. If the product later supports non-TWD cash flows, carry amount and currency separately.
 
+## Posted-Fact Correction Modeling
+
+Use these rules when the task asks how posted trades, cash entries, dividend postings, or stock-dividend effects should be corrected:
+
+- Treat posted-fact correction at the parent-fact level. If any economically meaningful field is wrong, reverse the original posted fact and create a replacement instead of editing child rows in place.
+- Keep the original economic date separate from the correction booking timestamp. Preserve the trade or event date semantics and record the actual correction moment separately, such as in `bookedAt`.
+- For dividend corrections, reverse the `DividendLedgerEntry` and every generated related `CashLedgerEntry` together, then create a corrected replacement row.
+- For stock-dividend corrections, reverse the quantity effect through the stock or inventory path, not only through cash. Reverse related cash-in-lieu or deduction entries separately.
+- Preserve Taiwan-specific support values needed for bookkeeping, such as the premium base used for NHI or statement support, instead of collapsing everything into a single net amount.
+- Use `explained` only for reconciliation cases where the booked fact is still economically correct and the remaining difference is presentation, cut-off timing, or accepted tolerance. Do not use `explained` for wrong quantity, wrong receipt amount, wrong withholding, wrong NHI deduction, wrong cash-in-lieu, wrong account, or wrong linked source fact.
+- Make reversal and replacement atomic across the whole generated chain. Do not allow a state where the parent is reversed but generated child entries are left active.
+- Keep external source references separate from internal correction-chain linkage. Each row keeps its own identity, while reversal or supersession fields express the correction relationship.
+
 ## Output Shape
 
 Use this structure for substantive tax or legal-adjacent bookkeeping answers:

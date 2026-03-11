@@ -2,7 +2,7 @@
 
 Use this file when the task requires current Taiwan stock or ETF bookkeeping rules. Treat all items here as a dated baseline and re-check official sources if the user asks for the latest position.
 
-Last refreshed: March 4, 2026
+Last refreshed: March 11, 2026
 
 ## Scope
 
@@ -139,6 +139,25 @@ If the user only has the net cash received:
 Sources:
 - SITCA TISA tax notes on ETF distributions: https://www.tisa.org.tw/qa
 - NHI supplemental premium page: https://www.nhi.gov.tw/ch/cp-3145-6c0f2-2082-1.html
+
+## Bookkeeping Correction Modeling Baseline
+
+These items are modeling guidance for bookkeeping systems. They are not Taiwan legal requirements by themselves.
+
+- Once a trade, cash entry, or dividend posting is posted, do not silently edit it in place. Correct it through reversal plus replacement.
+- Correct posted facts at the parent-fact level. If a dividend posting is economically wrong, reverse the posted dividend fact and its generated cash effects together, then create a replacement.
+- Preserve the original economic date and record the actual correction booking time separately.
+- For stock dividends, reverse quantity through the stock or inventory path, not only through cash. Reverse cash-in-lieu or deduction cash effects separately.
+- Use `explained` only when the booked fact is still economically correct and the difference is a presentation, cut-off, or accepted-tolerance issue. Wrong quantity or wrong money values require corrective reversal plus replacement.
+- Execute reversal and replacement atomically across the generated chain so partial corrected states do not remain visible.
+- Keep broker or import source references separate from internal correction-chain linkage. Do not rely on one reused source reference value to represent original, reversal, and replacement rows.
+
+Sources:
+- Microsoft Learn reverse journal posting: https://learn.microsoft.com/en-us/dynamics365/business-central/finance-how-reverse-journal-posting
+- Oracle reconciliation tolerance rules: https://docs.oracle.com/en/cloud/saas/financials/25c/fairp/overview-of-tolerance-rules.html
+- Oracle Account Reconciliation explained balance and formats: https://docs.oracle.com/en/cloud/saas/account-reconcile-cloud/suarc/setup_formats_properties.html
+- Oracle Account Reconciliation overview: https://docs.oracle.com/en/cloud/saas/account-reconcile-cloud/suarc/setup_formats_rc_about.html
+- PostgreSQL partial index documentation: https://www.postgresql.org/docs/current/indexes-partial.html
 
 ## Recommended Ledger Fields
 

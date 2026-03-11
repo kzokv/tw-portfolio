@@ -891,6 +891,22 @@ export class PostgresPersistence implements Persistence {
     try {
       await client.query("BEGIN");
 
+      const existingDividendLedgerEntry = await client.query<{ posting_status: string }>(
+        `SELECT posting_status
+         FROM dividend_ledger_entries
+         WHERE id = $1
+         FOR UPDATE`,
+        [dividendLedgerEntry.id],
+      );
+      if (
+        existingDividendLedgerEntry.rows[0] &&
+        existingDividendLedgerEntry.rows[0].posting_status !== "expected"
+      ) {
+        throw new Error(
+          `posted dividend ledger entry ${dividendLedgerEntry.id} already exists and cannot be overwritten in place`,
+        );
+      }
+
       await client.query(
         `INSERT INTO dividend_events (
            id, symbol, event_type, ex_dividend_date, payment_date,
