@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { createDividendEvent, postDividend } from "../../src/services/dividends.js";
+import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
 import { createTransaction } from "../../src/services/portfolio.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 
@@ -21,22 +22,29 @@ const shouldRunPostgresSuite = runPostgresIntegration && Boolean(databaseUrl) &&
 
 const describePostgres = shouldRunPostgresSuite ? describe : describe.skip;
 const legacyUserIds = ["legacy-fifo", "legacy-lifo", "legacy-custom"];
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
+const migrationManifestPromise = loadMigrationManifest(migrationsDir);
 
 describePostgres("postgres migrations", () => {
   let pool: Pool;
   let persistence: PostgresPersistence | null = null;
 
-  beforeEach(async () => {
-    pool = new Pool({ connectionString: databaseUrl });
+  async function resetPublicSchema(): Promise<void> {
     const client = await pool.connect();
     try {
       await client.query("DROP SCHEMA IF EXISTS public CASCADE");
       await client.query("CREATE SCHEMA public");
       await client.query("GRANT ALL ON SCHEMA public TO public");
+    } finally {
+      client.release();
+    }
+  }
 
-      const currentDir = path.dirname(fileURLToPath(import.meta.url));
-      const initMigrationPath = path.resolve(currentDir, "../../../../db/migrations/001_init.sql");
-      const initMigration = await fs.readFile(initMigrationPath, "utf8");
+  async function seedLegacyUsers(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      const initMigration = await fs.readFile(path.join(migrationsDir, "001_init.sql"), "utf8");
       await client.query(initMigration);
 
       await client.query(
@@ -49,6 +57,92 @@ describePostgres("postgres migrations", () => {
     } finally {
       client.release();
     }
+  }
+
+  async function applyNumberedMigrations(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    const client = await pool.connect();
+    try {
+      for (const file of manifest.numberedMigrations) {
+        const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(migrationSql);
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  async function captureSchemaSignature(): Promise<{
+    tables: string[];
+    columns: string[];
+    constraints: string[];
+    indexes: string[];
+  }> {
+    const [tables, columns, constraints, indexes] = await Promise.all([
+      pool.query<{ table_name: string }>(
+        `SELECT table_name
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_type = 'BASE TABLE'
+           AND table_name <> 'schema_migrations'
+         ORDER BY table_name`,
+      ),
+      pool.query<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }>(
+        `SELECT table_name, column_name, data_type, is_nullable, column_default
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name <> 'schema_migrations'
+         ORDER BY table_name, ordinal_position`,
+      ),
+      pool.query<{
+        table_name: string;
+        constraint_type: string;
+        definition: string;
+      }>(
+        `SELECT rel.relname AS table_name,
+                c.contype AS constraint_type,
+                pg_get_constraintdef(c.oid) AS definition
+         FROM pg_constraint AS c
+         JOIN pg_class AS rel
+           ON rel.oid = c.conrelid
+         JOIN pg_namespace AS n
+           ON n.oid = c.connamespace
+         WHERE n.nspname = 'public'
+           AND rel.relname <> 'schema_migrations'
+         ORDER BY rel.relname, c.contype, pg_get_constraintdef(c.oid)`,
+      ),
+      pool.query<{ tablename: string; indexname: string; indexdef: string }>(
+        `SELECT tablename, indexname, indexdef
+         FROM pg_indexes
+         WHERE schemaname = 'public'
+           AND tablename <> 'schema_migrations'
+         ORDER BY tablename, indexname`,
+      ),
+    ]);
+
+    return {
+      tables: tables.rows.map((row) => row.table_name),
+      columns: columns.rows.map(
+        (row) =>
+          `${row.table_name}:${row.column_name}:${row.data_type}:${row.is_nullable}:${row.column_default ?? ""}`,
+      ),
+      constraints: constraints.rows.map(
+        (row) => `${row.table_name}:${row.constraint_type}:${row.definition}`,
+      ),
+      indexes: indexes.rows.map((row) => `${row.tablename}:${row.indexname}:${row.indexdef}`),
+    };
+  }
+
+  beforeEach(async () => {
+    pool = new Pool({ connectionString: databaseUrl });
+    await resetPublicSchema();
+    await seedLegacyUsers();
   });
 
   afterEach(async () => {
@@ -58,6 +152,82 @@ describePostgres("postgres migrations", () => {
     }
     await pool.end();
   });
+
+  async function insertTradeEventWithSnapshot(input: {
+    id: string;
+    userId: string;
+    accountId: string;
+    symbol: string;
+    instrumentType: string;
+    tradeType: string;
+    quantity: number;
+    unitPrice: number;
+    priceCurrency?: string;
+    tradeDate: string;
+    tradeTimestamp: string;
+    bookingSequence: number;
+    commissionAmount: number;
+    taxAmount: number;
+    isDayTrade?: boolean;
+    sourceType?: string;
+    sourceReference?: string;
+    bookedAt?: string;
+    reversalOfTradeEventId?: string;
+  }): Promise<void> {
+    const feePolicySnapshotId = `trade-fee-snapshot:${input.id}`;
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
+       ) VALUES (
+         $1, $2, 'fp-default', 'Default Broker', 1.425,
+         0, 20, 'TWD',
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', $3
+       )`,
+      [feePolicySnapshotId, input.userId, input.bookedAt ?? input.tradeTimestamp],
+    );
+
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
+         price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+         tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
+         reversal_of_trade_event_id
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8,
+         $9, $10, $11, $12, $13,
+         $14, $15, $16, $17, $18, $19,
+         $20
+       )`,
+      [
+        input.id,
+        input.userId,
+        input.accountId,
+        input.symbol,
+        input.instrumentType,
+        input.tradeType,
+        input.quantity,
+        input.unitPrice,
+        input.priceCurrency ?? "TWD",
+        input.tradeDate,
+        input.tradeTimestamp,
+        input.bookingSequence,
+        input.commissionAmount,
+        input.taxAmount,
+        input.isDayTrade ?? false,
+        feePolicySnapshotId,
+        input.sourceType ?? "manual",
+        input.sourceReference ?? input.id,
+        input.bookedAt ?? input.tradeTimestamp,
+        input.reversalOfTradeEventId ?? null,
+      ],
+    );
+  }
 
   it("normalizes legacy cost basis values to WEIGHTED_AVERAGE on init", async () => {
     persistence = new PostgresPersistence({
@@ -80,11 +250,7 @@ describePostgres("postgres migrations", () => {
   });
 
   it("records applied migrations and avoids replaying them on subsequent init", async () => {
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
-    const migrationFiles = (await fs.readdir(migrationsDir))
-      .filter((file) => /^\d+_.*\.sql$/.test(file))
-      .sort((a, b) => a.localeCompare(b));
+    const manifest = await migrationManifestPromise;
 
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
@@ -97,7 +263,7 @@ describePostgres("postgres migrations", () => {
     const firstPass = await pool.query<{ name: string }>(
       "SELECT name FROM schema_migrations ORDER BY name",
     );
-    expect(firstPass.rows.map((row) => row.name)).toEqual(migrationFiles);
+    expect(firstPass.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
 
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
@@ -108,12 +274,63 @@ describePostgres("postgres migrations", () => {
     const secondPass = await pool.query<{ name: string }>(
       "SELECT name FROM schema_migrations ORDER BY name",
     );
-    expect(secondPass.rows.map((row) => row.name)).toEqual(migrationFiles);
+    expect(secondPass.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+  });
+
+  it("bootstraps clean databases from the baseline schema and records superseded history", async () => {
+    const manifest = await migrationManifestPromise;
+    await resetPublicSchema();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const migrationLedger = await pool.query<{ name: string }>(
+      "SELECT name FROM schema_migrations ORDER BY name",
+    );
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(
+      [...manifest.numberedMigrations, manifest.baselineMigration].filter(Boolean).sort(),
+    );
+
+    const transactionsTable = await pool.query<{ regclass: string | null }>(
+      "SELECT to_regclass('public.transactions') AS regclass",
+    );
+    expect(transactionsTable.rows[0]?.regclass).toBeNull();
+
+    const tradeColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'trade_events'
+       ORDER BY ordinal_position`,
+    );
+    expect(tradeColumns.rows.map((row) => row.column_name)).toContain("fee_policy_snapshot_id");
+    expect(tradeColumns.rows.map((row) => row.column_name)).not.toContain("fee_snapshot_json");
+  });
+
+  it("keeps the baseline schema in parity with the numbered upgrade path", async () => {
+    await resetPublicSchema();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+    await persistence.close();
+    persistence = null;
+
+    const baselineSignature = await captureSchemaSignature();
+
+    await resetPublicSchema();
+    await applyNumberedMigrations();
+
+    const upgradedSignature = await captureSchemaSignature();
+    expect(baselineSignature).toEqual(upgradedSignature);
   });
 
   it("normalizes legacy duplicate booking and lot sequences before adding uniqueness indexes", async () => {
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
     const client = await pool.connect();
 
     try {
@@ -392,18 +609,21 @@ describePostgres("postgres migrations", () => {
 
     const userId = "user-1";
     const accountId = "user-1-acc-1";
-    await pool.query(
-      `INSERT INTO trade_events (
-         id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
-         price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-         tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at
-       ) VALUES (
-         'trade-base', $1, $2, '2330', 'STOCK', 'BUY', 100, 600, 'TWD',
-         DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:00', 1, 10, 0, false,
-         '{}', 'manual', 'trade-base', NOW()
-       )`,
-      [userId, accountId],
-    );
+    await insertTradeEventWithSnapshot({
+      id: "trade-base",
+      userId,
+      accountId,
+      symbol: "2330",
+      instrumentType: "STOCK",
+      tradeType: "BUY",
+      quantity: 100,
+      unitPrice: 600,
+      tradeDate: "2026-03-01",
+      tradeTimestamp: "2026-03-01T09:00:00.000Z",
+      bookingSequence: 1,
+      commissionAmount: 10,
+      taxAmount: 0,
+    });
 
     await expect(
       pool.query(
@@ -459,11 +679,11 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
-           expected_stock_quantity, received_cash_amount, received_stock_quantity,
+           expected_stock_quantity, received_stock_quantity,
            posting_status, reconciliation_status
          ) VALUES (
            'dividend-ledger-invalid-status', $1, 'dividend-base', 2000, 2400,
-           0, 0, 0,
+           0, 0,
            'reconciled', 'open'
          )`,
         [accountId],
@@ -473,11 +693,11 @@ describePostgres("postgres migrations", () => {
     await pool.query(
       `INSERT INTO dividend_ledger_entries (
          id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
-         expected_stock_quantity, received_cash_amount, received_stock_quantity,
+         expected_stock_quantity, received_stock_quantity,
          posting_status, reconciliation_status
        ) VALUES (
          'dividend-ledger-active-1', $1, 'dividend-base', 2000, 2400,
-         0, 2280, 0,
+         0, 0,
          'posted', 'open'
        )`,
       [accountId],
@@ -487,11 +707,11 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
-           expected_stock_quantity, received_cash_amount, received_stock_quantity,
+           expected_stock_quantity, received_stock_quantity,
            posting_status, reconciliation_status
          ) VALUES (
            'dividend-ledger-active-2', $1, 'dividend-base', 2000, 2400,
-           0, 2280, 0,
+           0, 0,
            'posted', 'open'
          )`,
         [accountId],
@@ -507,11 +727,11 @@ describePostgres("postgres migrations", () => {
     await pool.query(
       `INSERT INTO dividend_ledger_entries (
          id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
-         expected_stock_quantity, received_cash_amount, received_stock_quantity,
+         expected_stock_quantity, received_stock_quantity,
          posting_status, reconciliation_status
        ) VALUES (
          'dividend-ledger-active-2', $1, 'dividend-base', 2000, 2400,
-         0, 2280, 0,
+         0, 0,
          'adjusted', 'open'
        )`,
       [accountId],
@@ -541,49 +761,57 @@ describePostgres("postgres migrations", () => {
        )`,
     );
 
-    await pool.query(
-      `INSERT INTO trade_events (
-         id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
-         price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-         tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
-         reversal_of_trade_event_id
-       ) VALUES (
-         'trade-reversal-1', $1, $2, '2330', 'STOCK', 'SELL', 100, 600, 'TWD',
-         DATE '2026-03-03', TIMESTAMP '2026-03-03 09:00:00', 1, 10, 0, false,
-         '{}', 'manual', 'trade-reversal-1', NOW(), 'trade-base'
-       )`,
-      [userId, accountId],
-    );
+    await insertTradeEventWithSnapshot({
+      id: "trade-reversal-1",
+      userId,
+      accountId,
+      symbol: "2330",
+      instrumentType: "STOCK",
+      tradeType: "SELL",
+      quantity: 100,
+      unitPrice: 600,
+      tradeDate: "2026-03-03",
+      tradeTimestamp: "2026-03-03T09:00:00.000Z",
+      bookingSequence: 1,
+      commissionAmount: 10,
+      taxAmount: 0,
+      reversalOfTradeEventId: "trade-base",
+    });
     await expect(
-      pool.query(
-        `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
-           price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
-           reversal_of_trade_event_id
-         ) VALUES (
-           'trade-reversal-2', $1, $2, '2330', 'STOCK', 'SELL', 100, 600, 'TWD',
-           DATE '2026-03-04', TIMESTAMP '2026-03-04 09:00:00', 1, 10, 0, false,
-           '{}', 'manual', 'trade-reversal-2', NOW(), 'trade-base'
-         )`,
-        [userId, accountId],
-      ),
+      insertTradeEventWithSnapshot({
+        id: "trade-reversal-2",
+        userId,
+        accountId,
+        symbol: "2330",
+        instrumentType: "STOCK",
+        tradeType: "SELL",
+        quantity: 100,
+        unitPrice: 600,
+        tradeDate: "2026-03-04",
+        tradeTimestamp: "2026-03-04T09:00:00.000Z",
+        bookingSequence: 1,
+        commissionAmount: 10,
+        taxAmount: 0,
+        reversalOfTradeEventId: "trade-base",
+      }),
     ).rejects.toThrow(/duplicate key value/i);
 
     await expect(
-      pool.query(
-        `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
-           price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade,
-           fee_snapshot_json, source_type, source_reference, booked_at
-         ) VALUES (
-           'trade-duplicate-sequence', $1, $2, '2330', 'STOCK', 'BUY', 10, 610, 'TWD',
-           DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:01', 1, 10, 0, false,
-           '{}', 'manual', 'trade-duplicate-sequence', NOW()
-         )`,
-        [userId, accountId],
-      ),
+      insertTradeEventWithSnapshot({
+        id: "trade-duplicate-sequence",
+        userId,
+        accountId,
+        symbol: "2330",
+        instrumentType: "STOCK",
+        tradeType: "BUY",
+        quantity: 10,
+        unitPrice: 610,
+        tradeDate: "2026-03-01",
+        tradeTimestamp: "2026-03-01T09:00:01.000Z",
+        bookingSequence: 1,
+        commissionAmount: 10,
+        taxAmount: 0,
+      }),
     ).rejects.toThrow(/duplicate key value/i);
 
     await pool.query(
@@ -766,13 +994,23 @@ describePostgres("postgres migrations", () => {
       }),
     ]);
 
-    const mirroredTransactions = await pool.query<{ id: string }>(
-      `SELECT id
-       FROM transactions
+    const feeSnapshots = await pool.query<{
+      id: string;
+      profile_id_at_booking: string;
+      board_commission_rate: string;
+    }>(
+      `SELECT id, profile_id_at_booking, board_commission_rate::TEXT
+       FROM trade_fee_policy_snapshots
        WHERE user_id = 'user-1'
        ORDER BY id`,
     );
-    expect(mirroredTransactions.rows).toEqual([{ id: "trade-kzo48-1" }]);
+    expect(feeSnapshots.rows).toEqual([
+      {
+        id: "trade-fee-snapshot:trade-kzo48-1",
+        profile_id_at_booking: "user-1-fp-default",
+        board_commission_rate: "1.425000",
+      },
+    ]);
   });
 
   it("round-trips dividend events, ledger entries, deductions, and linked cash entries", async () => {
@@ -1166,7 +1404,7 @@ describePostgres("postgres migrations", () => {
     );
   });
 
-  it("does not load legacy mirrored transactions when canonical trade events are absent", async () => {
+  it("does not load orphaned trade fee snapshots when canonical trade events are absent", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
       redisUrl: redisUrl!,
@@ -1174,14 +1412,18 @@ describePostgres("postgres migrations", () => {
     await persistence.init();
 
     await pool.query(
-      `INSERT INTO transactions (
-         id, user_id, account_id, symbol, instrument_type, tx_type,
-         quantity, unit_price, price_currency, trade_date, commission_amount, tax_amount,
-         is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
        ) VALUES (
-         'legacy-transaction-only', 'user-1', 'user-1-acc-1', '2330', 'STOCK', 'BUY',
-         10, 100, 'TWD', DATE '2026-03-01', 20, 0,
-         false, 'user-1-fp-default', '{}', NULL
+         'trade-fee-snapshot:orphan-only', 'user-1', 'user-1-fp-default', 'Default Broker', 1.425,
+         0, 20, 'TWD',
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', NOW()
        )`,
     );
 
@@ -1343,26 +1585,6 @@ describePostgres("postgres migrations", () => {
       },
     ]);
 
-    const mirroredTransactions = await pool.query<{
-      id: string;
-      realized_pnl_amount: number | null;
-    }>(
-      `SELECT id, realized_pnl_amount
-       FROM transactions
-       WHERE user_id = 'user-1'
-       ORDER BY trade_date, id`,
-    );
-    expect(mirroredTransactions.rows).toEqual([
-      {
-        id: buyTrade.id,
-        realized_pnl_amount: null,
-      },
-      {
-        id: sellTrade.id,
-        realized_pnl_amount: 121,
-      },
-    ]);
-
     const lotAllocations = await pool.query<{
       trade_event_id: string;
       allocated_quantity: number;
@@ -1405,8 +1627,6 @@ describePostgres("postgres migrations", () => {
         amount: 626,
       },
     ]);
-
-    await pool.query(`DELETE FROM transactions WHERE user_id = 'user-1'`);
 
     const reloaded = await persistence.loadStore("user-1");
     expect(reloaded.accounting.projections.holdings).toEqual([
@@ -1502,12 +1722,11 @@ describePostgres("postgres migrations", () => {
       eligible_quantity: number;
       expected_cash_amount: number;
       expected_stock_quantity: number;
-      received_cash_amount: number;
       received_stock_quantity: number;
       posting_status: string;
     }>(
       `SELECT id, eligible_quantity, expected_cash_amount, expected_stock_quantity,
-              received_cash_amount, received_stock_quantity, posting_status
+              received_stock_quantity, posting_status
        FROM dividend_ledger_entries
        WHERE id = 'dividend-ledger-kzo36'`,
     );
@@ -1517,7 +1736,6 @@ describePostgres("postgres migrations", () => {
         eligible_quantity: 10,
         expected_cash_amount: 120,
         expected_stock_quantity: 1,
-        received_cash_amount: 108,
         received_stock_quantity: 1,
         posting_status: "posted",
       },
@@ -1669,12 +1887,12 @@ describePostgres("postgres migrations", () => {
       persistence.savePostedDividend("user-1", overwrittenAccounting, posting.dividendLedgerEntry.id),
     ).rejects.toThrow(/cannot be overwritten in place/i);
 
-    const persistedDividendLedgerEntries = await pool.query<{ received_cash_amount: number }>(
-      `SELECT received_cash_amount
+    const persistedDividendLedgerEntries = await pool.query<{ received_stock_quantity: number; posting_status: string }>(
+      `SELECT received_stock_quantity, posting_status
        FROM dividend_ledger_entries
        WHERE id = 'dividend-ledger-kzo51'`,
     );
-    expect(persistedDividendLedgerEntries.rows).toEqual([{ received_cash_amount: 108 }]);
+    expect(persistedDividendLedgerEntries.rows).toEqual([{ received_stock_quantity: 0, posting_status: "posted" }]);
 
     const persistedCashEntries = await pool.query<{ amount: number }>(
       `SELECT amount
@@ -1726,13 +1944,6 @@ describePostgres("postgres migrations", () => {
     staleSellTrade!.realizedPnlAmount = -999;
 
     await persistence.saveStore(store);
-
-    const mirrored = await pool.query<{ realized_pnl_amount: number | null }>(
-      `SELECT realized_pnl_amount
-       FROM transactions
-       WHERE id = 'trade-kzo52-sell'`,
-    );
-    expect(mirrored.rows).toEqual([{ realized_pnl_amount: 121 }]);
 
     const reloaded = await persistence.loadStore("user-1");
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === "trade-kzo52-sell");

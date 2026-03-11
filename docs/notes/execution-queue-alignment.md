@@ -41,7 +41,7 @@ The repository now reflects a larger portion of this cutover:
 
 Important transitional seams still exist:
 
-- the legacy `transactions` table is still written as a temporary compatibility mirror
+- trade fee snapshots are now relational, but some service code still keeps a local `Transaction` alias around canonical `BookedTradeEvent`
 - legacy recompute endpoints still exist in the API surface
 - the legacy `CorporateAction` dividend write path still exists beside the newer dividend endpoints
 - posted-dividend correction flow still needs reversal and supersession API support; use [posted-fact-correction-rules.md](./posted-fact-correction-rules.md) as the durable contract for that work

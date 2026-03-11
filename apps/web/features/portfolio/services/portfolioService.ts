@@ -3,7 +3,7 @@ import type { TransactionInput } from "../../../components/portfolio/types";
 
 export interface RecomputePreviewResponse {
   id: string;
-  items: Array<{ transactionId: string }>;
+  items: Array<{ tradeEventId: string }>;
 }
 
 export interface RecomputeConfirmResponse {

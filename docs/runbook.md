@@ -973,7 +973,28 @@ Replace `<latest>` with the appropriate backup filename (e.g. the pre-migration 
 
 ### 9.4 Migration runner and contract
 
-Migrations run in a dedicated image (`db/Dockerfile.migrate`) that bakes SQL files in at build time. The runner (`infra/scripts/run-migrations.sh`) applies files in sorted order with `ON_ERROR_STOP=1` and stops on first failure. All `.sql` files in `db/migrations/` must be idempotent (use `IF NOT EXISTS` / `IF EXISTS` guards). Non-idempotent schema changes require a versioned migration runner (tracked in backlog).
+Migrations run in a dedicated image (`db/Dockerfile.migrate`) that bakes SQL files in at build time. Both the API startup path and the container runner now use `schema_migrations` as the source of truth and acquire the same advisory lock before applying pending work.
+
+Fresh databases bootstrap from `db/migrations/baseline_current_schema.sql`, then mark the superseded numbered files listed in `db/migrations/manifest.env` as applied. Existing databases continue through the numbered `db/migrations/[0-9][0-9][0-9]_*.sql` files in lexical order, with each file inserted into `schema_migrations` after it succeeds.
+
+The dedicated runner refuses to guess when the public schema already has tables but `schema_migrations` is empty. In that state, recover the ledger explicitly or restore from backup before re-running migrations.
+
+Current support policy for numbered migrations:
+- Fresh empty databases do not need the numbered `001` through `010` files individually; the baseline schema supersedes them.
+- Existing databases created before the baseline flow still require the numbered files as the supported upgrade path.
+- Do not delete or rewrite numbered migrations unless the team explicitly drops support for upgrading legacy databases from those states.
+
+Current numbered migration inventory:
+- `001_init.sql`: original base schema with users, fee profiles, accounts, transactions, lots, and recompute tables.
+- `002_cost_basis_weighted_average.sql`: normalizes all users to `WEIGHTED_AVERAGE` and enforces the new invariant.
+- `003_accounting_core_schema.sql`: introduces the canonical accounting tables such as `trade_events`, dividends, cash ledger, reconciliation, and daily snapshots.
+- `004_trade_order_and_lot_allocations.sql`: adds trade booking order, lot opening order, and `lot_allocations`, with backfills for legacy rows.
+- `005_booking_order_uniqueness.sql`: repairs duplicate booking and lot sequences, then adds uniqueness indexes.
+- `006_dividend_schema_alignment.sql`: aligns dividend ledger structure, adds typed dividend deductions, and retires older deduction columns.
+- `007_fee_profile_precision_and_dividend_currency.sql`: adds precise fee-profile fields and `cash_dividend_currency`.
+- `008_commission_discount_percent.sql`: derives `commission_discount_percent` from legacy basis-point data.
+- `009_retire_twd_ntd_fields.sql`: renames `_ntd` amount fields to amount-plus-currency names and adds currency constraints.
+- `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash ledger entries, and drops retired legacy structures such as `transactions`.
 
 ---
 

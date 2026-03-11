@@ -45,7 +45,7 @@ Canonical runtime accounting reads come from:
 
 Compatibility or workflow tables still matter:
 
-- `transactions`
+- `trade_fee_policy_snapshots`
 - `corporate_actions`
 - `recompute_jobs`
 - `reconciliation_records`
@@ -54,7 +54,7 @@ This means the MVP is no longer at the stage where cash ledger and dividend ledg
 
 ## Runtime Drift To Track
 
-The canonical target model intentionally gets ahead of two known implementation gaps.
+The canonical target model intentionally gets ahead of one remaining implementation gap.
 
 ### 1. Exact Taiwan Commission Precision
 
@@ -64,13 +64,11 @@ Current runtime fee settings still use integer `commissionRateBps`, which cannot
 
 ### 2. Currency-Normalized Structure
 
-Current runtime schema, shared types, and API naming now use currency-neutral amount fields plus explicit currency codes for active contracts.
-
-The Taiwan MVP remains operationally TWD-first through defaults, but the runtime no longer encodes `Ntd` in active field names or enforces TWD-only deduction/event constraints at the schema-contract level.
+`KZO-55` completed the currency-normalization sweep. The canonical model should treat amount-plus-currency naming as implemented baseline, not pending drift.
 
 ## Model Classification
 
-The MVP model is split into three categories.
+The MVP model is split into four categories.
 
 ### 1. Booked Facts
 
@@ -91,7 +89,11 @@ Derived state is reproducible from booked facts and reference data.
 - holdings views
 - realized and unrealized P&L views
 
-### 3. Reference and Configuration Data
+### 3. Immutable Snapshots
+
+- `TradeFeePolicySnapshot`
+
+### 4. Reference and Configuration Data
 
 Reference or configuration data may suggest values or provide metadata, but it is not itself a booked accounting fact.
 
@@ -323,9 +325,9 @@ Represents an immutable booked security trade fact for one account and one instr
 
 ### Current Mapping
 
-- current code name: `BookedTradeEvent` with `Transaction` retained as a compatibility mirror
+- current code name: `BookedTradeEvent` with a local `Transaction` alias still used in some services
 - current canonical storage: `trade_events`
-- compatibility mirror: `transactions`
+- immutable snapshot storage: `trade_fee_policy_snapshots`
 - current runtime stores `unitPrice`, `priceCurrency`, `commissionAmount`, `taxAmount`, and fee snapshots with explicit `commissionCurrency`
 
 ## `CashLedgerEntry`
@@ -463,7 +465,7 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
-- current runtime stores `expectedCashAmount` and `receivedCashAmount`; cash currency is carried by the related `DividendEvent.cashDividendCurrency`
+- current runtime stores `expectedCashAmount` on the parent row and derives `receivedCashAmount` from linked `CashLedgerEntry` rows; cash currency is carried by the related `DividendEvent.cashDividendCurrency`
 
 ## `DividendDeductionEntry`
 
@@ -933,7 +935,7 @@ Expected outcomes:
 - one terminology and classification table
 - one relationship and invariant matrix
 - one worked example pack with expected outcomes
-- explicit migration mapping from current `transactions/lots/recompute/corporate_actions` to the canonical model
+- explicit migration mapping from current `trade_fee_policy_snapshots/lots/recompute/corporate_actions` to the canonical model
 
 ## Ready-For-Handoff Checklist
 

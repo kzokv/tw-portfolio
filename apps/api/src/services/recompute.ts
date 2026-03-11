@@ -42,7 +42,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
           });
 
     return {
-      transactionId: tx.id,
+      tradeEventId: tx.id,
       previousCommissionAmount: tx.commissionAmount,
       previousTaxAmount: tx.taxAmount,
       nextCommissionAmount: next.commissionAmount,
@@ -69,7 +69,7 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
   if (!job) throw new Error("Recompute job not found");
 
   for (const item of job.items) {
-    const tx = listTradeEvents(store).find((entry) => entry.id === item.transactionId);
+    const tx = listTradeEvents(store).find((entry) => entry.id === item.tradeEventId);
     if (!tx) continue;
 
     tx.commissionAmount = item.nextCommissionAmount;
