@@ -5,9 +5,9 @@ import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
+import { loadMigrationManifest } from "./migrationManifest.js";
 import {
   buildAccountingPolicy,
-  deriveRealizedPnlForTrade,
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
@@ -81,13 +81,23 @@ export class PostgresPersistence implements Persistence {
     );
 
     const tradeEventsResult = await this.pool.query(
-      `SELECT id, user_id, account_id, symbol, instrument_type, trade_type, quantity,
-              unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount, tax_amount,
-              is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
-              reversal_of_trade_event_id
-       FROM trade_events
-       WHERE user_id = $1
-       ORDER BY trade_date, booking_sequence, trade_timestamp, booked_at, id`,
+      `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.symbol,
+              trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
+              trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
+              trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
+              trade_event.tax_amount, trade_event.is_day_trade, trade_event.source_type,
+              trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+              snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
+              snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
+              snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
+              snapshot.stock_sell_tax_rate_bps, snapshot.stock_day_trade_tax_rate_bps,
+              snapshot.etf_sell_tax_rate_bps, snapshot.bond_etf_sell_tax_rate_bps,
+              snapshot.commission_charge_mode
+       FROM trade_events AS trade_event
+       JOIN trade_fee_policy_snapshots AS snapshot
+         ON snapshot.id = trade_event.fee_policy_snapshot_id
+       WHERE trade_event.user_id = $1
+       ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
       [userId],
     );
 
@@ -142,7 +152,7 @@ export class PostgresPersistence implements Persistence {
       ? await this.pool.query(
           `SELECT id, account_id, dividend_event_id, eligible_quantity,
                   expected_cash_amount, expected_stock_quantity,
-                  received_cash_amount, received_stock_quantity,
+                  received_stock_quantity,
                   posting_status, reconciliation_status, booked_at,
                   reversal_of_dividend_ledger_entry_id, superseded_at
            FROM dividend_ledger_entries
@@ -182,7 +192,7 @@ export class PostgresPersistence implements Persistence {
     const jobIds = jobsResult.rows.map((row) => row.id);
     const jobItemsResult = jobIds.length
       ? await this.pool.query(
-          `SELECT id, job_id, transaction_id, previous_commission_amount, previous_tax_amount,
+          `SELECT id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
                   next_commission_amount, next_tax_amount
            FROM recompute_job_items
            WHERE job_id = ANY($1)
@@ -243,7 +253,7 @@ export class PostgresPersistence implements Persistence {
       createdAt: normalizeDateTime(row.created_at),
     }));
 
-    const transactions: Transaction[] = tradeEventsResult.rows.map((row) => ({
+    const tradeEvents: Transaction[] = tradeEventsResult.rows.map((row) => ({
       id: row.id,
       userId: row.user_id,
       accountId: row.account_id,
@@ -259,7 +269,7 @@ export class PostgresPersistence implements Persistence {
       commissionAmount: row.commission_amount,
       taxAmount: row.tax_amount,
       isDayTrade: row.is_day_trade,
-      feeSnapshot: normalizeFeeProfile(JSON.parse(row.fee_snapshot_json)),
+      feeSnapshot: hydrateTradeFeeSnapshot(row),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -298,22 +308,6 @@ export class PostgresPersistence implements Persistence {
       createdAt: normalizeDateTime(row.created_at),
     }));
 
-    const dividendLedgerEntries: DividendLedgerEntry[] = dividendLedgerEntriesResult.rows.map((row) => ({
-      id: row.id,
-      accountId: row.account_id,
-      dividendEventId: row.dividend_event_id,
-      eligibleQuantity: row.eligible_quantity,
-      expectedCashAmount: row.expected_cash_amount,
-      expectedStockQuantity: row.expected_stock_quantity,
-      receivedCashAmount: row.received_cash_amount,
-      receivedStockQuantity: row.received_stock_quantity,
-      postingStatus: row.posting_status,
-      reconciliationStatus: row.reconciliation_status,
-      reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
-      supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
-      bookedAt: normalizeDateTime(row.booked_at),
-    }));
-
     const dividendDeductionEntries: DividendDeductionEntry[] = dividendDeductionsResult.rows.map((row) => ({
       id: row.id,
       dividendLedgerEntryId: row.dividend_ledger_entry_id,
@@ -324,6 +318,34 @@ export class PostgresPersistence implements Persistence {
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       note: row.note ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
+    const receivedCashAmountByDividendLedgerId = new Map<string, number>();
+    for (const entry of cashLedgerEntries) {
+      if (entry.entryType !== "DIVIDEND_RECEIPT" || !entry.relatedDividendLedgerEntryId) {
+        continue;
+      }
+
+      receivedCashAmountByDividendLedgerId.set(
+        entry.relatedDividendLedgerEntryId,
+        (receivedCashAmountByDividendLedgerId.get(entry.relatedDividendLedgerEntryId) ?? 0) + entry.amount,
+      );
+    }
+
+    const dividendLedgerEntries: DividendLedgerEntry[] = dividendLedgerEntriesResult.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      dividendEventId: row.dividend_event_id,
+      eligibleQuantity: row.eligible_quantity,
+      expectedCashAmount: row.expected_cash_amount,
+      expectedStockQuantity: row.expected_stock_quantity,
+      receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
+      receivedStockQuantity: row.received_stock_quantity,
+      postingStatus: row.posting_status,
+      reconciliationStatus: row.reconciliation_status,
+      reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
+      supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
       bookedAt: normalizeDateTime(row.booked_at),
     }));
 
@@ -346,7 +368,7 @@ export class PostgresPersistence implements Persistence {
     for (const item of jobItemsResult.rows) {
       const list = recomputeItems.get(item.job_id) ?? [];
       list.push({
-        transactionId: item.transaction_id,
+        tradeEventId: item.trade_event_id,
         previousCommissionAmount: item.previous_commission_amount,
         previousTaxAmount: item.previous_tax_amount,
         nextCommissionAmount: item.next_commission_amount,
@@ -387,7 +409,7 @@ export class PostgresPersistence implements Persistence {
       feeProfiles,
       accounting: {
         facts: {
-          tradeEvents: transactions,
+          tradeEvents,
           cashLedgerEntries,
           dividendEvents,
           dividendLedgerEntries,
@@ -572,44 +594,6 @@ export class PostgresPersistence implements Persistence {
         await client.query(`DELETE FROM fee_profiles WHERE user_id = $1`, [store.userId]);
       }
 
-      if (accountIds.length) {
-        await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
-        for (const lot of store.accounting.projections.lots) {
-          await client.query(
-            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [
-              lot.id,
-              lot.accountId,
-              lot.symbol,
-              lot.openQuantity,
-              lot.totalCostAmount,
-              lot.costCurrency,
-              lot.openedAt,
-              lot.openedSequence ?? 1,
-            ],
-          );
-        }
-
-        await client.query(`DELETE FROM corporate_actions WHERE account_id = ANY($1)`, [accountIds]);
-        for (const action of store.accounting.facts.corporateActions) {
-          await client.query(
-            `INSERT INTO corporate_actions (
-               id, account_id, symbol, action_type, numerator, denominator, action_date
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              action.id,
-              action.accountId,
-              action.symbol,
-              action.actionType,
-              action.numerator,
-              action.denominator,
-              action.actionDate,
-            ],
-          );
-        }
-      }
-
       for (const job of store.recomputeJobs) {
         await client.query(
           `INSERT INTO recompute_jobs (id, user_id, account_id, profile_id, status, created_at)
@@ -620,13 +604,13 @@ export class PostgresPersistence implements Persistence {
         for (const item of job.items) {
           await client.query(
             `INSERT INTO recompute_job_items (
-               id, job_id, transaction_id, previous_commission_amount, previous_tax_amount,
+               id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
                next_commission_amount, next_tax_amount
              ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
-              `${job.id}:${item.transactionId}`,
+              `${job.id}:${item.tradeEventId}`,
               job.id,
-              item.transactionId,
+              item.tradeEventId,
               item.previousCommissionAmount,
               item.previousTaxAmount,
               item.nextCommissionAmount,
@@ -740,17 +724,19 @@ export class PostgresPersistence implements Persistence {
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === trade.accountId && lot.symbol === trade.symbol,
     );
-    const mirroredRealizedPnlAmount = deriveRealizedPnlForTrade(accounting, trade);
 
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
 
+      const feePolicySnapshotId = feePolicySnapshotIdForTrade(trade.id);
+      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, trade.feeSnapshot, trade.bookedAt);
+
       await client.query(
         `INSERT INTO trade_events (
            id, user_id, account_id, symbol, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
@@ -774,7 +760,7 @@ export class PostgresPersistence implements Persistence {
           trade.commissionAmount,
           trade.taxAmount,
           trade.isDayTrade,
-          JSON.stringify(trade.feeSnapshot),
+          feePolicySnapshotId,
           trade.sourceType ?? "legacy_transaction",
           trade.sourceReference ?? trade.id,
           trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
@@ -807,36 +793,6 @@ export class PostgresPersistence implements Persistence {
           cashEntry.note ?? null,
           cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
           cashEntry.reversalOfCashLedgerEntryId ?? null,
-        ],
-      );
-
-      await client.query(
-        `INSERT INTO transactions (
-           id, user_id, account_id, symbol, instrument_type, tx_type,
-           quantity, unit_price, price_currency, trade_date, commission_amount, tax_amount,
-           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount
-         ) VALUES (
-           $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12,
-           $13, $14, $15, $16
-         )`,
-        [
-          trade.id,
-          trade.userId,
-          trade.accountId,
-          trade.symbol,
-          trade.instrumentType,
-          trade.type,
-          trade.quantity,
-          trade.unitPrice,
-          trade.priceCurrency,
-          trade.tradeDate,
-          trade.commissionAmount,
-          trade.taxAmount,
-          trade.isDayTrade,
-          trade.feeSnapshot.id,
-          JSON.stringify(trade.feeSnapshot),
-          mirroredRealizedPnlAmount ?? null,
         ],
       );
 
@@ -979,15 +935,15 @@ export class PostgresPersistence implements Persistence {
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
            expected_cash_amount, expected_stock_quantity,
-           received_cash_amount, received_stock_quantity,
+           received_stock_quantity,
            posting_status, reconciliation_status, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
            $5, $6,
-           $7, $8,
-           $9, $10, $11,
-           $12, $13
+           $7,
+           $8, $9, $10,
+           $11, $12
          )
          ON CONFLICT (id)
          DO UPDATE SET
@@ -996,7 +952,6 @@ export class PostgresPersistence implements Persistence {
            eligible_quantity = EXCLUDED.eligible_quantity,
            expected_cash_amount = EXCLUDED.expected_cash_amount,
            expected_stock_quantity = EXCLUDED.expected_stock_quantity,
-           received_cash_amount = EXCLUDED.received_cash_amount,
            received_stock_quantity = EXCLUDED.received_stock_quantity,
            posting_status = EXCLUDED.posting_status,
            reconciliation_status = EXCLUDED.reconciliation_status,
@@ -1010,7 +965,6 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.eligibleQuantity,
           dividendLedgerEntry.expectedCashAmount,
           dividendLedgerEntry.expectedStockQuantity,
-          dividendLedgerEntry.receivedCashAmount,
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
@@ -1107,9 +1061,7 @@ export class PostgresPersistence implements Persistence {
   private async runMigrations(): Promise<void> {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
-    const migrationFiles = (await fs.readdir(migrationsDir))
-      .filter((file) => /^\d+_.*\.sql$/.test(file))
-      .sort((a, b) => a.localeCompare(b));
+    const manifest = await loadMigrationManifest(migrationsDir);
 
     const client = await this.pool.connect();
     try {
@@ -1122,14 +1074,38 @@ export class PostgresPersistence implements Persistence {
       );
       const applied = new Set(appliedResult.rows.map((row) => row.name));
 
-      for (const file of migrationFiles) {
+      if (await this.shouldBootstrapFromBaseline(client, applied, manifest.baselineMigration)) {
+        const baselineSql = await fs.readFile(
+          path.join(migrationsDir, manifest.baselineMigration!),
+          "utf8",
+        );
+        await client.query(baselineSql);
+        await this.recordAppliedMigrations(client, [
+          manifest.baselineMigration!,
+          ...manifest.baselineSupersedes,
+        ]);
+        applied.add(manifest.baselineMigration!);
+        for (const file of manifest.baselineSupersedes) applied.add(file);
+      } else if (await this.shouldReconcileCurrentSchemaToBaseline(client, applied, manifest)) {
+        await this.recordAppliedMigrations(client, [
+          manifest.baselineMigration!,
+          ...manifest.baselineSupersedes,
+        ]);
+        applied.add(manifest.baselineMigration!);
+        for (const file of manifest.baselineSupersedes) applied.add(file);
+      }
+
+      for (const file of manifest.numberedMigrations) {
         if (applied.has(file)) continue;
+        if (await this.isMigrationAlreadyReflected(client, file)) {
+          await this.recordAppliedMigrations(client, [file]);
+          applied.add(file);
+          continue;
+        }
         const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
         await client.query(migrationSql);
-        await client.query(
-          "INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
-          [file],
-        );
+        await this.recordAppliedMigrations(client, [file]);
+        applied.add(file);
       }
 
       await client.query("COMMIT");
@@ -1147,6 +1123,183 @@ export class PostgresPersistence implements Persistence {
          name TEXT PRIMARY KEY,
          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        )`,
+    );
+  }
+
+  private async shouldBootstrapFromBaseline(
+    client: PoolClient,
+    applied: Set<string>,
+    baselineMigration: string | null,
+  ): Promise<boolean> {
+    if (!baselineMigration || applied.size > 0) return false;
+
+    const tableResult = await client.query<{ has_tables: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_type = 'BASE TABLE'
+           AND table_name <> 'schema_migrations'
+       ) AS has_tables`,
+    );
+
+    return !tableResult.rows[0]?.has_tables;
+  }
+
+  private async shouldReconcileCurrentSchemaToBaseline(
+    client: PoolClient,
+    applied: Set<string>,
+    manifest: { baselineMigration: string | null; baselineSupersedes: string[] },
+  ): Promise<boolean> {
+    if (!manifest.baselineMigration || applied.size > 0) return false;
+    if (!manifest.baselineSupersedes.length) return false;
+
+    const [hasTables, baselineReflected] = await Promise.all([
+      this.hasUserTables(client),
+      this.isCurrentBaselineSchemaReflected(client),
+    ]);
+
+    return hasTables && baselineReflected;
+  }
+
+  private async isCurrentBaselineSchemaReflected(client: PoolClient): Promise<boolean> {
+    const [hasCoreTables, migration009Reflected, migration010Reflected] = await Promise.all([
+      Promise.all([
+        this.tableExists(client, "users"),
+        this.tableExists(client, "fee_profiles"),
+        this.tableExists(client, "accounts"),
+        this.tableExists(client, "trade_events"),
+      ]).then((results) => results.every(Boolean)),
+      this.isMigrationAlreadyReflected(client, "009_retire_twd_ntd_fields.sql"),
+      this.isMigrationAlreadyReflected(client, "010_trade_snapshot_recompute_normalization.sql"),
+    ]);
+
+    return hasCoreTables && migration009Reflected && migration010Reflected;
+  }
+
+  private async isMigrationAlreadyReflected(client: PoolClient, file: string): Promise<boolean> {
+    switch (file) {
+      case "009_retire_twd_ntd_fields.sql":
+        return this.isMigration009Reflected(client);
+      case "010_trade_snapshot_recompute_normalization.sql":
+        return this.isMigration010Reflected(client);
+      default:
+        return false;
+    }
+  }
+
+  private async isMigration009Reflected(client: PoolClient): Promise<boolean> {
+    const [
+      hasMinimumCommissionAmount,
+      hasLegacyMinCommissionNtd,
+      hasTradeEventUnitPrice,
+      hasTradeEventLegacyPrice,
+      hasLotTotalCostAmount,
+      hasLotLegacyTotalCost,
+      hasSnapshotCurrency,
+      hasSnapshotLegacyNav,
+    ] = await Promise.all([
+      this.columnExists(client, "fee_profiles", "minimum_commission_amount"),
+      this.columnExists(client, "fee_profiles", "min_commission_ntd"),
+      this.columnExists(client, "trade_events", "unit_price"),
+      this.columnExists(client, "trade_events", "price_ntd"),
+      this.columnExists(client, "lots", "total_cost_amount"),
+      this.columnExists(client, "lots", "total_cost_ntd"),
+      this.columnExists(client, "daily_portfolio_snapshots", "currency"),
+      this.columnExists(client, "daily_portfolio_snapshots", "total_nav_ntd"),
+    ]);
+
+    return (
+      hasMinimumCommissionAmount &&
+      !hasLegacyMinCommissionNtd &&
+      hasTradeEventUnitPrice &&
+      !hasTradeEventLegacyPrice &&
+      hasLotTotalCostAmount &&
+      !hasLotLegacyTotalCost &&
+      hasSnapshotCurrency &&
+      !hasSnapshotLegacyNav
+    );
+  }
+
+  private async isMigration010Reflected(client: PoolClient): Promise<boolean> {
+    const [
+      hasTradeFeePolicySnapshots,
+      hasTradeEventSnapshotId,
+      hasLegacyTradeEventSnapshotJson,
+      hasRecomputeTradeEventId,
+      hasLegacyRecomputeTransactionId,
+      hasTransactionsTable,
+    ] = await Promise.all([
+      this.tableExists(client, "trade_fee_policy_snapshots"),
+      this.columnExists(client, "trade_events", "fee_policy_snapshot_id"),
+      this.columnExists(client, "trade_events", "fee_snapshot_json"),
+      this.columnExists(client, "recompute_job_items", "trade_event_id"),
+      this.columnExists(client, "recompute_job_items", "transaction_id"),
+      this.tableExists(client, "transactions"),
+    ]);
+
+    return (
+      hasTradeFeePolicySnapshots &&
+      hasTradeEventSnapshotId &&
+      !hasLegacyTradeEventSnapshotJson &&
+      hasRecomputeTradeEventId &&
+      !hasLegacyRecomputeTransactionId &&
+      !hasTransactionsTable
+    );
+  }
+
+  private async hasUserTables(client: PoolClient): Promise<boolean> {
+    const tableResult = await client.query<{ has_tables: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_type = 'BASE TABLE'
+           AND table_name <> 'schema_migrations'
+       ) AS has_tables`,
+    );
+
+    return Boolean(tableResult.rows[0]?.has_tables);
+  }
+
+  private async tableExists(client: PoolClient, tableName: string): Promise<boolean> {
+    const tableResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public'
+           AND table_name = $1
+       ) AS exists`,
+      [tableName],
+    );
+
+    return Boolean(tableResult.rows[0]?.exists);
+  }
+
+  private async columnExists(client: PoolClient, tableName: string, columnName: string): Promise<boolean> {
+    const columnResult = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = $1
+           AND column_name = $2
+       ) AS exists`,
+      [tableName, columnName],
+    );
+
+    return Boolean(columnResult.rows[0]?.exists);
+  }
+
+  private async recordAppliedMigrations(client: PoolClient, migrationNames: string[]): Promise<void> {
+    if (!migrationNames.length) return;
+
+    await client.query(
+      `INSERT INTO schema_migrations (name)
+       SELECT migration_name
+       FROM unnest($1::text[]) AS migration_name
+       ON CONFLICT (name) DO NOTHING`,
+      [migrationNames],
     );
   }
 
@@ -1239,6 +1392,7 @@ export class PostgresPersistence implements Persistence {
     }
     await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [userId]);
+    await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
 
     for (const dividendEvent of accounting.facts.dividendEvents) {
@@ -1284,15 +1438,15 @@ export class PostgresPersistence implements Persistence {
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
            expected_cash_amount, expected_stock_quantity,
-           received_cash_amount, received_stock_quantity,
+           received_stock_quantity,
            posting_status, reconciliation_status, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
            $5, $6,
-           $7, $8,
-           $9, $10, $11,
-           $12, $13
+           $7,
+           $8, $9, $10,
+           $11, $12
          )`,
         [
           dividendLedgerEntry.id,
@@ -1301,7 +1455,6 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.eligibleQuantity,
           dividendLedgerEntry.expectedCashAmount,
           dividendLedgerEntry.expectedStockQuantity,
-          dividendLedgerEntry.receivedCashAmount,
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
@@ -1339,11 +1492,14 @@ export class PostgresPersistence implements Persistence {
     }
 
     for (const tx of accounting.facts.tradeEvents) {
+      const feePolicySnapshotId = feePolicySnapshotIdForTrade(tx.id);
+      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, tx.feeSnapshot, tx.bookedAt);
+
       await client.query(
         `INSERT INTO trade_events (
            id, user_id, account_id, symbol, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
@@ -1367,7 +1523,7 @@ export class PostgresPersistence implements Persistence {
           tx.commissionAmount,
           tx.taxAmount,
           tx.isDayTrade,
-          JSON.stringify(tx.feeSnapshot),
+          feePolicySnapshotId,
           tx.sourceType ?? "legacy_transaction",
           tx.sourceReference ?? tx.id,
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
@@ -1457,40 +1613,6 @@ export class PostgresPersistence implements Persistence {
           snapshot.currency,
           snapshot.generatedAt,
           snapshot.generationRunId,
-        ],
-      );
-    }
-
-    await client.query(`DELETE FROM transactions WHERE user_id = $1`, [userId]);
-    for (const tx of accounting.facts.tradeEvents) {
-      const mirroredRealizedPnlAmount = deriveRealizedPnlForTrade(accounting, tx);
-      await client.query(
-        `INSERT INTO transactions (
-           id, user_id, account_id, symbol, instrument_type, tx_type,
-           quantity, unit_price, price_currency, trade_date, commission_amount, tax_amount,
-           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount
-         ) VALUES (
-           $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12,
-           $13, $14, $15, $16
-         )`,
-        [
-          tx.id,
-          tx.userId,
-          tx.accountId,
-          tx.symbol,
-          tx.instrumentType,
-          tx.type,
-          tx.quantity,
-          tx.unitPrice,
-          tx.priceCurrency,
-          tx.tradeDate,
-          tx.commissionAmount,
-          tx.taxAmount,
-          tx.isDayTrade,
-          tx.feeSnapshot.id,
-          JSON.stringify(tx.feeSnapshot),
-          mirroredRealizedPnlAmount ?? null,
         ],
       );
     }
@@ -1745,6 +1867,52 @@ function normalizeDateTime(value: string | Date): string {
   return value.toISOString();
 }
 
+function feePolicySnapshotIdForTrade(tradeEventId: string): string {
+  return `trade-fee-snapshot:${tradeEventId}`;
+}
+
+async function insertTradeFeePolicySnapshot(
+  client: PoolClient,
+  userId: string,
+  snapshotId: string,
+  feeSnapshot: FeeProfile,
+  bookedAt?: string,
+): Promise<void> {
+  await client.query(
+    `INSERT INTO trade_fee_policy_snapshots (
+       id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+       commission_discount_percent, minimum_commission_amount, commission_currency,
+       commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+       stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+       commission_charge_mode, booked_at
+     ) VALUES (
+       $1, $2, $3, $4, $5,
+       $6, $7, $8,
+       $9, $10, $11,
+       $12, $13, $14,
+       $15, $16
+     )`,
+    [
+      snapshotId,
+      userId,
+      feeSnapshot.id,
+      feeSnapshot.name,
+      feeSnapshot.boardCommissionRate,
+      feeSnapshot.commissionDiscountPercent,
+      feeSnapshot.minimumCommissionAmount,
+      feeSnapshot.commissionCurrency,
+      feeSnapshot.commissionRoundingMode,
+      feeSnapshot.taxRoundingMode,
+      feeSnapshot.stockSellTaxRateBps,
+      feeSnapshot.stockDayTradeTaxRateBps,
+      feeSnapshot.etfSellTaxRateBps,
+      feeSnapshot.bondEtfSellTaxRateBps,
+      feeSnapshot.commissionChargeMode,
+      bookedAt ?? new Date().toISOString(),
+    ],
+  );
+}
+
 function legacyCommissionRateBps(boardCommissionRate: number): number {
   return Math.round(boardCommissionRate * 10);
 }
@@ -1761,31 +1929,20 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3}$/.test(value);
 }
 
-function normalizeFeeProfile(value: unknown): FeeProfile {
-  if (!value || typeof value !== "object") {
-    throw new Error("invalid fee snapshot");
-  }
-
-  const snapshot = value as Partial<FeeProfile> & { commissionRateBps?: number; commissionDiscountBps?: number };
+function hydrateTradeFeeSnapshot(row: Record<string, unknown>): FeeProfile {
   return {
-    id: String(snapshot.id),
-    name: String(snapshot.name),
-    boardCommissionRate:
-      typeof snapshot.boardCommissionRate === "number"
-        ? snapshot.boardCommissionRate
-        : Number((snapshot.commissionRateBps ?? 0) / 10),
-    commissionDiscountPercent:
-      typeof snapshot.commissionDiscountPercent === "number"
-        ? snapshot.commissionDiscountPercent
-        : legacyCommissionDiscountPercent(snapshot.commissionDiscountBps),
-    minimumCommissionAmount: Number(snapshot.minimumCommissionAmount ?? (snapshot as { minCommissionNtd?: number }).minCommissionNtd ?? 0),
-    commissionCurrency: String(snapshot.commissionCurrency ?? "TWD"),
-    commissionRoundingMode: snapshot.commissionRoundingMode ?? "FLOOR",
-    taxRoundingMode: snapshot.taxRoundingMode ?? "FLOOR",
-    stockSellTaxRateBps: Number(snapshot.stockSellTaxRateBps ?? 0),
-    stockDayTradeTaxRateBps: Number(snapshot.stockDayTradeTaxRateBps ?? 0),
-    etfSellTaxRateBps: Number(snapshot.etfSellTaxRateBps ?? 0),
-    bondEtfSellTaxRateBps: Number(snapshot.bondEtfSellTaxRateBps ?? 0),
-    commissionChargeMode: snapshot.commissionChargeMode ?? "CHARGED_UPFRONT",
+    id: String(row.profile_id_at_booking),
+    name: String(row.profile_name_at_booking),
+    boardCommissionRate: Number(row.board_commission_rate),
+    commissionDiscountPercent: Number(row.commission_discount_percent),
+    minimumCommissionAmount: Number(row.minimum_commission_amount),
+    commissionCurrency: String(row.commission_currency),
+    commissionRoundingMode: String(row.commission_rounding_mode) as FeeProfile["commissionRoundingMode"],
+    taxRoundingMode: String(row.tax_rounding_mode) as FeeProfile["taxRoundingMode"],
+    stockSellTaxRateBps: Number(row.stock_sell_tax_rate_bps),
+    stockDayTradeTaxRateBps: Number(row.stock_day_trade_tax_rate_bps),
+    etfSellTaxRateBps: Number(row.etf_sell_tax_rate_bps),
+    bondEtfSellTaxRateBps: Number(row.bond_etf_sell_tax_rate_bps),
+    commissionChargeMode: String(row.commission_charge_mode) as FeeProfile["commissionChargeMode"],
   };
 }

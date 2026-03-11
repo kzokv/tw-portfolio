@@ -15,7 +15,7 @@ Sources of truth used for this report:
 - `apps/web/features/*/services/*.ts`
 
 The report covers:
-- current Postgres schema, including compatibility and dormant tables
+- current Postgres schema, including snapshot/projection and dormant tables
 - current HTTP API surface and route dependencies
 - cross-cutting data flow, dependency graphs, and drift findings
 
@@ -42,10 +42,9 @@ Current runtime write modes:
 
 ### Canonical vs compatibility data model
 
-The runtime accounting source of truth is not the legacy `transactions` table.
-
 Canonical trade/accounting reads come from:
 - `trade_events`
+- `trade_fee_policy_snapshots`
 - `cash_ledger_entries`
 - `dividend_events`
 - `dividend_ledger_entries`
@@ -55,8 +54,7 @@ Canonical trade/accounting reads come from:
 - `corporate_actions`
 - `daily_portfolio_snapshots`
 
-Compatibility or workflow tables still matter:
-- `transactions`: still written, not read by `loadStore`
+Workflow or dormant tables still matter:
 - `recompute_jobs`
 - `recompute_job_items`
 - `schema_migrations`
@@ -77,10 +75,8 @@ erDiagram
 
   fee_profiles ||--o{ accounts : default_profile
   fee_profiles ||--o{ account_fee_profile_overrides : override_profile
-  fee_profiles ||--o{ transactions : mirrored_fee_snapshot_id
 
   accounts ||--o{ account_fee_profile_overrides : scoped_override
-  accounts ||--o{ transactions : legacy_trade_owner
   accounts ||--o{ trade_events : canonical_trade_owner
   accounts ||--o{ cash_ledger_entries : ledger_owner
   accounts ||--o{ lots : inventory_owner
@@ -93,9 +89,10 @@ erDiagram
   dividend_ledger_entries ||--o{ dividend_deduction_entries : deductions
   dividend_ledger_entries ||--o{ cash_ledger_entries : linked_cash
 
+  trade_fee_policy_snapshots ||--|| trade_events : booked_fee_policy
   trade_events ||--o{ cash_ledger_entries : settlement_cash
   trade_events ||--o{ lot_allocations : sell_allocations
-  transactions ||--o{ recompute_job_items : legacy_job_target
+  trade_events ||--o{ recompute_job_items : recompute_target
 
   recompute_jobs ||--o{ recompute_job_items : preview_items
 ```
@@ -106,7 +103,6 @@ Plain-text adjacency list:
 users
   -> fee_profiles.user_id
   -> accounts.user_id
-  -> transactions.user_id
   -> trade_events.user_id
   -> cash_ledger_entries.user_id
   -> lot_allocations.user_id
@@ -118,11 +114,9 @@ users
 fee_profiles
   -> accounts.fee_profile_id
   -> account_fee_profile_overrides.fee_profile_id
-  -> transactions.fee_profile_id
 
 accounts
   -> account_fee_profile_overrides.account_id
-  -> transactions.account_id
   -> lots.account_id
   -> corporate_actions.account_id
   -> trade_events.account_id
@@ -131,13 +125,14 @@ accounts
   -> dividend_ledger_entries.account_id
   -> reconciliation_records.account_id
 
+trade_fee_policy_snapshots
+  -> trade_events.fee_policy_snapshot_id
+
 trade_events
+  -> trade_events.fee_policy_snapshot_id
   -> cash_ledger_entries.related_trade_event_id
   -> lot_allocations.trade_event_id
   -> trade_events.reversal_of_trade_event_id
-
-transactions
-  -> recompute_job_items.transaction_id
 
 dividend_events
   -> dividend_ledger_entries.dividend_event_id
@@ -152,6 +147,9 @@ cash_ledger_entries
 
 recompute_jobs
   -> recompute_job_items.job_id
+
+recompute_job_items
+  -> recompute_job_items.trade_event_id
 ```
 
 ### Table catalog
@@ -277,47 +275,41 @@ Read path:
 Write path:
 - seeded/upserted by `seedSymbols`
 
-#### `transactions`
+#### `trade_fee_policy_snapshots`
 
 Purpose:
-- legacy trade mirror used as compatibility debt, not canonical runtime read source
+- immutable relational fee-policy snapshots captured at trade booking time
 
 Fields:
 
 | Column | Type / default | Constraints | Notes |
 | --- | --- | --- | --- |
-| `id` | `TEXT` | PK | mirrors canonical trade id |
+| `id` | `TEXT` | PK | snapshot id, currently `trade-fee-snapshot:<tradeEventId>` |
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
-| `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id` | account |
-| `symbol` | `TEXT` | `NOT NULL` | ticker |
-| `instrument_type` | `TEXT` | `NOT NULL` | instrument kind |
-| `tx_type` | `TEXT` | `NOT NULL` | `BUY` or `SELL` in practice |
-| `quantity` | `INTEGER` | `NOT NULL` | whole shares |
-| `unit_price` | `INTEGER` | `NOT NULL` | unit price |
-| `price_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | trade price currency |
-| `trade_date` | `DATE` | `NOT NULL` | trade date |
-| `commission_amount` | `INTEGER` | `NOT NULL` | booked commission |
-| `tax_amount` | `INTEGER` | `NOT NULL` | booked tax |
-| `is_day_trade` | `BOOLEAN DEFAULT false` | `NOT NULL` | day-trade flag |
-| `fee_profile_id` | `TEXT` | `NOT NULL`, FK -> `fee_profiles.id` | copied from fee snapshot |
-| `fee_snapshot_json` | `TEXT` | `NOT NULL` | serialized profile |
-| `realized_pnl_amount` | `INTEGER` | nullable | mirrored realized PnL |
-| `realized_pnl_currency` | `TEXT DEFAULT 'TWD'` | nullable | mirrored realized PnL currency |
+| `profile_id_at_booking` | `TEXT` | `NOT NULL` | profile identity captured at booking time |
+| `profile_name_at_booking` | `TEXT` | `NOT NULL` | profile label captured at booking time |
+| `board_commission_rate` | `NUMERIC(20,6)` | `NOT NULL`, check `>= 0` | exact board rate |
+| `commission_discount_percent` | `NUMERIC(5,2)` | `NOT NULL`, check `0..100` | discount percent-off |
+| `minimum_commission_amount` | `INTEGER` | `NOT NULL`, check `>= 0` | floor |
+| `commission_currency` | `TEXT` | `NOT NULL`, ISO-4217 check | commission currency |
+| `commission_rounding_mode` | `TEXT` | `NOT NULL`, checked | `FLOOR`, `ROUND`, `CEIL` |
+| `tax_rounding_mode` | `TEXT` | `NOT NULL`, checked | `FLOOR`, `ROUND`, `CEIL` |
+| `stock_sell_tax_rate_bps` | `INTEGER` | `NOT NULL`, check `>= 0` | stock sell tax |
+| `stock_day_trade_tax_rate_bps` | `INTEGER` | `NOT NULL`, check `>= 0` | day-trade stock tax |
+| `etf_sell_tax_rate_bps` | `INTEGER` | `NOT NULL`, check `>= 0` | ETF sell tax |
+| `bond_etf_sell_tax_rate_bps` | `INTEGER` | `NOT NULL`, check `>= 0` | bond ETF sell tax |
+| `commission_charge_mode` | `TEXT` | `NOT NULL`, checked | commission charge behavior |
+| `booked_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | capture time |
 
 Indexes:
-- `idx_transactions_user_id`
-- `idx_transactions_account_id`
+- `idx_trade_fee_policy_snapshots_user_id`
 
 Read path:
-- not read by `loadStore`
-- only used indirectly by `recompute_job_items.transaction_id`
+- joined from `trade_events` during store load
 
 Write path:
 - inserted by `savePostedTrade`
 - fully deleted/recreated by `saveAccountingStoreTx`
-
-Finding:
-- `transactions` is lossy relative to `trade_events`: it cannot represent `trade_timestamp`, `booking_sequence`, `source_type`, `source_reference`, `booked_at`, or trade reversals. It is still required because recompute job items target the legacy table, not `trade_events`.
 
 #### `lots`
 
@@ -400,15 +392,15 @@ Write path:
 #### `recompute_job_items`
 
 Purpose:
-- per-transaction fee/tax recompute preview rows
+- per-trade-event fee/tax recompute preview rows
 
 Fields:
 
 | Column | Type / default | Constraints | Notes |
 | --- | --- | --- | --- |
-| `id` | `TEXT` | PK | `${jobId}:${transactionId}` in current writes |
+| `id` | `TEXT` | PK | `${jobId}:${tradeEventId}` in current writes |
 | `job_id` | `TEXT` | `NOT NULL`, FK -> `recompute_jobs.id` | parent job |
-| `transaction_id` | `TEXT` | `NOT NULL`, FK -> `transactions.id` | legacy trade reference |
+| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` | canonical trade reference |
 | `previous_commission_amount` | `INTEGER` | `NOT NULL` | prior value |
 | `previous_tax_amount` | `INTEGER` | `NOT NULL` | prior value |
 | `next_commission_amount` | `INTEGER` | `NOT NULL` | previewed value |
@@ -419,9 +411,6 @@ Read path:
 
 Write path:
 - fully deleted/recreated by `saveStore`
-
-Finding:
-- recompute workflow still couples to the legacy `transactions` mirror through FK, even though canonical trade reads are from `trade_events`.
 
 #### `trade_events`
 
@@ -447,7 +436,7 @@ Fields:
 | `commission_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked commission |
 | `tax_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked tax |
 | `is_day_trade` | `BOOLEAN DEFAULT false` | `NOT NULL` | day-trade flag |
-| `fee_snapshot_json` | `TEXT` | `NOT NULL` | serialized profile snapshot |
+| `fee_policy_snapshot_id` | `TEXT` | `NOT NULL`, FK -> `trade_fee_policy_snapshots.id`, unique | immutable booked fee-policy snapshot |
 | `source_type` | `TEXT` | `NOT NULL` | origin channel |
 | `source_reference` | `TEXT` | nullable | idempotent source reference |
 | `booked_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | persistence time |
@@ -516,7 +505,6 @@ Fields:
 | `eligible_quantity` | `INTEGER` | `NOT NULL`, check `>= 0` | shares eligible on ex-date |
 | `expected_cash_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | computed expectation |
 | `expected_stock_quantity` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | computed expectation |
-| `received_cash_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | actual posted cash |
 | `received_stock_quantity` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | actual posted stock |
 | `posting_status` | `TEXT` | `NOT NULL`, checked | `expected`, `posted`, `adjusted` after migration `006` |
 | `reconciliation_status` | `TEXT` | `NOT NULL`, checked | `open`, `matched`, `explained`, `resolved` |
@@ -537,6 +525,7 @@ Indexes and uniqueness:
 
 Read path:
 - loaded into `accounting.facts.dividendLedgerEntries`
+- `receivedCashAmount` is derived at load time from linked `cash_ledger_entries`
 
 Write path:
 - inserted/updated by `savePostedDividend`
@@ -740,6 +729,23 @@ Fields:
 Read/write path:
 - maintained only by `runMigrations`
 
+Migration support policy:
+- fresh empty databases bootstrap from `baseline_current_schema.sql`
+- numbered migrations `001` through `010` remain the supported upgrade path for legacy databases
+- the migration manifest (`db/migrations/manifest.env`) declares which numbered files are superseded by the baseline for fresh installs
+
+Current numbered migration inventory:
+- `001_init.sql`: original base schema with users, fee profiles, accounts, transactions, lots, and recompute tables
+- `002_cost_basis_weighted_average.sql`: normalizes legacy cost-basis values to `WEIGHTED_AVERAGE`
+- `003_accounting_core_schema.sql`: adds the canonical accounting tables (`trade_events`, dividends, cash ledger, reconciliation, daily snapshots)
+- `004_trade_order_and_lot_allocations.sql`: adds booking/open sequences and `lot_allocations`, with legacy backfills
+- `005_booking_order_uniqueness.sql`: repairs duplicate booking/open sequences and adds uniqueness indexes
+- `006_dividend_schema_alignment.sql`: aligns dividend ledger structure, adds `dividend_deduction_entries`, and retires older deduction columns
+- `007_fee_profile_precision_and_dividend_currency.sql`: adds precise fee-profile fields and dividend cash currency
+- `008_commission_discount_percent.sql`: derives `commission_discount_percent` from legacy basis-point storage
+- `009_retire_twd_ntd_fields.sql`: renames `_ntd` amount fields to amount-plus-currency names and adds currency validation
+- `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash receipts, and drops retired legacy structures
+
 ### Persistence write-path map
 
 ```mermaid
@@ -758,15 +764,15 @@ flowchart TD
   H --> M[dividend_deduction_entries]
   H --> N[lot_allocations]
   H --> O[daily_portfolio_snapshots]
-  H --> P[transactions]
+  H --> P[trade_fee_policy_snapshots]
   H --> Q[lots]
   H --> R[corporate_actions]
 
   S[POST /portfolio/transactions] --> T[createTransaction]
   T --> U[savePostedTrade]
+  U --> P
   U --> I
   U --> J
-  U --> P
   U --> N
   U --> Q
 
@@ -789,20 +795,19 @@ saveStore
   replaces account_fee_profile_overrides
   replaces recompute_jobs and recompute_job_items
   delegates to saveAccountingStoreTx
-  then rewrites lots and corporate_actions again
 
 saveAccountingStoreTx
   deletes: cash_ledger_entries, dividend_deduction_entries, dividend_ledger_entries,
-           lot_allocations, trade_events, daily_portfolio_snapshots, transactions,
-           lots, corporate_actions
+           lot_allocations, trade_events, trade_fee_policy_snapshots,
+           daily_portfolio_snapshots, lots, corporate_actions
   inserts/reinserts: dividend_events, dividend_ledger_entries, dividend_deduction_entries,
-                     trade_events, cash_ledger_entries, lot_allocations,
-                     daily_portfolio_snapshots, transactions, lots, corporate_actions
+                     trade_fee_policy_snapshots, trade_events, cash_ledger_entries,
+                     lot_allocations, daily_portfolio_snapshots, lots, corporate_actions
 
 savePostedTrade
+  inserts one trade_fee_policy_snapshots row
   inserts one trade_events row
   inserts one cash_ledger_entries row
-  inserts one mirrored transactions row
   replaces lot_allocations for that trade
   replaces lots for that account+symbol
 
@@ -813,9 +818,6 @@ savePostedDividend
   replaces linked cash_ledger_entries for that ledger row
   replaces lots for that account+symbol
 ```
-
-Finding:
-- `saveStore` redundantly rewrites `lots` and `corporate_actions` after `saveAccountingStoreTx` has already rewritten them. This is consistent but unnecessary work inside the same transaction.
 
 ### Data integrity invariants enforced in application code
 
@@ -838,11 +840,11 @@ In addition to SQL constraints, `validateStoreInvariants` and `validateAccountin
 
 ### Database findings summary
 
-- Canonical trade reads use `trade_events`, not `transactions`.
-- `transactions` remains write-active and FK-significant because recompute items still point to it.
+- Canonical trade reads use `trade_events` plus `trade_fee_policy_snapshots`.
+- Recompute now targets `trade_events` directly through `recompute_job_items.trade_event_id`.
 - `reconciliation_records` is migrated but dormant.
 - `daily_portfolio_snapshots` is persisted in the model but not actively generated by current route/service flows.
-- Full-store save paths mix canonical accounting rewrites with compatibility rewrites and workflow-state rewrites.
+- Full-store save paths no longer rewrite compatibility trade mirrors.
 - Some tables use strong `(account_id, user_id)` composite integrity, while older projection tables like `lots` and `corporate_actions` still only key through `accounts(id)`.
 
 ## API
@@ -1215,9 +1217,9 @@ sequenceDiagram
   Route->>Redis: claimIdempotencyKey
   Redis-->>Route: claimed?
   Route->>PG: savePostedTrade(userId, accounting, tradeId)
+  PG->>DB: INSERT trade_fee_policy_snapshots
   PG->>DB: INSERT trade_events
   PG->>DB: INSERT cash_ledger_entries
-  PG->>DB: INSERT transactions
   PG->>DB: REPLACE lot_allocations for trade
   PG->>DB: REPLACE lots for account+symbol
   PG-->>Route: committed
@@ -1233,8 +1235,7 @@ web form
   -> load canonical store from Postgres
   -> mutate in-memory accounting state via createTransaction
   -> claim Redis idempotency key
-  -> incrementally persist trade, settlement cash, lot allocations, and lots
-  -> mirror trade into legacy transactions
+  -> incrementally persist trade fee snapshot, trade, settlement cash, lot allocations, and lots
   -> return created trade event
 ```
 
@@ -1332,5 +1333,5 @@ POST /portfolio/dividends/postings
 - The backend is organized around an in-memory `Store`/`AccountingStore` model that is mutated first and persisted second.
 - Incremental persistence exists only for trade posting and dividend posting.
 - Everything else important, including settings save, recompute, AI confirm, dividend-event creation, and corporate-action creation, goes through broad rewrite paths.
-- The canonical accounting model is ahead of the compatibility model; `trade_events` is the real source of truth, while `transactions` still survives for legacy joins and workflow tables.
+- The canonical accounting model and runtime storage are now aligned on `trade_events` plus relational booked fee snapshots.
 - API breadth exceeds current UI consumption. The implemented route surface contains admin-like and workflow endpoints not currently exercised by the shipped web app.

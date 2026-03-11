@@ -130,7 +130,7 @@ export interface DividendDeductionEntry {
   bookedAt?: string;
 }
 export interface RecomputePreviewItem {
-  transactionId: string;
+  tradeEventId: string;
   previousCommissionAmount: number;
   previousTaxAmount: number;
   nextCommissionAmount: number;
