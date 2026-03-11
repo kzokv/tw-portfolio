@@ -90,7 +90,7 @@ describe("fee-profiles", () => {
         name: "Legacy Shape",
         boardCommissionRate: 1.425,
         commissionDiscountBps: 10000,
-        minCommissionNtd: 20,
+        minimumCommissionAmount: 20,
         commissionRoundingMode: "FLOOR",
         taxRoundingMode: "FLOOR",
         stockSellTaxRateBps: 30,

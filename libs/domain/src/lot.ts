@@ -2,11 +2,11 @@ import type { BuyApplicationResult, Lot, SellAllocationResult } from "./types.js
 
 export function applyBuyToLots(lots: Lot[], buyLot: Lot): BuyApplicationResult {
   assertWholePositiveQuantity(buyLot.openQuantity, "Buy quantity must be a positive integer");
-  assertNonNegativeCost(buyLot.totalCostNtd);
+  assertNonNegativeCost(buyLot.totalCostAmount);
 
   const updatedLots = normalizeLotsForWeightedAverage([...lots, buyLot]);
-  const { averageCostNtd } = summarizeOpenLots(updatedLots);
-  return { averageCostNtd, updatedLots };
+  const { averageCostAmount } = summarizeOpenLots(updatedLots);
+  return { averageCostAmount, updatedLots };
 }
 
 export function allocateSellLots(lots: Lot[], quantityToSell: number): SellAllocationResult {
@@ -14,14 +14,14 @@ export function allocateSellLots(lots: Lot[], quantityToSell: number): SellAlloc
 
   const normalizedLots = normalizeLotsForWeightedAverage(lots);
   const orderedLots = orderLots(normalizedLots);
-  const { averageCostNtd, totalOpenCostNtd, totalOpenQuantity } = summarizeOpenLots(orderedLots);
+  const { averageCostAmount, totalOpenCostAmount, totalOpenQuantity } = summarizeOpenLots(orderedLots);
 
   if (quantityToSell > totalOpenQuantity) {
     throw new Error("Insufficient quantity to sell");
   }
 
-  const allocatedCostNtd = Math.round(averageCostNtd * quantityToSell);
-  const remainingOpenCostNtd = Math.max(0, totalOpenCostNtd - allocatedCostNtd);
+  const allocatedCostAmount = Math.round(averageCostAmount * quantityToSell);
+  const remainingOpenCostAmount = Math.max(0, totalOpenCostAmount - allocatedCostAmount);
 
   let remainingQty = quantityToSell;
   const matchedLotIds: string[] = [];
@@ -38,45 +38,45 @@ export function allocateSellLots(lots: Lot[], quantityToSell: number): SellAlloc
     updates.set(lot.id, {
       ...lot,
       openQuantity: lot.openQuantity - matchedQty,
-      totalCostNtd: 0,
+      totalCostAmount: 0,
     });
     matchedLotIds.push(lot.id);
     matchedQuantities.push({ lot, quantity: matchedQty });
   }
 
-  const matchedAllocations = allocateMatchedLotCosts(matchedQuantities, allocatedCostNtd, quantityToSell);
+  const matchedAllocations = allocateMatchedLotCosts(matchedQuantities, allocatedCostAmount, quantityToSell);
 
   const openLots = orderedLots
     .map((lot) => updates.get(lot.id) ?? lot)
     .filter((lot) => lot.openQuantity > 0);
 
-  const normalizedOpenLots = normalizeLotsForWeightedAverage(openLots, remainingOpenCostNtd);
+  const normalizedOpenLots = normalizeLotsForWeightedAverage(openLots, remainingOpenCostAmount);
   for (const lot of normalizedOpenLots) {
     updates.set(lot.id, lot);
   }
 
   const updatedLots = normalizedLots.map((lot) => updates.get(lot.id) ?? lot);
-  return { matchedLotIds, matchedAllocations, allocatedCostNtd, averageCostNtd, updatedLots };
+  return { matchedLotIds, matchedAllocations, allocatedCostAmount, averageCostAmount, updatedLots };
 }
 
-function normalizeLotsForWeightedAverage(lots: Lot[], forcedTotalCostNtd?: number): Lot[] {
+function normalizeLotsForWeightedAverage(lots: Lot[], forcedTotalCostAmount?: number): Lot[] {
   if (lots.length === 0) return [];
 
   const orderedOpenLots = orderLots(
     lots.filter((lot) => lot.openQuantity > 0).map((lot) => {
       assertWholePositiveQuantity(lot.openQuantity, "Lot quantity must be a positive integer");
-      assertNonNegativeCost(lot.totalCostNtd);
+      assertNonNegativeCost(lot.totalCostAmount);
       return lot;
     }),
   );
 
   const totalOpenQuantity = orderedOpenLots.reduce((sum, lot) => sum + lot.openQuantity, 0);
   if (totalOpenQuantity === 0) {
-    return lots.map((lot) => ({ ...lot, totalCostNtd: 0 }));
+    return lots.map((lot) => ({ ...lot, totalCostAmount: 0 }));
   }
 
   let costLeftToAssign =
-    forcedTotalCostNtd ?? orderedOpenLots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostNtd), 0);
+    forcedTotalCostAmount ?? orderedOpenLots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostAmount), 0);
   let quantityLeftToAssign = totalOpenQuantity;
 
   const normalizedCosts = new Map<string, number>();
@@ -95,11 +95,11 @@ function normalizeLotsForWeightedAverage(lots: Lot[], forcedTotalCostNtd?: numbe
     lot.openQuantity > 0
       ? {
           ...lot,
-          totalCostNtd: normalizedCosts.get(lot.id) ?? 0,
+          totalCostAmount: normalizedCosts.get(lot.id) ?? 0,
         }
       : {
           ...lot,
-          totalCostNtd: 0,
+          totalCostAmount: 0,
         },
   );
 }
@@ -116,10 +116,10 @@ function orderLots(lots: Lot[]): Lot[] {
 
 function allocateMatchedLotCosts(
   matches: Array<{ lot: Lot; quantity: number }>,
-  allocatedCostNtd: number,
+  allocatedCostAmount: number,
   quantityToSell: number,
 ): SellAllocationResult["matchedAllocations"] {
-  let costLeftToAssign = allocatedCostNtd;
+  let costLeftToAssign = allocatedCostAmount;
   let quantityLeftToAssign = quantityToSell;
 
   return matches.map(({ lot, quantity }, index) => {
@@ -131,7 +131,8 @@ function allocateMatchedLotCosts(
     return {
       lotId: lot.id,
       quantity,
-      allocatedCostNtd: nextCost,
+      allocatedCostAmount: nextCost,
+      costCurrency: lot.costCurrency,
       openedAt: lot.openedAt,
       openedSequence: lot.openedSequence,
     };
@@ -139,15 +140,15 @@ function allocateMatchedLotCosts(
 }
 
 function summarizeOpenLots(lots: Lot[]): {
-  averageCostNtd: number;
-  totalOpenCostNtd: number;
+  averageCostAmount: number;
+  totalOpenCostAmount: number;
   totalOpenQuantity: number;
 } {
   const totalOpenQuantity = lots.reduce((sum, lot) => sum + Math.max(0, lot.openQuantity), 0);
-  const totalOpenCostNtd = lots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostNtd), 0);
+  const totalOpenCostAmount = lots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostAmount), 0);
   return {
-    averageCostNtd: totalOpenQuantity === 0 ? 0 : totalOpenCostNtd / totalOpenQuantity,
-    totalOpenCostNtd,
+    averageCostAmount: totalOpenQuantity === 0 ? 0 : totalOpenCostAmount / totalOpenQuantity,
+    totalOpenCostAmount,
     totalOpenQuantity,
   };
 }
@@ -158,8 +159,8 @@ function assertWholePositiveQuantity(quantity: number, message: string): void {
   }
 }
 
-function assertNonNegativeCost(totalCostNtd: number): void {
-  if (!Number.isInteger(totalCostNtd) || totalCostNtd < 0) {
+function assertNonNegativeCost(totalCostAmount: number): void {
+  if (!Number.isInteger(totalCostAmount) || totalCostAmount < 0) {
     throw new Error("Lot cost must be a non-negative integer");
   }
 }

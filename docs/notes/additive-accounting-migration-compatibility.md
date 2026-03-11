@@ -23,6 +23,8 @@ Managed Postgres integration can fail even when route validation and migrations 
 - `dividend_events.cash_dividend_currency`
 - dividend-related cash ledger writes that still need `currency = 'TWD'` when older objects omit it
 
-## Implication for follow-on work
+## Boundary
 
-`KZO-55` should assume that additive compatibility handling is needed during transition, not just migration SQL and route defaults.
+This note applies when the repo is intentionally taking an additive transition path.
+
+`KZO-55` is now the counterexample: because there was no live data to preserve, the repo took a hard currency-normalization cutover instead of keeping `*_ntd` compatibility aliases. That work still required a full update sweep across route contracts, persistence shapes, direct-SQL integration fixtures, and web consumers.

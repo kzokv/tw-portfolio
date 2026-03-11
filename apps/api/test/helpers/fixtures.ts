@@ -9,12 +9,13 @@ interface TransactionPayloadBase {
   accountId: string;
   symbol: string;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: string;
   tradeDate: string;
   tradeTimestamp?: string;
   bookingSequence?: number;
-  commissionNtd?: number;
-  taxNtd?: number;
+  commissionAmount?: number;
+  taxAmount?: number;
   type: TransactionType;
   isDayTrade: boolean;
 }
@@ -23,7 +24,8 @@ const defaultTransaction: TransactionPayloadBase = {
   accountId: "acc-1",
   symbol: "2330",
   quantity: 10,
-  priceNtd: 100,
+  unitPrice: 100,
+  priceCurrency: "TWD",
   tradeDate: "2026-01-01",
   type: "BUY",
   isDayTrade: false,
@@ -39,7 +41,8 @@ const defaultFeeProfile = {
   name: "Test Profile",
   boardCommissionRate: 0,
   commissionDiscountPercent: 0,
-  minCommissionNtd: 0,
+  minimumCommissionAmount: 0,
+  commissionCurrency: "TWD",
   commissionRoundingMode: "FLOOR" as const,
   taxRoundingMode: "FLOOR" as const,
   stockSellTaxRateBps: 0,
@@ -97,12 +100,13 @@ export function dividendPostingPayload(overrides: Record<string, unknown> = {}) 
   return {
     accountId: "acc-1",
     dividendEventId: "replace-me",
-    receivedCashAmountNtd: 108,
+    receivedCashAmount: 108,
     receivedStockQuantity: 0,
     deductions: [
       {
         deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
         amount: 12,
+        currencyCode: "TWD",
         withheldAtSource: true,
         sourceType: "dividend_posting",
       },

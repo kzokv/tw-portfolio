@@ -17,9 +17,13 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
       return dict.settings.validationProfileName;
     }
 
+    if (!/^[A-Z]{3}$/.test(profile.commissionCurrency)) {
+      return dict.settings.validationProfileCurrency;
+    }
+
     const numericValues = [
       profile.boardCommissionRate,
-      profile.minCommissionNtd,
+      profile.minimumCommissionAmount,
       profile.stockSellTaxRateBps,
       profile.stockDayTradeTaxRateBps,
       profile.etfSellTaxRateBps,

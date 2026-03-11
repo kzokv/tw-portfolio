@@ -168,7 +168,7 @@ describe("settings", () => {
             name: "Temp Profile",
             boardCommissionRate: 1.425,
             commissionDiscountPercent: 60,
-            minCommissionNtd: 20,
+            minimumCommissionAmount: 20,
             commissionRoundingMode: "FLOOR",
             taxRoundingMode: "FLOOR",
             stockSellTaxRateBps: 30,

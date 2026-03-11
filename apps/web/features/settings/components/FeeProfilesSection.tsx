@@ -5,6 +5,7 @@ import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
+import { getCurrencyOptions } from "../../../lib/currencies";
 import { fromZhFoldValue, toZhFoldValue } from "../services/commissionDiscount";
 import type { SettingsProfileModel } from "../types/settingsUi";
 
@@ -24,7 +25,7 @@ const PROFILE_FIELDS: Array<{
   step?: number;
 }> = [
   { key: "boardCommissionRate", label: "profileCommissionLabel", min: 0, step: 0.001 },
-  { key: "minCommissionNtd", label: "profileMinCommissionLabel", min: 0 },
+  { key: "minimumCommissionAmount", label: "profileMinimumCommissionLabel", min: 0 },
   { key: "stockSellTaxRateBps", label: "profileStockTaxLabel", min: 0 },
   { key: "stockDayTradeTaxRateBps", label: "profileDayTradeTaxLabel", min: 0 },
   { key: "etfSellTaxRateBps", label: "profileEtfTaxLabel", min: 0 },
@@ -42,6 +43,7 @@ export function FeeProfilesSection({
   const discountLabel = dict.settings.profileDiscountLabel;
   const discountHint = dict.settings.profileDiscountHint;
   const isTraditionalChinese = activeLocale === "zh-TW";
+  const currencyOptions = getCurrencyOptions(profiles.map((profile) => profile.commissionCurrency));
 
   return (
     <section className="glass-inset space-y-3 rounded-[24px] p-4">
@@ -125,6 +127,22 @@ export function FeeProfilesSection({
                   />
                 </label>
               ))}
+
+              <label className="space-y-2 text-xs text-slate-400">
+                {dict.settings.profileCommissionCurrencyLabel}
+                <select
+                  value={profile.commissionCurrency}
+                  onChange={(event) => onUpdateProfileField(profile.id, "commissionCurrency", event.target.value)}
+                  className={fieldClassName}
+                  data-testid={`settings-profile-currency-${index}`}
+                >
+                  {currencyOptions.map((currency) => (
+                    <option key={currency} value={currency}>
+                      {currency}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label className="space-y-2 text-xs text-slate-400">
                 {dict.settings.profileCommissionRoundLabel}

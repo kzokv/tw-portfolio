@@ -6,10 +6,10 @@ export function applyRounding(value: number, mode: RoundingMode): number {
   return Math.round(value);
 }
 
-export function bpsAmount(baseNtd: number, bps: number): number {
-  return (baseNtd * bps) / 10_000;
+export function bpsAmount(baseAmount: number, bps: number): number {
+  return (baseAmount * bps) / 10_000;
 }
 
-export function permilleAmount(baseNtd: number, permilleRate: number): number {
-  return (baseNtd * permilleRate) / 1_000;
+export function permilleAmount(baseAmount: number, permilleRate: number): number {
+  return (baseAmount * permilleRate) / 1_000;
 }

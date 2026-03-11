@@ -36,7 +36,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       expect.objectContaining({
         relatedTradeEventId: store.accounting.facts.tradeEvents[0].id,
         entryType: "TRADE_SETTLEMENT_OUT",
-        amountNtd: -(10 * 100 + store.accounting.facts.tradeEvents[0].commissionNtd),
+        amount: -(10 * 100 + store.accounting.facts.tradeEvents[0].commissionAmount),
       }),
     ]);
     expect(store.accounting.projections.lots).toHaveLength(1);
@@ -59,7 +59,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-cash-buy" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 100, tradeDate: "2026-01-01" }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-01" }),
     });
 
     await app.inject({
@@ -68,7 +68,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-cash-sell" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 130,
+        unitPrice: 130,
         tradeDate: "2026-01-02",
         type: "SELL" as TransactionType,
       }),
@@ -87,12 +87,12 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         expect.objectContaining({
           relatedTradeEventId: buyTrade?.id,
           entryType: "TRADE_SETTLEMENT_OUT",
-          amountNtd: -(buyTrade!.quantity * buyTrade!.priceNtd + buyTrade!.commissionNtd + buyTrade!.taxNtd),
+          amount: -(buyTrade!.quantity * buyTrade!.unitPrice + buyTrade!.commissionAmount + buyTrade!.taxAmount),
         }),
         expect.objectContaining({
           relatedTradeEventId: sellTrade?.id,
           entryType: "TRADE_SETTLEMENT_IN",
-          amountNtd: sellTrade!.quantity * sellTrade!.priceNtd - sellTrade!.commissionNtd - sellTrade!.taxNtd,
+          amount: sellTrade!.quantity * sellTrade!.unitPrice - sellTrade!.commissionAmount - sellTrade!.taxAmount,
         }),
       ]),
     );
@@ -105,15 +105,15 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-booked-buy-overrides" },
       payload: transactionPayload({
         quantity: 10,
-        priceNtd: 100,
-        commissionNtd: 7,
-        taxNtd: 3,
+        unitPrice: 100,
+        commissionAmount: 7,
+        taxAmount: 3,
       }),
     });
     expect(createBuyResponse.statusCode).toBe(200);
     const buy = createBuyResponse.json();
-    expect(buy.commissionNtd).toBe(7);
-    expect(buy.taxNtd).toBe(3);
+    expect(buy.commissionAmount).toBe(7);
+    expect(buy.taxAmount).toBe(3);
     expect(buy.feeSnapshot.id).toBe("fp-default");
 
     const buyHoldingsResponse = await app.inject({ method: "GET", url: "/portfolio/holdings" });
@@ -123,7 +123,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         accountId: "acc-1",
         symbol: "2330",
         quantity: 10,
-        costNtd: 1_010,
+        costBasisAmount: 1_010,
+        currency: "TWD",
       },
     ]);
 
@@ -133,10 +134,10 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-booked-sell-overrides" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 130,
+        unitPrice: 130,
         tradeDate: "2026-01-02",
-        commissionNtd: 11,
-        taxNtd: 13,
+        commissionAmount: 11,
+        taxAmount: 13,
         type: "SELL" as TransactionType,
       }),
     });
@@ -144,20 +145,20 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const store = await app.persistence.loadStore("user-1");
     const sell = store.accounting.facts.tradeEvents.find((item) => item.type === "SELL");
     expect(sell).toBeDefined();
-    expect(sell?.commissionNtd).toBe(11);
-    expect(sell?.taxNtd).toBe(13);
-    expect(sell?.realizedPnlNtd).toBe(121);
+    expect(sell?.commissionAmount).toBe(11);
+    expect(sell?.taxAmount).toBe(13);
+    expect(sell?.realizedPnlAmount).toBe(121);
     expect(store.accounting.facts.cashLedgerEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           relatedTradeEventId: buy.id,
           entryType: "TRADE_SETTLEMENT_OUT",
-          amountNtd: -1_010,
+          amount: -1_010,
         }),
         expect.objectContaining({
           relatedTradeEventId: sell?.id,
           entryType: "TRADE_SETTLEMENT_IN",
-          amountNtd: 626,
+          amount: 626,
         }),
       ]),
     );
@@ -166,7 +167,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         accountId: "acc-1",
         symbol: "2330",
         quantity: 5,
-        costNtd: 505,
+        costBasisAmount: 505,
+        currency: "TWD",
       }),
     ]);
   });
@@ -178,7 +180,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-seq-buy-2" },
       payload: transactionPayload({
         quantity: 10,
-        priceNtd: 120,
+        unitPrice: 120,
         tradeDate: "2026-01-01",
         tradeTimestamp: "2026-01-01T09:00:02.000Z",
         bookingSequence: 2,
@@ -192,7 +194,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-seq-buy-1" },
       payload: transactionPayload({
         quantity: 10,
-        priceNtd: 100,
+        unitPrice: 100,
         tradeDate: "2026-01-01",
         tradeTimestamp: "2026-01-01T09:00:01.000Z",
         bookingSequence: 1,
@@ -206,7 +208,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-seq-sell" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 130,
+        unitPrice: 130,
         tradeDate: "2026-01-01",
         tradeTimestamp: "2026-01-01T09:00:03.000Z",
         bookingSequence: 3,
@@ -237,7 +239,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
           lotId: `lot-${firstBuy.id}`,
           lotOpenedSequence: 1,
           allocatedQuantity: 5,
-          allocatedCostNtd: 560,
+          allocatedCostAmount: 560,
         }),
       ]),
     );
@@ -278,7 +280,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k2" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 200 }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 200 }),
     });
 
     const preview = await app.inject({
@@ -399,7 +401,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-sell-2" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 120,
+        unitPrice: 120,
         tradeDate: "2026-01-02",
         type: "SELL" as TransactionType,
       }),
@@ -416,7 +418,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const before = await app.inject({ method: "GET", url: "/portfolio/transactions" });
     const beforeSell = before
       .json()
-      .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
+      .find((tx: { type: string; realizedPnlAmount?: number }) => tx.type === "SELL");
     expect(beforeSell).toBeDefined();
 
     const storeBefore = await app.persistence.loadStore("user-1");
@@ -441,9 +443,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const after = await app.inject({ method: "GET", url: "/portfolio/transactions" });
     const afterSell = after
       .json()
-      .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
+      .find((tx: { type: string; realizedPnlAmount?: number }) => tx.type === "SELL");
     expect(afterSell).toBeDefined();
-    expect(afterSell.realizedPnlNtd).not.toBe(beforeSell.realizedPnlNtd);
+    expect(afterSell.realizedPnlAmount).not.toBe(beforeSell.realizedPnlAmount);
 
     const storeAfter = await app.persistence.loadStore("user-1");
     const sellTradeAfter = storeAfter.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
@@ -451,9 +453,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       (entry) => entry.relatedTradeEventId === sellTradeAfter?.id,
     );
     expect(sellCashAfter).toBeDefined();
-    expect(sellCashAfter?.amountNtd).not.toBe(sellCashBefore?.amountNtd);
-    expect(sellCashAfter?.amountNtd).toBe(
-      sellTradeAfter!.quantity * sellTradeAfter!.priceNtd - sellTradeAfter!.commissionNtd - sellTradeAfter!.taxNtd,
+    expect(sellCashAfter?.amount).not.toBe(sellCashBefore?.amount);
+    expect(sellCashAfter?.amount).toBe(
+      sellTradeAfter!.quantity * sellTradeAfter!.unitPrice - sellTradeAfter!.commissionAmount - sellTradeAfter!.taxAmount,
     );
   });
 
@@ -470,7 +472,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-stale-pnl-sell" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 120,
+        unitPrice: 120,
         tradeDate: "2026-01-02",
         type: "SELL" as TransactionType,
       }),
@@ -482,7 +484,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       name: "Zero Fee",
       boardCommissionRate: 0,
       commissionDiscountPercent: 0,
-      minCommissionNtd: 0,
+      minimumCommissionAmount: 0,
+      commissionCurrency: "TWD",
       commissionRoundingMode: "FLOOR",
       taxRoundingMode: "FLOOR",
       stockSellTaxRateBps: 0,
@@ -494,7 +497,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
 
     const sellTrade = persisted.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
     expect(sellTrade).toBeDefined();
-    sellTrade!.realizedPnlNtd = 999_999;
+    sellTrade!.realizedPnlAmount = 999_999;
 
     const job = previewRecompute(persisted, {
       userId: "user-1",
@@ -503,9 +506,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     confirmRecompute(persisted, "user-1", job.id);
 
-    expect(sellTrade?.commissionNtd).toBe(0);
-    expect(sellTrade?.taxNtd).toBe(0);
-    expect(sellTrade?.realizedPnlNtd).toBe(90);
+    expect(sellTrade?.commissionAmount).toBe(0);
+    expect(sellTrade?.taxAmount).toBe(0);
+    expect(sellTrade?.realizedPnlAmount).toBe(90);
   });
 
   it("uses weighted-average cost basis for partial sells", async () => {
@@ -547,13 +550,13 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-wa-buy-1" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 100, tradeDate: "2026-01-01" }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-01" }),
     });
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-wa-buy-2" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 120, tradeDate: "2026-01-02" }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 120, tradeDate: "2026-01-02" }),
     });
     await app.inject({
       method: "POST",
@@ -561,7 +564,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-wa-sell" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 130,
+        unitPrice: 130,
         tradeDate: "2026-01-03",
         type: "SELL" as TransactionType,
       }),
@@ -574,7 +577,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         accountId: "acc-1",
         symbol: "2330",
         quantity: 15,
-        costNtd: 1_650,
+        costBasisAmount: 1_650,
+        currency: "TWD",
       },
     ]);
 
@@ -582,8 +586,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(transactionsResponse.statusCode).toBe(200);
     const sell = transactionsResponse
       .json()
-      .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
-    expect(sell?.realizedPnlNtd).toBe(100);
+      .find((tx: { type: string; realizedPnlAmount?: number }) => tx.type === "SELL");
+    expect(sell?.realizedPnlAmount).toBe(100);
   });
 
   it("records a realized loss when sell price is below weighted-average cost", async () => {
@@ -625,13 +629,13 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-wa-loss-buy-1" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 100, tradeDate: "2026-01-01" }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-01" }),
     });
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-wa-loss-buy-2" },
-      payload: transactionPayload({ quantity: 10, priceNtd: 120, tradeDate: "2026-01-02" }),
+      payload: transactionPayload({ quantity: 10, unitPrice: 120, tradeDate: "2026-01-02" }),
     });
     await app.inject({
       method: "POST",
@@ -639,7 +643,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       headers: { "idempotency-key": "k-wa-loss-sell" },
       payload: transactionPayload({
         quantity: 5,
-        priceNtd: 90,
+        unitPrice: 90,
         tradeDate: "2026-01-03",
         type: "SELL" as TransactionType,
       }),
@@ -652,7 +656,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         accountId: "acc-1",
         symbol: "2330",
         quantity: 15,
-        costNtd: 1_650,
+        costBasisAmount: 1_650,
+        currency: "TWD",
       },
     ]);
 
@@ -660,8 +665,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(transactionsResponse.statusCode).toBe(200);
     const sell = transactionsResponse
       .json()
-      .find((tx: { type: string; realizedPnlNtd?: number }) => tx.type === "SELL");
-    expect(sell?.realizedPnlNtd).toBe(-100);
+      .find((tx: { type: string; realizedPnlAmount?: number }) => tx.type === "SELL");
+    expect(sell?.realizedPnlAmount).toBe(-100);
   });
 
   it("applies per-symbol fee profile override before account fallback", async () => {
@@ -713,7 +718,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     expect(createResponse.statusCode).toBe(200);
     const tx = createResponse.json();
-    expect(tx.commissionNtd).toBe(0);
+    expect(tx.commissionAmount).toBe(0);
     expect(tx.feeSnapshot.id).toBe(createdProfile.id);
   });
 
@@ -723,7 +728,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-invalid-booked-override" },
       payload: transactionPayload({
-        commissionNtd: -1,
+        commissionAmount: -1,
       }),
     });
 
@@ -732,7 +737,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       error: "validation_error",
       issues: [
         {
-          path: "commissionNtd",
+          path: "commissionAmount",
           message: "Number must be greater than or equal to 0",
         },
       ],

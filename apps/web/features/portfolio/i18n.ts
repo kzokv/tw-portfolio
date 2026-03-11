@@ -35,6 +35,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     | "txSymbol"
     | "txQuantity"
     | "txPrice"
+    | "txCurrency"
     | "txTradeDate"
     | "txDayTrade"
     | "holdingsAccount"
@@ -64,7 +65,8 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       typeTerm: "Type",
       symbolTerm: "Symbol",
       quantityTerm: "Quantity",
-      priceTerm: "Price (NTD)",
+      unitPriceTerm: "Unit Price",
+      currencyTerm: "Currency",
       tradeDateTerm: "Trade Date",
       dayTradeTerm: "Day Trade",
       typeBuy: "BUY",
@@ -79,6 +81,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       accountTerm: "Account",
       symbolTerm: "Symbol",
       quantityTerm: "Quantity",
+      currencyTerm: "Currency",
       totalCostTerm: "Total Cost",
     },
     feeProfiles: {
@@ -98,7 +101,8 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       txType: "BUY increases lots; SELL reduces lots and realizes PnL.",
       txSymbol: "Taiwan stock or ETF ticker, for example 2330 or 0050.",
       txQuantity: "Share count for the trade; must be a positive integer.",
-      txPrice: "Execution price per share in New Taiwan Dollar.",
+      txPrice: "Execution price per share in the selected trade currency.",
+      txCurrency: "Derived from the active fee profile. Change it in Settings under Fee Profiles, not in this transaction form.",
       txTradeDate: "Trade settlement date used in portfolio history ordering.",
       txDayTrade: "Enable if buy and sell happen within the same day for tax rules.",
       holdingsAccount: "Broker account identifier where holdings are tracked.",
@@ -127,7 +131,8 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       typeTerm: "交易類型",
       symbolTerm: "代號",
       quantityTerm: "股數",
-      priceTerm: "成交價（新台幣）",
+      unitPriceTerm: "成交單價",
+      currencyTerm: "幣別",
       tradeDateTerm: "交易日期",
       dayTradeTerm: "當沖",
       typeBuy: "買進",
@@ -142,6 +147,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       accountTerm: "帳戶",
       symbolTerm: "代號",
       quantityTerm: "股數",
+      currencyTerm: "幣別",
       totalCostTerm: "總成本",
     },
     feeProfiles: {
@@ -161,7 +167,8 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       txType: "買進會增加庫存，賣出會減少庫存並計算已實現損益。",
       txSymbol: "台股或 ETF 代號，例如 2330、0050。",
       txQuantity: "本次交易的股數，需為正整數。",
-      txPrice: "每股成交價格，單位為新台幣。",
+      txPrice: "每股成交價格，依所選交易幣別填寫。",
+      txCurrency: "此幣別由目前套用的費率設定檔決定。請到「設定 > 費率設定」修改，不能在交易表單直接編輯。",
       txTradeDate: "用於排序歷史與重算的交易日期。",
       txDayTrade: "若同日買賣請開啟，會套用當沖相關稅率。",
       holdingsAccount: "持倉所屬的券商帳戶識別碼。",

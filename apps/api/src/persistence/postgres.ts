@@ -69,7 +69,8 @@ export class PostgresPersistence implements Persistence {
     );
 
     const feeProfilesResult = await this.pool.query(
-      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, min_commission_ntd,
+      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, minimum_commission_amount,
+              commission_currency,
               commission_rounding_mode, tax_rounding_mode,
               stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
               etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
@@ -81,7 +82,7 @@ export class PostgresPersistence implements Persistence {
 
     const tradeEventsResult = await this.pool.query(
       `SELECT id, user_id, account_id, symbol, instrument_type, trade_type, quantity,
-              price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd, tax_ntd,
+              unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount, tax_amount,
               is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
               reversal_of_trade_event_id
        FROM trade_events
@@ -103,7 +104,7 @@ export class PostgresPersistence implements Persistence {
 
     const lotsResult = accountIds.length
       ? await this.pool.query(
-          `SELECT id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence
+          `SELECT id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
            FROM lots
            WHERE account_id = ANY($1)
            ORDER BY opened_at, opened_sequence, id`,
@@ -113,7 +114,7 @@ export class PostgresPersistence implements Persistence {
 
     const lotAllocationsResult = await this.pool.query(
       `SELECT id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
-              lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+              lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
        FROM lot_allocations
        WHERE user_id = $1
        ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
@@ -140,8 +141,8 @@ export class PostgresPersistence implements Persistence {
     const dividendLedgerEntriesResult = accountIds.length
       ? await this.pool.query(
           `SELECT id, account_id, dividend_event_id, eligible_quantity,
-                  expected_cash_amount_ntd, expected_stock_quantity,
-                  received_cash_amount_ntd, received_stock_quantity,
+                  expected_cash_amount, expected_stock_quantity,
+                  received_cash_amount, received_stock_quantity,
                   posting_status, reconciliation_status, booked_at,
                   reversal_of_dividend_ledger_entry_id, superseded_at
            FROM dividend_ledger_entries
@@ -159,7 +160,7 @@ export class PostgresPersistence implements Persistence {
     );
 
     const cashLedgerResult = await this.pool.query(
-      `SELECT id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+      `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
               related_trade_event_id, related_dividend_ledger_entry_id, source_type,
               source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
        FROM cash_ledger_entries
@@ -169,9 +170,9 @@ export class PostgresPersistence implements Persistence {
     );
 
     const snapshotsResult = await this.pool.query(
-      `SELECT id, snapshot_date, total_market_value_ntd, total_cost_ntd,
-              total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
-              total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
+      `SELECT id, snapshot_date, total_market_value_amount, total_cost_amount,
+              total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
+              total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
        FROM daily_portfolio_snapshots
        WHERE user_id = $1
        ORDER BY snapshot_date DESC, generated_at DESC, id DESC`,
@@ -181,8 +182,8 @@ export class PostgresPersistence implements Persistence {
     const jobIds = jobsResult.rows.map((row) => row.id);
     const jobItemsResult = jobIds.length
       ? await this.pool.query(
-          `SELECT id, job_id, transaction_id, previous_commission_ntd, previous_tax_ntd,
-                  next_commission_ntd, next_tax_ntd
+          `SELECT id, job_id, transaction_id, previous_commission_amount, previous_tax_amount,
+                  next_commission_amount, next_tax_amount
            FROM recompute_job_items
            WHERE job_id = ANY($1)
            ORDER BY id`,
@@ -216,7 +217,8 @@ export class PostgresPersistence implements Persistence {
         row.commission_discount_percent !== null
           ? Number(row.commission_discount_percent)
           : legacyCommissionDiscountPercent(row.commission_discount_bps),
-      minCommissionNtd: row.min_commission_ntd,
+      minimumCommissionAmount: row.minimum_commission_amount,
+      commissionCurrency: row.commission_currency,
       commissionRoundingMode: row.commission_rounding_mode,
       taxRoundingMode: row.tax_rounding_mode,
       stockSellTaxRateBps: row.stock_sell_tax_rate_bps,
@@ -236,7 +238,8 @@ export class PostgresPersistence implements Persistence {
       lotOpenedAt: normalizeDate(row.lot_opened_at),
       lotOpenedSequence: row.lot_opened_sequence,
       allocatedQuantity: row.allocated_quantity,
-      allocatedCostNtd: row.allocated_cost_ntd,
+      allocatedCostAmount: row.allocated_cost_amount,
+      costCurrency: row.cost_currency,
       createdAt: normalizeDateTime(row.created_at),
     }));
 
@@ -248,17 +251,19 @@ export class PostgresPersistence implements Persistence {
       instrumentType: row.instrument_type,
       type: row.trade_type,
       quantity: row.quantity,
-      priceNtd: row.price_ntd,
+      unitPrice: row.unit_price,
+      priceCurrency: row.price_currency,
       tradeDate: normalizeDate(row.trade_date),
       tradeTimestamp: normalizeDateTime(row.trade_timestamp),
       bookingSequence: row.booking_sequence,
-      commissionNtd: row.commission_ntd,
-      taxNtd: row.tax_ntd,
+      commissionAmount: row.commission_amount,
+      taxAmount: row.tax_amount,
       isDayTrade: row.is_day_trade,
       feeSnapshot: normalizeFeeProfile(JSON.parse(row.fee_snapshot_json)),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
+      realizedPnlCurrency: row.price_currency,
       reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
     }));
 
@@ -268,7 +273,7 @@ export class PostgresPersistence implements Persistence {
       accountId: row.account_id,
       entryDate: normalizeDate(row.entry_date),
       entryType: row.entry_type,
-      amountNtd: row.amount_ntd,
+      amount: row.amount,
       currency: row.currency,
       relatedTradeEventId: row.related_trade_event_id ?? undefined,
       relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
@@ -298,9 +303,9 @@ export class PostgresPersistence implements Persistence {
       accountId: row.account_id,
       dividendEventId: row.dividend_event_id,
       eligibleQuantity: row.eligible_quantity,
-      expectedCashAmountNtd: row.expected_cash_amount_ntd,
+      expectedCashAmount: row.expected_cash_amount,
       expectedStockQuantity: row.expected_stock_quantity,
-      receivedCashAmountNtd: row.received_cash_amount_ntd,
+      receivedCashAmount: row.received_cash_amount,
       receivedStockQuantity: row.received_stock_quantity,
       postingStatus: row.posting_status,
       reconciliationStatus: row.reconciliation_status,
@@ -325,13 +330,14 @@ export class PostgresPersistence implements Persistence {
     const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
       id: row.id,
       snapshotDate: normalizeDate(row.snapshot_date),
-      totalMarketValueNtd: row.total_market_value_ntd,
-      totalCostNtd: row.total_cost_ntd,
-      totalUnrealizedPnlNtd: row.total_unrealized_pnl_ntd,
-      totalRealizedPnlNtd: row.total_realized_pnl_ntd,
-      totalDividendReceivedNtd: row.total_dividend_received_ntd,
-      totalCashBalanceNtd: row.total_cash_balance_ntd,
-      totalNavNtd: row.total_nav_ntd,
+      totalMarketValueAmount: row.total_market_value_amount,
+      totalCostAmount: row.total_cost_amount,
+      totalUnrealizedPnlAmount: row.total_unrealized_pnl_amount,
+      totalRealizedPnlAmount: row.total_realized_pnl_amount,
+      totalDividendReceivedAmount: row.total_dividend_received_amount,
+      totalCashBalanceAmount: row.total_cash_balance_amount,
+      totalNavAmount: row.total_nav_amount,
+      currency: row.currency,
       generatedAt: normalizeDateTime(row.generated_at),
       generationRunId: row.generation_run_id,
     }));
@@ -341,10 +347,10 @@ export class PostgresPersistence implements Persistence {
       const list = recomputeItems.get(item.job_id) ?? [];
       list.push({
         transactionId: item.transaction_id,
-        previousCommissionNtd: item.previous_commission_ntd,
-        previousTaxNtd: item.previous_tax_ntd,
-        nextCommissionNtd: item.next_commission_ntd,
-        nextTaxNtd: item.next_tax_ntd,
+        previousCommissionAmount: item.previous_commission_amount,
+        previousTaxAmount: item.previous_tax_amount,
+        nextCommissionAmount: item.next_commission_amount,
+        nextTaxAmount: item.next_tax_amount,
       });
       recomputeItems.set(item.job_id, list);
     }
@@ -402,7 +408,8 @@ export class PostgresPersistence implements Persistence {
             accountId: row.account_id,
             symbol: row.symbol,
             openQuantity: row.open_quantity,
-            totalCostNtd: row.total_cost_ntd,
+            totalCostAmount: row.total_cost_amount,
+            costCurrency: row.cost_currency,
             openedAt: normalizeDate(row.opened_at),
             openedSequence: row.opened_sequence,
           })),
@@ -455,14 +462,14 @@ export class PostgresPersistence implements Persistence {
         const upsertProfile = await client.query(
           `INSERT INTO fee_profiles (
              id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
-             min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
+             minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
              bond_etf_sell_tax_rate_bps, commission_charge_mode
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10,
-             $11, $12, $13,
-             $14, $15
+             $8, $9, $10, $11,
+             $12, $13, $14,
+             $15, $16
            )
            ON CONFLICT (id)
            DO UPDATE SET
@@ -471,7 +478,8 @@ export class PostgresPersistence implements Persistence {
              board_commission_rate = EXCLUDED.board_commission_rate,
              commission_discount_percent = EXCLUDED.commission_discount_percent,
              commission_discount_bps = EXCLUDED.commission_discount_bps,
-             min_commission_ntd = EXCLUDED.min_commission_ntd,
+             minimum_commission_amount = EXCLUDED.minimum_commission_amount,
+             commission_currency = EXCLUDED.commission_currency,
              commission_rounding_mode = EXCLUDED.commission_rounding_mode,
              tax_rounding_mode = EXCLUDED.tax_rounding_mode,
              stock_sell_tax_rate_bps = EXCLUDED.stock_sell_tax_rate_bps,
@@ -488,7 +496,8 @@ export class PostgresPersistence implements Persistence {
             profile.boardCommissionRate,
             profile.commissionDiscountPercent,
             legacyCommissionDiscountBps(profile.commissionDiscountPercent),
-            profile.minCommissionNtd,
+            profile.minimumCommissionAmount,
+            profile.commissionCurrency,
             profile.commissionRoundingMode,
             profile.taxRoundingMode,
             profile.stockSellTaxRateBps,
@@ -567,9 +576,18 @@ export class PostgresPersistence implements Persistence {
         await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
         for (const lot of store.accounting.projections.lots) {
           await client.query(
-            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              lot.id,
+              lot.accountId,
+              lot.symbol,
+              lot.openQuantity,
+              lot.totalCostAmount,
+              lot.costCurrency,
+              lot.openedAt,
+              lot.openedSequence ?? 1,
+            ],
           );
         }
 
@@ -602,17 +620,17 @@ export class PostgresPersistence implements Persistence {
         for (const item of job.items) {
           await client.query(
             `INSERT INTO recompute_job_items (
-               id, job_id, transaction_id, previous_commission_ntd, previous_tax_ntd,
-               next_commission_ntd, next_tax_ntd
+               id, job_id, transaction_id, previous_commission_amount, previous_tax_amount,
+               next_commission_amount, next_tax_amount
              ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               `${job.id}:${item.transactionId}`,
               job.id,
               item.transactionId,
-              item.previousCommissionNtd,
-              item.previousTaxNtd,
-              item.nextCommissionNtd,
-              item.nextTaxNtd,
+              item.previousCommissionAmount,
+              item.previousTaxAmount,
+              item.nextCommissionAmount,
+              item.nextTaxAmount,
             ],
           );
         }
@@ -722,7 +740,7 @@ export class PostgresPersistence implements Persistence {
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === trade.accountId && lot.symbol === trade.symbol,
     );
-    const mirroredRealizedPnlNtd = deriveRealizedPnlForTrade(accounting, trade);
+    const mirroredRealizedPnlAmount = deriveRealizedPnlForTrade(accounting, trade);
 
     const client = await this.pool.connect();
     try {
@@ -731,14 +749,14 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO trade_events (
            id, user_id, account_id, symbol, instrument_type, trade_type,
-           quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
-           tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+           tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12,
-           $13, $14, $15, $16, $17, $18,
-           $19
+           $7, $8, $9, $10, $11, $12, $13,
+           $14, $15, $16, $17, $18, $19,
+           $20
          )`,
         [
           trade.id,
@@ -748,12 +766,13 @@ export class PostgresPersistence implements Persistence {
           trade.instrumentType,
           trade.type,
           trade.quantity,
-          trade.priceNtd,
+          trade.unitPrice,
+          trade.priceCurrency,
           trade.tradeDate,
           trade.tradeTimestamp ?? trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
           trade.bookingSequence ?? 1,
-          trade.commissionNtd,
-          trade.taxNtd,
+          trade.commissionAmount,
+          trade.taxAmount,
           trade.isDayTrade,
           JSON.stringify(trade.feeSnapshot),
           trade.sourceType ?? "legacy_transaction",
@@ -765,7 +784,7 @@ export class PostgresPersistence implements Persistence {
 
       await client.query(
         `INSERT INTO cash_ledger_entries (
-           id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source_type,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          ) VALUES (
@@ -779,8 +798,8 @@ export class PostgresPersistence implements Persistence {
           cashEntry.accountId,
           cashEntry.entryDate,
           cashEntry.entryType,
-          cashEntry.amountNtd,
-          cashEntry.currency ?? "TWD",
+          cashEntry.amount,
+          cashEntry.currency,
           cashEntry.relatedTradeEventId ?? null,
           cashEntry.relatedDividendLedgerEntryId ?? null,
           cashEntry.sourceType,
@@ -794,12 +813,12 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO transactions (
            id, user_id, account_id, symbol, instrument_type, tx_type,
-           quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
-           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
+           quantity, unit_price, price_currency, trade_date, commission_amount, tax_amount,
+           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11,
-           $12, $13, $14, $15
+           $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16
          )`,
         [
           trade.id,
@@ -809,14 +828,15 @@ export class PostgresPersistence implements Persistence {
           trade.instrumentType,
           trade.type,
           trade.quantity,
-          trade.priceNtd,
+          trade.unitPrice,
+          trade.priceCurrency,
           trade.tradeDate,
-          trade.commissionNtd,
-          trade.taxNtd,
+          trade.commissionAmount,
+          trade.taxAmount,
           trade.isDayTrade,
           trade.feeSnapshot.id,
           JSON.stringify(trade.feeSnapshot),
-          mirroredRealizedPnlNtd ?? null,
+          mirroredRealizedPnlAmount ?? null,
         ],
       );
 
@@ -830,10 +850,10 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO lot_allocations (
              id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
-             lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+             lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
-             $8, $9, $10, $11
+             $8, $9, $10, $11, $12
            )`,
           [
             allocation.id,
@@ -845,7 +865,8 @@ export class PostgresPersistence implements Persistence {
             allocation.lotOpenedAt,
             allocation.lotOpenedSequence,
             allocation.allocatedQuantity,
-            allocation.allocatedCostNtd,
+            allocation.allocatedCostAmount,
+            allocation.costCurrency,
             allocation.createdAt ?? new Date().toISOString(),
           ],
         );
@@ -857,11 +878,11 @@ export class PostgresPersistence implements Persistence {
            AND symbol = $2`,
         [trade.accountId, trade.symbol],
       );
-      for (const lot of nextLots) {
-        await client.query(
-          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+        for (const lot of nextLots) {
+          await client.query(
+            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -946,7 +967,7 @@ export class PostgresPersistence implements Persistence {
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
-          dividendEvent.cashDividendCurrency ?? "TWD",
+          dividendEvent.cashDividendCurrency,
           dividendEvent.stockDividendPerShare,
           dividendEvent.sourceType,
           dividendEvent.sourceReference ?? null,
@@ -957,8 +978,8 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
-           expected_cash_amount_ntd, expected_stock_quantity,
-           received_cash_amount_ntd, received_stock_quantity,
+           expected_cash_amount, expected_stock_quantity,
+           received_cash_amount, received_stock_quantity,
            posting_status, reconciliation_status, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
@@ -973,9 +994,9 @@ export class PostgresPersistence implements Persistence {
            account_id = EXCLUDED.account_id,
            dividend_event_id = EXCLUDED.dividend_event_id,
            eligible_quantity = EXCLUDED.eligible_quantity,
-           expected_cash_amount_ntd = EXCLUDED.expected_cash_amount_ntd,
+           expected_cash_amount = EXCLUDED.expected_cash_amount,
            expected_stock_quantity = EXCLUDED.expected_stock_quantity,
-           received_cash_amount_ntd = EXCLUDED.received_cash_amount_ntd,
+           received_cash_amount = EXCLUDED.received_cash_amount,
            received_stock_quantity = EXCLUDED.received_stock_quantity,
            posting_status = EXCLUDED.posting_status,
            reconciliation_status = EXCLUDED.reconciliation_status,
@@ -987,9 +1008,9 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.accountId,
           dividendLedgerEntry.dividendEventId,
           dividendLedgerEntry.eligibleQuantity,
-          dividendLedgerEntry.expectedCashAmountNtd,
+          dividendLedgerEntry.expectedCashAmount,
           dividendLedgerEntry.expectedStockQuantity,
-          dividendLedgerEntry.receivedCashAmountNtd,
+          dividendLedgerEntry.receivedCashAmount,
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
@@ -1033,7 +1054,7 @@ export class PostgresPersistence implements Persistence {
       for (const cashEntry of linkedCashEntries) {
         await client.query(
           `INSERT INTO cash_ledger_entries (
-             id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+             id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source_type,
              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
            ) VALUES (
@@ -1047,8 +1068,8 @@ export class PostgresPersistence implements Persistence {
             cashEntry.accountId,
             cashEntry.entryDate,
             cashEntry.entryType,
-            cashEntry.amountNtd,
-            cashEntry.currency ?? "TWD",
+            cashEntry.amount,
+            cashEntry.currency,
             cashEntry.relatedTradeEventId ?? null,
             cashEntry.relatedDividendLedgerEntryId ?? null,
             cashEntry.sourceType,
@@ -1068,9 +1089,9 @@ export class PostgresPersistence implements Persistence {
       );
       for (const lot of nextLots) {
         await client.query(
-          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -1159,12 +1180,12 @@ export class PostgresPersistence implements Persistence {
     await this.pool.query(
       `INSERT INTO fee_profiles (
          id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
-         min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
+         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
          stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
          etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
        ) VALUES (
          $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
-         20, 'FLOOR', 'FLOOR',
+         20, 'TWD', 'FLOOR', 'FLOOR',
          30, 15,
          10, 0, 'CHARGED_UPFRONT'
        )
@@ -1249,7 +1270,7 @@ export class PostgresPersistence implements Persistence {
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
-          dividendEvent.cashDividendCurrency ?? "TWD",
+          dividendEvent.cashDividendCurrency,
           dividendEvent.stockDividendPerShare,
           dividendEvent.sourceType,
           dividendEvent.sourceReference ?? null,
@@ -1262,8 +1283,8 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
-           expected_cash_amount_ntd, expected_stock_quantity,
-           received_cash_amount_ntd, received_stock_quantity,
+           expected_cash_amount, expected_stock_quantity,
+           received_cash_amount, received_stock_quantity,
            posting_status, reconciliation_status, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
@@ -1278,9 +1299,9 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.accountId,
           dividendLedgerEntry.dividendEventId,
           dividendLedgerEntry.eligibleQuantity,
-          dividendLedgerEntry.expectedCashAmountNtd,
+          dividendLedgerEntry.expectedCashAmount,
           dividendLedgerEntry.expectedStockQuantity,
-          dividendLedgerEntry.receivedCashAmountNtd,
+          dividendLedgerEntry.receivedCashAmount,
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
@@ -1321,14 +1342,14 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO trade_events (
            id, user_id, account_id, symbol, instrument_type, trade_type,
-           quantity, price_ntd, trade_date, trade_timestamp, booking_sequence, commission_ntd,
-           tax_ntd, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
+           quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+           tax_amount, is_day_trade, fee_snapshot_json, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12,
-           $13, $14, $15, $16, $17, $18,
-           $19
+           $7, $8, $9, $10, $11, $12, $13,
+           $14, $15, $16, $17, $18, $19,
+           $20
          )`,
         [
           tx.id,
@@ -1338,12 +1359,13 @@ export class PostgresPersistence implements Persistence {
           tx.instrumentType,
           tx.type,
           tx.quantity,
-          tx.priceNtd,
+          tx.unitPrice,
+          tx.priceCurrency,
           tx.tradeDate,
           tx.tradeTimestamp ?? tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.bookingSequence ?? 1,
-          tx.commissionNtd,
-          tx.taxNtd,
+          tx.commissionAmount,
+          tx.taxAmount,
           tx.isDayTrade,
           JSON.stringify(tx.feeSnapshot),
           tx.sourceType ?? "legacy_transaction",
@@ -1357,7 +1379,7 @@ export class PostgresPersistence implements Persistence {
     for (const entry of accounting.facts.cashLedgerEntries) {
       await client.query(
         `INSERT INTO cash_ledger_entries (
-           id, user_id, account_id, entry_date, entry_type, amount_ntd, currency,
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source_type,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          ) VALUES (
@@ -1371,8 +1393,8 @@ export class PostgresPersistence implements Persistence {
           entry.accountId,
           entry.entryDate,
           entry.entryType,
-          entry.amountNtd,
-          entry.currency ?? "TWD",
+          entry.amount,
+          entry.currency,
           entry.relatedTradeEventId ?? null,
           entry.relatedDividendLedgerEntryId ?? null,
           entry.sourceType,
@@ -1388,10 +1410,10 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO lot_allocations (
            id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
-           lot_opened_sequence, allocated_quantity, allocated_cost_ntd, created_at
+           lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
-           $8, $9, $10, $11
+           $8, $9, $10, $11, $12
          )`,
         [
           allocation.id,
@@ -1403,7 +1425,8 @@ export class PostgresPersistence implements Persistence {
           allocation.lotOpenedAt,
           allocation.lotOpenedSequence,
           allocation.allocatedQuantity,
-          allocation.allocatedCostNtd,
+          allocation.allocatedCostAmount,
+          allocation.costCurrency,
           allocation.createdAt ?? new Date().toISOString(),
         ],
       );
@@ -1412,25 +1435,26 @@ export class PostgresPersistence implements Persistence {
     for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
       await client.query(
         `INSERT INTO daily_portfolio_snapshots (
-           id, user_id, snapshot_date, total_market_value_ntd, total_cost_ntd,
-           total_unrealized_pnl_ntd, total_realized_pnl_ntd, total_dividend_received_ntd,
-           total_cash_balance_ntd, total_nav_ntd, generated_at, generation_run_id
+           id, user_id, snapshot_date, total_market_value_amount, total_cost_amount,
+           total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
+           total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,
-           $9, $10, $11, $12
+           $9, $10, $11, $12, $13
          )`,
         [
           snapshot.id,
           userId,
           snapshot.snapshotDate,
-          snapshot.totalMarketValueNtd,
-          snapshot.totalCostNtd,
-          snapshot.totalUnrealizedPnlNtd,
-          snapshot.totalRealizedPnlNtd,
-          snapshot.totalDividendReceivedNtd,
-          snapshot.totalCashBalanceNtd,
-          snapshot.totalNavNtd,
+          snapshot.totalMarketValueAmount,
+          snapshot.totalCostAmount,
+          snapshot.totalUnrealizedPnlAmount,
+          snapshot.totalRealizedPnlAmount,
+          snapshot.totalDividendReceivedAmount,
+          snapshot.totalCashBalanceAmount,
+          snapshot.totalNavAmount,
+          snapshot.currency,
           snapshot.generatedAt,
           snapshot.generationRunId,
         ],
@@ -1439,16 +1463,16 @@ export class PostgresPersistence implements Persistence {
 
     await client.query(`DELETE FROM transactions WHERE user_id = $1`, [userId]);
     for (const tx of accounting.facts.tradeEvents) {
-      const mirroredRealizedPnlNtd = deriveRealizedPnlForTrade(accounting, tx);
+      const mirroredRealizedPnlAmount = deriveRealizedPnlForTrade(accounting, tx);
       await client.query(
         `INSERT INTO transactions (
            id, user_id, account_id, symbol, instrument_type, tx_type,
-           quantity, price_ntd, trade_date, commission_ntd, tax_ntd,
-           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_ntd
+           quantity, unit_price, price_currency, trade_date, commission_amount, tax_amount,
+           is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount
          ) VALUES (
            $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11,
-           $12, $13, $14, $15
+           $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16
          )`,
         [
           tx.id,
@@ -1458,14 +1482,15 @@ export class PostgresPersistence implements Persistence {
           tx.instrumentType,
           tx.type,
           tx.quantity,
-          tx.priceNtd,
+          tx.unitPrice,
+          tx.priceCurrency,
           tx.tradeDate,
-          tx.commissionNtd,
-          tx.taxNtd,
+          tx.commissionAmount,
+          tx.taxAmount,
           tx.isDayTrade,
           tx.feeSnapshot.id,
           JSON.stringify(tx.feeSnapshot),
-          mirroredRealizedPnlNtd ?? null,
+          mirroredRealizedPnlAmount ?? null,
         ],
       );
     }
@@ -1474,9 +1499,9 @@ export class PostgresPersistence implements Persistence {
       await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
       for (const lot of accounting.projections.lots) {
         await client.query(
-          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_ntd, opened_at, opened_sequence)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostNtd, lot.openedAt, lot.openedSequence ?? 1],
+          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -1526,6 +1551,9 @@ function validateStoreInvariants(store: Store): void {
     if (profile.commissionDiscountPercent < 0 || profile.commissionDiscountPercent > 100) {
       throw new Error(`fee profile ${profile.id} has invalid commission discount percent`);
     }
+    if (!isCurrencyCode(profile.commissionCurrency)) {
+      throw new Error(`fee profile ${profile.id} has invalid commission currency ${profile.commissionCurrency}`);
+    }
   }
   validateAccountingStoreInvariants(store.accounting, accountIds);
   for (const binding of store.feeProfileBindings) {
@@ -1557,6 +1585,10 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
   const tradeBookingKeys = new Set<string>();
 
   for (const trade of accounting.facts.tradeEvents) {
+    if (!isCurrencyCode(trade.priceCurrency)) {
+      throw new Error(`trade ${trade.id} has invalid price currency ${trade.priceCurrency}`);
+    }
+
     if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
       throw new Error(`trade ${trade.id} has invalid booking sequence`);
     }
@@ -1579,7 +1611,18 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
       .filter((entry): entry is string => Boolean(entry)),
   );
   const activeDividendKeys = new Set<string>();
+
+  for (const dividendEvent of accounting.facts.dividendEvents) {
+    if (!isCurrencyCode(dividendEvent.cashDividendCurrency)) {
+      throw new Error(`dividend event ${dividendEvent.id} has invalid cash currency ${dividendEvent.cashDividendCurrency}`);
+    }
+  }
+
   for (const lot of accounting.projections.lots) {
+    if (!isCurrencyCode(lot.costCurrency)) {
+      throw new Error(`lot ${lot.id} has invalid cost currency ${lot.costCurrency}`);
+    }
+
     if (lot.openedSequence !== undefined && lot.openedSequence <= 0) {
       throw new Error(`lot ${lot.id} has invalid opened sequence`);
     }
@@ -1635,9 +1678,16 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     if (!lotIds.has(allocation.lotId)) {
       throw new Error(`lot allocation ${allocation.id} references unknown lot ${allocation.lotId}`);
     }
+    if (!isCurrencyCode(allocation.costCurrency)) {
+      throw new Error(`lot allocation ${allocation.id} has invalid cost currency ${allocation.costCurrency}`);
+    }
   }
 
   for (const cashEntry of accounting.facts.cashLedgerEntries) {
+    if (!isCurrencyCode(cashEntry.currency)) {
+      throw new Error(`cash ledger entry ${cashEntry.id} has invalid currency ${cashEntry.currency}`);
+    }
+
     if (
       cashEntry.relatedDividendLedgerEntryId &&
       !dividendLedgerIds.has(cashEntry.relatedDividendLedgerEntryId)
@@ -1648,15 +1698,36 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
   }
 
+  const dividendEventCurrencyByLedgerId = new Map(
+    accounting.facts.dividendLedgerEntries.map((entry) => {
+      const event = accounting.facts.dividendEvents.find((item) => item.id === entry.dividendEventId);
+      return [entry.id, event?.cashDividendCurrency];
+    }),
+  );
+
   for (const deduction of accounting.facts.dividendDeductionEntries) {
     if (!dividendLedgerIds.has(deduction.dividendLedgerEntryId)) {
       throw new Error(
         `dividend deduction ${deduction.id} references unknown dividend ledger ${deduction.dividendLedgerEntryId}`,
       );
     }
+    if (!isCurrencyCode(deduction.currencyCode)) {
+      throw new Error(`dividend deduction ${deduction.id} has invalid currency ${deduction.currencyCode}`);
+    }
 
-    if (deduction.currencyCode !== "TWD") {
-      throw new Error(`dividend deduction ${deduction.id} must use TWD currency`);
+    const expectedCurrency = dividendEventCurrencyByLedgerId.get(deduction.dividendLedgerEntryId);
+    if (!expectedCurrency) {
+      throw new Error(`dividend deduction ${deduction.id} is missing parent dividend currency context`);
+    }
+
+    if (deduction.currencyCode !== expectedCurrency) {
+      throw new Error(`dividend deduction ${deduction.id} currency must match parent dividend currency ${expectedCurrency}`);
+    }
+  }
+
+  for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
+    if (!isCurrencyCode(snapshot.currency)) {
+      throw new Error(`snapshot ${snapshot.id} has invalid currency ${snapshot.currency}`);
     }
   }
 }
@@ -1686,6 +1757,10 @@ function legacyCommissionDiscountPercent(commissionDiscountBps: number | null | 
   return Number(((10_000 - Number(commissionDiscountBps ?? 10_000)) / 100).toFixed(2));
 }
 
+function isCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3}$/.test(value);
+}
+
 function normalizeFeeProfile(value: unknown): FeeProfile {
   if (!value || typeof value !== "object") {
     throw new Error("invalid fee snapshot");
@@ -1703,7 +1778,8 @@ function normalizeFeeProfile(value: unknown): FeeProfile {
       typeof snapshot.commissionDiscountPercent === "number"
         ? snapshot.commissionDiscountPercent
         : legacyCommissionDiscountPercent(snapshot.commissionDiscountBps),
-    minCommissionNtd: Number(snapshot.minCommissionNtd ?? 0),
+    minimumCommissionAmount: Number(snapshot.minimumCommissionAmount ?? (snapshot as { minCommissionNtd?: number }).minCommissionNtd ?? 0),
+    commissionCurrency: String(snapshot.commissionCurrency ?? "TWD"),
     commissionRoundingMode: snapshot.commissionRoundingMode ?? "FLOOR",
     taxRoundingMode: snapshot.taxRoundingMode ?? "FLOOR",
     stockSellTaxRateBps: Number(snapshot.stockSellTaxRateBps ?? 0),

@@ -19,7 +19,8 @@ const feeProfiles: FeeProfileDto[] = [
     name: "Default",
     boardCommissionRate: 1.425,
     commissionDiscountPercent: 60,
-    minCommissionNtd: 20,
+    minimumCommissionAmount: 20,
+    commissionCurrency: "TWD",
     commissionRoundingMode: "FLOOR",
     taxRoundingMode: "FLOOR",
     stockSellTaxRateBps: 30,
@@ -42,6 +43,7 @@ describe("settingsMappers", () => {
     expect(model.accounts[0]).toEqual({ id: "account-1", feeProfileId: "profile-1" });
     expect(model.feeProfileBindings[0].symbol).toBe("2330");
     expect(model.feeProfiles[0].commissionDiscountPercent).toBe(60);
+    expect(model.feeProfiles[0].commissionCurrency).toBe("TWD");
   });
 
   it("maps temporary and persisted profiles into the save request contract", () => {
@@ -55,6 +57,7 @@ describe("settingsMappers", () => {
     const request = toSaveSettingsRequest(model);
     expect(request.feeProfiles[0]).toMatchObject({ id: "profile-1" });
     expect(request.feeProfiles[1]).toMatchObject({ tempId: "tmp-1" });
+    expect(request.feeProfiles[0]).toMatchObject({ minimumCommissionAmount: 20, commissionCurrency: "TWD" });
     expect(request.accounts[0]).toEqual({ id: "account-1", feeProfileRef: "profile-1" });
     expect(request.feeProfileBindings[0]).toEqual({
       accountId: "account-1",

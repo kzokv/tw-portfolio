@@ -158,7 +158,7 @@ Outputs:
 - lot-capable inventory remains available as a projection substrate
 - same-day ordering and sell allocation traceability are explicit
 - dividend lifecycle is locked before dividend persistence and posting work expand
-- dividend schema is aligned with typed deductions and an explicit `TWD` hook before persistence and posting work expand
+- dividend schema is aligned with typed deductions and explicit currency matching before persistence and posting work expand
 - dividend declaration and posting are separated
 - actual dividend receipts and deductions are bookable
 - posted-fact correction behavior for trade, cash, and dividend writes follows the `KZO-51` reversal-plus-replacement contract

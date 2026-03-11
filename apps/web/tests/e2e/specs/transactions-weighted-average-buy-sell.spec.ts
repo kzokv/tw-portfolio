@@ -2,16 +2,18 @@ import { expect, test, type Page } from "@playwright/test";
 import { gotoApp } from "../helpers/flows";
 
 type TransactionResponse = {
-  commissionNtd: number;
-  taxNtd: number;
-  realizedPnlNtd?: number;
+  commissionAmount: number;
+  taxAmount: number;
+  realizedPnlAmount?: number;
+  priceCurrency: string;
 };
 
 type HoldingsResponse = Array<{
   accountId: string;
   symbol: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: string;
 }>;
 
 async function submitTransactionAndCapture(page: Page) {
@@ -52,6 +54,9 @@ test.describe("transactions weighted-average buy/sell", () => {
     const accountSelect = page.getByTestId("tx-account-select");
     const firstAccountId = await accountSelect.locator("option").first().getAttribute("value");
     await accountSelect.selectOption(firstAccountId ?? "acc-1");
+    await expect(page.getByTestId("tx-price-currency-input")).toHaveValue("TWD");
+    await expect(page.getByTestId("tx-price-currency-input")).toHaveJSProperty("readOnly", true);
+    await expect(page.getByTestId("tx-price-currency-input")).toBeDisabled();
 
     await page.getByTestId("tx-symbol-input").fill("2330");
     await page.getByTestId("tx-trade-date-input").fill("2026-01-01");
@@ -75,14 +80,16 @@ test.describe("transactions weighted-average buy/sell", () => {
     const sell = await submitTransactionAndCapture(page);
     expect(sell.txResponse.ok()).toBe(true);
 
-    expect(sell.txBody.commissionNtd).toBe(20);
-    expect(sell.txBody.taxNtd).toBe(4);
-    expect(sell.txBody.realizedPnlNtd).toBe(716);
+    expect(sell.txBody.commissionAmount).toBe(20);
+    expect(sell.txBody.taxAmount).toBe(4);
+    expect(sell.txBody.realizedPnlAmount).toBe(716);
+    expect(sell.txBody.priceCurrency).toBe("TWD");
 
     const holding2330 = sell.holdingsBody.find((row) => row.accountId === (firstAccountId ?? "acc-1") && row.symbol === "2330");
     expect(holding2330).toBeDefined();
     expect(holding2330?.quantity).toBe(15);
-    expect(holding2330?.costNtd).toBe(2280);
+    expect(holding2330?.costBasisAmount).toBe(2280);
+    expect(holding2330?.currency).toBe("TWD");
 
     const row = page.getByTestId("holdings-table").locator("tr", { hasText: "2330" });
     await expect(row).toContainText("15");

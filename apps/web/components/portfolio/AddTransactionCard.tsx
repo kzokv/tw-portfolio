@@ -115,9 +115,9 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
 
           <label className="min-w-0 space-y-2 text-sm">
             <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-              <span className="min-w-0">{dict.transactions.priceTerm}</span>
+              <span className="min-w-0">{dict.transactions.unitPriceTerm}</span>
               <TooltipInfo
-                label={dict.transactions.priceTerm}
+                label={dict.transactions.unitPriceTerm}
                 content={dict.tooltips.txPrice}
                 triggerTestId="tooltip-tx-price-trigger"
                 contentTestId="tooltip-tx-price-content"
@@ -125,11 +125,33 @@ export function AddTransactionCard({ value, accountOptions, pending, onChange, o
             </span>
             <input
               type="number"
-              value={value.priceNtd}
-              onChange={(event) => setField("priceNtd", Number(event.target.value))}
+              value={value.unitPrice}
+              onChange={(event) => setField("unitPrice", Number(event.target.value))}
               className={fieldClassName}
               data-testid="tx-price-input"
             />
+          </label>
+
+          <label className="min-w-0 space-y-2 text-sm">
+            <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+              <span className="min-w-0">{dict.transactions.currencyTerm}</span>
+              <TooltipInfo
+                label={dict.transactions.currencyTerm}
+                content={dict.tooltips.txCurrency}
+                triggerTestId="tooltip-tx-currency-trigger"
+                contentTestId="tooltip-tx-currency-content"
+              />
+            </span>
+            <input
+              value={value.priceCurrency}
+              readOnly
+              disabled
+              aria-readonly="true"
+              aria-disabled="true"
+              className={`${fieldClassName} cursor-not-allowed bg-slate-950/70 text-slate-400`}
+              data-testid="tx-price-currency-input"
+            />
+            <p className="text-[11px] text-slate-500">{dict.tooltips.txCurrency}</p>
           </label>
 
           <label className="min-w-0 space-y-2 text-sm">

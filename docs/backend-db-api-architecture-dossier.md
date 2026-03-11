@@ -192,7 +192,8 @@ Fields:
 | `name` | `TEXT` | `NOT NULL` | profile label |
 | `commission_rate_bps` | `INTEGER` | `NOT NULL` | raw commission rate |
 | `commission_discount_percent` | `NUMERIC(5,2)` | `NOT NULL` | broker commission percent-off from board rate |
-| `min_commission_ntd` | `INTEGER` | `NOT NULL` | commission floor |
+| `minimum_commission_amount` | `INTEGER` | `NOT NULL` | commission floor |
+| `commission_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | fee-profile commission currency |
 | `commission_rounding_mode` | `TEXT` | `NOT NULL` | `FLOOR`, `ROUND`, `CEIL` at route layer |
 | `tax_rounding_mode` | `TEXT` | `NOT NULL` | `FLOOR`, `ROUND`, `CEIL` at route layer |
 | `stock_sell_tax_rate_bps` | `INTEGER` | `NOT NULL` | stock sell tax |
@@ -292,14 +293,16 @@ Fields:
 | `instrument_type` | `TEXT` | `NOT NULL` | instrument kind |
 | `tx_type` | `TEXT` | `NOT NULL` | `BUY` or `SELL` in practice |
 | `quantity` | `INTEGER` | `NOT NULL` | whole shares |
-| `price_ntd` | `INTEGER` | `NOT NULL` | unit price |
+| `unit_price` | `INTEGER` | `NOT NULL` | unit price |
+| `price_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | trade price currency |
 | `trade_date` | `DATE` | `NOT NULL` | trade date |
-| `commission_ntd` | `INTEGER` | `NOT NULL` | booked commission |
-| `tax_ntd` | `INTEGER` | `NOT NULL` | booked tax |
+| `commission_amount` | `INTEGER` | `NOT NULL` | booked commission |
+| `tax_amount` | `INTEGER` | `NOT NULL` | booked tax |
 | `is_day_trade` | `BOOLEAN DEFAULT false` | `NOT NULL` | day-trade flag |
 | `fee_profile_id` | `TEXT` | `NOT NULL`, FK -> `fee_profiles.id` | copied from fee snapshot |
 | `fee_snapshot_json` | `TEXT` | `NOT NULL` | serialized profile |
-| `realized_pnl_ntd` | `INTEGER` | nullable | mirrored realized PnL |
+| `realized_pnl_amount` | `INTEGER` | nullable | mirrored realized PnL |
+| `realized_pnl_currency` | `TEXT DEFAULT 'TWD'` | nullable | mirrored realized PnL currency |
 
 Indexes:
 - `idx_transactions_user_id`
@@ -329,7 +332,8 @@ Fields:
 | `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id` | owner account |
 | `symbol` | `TEXT` | `NOT NULL` | ticker |
 | `open_quantity` | `INTEGER` | `NOT NULL` | remaining position |
-| `total_cost_ntd` | `INTEGER` | `NOT NULL` | weighted-average allocated cost |
+| `total_cost_amount` | `INTEGER` | `NOT NULL` | weighted-average allocated cost |
+| `cost_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | lot cost currency |
 | `opened_at` | `DATE` | `NOT NULL` | lot opening date |
 | `opened_sequence` | `INTEGER` | `NOT NULL`, check `> 0` | migration `004`/`005` ordering key |
 
@@ -405,10 +409,10 @@ Fields:
 | `id` | `TEXT` | PK | `${jobId}:${transactionId}` in current writes |
 | `job_id` | `TEXT` | `NOT NULL`, FK -> `recompute_jobs.id` | parent job |
 | `transaction_id` | `TEXT` | `NOT NULL`, FK -> `transactions.id` | legacy trade reference |
-| `previous_commission_ntd` | `INTEGER` | `NOT NULL` | prior value |
-| `previous_tax_ntd` | `INTEGER` | `NOT NULL` | prior value |
-| `next_commission_ntd` | `INTEGER` | `NOT NULL` | previewed value |
-| `next_tax_ntd` | `INTEGER` | `NOT NULL` | previewed value |
+| `previous_commission_amount` | `INTEGER` | `NOT NULL` | prior value |
+| `previous_tax_amount` | `INTEGER` | `NOT NULL` | prior value |
+| `next_commission_amount` | `INTEGER` | `NOT NULL` | previewed value |
+| `next_tax_amount` | `INTEGER` | `NOT NULL` | previewed value |
 
 Read path:
 - loaded and grouped under `Store.recomputeJobs[].items`
@@ -435,12 +439,13 @@ Fields:
 | `instrument_type` | `TEXT` | `NOT NULL` | resolved from `symbols` |
 | `trade_type` | `TEXT` | `NOT NULL`, check in `BUY`,`SELL` | trade direction |
 | `quantity` | `INTEGER` | `NOT NULL`, check `> 0` | share count |
-| `price_ntd` | `INTEGER` | `NOT NULL`, check `>= 0` | unit price |
+| `unit_price` | `INTEGER` | `NOT NULL`, check `>= 0` | unit price |
+| `price_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | trade price currency |
 | `trade_date` | `DATE` | `NOT NULL` | logical trade date |
 | `trade_timestamp` | `TIMESTAMP` | `NOT NULL` | precise booking-order time |
 | `booking_sequence` | `INTEGER` | `NOT NULL`, check `> 0` | per-account/day uniqueness |
-| `commission_ntd` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked commission |
-| `tax_ntd` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked tax |
+| `commission_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked commission |
+| `tax_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | booked tax |
 | `is_day_trade` | `BOOLEAN DEFAULT false` | `NOT NULL` | day-trade flag |
 | `fee_snapshot_json` | `TEXT` | `NOT NULL` | serialized profile snapshot |
 | `source_type` | `TEXT` | `NOT NULL` | origin channel |
@@ -478,6 +483,7 @@ Fields:
 | `ex_dividend_date` | `DATE` | `NOT NULL` | ex-date |
 | `payment_date` | `DATE` | `NOT NULL`, check `>= ex_dividend_date` | payment date |
 | `cash_dividend_per_share` | `NUMERIC(20, 6) DEFAULT 0` | `NOT NULL`, check `>= 0` | economic input |
+| `cash_dividend_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | dividend cash currency |
 | `stock_dividend_per_share` | `NUMERIC(20, 6) DEFAULT 0` | `NOT NULL`, check `>= 0` | economic input |
 | `source_type` | `TEXT` | `NOT NULL` | source system |
 | `source_reference` | `TEXT` | nullable | source key |
@@ -508,9 +514,9 @@ Fields:
 | `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id` | owning account |
 | `dividend_event_id` | `TEXT` | `NOT NULL`, FK -> `dividend_events.id` | source event |
 | `eligible_quantity` | `INTEGER` | `NOT NULL`, check `>= 0` | shares eligible on ex-date |
-| `expected_cash_amount_ntd` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | computed expectation |
+| `expected_cash_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | computed expectation |
 | `expected_stock_quantity` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | computed expectation |
-| `received_cash_amount_ntd` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | actual posted cash |
+| `received_cash_amount` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | actual posted cash |
 | `received_stock_quantity` | `INTEGER DEFAULT 0` | `NOT NULL`, check `>= 0` | actual posted stock |
 | `posting_status` | `TEXT` | `NOT NULL`, checked | `expected`, `posted`, `adjusted` after migration `006` |
 | `reconciliation_status` | `TEXT` | `NOT NULL`, checked | `open`, `matched`, `explained`, `resolved` |
@@ -549,7 +555,7 @@ Fields:
 | `dividend_ledger_entry_id` | `TEXT` | `NOT NULL`, FK -> `dividend_ledger_entries.id` | parent ledger row |
 | `deduction_type` | `TEXT` | `NOT NULL`, checked | typed deduction enum |
 | `amount` | `INTEGER` | `NOT NULL`, check `> 0` | positive amount |
-| `currency_code` | `TEXT DEFAULT 'TWD'` | `NOT NULL`, check `= 'TWD'` | TWD only |
+| `currency_code` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | deduction currency code |
 | `withheld_at_source` | `BOOLEAN DEFAULT true` | `NOT NULL` | gross-vs-net analysis |
 | `source_type` | `TEXT` | `NOT NULL` | origin source |
 | `source_reference` | `TEXT` | nullable | origin key |
@@ -580,8 +586,8 @@ Fields:
 | `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id`, composite FK with `user_id` | account |
 | `entry_date` | `DATE` | `NOT NULL` | ledger date |
 | `entry_type` | `TEXT` | `NOT NULL`, checked | `TRADE_SETTLEMENT_IN`, `TRADE_SETTLEMENT_OUT`, `DIVIDEND_RECEIPT`, `DIVIDEND_DEDUCTION`, `MANUAL_ADJUSTMENT`, `REVERSAL` |
-| `amount_ntd` | `INTEGER` | `NOT NULL`, non-zero plus sign checks | signed cash amount |
-| `currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | current runtime always TWD |
+| `amount` | `INTEGER` | `NOT NULL`, non-zero plus sign checks | signed cash amount |
+| `currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | explicit cash currency |
 | `related_trade_event_id` | `TEXT` | nullable, FK -> `trade_events.id` | trade link |
 | `related_dividend_ledger_entry_id` | `TEXT` | nullable, FK -> `dividend_ledger_entries.id` | dividend link |
 | `source_type` | `TEXT` | `NOT NULL` | source channel |
@@ -660,13 +666,14 @@ Fields:
 | `id` | `TEXT` | PK | snapshot id |
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
 | `snapshot_date` | `DATE` | `NOT NULL` | snapshot date |
-| `total_market_value_ntd` | `INTEGER` | `NOT NULL` | gross market value |
-| `total_cost_ntd` | `INTEGER` | `NOT NULL` | portfolio cost basis |
-| `total_unrealized_pnl_ntd` | `INTEGER` | `NOT NULL` | unrealized PnL |
-| `total_realized_pnl_ntd` | `INTEGER` | `NOT NULL` | realized PnL |
-| `total_dividend_received_ntd` | `INTEGER` | `NOT NULL` | dividend total |
-| `total_cash_balance_ntd` | `INTEGER` | `NOT NULL` | cash balance |
-| `total_nav_ntd` | `INTEGER` | `NOT NULL` | NAV |
+| `currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | snapshot currency |
+| `total_market_value_amount` | `INTEGER` | `NOT NULL` | gross market value |
+| `total_cost_amount` | `INTEGER` | `NOT NULL` | portfolio cost basis |
+| `total_unrealized_pnl_amount` | `INTEGER` | `NOT NULL` | unrealized PnL |
+| `total_realized_pnl_amount` | `INTEGER` | `NOT NULL` | realized PnL |
+| `total_dividend_received_amount` | `INTEGER` | `NOT NULL` | dividend total |
+| `total_cash_balance_amount` | `INTEGER` | `NOT NULL` | cash balance |
+| `total_nav_amount` | `INTEGER` | `NOT NULL` | NAV |
 | `generated_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | generation time |
 | `generation_run_id` | `TEXT` | `NOT NULL` | batch/run identity |
 
@@ -702,7 +709,8 @@ Fields:
 | `lot_opened_at` | `DATE` | `NOT NULL` | lot order key |
 | `lot_opened_sequence` | `INTEGER` | `NOT NULL`, check `> 0` | lot order key |
 | `allocated_quantity` | `INTEGER` | `NOT NULL`, check `> 0` | quantity sold from lot |
-| `allocated_cost_ntd` | `INTEGER` | `NOT NULL`, check `>= 0` | cost allocation |
+| `allocated_cost_amount` | `INTEGER` | `NOT NULL`, check `>= 0` | cost allocation |
+| `cost_currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | allocation cost currency |
 | `created_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | creation time |
 
 Indexes and uniqueness:
@@ -825,7 +833,8 @@ In addition to SQL constraints, `validateStoreInvariants` and `validateAccountin
 - every lot allocation must reference a known trade and lot
 - every cash ledger dividend link must reference an existing dividend ledger row
 - every dividend deduction must reference an existing dividend ledger row
-- every dividend deduction must use `TWD`
+- every dividend deduction must use a valid 3-letter currency code
+- every dividend deduction currency must match the parent dividend event cash currency
 
 ### Database findings summary
 
@@ -1070,7 +1079,7 @@ Delete protections for fee profiles:
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/portfolio/transactions` | `{ accountId, symbol, quantity, priceNtd, tradeDate, tradeTimestamp?, bookingSequence?, commissionNtd?, taxNtd?, type, isDayTrade }` + `idempotency-key` header | created `Transaction` | `createTransaction`, Redis idempotency, `savePostedTrade` | yes |
+| `POST` | `/portfolio/transactions` | `{ accountId, symbol, quantity, unitPrice, priceCurrency, tradeDate, tradeTimestamp?, bookingSequence?, commissionAmount?, taxAmount?, type, isDayTrade }` + `idempotency-key` header | created `Transaction` | `createTransaction`, Redis idempotency, `savePostedTrade` | yes |
 | `GET` | `/portfolio/transactions` | none | `BookedTradeEvent[]` | `listTradeEvents` | not used by shipped UI, used heavily in tests |
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
@@ -1092,9 +1101,9 @@ Finding:
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/dividend-events` | none | `DividendEvent[]` | `listDividendEvents` | not used by shipped UI |
-| `POST` | `/dividend-events` | `{ symbol, eventType, exDividendDate, paymentDate, cashDividendPerShare, stockDividendPerShare, sourceType?, sourceReference? }` | created `DividendEvent` | `createDividendEvent`, `saveAccountingStore` | not used by shipped UI |
+| `POST` | `/dividend-events` | `{ symbol, eventType, exDividendDate, paymentDate, cashDividendPerShare, cashDividendCurrency, stockDividendPerShare, sourceType?, sourceReference? }` | created `DividendEvent` | `createDividendEvent`, `saveAccountingStore` | not used by shipped UI |
 | `GET` | `/portfolio/dividends/ledger` | none | `DividendLedgerEntry[]` | `listDividendLedgerEntries` | not used by shipped UI |
-| `POST` | `/portfolio/dividends/postings` | `{ accountId, dividendEventId, receivedCashAmountNtd, receivedStockQuantity, deductions[] }` + `idempotency-key` header | `{ dividendEvent, dividendLedgerEntry, dividendDeductionEntries, linkedCashLedgerEntries, comparison }` | `postDividend`, Redis idempotency, `savePostedDividend` | not used by shipped UI |
+| `POST` | `/portfolio/dividends/postings` | `{ accountId, dividendEventId, receivedCashAmount, receivedStockQuantity, deductions[] }` + `idempotency-key` header | `{ dividendEvent, dividendLedgerEntry, dividendDeductionEntries, linkedCashLedgerEntries, comparison }` | `postDividend`, Redis idempotency, `savePostedDividend` | not used by shipped UI |
 | `GET` | `/corporate-actions` | none | `CorporateAction[]` | `listCorporateActions` | not used by shipped UI |
 | `POST` | `/corporate-actions` | `{ accountId, symbol, actionType, numerator, denominator, actionDate }` | created `CorporateAction` | `applyCorporateAction`, `saveAccountingStore` | not used by shipped UI |
 

@@ -51,6 +51,7 @@ export interface AppDictionary {
     validationAtLeastOneProfile: string;
     validationProfileName: string;
     validationProfileNumbers: string;
+    validationProfileCurrency: string;
     validationDiscount: string;
     validationAccountProfile: string;
     validationBindingSymbol: string;
@@ -68,7 +69,8 @@ export interface AppDictionary {
     profileCommissionLabel: string;
     profileDiscountLabel: string;
     profileDiscountHint: string;
-    profileMinCommissionLabel: string;
+    profileMinimumCommissionLabel: string;
+    profileCommissionCurrencyLabel: string;
     profileCommissionRoundLabel: string;
     profileTaxRoundLabel: string;
     profileStockTaxLabel: string;
@@ -97,7 +99,8 @@ export interface AppDictionary {
     typeTerm: string;
     symbolTerm: string;
     quantityTerm: string;
-    priceTerm: string;
+    unitPriceTerm: string;
+    currencyTerm: string;
     tradeDateTerm: string;
     dayTradeTerm: string;
     typeBuy: string;
@@ -112,6 +115,7 @@ export interface AppDictionary {
     accountTerm: string;
     symbolTerm: string;
     quantityTerm: string;
+    currencyTerm: string;
     totalCostTerm: string;
   };
   feeProfiles: {
@@ -141,6 +145,7 @@ export interface AppDictionary {
     txSymbol: string;
     txQuantity: string;
     txPrice: string;
+    txCurrency: string;
     txTradeDate: string;
     txDayTrade: string;
     holdingsAccount: string;

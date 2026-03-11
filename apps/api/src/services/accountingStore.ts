@@ -133,14 +133,18 @@ export function deriveRealizedPnlForTrade(
     return undefined;
   }
 
-  const allocatedCostNtd = allocations.reduce((sum, allocation) => sum + allocation.allocatedCostNtd, 0);
-  const netProceeds = trade.quantity * trade.priceNtd - trade.commissionNtd - trade.taxNtd;
-  return netProceeds - allocatedCostNtd;
+  const allocatedCostAmount = allocations.reduce((sum, allocation) => sum + allocation.allocatedCostAmount, 0);
+  const netProceeds = trade.quantity * trade.unitPrice - trade.commissionAmount - trade.taxAmount;
+  return netProceeds - allocatedCostAmount;
 }
 
 export function syncTradeEventRealizedPnl(accounting: AccountingStore): void {
   for (const trade of accounting.facts.tradeEvents) {
-    trade.realizedPnlNtd = deriveRealizedPnlForTrade(accounting, trade);
+    trade.realizedPnlAmount = deriveRealizedPnlForTrade(accounting, trade);
+    trade.realizedPnlCurrency =
+      trade.realizedPnlAmount === undefined
+        ? undefined
+        : (trade.priceCurrency ?? trade.feeSnapshot.commissionCurrency ?? "TWD");
   }
 }
 
@@ -188,9 +192,15 @@ export function rebuildHoldingProjection(store: Store): HoldingProjection[] {
   for (const lot of store.accounting.projections.lots) {
     if (lot.openQuantity <= 0) continue;
     const key = `${lot.accountId}:${lot.symbol}`;
-    const current = keyMap.get(key) ?? { accountId: lot.accountId, symbol: lot.symbol, quantity: 0, costNtd: 0 };
+    const current = keyMap.get(key) ?? {
+      accountId: lot.accountId,
+      symbol: lot.symbol,
+      quantity: 0,
+      costBasisAmount: 0,
+      currency: lot.costCurrency,
+    };
     current.quantity += lot.openQuantity;
-    current.costNtd += lot.totalCostNtd;
+    current.costBasisAmount += lot.totalCostAmount;
     keyMap.set(key, current);
   }
 

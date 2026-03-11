@@ -1,6 +1,6 @@
 export interface Quote {
   symbol: string;
-  priceNtd: number;
+  unitPrice: number;
   asOf: string;
   source: string;
   dataQuality: "good" | "stale";
@@ -21,7 +21,7 @@ class MockPrimaryProvider implements MarketDataProvider {
     const now = new Date().toISOString();
     return symbols.map((symbol, idx) => ({
       symbol,
-      priceNtd: 100 + idx,
+      unitPrice: 100 + idx,
       asOf: now,
       source: this.name,
       dataQuality: "good",
@@ -36,7 +36,7 @@ class MockFallbackProvider implements MarketDataProvider {
     const now = new Date().toISOString();
     return symbols.map((symbol, idx) => ({
       symbol,
-      priceNtd: 90 + idx,
+      unitPrice: 90 + idx,
       asOf: now,
       source: this.name,
       dataQuality: "stale",

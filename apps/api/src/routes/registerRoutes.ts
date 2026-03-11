@@ -33,17 +33,23 @@ const symbolSchema = z
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
+const currencyCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/);
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
   symbol: symbolSchema,
   quantity: z.number().int().positive(),
-  priceNtd: z.number().int().positive(),
+  unitPrice: z.number().int().positive(),
+  priceCurrency: currencyCodeSchema.default("TWD"),
   tradeDate: isoDateSchema,
   tradeTimestamp: isoDateTimeSchema.optional(),
   bookingSequence: z.number().int().positive().optional(),
-  commissionNtd: z.number().int().nonnegative().optional(),
-  taxNtd: z.number().int().nonnegative().optional(),
+  commissionAmount: z.number().int().nonnegative().optional(),
+  taxAmount: z.number().int().nonnegative().optional(),
   type: z.enum(["BUY", "SELL"]),
   isDayTrade: z.boolean().default(false),
 });
@@ -52,7 +58,8 @@ const feeProfilePayloadSchema = z.object({
   name: z.string().trim().min(1).max(80),
   boardCommissionRate: z.number().nonnegative(),
   commissionDiscountPercent: z.number().min(0).max(100),
-  minCommissionNtd: z.number().int().nonnegative(),
+  minimumCommissionAmount: z.number().int().nonnegative(),
+  commissionCurrency: currencyCodeSchema.default("TWD"),
   commissionRoundingMode: z.enum(["FLOOR", "ROUND", "CEIL"]),
   taxRoundingMode: z.enum(["FLOOR", "ROUND", "CEIL"]),
   stockSellTaxRateBps: z.number().int().nonnegative(),
@@ -92,7 +99,7 @@ const dividendEventSchema = z.object({
   exDividendDate: isoDateSchema,
   paymentDate: isoDateSchema,
   cashDividendPerShare: z.number().nonnegative(),
-  cashDividendCurrency: z.literal("TWD").default("TWD"),
+  cashDividendCurrency: currencyCodeSchema.default("TWD"),
   stockDividendPerShare: z.number().nonnegative(),
   sourceType: userScopedIdSchema.default("manual_dividend_event"),
   sourceReference: userScopedIdSchema.optional(),
@@ -110,6 +117,7 @@ const dividendDeductionSchema = z.object({
     "OTHER",
   ]),
   amount: z.number().int().positive(),
+  currencyCode: currencyCodeSchema.default("TWD"),
   withheldAtSource: z.boolean().default(true),
   sourceType: userScopedIdSchema.default("dividend_posting"),
   sourceReference: userScopedIdSchema.optional(),
@@ -119,7 +127,7 @@ const dividendDeductionSchema = z.object({
 const dividendPostingSchema = z.object({
   accountId: userScopedIdSchema,
   dividendEventId: userScopedIdSchema,
-  receivedCashAmountNtd: z.number().int().nonnegative().default(0),
+  receivedCashAmount: z.number().int().nonnegative().default(0),
   receivedStockQuantity: z.number().int().nonnegative().default(0),
   deductions: z.array(dividendDeductionSchema).max(20).default([]),
 });
@@ -334,7 +342,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         name: draft.name,
         boardCommissionRate: draft.boardCommissionRate,
         commissionDiscountPercent: draft.commissionDiscountPercent,
-        minCommissionNtd: draft.minCommissionNtd,
+        minimumCommissionAmount: draft.minimumCommissionAmount,
+        commissionCurrency: draft.commissionCurrency,
         commissionRoundingMode: draft.commissionRoundingMode,
         taxRoundingMode: draft.taxRoundingMode,
         stockSellTaxRateBps: draft.stockSellTaxRateBps,
@@ -638,12 +647,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       id: randomUUID(),
       accountId: body.accountId,
       dividendEventId: body.dividendEventId,
-      receivedCashAmountNtd: body.receivedCashAmountNtd,
+      receivedCashAmount: body.receivedCashAmount,
       receivedStockQuantity: body.receivedStockQuantity,
       deductions: body.deductions.map((entry) => ({
         id: randomUUID(),
         deductionType: entry.deductionType,
         amount: entry.amount,
+        currencyCode: entry.currencyCode,
         withheldAtSource: entry.withheldAtSource,
         sourceType: entry.sourceType,
         sourceReference: entry.sourceReference,
@@ -776,7 +786,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           type: proposalType,
           symbol: symbolSchema.parse(symbol),
           quantity: z.coerce.number().int().positive().parse(qty),
-          priceNtd: z.coerce.number().int().positive().parse(price),
+          unitPrice: z.coerce.number().int().positive().parse(price),
+          priceCurrency: "TWD",
           tradeDate: isoDateSchema.parse(tradeDate),
         };
       });
@@ -794,7 +805,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               type: z.enum(["BUY", "SELL"]),
               symbol: symbolSchema,
               quantity: z.number().int().positive(),
-              priceNtd: z.number().int().positive(),
+              unitPrice: z.number().int().positive(),
+              priceCurrency: currencyCodeSchema.default("TWD"),
               tradeDate: isoDateSchema,
               isDayTrade: z.boolean().optional(),
             }),
@@ -814,7 +826,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         accountId: body.accountId,
         symbol: proposal.symbol,
         quantity: proposal.quantity,
-        priceNtd: proposal.priceNtd,
+        unitPrice: proposal.unitPrice,
+        priceCurrency: proposal.priceCurrency,
         tradeDate: proposal.tradeDate,
         type: proposal.type,
         isDayTrade: proposal.isDayTrade ?? false,

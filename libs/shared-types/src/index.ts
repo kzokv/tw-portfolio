@@ -1,6 +1,7 @@
 export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type LocaleCode = "en" | "zh-TW";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
+export type CurrencyCode = string;
 
 export interface UserSettings {
   userId: string;
@@ -14,7 +15,8 @@ export interface FeeProfileDto {
   name: string;
   boardCommissionRate: number;
   commissionDiscountPercent: number;
-  minCommissionNtd: number;
+  minimumCommissionAmount: number;
+  commissionCurrency: CurrencyCode;
   commissionRoundingMode: "FLOOR" | "ROUND" | "CEIL";
   taxRoundingMode: "FLOOR" | "ROUND" | "CEIL";
   stockSellTaxRateBps: number;
