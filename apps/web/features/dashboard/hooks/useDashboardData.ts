@@ -72,11 +72,12 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
   }, [refresh]);
 
   const synchronizeTransactionDraft = useCallback(
-    (previous: TransactionInput) => resolveTransactionDraftAccount(previous, snapshot.accounts),
-    [snapshot.accounts],
+    (previous: TransactionInput) =>
+      resolveTransactionDraftAccount(previous, snapshot.accounts, snapshot.feeProfiles, snapshot.feeProfileBindings),
+    [snapshot.accounts, snapshot.feeProfileBindings, snapshot.feeProfiles],
   );
   const synchronizeInitialTransactionDraft = useCallback(
-    () => resolveTransactionDraftAccount(initialTransaction, []),
+    () => resolveTransactionDraftAccount(initialTransaction, [], [], []),
     [initialTransaction],
   );
 

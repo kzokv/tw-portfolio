@@ -43,6 +43,7 @@ describe("settingsDraft helpers", () => {
   it("normalizes symbols before save", () => {
     const normalized = normalizeSettingsForm(createModel());
     expect(normalized.feeProfileBindings[0].symbol).toBe("2330");
+    expect(normalized.feeProfiles[0].commissionCurrency).toBe("TWD");
   });
 
   it("rebinds accounts and removes overrides when a profile is removed", () => {

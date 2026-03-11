@@ -31,12 +31,13 @@ export interface CreateTransactionInput {
   accountId: string;
   symbol: string;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: string;
   tradeDate: string;
   tradeTimestamp?: string;
   bookingSequence?: number;
-  commissionNtd?: number;
-  taxNtd?: number;
+  commissionAmount?: number;
+  taxAmount?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }
@@ -45,7 +46,8 @@ export interface HoldingsRow {
   accountId: string;
   symbol: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: string;
 }
 
 export function createTransaction(
@@ -59,22 +61,26 @@ export function createTransaction(
   const profile = resolveFeeProfileForTransaction(store, account.id, input.symbol, account.feeProfileId);
   const instrument = store.symbols.find((item) => item.ticker === input.symbol);
   if (!instrument) throw new Error("Unsupported symbol");
+  if (input.priceCurrency !== profile.commissionCurrency) {
+    throw new Error("Trade currency must match fee profile commission currency");
+  }
 
-  const tradeValueNtd = input.quantity * input.priceNtd;
+  const tradeValueAmount = input.quantity * input.unitPrice;
   assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
-  assertBookedCharge(input.commissionNtd, "Commission must be a non-negative integer");
-  assertBookedCharge(input.taxNtd, "Tax must be a non-negative integer");
+  assertBookedCharge(input.commissionAmount, "Commission must be a non-negative integer");
+  assertBookedCharge(input.taxAmount, "Tax must be a non-negative integer");
   const bookingSequence = resolveBookingSequence(store, input.accountId, input.tradeDate, input.bookingSequence);
   const suggestedFees =
     input.type === "BUY"
-      ? calculateBuyFees(profile, tradeValueNtd)
+      ? calculateBuyFees(profile, tradeValueAmount, input.priceCurrency)
       : calculateSellFees(profile, {
-          tradeValueNtd,
+          tradeValueAmount,
+          tradeCurrency: input.priceCurrency,
           instrumentType: instrument.type,
           isDayTrade: input.isDayTrade,
         });
-  const commissionNtd = input.commissionNtd ?? suggestedFees.commissionNtd;
-  const taxNtd = input.taxNtd ?? suggestedFees.taxNtd;
+  const commissionAmount = input.commissionAmount ?? suggestedFees.commissionAmount;
+  const taxAmount = input.taxAmount ?? suggestedFees.taxAmount;
 
   const tx: Transaction = {
     id: input.id,
@@ -84,11 +90,12 @@ export function createTransaction(
     instrumentType: instrument.type,
     type: input.type,
     quantity: input.quantity,
-    priceNtd: input.priceNtd,
+    unitPrice: input.unitPrice,
+    priceCurrency: input.priceCurrency,
     tradeDate: input.tradeDate,
     tradeTimestamp: input.tradeTimestamp ?? new Date(`${input.tradeDate}T00:00:00.000Z`).toISOString(),
-    commissionNtd,
-    taxNtd,
+    commissionAmount,
+    taxAmount,
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
     bookingSequence,
@@ -112,7 +119,8 @@ function applyToLots(store: Store, tx: Transaction): void {
       accountId: tx.accountId,
       symbol: tx.symbol,
       openQuantity: tx.quantity,
-      totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd + tx.taxNtd,
+      totalCostAmount: tx.unitPrice * tx.quantity + tx.commissionAmount + tx.taxAmount,
+      costCurrency: tx.priceCurrency,
       openedAt: tx.tradeDate,
       openedSequence: tx.bookingSequence,
     };
@@ -126,7 +134,8 @@ function applyToLots(store: Store, tx: Transaction): void {
 
   replaceLots(store, tx.accountId, tx.symbol, allocation.updatedLots);
   replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
-  tx.realizedPnlNtd = deriveRealizedPnlForTrade(store.accounting, tx);
+  tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
+  tx.realizedPnlCurrency = tx.priceCurrency;
 }
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
@@ -189,7 +198,8 @@ function buildLotAllocationProjections(
   matchedAllocations: Array<{
     lotId: string;
     quantity: number;
-    allocatedCostNtd: number;
+    allocatedCostAmount: number;
+    costCurrency: string;
     openedAt: string;
     openedSequence?: number;
   }>,
@@ -204,7 +214,8 @@ function buildLotAllocationProjections(
     lotOpenedAt: allocation.openedAt,
     lotOpenedSequence: allocation.openedSequence ?? 1,
     allocatedQuantity: allocation.quantity,
-    allocatedCostNtd: allocation.allocatedCostNtd,
+    allocatedCostAmount: allocation.allocatedCostAmount,
+    costCurrency: allocation.costCurrency,
     createdAt: tx.bookedAt,
   }));
 }
@@ -254,11 +265,11 @@ function assertBookedCharge(value: number | undefined, message: string): void {
 }
 
 function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueNtd = tx.quantity * tx.priceNtd;
-  const settlementAmountNtd =
+  const grossTradeValueAmount = tx.quantity * tx.unitPrice;
+  const settlementAmount =
     tx.type === "BUY"
-      ? -(grossTradeValueNtd + tx.commissionNtd + tx.taxNtd)
-      : grossTradeValueNtd - tx.commissionNtd - tx.taxNtd;
+      ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)
+      : grossTradeValueAmount - tx.commissionAmount - tx.taxAmount;
 
   return {
     id: `cash-${tx.id}`,
@@ -266,8 +277,8 @@ function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
     accountId: tx.accountId,
     entryDate: tx.tradeDate,
     entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
-    amountNtd: settlementAmountNtd,
-    currency: "TWD",
+    amount: settlementAmount,
+    currency: tx.priceCurrency,
     relatedTradeEventId: tx.id,
     sourceType: "trade_settlement",
     sourceReference: tx.id,

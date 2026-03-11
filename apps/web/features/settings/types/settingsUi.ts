@@ -1,11 +1,12 @@
-import type { CostBasisMethod, LocaleCode } from "@tw-portfolio/shared-types";
+import type { CostBasisMethod, CurrencyCode, LocaleCode } from "@tw-portfolio/shared-types";
 
 export interface SettingsProfileModel {
   id: string;
   name: string;
   boardCommissionRate: number;
   commissionDiscountPercent: number;
-  minCommissionNtd: number;
+  minimumCommissionAmount: number;
+  commissionCurrency: CurrencyCode;
   commissionRoundingMode: "FLOOR" | "ROUND" | "CEIL";
   taxRoundingMode: "FLOOR" | "ROUND" | "CEIL";
   stockSellTaxRateBps: number;

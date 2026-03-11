@@ -24,7 +24,8 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
   symbol: "2330",
   quantity: 1,
-  priceNtd: 100,
+  unitPrice: 100,
+  priceCurrency: "TWD",
   tradeDate: "2026-01-01",
   type: "BUY",
   isDayTrade: false,
@@ -173,7 +174,7 @@ export function AppShell() {
               value={transactionSubmission.draftTransaction}
               accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
               pending={transactionSubmission.isSubmitting}
-              onChange={transactionSubmission.setDraftTransaction}
+              onChange={(next) => transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next))}
               onSubmit={transactionSubmission.submit}
               dict={dict}
             />

@@ -28,23 +28,25 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
       : undefined;
     const fallbackProfileId = selectedProfile?.id ?? account.feeProfileId;
     const profile = symbolBinding ? mustGetProfile(store, symbolBinding.feeProfileId) : mustGetProfile(store, fallbackProfileId);
+    const tradeCurrency = tx.priceCurrency ?? profile.commissionCurrency ?? "TWD";
 
-    const tradeValue = tx.priceNtd * tx.quantity;
+    const tradeValue = tx.unitPrice * tx.quantity;
     const next =
       tx.type === "BUY"
-        ? calculateBuyFees(profile, tradeValue)
+        ? calculateBuyFees(profile, tradeValue, tradeCurrency)
         : calculateSellFees(profile, {
-            tradeValueNtd: tradeValue,
+            tradeValueAmount: tradeValue,
+            tradeCurrency,
             instrumentType: tx.instrumentType,
             isDayTrade: tx.isDayTrade,
           });
 
     return {
       transactionId: tx.id,
-      previousCommissionNtd: tx.commissionNtd,
-      previousTaxNtd: tx.taxNtd,
-      nextCommissionNtd: next.commissionNtd,
-      nextTaxNtd: next.taxNtd,
+      previousCommissionAmount: tx.commissionAmount,
+      previousTaxAmount: tx.taxAmount,
+      nextCommissionAmount: next.commissionAmount,
+      nextTaxAmount: next.taxAmount,
     };
   });
 
@@ -70,12 +72,16 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
     const tx = listTradeEvents(store).find((entry) => entry.id === item.transactionId);
     if (!tx) continue;
 
-    tx.commissionNtd = item.nextCommissionNtd;
-    tx.taxNtd = item.nextTaxNtd;
+    tx.commissionAmount = item.nextCommissionAmount;
+    tx.taxAmount = item.nextTaxAmount;
     replaceCashLedgerEntryForTrade(store, tx.id, buildTradeSettlementCashEntry(tx));
 
     if (tx.type === "SELL") {
-      tx.realizedPnlNtd = deriveRealizedPnlForTrade(store.accounting, tx);
+      tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
+      tx.realizedPnlCurrency =
+        tx.realizedPnlAmount === undefined
+          ? undefined
+          : (tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD");
     }
   }
 
@@ -90,11 +96,11 @@ function mustGetProfile(store: Store, profileId: string): FeeProfile {
 }
 
 function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueNtd = tx.quantity * tx.priceNtd;
-  const settlementAmountNtd =
+  const grossTradeValueAmount = tx.quantity * tx.unitPrice;
+  const settlementAmount =
     tx.type === "BUY"
-      ? -(grossTradeValueNtd + tx.commissionNtd + tx.taxNtd)
-      : grossTradeValueNtd - tx.commissionNtd - tx.taxNtd;
+      ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)
+      : grossTradeValueAmount - tx.commissionAmount - tx.taxAmount;
 
   return {
     id: `cash-${tx.id}`,
@@ -102,8 +108,8 @@ function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
     accountId: tx.accountId,
     entryDate: tx.tradeDate,
     entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
-    amountNtd: settlementAmountNtd,
-    currency: "TWD",
+    amount: settlementAmount,
+    currency: tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD",
     relatedTradeEventId: tx.id,
     sourceType: "trade_settlement",
     sourceReference: tx.id,

@@ -1,5 +1,6 @@
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import { formatCurrencyAmount } from "../../lib/utils";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Card } from "../ui/Card";
 import type { Holding } from "./types";
@@ -8,15 +9,6 @@ interface HoldingsTableProps {
   holdings: Holding[];
   dict: AppDictionary;
   locale: LocaleCode;
-}
-
-function formatNtd(value: number, locale: LocaleCode): string {
-  const intlLocale = locale === "zh-TW" ? "zh-TW" : "en-US";
-  return new Intl.NumberFormat(intlLocale, {
-    style: "currency",
-    currency: "TWD",
-    maximumFractionDigits: 0,
-  }).format(value);
 }
 
 export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
@@ -67,6 +59,7 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
                     />
                   </span>
                 </th>
+                <th className="px-4 py-3 text-left font-medium">{dict.holdings.currencyTerm}</th>
                 <th className="px-4 py-3 text-right font-medium">
                   <span className="flex items-center justify-end gap-1">
                     {dict.holdings.totalCostTerm}
@@ -86,7 +79,10 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
                   <td className="px-4 py-3.5">{holding.accountId}</td>
                   <td className="px-4 py-3.5 font-semibold tracking-[0.16em] text-slate-50">{holding.symbol}</td>
                   <td className="px-4 py-3.5">{holding.quantity}</td>
-                  <td className="px-4 py-3.5 text-right font-medium">{formatNtd(holding.costNtd, locale)}</td>
+                  <td className="px-4 py-3.5 font-mono text-xs uppercase tracking-[0.12em] text-slate-300">{holding.currency}</td>
+                  <td className="px-4 py-3.5 text-right font-medium">
+                    {formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}
+                  </td>
                 </tr>
               ))}
             </tbody>

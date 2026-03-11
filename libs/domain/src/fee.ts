@@ -1,34 +1,52 @@
 import { applyRounding, bpsAmount, permilleAmount } from "./money.js";
-import type { FeeProfile, InstrumentType } from "./types.js";
+import type { CurrencyCode, FeeProfile, InstrumentType } from "./types.js";
 
 export interface TradeFeeInput {
-  tradeValueNtd: number;
+  tradeValueAmount: number;
+  tradeCurrency: CurrencyCode;
   instrumentType: InstrumentType;
   isDayTrade: boolean;
 }
 
 export interface TradeFeeResult {
-  commissionNtd: number;
-  taxNtd: number;
+  commissionAmount: number;
+  taxAmount: number;
+  currency: CurrencyCode;
 }
 
-export function calculateBuyFees(profile: FeeProfile, tradeValueNtd: number): TradeFeeResult {
+export function calculateBuyFees(
+  profile: FeeProfile,
+  tradeValueAmount: number,
+  tradeCurrency: CurrencyCode,
+): TradeFeeResult {
+  const commissionCurrency = profile.commissionCurrency ?? "TWD";
+  if (tradeCurrency !== commissionCurrency) {
+    throw new Error("Trade currency must match fee profile commission currency");
+  }
+
   const discountMultiplier = 1 - profile.commissionDiscountPercent / 100;
-  const rawCommission = permilleAmount(tradeValueNtd, profile.boardCommissionRate) * discountMultiplier;
+  const rawCommission = permilleAmount(tradeValueAmount, profile.boardCommissionRate) * discountMultiplier;
   const roundedCommission = applyRounding(rawCommission, profile.commissionRoundingMode);
   return {
-    commissionNtd: Math.max(profile.minCommissionNtd, roundedCommission),
-    taxNtd: 0,
+    commissionAmount: Math.max(profile.minimumCommissionAmount, roundedCommission),
+    taxAmount: 0,
+    currency: tradeCurrency,
   };
 }
 
 export function calculateSellFees(profile: FeeProfile, input: TradeFeeInput): TradeFeeResult {
-  const buyLike = calculateBuyFees(profile, input.tradeValueNtd);
+  const commissionCurrency = profile.commissionCurrency ?? "TWD";
+  if (input.tradeCurrency !== commissionCurrency) {
+    throw new Error("Trade currency must match fee profile commission currency");
+  }
+
+  const buyLike = calculateBuyFees(profile, input.tradeValueAmount, input.tradeCurrency);
   const taxRateBps = resolveSellTaxRateBps(profile, input.instrumentType, input.isDayTrade);
-  const rawTax = bpsAmount(input.tradeValueNtd, taxRateBps);
+  const rawTax = bpsAmount(input.tradeValueAmount, taxRateBps);
   return {
-    commissionNtd: buyLike.commissionNtd,
-    taxNtd: applyRounding(rawTax, profile.taxRoundingMode),
+    commissionAmount: buyLike.commissionAmount,
+    taxAmount: applyRounding(rawTax, profile.taxRoundingMode),
+    currency: input.tradeCurrency,
   };
 }
 

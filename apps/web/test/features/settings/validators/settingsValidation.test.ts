@@ -14,7 +14,8 @@ function createValidModel(): SettingsFormModel {
         name: "Default Profile",
         boardCommissionRate: 1.425,
         commissionDiscountPercent: 60,
-        minCommissionNtd: 20,
+        minimumCommissionAmount: 20,
+        commissionCurrency: "TWD",
         commissionRoundingMode: "FLOOR",
         taxRoundingMode: "FLOOR",
         stockSellTaxRateBps: 30,
@@ -48,6 +49,13 @@ describe("validateSettingsForm", () => {
     model.feeProfiles[0].name = " ";
 
     expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationProfileName);
+  });
+
+  it("rejects invalid commission currencies", () => {
+    const model = createValidModel();
+    model.feeProfiles[0].commissionCurrency = "twd";
+
+    expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationProfileCurrency);
   });
 
   it("rejects invalid numeric values", () => {

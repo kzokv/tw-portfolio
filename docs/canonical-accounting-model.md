@@ -64,9 +64,9 @@ Current runtime fee settings still use integer `commissionRateBps`, which cannot
 
 ### 2. Currency-Normalized Structure
 
-Current runtime schema, shared types, and API naming still hard-code TWD or NTD assumptions in multiple places, such as `*_ntd` field names and TWD-only constraints.
+Current runtime schema, shared types, and API naming now use currency-neutral amount fields plus explicit currency codes for active contracts.
 
-The canonical target no longer encodes `Ntd` in field names. It uses explicit amount-plus-currency structures instead. Implementation cleanup for that runtime drift is tracked separately in `KZO-55`.
+The Taiwan MVP remains operationally TWD-first through defaults, but the runtime no longer encodes `Ntd` in active field names or enforces TWD-only deduction/event constraints at the schema-contract level.
 
 ## Model Classification
 
@@ -234,9 +234,9 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 
 ### Current Mapping
 
-- current runtime model stores legacy integer `commissionRateBps`, decimal `boardCommissionRate`, decimal `commissionDiscountPercent` (`% off`), and `minCommissionNtd`
-- current runtime precision is insufficient for exact `1.425‰`
-- canonical target is decimal-capable and currency-normalized
+- current runtime model stores legacy integer `commissionRateBps`, decimal `boardCommissionRate`, decimal `commissionDiscountPercent` (`% off`), `minimumCommissionAmount`, and `commissionCurrency`
+- current runtime precision is still insufficient for exact `1.425‰`
+- runtime naming is already currency-normalized for minimum commission
 
 ## `FeeProfileBinding`
 
@@ -323,10 +323,10 @@ Represents an immutable booked security trade fact for one account and one instr
 
 ### Current Mapping
 
-- current code name: `BookedTradeEvent` with `Transaction` retained as a compatibility alias
+- current code name: `BookedTradeEvent` with `Transaction` retained as a compatibility mirror
 - current canonical storage: `trade_events`
 - compatibility mirror: `transactions`
-- current runtime still uses `priceNtd`, `commissionNtd`, `taxNtd`, and integer fee-rate fields
+- current runtime stores `unitPrice`, `priceCurrency`, `commissionAmount`, `taxAmount`, and fee snapshots with explicit `commissionCurrency`
 
 ## `CashLedgerEntry`
 
@@ -375,7 +375,7 @@ Represents a first-class cash movement.
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
-- current runtime field naming still includes TWD-specific assumptions in some persistence surfaces
+- current runtime stores signed `amount` plus explicit `currency`
 
 ## `DividendEvent`
 
@@ -463,7 +463,7 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
-- current runtime naming still uses `expectedCashAmountNtd` and `receivedCashAmountNtd`
+- current runtime stores `expectedCashAmount` and `receivedCashAmount`; cash currency is carried by the related `DividendEvent.cashDividendCurrency`
 
 ## `DividendDeductionEntry`
 
@@ -498,7 +498,7 @@ Represents one typed deduction or adjustment attached to an account-level divide
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
-- current runtime still constrains deduction currency to TWD, but the canonical target is not TWD-only
+- current runtime stores explicit `currencyCode` and validates deduction currency against the parent dividend event cash currency rather than a global TWD-only rule
 
 ## `ReconciliationRecord`
 
@@ -588,7 +588,7 @@ Represents an immutable end-of-day portfolio summary.
 ### Current Mapping
 
 - current runtime persists daily portfolio snapshots
-- current field naming still carries `*_ntd` suffixes
+- current field naming uses `total*Amount` fields plus a snapshot-level `currency`
 
 ## `Lot`
 
@@ -646,16 +646,16 @@ The following rules constrain follow-on implementation work:
 | Canonical term | Current term | Notes |
 | --- | --- | --- |
 | `FeeProfile.boardCommissionRate` | `commissionRateBps` | Canonical target is decimal-capable and exact `1.425‰` aware |
-| `FeeProfile.minimumCommissionAmount` | `minCommissionNtd` | Canonical target is currency-normalized |
+| `FeeProfile.minimumCommissionAmount` | `minimumCommissionAmount` | Runtime naming is now currency-normalized |
 | `FeeProfileBinding` | `account_fee_profile_overrides` | Same behavioral role |
 | `TradeEvent` | `Transaction` | Keep current implementation name during migration, but use canonical name in new specs |
-| `TradeEvent.bookedCommissionAmount` | `commissionNtd` | Canonical target keeps booked commission as a fact but not as the primary user input shape |
-| `TradeEvent.bookedTaxAmount` | `taxNtd` | Canonical target is currency-normalized |
+| `TradeEvent.bookedCommissionAmount` | `commissionAmount` | Runtime naming is now currency-normalized |
+| `TradeEvent.bookedTaxAmount` | `taxAmount` | Runtime naming is now currency-normalized |
 | `CashLedgerEntry` | `cash_ledger_entries` | Already implemented |
 | `DividendEvent` | `dividend_events` | Already implemented |
 | `DividendLedgerEntry` | `dividend_ledger_entries` | Already implemented |
 | `DividendDeductionEntry` | `dividend_deduction_entries` | Already implemented |
-| `DailyPortfolioSnapshot` | `daily_portfolio_snapshots` | Current runtime naming still uses `*_ntd` |
+| `DailyPortfolioSnapshot` | `daily_portfolio_snapshots` | Runtime naming now uses `total*Amount` fields plus `currency` |
 | `Lot` | `Lot` | Keep as derived state |
 
 ## Invariant Matrix
@@ -963,7 +963,7 @@ The model should preserve the current implementation path while making future wo
 
 ### Phase 3
 
-- normalize runtime schema, types, and API shapes away from `Ntd`-encoded naming, following the structure defined here and tracked in `KZO-55`
+- completed in current runtime through `KZO-55`: schema, types, API shapes, and web-facing contracts now use currency-neutral amount names with explicit currency fields
 
 ### Phase 4
 
@@ -978,7 +978,7 @@ The intended downstream mapping is:
 - `KZO-15`: schema foundation and evolution for cash ledger, dividends, reconciliation, snapshots, and fee-policy precision
 - `KZO-16`: store and persistence contracts around accounting aggregates
 - `KZO-51`: immutable correction contract for posted facts
-- `KZO-55`: currency normalization across accounting schema, shared types, settings, and API naming
+- `KZO-55`: implemented currency normalization across accounting schema, shared types, settings, API naming, and web form behavior
 - `KZO-24`, `KZO-34`, `KZO-36`: first write paths using the canonical model
 - `KZO-29`, `KZO-30`, `KZO-31`: import and reconciliation behaviors constrained by this document
 
@@ -992,7 +992,7 @@ The following decisions are locked for the current MVP:
 - symbol-level fee override remains the highest-precedence user-configurable fee-policy path
 - regulated sell-tax defaults remain configurable in config or schema but are visible read-mostly values, not normal broker settings users are encouraged to tune
 - canonical board commission rate defaults to exact `1.425‰`
-- canonical field naming is currency-normalized even where current runtime naming is not
+- canonical field naming is currency-normalized and current runtime naming is now aligned with that structure
 - broker rebate campaigns are represented as separate cash ledger events, not trade mutation
 
 ## Explicit Non-Goals for This Issue
@@ -1000,6 +1000,5 @@ The following decisions are locked for the current MVP:
 - no schema migration implementation
 - no API route implementation
 - no UI implementation
-- no full rename of current code symbols
 - no full multi-currency feature delivery
 - no FX conversion engine

@@ -1029,6 +1029,8 @@ The following sections describe product behavior for support and verification. T
 
 - Open settings from the top-right avatar. Drawer URL state is `/?drawer=settings` for direct linking.
 - Tabs: **General** and **Fee Profiles**. **Save Settings** persists locale, poll interval, weighted-average cost basis, and fee profiles atomically via `/settings/full`. Fee profiles support account fallback and per-security overrides; new profile IDs are system-generated (UUID). **Discard Changes** reverts unsaved edits without closing the drawer. Closing with unsaved edits shows a warning.
+- In **Fee Profiles**, **Commission Currency** is a dropdown. The UI ships with common options and also preserves already-saved currency codes present in the loaded profile set.
+- In **Record Transaction**, the **Currency** field is display-only. It is disabled in the form and is derived from the effective fee profile for the selected account and symbol. Change it from **Settings > Fee Profiles**, not from the transaction card.
 
 ### 13.3 Localization
 

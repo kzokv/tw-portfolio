@@ -6,7 +6,8 @@ const profile: FeeProfile = {
   name: "default",
   boardCommissionRate: 1.425,
   commissionDiscountPercent: 0,
-  minCommissionNtd: 20,
+  minimumCommissionAmount: 20,
+  commissionCurrency: "TWD",
   commissionRoundingMode: "FLOOR",
   taxRoundingMode: "FLOOR",
   stockSellTaxRateBps: 30,
@@ -18,13 +19,13 @@ const profile: FeeProfile = {
 
 describe("fee calculation", () => {
   it("applies min commission", () => {
-    const fee = calculateBuyFees(profile, 10_000);
-    expect(fee.commissionNtd).toBe(20);
+    const fee = calculateBuyFees(profile, 10_000, "TWD");
+    expect(fee.commissionAmount).toBe(20);
   });
 
   it("supports the exact Taiwan default board rate", () => {
-    const fee = calculateBuyFees(profile, 600_000);
-    expect(fee.commissionNtd).toBe(855);
+    const fee = calculateBuyFees(profile, 600_000, "TWD");
+    expect(fee.commissionAmount).toBe(855);
   });
 
   it("applies percent-off discounts before rounding and minimums", () => {
@@ -32,28 +33,31 @@ describe("fee calculation", () => {
       {
         ...profile,
         commissionDiscountPercent: 60,
-        minCommissionNtd: 0,
+        minimumCommissionAmount: 0,
       },
       600_000,
+      "TWD",
     );
-    expect(discounted.commissionNtd).toBe(342);
+    expect(discounted.commissionAmount).toBe(342);
   });
 
   it("applies stock sell tax", () => {
     const fee = calculateSellFees(profile, {
-      tradeValueNtd: 1_000_000,
+      tradeValueAmount: 1_000_000,
+      tradeCurrency: "TWD",
       instrumentType: "STOCK",
       isDayTrade: false,
     });
-    expect(fee.taxNtd).toBe(3000);
+    expect(fee.taxAmount).toBe(3000);
   });
 
   it("applies day trade sell tax", () => {
     const fee = calculateSellFees(profile, {
-      tradeValueNtd: 1_000_000,
+      tradeValueAmount: 1_000_000,
+      tradeCurrency: "TWD",
       instrumentType: "STOCK",
       isDayTrade: true,
     });
-    expect(fee.taxNtd).toBe(1500);
+    expect(fee.taxAmount).toBe(1500);
   });
 });

@@ -32,7 +32,8 @@ export function createDraftProfile(seed: number): SettingsProfileModel {
     name: "New Fee Profile",
     boardCommissionRate: 1.425,
     commissionDiscountPercent: 100,
-    minCommissionNtd: 20,
+    minimumCommissionAmount: 20,
+    commissionCurrency: "TWD",
     commissionRoundingMode: "FLOOR",
     taxRoundingMode: "FLOOR",
     stockSellTaxRateBps: 30,
@@ -46,6 +47,10 @@ export function createDraftProfile(seed: number): SettingsProfileModel {
 export function normalizeSettingsForm(input: SettingsFormModel): SettingsFormModel {
   return {
     ...input,
+    feeProfiles: input.feeProfiles.map((profile) => ({
+      ...profile,
+      commissionCurrency: profile.commissionCurrency.trim().toUpperCase(),
+    })),
     feeProfileBindings: input.feeProfileBindings.map((binding) => ({
       ...binding,
       symbol: binding.symbol.trim().toUpperCase(),

@@ -26,7 +26,7 @@ export interface CreateDividendEventInput {
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
-  cashDividendCurrency: "TWD";
+  cashDividendCurrency: string;
   stockDividendPerShare: number;
   sourceType: string;
   sourceReference?: string;
@@ -36,12 +36,13 @@ export interface PostDividendInput {
   id: string;
   accountId: string;
   dividendEventId: string;
-  receivedCashAmountNtd: number;
+  receivedCashAmount: number;
   receivedStockQuantity: number;
   deductions: Array<{
     id: string;
     deductionType: DividendDeductionType;
     amount: number;
+    currencyCode: string;
     withheldAtSource: boolean;
     sourceType: string;
     sourceReference?: string;
@@ -50,9 +51,9 @@ export interface PostDividendInput {
 }
 
 export interface DividendPostingComparison {
-  expectedCashAmountNtd: number;
-  actualCashEconomicAmountNtd: number;
-  cashVarianceAmountNtd: number;
+  expectedCashAmount: number;
+  actualCashEconomicAmount: number;
+  cashVarianceAmount: number;
   expectedStockQuantity: number;
   actualStockQuantity: number;
   stockVarianceQuantity: number;
@@ -79,7 +80,7 @@ export function createDividendEvent(store: Store, input: CreateDividendEventInpu
 }
 
 export function postDividend(store: Store, userId: string, input: PostDividendInput): PostDividendResult {
-  if (input.receivedCashAmountNtd === 0 && input.receivedStockQuantity === 0 && input.deductions.length === 0) {
+  if (input.receivedCashAmount === 0 && input.receivedStockQuantity === 0 && input.deductions.length === 0) {
     throw new Error("Dividend posting must include cash, stock, or deductions");
   }
 
@@ -104,7 +105,7 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
 
   const postedEntry: DividendLedgerEntry = {
     ...expectedEntry,
-    receivedCashAmountNtd: input.receivedCashAmountNtd,
+    receivedCashAmount: input.receivedCashAmount,
     receivedStockQuantity: input.receivedStockQuantity,
     postingStatus: expectedEntry.postingStatus === "expected" ? "posted" : expectedEntry.postingStatus,
     reconciliationStatus: "open",
@@ -117,13 +118,20 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
   replaceCashLedgerEntriesForDividend(store, postedEntry.id, linkedCashLedgerEntries);
 
   if (postedEntry.receivedStockQuantity > 0) {
-    upsertStockDividendLot(store, account.id, dividendEvent.symbol, dividendEvent.paymentDate, postedEntry);
+    upsertStockDividendLot(
+      store,
+      account.id,
+      dividendEvent.symbol,
+      dividendEvent.paymentDate,
+      dividendEvent.cashDividendCurrency,
+      postedEntry,
+    );
   } else {
     rebuildHoldingProjection(store);
   }
 
-  const actualCashEconomicAmountNtd =
-    postedEntry.receivedCashAmountNtd +
+  const actualCashEconomicAmount =
+    postedEntry.receivedCashAmount +
     deductions.filter((entry) => entry.withheldAtSource).reduce((sum, entry) => sum + entry.amount, 0);
 
   return {
@@ -132,9 +140,9 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
     dividendDeductionEntries: deductions,
     linkedCashLedgerEntries,
     comparison: {
-      expectedCashAmountNtd: postedEntry.expectedCashAmountNtd,
-      actualCashEconomicAmountNtd,
-      cashVarianceAmountNtd: actualCashEconomicAmountNtd - postedEntry.expectedCashAmountNtd,
+      expectedCashAmount: postedEntry.expectedCashAmount,
+      actualCashEconomicAmount,
+      cashVarianceAmount: actualCashEconomicAmount - postedEntry.expectedCashAmount,
       expectedStockQuantity: postedEntry.expectedStockQuantity,
       actualStockQuantity: postedEntry.receivedStockQuantity,
       stockVarianceQuantity: postedEntry.receivedStockQuantity - postedEntry.expectedStockQuantity,
@@ -154,9 +162,9 @@ function materializeExpectedDividendEntry(
     accountId,
     dividendEventId: dividendEvent.id,
     eligibleQuantity,
-    expectedCashAmountNtd: calculateExpectedCashAmountNtd(eligibleQuantity, dividendEvent.cashDividendPerShare),
+    expectedCashAmount: calculateExpectedCashAmount(eligibleQuantity, dividendEvent.cashDividendPerShare),
     expectedStockQuantity: calculateExpectedStockQuantity(eligibleQuantity, dividendEvent.stockDividendPerShare),
-    receivedCashAmountNtd: 0,
+    receivedCashAmount: 0,
     receivedStockQuantity: 0,
     postingStatus: "expected",
     reconciliationStatus: "open",
@@ -197,7 +205,7 @@ function buildDividendDeductions(
     dividendLedgerEntryId,
     deductionType: entry.deductionType,
     amount: entry.amount,
-    currencyCode: "TWD",
+    currencyCode: entry.currencyCode,
     withheldAtSource: entry.withheldAtSource,
     sourceType: entry.sourceType,
     sourceReference: entry.sourceReference,
@@ -217,14 +225,14 @@ function buildDividendCashLedgerEntries(
   const entryDate = dividendEvent.paymentDate;
   const bookedAt = dividendLedgerEntry.bookedAt ?? new Date(`${entryDate}T00:00:00.000Z`).toISOString();
 
-  if (dividendLedgerEntry.receivedCashAmountNtd > 0) {
+  if (dividendLedgerEntry.receivedCashAmount > 0) {
     entries.push({
       id: `${dividendLedgerEntry.id}:receipt`,
       userId,
       accountId,
       entryDate,
       entryType: "DIVIDEND_RECEIPT",
-      amountNtd: dividendLedgerEntry.receivedCashAmountNtd,
+      amount: dividendLedgerEntry.receivedCashAmount,
       currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
       sourceType: "dividend_posting",
@@ -234,13 +242,17 @@ function buildDividendCashLedgerEntries(
   }
 
   for (const deduction of deductions) {
+    if (deduction.currencyCode !== dividendEvent.cashDividendCurrency) {
+      throw new Error("Dividend deduction currency must match dividend cash currency");
+    }
+
     entries.push({
       id: `${dividendLedgerEntry.id}:deduction:${deduction.id}`,
       userId,
       accountId,
       entryDate,
       entryType: "DIVIDEND_DEDUCTION",
-      amountNtd: -deduction.amount,
+      amount: -deduction.amount,
       currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
       sourceType: deduction.sourceType,
@@ -258,6 +270,7 @@ function upsertStockDividendLot(
   accountId: string,
   symbol: string,
   paymentDate: string,
+  costCurrency: string,
   dividendLedgerEntry: DividendLedgerEntry,
 ): void {
   const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === accountId && lot.symbol === symbol);
@@ -273,7 +286,8 @@ function upsertStockDividendLot(
       accountId,
       symbol,
       openQuantity: dividendLedgerEntry.receivedStockQuantity,
-      totalCostNtd: 0,
+      totalCostAmount: 0,
+      costCurrency,
       openedAt: paymentDate,
       openedSequence: nextSequence,
     },
@@ -289,7 +303,7 @@ function deriveEligibleQuantity(store: Store, accountId: string, symbol: string,
   );
 }
 
-function calculateExpectedCashAmountNtd(eligibleQuantity: number, cashDividendPerShare: number): number {
+function calculateExpectedCashAmount(eligibleQuantity: number, cashDividendPerShare: number): number {
   return roundCurrencyAmount(eligibleQuantity * cashDividendPerShare);
 }
 

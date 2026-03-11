@@ -18,7 +18,7 @@ interface FeeConfigResponse {
 }
 
 interface TransactionApiResponse {
-  commissionNtd: number;
+  commissionAmount: number;
   feeSnapshot: { id: string };
 }
 
@@ -51,7 +51,8 @@ test.describe("settings binding affects transaction fees", () => {
         name: "E2E Zero Fee",
         boardCommissionRate: 0,
         commissionDiscountPercent: 0,
-        minCommissionNtd: 0,
+        minimumCommissionAmount: 0,
+        commissionCurrency: "TWD",
         commissionRoundingMode: "FLOOR",
         taxRoundingMode: "FLOOR",
         stockSellTaxRateBps: 0,
@@ -111,7 +112,7 @@ test.describe("settings binding affects transaction fees", () => {
     });
     await page.getByTestId("tx-submit-button").click();
     const boundResponse = (await (await boundTx).json()) as TransactionApiResponse;
-    expect(boundResponse.commissionNtd).toBe(0);
+    expect(boundResponse.commissionAmount).toBe(0);
     expect(boundResponse.feeSnapshot.id).toBe(zeroFeeProfile.id);
 
     await page.getByTestId("tx-symbol-input").fill("0050");
@@ -120,7 +121,7 @@ test.describe("settings binding affects transaction fees", () => {
     });
     await page.getByTestId("tx-submit-button").click();
     const fallbackResponse = (await (await fallbackTx).json()) as TransactionApiResponse;
-    expect(fallbackResponse.commissionNtd).toBeGreaterThan(0);
+    expect(fallbackResponse.commissionAmount).toBeGreaterThan(0);
     expect(fallbackResponse.feeSnapshot.id).not.toBe(zeroFeeProfile.id);
 
     await openSettingsDrawer(page);

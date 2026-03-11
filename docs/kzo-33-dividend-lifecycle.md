@@ -57,7 +57,7 @@ This ticket does not define:
 
 - it preserves deduction detail without flattening all withheld amounts into one summary field
 - it stores `amount` plus explicit `currencyCode`
-- for Wave 2 Taiwan MVP, `currencyCode` is fixed to `TWD`
+- for the current runtime, `currencyCode` is explicit and must match the parent dividend event cash currency
 - downstream summary totals may be projected from these rows, but the child rows are the source of truth
 
 ### `CashLedgerEntry`
@@ -124,11 +124,11 @@ Required meaning:
 
 For cash dividends:
 
-- `expectedCashAmountNtd` is the gross expected cash entitlement before deductions
-- `receivedCashAmountNtd` is the net cash actually credited to the account
+- `expectedCashAmount` is the gross expected cash entitlement before deductions
+- `receivedCashAmount` is the net cash actually credited to the account
 - deductions such as supplemental premium, withholding tax, or rounding adjustments are booked as typed `DividendDeductionEntry` rows linked to the dividend ledger entry
 
-For this contract, the ledger amount field names still use `Ntd` because that is the current MVP naming. The lifecycle semantics are currency-agnostic. Wave 2 implementation should persist explicit `currencyCode = TWD` on typed deduction rows so later normalization can remain additive rather than implicit.
+The lifecycle semantics are currency-aware. Cash amounts use neutral amount fields, while cash currency is carried by the related `DividendEvent.cashDividendCurrency`. Typed deduction rows persist their own `currencyCode` and must match the parent dividend cash currency.
 
 For stock dividends:
 
@@ -181,7 +181,7 @@ Expected and actual values must remain separately visible at all times.
 
 For cash dividends, the comparable actual cash result is:
 
-- `receivedCashAmountNtd + sum(at-source DividendDeductionEntry.amount)`
+- `receivedCashAmount + sum(at-source DividendDeductionEntry.amount)`
 
 That preserves a clean distinction between gross expectation, net credited cash, and explicit withheld deductions.
 
@@ -246,7 +246,7 @@ That enforcement should live in persistence, not only service logic. The downstr
 
 - `DividendEvent`
 - active `DividendLedgerEntry` records with expected and actual fields
-- typed `DividendDeductionEntry` rows with explicit `currencyCode = TWD`
+- typed `DividendDeductionEntry` rows with explicit `currencyCode`
 - the active-record rule for `(accountId, dividendEventId)`
 - explicit reversal linkage and persistence-level enforcement of the active-row predicate
 
@@ -259,7 +259,7 @@ It should not redefine lifecycle meaning from this document.
 - deriving and materializing the active expected entry before payment posting
 - loading the active expected entry for posting
 - booking actual cash and stock values
-- recording typed dividend deduction rows with explicit `currencyCode = TWD`
+- recording typed dividend deduction rows with explicit `currencyCode`
 - creating linked `CashLedgerEntry` records for cash receipt and deductions
 - driving stock-dividend holdings or inventory effects through the non-cash stock path
 - comparing expected vs actual results without mutating reference data

@@ -18,5 +18,8 @@ vitest-report
 apps/api/test/**/*.js
 apps/api/test/**/*.js.map
 apps/api/test/**/*.d.ts
+libs/*/src/*.js
+libs/*/src/*.js.map
+libs/*/src/*.d.ts
 
 **/plans/**.md

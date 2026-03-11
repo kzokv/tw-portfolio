@@ -1,18 +1,22 @@
+import type { CurrencyCode } from "@tw-portfolio/shared-types";
+
 export interface Holding {
   accountId: string;
   symbol: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
 }
 
 export interface TransactionInput {
   accountId: string;
   symbol: string;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
   tradeDate: string;
-  commissionNtd?: number;
-  taxNtd?: number;
+  commissionAmount?: number;
+  taxAmount?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }

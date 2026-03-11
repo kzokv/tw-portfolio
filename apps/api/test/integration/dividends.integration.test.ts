@@ -20,10 +20,10 @@ describe("dividends", () => {
       headers: { "idempotency-key": "k-dividend-buy" },
       payload: transactionPayload({
         quantity: 10,
-        priceNtd: 100,
+        unitPrice: 100,
         tradeDate: "2026-01-15",
-        commissionNtd: 0,
-        taxNtd: 0,
+        commissionAmount: 0,
+        taxAmount: 0,
       }),
     });
 
@@ -48,7 +48,7 @@ describe("dividends", () => {
       headers: { "idempotency-key": "k-dividend-posting" },
       payload: dividendPostingPayload({
         dividendEventId: dividendEvent.id,
-        receivedCashAmountNtd: 108,
+        receivedCashAmount: 108,
         deductions: [
           {
             deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
@@ -63,9 +63,9 @@ describe("dividends", () => {
     expect(postingResponse.statusCode).toBe(200);
     const posting = postingResponse.json();
     expect(posting.comparison).toEqual({
-      expectedCashAmountNtd: 120,
-      actualCashEconomicAmountNtd: 120,
-      cashVarianceAmountNtd: 0,
+      expectedCashAmount: 120,
+      actualCashEconomicAmount: 120,
+      cashVarianceAmount: 0,
       expectedStockQuantity: 0,
       actualStockQuantity: 0,
       stockVarianceQuantity: 0,
@@ -78,8 +78,8 @@ describe("dividends", () => {
         accountId: "acc-1",
         dividendEventId: dividendEvent.id,
         eligibleQuantity: 10,
-        expectedCashAmountNtd: 120,
-        receivedCashAmountNtd: 108,
+        expectedCashAmount: 120,
+        receivedCashAmount: 108,
         postingStatus: "posted",
         reconciliationStatus: "open",
       }),
@@ -105,12 +105,12 @@ describe("dividends", () => {
         expect.objectContaining({
           relatedDividendLedgerEntryId: posting.dividendLedgerEntry.id,
           entryType: "DIVIDEND_RECEIPT",
-          amountNtd: 108,
+          amount: 108,
         }),
         expect.objectContaining({
           relatedDividendLedgerEntryId: posting.dividendLedgerEntry.id,
           entryType: "DIVIDEND_DEDUCTION",
-          amountNtd: -12,
+          amount: -12,
         }),
       ]),
     );
@@ -123,10 +123,10 @@ describe("dividends", () => {
       headers: { "idempotency-key": "k-stock-dividend-buy" },
       payload: transactionPayload({
         quantity: 10,
-        priceNtd: 100,
+        unitPrice: 100,
         tradeDate: "2026-01-15",
-        commissionNtd: 0,
-        taxNtd: 0,
+        commissionAmount: 0,
+        taxAmount: 0,
       }),
     });
 
@@ -150,7 +150,7 @@ describe("dividends", () => {
       headers: { "idempotency-key": "k-stock-dividend-posting" },
       payload: dividendPostingPayload({
         dividendEventId: dividendEvent.id,
-        receivedCashAmountNtd: 0,
+        receivedCashAmount: 0,
         receivedStockQuantity: 1,
         deductions: [],
       }),
@@ -166,7 +166,8 @@ describe("dividends", () => {
         accountId: "acc-1",
         symbol: "2330",
         quantity: 11,
-        costNtd: 1_000,
+        costBasisAmount: 1_000,
+        currency: "TWD",
       },
     ]);
   });

@@ -1,4 +1,4 @@
-import type { FeeProfile, InstrumentType, Lot } from "@tw-portfolio/domain";
+import type { CurrencyCode, FeeProfile, InstrumentType, Lot } from "@tw-portfolio/domain";
 import type { UserSettings } from "@tw-portfolio/shared-types";
 
 export interface Account {
@@ -29,13 +29,15 @@ export interface BookedTradeEvent {
   instrumentType: InstrumentType;
   type: TransactionType;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
   tradeDate: string;
-  commissionNtd: number;
-  taxNtd: number;
+  commissionAmount: number;
+  taxAmount: number;
   isDayTrade: boolean;
   feeSnapshot: FeeProfile;
-  realizedPnlNtd?: number;
+  realizedPnlAmount?: number;
+  realizedPnlCurrency?: CurrencyCode;
   tradeTimestamp?: string;
   bookingSequence?: number;
   sourceType?: string;
@@ -60,8 +62,8 @@ export interface CashLedgerEntry {
   accountId: string;
   entryDate: string;
   entryType: CashLedgerEntryType;
-  amountNtd: number;
-  currency: "TWD";
+  amount: number;
+  currency: CurrencyCode;
   relatedTradeEventId?: string;
   relatedDividendLedgerEntryId?: string;
   sourceType: string;
@@ -80,7 +82,7 @@ export interface DividendEvent {
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
-  cashDividendCurrency: "TWD";
+  cashDividendCurrency: CurrencyCode;
   stockDividendPerShare: number;
   sourceType: string;
   sourceReference?: string;
@@ -95,9 +97,9 @@ export interface DividendLedgerEntry {
   accountId: string;
   dividendEventId: string;
   eligibleQuantity: number;
-  expectedCashAmountNtd: number;
+  expectedCashAmount: number;
   expectedStockQuantity: number;
-  receivedCashAmountNtd: number;
+  receivedCashAmount: number;
   receivedStockQuantity: number;
   postingStatus: DividendPostingStatus;
   reconciliationStatus: DividendReconciliationStatus;
@@ -120,7 +122,7 @@ export interface DividendDeductionEntry {
   dividendLedgerEntryId: string;
   deductionType: DividendDeductionType;
   amount: number;
-  currencyCode: "TWD";
+  currencyCode: CurrencyCode;
   withheldAtSource: boolean;
   sourceType: string;
   sourceReference?: string;
@@ -129,10 +131,10 @@ export interface DividendDeductionEntry {
 }
 export interface RecomputePreviewItem {
   transactionId: string;
-  previousCommissionNtd: number;
-  previousTaxNtd: number;
-  nextCommissionNtd: number;
-  nextTaxNtd: number;
+  previousCommissionAmount: number;
+  previousTaxAmount: number;
+  nextCommissionAmount: number;
+  nextTaxAmount: number;
 }
 
 export interface RecomputeJob {
@@ -161,7 +163,8 @@ export interface HoldingProjection {
   accountId: string;
   symbol: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
 }
 
 export interface LotAllocationProjection {
@@ -174,20 +177,22 @@ export interface LotAllocationProjection {
   lotOpenedAt: string;
   lotOpenedSequence: number;
   allocatedQuantity: number;
-  allocatedCostNtd: number;
+  allocatedCostAmount: number;
+  costCurrency: CurrencyCode;
   createdAt?: string;
 }
 
 export interface DailyPortfolioSnapshot {
   id: string;
   snapshotDate: string;
-  totalMarketValueNtd: number;
-  totalCostNtd: number;
-  totalUnrealizedPnlNtd: number;
-  totalRealizedPnlNtd: number;
-  totalDividendReceivedNtd: number;
-  totalCashBalanceNtd: number;
-  totalNavNtd: number;
+  totalMarketValueAmount: number;
+  totalCostAmount: number;
+  totalUnrealizedPnlAmount: number;
+  totalRealizedPnlAmount: number;
+  totalDividendReceivedAmount: number;
+  totalCashBalanceAmount: number;
+  totalNavAmount: number;
+  currency: CurrencyCode;
   generatedAt: string;
   generationRunId: string;
 }
