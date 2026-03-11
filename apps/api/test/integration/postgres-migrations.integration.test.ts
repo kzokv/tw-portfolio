@@ -365,12 +365,12 @@ describePostgres("postgres migrations", () => {
       await client.query(
         `INSERT INTO fee_profiles (
            id, user_id, name, commission_rate_bps, commission_discount_bps,
-           min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
+           minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
            stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
            bond_etf_sell_tax_rate_bps
          ) VALUES (
            'user-1-fp-default', 'user-1', 'Default Broker', 14, 7200,
-           20, 'FLOOR', 'FLOOR',
+           20, 'TWD', 'FLOOR', 'FLOOR',
            30, 15, 10,
            0
          )`,
