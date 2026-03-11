@@ -59,17 +59,21 @@ describePostgres("postgres migrations", () => {
     }
   }
 
-  async function applyNumberedMigrations(): Promise<void> {
-    const manifest = await migrationManifestPromise;
+  async function applyMigrationFiles(files: string[]): Promise<void> {
     const client = await pool.connect();
     try {
-      for (const file of manifest.numberedMigrations) {
+      for (const file of files) {
         const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
         await client.query(migrationSql);
       }
     } finally {
       client.release();
     }
+  }
+
+  async function applyNumberedMigrations(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    await applyMigrationFiles(manifest.numberedMigrations);
   }
 
   async function applyBaselineMigration(): Promise<void> {
@@ -87,6 +91,81 @@ describePostgres("postgres migrations", () => {
       await client.query(baselineSql);
     } finally {
       client.release();
+    }
+  }
+
+  async function seedAppliedMigrationLedger(appliedMigrations: string[]): Promise<void> {
+    await pool.query(
+      `CREATE TABLE schema_migrations (
+         name TEXT PRIMARY KEY,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO schema_migrations (name)
+       SELECT migration_name
+       FROM unnest($1::text[]) AS migration_name`,
+      [appliedMigrations],
+    );
+  }
+
+  async function seedLegacyRecomputeOrphan(options?: { simulatePartial010?: boolean }): Promise<void> {
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('user-1', 'user-1@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await pool.query(
+      `INSERT INTO fee_profiles (
+         id, user_id, name, commission_rate_bps, commission_discount_bps,
+         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
+         bond_etf_sell_tax_rate_bps, board_commission_rate, commission_discount_percent
+       ) VALUES (
+         'fp-1', 'user-1', 'Default', 14, 7200,
+         20, 'TWD', 'FLOOR', 'FLOOR',
+         30, 15, 10,
+         0, 1.425, 28
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+       VALUES ('acc-1', 'user-1', 'Main', 'fp-1')`,
+    );
+    await pool.query(
+      `INSERT INTO transactions (
+         id, user_id, account_id, symbol, instrument_type, tx_type,
+         quantity, unit_price, trade_date, commission_amount, tax_amount,
+         is_day_trade, fee_profile_id, fee_snapshot_json, realized_pnl_amount, price_currency
+       ) VALUES (
+         '54553566-a7a3-4088-ba7c-5773de255917', 'user-1', 'acc-1', '2330', 'STOCK', 'BUY',
+         10, 100, DATE '2026-03-01', 20, 0,
+         false, 'fp-1',
+         '{"id":"fp-1","name":"Default","commissionRateBps":14,"commissionDiscountBps":7200,"minCommissionNtd":20}',
+         NULL, 'TWD'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO recompute_jobs (id, user_id, account_id, profile_id, status, created_at)
+       VALUES ('job-1', 'user-1', 'acc-1', 'fp-1', 'PREVIEWED', TIMESTAMP '2026-03-02 00:00:00')`,
+    );
+    await pool.query(
+      `INSERT INTO recompute_job_items (
+         id, job_id, transaction_id, previous_commission_amount, previous_tax_amount,
+         next_commission_amount, next_tax_amount
+       ) VALUES (
+         'item-1', 'job-1', '54553566-a7a3-4088-ba7c-5773de255917', 20, 0,
+         18, 0
+       )`,
+    );
+
+    if (options?.simulatePartial010) {
+      await pool.query(`ALTER TABLE recompute_job_items ADD COLUMN IF NOT EXISTS trade_event_id TEXT`);
+      await pool.query(
+        `UPDATE recompute_job_items
+         SET trade_event_id = transaction_id
+         WHERE trade_event_id IS NULL`,
+      );
+      await pool.query(`ALTER TABLE recompute_job_items ALTER COLUMN trade_event_id SET NOT NULL`);
     }
   }
 
@@ -352,17 +431,10 @@ describePostgres("postgres migrations", () => {
     await resetPublicSchema();
     await applyBaselineMigration();
 
-    await pool.query(
-      `CREATE TABLE schema_migrations (
-         name TEXT PRIMARY KEY,
-         applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-       )`,
-    );
-    await pool.query(
-      `INSERT INTO schema_migrations (name)
-       SELECT migration_name
-       FROM unnest($1::text[]) AS migration_name`,
-      [manifest.numberedMigrations.filter((name) => !["009_retire_twd_ntd_fields.sql", "010_trade_snapshot_recompute_normalization.sql"].includes(name))],
+    await seedAppliedMigrationLedger(
+      manifest.numberedMigrations.filter(
+        (name) => !["009_retire_twd_ntd_fields.sql", "010_trade_snapshot_recompute_normalization.sql"].includes(name),
+      ),
     );
 
     persistence = new PostgresPersistence({
@@ -374,6 +446,68 @@ describePostgres("postgres migrations", () => {
     const migrationLedger = await pool.query<{ name: string }>(
       "SELECT name FROM schema_migrations ORDER BY name",
     );
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+  });
+
+  it("drops orphaned recompute preview rows before adding the trade event foreign key", async () => {
+    const manifest = await migrationManifestPromise;
+    const pre010Migrations = manifest.numberedMigrations.filter(
+      (name) => name !== "010_trade_snapshot_recompute_normalization.sql",
+    );
+    await resetPublicSchema();
+    await applyMigrationFiles(pre010Migrations);
+    await seedAppliedMigrationLedger(pre010Migrations);
+    await seedLegacyRecomputeOrphan();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const [recomputeItems, recomputeJobs, migrationLedger, transactionIdColumn] = await Promise.all([
+      pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM recompute_job_items"),
+      pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM recompute_jobs"),
+      pool.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY name"),
+      pool.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'recompute_job_items'
+           AND column_name = 'transaction_id'`,
+      ),
+    ]);
+
+    expect(recomputeItems.rows[0]?.count).toBe("0");
+    expect(recomputeJobs.rows[0]?.count).toBe("0");
+    expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
+    expect(transactionIdColumn.rows).toHaveLength(0);
+  });
+
+  it("recovers from a partially failed 010 retry with orphaned recompute rows", async () => {
+    const manifest = await migrationManifestPromise;
+    const pre010Migrations = manifest.numberedMigrations.filter(
+      (name) => name !== "010_trade_snapshot_recompute_normalization.sql",
+    );
+    await resetPublicSchema();
+    await applyMigrationFiles(pre010Migrations);
+    await seedAppliedMigrationLedger(pre010Migrations);
+    await seedLegacyRecomputeOrphan({ simulatePartial010: true });
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const [recomputeItems, recomputeJobs, migrationLedger] = await Promise.all([
+      pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM recompute_job_items"),
+      pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM recompute_jobs"),
+      pool.query<{ name: string }>("SELECT name FROM schema_migrations ORDER BY name"),
+    ]);
+
+    expect(recomputeItems.rows[0]?.count).toBe("0");
+    expect(recomputeJobs.rows[0]?.count).toBe("0");
     expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
   });
 

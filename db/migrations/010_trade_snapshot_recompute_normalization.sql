@@ -111,6 +111,20 @@ UPDATE recompute_job_items
 SET trade_event_id = transaction_id
 WHERE trade_event_id IS NULL;
 
+DELETE FROM recompute_job_items AS item
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM trade_events AS trade_event
+  WHERE trade_event.id = item.trade_event_id
+);
+
+DELETE FROM recompute_jobs AS job
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM recompute_job_items AS item
+  WHERE item.job_id = job.id
+);
+
 ALTER TABLE recompute_job_items
   ALTER COLUMN trade_event_id SET NOT NULL;
 
