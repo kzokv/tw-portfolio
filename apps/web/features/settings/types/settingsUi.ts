@@ -3,7 +3,7 @@ import type { CostBasisMethod, LocaleCode } from "@tw-portfolio/shared-types";
 export interface SettingsProfileModel {
   id: string;
   name: string;
-  commissionRateBps: number;
+  boardCommissionRate: number;
   commissionDiscountBps: number;
   minCommissionNtd: number;
   commissionRoundingMode: "FLOOR" | "ROUND" | "CEIL";
@@ -12,6 +12,7 @@ export interface SettingsProfileModel {
   stockDayTradeTaxRateBps: number;
   etfSellTaxRateBps: number;
   bondEtfSellTaxRateBps: number;
+  commissionChargeMode: "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 }
 
 export interface SettingsAccountBindingModel {

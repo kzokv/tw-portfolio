@@ -37,7 +37,7 @@ export function transactionPayload(
 
 const defaultFeeProfile = {
   name: "Test Profile",
-  commissionRateBps: 0,
+  boardCommissionRate: 0,
   commissionDiscountBps: 10000,
   minCommissionNtd: 0,
   commissionRoundingMode: "FLOOR" as const,
@@ -46,6 +46,7 @@ const defaultFeeProfile = {
   stockDayTradeTaxRateBps: 0,
   etfSellTaxRateBps: 0,
   bondEtfSellTaxRateBps: 0,
+  commissionChargeMode: "CHARGED_UPFRONT" as const,
 };
 
 export function feeProfilePayload(
@@ -85,6 +86,7 @@ export function dividendEventPayload(overrides: Record<string, unknown> = {}) {
     exDividendDate: "2026-02-01",
     paymentDate: "2026-02-20",
     cashDividendPerShare: 12,
+    cashDividendCurrency: "TWD",
     stockDividendPerShare: 0,
     sourceType: "manual_dividend_event",
     ...overrides,

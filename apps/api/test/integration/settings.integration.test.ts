@@ -123,7 +123,7 @@ describe("settings", () => {
     const createdProfileResponse = await app.inject({
       method: "POST",
       url: "/fee-profiles",
-      payload: feeProfilePayload({ name: "Alt Profile", commissionRateBps: 1 }),
+      payload: feeProfilePayload({ name: "Alt Profile", boardCommissionRate: 0.1 }),
     });
     expect(createdProfileResponse.statusCode).toBe(200);
     const createdProfile = createdProfileResponse.json();
@@ -166,7 +166,7 @@ describe("settings", () => {
           {
             tempId: "tmp-new-profile",
             name: "Temp Profile",
-            commissionRateBps: 14,
+            boardCommissionRate: 1.425,
             commissionDiscountBps: 10000,
             minCommissionNtd: 20,
             commissionRoundingMode: "FLOOR",
@@ -175,6 +175,7 @@ describe("settings", () => {
             stockDayTradeTaxRateBps: 15,
             etfSellTaxRateBps: 10,
             bondEtfSellTaxRateBps: 0,
+            commissionChargeMode: "CHARGED_UPFRONT",
           },
         ],
         accounts: feeConfigBody.accounts.map((account: { id: string }, index: number) => ({

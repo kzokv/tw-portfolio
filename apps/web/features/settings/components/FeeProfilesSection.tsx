@@ -18,8 +18,9 @@ const PROFILE_FIELDS: Array<{
   key: keyof SettingsProfileModel;
   label: keyof AppDictionary["settings"];
   min?: number;
+  step?: number;
 }> = [
-  { key: "commissionRateBps", label: "profileCommissionLabel", min: 0 },
+  { key: "boardCommissionRate", label: "profileCommissionLabel", min: 0, step: 0.001 },
   { key: "commissionDiscountBps", label: "profileDiscountLabel", min: 1 },
   { key: "minCommissionNtd", label: "profileMinCommissionLabel", min: 0 },
   { key: "stockSellTaxRateBps", label: "profileStockTaxLabel", min: 0 },
@@ -88,6 +89,7 @@ export function FeeProfilesSection({
                   <input
                     type="number"
                     min={field.min}
+                    step={field.step}
                     value={profile[field.key] as number}
                     onChange={(event) => onUpdateProfileField(profile.id, field.key, Number(event.target.value) || 0)}
                     className={fieldClassName}
@@ -118,6 +120,18 @@ export function FeeProfilesSection({
                   <option value="FLOOR">FLOOR</option>
                   <option value="ROUND">ROUND</option>
                   <option value="CEIL">CEIL</option>
+                </select>
+              </label>
+
+              <label className="space-y-2 text-xs text-slate-400">
+                Commission Charge Mode
+                <select
+                  value={profile.commissionChargeMode}
+                  onChange={(event) => onUpdateProfileField(profile.id, "commissionChargeMode", event.target.value)}
+                  className={fieldClassName}
+                >
+                  <option value="CHARGED_UPFRONT">CHARGED_UPFRONT</option>
+                  <option value="CHARGED_UPFRONT_REBATED_LATER">CHARGED_UPFRONT_REBATED_LATER</option>
                 </select>
               </label>
             </div>

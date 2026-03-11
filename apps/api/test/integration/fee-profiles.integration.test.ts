@@ -42,7 +42,7 @@ describe("fee-profiles", () => {
     const createdProfileResponse = await app.inject({
       method: "POST",
       url: "/fee-profiles",
-      payload: feeProfilePayload({ name: "Tx Profile", commissionRateBps: 2 }),
+      payload: feeProfilePayload({ name: "Tx Profile", boardCommissionRate: 0.2 }),
     });
     const profile = createdProfileResponse.json();
 

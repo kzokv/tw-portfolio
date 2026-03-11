@@ -5,7 +5,7 @@ export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileM
   return {
     id: profile.id,
     name: profile.name,
-    commissionRateBps: profile.commissionRateBps,
+    boardCommissionRate: profile.boardCommissionRate,
     commissionDiscountBps: profile.commissionDiscountBps,
     minCommissionNtd: profile.minCommissionNtd,
     commissionRoundingMode: profile.commissionRoundingMode,
@@ -14,6 +14,7 @@ export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileM
     stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
     etfSellTaxRateBps: profile.etfSellTaxRateBps,
     bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+    commissionChargeMode: profile.commissionChargeMode,
   };
 }
 
@@ -50,7 +51,7 @@ export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsReq
     feeProfiles: model.feeProfiles.map((profile) => {
       const payload = {
         name: profile.name,
-        commissionRateBps: profile.commissionRateBps,
+        boardCommissionRate: profile.boardCommissionRate,
         commissionDiscountBps: profile.commissionDiscountBps,
         minCommissionNtd: profile.minCommissionNtd,
         commissionRoundingMode: profile.commissionRoundingMode,
@@ -59,6 +60,7 @@ export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsReq
         stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
         etfSellTaxRateBps: profile.etfSellTaxRateBps,
         bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+        commissionChargeMode: profile.commissionChargeMode,
       };
 
       if (profile.id.startsWith("tmp-")) {

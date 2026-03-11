@@ -69,9 +69,9 @@ export class PostgresPersistence implements Persistence {
     );
 
     const feeProfilesResult = await this.pool.query(
-      `SELECT id, name, commission_rate_bps, commission_discount_bps, min_commission_ntd,
+      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_bps, min_commission_ntd,
               commission_rounding_mode, tax_rounding_mode,
-              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
               etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
        FROM fee_profiles
        WHERE user_id = $1
@@ -132,7 +132,7 @@ export class PostgresPersistence implements Persistence {
 
     const dividendEventsResult = await this.pool.query(
       `SELECT id, symbol, event_type, ex_dividend_date, payment_date,
-              cash_dividend_per_share, stock_dividend_per_share,
+              cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
               source_type, source_reference, created_at
        FROM dividend_events
        ORDER BY ex_dividend_date, id`,
@@ -211,7 +211,7 @@ export class PostgresPersistence implements Persistence {
     const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) => ({
       id: row.id,
       name: row.name,
-      commissionRateBps: row.commission_rate_bps,
+      boardCommissionRate: Number(row.board_commission_rate ?? row.commission_rate_bps / 10),
       commissionDiscountBps: row.commission_discount_bps,
       minCommissionNtd: row.min_commission_ntd,
       commissionRoundingMode: row.commission_rounding_mode,
@@ -220,6 +220,7 @@ export class PostgresPersistence implements Persistence {
       stockDayTradeTaxRateBps: row.stock_day_trade_tax_rate_bps,
       etfSellTaxRateBps: row.etf_sell_tax_rate_bps,
       bondEtfSellTaxRateBps: row.bond_etf_sell_tax_rate_bps,
+      commissionChargeMode: row.commission_charge_mode ?? "CHARGED_UPFRONT",
     }));
 
     const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
@@ -251,7 +252,7 @@ export class PostgresPersistence implements Persistence {
       commissionNtd: row.commission_ntd,
       taxNtd: row.tax_ntd,
       isDayTrade: row.is_day_trade,
-      feeSnapshot: JSON.parse(row.fee_snapshot_json),
+      feeSnapshot: normalizeFeeProfile(JSON.parse(row.fee_snapshot_json)),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -282,6 +283,7 @@ export class PostgresPersistence implements Persistence {
       exDividendDate: normalizeDate(row.ex_dividend_date),
       paymentDate: normalizeDate(row.payment_date),
       cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
@@ -449,20 +451,21 @@ export class PostgresPersistence implements Persistence {
       for (const profile of store.feeProfiles) {
         const upsertProfile = await client.query(
           `INSERT INTO fee_profiles (
-             id, user_id, name, commission_rate_bps, commission_discount_bps,
+             id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_bps,
              min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
-             bond_etf_sell_tax_rate_bps
+             bond_etf_sell_tax_rate_bps, commission_charge_mode
            ) VALUES (
-             $1, $2, $3, $4, $5,
-             $6, $7, $8,
-             $9, $10, $11,
-             $12
+             $1, $2, $3, $4, $5, $6,
+             $7, $8, $9,
+             $10, $11, $12,
+             $13, $14
            )
            ON CONFLICT (id)
            DO UPDATE SET
              name = EXCLUDED.name,
              commission_rate_bps = EXCLUDED.commission_rate_bps,
+             board_commission_rate = EXCLUDED.board_commission_rate,
              commission_discount_bps = EXCLUDED.commission_discount_bps,
              min_commission_ntd = EXCLUDED.min_commission_ntd,
              commission_rounding_mode = EXCLUDED.commission_rounding_mode,
@@ -470,13 +473,15 @@ export class PostgresPersistence implements Persistence {
              stock_sell_tax_rate_bps = EXCLUDED.stock_sell_tax_rate_bps,
              stock_day_trade_tax_rate_bps = EXCLUDED.stock_day_trade_tax_rate_bps,
              etf_sell_tax_rate_bps = EXCLUDED.etf_sell_tax_rate_bps,
-             bond_etf_sell_tax_rate_bps = EXCLUDED.bond_etf_sell_tax_rate_bps
+             bond_etf_sell_tax_rate_bps = EXCLUDED.bond_etf_sell_tax_rate_bps,
+             commission_charge_mode = EXCLUDED.commission_charge_mode
            WHERE fee_profiles.user_id = EXCLUDED.user_id`,
           [
             profile.id,
             store.userId,
             profile.name,
-            profile.commissionRateBps,
+            legacyCommissionRateBps(profile.boardCommissionRate),
+            profile.boardCommissionRate,
             profile.commissionDiscountBps,
             profile.minCommissionNtd,
             profile.commissionRoundingMode,
@@ -485,6 +490,7 @@ export class PostgresPersistence implements Persistence {
             profile.stockDayTradeTaxRateBps,
             profile.etfSellTaxRateBps,
             profile.bondEtfSellTaxRateBps,
+            profile.commissionChargeMode,
           ],
         );
 
@@ -769,7 +775,7 @@ export class PostgresPersistence implements Persistence {
           cashEntry.entryDate,
           cashEntry.entryType,
           cashEntry.amountNtd,
-          cashEntry.currency,
+          cashEntry.currency ?? "TWD",
           cashEntry.relatedTradeEventId ?? null,
           cashEntry.relatedDividendLedgerEntryId ?? null,
           cashEntry.sourceType,
@@ -910,12 +916,12 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO dividend_events (
            id, symbol, event_type, ex_dividend_date, payment_date,
-           cash_dividend_per_share, stock_dividend_per_share,
+           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
            source_type, source_reference, created_at
          ) VALUES (
            $1, $2, $3, $4, $5,
-           $6, $7,
-           $8, $9, $10
+           $6, $7, $8,
+           $9, $10, $11
          )
          ON CONFLICT (id)
          DO UPDATE SET
@@ -924,6 +930,7 @@ export class PostgresPersistence implements Persistence {
            ex_dividend_date = EXCLUDED.ex_dividend_date,
            payment_date = EXCLUDED.payment_date,
            cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
+           cash_dividend_currency = EXCLUDED.cash_dividend_currency,
            stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
            source_type = EXCLUDED.source_type,
            source_reference = EXCLUDED.source_reference`,
@@ -934,6 +941,7 @@ export class PostgresPersistence implements Persistence {
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
+          dividendEvent.cashDividendCurrency ?? "TWD",
           dividendEvent.stockDividendPerShare,
           dividendEvent.sourceType,
           dividendEvent.sourceReference ?? null,
@@ -1035,7 +1043,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.entryDate,
             cashEntry.entryType,
             cashEntry.amountNtd,
-            cashEntry.currency,
+            cashEntry.currency ?? "TWD",
             cashEntry.relatedTradeEventId ?? null,
             cashEntry.relatedDividendLedgerEntryId ?? null,
             cashEntry.sourceType,
@@ -1145,15 +1153,15 @@ export class PostgresPersistence implements Persistence {
 
     await this.pool.query(
       `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, commission_discount_bps,
+         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_bps,
          min_commission_ntd, commission_rounding_mode, tax_rounding_mode,
          stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
+         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
        ) VALUES (
-         $1, $2, 'Default Broker', 14, 10000,
+         $1, $2, 'Default Broker', 14, 1.425, 10000,
          20, 'FLOOR', 'FLOOR',
          30, 15,
-         10, 0
+         10, 0, 'CHARGED_UPFRONT'
        )
        ON CONFLICT (id) DO NOTHING`,
       [feeProfileId, userId],
@@ -1211,12 +1219,12 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO dividend_events (
            id, symbol, event_type, ex_dividend_date, payment_date,
-           cash_dividend_per_share, stock_dividend_per_share,
+           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
            source_type, source_reference, created_at
          ) VALUES (
            $1, $2, $3, $4, $5,
-           $6, $7,
-           $8, $9, $10
+           $6, $7, $8,
+           $9, $10, $11
          )
          ON CONFLICT (id)
          DO UPDATE SET
@@ -1225,6 +1233,7 @@ export class PostgresPersistence implements Persistence {
            ex_dividend_date = EXCLUDED.ex_dividend_date,
            payment_date = EXCLUDED.payment_date,
            cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
+           cash_dividend_currency = EXCLUDED.cash_dividend_currency,
            stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
            source_type = EXCLUDED.source_type,
            source_reference = EXCLUDED.source_reference`,
@@ -1235,6 +1244,7 @@ export class PostgresPersistence implements Persistence {
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
+          dividendEvent.cashDividendCurrency ?? "TWD",
           dividendEvent.stockDividendPerShare,
           dividendEvent.sourceType,
           dividendEvent.sourceReference ?? null,
@@ -1357,7 +1367,7 @@ export class PostgresPersistence implements Persistence {
           entry.entryDate,
           entry.entryType,
           entry.amountNtd,
-          entry.currency,
+          entry.currency ?? "TWD",
           entry.relatedTradeEventId ?? null,
           entry.relatedDividendLedgerEntryId ?? null,
           entry.sourceType,
@@ -1652,4 +1662,33 @@ function normalizeDate(value: string | Date): string {
 function normalizeDateTime(value: string | Date): string {
   if (typeof value === "string") return new Date(value).toISOString();
   return value.toISOString();
+}
+
+function legacyCommissionRateBps(boardCommissionRate: number): number {
+  return Math.round(boardCommissionRate * 10);
+}
+
+function normalizeFeeProfile(value: unknown): FeeProfile {
+  if (!value || typeof value !== "object") {
+    throw new Error("invalid fee snapshot");
+  }
+
+  const snapshot = value as Partial<FeeProfile> & { commissionRateBps?: number };
+  return {
+    id: String(snapshot.id),
+    name: String(snapshot.name),
+    boardCommissionRate:
+      typeof snapshot.boardCommissionRate === "number"
+        ? snapshot.boardCommissionRate
+        : Number((snapshot.commissionRateBps ?? 0) / 10),
+    commissionDiscountBps: Number(snapshot.commissionDiscountBps ?? 0),
+    minCommissionNtd: Number(snapshot.minCommissionNtd ?? 0),
+    commissionRoundingMode: snapshot.commissionRoundingMode ?? "FLOOR",
+    taxRoundingMode: snapshot.taxRoundingMode ?? "FLOOR",
+    stockSellTaxRateBps: Number(snapshot.stockSellTaxRateBps ?? 0),
+    stockDayTradeTaxRateBps: Number(snapshot.stockDayTradeTaxRateBps ?? 0),
+    etfSellTaxRateBps: Number(snapshot.etfSellTaxRateBps ?? 0),
+    bondEtfSellTaxRateBps: Number(snapshot.bondEtfSellTaxRateBps ?? 0),
+    commissionChargeMode: snapshot.commissionChargeMode ?? "CHARGED_UPFRONT",
+  };
 }

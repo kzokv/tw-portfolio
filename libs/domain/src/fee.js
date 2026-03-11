@@ -1,6 +1,6 @@
-import { applyRounding, bpsAmount } from "./money.js";
+import { applyRounding, bpsAmount, permilleAmount } from "./money.js";
 export function calculateBuyFees(profile, tradeValueNtd) {
-    const rawCommission = bpsAmount(tradeValueNtd, Math.floor((profile.commissionRateBps * profile.commissionDiscountBps) / 10_000));
+    const rawCommission = permilleAmount(tradeValueNtd, profile.boardCommissionRate) * (profile.commissionDiscountBps / 10_000);
     const roundedCommission = applyRounding(rawCommission, profile.commissionRoundingMode);
     return {
         commissionNtd: Math.max(profile.minCommissionNtd, roundedCommission),
