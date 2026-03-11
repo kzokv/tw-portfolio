@@ -11,7 +11,7 @@ Its job is to set the contract for:
 - database schema direction
 - QA example coverage
 
-This is a definition document, not an implementation document. It should guide `KZO-12` through `KZO-16`.
+This is a definition document, not an implementation document. It should guide `KZO-12` through `KZO-16`, `KZO-51`, and the follow-on accounting and settings work that depends on a stable model.
 
 ## KZO-11 Output Contract
 
@@ -30,19 +30,43 @@ This issue does not require schema, API, or UI implementation. It does require e
 
 ## Current Baseline
 
-The current system persists these first-class records:
+The current runtime already persists first-class accounting records beyond the legacy trade simulator model.
 
-- `Transaction`
-- `Lot`
-- `CorporateAction`
-- `RecomputeJob`
+Canonical runtime accounting reads come from:
 
-This is enough for a trade simulator and holdings calculator, but not enough for an accounting-first product. The MVP also needs first-class support for:
+- `trade_events`
+- `cash_ledger_entries`
+- `dividend_events`
+- `dividend_ledger_entries`
+- `dividend_deduction_entries`
+- `lots`
+- `lot_allocations`
+- `daily_portfolio_snapshots`
 
-- cash movement tracking
-- dividend bookkeeping
-- reconciliation workflow
-- end-of-day portfolio snapshots
+Compatibility or workflow tables still matter:
+
+- `transactions`
+- `corporate_actions`
+- `recompute_jobs`
+- `reconciliation_records`
+
+This means the MVP is no longer at the stage where cash ledger and dividend ledger are future concepts. Those concepts already exist in runtime and must be reflected as current canonical entities in this document.
+
+## Runtime Drift To Track
+
+The canonical target model intentionally gets ahead of two known implementation gaps.
+
+### 1. Exact Taiwan Commission Precision
+
+Taiwan listed-securities board commission should default to the exact public baseline `1.425‰`.
+
+Current runtime fee settings still use integer `commissionRateBps`, which cannot represent `1.425‰` exactly. The canonical target therefore replaces integer `commissionRateBps` with a decimal-capable board commission rate field.
+
+### 2. Currency-Normalized Structure
+
+Current runtime schema, shared types, and API naming still hard-code TWD or NTD assumptions in multiple places, such as `*_ntd` field names and TWD-only constraints.
+
+The canonical target no longer encodes `Ntd` in field names. It uses explicit amount-plus-currency structures instead. Implementation cleanup for that runtime drift is tracked separately in `KZO-55`.
 
 ## Model Classification
 
@@ -54,8 +78,8 @@ Booked facts are records that represent posted accounting reality. They are appe
 
 - `TradeEvent`
 - `CashLedgerEntry`
-- `DividendEvent`
 - `DividendLedgerEntry`
+- `DividendDeductionEntry`
 - `ReconciliationRecord`
 
 ### 2. Derived or Materialized State
@@ -69,22 +93,23 @@ Derived state is reproducible from booked facts and reference data.
 
 ### 3. Reference and Configuration Data
 
-Reference/config data may suggest values or provide metadata, but it is not itself a booked accounting fact.
+Reference or configuration data may suggest values or provide metadata, but it is not itself a booked accounting fact.
 
 - `Account`
 - `SymbolDef`
 - `FeeProfile`
 - `FeeProfileBinding`
+- `DividendEvent`
 
 ## Core Principles
 
 ### Reference Data vs Booked Facts
 
-The system may calculate a suggested value from reference/config data, but the final booked fact must be stored independently.
+The system may calculate a suggested or default value from reference or configuration data, but the final booked fact must be stored independently.
 
 Examples:
 
-- fee profile is reference/config data
+- fee profile is reference or configuration data
 - booked commission on a posted trade is a booked fact
 - declared dividend schedule is reference data
 - received dividend cash for one account is a booked fact
@@ -98,6 +123,21 @@ Examples:
 - lots derive from posted trade events
 - holdings derive from lots or from trade-event projections
 - daily portfolio snapshots derive from holdings, cash ledger, and end-of-day pricing
+
+### Fee Policy vs Booked Charges
+
+Fee policy and booked charges are different concepts.
+
+- board commission rate, broker discount, minimum commission, and charge mode belong to fee policy
+- booked commission amount belongs to the posted trade fact
+- later campaign rebate cash belongs to cash ledger, not to silent mutation of the original trade
+
+The user-facing model should not center on manual free-form commission entry. The canonical path is:
+
+1. resolve fee policy
+2. derive booked commission and tax
+3. persist those booked values on the trade
+4. persist the fee policy snapshot used at booking time
 
 ### Auditability
 
@@ -116,6 +156,19 @@ For posted `TradeEvent`, `CashLedgerEntry`, and `DividendLedgerEntry` facts:
 - the correction chain must complete atomically across the parent fact, generated reversal rows, replacement rows, and any required projection refresh
 - external traceability metadata such as `sourceReference` remains separate from internal correction-chain linkage
 
+### Currency Normalization
+
+The canonical model must be structurally currency-aware even while the Taiwan MVP remains operationally TWD-first.
+
+Use these naming patterns in canonical entities:
+
+- money amount fields: `amount` plus `currency`
+- unit price fields: `unitPrice` plus `priceCurrency`
+- deduction fields: `amount` plus `currencyCode`
+- snapshot totals: normalized amount fields plus a snapshot-level `currency`
+
+Do not encode `Ntd` in canonical field names.
+
 ### Cross-Market Cost Basis Strategy
 
 The MVP currently targets weighted average cost as the primary bookkeeping experience. That remains acceptable for Taiwan-focused bookkeeping views, but it should not become the only long-term cost basis model if the product plans to support US and Australian equities.
@@ -127,12 +180,6 @@ The canonical direction is:
 - allow bookkeeping views to present weighted average cost
 - keep tax-lot or parcel selection available for market-specific tax reporting
 
-Rationale:
-
-- US tax reporting for ordinary stock generally relies on specific identification, with FIFO as the fallback if shares sold are not adequately identified
-- average basis in the US is generally limited to certain mutual fund or DRIP contexts rather than ordinary stock as a universal default
-- Australian CGT recordkeeping is parcel-oriented, with cost base tracked at share or parcel level
-
 Therefore:
 
 - `weighted average cost` should be treated as the default bookkeeping and portfolio-view method
@@ -140,6 +187,83 @@ Therefore:
 - market-specific tax reporting should remain configurable rather than hard-coded to weighted average
 
 ## Canonical Entities
+
+## `FeeProfile`
+
+### Purpose
+
+Represents broker fee policy and regulated sell-tax defaults used to derive booked trade charges.
+
+### MVP Responsibility
+
+- store broker fee assumptions separately from posted trade facts
+- provide account-level defaults and symbol-level override targets
+- persist regulated sell-tax defaults in the same policy surface for transparent calculation
+
+### Canonical Fields
+
+- `id`
+- `userId`
+- `name`
+- `boardCommissionRate`
+- `commissionDiscount`
+- `minimumCommissionAmount`
+- `commissionCurrency`
+- `commissionRoundingMode`
+- `taxRoundingMode`
+- `stockSellTaxRate`
+- `stockDayTradeTaxRate`
+- `etfSellTaxRate`
+- `bondEtfSellTaxRate`
+- `commissionChargeMode`
+
+### Canonical Defaults
+
+- `boardCommissionRate` defaults to exact `1.425‰`
+- stock sell tax defaults to `0.3%`
+- stock day-trade sell tax defaults to `0.15%`
+- ETF sell tax defaults to `0.1%`
+- bond ETF sell tax defaults to `0%` for as long as the applicable exemption remains in force
+
+### Invariants
+
+- board commission rate, broker discount, and minimum commission remain separate values
+- commission defaults are user-visible for transparency, but sell-tax defaults are regulated settings rather than ordinary broker preferences
+- sell-tax values may remain configurable in schema or settings, but normal product behavior should treat them as read-mostly and discourage routine editing
+- fee profiles are reference or configuration data, not booked accounting facts
+
+### Current Mapping
+
+- current runtime model stores integer `commissionRateBps`, integer `commissionDiscountBps`, and `minCommissionNtd`
+- current runtime precision is insufficient for exact `1.425‰`
+- canonical target is decimal-capable and currency-normalized
+
+## `FeeProfileBinding`
+
+### Purpose
+
+Represents an account-and-symbol mapping from a tradable instrument to the fee profile that should override the account default.
+
+### MVP Responsibility
+
+- support broker-specific or instrument-specific fee policy overrides
+- preserve simple precedence without forcing per-trade manual fee policy entry
+
+### Canonical Fields
+
+- `accountId`
+- `symbol`
+- `feeProfileId`
+
+### Invariants
+
+- account default fee profile is the fallback
+- account and symbol binding wins over the account default
+- at most one active binding exists per `(accountId, symbol)`
+
+### Current Mapping
+
+- implemented in runtime as account and symbol fee profile overrides
 
 ## `TradeEvent`
 
@@ -151,6 +275,7 @@ Represents an immutable booked security trade fact for one account and one instr
 
 - record what trade was posted
 - capture booked fee and tax values used for accounting
+- persist the fee policy snapshot that produced those booked values
 - act as the source fact for position and realized P&L derivation
 
 ### Canonical Fields
@@ -162,12 +287,17 @@ Represents an immutable booked security trade fact for one account and one instr
 - `instrumentType`
 - `tradeType`
 - `quantity`
-- `priceNtd`
+- `unitPrice`
+- `priceCurrency`
 - `tradeDate`
-- `commissionNtd`
-- `taxNtd`
+- `tradeTimestamp`
+- `bookingSequence`
+- `bookedCommissionAmount`
+- `commissionCurrency`
+- `bookedTaxAmount`
+- `taxCurrency`
 - `isDayTrade`
-- `feeSnapshot`
+- `feePolicySnapshot`
 - `sourceType`
 - `sourceReference`
 - `bookedAt`
@@ -181,11 +311,13 @@ Represents an immutable booked security trade fact for one account and one instr
 ### Invariants
 
 - `quantity > 0`
-- `priceNtd >= 0`
-- `commissionNtd >= 0`
-- `taxNtd >= 0`
+- `unitPrice >= 0`
+- `bookedCommissionAmount >= 0`
+- `bookedTaxAmount >= 0`
 - `tradeType` is `BUY` or `SELL`
 - a `SELL` event cannot exceed available quantity for the account and symbol at booking time
+- posting resolves fee policy from account default first, then account and symbol override if present
+- the user-facing trade flow does not treat raw commission amount as the primary input
 - booked trade facts are not silently mutated after posting
 - corrections to posted trade facts must follow the posted-fact correction contract and must be represented through reversal rather than in-place overwrite
 
@@ -194,6 +326,7 @@ Represents an immutable booked security trade fact for one account and one instr
 - current code name: `BookedTradeEvent` with `Transaction` retained as a compatibility alias
 - current canonical storage: `trade_events`
 - compatibility mirror: `transactions`
+- current runtime still uses `priceNtd`, `commissionNtd`, `taxNtd`, and integer fee-rate fields
 
 ## `CashLedgerEntry`
 
@@ -204,7 +337,7 @@ Represents a first-class cash movement.
 ### MVP Responsibility
 
 - make account cash effects auditable
-- support trade settlement, dividend receipt, deductions, and future manual adjustments
+- support trade settlement, dividend receipt, deductions, broker fee rebates, and future manual adjustments
 - support reconciliation against broker cash balances
 
 ### Canonical Fields
@@ -214,7 +347,7 @@ Represents a first-class cash movement.
 - `accountId`
 - `entryDate`
 - `entryType`
-- `amountNtd`
+- `amount`
 - `currency`
 - `relatedTradeEventId`
 - `relatedDividendLedgerEntryId`
@@ -235,12 +368,14 @@ Represents a first-class cash movement.
 - sign conventions are explicit by `entryType`
 - trade settlement entries must link back to the originating trade event when applicable
 - dividend cash entries must link back to the related dividend ledger entry when applicable
+- broker fee rebates are separate cash ledger entries, not silent reductions of the original trade charge
 - orphan ledger entries are invalid unless the entry type explicitly allows it
 - corrections to posted cash ledger entries must follow the posted-fact correction contract and must be represented through reversal
 
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
+- current runtime field naming still includes TWD-specific assumptions in some persistence surfaces
 
 ## `DividendEvent`
 
@@ -261,6 +396,7 @@ Represents issuer-declared dividend reference data.
 - `exDividendDate`
 - `paymentDate`
 - `cashDividendPerShare`
+- `cashDividendCurrency`
 - `stockDividendPerShare`
 - `sourceType`
 - `sourceReference`
@@ -278,8 +414,7 @@ Represents issuer-declared dividend reference data.
 
 ### Current Mapping
 
-- currently approximated by `CorporateAction` with `DIVIDEND`
-- current structure is too thin for the target bookkeeping flow
+- canonical runtime storage: `dividend_events`
 
 ## `DividendLedgerEntry`
 
@@ -299,9 +434,10 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 - `accountId`
 - `dividendEventId`
 - `eligibleQuantity`
-- `expectedCashAmountNtd`
+- `expectedCashAmount`
+- `receivedCashAmount`
+- `cashCurrency`
 - `expectedStockQuantity`
-- `receivedCashAmountNtd`
 - `receivedStockQuantity`
 - `postingStatus`
 - `reconciliationStatus`
@@ -327,6 +463,7 @@ Represents account-level dividend bookkeeping derived from a dividend event and 
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
+- current runtime naming still uses `expectedCashAmountNtd` and `receivedCashAmountNtd`
 
 ## `DividendDeductionEntry`
 
@@ -338,7 +475,7 @@ Represents one typed deduction or adjustment attached to an account-level divide
 
 - preserve deduction detail without flattening all withheld amounts into one summary field
 - keep the dividend posting comparison based on net received cash plus explicit at-source deductions
-- carry an explicit currency hook even while the Taiwan MVP remains TWD-scoped
+- carry explicit currency on every deduction row
 
 ### Canonical Fields
 
@@ -355,15 +492,19 @@ Represents one typed deduction or adjustment attached to an account-level divide
 ### Invariants
 
 - one dividend ledger entry may have zero or more deduction rows
-- Wave 2 dividend deductions persist explicit `currencyCode = TWD`
 - deduction rows are source facts, not derived summaries
 - downstream read models may project summary totals, but deduction rows remain the source of truth
+
+### Current Mapping
+
+- implemented in the API store and Postgres persistence
+- current runtime still constrains deduction currency to TWD, but the canonical target is not TWD-only
 
 ## `ReconciliationRecord`
 
 ### Purpose
 
-Represents a discrepancy or review record between internal accounting state and broker/imported reality.
+Represents a discrepancy or review record between internal accounting state and broker or imported reality.
 
 ### MVP Responsibility
 
@@ -403,8 +544,8 @@ Represents a discrepancy or review record between internal accounting state and 
 
 ### Current Mapping
 
-- not yet implemented
-- `RecomputeJob` is not a reconciliation record
+- `reconciliation_records` exists in schema
+- runtime behavior is still limited compared with the target workflow model
 
 ## `DailyPortfolioSnapshot`
 
@@ -422,20 +563,21 @@ Represents an immutable end-of-day portfolio summary.
 - `id`
 - `userId`
 - `snapshotDate`
-- `totalMarketValueNtd`
-- `totalCostNtd`
-- `totalUnrealizedPnlNtd`
-- `totalRealizedPnlNtd`
-- `totalDividendReceivedNtd`
-- `totalCashBalanceNtd`
-- `totalNavNtd`
+- `currency`
+- `totalMarketValue`
+- `totalCost`
+- `totalUnrealizedPnl`
+- `totalRealizedPnl`
+- `totalDividendReceived`
+- `totalCashBalance`
+- `totalNav`
 - `generatedAt`
 - `generationRunId`
 
 ### Lifecycle
 
 - generated from booked facts and pricing data
-- published as immutable output for one date/run
+- published as immutable output for one date and run
 
 ### Invariants
 
@@ -445,7 +587,8 @@ Represents an immutable end-of-day portfolio summary.
 
 ### Current Mapping
 
-- not yet implemented
+- current runtime persists daily portfolio snapshots
+- current field naming still carries `*_ntd` suffixes
 
 ## `Lot`
 
@@ -457,12 +600,12 @@ Represents a canonical derived inventory unit used to preserve tax-lot or parcel
 
 - remain a canonical derived accounting projection during migration
 - support oversell validation and cost-basis calculations
-- preserve future cross-market support for US tax-lot handling and Australian parcel-based cost tracking
+- preserve future cross-market support for parcel-based or lot-based disposal
 
 ### Invariants
 
 - `openQuantity >= 0`
-- `totalCostNtd >= 0`
+- `totalCost >= 0`
 - lots are derived from trade history and qualifying corporate actions
 
 ### Current Mapping
@@ -472,81 +615,107 @@ Represents a canonical derived inventory unit used to preserve tax-lot or parcel
 
 ### Decision For MVP
 
-`Lot` remains part of the canonical accounting model as a derived inventory construct. It is not the primary product-facing bookkeeping concept, but it must remain available to support cross-market disposal-order and parcel-level cost tracking. The canonical product/accounting language should still prefer `TradeEvent`, holdings, cash ledger, dividend ledger, and average-cost portfolio views for day-to-day user experience.
+`Lot` remains part of the canonical accounting model as a derived inventory construct. It is not the primary product-facing bookkeeping concept, but it must remain available to support cross-market disposal-order and parcel-level cost tracking.
 
 ## Relationship Rules
 
-- `TradeEvent` creates or consumes `Lot` state
+- `FeeProfileBinding` points an account and symbol to a `FeeProfile`
+- `TradeEvent` resolves fee policy from account default, then account and symbol binding
+- `TradeEvent` persists booked charges plus the fee policy snapshot used at booking time
 - `TradeEvent` may create one or more `CashLedgerEntry` records
 - `DividendEvent` may create zero or more `DividendLedgerEntry` records
 - `DividendLedgerEntry` may create one or more `CashLedgerEntry` records
+- `DividendLedgerEntry` may create zero or more `DividendDeductionEntry` records
 - `ReconciliationRecord` points to facts or derived outputs under review, but does not rewrite them
-- `DailyPortfolioSnapshot` derives from booked facts plus pricing/reference data
+- `DailyPortfolioSnapshot` derives from booked facts plus pricing or reference data
 
 ## Handoff Rules
 
 The following rules constrain follow-on implementation work:
 
-- no downstream ticket may redefine `booked facts`, `derived state`, or `reference/config` categories
-- no downstream ticket may replace `reversal` with silent mutation for posted facts
+- no downstream ticket may redefine booked facts, derived state, or reference and configuration categories
+- no downstream ticket may replace reversal with silent mutation for posted facts
 - no downstream ticket may collapse `DividendEvent` and `DividendLedgerEntry` into a single record type
-- no downstream ticket may remove `Lot` support from the implementation model if future US or Australian market support remains in scope
+- no downstream ticket may remove lot-capable inventory support from the implementation model if future cross-market support remains in scope
 - weighted-average portfolio views may become the default user-facing behavior, but must not erase future lot or parcel support requirements
+- broker commission configuration remains user-facing
+- regulated sell-tax defaults remain visible for transparency, but should not be positioned as normal broker settings users are expected to tune frequently
 
 ## Terminology Map
 
 | Canonical term | Current term | Notes |
 | --- | --- | --- |
+| `FeeProfile.boardCommissionRate` | `commissionRateBps` | Canonical target is decimal-capable and exact `1.425‰` aware |
+| `FeeProfile.minimumCommissionAmount` | `minCommissionNtd` | Canonical target is currency-normalized |
+| `FeeProfileBinding` | `account_fee_profile_overrides` | Same behavioral role |
 | `TradeEvent` | `Transaction` | Keep current implementation name during migration, but use canonical name in new specs |
-| `CashLedgerEntry` | none | New first-class entity |
-| `DividendEvent` | `CorporateAction` with `DIVIDEND` | Current model is insufficiently expressive |
-| `DividendLedgerEntry` | none | New first-class entity |
-| `ReconciliationRecord` | none | Distinct from recompute jobs |
-| `DailyPortfolioSnapshot` | none | New derived read model |
+| `TradeEvent.bookedCommissionAmount` | `commissionNtd` | Canonical target keeps booked commission as a fact but not as the primary user input shape |
+| `TradeEvent.bookedTaxAmount` | `taxNtd` | Canonical target is currency-normalized |
+| `CashLedgerEntry` | `cash_ledger_entries` | Already implemented |
+| `DividendEvent` | `dividend_events` | Already implemented |
+| `DividendLedgerEntry` | `dividend_ledger_entries` | Already implemented |
+| `DividendDeductionEntry` | `dividend_deduction_entries` | Already implemented |
+| `DailyPortfolioSnapshot` | `daily_portfolio_snapshots` | Current runtime naming still uses `*_ntd` |
 | `Lot` | `Lot` | Keep as derived state |
 
 ## Invariant Matrix
 
 | Entity | Immutable after posting | Derived or source | Key validation |
 | --- | --- | --- | --- |
-| `TradeEvent` | Yes, except reversal flow | Source fact | positive quantity, oversell rejection, non-negative money fields |
+| `FeeProfile` | No, reference config | Reference | exact board rate default, separated broker fee assumptions, regulated tax defaults |
+| `FeeProfileBinding` | No, reference config | Reference | one active binding per account and symbol |
+| `TradeEvent` | Yes, except reversal flow | Source fact | positive quantity, explicit booking order, non-negative booked charges |
 | `CashLedgerEntry` | Yes, except reversal flow | Source fact | valid sign by entry type, no invalid orphan references |
-| `DividendEvent` | Reference update allowed | Reference fact | instrument/date/value validity |
+| `DividendEvent` | Reference update allowed | Reference fact | instrument, date, and declared amount validity |
 | `DividendLedgerEntry` | Yes, except reversal flow | Source fact | expected vs actual fields valid, audit-safe correction |
+| `DividendDeductionEntry` | Yes | Source fact | typed deduction with explicit currency |
 | `ReconciliationRecord` | Append-only workflow | Source fact | status transitions valid, source discrepancy preserved |
-| `DailyPortfolioSnapshot` | Yes | Derived read model | reproducible for date/run |
+| `DailyPortfolioSnapshot` | Yes | Derived read model | reproducible for date and run |
 | `Lot` | Rebuilt from facts | Derived state | no negative open quantity or total cost |
 
 ## Worked Example Pack
 
 The issue is not complete without concrete examples. The following examples define the minimum acceptance pack for the MVP model.
 
-### Example 1. Buy Trade With Commission
+### Example 1. Buy Trade Derived From Account Default Fee Profile
 
 Input facts:
 
+- account default `FeeProfile`
+  - boardCommissionRate: exact `1.425‰`
+  - commissionDiscount: `100%`
+  - minimumCommissionAmount: `20`
+  - commissionCurrency: `TWD`
+  - commissionRoundingMode: `FLOOR`
 - `TradeEvent`
   - account: `broker-a`
   - symbol: `2330`
   - tradeType: `BUY`
   - quantity: `1000`
-  - priceNtd: `600`
-  - commissionNtd: `855`
-  - taxNtd: `0`
+  - unitPrice: `600`
+  - priceCurrency: `TWD`
+
+Derived booked values:
+
+- gross trade value: `600000`
+- bookedCommissionAmount: `855`
+- bookedTaxAmount: `0`
 
 Expected outcomes:
 
-- one posted `TradeEvent` exists
+- one posted `TradeEvent` exists with the derived booked commission and persisted fee policy snapshot
 - one `CashLedgerEntry` exists for trade settlement cash outflow
 - derived holding quantity becomes `1000`
 - derived total cost becomes `600855`
 - if lot-capable inventory is enabled, one open `Lot` exists with quantity `1000`
 
-### Example 2. Sell Trade With Commission And Tax
+### Example 2. Sell Trade Derived From Default Regulated Tax Settings
 
 Precondition:
 
 - existing holding from Example 1
+- same account default `FeeProfile`
+- default regulated stock sell tax rate remains `0.3%`
 
 Input facts:
 
@@ -555,9 +724,14 @@ Input facts:
   - symbol: `2330`
   - tradeType: `SELL`
   - quantity: `400`
-  - priceNtd: `650`
-  - commissionNtd: `370`
-  - taxNtd: `780`
+  - unitPrice: `650`
+  - priceCurrency: `TWD`
+
+Derived booked values:
+
+- gross trade value: `260000`
+- bookedCommissionAmount: `370`
+- bookedTaxAmount: `780`
 
 Expected outcomes:
 
@@ -567,20 +741,26 @@ Expected outcomes:
 - realized P&L is derived from disposal cost and net proceeds, not manually entered
 - no negative lot or holding quantity appears
 
-### Example 3. Partial Sell After Multiple Buys
+### Example 3. Symbol Override Fee Profile Takes Precedence
 
 Input facts:
 
-- `TradeEvent` buy `1000` shares of `2330` at `600`
-- `TradeEvent` buy `1000` shares of `2330` at `640`
-- `TradeEvent` sell `1200` shares of `2330` at `650`
+- account default `FeeProfile`
+  - boardCommissionRate: `1.425‰`
+  - commissionDiscount: `100%`
+  - minimumCommissionAmount: `20`
+- `FeeProfileBinding`
+  - account: `broker-a`
+  - symbol: `2330`
+  - override profile uses discount `60%`
+- `TradeEvent`
+  - buy `1000` shares of `2330` at `600`
 
 Expected outcomes:
 
-- remaining holding quantity becomes `800`
-- weighted-average portfolio view uses average cost across eligible inventory before disposal
-- lot-capable inventory remains able to represent which inventory units remain for future cross-market tax reporting
-- realized P&L is reproducible from the posted facts and disposal rule
+- the symbol override fee profile is used instead of the account default
+- the posted trade persists the override fee policy snapshot
+- the user does not need per-trade manual fee-policy entry to get the correct result
 
 ### Example 4. Same-Day Multiple Trades In One Symbol
 
@@ -592,11 +772,25 @@ Input facts:
 
 Expected outcomes:
 
-- ordering is determined by booked event sequence, not by ambiguous date-only sorting
+- ordering is determined by `tradeDate`, `tradeTimestamp`, and `bookingSequence`, not by ambiguous date-only sorting
 - derived holdings and cost basis are reproducible from that sequence
 - the system does not collapse same-day trades into one fact unless an explicit consolidation rule exists
 
-### Example 5. Declared Cash Dividend Vs Posted Dividend Receipt
+### Example 5. Broker Campaign Rebate Is A Separate Cash Event
+
+Input facts:
+
+- a trade is posted using a fee profile with `commissionChargeMode = CHARGED_UPFRONT_REBATED_LATER`
+- the trade settles with the higher charged commission shown on the broker statement
+- the broker later posts a campaign rebate cash credit
+
+Expected outcomes:
+
+- the original trade keeps the booked commission that was actually charged at settlement
+- the later rebate is booked as a separate `CashLedgerEntry`
+- the original trade is not silently rewritten to look like it was charged at the discounted amount on trade date
+
+### Example 6. Declared Cash Dividend Vs Posted Dividend Receipt
 
 Input facts:
 
@@ -605,6 +799,7 @@ Input facts:
   - exDividendDate: `2026-07-15`
   - paymentDate: `2026-08-10`
   - cashDividendPerShare: `1.2`
+  - cashDividendCurrency: `TWD`
   - stockDividendPerShare: `0`
 - eligible holding on ex-dividend date: `2000` shares
 
@@ -613,20 +808,22 @@ Expected outcomes:
 - the `DividendEvent` exists as reference data only
 - one `DividendLedgerEntry` may be created with:
   - eligibleQuantity: `2000`
-  - expectedCashAmountNtd: `2400`
+  - expectedCashAmount: `2400`
+  - cashCurrency: `TWD`
 - no cash movement is created merely because the dividend was declared
 - actual cash is only recognized after posting the receipt
 
-### Example 6. Posted Dividend Receipt With Deductions
+### Example 7. Posted Dividend Receipt With Deductions
 
 Precondition:
 
-- expected dividend ledger exists from Example 5
+- expected dividend ledger exists from Example 6
 
 Input facts:
 
 - update or post `DividendLedgerEntry`
-  - receivedCashAmountNtd: `2280`
+  - receivedCashAmount: `2280`
+  - cashCurrency: `TWD`
   - postingStatus: `posted`
 - one `DividendDeductionEntry`
   - deductionType: `NHI_SUPPLEMENTAL_PREMIUM`
@@ -640,7 +837,7 @@ Expected outcomes:
 - expected and actual values remain separately visible
 - the posted receipt does not rewrite the original `DividendEvent`
 
-### Example 7. Correction Through Reversal
+### Example 8. Correction Through Reversal
 
 Precondition:
 
@@ -657,7 +854,7 @@ Expected outcomes:
 - correction is represented through reversal, not in-place overwrite
 - derived holdings, cash, and snapshots can be recomputed from the full event history
 
-### Example 8. Reconciliation Mismatch Without Destructive Rewrite
+### Example 9. Reconciliation Mismatch Without Destructive Rewrite
 
 Input facts:
 
@@ -671,7 +868,7 @@ Expected outcomes:
 - no booked trade, dividend, or cash ledger fact is silently changed
 - later resolution updates reconciliation workflow state, not historical facts
 
-### Example 9. Duplicate Import Or Idempotency Case
+### Example 10. Duplicate Import Or Idempotency Case
 
 Input facts:
 
@@ -683,7 +880,7 @@ Expected outcomes:
 - the duplicate is rejected or linked to an idempotency outcome
 - holdings and cash balances are unchanged by the duplicate attempt
 
-### Example 10. Backfilled Historical Trade
+### Example 11. Backfilled Historical Trade
 
 Input facts:
 
@@ -696,7 +893,7 @@ Expected outcomes:
 - prior posted facts are not rewritten
 - any affected reconciliation or snapshot outputs are regenerated rather than manually edited
 
-### Example 11. Invalid Oversell
+### Example 12. Invalid Oversell
 
 Precondition:
 
@@ -713,14 +910,14 @@ Expected outcomes:
 - holdings remain unchanged
 - the validation reason is explicit
 
-### Example 12. Invalid Negative Values
+### Example 13. Invalid Negative Values
 
 Input facts:
 
 - user attempts to post:
   - `quantity = -100`
-  - or `priceNtd = -1`
-  - or `commissionNtd = -5`
+  - or `unitPrice = -1`
+  - or `bookedCommissionAmount = -5`
 
 Expected outcomes:
 
@@ -746,8 +943,8 @@ The spec is ready to hand off into implementation when all answers below are "ye
 - are reference data and booked facts explicitly separated?
 - is the posted-fact correction model locked to `reversal`?
 - is the `Lot` role explicitly retained for cross-market support?
-- are `DividendEvent` and `DividendLedgerEntry` minimum MVP fields fixed?
-- does the example pack cover trade, dividend, reconciliation, reversal, idempotency, and validation cases?
+- are `DividendEvent`, `DividendLedgerEntry`, and `DividendDeductionEntry` minimum MVP fields fixed?
+- does the example pack cover trade, dividend, rebate cash mode, reconciliation, reversal, idempotency, and validation cases?
 - can `KZO-12` through `KZO-16` start without reopening core terminology questions?
 
 ## Migration Guidance
@@ -756,22 +953,21 @@ The model should preserve the current implementation path while making future wo
 
 ### Phase 1
 
-- define canonical names and invariants
-- keep current `Transaction` and `Lot` write/read path
+- define canonical names and invariants around the already-implemented ledger model
+- keep current runtime read and write paths functional while clarifying canonical terminology
 
 ### Phase 2
 
-- add `CashLedgerEntry`
-- connect trade posting to cash settlement effects
+- upgrade fee-profile precision from integer basis points to an exact decimal-capable board commission rate
+- move canonical product and API thinking away from raw free-form commission input
 
 ### Phase 3
 
-- add `DividendEvent` and `DividendLedgerEntry`
-- separate dividend reference data from account-level booked dividend facts
+- normalize runtime schema, types, and API shapes away from `Ntd`-encoded naming, following the structure defined here and tracked in `KZO-55`
 
 ### Phase 4
 
-- add reconciliation and daily snapshot read models
+- extend reconciliation and daily snapshot behavior to match the canonical workflow contract fully
 
 ## Downstream Ticket Mapping
 
@@ -779,9 +975,10 @@ The intended downstream mapping is:
 
 - `KZO-12`: product settings and shared-type alignment for weighted-average cost as the default bookkeeping view
 - `KZO-13`: domain-level weighted-average cost basis and realized P&L behavior
-- `KZO-15`: schema foundation for cash ledger, dividends, reconciliation, and snapshots
+- `KZO-15`: schema foundation and evolution for cash ledger, dividends, reconciliation, snapshots, and fee-policy precision
 - `KZO-16`: store and persistence contracts around accounting aggregates
 - `KZO-51`: immutable correction contract for posted facts
+- `KZO-55`: currency normalization across accounting schema, shared types, settings, and API naming
 - `KZO-24`, `KZO-34`, `KZO-36`: first write paths using the canonical model
 - `KZO-29`, `KZO-30`, `KZO-31`: import and reconciliation behaviors constrained by this document
 
@@ -789,38 +986,14 @@ The intended downstream mapping is:
 
 The following decisions are locked for the current MVP:
 
-- `Lot` remains canonical as a derived inventory and tax-lot-capable model, not merely implementation-only
+- `Lot` remains canonical as a derived inventory and tax-lot-capable model
 - posted-fact correction model: `reversal`
-- minimum `DividendEvent` fields:
-  - `id`
-  - `symbol`
-  - `exDividendDate`
-  - `paymentDate`
-  - `cashDividendPerShare`
-  - `stockDividendPerShare`
-  - `sourceType`
-  - `sourceReference`
-- minimum `DividendLedgerEntry` fields:
-  - `id`
-  - `accountId`
-  - `dividendEventId`
-  - `eligibleQuantity`
-  - `expectedCashAmountNtd`
-  - `expectedStockQuantity`
-  - `receivedCashAmountNtd`
-  - `receivedStockQuantity`
-  - `postingStatus`
-  - `reconciliationStatus`
-  - `reversalOfDividendLedgerEntryId`
-  - `supersededAt`
-- minimum `DividendDeductionEntry` fields:
-  - `id`
-  - `dividendLedgerEntryId`
-  - `deductionType`
-  - `amount`
-  - `currencyCode`
-  - `withheldAtSource`
-  - `sourceType`
+- broker commission configuration remains user-facing through fee profiles
+- symbol-level fee override remains the highest-precedence user-configurable fee-policy path
+- regulated sell-tax defaults remain configurable in config or schema but are visible read-mostly values, not normal broker settings users are encouraged to tune
+- canonical board commission rate defaults to exact `1.425‰`
+- canonical field naming is currency-normalized even where current runtime naming is not
+- broker rebate campaigns are represented as separate cash ledger events, not trade mutation
 
 ## Explicit Non-Goals for This Issue
 
@@ -828,4 +1001,5 @@ The following decisions are locked for the current MVP:
 - no API route implementation
 - no UI implementation
 - no full rename of current code symbols
-- no final weighted-average implementation details beyond dependency on this model
+- no full multi-currency feature delivery
+- no FX conversion engine

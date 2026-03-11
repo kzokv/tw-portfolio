@@ -100,10 +100,41 @@ Interpretation:
 - If the user asks "all brokers", state clearly that this is the broadest publicly compiled comparison found, but it is not an official exchange-maintained master list.
 - If the user needs a binding answer for one broker, prefer that broker's official fee page, campaign page, or account agreement over this table.
 - If the user asks for bookkeeping assumptions, store:
-  - board rate assumption
+  - exact board rate assumption, defaulting to `1.425‰` if no broker-specific board rate is known
   - discount assumption
   - minimum fee assumption
   - whether the fee is charged upfront, rebated later, or negotiated off-table
+
+## Bookkeeping Data Capture
+
+For system design or ledger-ready bookkeeping answers, keep these fields distinct:
+
+- board rate assumption, such as `1.425‰`
+- discount assumption, such as `6 折`
+- minimum fee assumption, such as `NT$20`
+- fee charge mode
+- actual booked commission amount on the trade statement, if available
+
+Recommended interpretation:
+- `actual booked commission amount` is the posted trade fact.
+- board rate, discount, minimum fee, and charge mode are the supporting assumptions or fee-policy metadata.
+
+## Fee Charge Mode Examples
+
+Use these modes when describing how a broker campaign behaves:
+
+- `charged_upfront_final`
+  - Example: trade amount `NT$100,000`, board rate `1.425‰`, discount `6 折`, minimum `NT$20`
+  - Assumed fee: `100,000 x 0.001425 x 0.6 = 85.5`, rounded per broker rule
+  - If the broker settles the trade with `NT$85` or `NT$86` commission and no later rebate, that booked trade fee is final.
+
+- `charged_upfront_rebated_later`
+  - Example: trade amount `NT$100,000`, board-rate fee charged first as about `NT$142`, then broker rebates `NT$57` later under a campaign
+  - Bookkeeping effect: the trade date keeps the actual charged commission from the statement, and the later rebate is a separate cash inflow on the rebate date unless the broker statement already nets it into the original trade entry.
+
+- `negotiated_off_table`
+  - Example: the customer has a branch-specific arrangement, but no public page or contract copy is available
+  - Bookkeeping effect: keep the negotiated rate or actual statement fee if known; otherwise mark the fee policy as assumed and avoid claiming a public campaign rate as binding.
 
 ## Suggested Output Wording
 

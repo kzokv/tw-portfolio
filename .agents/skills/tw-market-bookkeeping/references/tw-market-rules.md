@@ -31,10 +31,16 @@ Source:
 
 ### Brokerage Commission
 
-- The exchange guide states brokers may charge transaction commission and the market commonly uses a standard rate of `0.1425%` before any broker discount.
+- The exchange guide states brokers may charge transaction commission and the market commonly uses a standard rate of `0.1425%` (`1.425‰`) before any broker discount.
 - Many retail brokers discount the standard rate, but the minimum commission per order often still matters in bookkeeping.
 - Use the actual broker statement if available. If not, state the assumed discount and minimum fee.
 - For a practical public comparison of broker-disclosed or publicly compiled discount rates, also read [tw-broker-public-commission-rates.md](tw-broker-public-commission-rates.md).
+
+Bookkeeping guidance:
+- Preserve the common board-rate baseline as an exact assumption of `1.425‰` unless the user explicitly overrides it for that trade.
+- Store the board rate, broker discount, and minimum fee as separate assumptions. Do not flatten them into one implied rate if the original assumption matters for audit or later review.
+- If the broker statement gives an actual booked commission amount, that statement amount controls the posted trade fact even if it differs from the assumption model.
+- If a broker campaign charges the board rate first and rebates part of it later, do not treat the later rebate as if the original trade was charged at the discounted rate. Book the trade using the actual charged commission, then treat the rebate as a separate later cash event unless the statement itself already nets it into the trade fee.
 
 Source:
 - TWSE trading guide: https://www.twse.com.tw/en/page/about/company/guide.html

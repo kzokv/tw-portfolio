@@ -25,7 +25,11 @@ Use this skill for Taiwan listed equity and ETF bookkeeping work where the outpu
    - side
    - quantity and unit price
    - gross amount
+   - board commission rate assumption, if statement fee is not available
    - broker commission details or missing-fee assumptions
+   - commission discount assumption
+   - minimum commission assumption
+   - fee charge mode: charged upfront as final fee, charged upfront then rebated later, or separately negotiated
    - statement source breakdown for dividends or ETF distributions
 3. Calculate trade cash flow separately from annual tax reminders.
    Output, at minimum:
@@ -41,6 +45,7 @@ Use this skill for Taiwan listed equity and ETF bookkeeping work where the outpu
 6. Use `scripts/calc_trade_cashflow.py` when the task needs deterministic trade math.
    Prefer `--commission-amount` when a broker statement gives the actual fee.
    Otherwise use `--commission-rate`, `--commission-discount`, and `--minimum-commission` to make the assumption explicit.
+   When no custom board rate is known, default the board-rate assumption to the common Taiwan listed-securities baseline `1.425‰` and keep any broker discount separate from that baseline.
 
 ## Dividends And ETF Distributions
 
@@ -101,7 +106,7 @@ Prefer ledger-ready tables, formula-ready breakdowns, and reconciliations that c
 
 - Mention the rule date explicitly when relevant, for example `as of March 4, 2026`.
 - Distinguish among transaction tax, annual income tax treatment, and 2nd-generation NHI supplemental premium treatment.
-- If the user asks about broker fees without a statement or contract, store the board rate assumption, discount assumption, minimum-fee assumption, and whether fees are charged upfront, rebated later, or negotiated.
+- If the user asks about broker fees without a statement or contract, store the exact board rate assumption, discount assumption, minimum-fee assumption, and whether fees are charged upfront, rebated later, or negotiated.
 - Cite the relevant official source URL from the reference file when discussing a rule.
 - For dividend system-design answers, distinguish official Taiwan market or NHI rules from general accounting-system design guidance. Label the latter as modeling guidance rather than Taiwan legal requirements.
 
