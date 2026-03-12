@@ -58,9 +58,15 @@ export function createTransaction(
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) throw new Error("Account not found");
 
-  const profile = resolveFeeProfileForTransaction(store, account.id, input.symbol, account.feeProfileId);
   const instrument = store.symbols.find((item) => item.ticker === input.symbol);
   if (!instrument) throw new Error("Unsupported symbol");
+  const profile = resolveFeeProfileForTransaction(
+    store,
+    account.id,
+    input.symbol,
+    instrument.marketCode ?? "TW",
+    account.feeProfileId,
+  );
   if (input.priceCurrency !== profile.commissionCurrency) {
     throw new Error("Trade currency must match fee profile commission currency");
   }
@@ -78,6 +84,7 @@ export function createTransaction(
           tradeCurrency: input.priceCurrency,
           instrumentType: instrument.type,
           isDayTrade: input.isDayTrade,
+          marketCode: instrument.marketCode ?? "TW",
         });
   const commissionAmount = input.commissionAmount ?? suggestedFees.commissionAmount;
   const taxAmount = input.taxAmount ?? suggestedFees.taxAmount;
@@ -87,6 +94,7 @@ export function createTransaction(
     userId,
     accountId: input.accountId,
     symbol: input.symbol,
+    marketCode: instrument.marketCode ?? "TW",
     instrumentType: instrument.type,
     type: input.type,
     quantity: input.quantity,
@@ -148,10 +156,14 @@ function resolveFeeProfileForTransaction(
   store: Store,
   accountId: string,
   symbol: string,
+  marketCode: string,
   fallbackProfileId: string,
 ): FeeProfile {
   const symbolBinding = store.feeProfileBindings.find(
-    (binding) => binding.accountId === accountId && binding.symbol === symbol,
+    (binding) =>
+      binding.accountId === accountId &&
+      binding.symbol === symbol &&
+      (binding.marketCode === undefined || binding.marketCode === marketCode),
   );
 
   if (symbolBinding) {

@@ -452,7 +452,12 @@ describePostgres("postgres migrations", () => {
   it("drops orphaned recompute preview rows before adding the trade event foreign key", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => name !== "010_trade_snapshot_recompute_normalization.sql",
+      (name) =>
+        ![
+          "010_trade_snapshot_recompute_normalization.sql",
+          "011_fee_profile_tax_rule_normalization.sql",
+          "012_market_code_on_symbols_bindings_and_trades.sql",
+        ].includes(name),
     );
     await resetPublicSchema();
     await applyMigrationFiles(pre010Migrations);
@@ -487,7 +492,12 @@ describePostgres("postgres migrations", () => {
   it("recovers from a partially failed 010 retry with orphaned recompute rows", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => name !== "010_trade_snapshot_recompute_normalization.sql",
+      (name) =>
+        ![
+          "010_trade_snapshot_recompute_normalization.sql",
+          "011_fee_profile_tax_rule_normalization.sql",
+          "012_market_code_on_symbols_bindings_and_trades.sql",
+        ].includes(name),
     );
     await resetPublicSchema();
     await applyMigrationFiles(pre010Migrations);
@@ -529,6 +539,139 @@ describePostgres("postgres migrations", () => {
 
     const upgradedSignature = await captureSchemaSignature();
     expect(baselineSignature).toEqual(upgradedSignature);
+  });
+
+  it("backfills normalized fee profile tax rules, snapshot tax components, and market codes in migration 011", async () => {
+    await applyMigrationFiles([
+      "002_cost_basis_weighted_average.sql",
+      "003_accounting_core_schema.sql",
+      "004_trade_order_and_lot_allocations.sql",
+      "005_booking_order_uniqueness.sql",
+      "006_dividend_schema_alignment.sql",
+      "007_fee_profile_precision_and_dividend_currency.sql",
+      "008_commission_discount_percent.sql",
+      "009_retire_twd_ntd_fields.sql",
+      "010_trade_snapshot_recompute_normalization.sql",
+    ]);
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('user-1', 'user-1@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await pool.query(
+      `INSERT INTO fee_profiles (
+         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
+         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode
+       ) VALUES (
+         'fp-011', 'user-1', 'Migration Profile', 14, 1.425, 28, 7200,
+         20, 'TWD', 'FLOOR', 'FLOOR',
+         30, 15, 10, 0,
+         'CHARGED_UPFRONT'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+       VALUES ('acc-011', 'user-1', 'Main', 'fp-011')`,
+    );
+    await pool.query(
+      `INSERT INTO account_fee_profile_overrides (account_id, symbol, fee_profile_id)
+       VALUES ('acc-011', '2330', 'fp-011')`,
+    );
+    await pool.query(
+      `INSERT INTO symbols (ticker, instrument_type)
+       VALUES ('2330', 'STOCK')`,
+    );
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
+       ) VALUES (
+         'trade-fee-snapshot:trade-011', 'user-1', 'fp-011', 'Migration Profile', 1.425,
+         28, 20, 'TWD',
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', TIMESTAMP '2026-03-01 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
+         price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+         tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at
+       ) VALUES (
+         'trade-011', 'user-1', 'acc-011', '2330', 'STOCK', 'SELL', 10, 1000,
+         'TWD', DATE '2026-03-01', TIMESTAMP '2026-03-01 09:00:00', 1, 20,
+         300, false, 'trade-fee-snapshot:trade-011', 'manual', 'trade-011', TIMESTAMP '2026-03-01 09:00:00'
+       )`,
+    );
+
+    await applyMigrationFiles([
+      "011_fee_profile_tax_rule_normalization.sql",
+      "012_market_code_on_symbols_bindings_and_trades.sql",
+    ]);
+
+    const [taxRules, taxComponents, marketCodes] = await Promise.all([
+      pool.query<{
+        instrument_type: string;
+        day_trade_scope: string;
+        rate_bps: number;
+      }>(
+        `SELECT instrument_type, day_trade_scope, rate_bps
+         FROM fee_profile_tax_rules
+         WHERE fee_profile_id = 'fp-011'
+         ORDER BY sort_order`,
+      ),
+      pool.query<{
+        market_code: string;
+        instrument_type: string;
+        day_trade_scope: string;
+        rate_bps: number;
+        booked_tax_amount: number;
+      }>(
+        `SELECT market_code, instrument_type, day_trade_scope, rate_bps, booked_tax_amount
+         FROM trade_fee_policy_snapshot_tax_components
+         WHERE snapshot_id = 'trade-fee-snapshot:trade-011'
+         ORDER BY sort_order`,
+      ),
+      pool.query<{
+        trade_market_code: string;
+        symbol_market_code: string;
+        binding_market_code: string;
+      }>(
+        `SELECT
+           (SELECT market_code FROM trade_events WHERE id = 'trade-011') AS trade_market_code,
+           (SELECT market_code FROM symbols WHERE ticker = '2330') AS symbol_market_code,
+           (SELECT market_code FROM account_fee_profile_overrides WHERE account_id = 'acc-011' AND symbol = '2330') AS binding_market_code`,
+      ),
+    ]);
+
+    expect(taxRules.rows).toEqual([
+      { instrument_type: "STOCK", day_trade_scope: "NON_DAY_TRADE_ONLY", rate_bps: 30 },
+      { instrument_type: "STOCK", day_trade_scope: "DAY_TRADE_ONLY", rate_bps: 15 },
+      { instrument_type: "ETF", day_trade_scope: "ANY", rate_bps: 10 },
+      { instrument_type: "BOND_ETF", day_trade_scope: "ANY", rate_bps: 0 },
+    ]);
+    expect(taxComponents.rows).toEqual([
+      {
+        market_code: "TW",
+        instrument_type: "STOCK",
+        day_trade_scope: "NON_DAY_TRADE_ONLY",
+        rate_bps: 30,
+        booked_tax_amount: 300,
+      },
+    ]);
+    expect(marketCodes.rows).toEqual([
+      {
+        trade_market_code: "TW",
+        symbol_market_code: "TW",
+        binding_market_code: "TW",
+      },
+    ]);
   });
 
   it("normalizes legacy duplicate booking and lot sequences before adding uniqueness indexes", async () => {
@@ -661,7 +804,9 @@ describePostgres("postgres migrations", () => {
     await persistence.init();
 
     const expectedTables = [
+      "fee_profile_tax_rules",
       "trade_events",
+      "trade_fee_policy_snapshot_tax_components",
       "lot_allocations",
       "cash_ledger_entries",
       "dividend_events",
@@ -681,8 +826,12 @@ describePostgres("postgres migrations", () => {
     expect(tables.rows.map((row) => row.table_name)).toEqual([...expectedTables].sort());
 
     const expectedIndexes = [
+      "idx_fee_profile_tax_rules_fee_profile_id",
+      "idx_trade_fee_policy_snapshot_tax_components_snapshot_id",
       "idx_trade_events_account_symbol_trade_date",
       "idx_trade_events_account_symbol_booking_order",
+      "ux_fee_profile_tax_rules_identity",
+      "ux_trade_fee_policy_snapshot_tax_components_snapshot_order",
       "ux_trade_events_account_trade_date_booking_sequence",
       "ux_trade_events_account_source_reference",
       "ux_trade_events_reversal_of_trade_event_id",
@@ -762,6 +911,9 @@ describePostgres("postgres migrations", () => {
     expect(hasConstraint("trade_events", "trade_type = ANY")).toBe(true);
     expect(hasConstraint("trade_events", "quantity > 0")).toBe(true);
     expect(hasConstraint("trade_events", "booking_sequence > 0")).toBe(true);
+    expect(hasConstraint("trade_events", "market_code ~ '^[A-Z]{2,10}$'")).toBe(true);
+    expect(hasConstraint("fee_profile_tax_rules", "trade_side = 'SELL'::text")).toBe(true);
+    expect(hasConstraint("trade_fee_policy_snapshot_tax_components", "trade_side = 'SELL'::text")).toBe(true);
 
     expect(
       hasConstraint(
@@ -1826,6 +1978,31 @@ describePostgres("postgres migrations", () => {
         related_trade_event_id: sellTrade.id,
         entry_type: "TRADE_SETTLEMENT_IN",
         amount: 626,
+      },
+    ]);
+
+    const snapshotTaxComponents = await pool.query<{
+      snapshot_id: string;
+      market_code: string;
+      instrument_type: string;
+      day_trade_scope: string;
+      rate_bps: number;
+      booked_tax_amount: number;
+    }>(
+      `SELECT snapshot_id, market_code, instrument_type, day_trade_scope, rate_bps, booked_tax_amount
+       FROM trade_fee_policy_snapshot_tax_components
+       WHERE snapshot_id = $1
+       ORDER BY sort_order`,
+      [`trade-fee-snapshot:${sellTrade.id}`],
+    );
+    expect(snapshotTaxComponents.rows).toEqual([
+      {
+        snapshot_id: `trade-fee-snapshot:${sellTrade.id}`,
+        market_code: "TW",
+        instrument_type: "STOCK",
+        day_trade_scope: "NON_DAY_TRADE_ONLY",
+        rate_bps: 30,
+        booked_tax_amount: 13,
       },
     ]);
 

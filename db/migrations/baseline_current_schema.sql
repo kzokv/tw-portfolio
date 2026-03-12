@@ -1,5 +1,5 @@
 -- Fresh-bootstrap baseline equivalent to the numbered migration chain through
--- 010_trade_snapshot_recompute_normalization.sql.
+-- 012_market_code_on_symbols_bindings_and_trades.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -28,6 +28,24 @@ CREATE TABLE IF NOT EXISTS fee_profiles (
   commission_charge_mode TEXT NOT NULL DEFAULT 'CHARGED_UPFRONT',
   commission_discount_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
   commission_currency TEXT NOT NULL DEFAULT 'TWD',
+  CONSTRAINT ck_fee_profiles_commission_rate_bps
+    CHECK (commission_rate_bps >= 0),
+  CONSTRAINT ck_fee_profiles_commission_discount_bps
+    CHECK (commission_discount_bps >= 0 AND commission_discount_bps <= 10000),
+  CONSTRAINT ck_fee_profiles_minimum_commission_amount
+    CHECK (minimum_commission_amount >= 0),
+  CONSTRAINT ck_fee_profiles_commission_rounding_mode
+    CHECK (commission_rounding_mode IN ('FLOOR', 'ROUND', 'CEIL')),
+  CONSTRAINT ck_fee_profiles_tax_rounding_mode
+    CHECK (tax_rounding_mode IN ('FLOOR', 'ROUND', 'CEIL')),
+  CONSTRAINT ck_fee_profiles_stock_sell_tax_rate_bps
+    CHECK (stock_sell_tax_rate_bps >= 0),
+  CONSTRAINT ck_fee_profiles_stock_day_trade_tax_rate_bps
+    CHECK (stock_day_trade_tax_rate_bps >= 0),
+  CONSTRAINT ck_fee_profiles_etf_sell_tax_rate_bps
+    CHECK (etf_sell_tax_rate_bps >= 0),
+  CONSTRAINT ck_fee_profiles_bond_etf_sell_tax_rate_bps
+    CHECK (bond_etf_sell_tax_rate_bps >= 0),
   CONSTRAINT ck_fee_profiles_board_commission_rate
     CHECK (board_commission_rate >= 0),
   CONSTRAINT ck_fee_profiles_commission_charge_mode
@@ -36,6 +54,24 @@ CREATE TABLE IF NOT EXISTS fee_profiles (
     CHECK (commission_discount_percent >= 0 AND commission_discount_percent <= 100),
   CONSTRAINT ck_fee_profiles_commission_currency
     CHECK (commission_currency ~ '^[A-Z]{3}$')
+);
+
+CREATE TABLE IF NOT EXISTS fee_profile_tax_rules (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  fee_profile_id TEXT NOT NULL REFERENCES fee_profiles(id) ON DELETE CASCADE,
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  trade_side TEXT NOT NULL CHECK (trade_side IN ('SELL')),
+  instrument_type TEXT NOT NULL CHECK (instrument_type IN ('STOCK', 'ETF', 'BOND_ETF')),
+  day_trade_scope TEXT NOT NULL CHECK (day_trade_scope IN ('ANY', 'DAY_TRADE_ONLY', 'NON_DAY_TRADE_ONLY')),
+  tax_component_code TEXT NOT NULL,
+  calculation_method TEXT NOT NULL CHECK (calculation_method IN ('RATE_BPS')),
+  rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0),
+  effective_from DATE,
+  effective_to DATE,
+  sort_order INTEGER NOT NULL DEFAULT 1 CHECK (sort_order > 0),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from)
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -52,12 +88,14 @@ CREATE TABLE IF NOT EXISTS account_fee_profile_overrides (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   symbol TEXT NOT NULL,
   fee_profile_id TEXT NOT NULL REFERENCES fee_profiles(id),
-  PRIMARY KEY (account_id, symbol)
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  PRIMARY KEY (account_id, symbol, market_code)
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
   ticker TEXT PRIMARY KEY,
-  instrument_type TEXT NOT NULL
+  instrument_type TEXT NOT NULL,
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$')
 );
 
 CREATE TABLE IF NOT EXISTS corporate_actions (
@@ -124,6 +162,21 @@ CREATE TABLE IF NOT EXISTS trade_fee_policy_snapshots (
   booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS trade_fee_policy_snapshot_tax_components (
+  id TEXT PRIMARY KEY,
+  snapshot_id TEXT NOT NULL REFERENCES trade_fee_policy_snapshots(id) ON DELETE CASCADE,
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  trade_side TEXT NOT NULL CHECK (trade_side IN ('SELL')),
+  instrument_type TEXT NOT NULL CHECK (instrument_type IN ('STOCK', 'ETF', 'BOND_ETF')),
+  day_trade_scope TEXT NOT NULL CHECK (day_trade_scope IN ('ANY', 'DAY_TRADE_ONLY', 'NON_DAY_TRADE_ONLY')),
+  tax_component_code TEXT NOT NULL,
+  calculation_method TEXT NOT NULL CHECK (calculation_method IN ('RATE_BPS')),
+  rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0),
+  booked_tax_amount INTEGER NOT NULL CHECK (booked_tax_amount >= 0),
+  sort_order INTEGER NOT NULL DEFAULT 1 CHECK (sort_order > 0),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS trade_events (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -145,6 +198,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
   booking_sequence INTEGER NOT NULL,
   price_currency TEXT NOT NULL DEFAULT 'TWD',
   fee_policy_snapshot_id TEXT NOT NULL REFERENCES trade_fee_policy_snapshots(id),
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
   FOREIGN KEY (account_id, user_id) REFERENCES accounts(id, user_id),
   CHECK (reversal_of_trade_event_id IS NULL OR reversal_of_trade_event_id <> id),
   CONSTRAINT trade_events_booking_sequence_positive
@@ -349,8 +403,14 @@ CREATE TABLE IF NOT EXISTS recompute_job_items (
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_fee_profiles_user_id ON fee_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_user_id
+  ON fee_profile_tax_rules(user_id);
+CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_fee_profile_id
+  ON fee_profile_tax_rules(fee_profile_id, market_code, instrument_type, day_trade_scope, sort_order);
 CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_id
   ON account_fee_profile_overrides(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_symbol
+  ON account_fee_profile_overrides(account_id, market_code, symbol);
 CREATE INDEX IF NOT EXISTS idx_lots_account_symbol ON lots(account_id, symbol);
 CREATE INDEX IF NOT EXISTS idx_recompute_jobs_user_id ON recompute_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_dividend_events_symbol_ex_dividend_date
@@ -359,12 +419,18 @@ CREATE INDEX IF NOT EXISTS idx_dividend_events_payment_date
   ON dividend_events(payment_date);
 CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshots_user_id
   ON trade_fee_policy_snapshots(user_id);
+CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshot_tax_components_snapshot_id
+  ON trade_fee_policy_snapshot_tax_components(snapshot_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_trade_events_user_id
   ON trade_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_trade_events_account_symbol_trade_date
   ON trade_events(account_id, symbol, trade_date, booked_at);
+CREATE INDEX IF NOT EXISTS idx_trade_events_account_market_symbol_trade_date
+  ON trade_events(account_id, market_code, symbol, trade_date, booked_at);
 CREATE INDEX IF NOT EXISTS idx_trade_events_account_symbol_booking_order
   ON trade_events(account_id, symbol, trade_date, booking_sequence, trade_timestamp, id);
+CREATE INDEX IF NOT EXISTS idx_symbols_market_code_ticker
+  ON symbols(market_code, ticker);
 CREATE INDEX IF NOT EXISTS idx_lots_account_symbol_opened_order
   ON lots(account_id, symbol, opened_at, opened_sequence, id);
 CREATE INDEX IF NOT EXISTS idx_lot_allocations_trade_event_id
@@ -403,6 +469,16 @@ CREATE INDEX IF NOT EXISTS idx_recompute_job_items_trade_event_id
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_account_source_reference
   ON trade_events(account_id, source_type, source_reference)
   WHERE source_reference IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_fee_profile_tax_rules_identity
+  ON fee_profile_tax_rules(
+    fee_profile_id,
+    market_code,
+    trade_side,
+    instrument_type,
+    day_trade_scope,
+    tax_component_code,
+    sort_order
+  );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_reversal_of_trade_event_id
   ON trade_events(reversal_of_trade_event_id)
   WHERE reversal_of_trade_event_id IS NOT NULL;
@@ -410,6 +486,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_account_trade_date_booking_seq
   ON trade_events(account_id, trade_date, booking_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_fee_policy_snapshot_id
   ON trade_events(fee_policy_snapshot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_fee_policy_snapshot_tax_components_snapshot_order
+  ON trade_fee_policy_snapshot_tax_components(snapshot_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lots_account_symbol_opened_order
   ON lots(account_id, symbol, opened_at, opened_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lot_allocations_trade_event_lot
