@@ -213,10 +213,7 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 - `commissionCurrency`
 - `commissionRoundingMode`
 - `taxRoundingMode`
-- `stockSellTaxRate`
-- `stockDayTradeTaxRate`
-- `etfSellTaxRate`
-- `bondEtfSellTaxRate`
+- `taxRules`
 - `commissionChargeMode`
 
 ### Canonical Defaults
@@ -231,12 +228,14 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 
 - board commission rate, broker discount, and minimum commission remain separate values
 - commission defaults are user-visible for transparency, but sell-tax defaults are regulated settings rather than ordinary broker preferences
+- normalized tax rules carry the canonical sell-tax identity through market, instrument type, day-trade scope, component code, and calculation method
 - sell-tax values may remain configurable in schema or settings, but normal product behavior should treat them as read-mostly and discourage routine editing
 - fee profiles are reference or configuration data, not booked accounting facts
 
 ### Current Mapping
 
 - current runtime model stores legacy integer `commissionRateBps`, decimal `boardCommissionRate`, decimal `commissionDiscountPercent` (`% off`), `minimumCommissionAmount`, and `commissionCurrency`
+- current runtime persists normalized tax rows in `fee_profile_tax_rules` while still projecting Taiwan compatibility fields for existing settings and API contracts
 - current runtime precision is still insufficient for exact `1.425‰`
 - runtime naming is already currency-normalized for minimum commission
 
@@ -327,7 +326,7 @@ Represents an immutable booked security trade fact for one account and one instr
 
 - current code name: `BookedTradeEvent` with a local `Transaction` alias still used in some services
 - current canonical storage: `trade_events`
-- immutable snapshot storage: `trade_fee_policy_snapshots`
+- immutable snapshot storage: `trade_fee_policy_snapshots` plus child `trade_fee_policy_snapshot_tax_components`
 - current runtime stores `unitPrice`, `priceCurrency`, `commissionAmount`, `taxAmount`, and fee snapshots with explicit `commissionCurrency`
 
 ## `CashLedgerEntry`

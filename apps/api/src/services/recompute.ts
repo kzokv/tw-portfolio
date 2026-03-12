@@ -24,7 +24,12 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
     }
 
     const symbolBinding = input.useFallbackBindings
-      ? store.feeProfileBindings.find((binding) => binding.accountId === tx.accountId && binding.symbol === tx.symbol)
+      ? store.feeProfileBindings.find(
+          (binding) =>
+            binding.accountId === tx.accountId &&
+            binding.symbol === tx.symbol &&
+            (binding.marketCode === undefined || binding.marketCode === (tx.marketCode ?? "TW")),
+        )
       : undefined;
     const fallbackProfileId = selectedProfile?.id ?? account.feeProfileId;
     const profile = symbolBinding ? mustGetProfile(store, symbolBinding.feeProfileId) : mustGetProfile(store, fallbackProfileId);
@@ -39,6 +44,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
             tradeCurrency,
             instrumentType: tx.instrumentType,
             isDayTrade: tx.isDayTrade,
+            marketCode: tx.marketCode ?? "TW",
           });
 
     return {

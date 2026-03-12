@@ -61,9 +61,9 @@ export function createStore(): Store {
       policy: buildAccountingPolicy(),
     },
     symbols: [
-      { ticker: "2330", type: "STOCK" },
-      { ticker: "0050", type: "ETF" },
-      { ticker: "00679B", type: "BOND_ETF" },
+      { ticker: "2330", type: "STOCK", marketCode: "TW" },
+      { ticker: "0050", type: "ETF", marketCode: "TW" },
+      { ticker: "00679B", type: "BOND_ETF", marketCode: "TW" },
     ],
     recomputeJobs: [],
     idempotencyKeys: new Set<string>(),

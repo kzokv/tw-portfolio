@@ -3,7 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
-import type { FeeProfile } from "@tw-portfolio/domain";
+import {
+  calculateAppliedTaxComponents,
+  materializeFeeProfileTaxRules,
+  projectLegacyFeeProfileTaxFields,
+  type FeeProfile,
+  type FeeProfileTaxRule,
+} from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
@@ -79,13 +85,24 @@ export class PostgresPersistence implements Persistence {
        ORDER BY id`,
       [userId],
     );
+    const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
+    const feeProfileTaxRulesResult = feeProfileIds.length
+      ? await this.pool.query(
+          `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                  tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+           FROM fee_profile_tax_rules
+           WHERE fee_profile_id = ANY($1)
+           ORDER BY fee_profile_id, sort_order, id`,
+          [feeProfileIds],
+        )
+      : { rows: [] };
 
     const tradeEventsResult = await this.pool.query(
       `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.symbol,
-              trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
+              trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
               trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
               trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
-              trade_event.tax_amount, trade_event.is_day_trade, trade_event.source_type,
+              trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source_type,
               trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
               snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
               snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
@@ -100,14 +117,25 @@ export class PostgresPersistence implements Persistence {
        ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
       [userId],
     );
+    const feePolicySnapshotIds = tradeEventsResult.rows.map((row) => String(row.fee_policy_snapshot_id));
+    const snapshotTaxComponentsResult = feePolicySnapshotIds.length
+      ? await this.pool.query(
+          `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+                  tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+           FROM trade_fee_policy_snapshot_tax_components
+           WHERE snapshot_id = ANY($1)
+           ORDER BY snapshot_id, sort_order, id`,
+          [feePolicySnapshotIds],
+        )
+      : { rows: [] };
 
     const accountIds = accountsResult.rows.map((row) => row.id);
     const bindingsResult = accountIds.length
       ? await this.pool.query(
-          `SELECT account_id, symbol, fee_profile_id
+          `SELECT account_id, symbol, market_code, fee_profile_id
            FROM account_fee_profile_overrides
            WHERE account_id = ANY($1)
-           ORDER BY account_id, symbol`,
+           ORDER BY account_id, market_code, symbol`,
           [accountIds],
         )
       : { rows: [] };
@@ -214,29 +242,17 @@ export class PostgresPersistence implements Persistence {
       : { rows: [] };
 
     const symbolsResult = await this.pool.query(
-      `SELECT ticker, instrument_type
+      `SELECT ticker, instrument_type, market_code
        FROM symbols
-       ORDER BY ticker`,
+       ORDER BY market_code, ticker`,
     );
 
-    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      boardCommissionRate: Number(row.board_commission_rate ?? row.commission_rate_bps / 10),
-      commissionDiscountPercent:
-        row.commission_discount_percent !== null
-          ? Number(row.commission_discount_percent)
-          : legacyCommissionDiscountPercent(row.commission_discount_bps),
-      minimumCommissionAmount: row.minimum_commission_amount,
-      commissionCurrency: row.commission_currency,
-      commissionRoundingMode: row.commission_rounding_mode,
-      taxRoundingMode: row.tax_rounding_mode,
-      stockSellTaxRateBps: row.stock_sell_tax_rate_bps,
-      stockDayTradeTaxRateBps: row.stock_day_trade_tax_rate_bps,
-      etfSellTaxRateBps: row.etf_sell_tax_rate_bps,
-      bondEtfSellTaxRateBps: row.bond_etf_sell_tax_rate_bps,
-      commissionChargeMode: row.commission_charge_mode ?? "CHARGED_UPFRONT",
-    }));
+    const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
+    const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
+
+    const feeProfiles: FeeProfile[] = feeProfilesResult.rows.map((row) =>
+      hydrateEditableFeeProfile(row, feeProfileTaxRulesByProfileId.get(String(row.id)) ?? []),
+    );
 
     const lotAllocations: LotAllocationProjection[] = lotAllocationsResult.rows.map((row) => ({
       id: row.id,
@@ -258,6 +274,7 @@ export class PostgresPersistence implements Persistence {
       userId: row.user_id,
       accountId: row.account_id,
       symbol: row.symbol,
+      marketCode: row.market_code,
       instrumentType: row.instrument_type,
       type: row.trade_type,
       quantity: row.quantity,
@@ -269,7 +286,10 @@ export class PostgresPersistence implements Persistence {
       commissionAmount: row.commission_amount,
       taxAmount: row.tax_amount,
       isDayTrade: row.is_day_trade,
-      feeSnapshot: hydrateTradeFeeSnapshot(row),
+      feeSnapshot: hydrateTradeFeeSnapshot(
+        row,
+        snapshotTaxComponentsBySnapshotId.get(String(row.fee_policy_snapshot_id)) ?? [],
+      ),
       sourceType: row.source_type,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -404,6 +424,7 @@ export class PostgresPersistence implements Persistence {
       feeProfileBindings: bindingsResult.rows.map((row) => ({
         accountId: row.account_id,
         symbol: row.symbol,
+        marketCode: row.market_code,
         feeProfileId: row.fee_profile_id,
       })),
       feeProfiles,
@@ -444,6 +465,7 @@ export class PostgresPersistence implements Persistence {
       symbols: symbolsResult.rows.map((row) => ({
         ticker: row.ticker,
         type: row.instrument_type,
+        marketCode: row.market_code,
       })),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
@@ -533,6 +555,8 @@ export class PostgresPersistence implements Persistence {
         if (upsertProfile.rowCount !== 1) {
           throw new Error(`Fee profile id conflict for id=${profile.id}`);
         }
+
+        await replaceFeeProfileTaxRules(client, store.userId, profile);
       }
 
       const accountIds = store.accounts.map((item) => item.id);
@@ -566,9 +590,9 @@ export class PostgresPersistence implements Persistence {
         await client.query(`DELETE FROM account_fee_profile_overrides WHERE account_id = ANY($1)`, [accountIds]);
         for (const binding of store.feeProfileBindings) {
           await client.query(
-            `INSERT INTO account_fee_profile_overrides (account_id, symbol, fee_profile_id)
-             VALUES ($1, $2, $3)`,
-            [binding.accountId, binding.symbol, binding.feeProfileId],
+            `INSERT INTO account_fee_profile_overrides (account_id, symbol, market_code, fee_profile_id)
+             VALUES ($1, $2, $3, $4)`,
+            [binding.accountId, binding.symbol, binding.marketCode ?? "TW", binding.feeProfileId],
           );
         }
       }
@@ -730,25 +754,26 @@ export class PostgresPersistence implements Persistence {
       await client.query("BEGIN");
 
       const feePolicySnapshotId = feePolicySnapshotIdForTrade(trade.id);
-      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, trade.feeSnapshot, trade.bookedAt);
+      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, trade, trade.feeSnapshot, trade.bookedAt);
 
       await client.query(
         `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, instrument_type, trade_type,
+           id, user_id, account_id, symbol, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
            tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
-           $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12, $13,
-           $14, $15, $16, $17, $18, $19,
-           $20
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $14,
+           $15, $16, $17, $18, $19, $20,
+           $21
          )`,
         [
           trade.id,
           trade.userId,
           trade.accountId,
           trade.symbol,
+          trade.marketCode ?? "TW",
           trade.instrumentType,
           trade.type,
           trade.quantity,
@@ -1163,7 +1188,8 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async isCurrentBaselineSchemaReflected(client: PoolClient): Promise<boolean> {
-    const [hasCoreTables, migration009Reflected, migration010Reflected] = await Promise.all([
+    const [hasCoreTables, migration009Reflected, migration010Reflected, migration011Reflected, migration012Reflected] =
+      await Promise.all([
       Promise.all([
         this.tableExists(client, "users"),
         this.tableExists(client, "fee_profiles"),
@@ -1172,9 +1198,17 @@ export class PostgresPersistence implements Persistence {
       ]).then((results) => results.every(Boolean)),
       this.isMigrationAlreadyReflected(client, "009_retire_twd_ntd_fields.sql"),
       this.isMigrationAlreadyReflected(client, "010_trade_snapshot_recompute_normalization.sql"),
+      this.isMigrationAlreadyReflected(client, "011_fee_profile_tax_rule_normalization.sql"),
+      this.isMigrationAlreadyReflected(client, "012_market_code_on_symbols_bindings_and_trades.sql"),
     ]);
 
-    return hasCoreTables && migration009Reflected && migration010Reflected;
+    return (
+      hasCoreTables &&
+      migration009Reflected &&
+      migration010Reflected &&
+      migration011Reflected &&
+      migration012Reflected
+    );
   }
 
   private async isMigrationAlreadyReflected(client: PoolClient, file: string): Promise<boolean> {
@@ -1183,6 +1217,10 @@ export class PostgresPersistence implements Persistence {
         return this.isMigration009Reflected(client);
       case "010_trade_snapshot_recompute_normalization.sql":
         return this.isMigration010Reflected(client);
+      case "011_fee_profile_tax_rule_normalization.sql":
+        return this.isMigration011Reflected(client);
+      case "012_market_code_on_symbols_bindings_and_trades.sql":
+        return this.isMigration012Reflected(client);
       default:
         return false;
     }
@@ -1248,6 +1286,25 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  private async isMigration011Reflected(client: PoolClient): Promise<boolean> {
+    const [hasFeeProfileTaxRules, hasSnapshotTaxComponents] = await Promise.all([
+      this.tableExists(client, "fee_profile_tax_rules"),
+      this.tableExists(client, "trade_fee_policy_snapshot_tax_components"),
+    ]);
+
+    return hasFeeProfileTaxRules && hasSnapshotTaxComponents;
+  }
+
+  private async isMigration012Reflected(client: PoolClient): Promise<boolean> {
+    const [hasTradeEventMarketCode, hasSymbolMarketCode, hasBindingMarketCode] = await Promise.all([
+      this.columnExists(client, "trade_events", "market_code"),
+      this.columnExists(client, "symbols", "market_code"),
+      this.columnExists(client, "account_fee_profile_overrides", "market_code"),
+    ]);
+
+    return hasTradeEventMarketCode && hasSymbolMarketCode && hasBindingMarketCode;
+  }
+
   private async hasUserTables(client: PoolClient): Promise<boolean> {
     const tableResult = await client.query<{ has_tables: boolean }>(
       `SELECT EXISTS (
@@ -1310,12 +1367,14 @@ export class PostgresPersistence implements Persistence {
 
   private async seedSymbols(): Promise<void> {
     await this.pool.query(
-      `INSERT INTO symbols (ticker, instrument_type)
+      `INSERT INTO symbols (ticker, instrument_type, market_code)
        VALUES
-         ('2330', 'STOCK'),
-         ('0050', 'ETF'),
-         ('00679B', 'BOND_ETF')
-       ON CONFLICT (ticker) DO UPDATE SET instrument_type = EXCLUDED.instrument_type`,
+         ('2330', 'STOCK', 'TW'),
+         ('0050', 'ETF', 'TW'),
+         ('00679B', 'BOND_ETF', 'TW')
+       ON CONFLICT (ticker) DO UPDATE SET
+         instrument_type = EXCLUDED.instrument_type,
+         market_code = EXCLUDED.market_code`,
     );
   }
 
@@ -1352,6 +1411,22 @@ export class PostgresPersistence implements Persistence {
        ON CONFLICT (id) DO NOTHING`,
       [accountId, userId, feeProfileId],
     );
+
+    await replaceFeeProfileTaxRules(this.pool, userId, {
+      id: feeProfileId,
+      name: "Default Broker",
+      boardCommissionRate: 1.425,
+      commissionDiscountPercent: 0,
+      minimumCommissionAmount: 20,
+      commissionCurrency: "TWD",
+      commissionRoundingMode: "FLOOR",
+      taxRoundingMode: "FLOOR",
+      stockSellTaxRateBps: 30,
+      stockDayTradeTaxRateBps: 15,
+      etfSellTaxRateBps: 10,
+      bondEtfSellTaxRateBps: 0,
+      commissionChargeMode: "CHARGED_UPFRONT",
+    });
   }
 
   private defaultFeeProfileId(userId: string): string {
@@ -1493,25 +1568,26 @@ export class PostgresPersistence implements Persistence {
 
     for (const tx of accounting.facts.tradeEvents) {
       const feePolicySnapshotId = feePolicySnapshotIdForTrade(tx.id);
-      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, tx.feeSnapshot, tx.bookedAt);
+      await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, tx, tx.feeSnapshot, tx.bookedAt);
 
       await client.query(
         `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, instrument_type, trade_type,
+           id, user_id, account_id, symbol, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
            tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
-           $1, $2, $3, $4, $5, $6,
-           $7, $8, $9, $10, $11, $12, $13,
-           $14, $15, $16, $17, $18, $19,
-           $20
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $14,
+           $15, $16, $17, $18, $19, $20,
+           $21
          )`,
         [
           tx.id,
           tx.userId,
           tx.accountId,
           tx.symbol,
+          tx.marketCode ?? "TW",
           tx.instrumentType,
           tx.type,
           tx.quantity,
@@ -1676,6 +1752,11 @@ function validateStoreInvariants(store: Store): void {
     if (!isCurrencyCode(profile.commissionCurrency)) {
       throw new Error(`fee profile ${profile.id} has invalid commission currency ${profile.commissionCurrency}`);
     }
+    for (const taxRule of materializeFeeProfileTaxRules(profile)) {
+      if (taxRule.rateBps < 0) {
+        throw new Error(`fee profile ${profile.id} has invalid tax rule ${taxRule.id}`);
+      }
+    }
   }
   validateAccountingStoreInvariants(store.accounting, accountIds);
   for (const binding of store.feeProfileBindings) {
@@ -1687,6 +1768,9 @@ function validateStoreInvariants(store: Store): void {
     }
     if (!/^[A-Za-z0-9]{1,16}$/.test(binding.symbol)) {
       throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
+    }
+    if (binding.marketCode && !/^[A-Z]{2,8}$/.test(binding.marketCode)) {
+      throw new Error(`fee profile binding has invalid market code ${binding.marketCode}`);
     }
   }
 }
@@ -1709,6 +1793,9 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
   for (const trade of accounting.facts.tradeEvents) {
     if (!isCurrencyCode(trade.priceCurrency)) {
       throw new Error(`trade ${trade.id} has invalid price currency ${trade.priceCurrency}`);
+    }
+    if (trade.marketCode && !/^[A-Z]{2,8}$/.test(trade.marketCode)) {
+      throw new Error(`trade ${trade.id} has invalid market code ${trade.marketCode}`);
     }
 
     if (trade.bookingSequence !== undefined && trade.bookingSequence <= 0) {
@@ -1875,6 +1962,7 @@ async function insertTradeFeePolicySnapshot(
   client: PoolClient,
   userId: string,
   snapshotId: string,
+  trade: Transaction,
   feeSnapshot: FeeProfile,
   bookedAt?: string,
 ): Promise<void> {
@@ -1911,6 +1999,46 @@ async function insertTradeFeePolicySnapshot(
       bookedAt ?? new Date().toISOString(),
     ],
   );
+
+  if (trade.type !== "SELL") {
+    return;
+  }
+
+  const calculatedTaxComponents = calculateAppliedTaxComponents(feeSnapshot, {
+    tradeValueAmount: trade.quantity * trade.unitPrice,
+    instrumentType: trade.instrumentType,
+    isDayTrade: trade.isDayTrade,
+    marketCode: trade.marketCode ?? "TW",
+  });
+  if (!calculatedTaxComponents.length) {
+    return;
+  }
+
+  const bookedTaxAmounts = alignBookedTaxComponentAmounts(trade.taxAmount, calculatedTaxComponents.map((component) => component.taxAmount));
+  for (const [index, component] of calculatedTaxComponents.entries()) {
+    await client.query(
+      `INSERT INTO trade_fee_policy_snapshot_tax_components (
+         id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+         tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11
+       )`,
+      [
+        `${snapshotId}:tax:${component.sortOrder}`,
+        snapshotId,
+        component.marketCode,
+        component.tradeSide,
+        component.instrumentType,
+        component.dayTradeScope,
+        component.taxComponentCode,
+        component.calculationMethod,
+        component.rateBps,
+        bookedTaxAmounts[index] ?? 0,
+        component.sortOrder,
+      ],
+    );
+  }
 }
 
 function legacyCommissionRateBps(boardCommissionRate: number): number {
@@ -1929,20 +2057,132 @@ function isCurrencyCode(value: string): boolean {
   return /^[A-Z]{3}$/.test(value);
 }
 
-function hydrateTradeFeeSnapshot(row: Record<string, unknown>): FeeProfile {
+function hydrateEditableFeeProfile(row: Record<string, unknown>, taxRuleRows: Record<string, unknown>[]): FeeProfile {
+  const base = buildFeeProfileFromRow(row, "id", "name");
+  const taxRules = hydrateTaxRulesFromRows(taxRuleRows, base);
+  const legacyTaxFields = projectLegacyFeeProfileTaxFields(taxRules);
   return {
-    id: String(row.profile_id_at_booking),
-    name: String(row.profile_name_at_booking),
-    boardCommissionRate: Number(row.board_commission_rate),
-    commissionDiscountPercent: Number(row.commission_discount_percent),
+    ...base,
+    ...legacyTaxFields,
+    taxRules,
+  };
+}
+
+function hydrateTradeFeeSnapshot(row: Record<string, unknown>, taxRuleRows: Record<string, unknown>[]): FeeProfile {
+  const base = buildFeeProfileFromRow(row, "profile_id_at_booking", "profile_name_at_booking");
+  const taxRules = hydrateTaxRulesFromRows(taxRuleRows, base);
+  const legacyTaxFields = projectLegacyFeeProfileTaxFields(taxRules);
+  return {
+    ...base,
+    ...legacyTaxFields,
+    taxRules,
+  };
+}
+
+function buildFeeProfileFromRow(
+  row: Record<string, unknown>,
+  idKey: string,
+  nameKey: string,
+): FeeProfile {
+  return {
+    id: String(row[idKey]),
+    name: String(row[nameKey]),
+    boardCommissionRate: Number(row.board_commission_rate ?? Number(row.commission_rate_bps) / 10),
+    commissionDiscountPercent:
+      row.commission_discount_percent !== null && row.commission_discount_percent !== undefined
+        ? Number(row.commission_discount_percent)
+        : legacyCommissionDiscountPercent(row.commission_discount_bps as number | null | undefined),
     minimumCommissionAmount: Number(row.minimum_commission_amount),
     commissionCurrency: String(row.commission_currency),
     commissionRoundingMode: String(row.commission_rounding_mode) as FeeProfile["commissionRoundingMode"],
     taxRoundingMode: String(row.tax_rounding_mode) as FeeProfile["taxRoundingMode"],
-    stockSellTaxRateBps: Number(row.stock_sell_tax_rate_bps),
-    stockDayTradeTaxRateBps: Number(row.stock_day_trade_tax_rate_bps),
-    etfSellTaxRateBps: Number(row.etf_sell_tax_rate_bps),
-    bondEtfSellTaxRateBps: Number(row.bond_etf_sell_tax_rate_bps),
-    commissionChargeMode: String(row.commission_charge_mode) as FeeProfile["commissionChargeMode"],
+    stockSellTaxRateBps: Number(row.stock_sell_tax_rate_bps ?? 0),
+    stockDayTradeTaxRateBps: Number(row.stock_day_trade_tax_rate_bps ?? 0),
+    etfSellTaxRateBps: Number(row.etf_sell_tax_rate_bps ?? 0),
+    bondEtfSellTaxRateBps: Number(row.bond_etf_sell_tax_rate_bps ?? 0),
+    commissionChargeMode: String(row.commission_charge_mode ?? "CHARGED_UPFRONT") as FeeProfile["commissionChargeMode"],
   };
+}
+
+function hydrateTaxRulesFromRows(
+  rows: Record<string, unknown>[],
+  fallbackProfile: FeeProfile,
+): FeeProfileTaxRule[] {
+  if (!rows.length) {
+    return materializeFeeProfileTaxRules(fallbackProfile);
+  }
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    marketCode: String(row.market_code),
+    tradeSide: String(row.trade_side) as FeeProfileTaxRule["tradeSide"],
+    instrumentType: String(row.instrument_type) as FeeProfileTaxRule["instrumentType"],
+    dayTradeScope: String(row.day_trade_scope) as FeeProfileTaxRule["dayTradeScope"],
+    taxComponentCode: String(row.tax_component_code),
+    calculationMethod: String(row.calculation_method) as FeeProfileTaxRule["calculationMethod"],
+    rateBps: Number(row.rate_bps),
+    sortOrder: Number(row.sort_order),
+    effectiveFrom: row.effective_from ? normalizeDate(String(row.effective_from)) : undefined,
+    effectiveTo: row.effective_to ? normalizeDate(String(row.effective_to)) : undefined,
+  })).sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+}
+
+function groupRowsByKey(rows: Record<string, unknown>[], key: string): Map<string, Record<string, unknown>[]> {
+  const grouped = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const rowKey = String(row[key]);
+    const current = grouped.get(rowKey);
+    if (current) {
+      current.push(row);
+      continue;
+    }
+    grouped.set(rowKey, [row]);
+  }
+  return grouped;
+}
+
+async function replaceFeeProfileTaxRules(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  userId: string,
+  profile: FeeProfile,
+): Promise<void> {
+  const taxRules = materializeFeeProfileTaxRules(profile);
+  await client.query(`DELETE FROM fee_profile_tax_rules WHERE fee_profile_id = $1`, [profile.id]);
+
+  for (const rule of taxRules) {
+    await client.query(
+      `INSERT INTO fee_profile_tax_rules (
+         id, user_id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+         tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12, $13
+       )`,
+      [
+        rule.id,
+        userId,
+        profile.id,
+        rule.marketCode,
+        rule.tradeSide,
+        rule.instrumentType,
+        rule.dayTradeScope,
+        rule.taxComponentCode,
+        rule.calculationMethod,
+        rule.rateBps,
+        rule.effectiveFrom ?? null,
+        rule.effectiveTo ?? null,
+        rule.sortOrder,
+      ],
+    );
+  }
+}
+
+function alignBookedTaxComponentAmounts(bookedTaxAmount: number, calculatedComponentAmounts: number[]): number[] {
+  if (!calculatedComponentAmounts.length) return [];
+  if (calculatedComponentAmounts.length === 1) return [bookedTaxAmount];
+
+  const aligned = [...calculatedComponentAmounts];
+  const calculatedTotal = aligned.reduce((total, amount) => total + amount, 0);
+  aligned[aligned.length - 1] = Math.max(0, aligned[aligned.length - 1] + (bookedTaxAmount - calculatedTotal));
+  return aligned;
 }

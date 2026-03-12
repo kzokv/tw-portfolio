@@ -1,4 +1,4 @@
-import type { CurrencyCode, FeeProfile, InstrumentType, Lot } from "@tw-portfolio/domain";
+import type { CurrencyCode, FeeProfile, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
 import type { UserSettings } from "@tw-portfolio/shared-types";
 
 export interface Account {
@@ -11,12 +11,14 @@ export interface Account {
 export interface FeeProfileBinding {
   accountId: string;
   symbol: string;
+  marketCode?: MarketCode;
   feeProfileId: string;
 }
 
 export interface SymbolDef {
   ticker: string;
   type: InstrumentType;
+  marketCode?: MarketCode;
 }
 
 export type TransactionType = "BUY" | "SELL";
@@ -26,6 +28,7 @@ export interface BookedTradeEvent {
   userId: string;
   accountId: string;
   symbol: string;
+  marketCode?: MarketCode;
   instrumentType: InstrumentType;
   type: TransactionType;
   quantity: number;
