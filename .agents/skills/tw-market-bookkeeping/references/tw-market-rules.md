@@ -4,6 +4,9 @@ Use this file when the task requires current Taiwan stock or ETF bookkeeping rul
 
 Last refreshed: March 11, 2026
 
+See also:
+- [tw-bookkeeping-examples.md](./tw-bookkeeping-examples.md) for ledger-ready worked examples that pair these rules with holdings, dividend, and distribution state views.
+
 ## Scope
 
 This reference is for individual investors bookkeeping Taiwan listed stocks, ETFs, and bond ETFs. It is not a substitute for personalized tax, legal, or filing advice.

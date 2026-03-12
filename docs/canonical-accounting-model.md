@@ -679,7 +679,7 @@ The following rules constrain follow-on implementation work:
 
 The issue is not complete without concrete examples. The following examples define the minimum acceptance pack for the MVP model.
 
-### Example 1. Buy Trade Derived From Account Default Fee Profile
+### Example 1. Cumulative Trade Timeline With Holdings Read Model
 
 Input facts:
 
@@ -689,61 +689,53 @@ Input facts:
   - minimumCommissionAmount: `20`
   - commissionCurrency: `TWD`
   - commissionRoundingMode: `FLOOR`
-- `TradeEvent`
-  - account: `broker-a`
-  - symbol: `2330`
-  - tradeType: `BUY`
-  - quantity: `1000`
-  - unitPrice: `600`
-  - priceCurrency: `TWD`
+- UI/read-model display assumptions
+  - holdings use weighted-average cost as the default bookkeeping view
+  - `average cost/share` is displayed to `4` decimal places in examples
+  - `current price/share` is an illustrative market-data input captured after each event
+- symbol timeline for `2330`
+  - `T1` `2026-03-01T09:00:00+08:00` `BUY` `1000` shares at `600`, current price after event `610`
+  - `T2` `2026-03-05T09:30:00+08:00` `BUY` `1000` shares at `620`, current price after event `618`
+  - `T3` `2026-03-10T10:15:00+08:00` `SELL` `800` shares at `650`, current price after event `645`
+  - `T4` `2026-03-18T13:20:00+08:00` `SELL` `200` shares at `660`, current price after event `655`
 
-Derived booked values:
+Derived booked trade values:
 
-- gross trade value: `600000`
-- bookedCommissionAmount: `855`
-- bookedTaxAmount: `0`
+| Event | Side | Quantity | Unit Price | Gross Trade Value | Booked Commission | Booked Tax | Net Cash |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `T1` | `BUY` | `1000` | `600` | `600000.00` | `855.00` | `0.00` | `600855.00` cash outflow |
+| `T2` | `BUY` | `1000` | `620` | `620000.00` | `883.50` | `0.00` | `620883.50` cash outflow |
+| `T3` | `SELL` | `800` | `650` | `520000.00` | `741.00` | `1560.00` | `517699.00` cash inflow |
+| `T4` | `SELL` | `200` | `660` | `132000.00` | `188.10` | `396.00` | `131415.90` cash inflow |
 
-Expected outcomes:
+Per-symbol transaction view:
 
-- one posted `TradeEvent` exists with the derived booked commission and persisted fee policy snapshot
-- one `CashLedgerEntry` exists for trade settlement cash outflow
-- derived holding quantity becomes `1000`
-- derived total cost becomes `600855`
-- if lot-capable inventory is enabled, one open `Lot` exists with quantity `1000`
+| Event | Trade Timestamp | Side | Quantity | Unit Price | Gross | Commission | Tax | Net Cash |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `T1` | `2026-03-01T09:00:00+08:00` | `BUY` | `1000` | `600` | `600000.00` | `855.00` | `0.00` | `-600855.00` |
+| `T2` | `2026-03-05T09:30:00+08:00` | `BUY` | `1000` | `620` | `620000.00` | `883.50` | `0.00` | `-620883.50` |
+| `T3` | `2026-03-10T10:15:00+08:00` | `SELL` | `800` | `650` | `520000.00` | `741.00` | `1560.00` | `517699.00` |
+| `T4` | `2026-03-18T13:20:00+08:00` | `SELL` | `200` | `660` | `132000.00` | `188.10` | `396.00` | `131415.90` |
 
-### Example 2. Sell Trade Derived From Default Regulated Tax Settings
+Holdings/read-model view after each trade event:
 
-Precondition:
-
-- existing holding from Example 1
-- same account default `FeeProfile`
-- default regulated stock sell tax rate remains `0.3%`
-
-Input facts:
-
-- `TradeEvent`
-  - account: `broker-a`
-  - symbol: `2330`
-  - tradeType: `SELL`
-  - quantity: `400`
-  - unitPrice: `650`
-  - priceCurrency: `TWD`
-
-Derived booked values:
-
-- gross trade value: `260000`
-- bookedCommissionAmount: `370`
-- bookedTaxAmount: `780`
+| After Event | Current Holdings | Total Cost | Average Cost / Share | Current Price / Share | Market Value | Unrealized P&L | Cumulative Realized P&L |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `T1` | `1000` | `600855.00` | `600.8550` | `610` | `610000.00` | `9145.00` | `0.00` |
+| `T2` | `2000` | `1221738.50` | `610.8693` | `618` | `1236000.00` | `14261.50` | `0.00` |
+| `T3` | `1200` | `733043.10` | `610.8693` | `645` | `774000.00` | `40956.90` | `29003.60` |
+| `T4` | `1000` | `610869.25` | `610.8693` | `655` | `655000.00` | `44130.75` | `38245.65` |
 
 Expected outcomes:
 
-- one posted `TradeEvent` exists
-- one `CashLedgerEntry` exists for trade settlement cash inflow
-- derived holding quantity becomes `600`
+- each posted `TradeEvent` persists booked commission, booked tax, and the fee policy snapshot used at booking time
+- one `CashLedgerEntry` exists per settlement cash movement, with buys recorded as outflows and sells as inflows
+- the UI can render both a per-symbol transaction timeline and a holdings summary after every trade event without reinterpreting source facts
+- weighted-average cost is visible as the default holdings view, while lot-capable inventory may still exist underneath for disposal validation and future tax-lot support
 - realized P&L is derived from disposal cost and net proceeds, not manually entered
-- no negative lot or holding quantity appears
+- no negative lot or holding quantity appears at any step
 
-### Example 3. Symbol Override Fee Profile Takes Precedence
+### Example 2. Symbol Override Fee Profile Takes Precedence
 
 Input facts:
 
@@ -761,10 +753,11 @@ Input facts:
 Expected outcomes:
 
 - the symbol override fee profile is used instead of the account default
+- booked commission becomes `513.00` instead of `855.00` when the override discount is applied
 - the posted trade persists the override fee policy snapshot
 - the user does not need per-trade manual fee-policy entry to get the correct result
 
-### Example 4. Same-Day Multiple Trades In One Symbol
+### Example 3. Same-Day Multiple Trades In One Symbol
 
 Input facts:
 
@@ -778,13 +771,13 @@ Expected outcomes:
 - derived holdings and cost basis are reproducible from that sequence
 - the system does not collapse same-day trades into one fact unless an explicit consolidation rule exists
 
-### Example 5. Broker Campaign Rebate Is A Separate Cash Event
+### Example 4. Broker Campaign Rebate Is A Separate Cash Event
 
 Input facts:
 
 - a trade is posted using a fee profile with `commissionChargeMode = CHARGED_UPFRONT_REBATED_LATER`
-- the trade settles with the higher charged commission shown on the broker statement
-- the broker later posts a campaign rebate cash credit
+- the trade settles with the higher charged commission shown on the broker statement, for example `142.50`
+- the broker later posts a campaign rebate cash credit, for example `57.00`
 
 Expected outcomes:
 
@@ -792,7 +785,7 @@ Expected outcomes:
 - the later rebate is booked as a separate `CashLedgerEntry`
 - the original trade is not silently rewritten to look like it was charged at the discounted amount on trade date
 
-### Example 6. Declared Cash Dividend Vs Posted Dividend Receipt
+### Example 5. Declared Cash Dividend Vs Posted Dividend Receipt
 
 Input facts:
 
@@ -813,13 +806,14 @@ Expected outcomes:
   - expectedCashAmount: `2400`
   - cashCurrency: `TWD`
 - no cash movement is created merely because the dividend was declared
+- a dividend detail view can display `eligibleQuantity`, expected gross cash, and payment date before the receipt is posted
 - actual cash is only recognized after posting the receipt
 
-### Example 7. Posted Dividend Receipt With Deductions
+### Example 6. Posted Cash Dividend Receipt With Deductions
 
 Precondition:
 
-- expected dividend ledger exists from Example 6
+- expected dividend ledger exists from Example 5
 
 Input facts:
 
@@ -837,9 +831,61 @@ Expected outcomes:
 - one posted `DividendLedgerEntry` exists for the account
 - one or more `CashLedgerEntry` records exist to represent the actual cash receipt and related deduction effects
 - expected and actual values remain separately visible
+- a dividend receipt view can show `gross expected 2400`, `NHI deduction 120`, and `net received 2280` side by side
 - the posted receipt does not rewrite the original `DividendEvent`
 
-### Example 8. Correction Through Reversal
+### Example 7. Posted Stock Dividend Adds Shares Without Creating Dividend Cash
+
+Input facts:
+
+- `DividendEvent`
+  - symbol: `1101`
+  - exDividendDate: `2026-08-01`
+  - paymentDate: `2026-09-05`
+  - cashDividendPerShare: `0`
+  - cashDividendCurrency: `TWD`
+  - stockDividendPerShare: `0.1`
+- eligible holding on ex-dividend date: `1000` shares
+- pre-posting holding state
+  - current holdings: `1000`
+  - total cost: `600000`
+- support value from statement or posting input
+  - premiumBaseAmount: `1000`
+  - premiumBaseCurrency: `TWD`
+
+Expected outcomes:
+
+- one `DividendLedgerEntry` may be created with `eligibleQuantity 1000`, `stockSharesReceived 100`, and the support value needed for statement and NHI review
+- no cash receipt is created merely because the stock dividend is posted
+- holdings quantity increases from `1000` to `1100` through the stock-position path
+- total cost remains `600000`, so the displayed average cost per share becomes `545.4545`
+- any cash in lieu, fee, or deduction would be represented separately rather than folded into the stock-quantity change
+
+### Example 8. ETF Distribution With Source Breakdown Remains Source-Aware
+
+Input facts:
+
+- `DividendEvent`
+  - symbol: `00919`
+  - paymentDate: `2026-09-15`
+- account-level posted distribution
+  - eligibleQuantity: `3000`
+  - receivedCashAmount: `1500`
+  - cashCurrency: `TWD`
+- issuer or broker source breakdown lines
+  - `股利所得`: `900`
+  - `利息所得`: `300`
+  - `收益平準金`: `200`
+  - `其他資本返還性質項目`: `100`
+
+Expected outcomes:
+
+- one posted `DividendLedgerEntry` exists for the account
+- the distribution detail view preserves the disclosed source lines instead of flattening the whole receipt into one dividend bucket
+- if only net cash is known at first, the receipt may still be posted, but the source classification remains `unknown pending issuer disclosure` until the source lines are available
+- downstream tax or NHI interpretation can use the stored source composition instead of inferring from the label `配息` alone
+
+### Example 9. Correction Through Reversal
 
 Precondition:
 
@@ -856,7 +902,7 @@ Expected outcomes:
 - correction is represented through reversal, not in-place overwrite
 - derived holdings, cash, and snapshots can be recomputed from the full event history
 
-### Example 9. Reconciliation Mismatch Without Destructive Rewrite
+### Example 10. Reconciliation Mismatch Without Destructive Rewrite
 
 Input facts:
 
@@ -870,7 +916,7 @@ Expected outcomes:
 - no booked trade, dividend, or cash ledger fact is silently changed
 - later resolution updates reconciliation workflow state, not historical facts
 
-### Example 10. Duplicate Import Or Idempotency Case
+### Example 11. Duplicate Import Or Idempotency Case
 
 Input facts:
 
@@ -882,7 +928,7 @@ Expected outcomes:
 - the duplicate is rejected or linked to an idempotency outcome
 - holdings and cash balances are unchanged by the duplicate attempt
 
-### Example 11. Backfilled Historical Trade
+### Example 12. Backfilled Historical Trade
 
 Input facts:
 
@@ -895,7 +941,7 @@ Expected outcomes:
 - prior posted facts are not rewritten
 - any affected reconciliation or snapshot outputs are regenerated rather than manually edited
 
-### Example 12. Invalid Oversell
+### Example 13. Invalid Oversell
 
 Precondition:
 
@@ -912,7 +958,7 @@ Expected outcomes:
 - holdings remain unchanged
 - the validation reason is explicit
 
-### Example 13. Invalid Negative Values
+### Example 14. Invalid Negative Values
 
 Input facts:
 
@@ -946,7 +992,7 @@ The spec is ready to hand off into implementation when all answers below are "ye
 - is the posted-fact correction model locked to `reversal`?
 - is the `Lot` role explicitly retained for cross-market support?
 - are `DividendEvent`, `DividendLedgerEntry`, and `DividendDeductionEntry` minimum MVP fields fixed?
-- does the example pack cover trade, dividend, rebate cash mode, reconciliation, reversal, idempotency, and validation cases?
+- does the example pack cover trade, holdings read-model state, cash dividends, stock dividends, ETF source-aware distributions, rebate cash mode, reconciliation, reversal, idempotency, and validation cases?
 - can `KZO-12` through `KZO-16` start without reopening core terminology questions?
 
 ## Migration Guidance

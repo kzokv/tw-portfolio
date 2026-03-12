@@ -10,8 +10,9 @@ Use this skill for Taiwan listed equity and ETF bookkeeping work where the outpu
 ## Read The Right Reference
 
 - Always read `references/tw-market-rules.md` before answering.
+- Read `references/tw-bookkeeping-examples.md` when the task needs concrete worked examples, ledger-ready tables, or UI-facing holdings and dividend state examples.
 - Also read `references/tw-broker-public-commission-rates.md` when the task involves broker fee assumptions, public commission comparisons, discounts, or minimum-fee handling.
-- Treat both references as dated baselines. If the user asks for the latest position or a rule may have changed, verify again with official sources before answering.
+- Treat these references as dated baselines. If the user asks for the latest position or a rule may have changed, verify again with official sources before answering.
 
 ## Workflow
 
