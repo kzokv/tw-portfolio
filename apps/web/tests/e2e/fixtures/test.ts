@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base } from "@playwright/test";
 import { assignE2EUser, buildE2EUserId, resetE2EUser } from "../helpers/flows";
 
 type AppFixtures = {
@@ -6,7 +6,7 @@ type AppFixtures = {
 };
 
 export const test = base.extend<AppFixtures>({
-  e2eUserId: async ({}, use, testInfo) => {
+  e2eUserId: async ({ }, use, testInfo) => {
     await use(buildE2EUserId(testInfo));
   },
   page: async ({ page, request, e2eUserId }, use) => {

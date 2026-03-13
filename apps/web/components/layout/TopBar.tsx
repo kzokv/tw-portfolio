@@ -351,7 +351,7 @@ function QuickSearchPanel({
     );
   }
 
-  let itemOffset = 0;
+  const itemOffset = 0;
 
   return (
     <div
