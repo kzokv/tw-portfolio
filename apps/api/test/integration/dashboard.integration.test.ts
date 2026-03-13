@@ -223,4 +223,89 @@ describe("dashboard overview", () => {
       }),
     );
   });
+
+  it("returns ordered performance points for the requested range", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-performance-buy-1" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-performance-buy-2" },
+      payload: transactionPayload({
+        symbol: "0050",
+        quantity: 5,
+        unitPrice: 120,
+        tradeDate: "2026-02-10",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/performance?range=YTD" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        range: "YTD",
+        points: expect.arrayContaining([
+          expect.objectContaining({
+            date: "2026-01-15",
+            totalCostAmount: 1000,
+            marketValueAmount: 1000,
+            unrealizedPnlAmount: 0,
+          }),
+          expect.objectContaining({
+            date: "2026-02-10",
+            totalCostAmount: 1600,
+            marketValueAmount: 1505,
+            unrealizedPnlAmount: -95,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("leaves performance market-value fields empty when any active symbol lacks quotes", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-performance-provisional" },
+      payload: transactionPayload({
+        symbol: "qa-sync-later",
+        quantity: 5,
+        unitPrice: 80,
+        tradeDate: "2026-01-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/performance?range=YTD" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      expect.objectContaining({
+        range: "YTD",
+        points: expect.arrayContaining([
+          expect.objectContaining({
+            date: "2026-01-15",
+            totalCostAmount: 400,
+            marketValueAmount: null,
+            unrealizedPnlAmount: null,
+          }),
+        ]),
+      }),
+    );
+  });
 });

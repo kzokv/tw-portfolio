@@ -2,11 +2,15 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type {
+  DashboardPerformanceDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewSummaryDto,
   SymbolOptionDto,
   TransactionHistoryItemDto,
 } from "@tw-portfolio/shared-types";
+import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
+import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
+import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
 import { SummarySection } from "../../../components/dashboard/SummarySection";
 import { AddTransactionCard } from "../../../components/portfolio/AddTransactionCard";
 import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
@@ -70,6 +74,24 @@ const transactions: TransactionHistoryItemDto[] = [
   },
 ];
 
+const performance: DashboardPerformanceDto = {
+  range: "1M",
+  points: [
+    {
+      date: "2026-03-01",
+      totalCostAmount: 1_200_000,
+      marketValueAmount: 1_210_000,
+      unrealizedPnlAmount: 10_000,
+    },
+    {
+      date: "2026-03-13",
+      totalCostAmount: 1_200_000,
+      marketValueAmount: 1_260_000,
+      unrealizedPnlAmount: 60_000,
+    },
+  ],
+};
+
 const symbolOptions: SymbolOptionDto[] = [
   {
     ticker: "2330",
@@ -112,8 +134,48 @@ describe("dashboard components", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);
 
     expect(html).toContain("Current Price");
+    expect(html).toContain("Market Value");
+    expect(html).toContain("Unrealized P&amp;L");
     expect(html).toContain("href=\"/symbols/2330?accountId=acc-1\"");
     expect(html).toContain("NT$610");
+  });
+
+  it("renders performance range controls and chart legend", () => {
+    const html = renderToStaticMarkup(
+      <PortfolioTrendCard
+        data={performance}
+        range="1M"
+        currency="TWD"
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+        onRangeChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Portfolio Trend");
+    expect(html).toContain("dashboard-performance-range-1m");
+    expect(html).toContain("Market Value");
+    expect(html).toContain("Total Cost");
+  });
+
+  it("renders allocation snapshot legend and recent transactions card", () => {
+    const allocationHtml = renderToStaticMarkup(<AllocationSnapshotCard holdings={holdings} dict={dict} locale="en" />);
+    expect(allocationHtml).toContain("Allocation Snapshot");
+    expect(allocationHtml).toContain("2330");
+
+    const recentTransactionsHtml = renderToStaticMarkup(
+      <RecentTransactionsCard
+        items={transactions}
+        locale="en"
+        dict={dict}
+        isLoading={false}
+        errorMessage=""
+      />,
+    );
+    expect(recentTransactionsHtml).toContain("Recent Transactions");
+    expect(recentTransactionsHtml).toContain("href=\"/symbols/2330?accountId=acc-1\"");
   });
 
   it("renders symbol history empty and populated states", () => {

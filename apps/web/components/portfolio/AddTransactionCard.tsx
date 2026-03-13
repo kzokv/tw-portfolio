@@ -41,13 +41,13 @@ export function AddTransactionCard({
   const content = (
     <>
       <div className="mb-5 min-w-0">
-        <h2 className="text-xl leading-tight text-ink sm:text-2xl md:text-[2rem]">{dict.transactions.title}</h2>
-        <p className="mt-3 break-words text-sm leading-6 text-slate-300">{dict.transactions.description}</p>
+        <h2 className="text-xl leading-tight text-slate-950 sm:text-2xl md:text-[2rem]">{dict.transactions.title}</h2>
+        <p className="mt-3 break-words text-sm leading-6 text-slate-600">{dict.transactions.description}</p>
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.accountTerm}</span>
             <TooltipInfo
               label={dict.transactions.accountTerm}
@@ -72,7 +72,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.typeTerm}</span>
             <TooltipInfo
               label={dict.transactions.typeTerm}
@@ -93,7 +93,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.symbolTerm}</span>
             <TooltipInfo
               label={dict.transactions.symbolTerm}
@@ -119,7 +119,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.quantityTerm}</span>
             <TooltipInfo
               label={dict.transactions.quantityTerm}
@@ -138,7 +138,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.unitPriceTerm}</span>
             <TooltipInfo
               label={dict.transactions.unitPriceTerm}
@@ -157,7 +157,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.currencyTerm}</span>
             <TooltipInfo
               label={dict.transactions.currencyTerm}
@@ -172,14 +172,14 @@ export function AddTransactionCard({
             disabled
             aria-readonly="true"
             aria-disabled="true"
-            className={`${fieldClassName} cursor-not-allowed bg-slate-950/70 text-slate-400`}
+            className={`${fieldClassName} cursor-not-allowed bg-slate-100 text-slate-500`}
             data-testid="tx-price-currency-input"
           />
           <p className="text-[11px] text-slate-500">{dict.tooltips.txCurrency}</p>
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.tradeDateTerm}</span>
             <TooltipInfo
               label={dict.transactions.tradeDateTerm}
@@ -198,7 +198,7 @@ export function AddTransactionCard({
         </label>
 
         <label className="min-w-0 space-y-2 text-sm sm:col-span-2">
-          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.dayTradeTerm}</span>
             <TooltipInfo
               label={dict.transactions.dayTradeTerm}

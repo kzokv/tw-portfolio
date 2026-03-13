@@ -62,10 +62,12 @@ export function SettingsDrawer({
         <p className="text-sm text-slate-300">{dict.feedback.loadingSettings}</p>
       ) : (
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-          <div className="mb-3 flex gap-2 md:mb-4">
+          <div className="mb-3 inline-flex w-fit gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1 md:mb-4">
             <Button
               type="button"
               variant={form.tab === "general" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "general" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
               onClick={() => form.setTab("general")}
               data-testid="settings-tab-general"
             >
@@ -74,6 +76,8 @@ export function SettingsDrawer({
             <Button
               type="button"
               variant={form.tab === "fees" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "fees" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
               onClick={() => form.setTab("fees")}
               data-testid="settings-tab-fees"
             >

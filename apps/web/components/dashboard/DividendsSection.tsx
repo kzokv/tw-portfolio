@@ -26,9 +26,9 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
     <Card data-testid="dashboard-dividends-section">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">{dict.dashboardHome.dividendsTitle}</p>
-          <h2 className="mt-2 text-2xl text-ink sm:text-3xl">{dict.dashboardHome.dividendsTitle}</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{dict.dashboardHome.dividendsDescription}</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-indigo-500/78">{dict.dashboardHome.dividendsTitle}</p>
+          <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{dict.dashboardHome.dividendsTitle}</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.dividendsDescription}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -51,7 +51,7 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
       </div>
 
       {items.length === 0 ? (
-        <div className="mt-6 rounded-[22px] border border-dashed border-white/15 bg-slate-950/30 px-5 py-8 text-sm text-slate-300">
+        <div className="mt-6 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-8 text-sm text-slate-600">
           {tab === "upcoming" ? dict.dashboardHome.dividendsEmptyUpcoming : dict.dashboardHome.dividendsEmptyRecent}
         </div>
       ) : (
@@ -60,12 +60,12 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
             ? upcoming.map((item) => (
               <article
                 key={`${item.accountId}-${item.symbol}-${item.paymentDate ?? item.exDividendDate ?? "na"}`}
-                className="rounded-[22px] border border-white/10 bg-slate-950/35 p-4"
+                className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-50">{item.symbol}</p>
-                    <p className="mt-1 text-sm text-slate-400">{item.accountId}</p>
+                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.symbol}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
                   </div>
                   <StatusPill label={resolveUpcomingStatusLabel(dict, item.status)} />
                 </div>
@@ -88,12 +88,12 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
             : recent.map((item) => (
               <article
                 key={`${item.accountId}-${item.symbol}-${item.postedAt}`}
-                className="rounded-[22px] border border-white/10 bg-slate-950/35 p-4"
+                className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-50">{item.symbol}</p>
-                    <p className="mt-1 text-sm text-slate-400">{item.accountId}</p>
+                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.symbol}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
                   </div>
                   <StatusPill label={item.status === "posted" ? dict.dashboardHome.statusPosted : dict.dashboardHome.statusUnreconciled} />
                 </div>
@@ -120,15 +120,15 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
 function DividendDetail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-slate-100">{value}</dd>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
+      <dd className="mt-1 text-sm font-medium text-slate-900">{value}</dd>
     </div>
   );
 }
 
 function StatusPill({ label }: { label: string }) {
   return (
-    <p className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-200">
+    <p className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs uppercase tracking-[0.16em] text-indigo-700">
       {label}
     </p>
   );

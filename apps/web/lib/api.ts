@@ -1,4 +1,5 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
+const E2E_USER_COOKIE = "tw_e2e_user";
 
 /**
  * Headers sent with every API request for auth.
@@ -13,6 +14,10 @@ function getAuthHeaders(): Record<string, string> {
   if (oauthUserId) {
     return { "x-authenticated-user-id": oauthUserId };
   }
+  const runtimeDevUserId = getRuntimeDevUserId();
+  if (runtimeDevUserId) {
+    return { "x-user-id": runtimeDevUserId };
+  }
   const devUserId = typeof process.env.NEXT_PUBLIC_DEV_USER_ID === "string"
     ? process.env.NEXT_PUBLIC_DEV_USER_ID.trim()
     : "";
@@ -20,6 +25,23 @@ function getAuthHeaders(): Record<string, string> {
     return { "x-user-id": devUserId };
   }
   return {};
+}
+
+function getRuntimeDevUserId(): string {
+  if (typeof document === "undefined") {
+    return "";
+  }
+
+  const cookie = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${E2E_USER_COOKIE}=`));
+
+  if (!cookie) {
+    return "";
+  }
+
+  return decodeURIComponent(cookie.slice(E2E_USER_COOKIE.length + 1)).trim();
 }
 
 async function parseError(res: Response, path: string): Promise<Error> {

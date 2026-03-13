@@ -32,10 +32,10 @@ export function UnsavedChangesFooter({
   dict,
 }: UnsavedChangesFooterProps) {
   return (
-    <div className="mt-3 shrink-0 space-y-2.5 border-t border-white/10 pt-3 md:mt-4 md:space-y-3 md:pt-4">
+    <div className="sticky bottom-0 mt-3 shrink-0 space-y-2.5 border-t border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.98)_18%)] pt-3 backdrop-blur md:mt-4 md:space-y-3 md:pt-4">
       {showCloseWarning && (
         <div
-          className="rounded-[18px] border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.12)] px-3 py-3 text-sm text-amber-50"
+          className="rounded-[18px] border border-[rgba(251,191,36,0.28)] bg-[rgba(255,251,235,0.96)] px-3 py-3 text-sm text-amber-800"
           data-testid="settings-close-warning"
         >
           <div className="mb-2 flex items-start gap-2">
@@ -53,11 +53,11 @@ export function UnsavedChangesFooter({
         </div>
       )}
 
-      <p className="glass-inset rounded-[18px] px-3 py-2.5 text-xs text-slate-400">{dict.settings.discardHint}</p>
+      <p className="glass-inset rounded-[18px] px-3 py-2.5 text-xs text-slate-600">{dict.settings.discardHint}</p>
 
       {discardNotice && (
         <p
-          className="rounded-[18px] border border-[rgba(52,211,153,0.35)] bg-[rgba(52,211,153,0.12)] px-3 py-2 text-sm text-emerald-50"
+          className="rounded-[18px] border border-[rgba(52,211,153,0.24)] bg-[rgba(236,253,245,0.96)] px-3 py-2 text-sm text-emerald-700"
           data-testid="settings-discard-notice"
         >
           {discardNotice}
@@ -66,7 +66,7 @@ export function UnsavedChangesFooter({
 
       {(validationError || errorMessage) && (
         <p
-          className="rounded-[18px] border border-[rgba(251,113,133,0.35)] bg-[rgba(251,113,133,0.12)] px-3 py-2 text-sm text-rose-100"
+          className="rounded-[18px] border border-[rgba(251,113,133,0.24)] bg-[rgba(254,226,226,0.92)] px-3 py-2 text-sm text-rose-700"
           data-testid="settings-validation-error"
         >
           {validationError || errorMessage}

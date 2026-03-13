@@ -74,6 +74,11 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       typeSell: "SELL",
       dayTradeYes: "Yes",
       dayTradeNo: "No",
+      verificationTitle: "Verification Snapshot",
+      verificationDescription: "Confirm the latest portfolio totals without turning this route into a second holdings page.",
+      recentLedgerTitle: "Recent Transactions",
+      recentLedgerDescription: "Keep the newest ledger entries close to the form for fast operational review.",
+      recentLedgerEmpty: "Recent transactions will appear here after the first trade is recorded.",
     },
     holdings: {
       title: "Holdings",
@@ -141,6 +146,11 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       typeSell: "賣出",
       dayTradeYes: "是",
       dayTradeNo: "否",
+      verificationTitle: "驗證摘要",
+      verificationDescription: "保留與持倉有關的必要確認資訊，但不讓這頁變成第二個持倉頁。",
+      recentLedgerTitle: "最近交易",
+      recentLedgerDescription: "把最新帳本紀錄放在表單旁邊，方便輸入後立即核對。",
+      recentLedgerEmpty: "新增第一筆交易後，最近交易會顯示在這裡。",
     },
     holdings: {
       title: "持倉",
