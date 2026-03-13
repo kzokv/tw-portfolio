@@ -7,6 +7,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
       loadingDashboard: "Loading dashboard...",
       loadingSettings: "Loading settings...",
       noAccounts: "No account is available. Open settings to bind an account profile first.",
+      transactionSubmitted: "Transaction recorded successfully.",
     },
     actions: {
       recomputeHistory: "Recompute History",
@@ -33,6 +34,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
       loadingDashboard: "儀表板載入中...",
       loadingSettings: "設定載入中...",
       noAccounts: "目前沒有可用帳戶，請先在設定中綁定帳戶預設費率。",
+      transactionSubmitted: "交易已成功寫入。",
     },
     actions: {
       recomputeHistory: "重算歷史",

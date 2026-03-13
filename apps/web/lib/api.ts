@@ -26,7 +26,14 @@ async function parseError(res: Response, path: string): Promise<Error> {
   let message = `Request failed: ${path}`;
   try {
     const text = await res.text();
-    if (text) message = text;
+    if (text) {
+      try {
+        const payload = JSON.parse(text) as { message?: string; error?: string };
+        message = payload.message?.trim() || payload.error?.trim() || text;
+      } catch {
+        message = text;
+      }
+    }
   } catch {
     message = `Request failed: ${path}`;
   }

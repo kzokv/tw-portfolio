@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoApp, openSettingsDrawer } from "../helpers/flows";
+import { gotoApp, openQuickTransaction, openSettingsDrawer } from "../helpers/flows";
 
 const apiPort = Number(process.env.API_PORT ?? 4000);
 const apiBaseUrl = `http://127.0.0.1:${apiPort}`;
@@ -98,6 +98,7 @@ test.describe("settings binding affects transaction fees", () => {
     expect(fullSave.ok()).toBe(true);
 
     await gotoApp(page);
+    await openQuickTransaction(page);
     const accountSelect = page.getByTestId("tx-account-select");
     await accountSelect.selectOption(feeConfigBody.accounts[0].id);
 
@@ -106,7 +107,7 @@ test.describe("settings binding affects transaction fees", () => {
     await page.getByTestId("tx-quantity-input").fill("1");
     await page.getByTestId("tx-price-input").fill("100");
 
-    await page.getByTestId("tx-symbol-input").fill("2330");
+    await page.getByTestId("tx-symbol-select").selectOption("2330");
     const boundTx = page.waitForResponse((response) => {
       return response.request().method() === "POST" && response.url().includes("/portfolio/transactions") && response.ok();
     });
@@ -115,7 +116,7 @@ test.describe("settings binding affects transaction fees", () => {
     expect(boundResponse.commissionAmount).toBe(0);
     expect(boundResponse.feeSnapshot.id).toBe(zeroFeeProfile.id);
 
-    await page.getByTestId("tx-symbol-input").fill("0050");
+    await page.getByTestId("tx-symbol-select").selectOption("0050");
     const fallbackTx = page.waitForResponse((response) => {
       return response.request().method() === "POST" && response.url().includes("/portfolio/transactions") && response.ok();
     });

@@ -1,5 +1,6 @@
 import type { FeeProfile } from "@tw-portfolio/domain";
 import { buildAccountingPolicy } from "./accountingStore.js";
+import { createDefaultSymbols } from "./symbolRegistry.js";
 import type { Store } from "../types/store.js";
 
 const defaultFeeProfile: FeeProfile = {
@@ -60,11 +61,7 @@ export function createStore(): Store {
       },
       policy: buildAccountingPolicy(),
     },
-    symbols: [
-      { ticker: "2330", type: "STOCK", marketCode: "TW" },
-      { ticker: "0050", type: "ETF", marketCode: "TW" },
-      { ticker: "00679B", type: "BOND_ETF", marketCode: "TW" },
-    ],
+    symbols: createDefaultSymbols(),
     recomputeJobs: [],
     idempotencyKeys: new Set<string>(),
   };

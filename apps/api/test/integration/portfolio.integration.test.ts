@@ -54,6 +54,70 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
   });
 
+  it("creates provisional symbols for unknown tickers and filters transaction history newest first", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-provisional-1" },
+      payload: transactionPayload({
+        symbol: "qa-test",
+        quantity: 2,
+        tradeDate: "2026-01-01",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-provisional-2" },
+      payload: transactionPayload({
+        symbol: "qa-test",
+        quantity: 3,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-provisional-3" },
+      payload: transactionPayload({
+        symbol: "2330",
+        quantity: 1,
+        tradeDate: "2026-01-03",
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.symbols).toContainEqual(
+      expect.objectContaining({
+        ticker: "QA-TEST",
+        type: "STOCK",
+        marketCode: "TW",
+        isProvisional: true,
+        lastSyncedAt: null,
+      }),
+    );
+
+    const historyResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions?symbol=qa-test&accountId=acc-1",
+    });
+    expect(historyResponse.statusCode).toBe(200);
+    expect(historyResponse.json()).toEqual([
+      expect.objectContaining({
+        symbol: "QA-TEST",
+        tradeDate: "2026-01-02",
+        feeProfileId: "fp-default",
+        feeProfileName: "Default Broker",
+      }),
+      expect.objectContaining({
+        symbol: "QA-TEST",
+        tradeDate: "2026-01-01",
+        feeProfileId: "fp-default",
+        feeProfileName: "Default Broker",
+      }),
+    ]);
+  });
+
   it("creates linked cash settlement facts for buys and sells", async () => {
     await app.inject({
       method: "POST",
@@ -323,9 +387,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       method: "POST",
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-domain-invalid" },
-      payload: transactionPayload({ symbol: "UNKNOWN", quantity: 1 }),
+      payload: transactionPayload({ accountId: "missing-account", quantity: 1 }),
     });
-    expect(first.statusCode).toBe(400);
+    expect(first.statusCode).toBe(404);
 
     const second = await app.inject({
       method: "POST",
@@ -357,7 +421,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
 
     const transactions = await app.inject({ method: "GET", url: "/portfolio/transactions" });
     expect(transactions.statusCode).toBe(200);
-    expect(transactions.json()[0].feeSnapshot.name).toBe(profile.name);
+    expect(transactions.json()[0].feeProfileName).toBe(profile.name);
   });
 
   it("releases idempotency key when persistence fails", async () => {

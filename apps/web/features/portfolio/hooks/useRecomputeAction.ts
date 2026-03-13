@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import { formatRecomputeMessage } from "../../../lib/i18n";
+import { resolveErrorMessage } from "../../../lib/utils";
 import { confirmRecompute, previewRecompute } from "../services/portfolioService";
 
 interface UseRecomputeActionOptions {
@@ -32,7 +33,7 @@ export function useRecomputeAction({ locale, fallbackConfirm, refresh }: UseReco
       setMessage(formatRecomputeMessage(locale, confirmed.status, preview.items.length));
       await refresh();
     } catch (error) {
-      setErrorMessage(String(error));
+      setErrorMessage(resolveErrorMessage(error));
     } finally {
       setIsRunning(false);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { resolveErrorMessage } from "../../../lib/utils";
 import { toSaveSettingsRequest } from "../mappers/settingsMappers";
 import { saveFullSettings } from "../services/settingsService";
 import type { SettingsFormModel } from "../types/settingsUi";
@@ -23,10 +24,10 @@ export function useSettingsSave({ refresh, closeDrawer }: UseSettingsSaveOptions
       closeDrawer();
 
       void refresh().catch((error) => {
-        setErrorMessage(`Settings saved but dashboard refresh failed: ${String(error)}`);
+        setErrorMessage(`Settings saved but dashboard refresh failed: ${resolveErrorMessage(error)}`);
       });
     } catch (error) {
-      setErrorMessage(String(error));
+      setErrorMessage(resolveErrorMessage(error));
     } finally {
       setIsSaving(false);
     }

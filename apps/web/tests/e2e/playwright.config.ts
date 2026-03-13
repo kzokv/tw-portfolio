@@ -12,6 +12,7 @@ const apiPort = Number(process.env.API_PORT ?? 4000);
 export default defineConfig({
   testDir: "./specs",
   timeout: 45_000,
+  workers: 1,
   reporter: [
     ["list"],
     ["html", { open: "on-failure", outputFolder: path.join(repoRoot, "apps/web/playwright-report") }],

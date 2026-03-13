@@ -95,7 +95,9 @@ CREATE TABLE IF NOT EXISTS account_fee_profile_overrides (
 CREATE TABLE IF NOT EXISTS symbols (
   ticker TEXT PRIMARY KEY,
   instrument_type TEXT NOT NULL,
-  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$')
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
+  last_synced_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS corporate_actions (

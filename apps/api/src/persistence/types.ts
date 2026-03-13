@@ -1,4 +1,4 @@
-import type { AccountingStore, Store } from "../types/store.js";
+import type { AccountingStore, Store, SymbolDef } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 
 export interface ReadinessStatus {
@@ -12,6 +12,7 @@ export interface Persistence {
   close(): Promise<void>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
+  upsertSymbols(userId: string, symbols: SymbolDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;

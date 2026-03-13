@@ -1,4 +1,5 @@
 import { createStore } from "../services/store.js";
+import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
 import type { AccountingStore, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { Persistence, ReadinessStatus } from "./types.js";
@@ -27,6 +28,13 @@ export class MemoryPersistence implements Persistence {
 
   async saveStore(store: Store): Promise<void> {
     this.stores.set(store.userId, store);
+  }
+
+  async upsertSymbols(userId: string, symbols: Store["symbols"]): Promise<void> {
+    if (symbols.length === 0) return;
+    const store = await this.loadStore(userId);
+    store.symbols = upsertSymbolDefinitions(store.symbols, symbols);
+    this.stores.set(userId, store);
   }
 
   async loadAccountingStore(userId: string): Promise<AccountingStore> {

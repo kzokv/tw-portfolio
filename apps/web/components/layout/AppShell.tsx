@@ -4,21 +4,21 @@ import { useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
-import { AddTransactionCard } from "../portfolio/AddTransactionCard";
 import { HoldingsTable } from "../portfolio/HoldingsTable";
-import { RecomputeCard } from "../portfolio/RecomputeCard";
 import type { TransactionInput } from "../portfolio/types";
 import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
-import { HeroSkeleton } from "../dashboard/HeroSkeleton";
 import { Button } from "../ui/Button";
-import { TooltipInfo } from "../ui/TooltipInfo";
 import { TopBar } from "./TopBar";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
 import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
 import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
+import { SummarySection } from "../dashboard/SummarySection";
+import { DividendsSection } from "../dashboard/DividendsSection";
+import { ActionCenterSection } from "../dashboard/ActionCenterSection";
+import { QuickTransactionSection } from "../dashboard/QuickTransactionSection";
 
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
@@ -48,6 +48,7 @@ export function AppShell() {
   const transactionSubmission = useTransactionSubmission({
     initialValue: DEFAULT_TRANSACTION,
     noAccountsMessage: dict.feedback.noAccounts,
+    successMessage: dict.feedback.transactionSubmitted,
     refresh: dashboard.refresh,
   });
 
@@ -64,7 +65,7 @@ export function AppShell() {
 
   /** Ready when we have user settings (locale). Later: set false until async i18n load completes. */
   const isI18nReady = !!dashboard.settings;
-  const showPageSkeleton = dashboard.isBootstrapping || dashboard.isRefreshing || !isI18nReady;
+  const showPageSkeleton = dashboard.isBootstrapping || !isI18nReady;
 
   const drawerOpen = searchParams.get("drawer") === "settings";
 
@@ -85,6 +86,7 @@ export function AppShell() {
   }, [dashboard.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
 
   const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || dashboard.errorMessage;
+  const transactionMessage = transactionSubmission.message;
   const recomputeMessage = recomputeAction.message;
 
   return (
@@ -100,29 +102,6 @@ export function AppShell() {
       />
 
       <main className="relative mx-auto min-w-0 w-full max-w-7xl px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
-        {showPageSkeleton ? (
-          <HeroSkeleton />
-        ) : (
-          <div className="glass-panel mb-6 min-w-0 rounded-[28px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8 md:py-8">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">{dict.hero.eyebrow}</p>
-            <div className="mt-3 flex min-w-0 items-start gap-2">
-              <h2
-                className="max-w-3xl text-2xl leading-tight text-ink sm:text-3xl md:text-4xl lg:text-5xl"
-                data-testid="hero-title"
-              >
-                {dict.hero.title}
-              </h2>
-              <TooltipInfo
-                label={dict.hero.title}
-                content={dict.tooltips.heroTitle}
-                triggerTestId="tooltip-hero-title-trigger"
-                contentTestId="tooltip-hero-title-content"
-              />
-            </div>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">{dict.hero.description}</p>
-          </div>
-        )}
-
         {globalError ? (
           <div
             className="mb-4 rounded-[20px] border border-[rgba(251,113,133,0.35)] bg-[rgba(251,113,133,0.12)] px-4 py-3 text-sm text-rose-100"
@@ -147,7 +126,20 @@ export function AppShell() {
               </Button>
             </div>
           </div>
-        ) : recomputeMessage ? (
+        ) : null}
+
+        {!globalError && transactionMessage ? (
+          <p
+            className="mb-4 rounded-[20px] border border-[rgba(52,211,153,0.35)] bg-[rgba(52,211,153,0.12)] px-4 py-3 text-sm text-emerald-50"
+            data-testid="transaction-status"
+            role="status"
+            aria-live="polite"
+          >
+            {transactionMessage}
+          </p>
+        ) : null}
+
+        {!globalError && !transactionMessage && recomputeMessage ? (
           <p
             className="mb-4 rounded-[20px] border border-[rgba(52,211,153,0.35)] bg-[rgba(52,211,153,0.12)] px-4 py-3 text-sm text-emerald-50"
             data-testid="recompute-status"
@@ -163,30 +155,52 @@ export function AppShell() {
         {showPageSkeleton ? (
           <DashboardLoading />
         ) : (
-          <div className="stagger grid min-w-0 gap-6 md:grid-cols-2">
-            <RecomputeCard
-              settings={dashboard.settings}
-              pending={recomputeAction.isRunning}
-              onRecompute={recomputeAction.runRecompute}
-              dict={dict}
-            />
-            <AddTransactionCard
-              value={transactionSubmission.draftTransaction}
-              accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
-              pending={transactionSubmission.isSubmitting}
-              onChange={(next) => transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next))}
-              onSubmit={transactionSubmission.submit}
-              dict={dict}
-            />
-            <div className="md:col-span-2 min-w-0">
+          <div className="stagger grid min-w-0 gap-6 xl:grid-cols-12">
+            <div className="xl:col-span-12">
+              <SummarySection summary={dashboard.summary} dict={dict} locale={locale} />
+            </div>
+            <div className="xl:col-span-8 min-w-0">
               <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} />
+            </div>
+            <div className="xl:col-span-4 min-w-0">
+              <ActionCenterSection
+                locale={locale}
+                settings={dashboard.settings}
+                integrityIssue={dashboard.actions.integrityIssue}
+                pending={recomputeAction.isRunning}
+                onRecompute={recomputeAction.runRecompute}
+                onOpenSettings={() => setDrawerOpen(true)}
+                dict={dict}
+              />
+            </div>
+            <div className="xl:col-span-8 min-w-0">
+              <DividendsSection
+                upcoming={dashboard.dividends.upcoming}
+                recent={dashboard.dividends.recent}
+                dict={dict}
+                locale={locale}
+              />
+            </div>
+            <div className="xl:col-span-4 min-w-0">
+              <QuickTransactionSection
+                value={transactionSubmission.draftTransaction}
+                accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
+                symbolOptions={dashboard.symbols}
+                pending={transactionSubmission.isSubmitting}
+                onChange={(next) => {
+                  transactionSubmission.setMessage("");
+                  transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
+                }}
+                onSubmit={transactionSubmission.submit}
+                dict={dict}
+              />
             </div>
           </div>
         )}
       </main>
 
       <IntegrityIssueDialog
-        issue={dashboard.integrityIssue}
+        issue={dashboard.actions.integrityIssue}
         open={dashboard.showIntegrityDialog}
         onOpenChange={dashboard.setShowIntegrityDialog}
         onOpenSettings={() => setDrawerOpen(true)}
