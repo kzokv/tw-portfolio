@@ -119,6 +119,20 @@ export interface DashboardOverviewDto {
   feeProfileBindings: FeeProfileBindingDto[];
 }
 
+export type DashboardPerformanceRange = "1M" | "3M" | "YTD" | "1Y";
+
+export interface DashboardPerformancePointDto {
+  date: string;
+  totalCostAmount: number;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+}
+
+export interface DashboardPerformanceDto {
+  range: DashboardPerformanceRange;
+  points: DashboardPerformancePointDto[];
+}
+
 export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;

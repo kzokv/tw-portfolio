@@ -45,7 +45,7 @@ export function UserAvatarButton({ userId, onOpenSettings, openSettingsLabel }: 
   return (
     <Button
       variant="ghost"
-      className="h-12 w-12 rounded-full border border-white/10 bg-white/5 p-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:bg-white/10"
+      className="h-11 w-11 rounded-full border border-slate-200 bg-white/88 p-0 shadow-[0_12px_28px_rgba(148,163,184,0.12)] hover:bg-white"
       onClick={onOpenSettings}
       aria-label={openSettingsLabel}
       data-testid="avatar-button"

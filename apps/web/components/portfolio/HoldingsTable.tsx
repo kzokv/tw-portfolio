@@ -34,9 +34,9 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
     <Card data-testid="dashboard-holdings-section">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">{dict.dashboardHome.holdingsTitle}</p>
-          <h2 className="mt-2 text-2xl text-ink sm:text-3xl">{dict.dashboardHome.holdingsTitle}</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{dict.dashboardHome.holdingsDescription}</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-indigo-500/78">{dict.dashboardHome.holdingsTitle}</p>
+          <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{dict.dashboardHome.holdingsTitle}</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.holdingsDescription}</p>
         </div>
         <label className="block w-full max-w-sm">
           <span className="sr-only">{dict.dashboardHome.holdingsSearchPlaceholder}</span>
@@ -69,23 +69,25 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
       </div>
 
       {filteredHoldings.length === 0 ? (
-        <div className="mt-6 rounded-[22px] border border-dashed border-white/15 bg-slate-950/30 px-5 py-8 text-sm text-slate-300">
+        <div className="mt-6 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-8 text-sm text-slate-600">
           {dict.dashboardHome.holdingsEmpty}
         </div>
       ) : (
         <>
           <div
-            className="mt-6 hidden overflow-x-auto overflow-y-hidden rounded-[22px] border border-white/10 bg-slate-950/35 lg:block"
+            className="mt-6 hidden overflow-x-auto overflow-y-hidden rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block"
             data-testid="holdings-table-scroll"
           >
-            <table className="min-w-[1120px] border-collapse text-sm text-slate-200" data-testid="holdings-table">
+            <table className="min-w-[1120px] border-collapse text-sm text-slate-700" data-testid="holdings-table">
               <thead>
-                <tr className="bg-white/5 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
                   <th className="px-4 py-3 text-left font-medium">{dict.holdings.symbolTerm}</th>
                   <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.currentPriceLabel}</th>
+                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.marketValueLabel}</th>
+                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.unrealizedPnlLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.holdings.totalCostTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.allocationLabel}</th>
                   <th className="px-4 py-3 text-left font-medium">{dict.dashboardHome.nextDividendLabel}</th>
@@ -94,17 +96,23 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
               </thead>
               <tbody>
                 {filteredHoldings.map((holding) => (
-                  <tr key={`${holding.accountId}-${holding.symbol}`} className="border-b border-white/8 last:border-0">
-                    <td className="px-4 py-4 font-semibold tracking-[0.12em] text-slate-50">
+                  <tr key={`${holding.accountId}-${holding.symbol}`} className="border-b border-slate-200 last:border-0">
+                    <td className="px-4 py-4 font-semibold tracking-[0.12em] text-slate-950">
                       <HoldingHistoryLink holding={holding}>{holding.symbol}</HoldingHistoryLink>
                     </td>
-                    <td className="px-4 py-4 text-slate-300">{holding.accountId}</td>
+                    <td className="px-4 py-4 text-slate-600">{holding.accountId}</td>
                     <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}</td>
                     <td className={cn("px-4 py-4 text-right font-medium", getCurrentPriceTone(holding))}>
                       {holding.currentUnitPrice === null
                         ? "-"
                         : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      {holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
+                    </td>
+                    <td className={cn("px-4 py-4 text-right font-medium", getUnrealizedPnlTone(holding.unrealizedPnlAmount))}>
+                      {holding.unrealizedPnlAmount === null ? "-" : formatCurrencyAmount(holding.unrealizedPnlAmount, holding.currency, locale)}
                     </td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}</td>
                     <td className="px-4 py-4 text-right">{holding.allocationPct !== null ? formatPercent(holding.allocationPct, locale) : "-"}</td>
@@ -120,17 +128,17 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
             {filteredHoldings.map((holding) => (
               <article
                 key={`${holding.accountId}-${holding.symbol}`}
-                className="rounded-[22px] border border-white/10 bg-slate-950/35 p-4"
+                className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
                 data-testid="holding-mobile-card"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-lg font-semibold tracking-[0.14em] text-slate-50">
+                    <p className="text-lg font-semibold tracking-[0.14em] text-slate-950">
                       <HoldingHistoryLink holding={holding}>{holding.symbol}</HoldingHistoryLink>
                     </p>
-                    <p className="mt-1 text-sm text-slate-400">{holding.accountId}</p>
+                    <p className="mt-1 text-sm text-slate-500">{holding.accountId}</p>
                   </div>
-                  <p className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">
+                  <p className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600">
                     {holding.allocationPct !== null ? formatPercent(holding.allocationPct, locale) : "-"}
                   </p>
                 </div>
@@ -149,6 +157,15 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
                   <HoldingDetail
                     label={dict.holdings.totalCostTerm}
                     value={formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}
+                  />
+                  <HoldingDetail
+                    label={dict.dashboardHome.marketValueLabel}
+                    value={holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
+                  />
+                  <HoldingDetail
+                    label={dict.dashboardHome.unrealizedPnlLabel}
+                    value={holding.unrealizedPnlAmount === null ? "-" : formatCurrencyAmount(holding.unrealizedPnlAmount, holding.currency, locale)}
+                    valueClassName={getUnrealizedPnlTone(holding.unrealizedPnlAmount)}
                   />
                   <HoldingDetail
                     label={dict.dashboardHome.nextDividendLabel}
@@ -174,7 +191,7 @@ function HoldingHistoryLink({
   return (
     <Link
       href={`/symbols/${encodeURIComponent(holding.symbol)}?accountId=${encodeURIComponent(holding.accountId)}`}
-      className="underline decoration-white/20 underline-offset-4 transition hover:text-sky-200 hover:decoration-sky-300/80"
+      className="underline decoration-indigo-200 underline-offset-4 transition hover:text-indigo-600 hover:decoration-indigo-400"
       data-testid={`holding-history-link-${holding.accountId}-${holding.symbol}`}
     >
       {children}
@@ -184,23 +201,36 @@ function HoldingHistoryLink({
 
 function getCurrentPriceTone(holding: DashboardOverviewHoldingDto): string {
   if (holding.currentUnitPrice === null) {
-    return "text-slate-300";
+    return "text-slate-500";
   }
   if (holding.currentUnitPrice > holding.averageCostPerShare) {
-    return "text-emerald-300";
+    return "text-emerald-600";
   }
   if (holding.currentUnitPrice < holding.averageCostPerShare) {
-    return "text-rose-300";
+    return "text-rose-600";
   }
-  return "text-slate-100";
+  return "text-slate-950";
+}
+
+function getUnrealizedPnlTone(value: number | null): string {
+  if (value === null) {
+    return "text-slate-500";
+  }
+  if (value > 0) {
+    return "text-emerald-600";
+  }
+  if (value < 0) {
+    return "text-rose-600";
+  }
+  return "text-slate-900";
 }
 
 function SummaryTile({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="glass-inset rounded-[22px] p-4">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className="mt-2 text-xl font-semibold text-ink">{value}</p>
-      <p className="mt-2 text-sm text-slate-300">{detail}</p>
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
+      <p className="mt-2 text-sm text-slate-600">{detail}</p>
     </div>
   );
 }
@@ -208,8 +238,8 @@ function SummaryTile({ label, value, detail }: { label: string; value: string; d
 function HoldingDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</dt>
-      <dd className={cn("mt-1 text-sm font-medium text-slate-100", valueClassName)}>{value}</dd>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
+      <dd className={cn("mt-1 text-sm font-medium text-slate-900", valueClassName)}>{value}</dd>
     </div>
   );
 }

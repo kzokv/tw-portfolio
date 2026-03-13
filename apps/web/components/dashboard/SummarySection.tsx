@@ -24,14 +24,14 @@ export function SummarySection({ summary, dict, locale }: SummarySectionProps) {
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">{dict.dashboardHome.summaryEyebrow}</p>
-          <h2 className="mt-3 max-w-4xl text-2xl leading-tight text-ink sm:text-3xl md:text-4xl" data-testid="dashboard-summary-title">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.dashboardHome.summaryEyebrow}</p>
+          <h2 className="mt-3 max-w-4xl text-2xl leading-tight text-slate-950 sm:text-3xl md:text-4xl" data-testid="dashboard-summary-title">
             {dict.dashboardHome.summaryTitle}
           </h2>
-          <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-300">{dict.dashboardHome.summaryDescription}</p>
+          <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-600">{dict.dashboardHome.summaryDescription}</p>
         </div>
-        <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
-          <span className="text-slate-400">{dict.dashboardHome.asOfLabel}</span>{" "}
+        <div className="rounded-full border border-slate-200 bg-white/85 px-4 py-2 text-sm text-slate-700 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
+          <span className="text-slate-500">{dict.dashboardHome.asOfLabel}</span>{" "}
           {summary.asOf ? formatDateLabel(summary.asOf, locale) : "-"}
         </div>
       </div>
@@ -69,9 +69,9 @@ function MetricCard({
 }) {
   return (
     <div className="glass-inset rounded-[22px] p-4">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className={`mt-2 text-xl font-semibold ${subdued ? "text-slate-300" : "text-ink"}`}>{value}</p>
-      {detail ? <p className="mt-2 text-sm text-slate-400">{detail}</p> : null}
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className={`mt-2 text-xl font-semibold ${subdued ? "text-slate-400" : "text-slate-950"}`}>{value}</p>
+      {detail ? <p className="mt-2 text-sm text-slate-500">{detail}</p> : null}
     </div>
   );
 }

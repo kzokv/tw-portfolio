@@ -118,6 +118,44 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     ]);
   });
 
+  it("supports limiting transaction history without changing newest-first ordering", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-limit-1" },
+      payload: transactionPayload({
+        tradeDate: "2026-01-01",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-limit-2" },
+      payload: transactionPayload({
+        tradeDate: "2026-01-02",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-limit-3" },
+      payload: transactionPayload({
+        tradeDate: "2026-01-03",
+      }),
+    });
+
+    const historyResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions?limit=2",
+    });
+
+    expect(historyResponse.statusCode).toBe(200);
+    expect(historyResponse.json()).toEqual([
+      expect.objectContaining({ tradeDate: "2026-01-03" }),
+      expect.objectContaining({ tradeDate: "2026-01-02" }),
+    ]);
+  });
+
   it("creates linked cash settlement facts for buys and sells", async () => {
     await app.inject({
       method: "POST",

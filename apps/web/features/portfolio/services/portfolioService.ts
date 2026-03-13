@@ -21,18 +21,26 @@ export async function submitTransaction(input: TransactionInput): Promise<void> 
 }
 
 export async function fetchTransactionHistory(filters: {
-  symbol: string;
+  symbol?: string;
   accountId?: string;
+  limit?: number;
 }): Promise<TransactionHistoryItemDto[]> {
-  const params = new URLSearchParams({
-    symbol: filters.symbol.trim().toUpperCase(),
-  });
+  const params = new URLSearchParams();
+
+  if (filters.symbol?.trim()) {
+    params.set("symbol", filters.symbol.trim().toUpperCase());
+  }
 
   if (filters.accountId) {
     params.set("accountId", filters.accountId);
   }
 
-  return getJson<TransactionHistoryItemDto[]>(`/portfolio/transactions?${params.toString()}`);
+  if (filters.limit) {
+    params.set("limit", String(filters.limit));
+  }
+
+  const query = params.toString();
+  return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
 }
 
 export async function previewRecompute(): Promise<RecomputePreviewResponse> {

@@ -1,4 +1,7 @@
 import type {
+  DashboardPerformanceDto,
+  DashboardPerformancePointDto,
+  DashboardPerformanceRange,
   DashboardOverviewDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewRecentDividendDto,
@@ -63,6 +66,29 @@ export function buildDashboardOverview(
     accounts: store.accounts,
     feeProfiles: store.feeProfiles,
     feeProfileBindings: store.feeProfileBindings,
+  };
+}
+
+export function buildDashboardPerformance(
+  store: Store,
+  {
+    range,
+    quotes = [],
+    asOf = quotes[0]?.asOf ?? new Date().toISOString(),
+  }: {
+    range: DashboardPerformanceRange;
+    quotes?: Quote[];
+    asOf?: string;
+  },
+): DashboardPerformanceDto {
+  const snapshotPoints = buildPerformanceFromSnapshots(store, range, asOf);
+  if (snapshotPoints.length > 0) {
+    return { range, points: snapshotPoints };
+  }
+
+  return {
+    range,
+    points: buildSyntheticPerformance(store, range, asOf, quotes),
   };
 }
 
@@ -221,4 +247,165 @@ function resolveUpcomingStatus(
   }
 
   return "declared";
+}
+
+function buildPerformanceFromSnapshots(
+  store: Store,
+  range: DashboardPerformanceRange,
+  asOf: string,
+): DashboardPerformancePointDto[] {
+  const { startDate, endDate } = resolveRangeBounds(range, asOf);
+
+  return store.accounting.projections.dailyPortfolioSnapshots
+    .filter((snapshot) => snapshot.snapshotDate >= startDate && snapshot.snapshotDate <= endDate)
+    .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate))
+    .map((snapshot) => ({
+      date: snapshot.snapshotDate,
+      totalCostAmount: snapshot.totalCostAmount,
+      marketValueAmount: snapshot.totalMarketValueAmount,
+      unrealizedPnlAmount: snapshot.totalUnrealizedPnlAmount,
+    }));
+}
+
+function buildSyntheticPerformance(
+  store: Store,
+  range: DashboardPerformanceRange,
+  asOf: string,
+  quotes: Quote[],
+): DashboardPerformancePointDto[] {
+  const { startDate, endDate } = resolveRangeBounds(range, asOf);
+  const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
+  const positions = new Map<string, { quantity: number; costBasisAmount: number }>();
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const points: DashboardPerformancePointDto[] = [];
+  let tradeIndex = 0;
+
+  while (tradeIndex < sortedTrades.length && sortedTrades[tradeIndex].tradeDate < startDate) {
+    applyTradeToPerformancePosition(positions, sortedTrades[tradeIndex]);
+    tradeIndex += 1;
+  }
+
+  for (let cursor = new Date(`${startDate}T00:00:00.000Z`); cursor <= new Date(`${endDate}T00:00:00.000Z`); cursor = addUtcDays(cursor, 1)) {
+    const currentDate = cursor.toISOString().slice(0, 10);
+
+    while (tradeIndex < sortedTrades.length && sortedTrades[tradeIndex].tradeDate <= currentDate) {
+      applyTradeToPerformancePosition(positions, sortedTrades[tradeIndex]);
+      tradeIndex += 1;
+    }
+
+    const point = summarizePerformancePoint(currentDate, positions, quoteBySymbol);
+    if (point.totalCostAmount > 0 || point.marketValueAmount !== null) {
+      points.push(point);
+    }
+  }
+
+  return points;
+}
+
+function summarizePerformancePoint(
+  date: string,
+  positions: Map<string, { quantity: number; costBasisAmount: number }>,
+  quoteBySymbol: Map<string, Quote>,
+): DashboardPerformancePointDto {
+  let totalCostAmount = 0;
+  let marketValueAmount = 0;
+  let hasPositions = false;
+  let hasCompleteQuotes = true;
+
+  for (const [positionKey, position] of positions) {
+    if (position.quantity <= 0 || position.costBasisAmount <= 0) continue;
+    hasPositions = true;
+    totalCostAmount += position.costBasisAmount;
+
+    const symbol = positionKey.includes(":")
+      ? positionKey.slice(positionKey.lastIndexOf(":") + 1)
+      : positionKey;
+    const quote = quoteBySymbol.get(symbol);
+    if (!quote) {
+      hasCompleteQuotes = false;
+      continue;
+    }
+
+    marketValueAmount += quote.unitPrice * position.quantity;
+  }
+
+  const resolvedMarketValue = hasPositions && hasCompleteQuotes ? marketValueAmount : null;
+
+  return {
+    date,
+    totalCostAmount,
+    marketValueAmount: resolvedMarketValue,
+    unrealizedPnlAmount: resolvedMarketValue === null ? null : resolvedMarketValue - totalCostAmount,
+  };
+}
+
+function applyTradeToPerformancePosition(
+  positions: Map<string, { quantity: number; costBasisAmount: number }>,
+  trade: Store["accounting"]["facts"]["tradeEvents"][number],
+): void {
+  const key = `${trade.accountId}:${trade.symbol}`;
+  const previous = positions.get(key) ?? { quantity: 0, costBasisAmount: 0 };
+
+  if (trade.type === "BUY") {
+    positions.set(key, {
+      quantity: previous.quantity + trade.quantity,
+      costBasisAmount: previous.costBasisAmount + trade.quantity * trade.unitPrice + trade.commissionAmount + trade.taxAmount,
+    });
+    return;
+  }
+
+  const realizedPnlAmount = trade.realizedPnlAmount ?? 0;
+  const proceedsNet = trade.quantity * trade.unitPrice - trade.commissionAmount - trade.taxAmount;
+  const allocatedCostAmount = Math.max(0, proceedsNet - realizedPnlAmount);
+  const nextQuantity = Math.max(0, previous.quantity - trade.quantity);
+  const nextCostBasisAmount = Math.max(0, previous.costBasisAmount - allocatedCostAmount);
+
+  if (nextQuantity === 0) {
+    positions.delete(key);
+    return;
+  }
+
+  positions.set(key, {
+    quantity: nextQuantity,
+    costBasisAmount: nextCostBasisAmount,
+  });
+}
+
+function compareTradesForPerformance(
+  left: Store["accounting"]["facts"]["tradeEvents"][number],
+  right: Store["accounting"]["facts"]["tradeEvents"][number],
+): number {
+  return (
+    left.tradeDate.localeCompare(right.tradeDate)
+    || (left.bookingSequence ?? 0) - (right.bookingSequence ?? 0)
+    || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function resolveRangeBounds(range: DashboardPerformanceRange, asOf: string): { startDate: string; endDate: string } {
+  const end = new Date(asOf);
+  const endDate = end.toISOString().slice(0, 10);
+  const start = new Date(`${endDate}T00:00:00.000Z`);
+
+  if (range === "1M") {
+    start.setUTCMonth(start.getUTCMonth() - 1);
+  } else if (range === "3M") {
+    start.setUTCMonth(start.getUTCMonth() - 3);
+  } else if (range === "1Y") {
+    start.setUTCFullYear(start.getUTCFullYear() - 1);
+  } else {
+    start.setUTCMonth(0, 1);
+  }
+
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate,
+  };
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }

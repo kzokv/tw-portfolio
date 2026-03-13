@@ -3,15 +3,15 @@ import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-xl border text-sm font-medium transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(109,94,252,0.7)] focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:transform-none",
+  "inline-flex items-center justify-center gap-2 rounded-xl border text-sm font-medium transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(79,70,229,0.48)] focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:transform-none",
   {
     variants: {
       variant: {
         default:
-          "border-[rgba(109,94,252,0.45)] bg-[rgba(109,94,252,0.92)] text-white shadow-[0_14px_30px_rgba(109,94,252,0.3)] hover:border-[rgba(143,133,255,0.8)] hover:bg-[rgba(143,133,255,0.92)]",
+          "border-[rgba(79,70,229,0.22)] bg-[linear-gradient(135deg,#6366f1,#4f46e5)] text-white shadow-[0_18px_36px_rgba(79,70,229,0.24)] hover:border-[rgba(79,70,229,0.34)] hover:brightness-[1.04]",
         secondary:
-          "border-white/10 bg-white/5 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:bg-white/10",
-        ghost: "border-transparent bg-transparent text-slate-200 hover:bg-white/8 hover:text-white",
+          "border-slate-200 bg-white/88 text-slate-700 shadow-[0_10px_22px_rgba(148,163,184,0.12)] hover:border-slate-300 hover:bg-white",
+        ghost: "border-transparent bg-transparent text-slate-600 hover:bg-white/75 hover:text-slate-900",
       },
       size: {
         default: "h-11 px-4",

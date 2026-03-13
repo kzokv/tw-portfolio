@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { FeeProfile } from "@tw-portfolio/domain";
-import type { IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { env } from "../config/env.js";
 import { getQuotesWithFallback } from "../providers/marketData.js";
 import {
@@ -12,10 +12,11 @@ import {
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
-import { buildDashboardOverview } from "../services/dashboard.js";
+import { buildDashboardOverview, buildDashboardPerformance } from "../services/dashboard.js";
 import { createDividendEvent, postDividend } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
+import { createStore } from "../services/store.js";
 import { ensureSymbolDefinition, isSymbolQuoteable } from "../services/symbolRegistry.js";
 import type { Store, Transaction } from "../types/store.js";
 
@@ -167,6 +168,21 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   return { userId, store };
 }
 
+function assertE2EResetEnabled(): void {
+  if (env.NODE_ENV !== "development" || env.AUTH_MODE !== "dev_bypass" || env.PERSISTENCE_BACKEND !== "memory") {
+    throw routeError(404, "not_found", "not found");
+  }
+}
+
+function createSeededStoreForUser(userId: string): Store {
+  const store = createStore();
+  store.userId = userId;
+  store.settings.userId = userId;
+  store.accounts = store.accounts.map((account) => ({ ...account, userId }));
+  syncAccountingPolicy(store);
+  return store;
+}
+
 async function resolveLatestQuotes(app: FastifyInstance, symbols: string[]) {
   if (symbols.length === 0) {
     return [];
@@ -309,6 +325,14 @@ function requireAccount(store: Store, accountId: string) {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  app.post("/__e2e/reset", async (req) => {
+    assertE2EResetEnabled();
+    const userId = resolveUserId(req);
+    const store = createSeededStoreForUser(userId);
+    await app.persistence.saveStore(store);
+    return { status: "reset", userId };
+  });
+
   app.get("/health/live", async () => ({ status: "ok" }));
   app.get("/health/ready", async () => {
     const dependencies = await app.persistence.readiness();
@@ -658,13 +682,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       symbol: symbolSchema.optional(),
       accountId: userScopedIdSchema.optional(),
+      limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
     const { store } = await loadUserStore(app, req);
-    return listTradeEvents(store)
+    const items = listTradeEvents(store)
       .filter((trade) => (query.symbol ? trade.symbol === query.symbol : true))
       .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
       .sort(compareTransactionsForHistory)
       .map(mapTransactionHistoryItem);
+    return query.limit ? items.slice(0, query.limit) : items;
   });
 
   app.get("/portfolio/holdings", async (req) => {
@@ -685,6 +711,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     return buildDashboardOverview(store, {
       integrityIssue: getStoreIntegrityIssue(store),
+      quotes,
+    });
+  });
+
+  app.get("/dashboard/performance", async (req) => {
+    const query = z.object({
+      range: z.enum(["1M", "3M", "YTD", "1Y"]).default("1M"),
+    }).parse(req.query);
+    const { store } = await loadUserStore(app, req);
+    const symbols = [...new Set(
+      store.accounting.facts.tradeEvents
+        .map((trade) => trade.symbol)
+        .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
+    )];
+    const quotes = await resolveLatestQuotes(app, symbols);
+
+    return buildDashboardPerformance(store, {
+      range: query.range as DashboardPerformanceRange,
       quotes,
     });
   });

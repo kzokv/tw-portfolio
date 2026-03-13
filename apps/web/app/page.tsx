@@ -5,7 +5,7 @@ import { AppShell } from "../components/layout/AppShell";
 export default function HomePage() {
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell />
+      <AppShell section="dashboard" />
     </Suspense>
   );
 }

@@ -4,6 +4,26 @@ export interface AppDictionary {
     title: string;
     titleTooltip: string;
     openSettingsLabel: string;
+    searchPlaceholder: string;
+    searchLabel: string;
+    searchEmptyLabel: string;
+    searchRoutesLabel: string;
+    searchSymbolsLabel: string;
+    openSearchLabel: string;
+    closeSearchLabel: string;
+    notificationsLabel: string;
+    openNavigationLabel: string;
+    closeNavigationLabel: string;
+    expandSidebarLabel: string;
+    collapseSidebarLabel: string;
+  };
+  navigation: {
+    dashboardLabel: string;
+    dashboardDescription: string;
+    portfolioLabel: string;
+    portfolioDescription: string;
+    transactionsLabel: string;
+    transactionsDescription: string;
   };
   hero: {
     eyebrow: string;
@@ -51,6 +71,21 @@ export interface AppDictionary {
     actionHealthyTitle: string;
     actionHealthyDescription: string;
     recomputeSummaryTitle: string;
+    performanceTitle: string;
+    performanceDescription: string;
+    performanceEmpty: string;
+    performancePartialQuoteWarning: string;
+    performanceMarketValueSeriesLabel: string;
+    performanceTotalCostSeriesLabel: string;
+    range1MLabel: string;
+    range3MLabel: string;
+    rangeYtdLabel: string;
+    range1YLabel: string;
+    allocationSnapshotTitle: string;
+    allocationSnapshotDescription: string;
+    allocationEmpty: string;
+    allocationOtherLabel: string;
+    quoteCoverageLabel: string;
     quickTransactionTitle: string;
     quickTransactionDescription: string;
     expandQuickTransaction: string;
@@ -68,6 +103,7 @@ export interface AppDictionary {
     accountScopeLabel: string;
     allAccountsLabel: string;
     backToDashboard: string;
+    entriesLabel: string;
     emptyState: string;
     tradeDateLabel: string;
     bookedAtLabel: string;
@@ -175,6 +211,11 @@ export interface AppDictionary {
     typeSell: string;
     dayTradeYes: string;
     dayTradeNo: string;
+    verificationTitle: string;
+    verificationDescription: string;
+    recentLedgerTitle: string;
+    recentLedgerDescription: string;
+    recentLedgerEmpty: string;
   };
   holdings: {
     title: string;
