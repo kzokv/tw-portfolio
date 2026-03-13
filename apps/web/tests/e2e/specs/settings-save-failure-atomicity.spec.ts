@@ -12,7 +12,7 @@ test.use({
 test.describe("settings save failure", () => {
   test("keeps drawer open and blocks partial UI commit when save fails", async ({ page }) => {
     await gotoApp(page);
-    const heroTitleBefore = await page.getByTestId("hero-title").textContent();
+    const summaryTitleBefore = await page.getByTestId("dashboard-summary-title").textContent();
 
     await page.route("**/settings/full", async (route) => {
       await route.fulfill({
@@ -30,6 +30,6 @@ test.describe("settings save failure", () => {
 
     await expect(page).toHaveURL(/drawer=settings/);
     await expect(page.getByTestId("settings-validation-error")).toBeVisible();
-    await expect(page.getByTestId("hero-title")).toHaveText(heroTitleBefore ?? "");
+    await expect(page.getByTestId("dashboard-summary-title")).toHaveText(summaryTitleBefore ?? "");
   });
 });

@@ -1,14 +1,8 @@
 "use client";
 
-import { HeroSkeleton } from "./HeroSkeleton";
-
 /**
  * Unified loading state for the dashboard: skeleton layout + in-content progress bar.
  * Used for initial load (Suspense fallback), bootstrap, and refresh.
- * - One big line (title), two smaller lines (subtitle), pill/button skeletons per card
- * - Table block: one big line + two smaller lines (card-style)
- * - Respects prefers-reduced-motion with subtle motion
- * - Screen reader: "Loading dashboard"
  */
 function SkeletonCard({
   delayClass = "",
@@ -33,28 +27,33 @@ export function DashboardLoading({ standalone = false }: { standalone?: boolean 
         aria-valuetext="indeterminate"
         aria-label="Loading dashboard"
       />
-      <div className="grid gap-6 md:grid-cols-2" aria-hidden="true">
-        <SkeletonCard delayClass="dashboard-skeleton-card--delay-1">
-          <div className="skeleton-line h-6 w-40 rounded" />
-          <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
-          <div className="skeleton-line skeleton-line--delay mt-1 h-4 max-w-[80%] rounded" />
-          <div className="mt-4 flex gap-2">
-            <div className="skeleton-line h-11 w-28 rounded-xl" />
+      <div className="grid gap-6 xl:grid-cols-12" aria-hidden="true">
+        <SkeletonCard delayClass="dashboard-skeleton-card--delay-1" className="xl:col-span-12">
+          <div className="skeleton-line h-3 w-28 rounded" />
+          <div className="skeleton-line skeleton-line--delay mt-3 h-10 w-80 rounded-2xl" />
+          <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full max-w-2xl rounded" />
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="skeleton-line h-24 rounded-[22px]" />
+            <div className="skeleton-line h-24 rounded-[22px]" />
+            <div className="skeleton-line h-24 rounded-[22px]" />
           </div>
         </SkeletonCard>
-        <SkeletonCard delayClass="dashboard-skeleton-card--delay-2">
-          <div className="skeleton-line h-6 w-36 rounded" />
-          <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
-          <div className="skeleton-line skeleton-line--delay mt-1 h-4 max-w-[75%] rounded" />
-          <div className="mt-4 flex gap-2">
-            <div className="skeleton-line h-11 w-24 rounded-xl" />
-            <div className="skeleton-line h-11 w-24 rounded-xl" />
-          </div>
-        </SkeletonCard>
-        <SkeletonCard delayClass="dashboard-skeleton-card--delay-2" className="md:col-span-2">
+        <SkeletonCard delayClass="dashboard-skeleton-card--delay-2" className="xl:col-span-8">
           <div className="skeleton-line h-6 w-32 rounded" />
           <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
           <div className="skeleton-line skeleton-line--delay mt-1 h-4 max-w-[66%] rounded" />
+          <div className="mt-5 grid gap-3">
+            <div className="skeleton-line h-28 rounded-[22px]" />
+            <div className="skeleton-line h-28 rounded-[22px]" />
+          </div>
+        </SkeletonCard>
+        <SkeletonCard delayClass="dashboard-skeleton-card--delay-3" className="xl:col-span-4">
+          <div className="skeleton-line h-6 w-28 rounded" />
+          <div className="skeleton-line skeleton-line--delay mt-2 h-4 w-full rounded" />
+          <div className="mt-5 grid gap-3">
+            <div className="skeleton-line h-24 rounded-[22px]" />
+            <div className="skeleton-line h-24 rounded-[22px]" />
+          </div>
         </SkeletonCard>
       </div>
     </>
@@ -68,7 +67,6 @@ export function DashboardLoading({ standalone = false }: { standalone?: boolean 
         role="status"
         aria-busy="true"
       >
-        <HeroSkeleton />
         {content}
       </main>
     );

@@ -17,6 +17,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
+import { createDefaultSymbols, upsertSymbolDefinitions } from "../services/symbolRegistry.js";
 import type {
   AccountingStore,
   CashLedgerEntry,
@@ -28,6 +29,7 @@ import type {
   RecomputeJob,
   RecomputePreviewItem,
   Store,
+  SymbolDef,
   Transaction,
 } from "../types/store.js";
 import type { Persistence, ReadinessStatus } from "./types.js";
@@ -242,7 +244,7 @@ export class PostgresPersistence implements Persistence {
       : { rows: [] };
 
     const symbolsResult = await this.pool.query(
-      `SELECT ticker, instrument_type, market_code
+      `SELECT ticker, instrument_type, market_code, is_provisional, last_synced_at
        FROM symbols
        ORDER BY market_code, ticker`,
     );
@@ -466,6 +468,8 @@ export class PostgresPersistence implements Persistence {
         ticker: row.ticker,
         type: row.instrument_type,
         marketCode: row.market_code,
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
       })),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
@@ -651,6 +655,11 @@ export class PostgresPersistence implements Persistence {
     } finally {
       client.release();
     }
+  }
+
+  async upsertSymbols(_userId: string, symbols: SymbolDef[]): Promise<void> {
+    if (symbols.length === 0) return;
+    await this.upsertSymbolDefinitions(symbols);
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
@@ -1188,7 +1197,7 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async isCurrentBaselineSchemaReflected(client: PoolClient): Promise<boolean> {
-    const [hasCoreTables, migration009Reflected, migration010Reflected, migration011Reflected, migration012Reflected] =
+    const [hasCoreTables, migration009Reflected, migration010Reflected, migration011Reflected, migration012Reflected, migration013Reflected] =
       await Promise.all([
       Promise.all([
         this.tableExists(client, "users"),
@@ -1200,6 +1209,7 @@ export class PostgresPersistence implements Persistence {
       this.isMigrationAlreadyReflected(client, "010_trade_snapshot_recompute_normalization.sql"),
       this.isMigrationAlreadyReflected(client, "011_fee_profile_tax_rule_normalization.sql"),
       this.isMigrationAlreadyReflected(client, "012_market_code_on_symbols_bindings_and_trades.sql"),
+      this.isMigrationAlreadyReflected(client, "013_symbol_sync_metadata.sql"),
     ]);
 
     return (
@@ -1207,7 +1217,8 @@ export class PostgresPersistence implements Persistence {
       migration009Reflected &&
       migration010Reflected &&
       migration011Reflected &&
-      migration012Reflected
+      migration012Reflected &&
+      migration013Reflected
     );
   }
 
@@ -1221,6 +1232,8 @@ export class PostgresPersistence implements Persistence {
         return this.isMigration011Reflected(client);
       case "012_market_code_on_symbols_bindings_and_trades.sql":
         return this.isMigration012Reflected(client);
+      case "013_symbol_sync_metadata.sql":
+        return this.isMigration013Reflected(client);
       default:
         return false;
     }
@@ -1305,6 +1318,15 @@ export class PostgresPersistence implements Persistence {
     return hasTradeEventMarketCode && hasSymbolMarketCode && hasBindingMarketCode;
   }
 
+  private async isMigration013Reflected(client: PoolClient): Promise<boolean> {
+    const [hasIsProvisional, hasLastSyncedAt] = await Promise.all([
+      this.columnExists(client, "symbols", "is_provisional"),
+      this.columnExists(client, "symbols", "last_synced_at"),
+    ]);
+
+    return hasIsProvisional && hasLastSyncedAt;
+  }
+
   private async hasUserTables(client: PoolClient): Promise<boolean> {
     const tableResult = await client.query<{ has_tables: boolean }>(
       `SELECT EXISTS (
@@ -1366,16 +1388,39 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async seedSymbols(): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO symbols (ticker, instrument_type, market_code)
-       VALUES
-         ('2330', 'STOCK', 'TW'),
-         ('0050', 'ETF', 'TW'),
-         ('00679B', 'BOND_ETF', 'TW')
-       ON CONFLICT (ticker) DO UPDATE SET
-         instrument_type = EXCLUDED.instrument_type,
-         market_code = EXCLUDED.market_code`,
-    );
+    await this.upsertSymbolDefinitions(createDefaultSymbols());
+  }
+
+  private async upsertSymbolDefinitions(symbols: SymbolDef[]): Promise<void> {
+    const mergedSymbols = upsertSymbolDefinitions([], symbols);
+
+    for (const symbol of mergedSymbols) {
+      await this.pool.query(
+        `INSERT INTO symbols (ticker, instrument_type, market_code, is_provisional, last_synced_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (ticker) DO UPDATE SET
+           instrument_type = CASE
+             WHEN EXCLUDED.is_provisional THEN symbols.instrument_type
+             ELSE EXCLUDED.instrument_type
+           END,
+           market_code = CASE
+             WHEN EXCLUDED.is_provisional THEN symbols.market_code
+             ELSE EXCLUDED.market_code
+           END,
+           is_provisional = CASE
+             WHEN EXCLUDED.is_provisional THEN symbols.is_provisional
+             ELSE EXCLUDED.is_provisional
+           END,
+           last_synced_at = COALESCE(EXCLUDED.last_synced_at, symbols.last_synced_at)`,
+        [
+          symbol.ticker,
+          symbol.type,
+          symbol.marketCode ?? "TW",
+          symbol.isProvisional ?? false,
+          symbol.lastSyncedAt ?? null,
+        ],
+      );
+    }
   }
 
   private async ensureUserSeed(userId: string): Promise<void> {

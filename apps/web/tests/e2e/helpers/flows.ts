@@ -38,11 +38,11 @@ export async function waitForAppReady(page: Page, options: WaitForAppReadyOption
       }
 
       const appLoading = byTestId("app-loading");
-      const heroTitle = byTestId("hero-title");
+      const summarySection = byTestId("dashboard-summary-section");
       const avatarButton = byTestId("avatar-button");
       const loadingVisible = isVisible(appLoading);
 
-      if (!loadingVisible && isVisible(heroTitle) && isVisible(avatarButton)) {
+      if (!loadingVisible && isVisible(summarySection) && isVisible(avatarButton)) {
         return { state: "ready" };
       }
 
@@ -59,7 +59,7 @@ export async function waitForAppReady(page: Page, options: WaitForAppReadyOption
 
 /** Navigate to app root and wait for the dashboard shell to be interactive. */
 export async function gotoApp(page: Page, path = "/"): Promise<void> {
-  await page.goto(appUrl(path));
+  await page.goto(appUrl(path), { waitUntil: "domcontentloaded" });
   await waitForAppReady(page);
 }
 
@@ -69,4 +69,14 @@ export async function openSettingsDrawer(page: Page): Promise<void> {
   await page.getByTestId("avatar-button").click();
   await page.getByTestId("settings-drawer").waitFor({ state: "visible", timeout: 10_000 });
   await expect(page).toHaveURL(/drawer=settings/);
+}
+
+/** Expand the quick transaction card when the form is intentionally collapsed by default. */
+export async function openQuickTransaction(page: Page): Promise<void> {
+  const toggle = page.getByTestId("quick-transaction-toggle");
+  if (await page.getByTestId("tx-account-select").count()) {
+    return;
+  }
+  await toggle.click();
+  await page.getByTestId("tx-account-select").waitFor({ state: "visible", timeout: 10_000 });
 }

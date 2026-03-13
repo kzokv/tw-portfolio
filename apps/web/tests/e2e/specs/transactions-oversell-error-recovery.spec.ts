@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoApp } from "../helpers/flows";
+import { gotoApp, openQuickTransaction } from "../helpers/flows";
 
 test.use({
   extraHTTPHeaders: {
@@ -10,12 +10,13 @@ test.use({
 test.describe("transactions oversell recovery", () => {
   test("shows error for oversell and recovers after a valid buy", async ({ page }) => {
     await gotoApp(page);
+    await openQuickTransaction(page);
 
     const accountSelect = page.getByTestId("tx-account-select");
     const firstAccountId = await accountSelect.locator("option").first().getAttribute("value");
     await accountSelect.selectOption(firstAccountId ?? "acc-1");
 
-    await page.getByTestId("tx-symbol-input").fill("0050");
+    await page.getByTestId("tx-symbol-select").selectOption("0050");
     await page.getByTestId("tx-trade-date-input").fill("2026-01-01");
     await page.getByTestId("tx-type-select").selectOption("SELL");
     await page.getByTestId("tx-quantity-input").fill("999999");
@@ -32,6 +33,8 @@ test.describe("transactions oversell recovery", () => {
     const failedSellResponse = await failedSell;
     expect(failedSellResponse.ok()).toBe(false);
     await expect(page.getByTestId("global-error-banner")).toBeVisible();
+    await expect(page.getByTestId("global-error-banner")).not.toContainText("Error:");
+    await expect(page.getByTestId("global-error-banner")).not.toContainText("{\"statusCode\"");
 
     await page.getByTestId("tx-type-select").selectOption("BUY");
     await page.getByTestId("tx-quantity-input").fill("1");
@@ -47,7 +50,7 @@ test.describe("transactions oversell recovery", () => {
     const holdingsRefreshed = page.waitForResponse((response) => {
       return (
         response.request().method() === "GET" &&
-        response.url().includes("/portfolio/holdings") &&
+        response.url().includes("/dashboard/overview") &&
         response.ok()
       );
     });
@@ -57,6 +60,7 @@ test.describe("transactions oversell recovery", () => {
     await holdingsRefreshed;
 
     await expect(page.getByTestId("global-error-banner")).toHaveCount(0);
+    await expect(page.getByTestId("transaction-status")).toContainText(/Transaction recorded successfully|交易已成功寫入/);
     await expect(page.getByTestId("holdings-table").locator("tr", { hasText: "0050" })).toBeVisible();
   });
 });

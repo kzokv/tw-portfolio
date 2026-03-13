@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoApp, openSettingsDrawer, waitForAppReady } from "../helpers/flows";
+import { gotoApp, openQuickTransaction, openSettingsDrawer, waitForAppReady } from "../helpers/flows";
 
 const getNextQuotePoll = (current: string): string =>
   current === "12" ? "10" : "12";
@@ -10,7 +10,10 @@ test.describe("transaction flow", () => {
   test("add transaction and verify holdings", async ({ page }) => {
     await gotoApp(page);
 
-    await expect(page.getByTestId("hero-title")).toContainText(/Taiwan Portfolio Control Room|台灣投資組合控制台/);
+    await expect(page.getByTestId("dashboard-summary-title")).toContainText(
+      /Start with what matters in the ledger today.|先看今天帳本最重要的狀態/,
+    );
+    await openQuickTransaction(page);
     const accountSelect = page.getByTestId("tx-account-select");
     const firstAccountOption = accountSelect.locator("option").first();
     await expect(firstAccountOption).toHaveAttribute("value", /.+/);
@@ -28,7 +31,7 @@ test.describe("transaction flow", () => {
     const holdingsRefreshed = page.waitForResponse((response) => {
       return (
         response.request().method() === "GET" &&
-        response.url().includes("/portfolio/holdings") &&
+        response.url().includes("/dashboard/overview") &&
         response.ok()
       );
     });
@@ -66,14 +69,14 @@ test.describe("settings", () => {
     await page.getByTestId("settings-save-button").click();
 
     await expect(page).not.toHaveURL(/drawer=settings/, { timeout: 15_000 });
-    await expect(page.getByTestId("hero-title")).toContainText("台灣投資組合控制台", { timeout: 5_000 });
+    await expect(page.getByTestId("dashboard-summary-title")).toContainText("先看今天帳本最重要的狀態", { timeout: 5_000 });
     await expect(page.getByTestId("topbar-title")).toContainText("市場帳本");
     await expect(page.getByTestId("settings-quote-poll-value")).toContainText(`${nextQuotePoll} 秒`);
     await expect(page.getByTestId("settings-cost-basis-value")).toContainText("加權平均");
 
     await page.reload();
     await waitForAppReady(page);
-    await expect(page.getByTestId("hero-title")).toContainText("台灣投資組合控制台", { timeout: 10_000 });
+    await expect(page.getByTestId("dashboard-summary-title")).toContainText("先看今天帳本最重要的狀態", { timeout: 10_000 });
     await expect(page.getByTestId("topbar-title")).toContainText("市場帳本");
   });
 
@@ -189,6 +192,7 @@ test.describe("tooltips", () => {
     await expect(page.getByTestId("tooltip-settings-cost-basis-content")).toBeVisible();
 
     await gotoApp(page);
+    await openQuickTransaction(page);
     await page.getByTestId("tooltip-tx-account-trigger").hover();
     await expect(page.getByTestId("tooltip-tx-account-content")).toBeVisible();
   });
@@ -199,7 +203,9 @@ test("responsive: key UI visible at 375px with English locale", async ({ page })
   await gotoApp(page);
 
   await expect(page.getByTestId("topbar-title")).toBeVisible();
-  await expect(page.getByTestId("hero-title")).toContainText(/Taiwan Portfolio Control Room|台灣投資組合控制台/);
+  await expect(page.getByTestId("dashboard-summary-title")).toContainText(
+    /Start with what matters in the ledger today.|先看今天帳本最重要的狀態/,
+  );
   await expect(page.getByTestId("recompute-button")).toBeVisible();
   await expect(page.getByTestId("avatar-button")).toBeVisible();
 

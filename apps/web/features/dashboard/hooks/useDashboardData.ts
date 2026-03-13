@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { TransactionInput } from "../../../components/portfolio/types";
+import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchDashboardSnapshot } from "../services/dashboardService";
 import { resolveTransactionDraftAccount, type DashboardSnapshot } from "../types";
 
@@ -22,11 +23,31 @@ interface UseDashboardDataResult extends DashboardSnapshot {
 
 const EMPTY_SNAPSHOT: DashboardSnapshot = {
   settings: null,
+  summary: {
+    asOf: "",
+    accountCount: 0,
+    holdingCount: 0,
+    totalCostAmount: 0,
+    totalCostCurrency: "TWD",
+    marketValueAmount: null,
+    unrealizedPnlAmount: null,
+    upcomingDividendCount: 0,
+    upcomingDividendAmount: null,
+    openIssueCount: 0,
+  },
   holdings: [],
+  dividends: {
+    upcoming: [],
+    recent: [],
+  },
+  actions: {
+    integrityIssue: null,
+    recomputeAvailable: true,
+  },
+  symbols: [],
   accounts: [],
   feeProfiles: [],
   feeProfileBindings: [],
-  integrityIssue: null,
 };
 
 export function useDashboardData({ initialTransaction }: UseDashboardDataOptions): UseDashboardDataResult {
@@ -41,10 +62,10 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
     try {
       const nextSnapshot = await fetchDashboardSnapshot();
       setSnapshot(nextSnapshot);
-      setShowIntegrityDialog(Boolean(nextSnapshot.integrityIssue));
+      setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
     } catch (error) {
-      setErrorMessage(String(error));
+      setErrorMessage(resolveErrorMessage(error));
       throw error;
     } finally {
       setIsRefreshing(false);
@@ -73,7 +94,12 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
-      resolveTransactionDraftAccount(previous, snapshot.accounts, snapshot.feeProfiles, snapshot.feeProfileBindings),
+      resolveTransactionDraftAccount(
+        previous,
+        snapshot.accounts,
+        snapshot.feeProfiles,
+        snapshot.feeProfileBindings,
+      ),
     [snapshot.accounts, snapshot.feeProfileBindings, snapshot.feeProfiles],
   );
   const synchronizeInitialTransactionDraft = useCallback(

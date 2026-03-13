@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { FeeProfile } from "@tw-portfolio/domain";
+import type { IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { env } from "../config/env.js";
 import { getQuotesWithFallback } from "../providers/marketData.js";
 import {
@@ -11,10 +12,12 @@ import {
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
+import { buildDashboardOverview } from "../services/dashboard.js";
 import { createDividendEvent, postDividend } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
-import type { Store } from "../types/store.js";
+import { ensureSymbolDefinition, isSymbolQuoteable } from "../services/symbolRegistry.js";
+import type { Store, Transaction } from "../types/store.js";
 
 const userScopedIdSchema = z
   .string()
@@ -27,9 +30,7 @@ const symbolSchema = z
   .string()
   .trim()
   .toUpperCase()
-  .min(1)
-  .max(16)
-  .regex(/^[A-Z0-9]+$/);
+  .min(1);
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
@@ -166,7 +167,25 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   return { userId, store };
 }
 
-function getStoreIntegrityIssue(store: Store): { code: string; message: string } | null {
+async function resolveLatestQuotes(app: FastifyInstance, symbols: string[]) {
+  if (symbols.length === 0) {
+    return [];
+  }
+
+  const cached = await app.persistence.getCachedQuotes(symbols);
+  const missing = symbols.filter((symbol) => !cached[symbol]);
+
+  let fetched = [] as Awaited<ReturnType<typeof getQuotesWithFallback>>;
+  if (missing.length > 0) {
+    fetched = await getQuotesWithFallback(missing);
+    await app.persistence.cacheQuotes(fetched);
+  }
+
+  const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.symbol, quote]));
+  return symbols.map((symbol) => cached[symbol] ?? fetchedMap[symbol]).filter(Boolean);
+}
+
+function getStoreIntegrityIssue(store: Store): IntegrityIssueDto | null {
   if (store.feeProfiles.length === 0) {
     return {
       code: "missing_fee_profiles",
@@ -222,6 +241,41 @@ function normalizeBindings(rawBindings: Array<z.infer<typeof feeBindingSchema>>)
   }
 
   return [...deduped.values()];
+}
+
+function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDto {
+  return {
+    id: trade.id,
+    accountId: trade.accountId,
+    symbol: trade.symbol,
+    marketCode: trade.marketCode ?? null,
+    instrumentType: trade.instrumentType,
+    type: trade.type,
+    quantity: trade.quantity,
+    unitPrice: trade.unitPrice,
+    priceCurrency: trade.priceCurrency,
+    tradeDate: trade.tradeDate,
+    tradeTimestamp: trade.tradeTimestamp ?? null,
+    bookingSequence: trade.bookingSequence ?? null,
+    commissionAmount: trade.commissionAmount,
+    taxAmount: trade.taxAmount,
+    isDayTrade: trade.isDayTrade,
+    realizedPnlAmount: trade.realizedPnlAmount ?? null,
+    realizedPnlCurrency: trade.realizedPnlCurrency ?? null,
+    feeProfileId: trade.feeSnapshot.id,
+    feeProfileName: trade.feeSnapshot.name,
+    bookedAt: trade.bookedAt ?? null,
+  };
+}
+
+function compareTransactionsForHistory(left: Transaction, right: Transaction): number {
+  return (
+    right.tradeDate.localeCompare(left.tradeDate)
+    || (right.bookingSequence ?? 0) - (left.bookingSequence ?? 0)
+    || (right.tradeTimestamp ?? "").localeCompare(left.tradeTimestamp ?? "")
+    || (right.bookedAt ?? "").localeCompare(left.bookedAt ?? "")
+    || right.id.localeCompare(left.id)
+  );
 }
 
 function ensureBindingsAreValid(store: Store, bindings: Array<z.infer<typeof feeBindingSchema>>): void {
@@ -575,6 +629,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
+    const ensuredSymbol = ensureSymbolDefinition(draftStore, body.symbol);
 
     const tx = createTransaction(draftStore, userId, {
       ...body,
@@ -587,6 +642,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
+      if (ensuredSymbol.created) {
+        await app.persistence.upsertSymbols(userId, [ensuredSymbol.symbol]);
+      }
       await app.persistence.savePostedTrade(userId, draftStore.accounting, tx.id);
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
@@ -597,14 +655,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/portfolio/transactions", async (req) => {
+    const query = z.object({
+      symbol: symbolSchema.optional(),
+      accountId: userScopedIdSchema.optional(),
+    }).parse(req.query);
     const { store } = await loadUserStore(app, req);
-    return listTradeEvents(store);
+    return listTradeEvents(store)
+      .filter((trade) => (query.symbol ? trade.symbol === query.symbol : true))
+      .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+      .sort(compareTransactionsForHistory)
+      .map(mapTransactionHistoryItem);
   });
 
   app.get("/portfolio/holdings", async (req) => {
     const { store, userId } = await loadUserStore(app, req);
     assertStoreIntegrity(store);
     return listHoldings(store, userId);
+  });
+
+  app.get("/dashboard/overview", async (req) => {
+    const { store, userId } = await loadUserStore(app, req);
+    const holdings = listHoldings(store, userId);
+    const symbols = [...new Set(
+      holdings
+        .map((holding) => holding.symbol)
+        .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
+    )];
+    const quotes = await resolveLatestQuotes(app, symbols);
+
+    return buildDashboardOverview(store, {
+      integrityIssue: getStoreIntegrityIssue(store),
+      quotes,
+    });
   });
 
   app.get("/dividend-events", async (req) => {
@@ -757,17 +839,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "too_many_symbols", "No more than 20 symbols are allowed per request.");
     }
 
-    const cached = await app.persistence.getCachedQuotes(symbols);
-    const missing = symbols.filter((symbol) => !cached[symbol]);
-
-    let fetched = [] as Awaited<ReturnType<typeof getQuotesWithFallback>>;
-    if (missing.length > 0) {
-      fetched = await getQuotesWithFallback(missing);
-      await app.persistence.cacheQuotes(fetched);
-    }
-
-    const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.symbol, quote]));
-    return symbols.map((symbol) => cached[symbol] ?? fetchedMap[symbol]).filter(Boolean);
+    return resolveLatestQuotes(app, symbols);
   });
 
   app.post("/ai/transactions/parse", async (req) => {

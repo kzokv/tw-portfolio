@@ -38,3 +38,106 @@ export interface FeeProfileBindingDto {
   symbol: string;
   feeProfileId: string;
 }
+
+export interface IntegrityIssueDto {
+  code: string;
+  message: string;
+}
+
+export interface DashboardOverviewSummaryDto {
+  asOf: string;
+  accountCount: number;
+  holdingCount: number;
+  totalCostAmount: number;
+  totalCostCurrency: CurrencyCode;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  upcomingDividendCount: number;
+  upcomingDividendAmount: number | null;
+  openIssueCount: number;
+}
+
+export interface DashboardOverviewHoldingDto {
+  accountId: string;
+  symbol: string;
+  quantity: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
+  averageCostPerShare: number;
+  currentUnitPrice: number | null;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  allocationPct: number | null;
+  nextDividendDate: string | null;
+  lastDividendPostedDate: string | null;
+}
+
+export interface DashboardOverviewUpcomingDividendDto {
+  accountId: string;
+  symbol: string;
+  exDividendDate: string | null;
+  paymentDate: string | null;
+  expectedAmount: number | null;
+  currency: CurrencyCode;
+  status: "declared" | "expected" | "paying-soon";
+}
+
+export interface DashboardOverviewRecentDividendDto {
+  accountId: string;
+  symbol: string;
+  postedAt: string;
+  netAmount: number;
+  grossAmount: number | null;
+  deductionAmount: number | null;
+  currency: CurrencyCode;
+  sourceSummary: string | null;
+  status: "posted" | "unreconciled";
+}
+
+export interface SymbolOptionDto {
+  ticker: string;
+  instrumentType: InstrumentType;
+  marketCode: string | null;
+  isProvisional: boolean;
+}
+
+export interface DashboardOverviewDto {
+  settings: UserSettings;
+  summary: DashboardOverviewSummaryDto;
+  holdings: DashboardOverviewHoldingDto[];
+  dividends: {
+    upcoming: DashboardOverviewUpcomingDividendDto[];
+    recent: DashboardOverviewRecentDividendDto[];
+  };
+  actions: {
+    integrityIssue: IntegrityIssueDto | null;
+    recomputeAvailable: boolean;
+  };
+  symbols: SymbolOptionDto[];
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+}
+
+export interface TransactionHistoryItemDto {
+  id: string;
+  accountId: string;
+  symbol: string;
+  marketCode: string | null;
+  instrumentType: InstrumentType;
+  type: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
+  tradeDate: string;
+  tradeTimestamp: string | null;
+  bookingSequence: number | null;
+  commissionAmount: number;
+  taxAmount: number;
+  isDayTrade: boolean;
+  realizedPnlAmount: number | null;
+  realizedPnlCurrency: CurrencyCode | null;
+  feeProfileId: string;
+  feeProfileName: string;
+  bookedAt: string | null;
+}

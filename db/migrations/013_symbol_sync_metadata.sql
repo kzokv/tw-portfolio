@@ -1,0 +1,9 @@
+ALTER TABLE symbols
+  ADD COLUMN IF NOT EXISTS is_provisional BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE symbols
+  ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP;
+
+UPDATE symbols
+SET is_provisional = FALSE
+WHERE is_provisional IS DISTINCT FROM FALSE;

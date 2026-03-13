@@ -1,19 +1,18 @@
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
-import type { Holding, TransactionInput } from "../../components/portfolio/types";
+import type {
+  AccountDto,
+  DashboardOverviewDto,
+  DashboardOverviewHoldingDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  UserSettings,
+} from "@tw-portfolio/shared-types";
+import type { TransactionInput } from "../../components/portfolio/types";
 
-export interface IntegrityIssue {
-  code: string;
-  message: string;
-}
-
-export interface DashboardSnapshot {
+export interface DashboardSnapshot extends Omit<DashboardOverviewDto, "settings"> {
   settings: UserSettings | null;
-  holdings: Holding[];
-  accounts: AccountDto[];
-  feeProfiles: FeeProfileDto[];
-  feeProfileBindings: FeeProfileBindingDto[];
-  integrityIssue: IntegrityIssue | null;
 }
+
+export type IntegrityIssue = NonNullable<DashboardOverviewDto["actions"]["integrityIssue"]>;
 
 export interface DashboardState extends DashboardSnapshot {
   isBootstrapping: boolean;
@@ -53,4 +52,8 @@ export function resolveTransactionDraftAccount(
     accountId: nextAccountId,
     priceCurrency: effectiveCurrency,
   };
+}
+
+export function summarizeLargestHolding(holdings: DashboardOverviewHoldingDto[]): DashboardOverviewHoldingDto | null {
+  return holdings[0] ?? null;
 }

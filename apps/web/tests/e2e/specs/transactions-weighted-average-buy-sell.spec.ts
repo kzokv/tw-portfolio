@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { gotoApp } from "../helpers/flows";
+import { gotoApp, openQuickTransaction } from "../helpers/flows";
 
 type TransactionResponse = {
   commissionAmount: number;
@@ -8,13 +8,15 @@ type TransactionResponse = {
   priceCurrency: string;
 };
 
-type HoldingsResponse = Array<{
-  accountId: string;
-  symbol: string;
-  quantity: number;
-  costBasisAmount: number;
-  currency: string;
-}>;
+type HoldingsResponse = {
+  holdings: Array<{
+    accountId: string;
+    symbol: string;
+    quantity: number;
+    costBasisAmount: number;
+    currency: string;
+  }>;
+};
 
 async function submitTransactionAndCapture(page: Page) {
   const transactionPosted = page.waitForResponse((response) => {
@@ -26,7 +28,7 @@ async function submitTransactionAndCapture(page: Page) {
   const holdingsRefreshed = page.waitForResponse((response) => {
     return (
       response.request().method() === "GET" &&
-      response.url().includes("/portfolio/holdings") &&
+      response.url().includes("/dashboard/overview") &&
       response.ok()
     );
   });
@@ -50,6 +52,7 @@ test.use({
 test.describe("transactions weighted-average buy/sell", () => {
   test("computes realized pnl and remaining holding cost with weighted average", async ({ page }) => {
     await gotoApp(page);
+    await openQuickTransaction(page);
 
     const accountSelect = page.getByTestId("tx-account-select");
     const firstAccountId = await accountSelect.locator("option").first().getAttribute("value");
@@ -58,7 +61,7 @@ test.describe("transactions weighted-average buy/sell", () => {
     await expect(page.getByTestId("tx-price-currency-input")).toHaveJSProperty("readOnly", true);
     await expect(page.getByTestId("tx-price-currency-input")).toBeDisabled();
 
-    await page.getByTestId("tx-symbol-input").fill("2330");
+    await page.getByTestId("tx-symbol-select").selectOption("2330");
     await page.getByTestId("tx-trade-date-input").fill("2026-01-01");
     await page.getByTestId("tx-type-select").selectOption("BUY");
     await page.getByTestId("tx-quantity-input").fill("10");
@@ -85,7 +88,7 @@ test.describe("transactions weighted-average buy/sell", () => {
     expect(sell.txBody.realizedPnlAmount).toBe(716);
     expect(sell.txBody.priceCurrency).toBe("TWD");
 
-    const holding2330 = sell.holdingsBody.find((row) => row.accountId === (firstAccountId ?? "acc-1") && row.symbol === "2330");
+    const holding2330 = sell.holdingsBody.holdings.find((row) => row.accountId === (firstAccountId ?? "acc-1") && row.symbol === "2330");
     expect(holding2330).toBeDefined();
     expect(holding2330?.quantity).toBe(15);
     expect(holding2330?.costBasisAmount).toBe(2280);

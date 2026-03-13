@@ -19,6 +19,8 @@ export interface SymbolDef {
   ticker: string;
   type: InstrumentType;
   marketCode?: MarketCode;
+  isProvisional?: boolean;
+  lastSyncedAt?: string | null;
 }
 
 export type TransactionType = "BUY" | "SELL";
