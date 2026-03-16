@@ -155,3 +155,24 @@ export interface TransactionHistoryItemDto {
   feeProfileName: string;
   bookedAt: string | null;
 }
+
+export interface UserIdentity {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  locale: LocaleCode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserExternalIdentity {
+  id: string;
+  userId: string;
+  provider: string;
+  providerSubject: string;
+  providerEmail: string | null;
+  providerDisplayName: string | null;
+  providerPictureUrl: string | null;
+  linkedAt: string;
+  lastSeenAt: string;
+}
