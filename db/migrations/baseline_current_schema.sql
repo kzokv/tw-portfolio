@@ -1,15 +1,39 @@
 -- Fresh-bootstrap baseline equivalent to the numbered migration chain through
--- 012_market_code_on_symbols_bindings_and_trades.sql.
+-- 014_user_identity_and_external_mapping.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
+  email TEXT,
+  display_name TEXT,
   locale TEXT NOT NULL DEFAULT 'en',
   cost_basis_method TEXT NOT NULL DEFAULT 'WEIGHTED_AVERAGE',
   quote_poll_interval_seconds INTEGER NOT NULL DEFAULT 10,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deactivated_at TIMESTAMP,
+  deleted_at TIMESTAMP,
   CONSTRAINT users_cost_basis_method_check
     CHECK (cost_basis_method = 'WEIGHTED_AVERAGE')
 );
+
+CREATE TABLE IF NOT EXISTS user_external_identities (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  provider TEXT NOT NULL,
+  provider_subject TEXT NOT NULL,
+  provider_email TEXT,
+  provider_display_name TEXT,
+  provider_picture_url TEXT,
+  linked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_uei_provider CHECK (provider ~ '^[a-z][a-z0-9_]{0,49}$')
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_uei_provider_subject
+  ON user_external_identities(provider, provider_subject);
+
+CREATE INDEX IF NOT EXISTS idx_uei_user_id
+  ON user_external_identities(user_id);
 
 CREATE TABLE IF NOT EXISTS fee_profiles (
   id TEXT PRIMARY KEY,

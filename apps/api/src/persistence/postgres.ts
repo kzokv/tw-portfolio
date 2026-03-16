@@ -1428,8 +1428,8 @@ export class PostgresPersistence implements Persistence {
     const accountId = this.defaultAccountId(userId);
 
     await this.pool.query(
-      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
-       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
        ON CONFLICT (id) DO NOTHING`,
       [userId, `${userId}@example.com`],
     );
