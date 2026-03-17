@@ -190,7 +190,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY fee_profile_id, sort_order, id`,
             [feeProfileIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       feePolicySnapshotIds.length
         ? this.pool.query(
             `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
@@ -200,7 +200,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY snapshot_id, sort_order, id`,
             [feePolicySnapshotIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
             `SELECT account_id, symbol, market_code, fee_profile_id
@@ -209,7 +209,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY account_id, market_code, symbol`,
             [accountIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
             `SELECT id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
@@ -218,7 +218,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY opened_at, opened_sequence, id`,
             [accountIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
             `SELECT id, account_id, symbol, action_type, numerator, denominator, action_date
@@ -227,7 +227,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY action_date, id`,
             [accountIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
             `SELECT id, account_id, dividend_event_id, eligible_quantity,
@@ -240,7 +240,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY booked_at, id`,
             [accountIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
       jobIds.length
         ? this.pool.query(
             `SELECT id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
@@ -250,7 +250,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY id`,
             [jobIds],
           )
-        : Promise.resolve({ rows: [] as any[] }),
+        : Promise.resolve({ rows: [] }),
     ]);
 
     // Batch 3: queries that depend on IDs from Batch 2
@@ -264,7 +264,7 @@ export class PostgresPersistence implements Persistence {
            ORDER BY dividend_ledger_entry_id, booked_at, id`,
           [dividendLedgerEntryIds],
         )
-      : { rows: [] as any[] };
+      : { rows: [] };
 
     const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
     const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
