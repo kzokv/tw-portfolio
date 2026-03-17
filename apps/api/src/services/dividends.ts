@@ -9,6 +9,7 @@ import {
   upsertDividendEvent,
   upsertDividendLedgerEntry,
 } from "./accountingStore.js";
+import { routeError } from "../lib/routeError.js";
 import type {
   CashLedgerEntry,
   DividendDeductionEntry,
@@ -81,22 +82,22 @@ export function createDividendEvent(store: Store, input: CreateDividendEventInpu
 
 export function postDividend(store: Store, userId: string, input: PostDividendInput): PostDividendResult {
   if (input.receivedCashAmount === 0 && input.receivedStockQuantity === 0 && input.deductions.length === 0) {
-    throw new Error("Dividend posting must include cash, stock, or deductions");
+    throw routeError(400, "invalid_dividend_posting", "Dividend posting must include cash, stock, or deductions");
   }
 
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) {
-    throw new Error("Account not found");
+    throw routeError(404, "account_not_found", "Account not found");
   }
 
   const dividendEvent = listDividendEvents(store).find((entry) => entry.id === input.dividendEventId);
   if (!dividendEvent) {
-    throw new Error("Dividend event not found");
+    throw routeError(404, "dividend_event_not_found", "Dividend event not found");
   }
 
   const activeEntry = findActiveDividendLedgerEntry(store, input.accountId, input.dividendEventId);
   if (activeEntry && activeEntry.postingStatus !== "expected") {
-    throw new Error("Dividend posting requires an active expected entry");
+    throw routeError(409, "dividend_conflict", "Dividend posting requires an active expected entry");
   }
 
   const expectedEntry = activeEntry ?? materializeExpectedDividendEntry(store, input.id, input.accountId, dividendEvent);

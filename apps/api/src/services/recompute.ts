@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
 import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
 
@@ -72,7 +73,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
 
 export function confirmRecompute(store: Store, userId: string, jobId: string): RecomputeJob {
   const job = store.recomputeJobs.find((item) => item.id === jobId && item.userId === userId);
-  if (!job) throw new Error("Recompute job not found");
+  if (!job) throw routeError(404, "job_not_found", "Recompute job not found");
 
   for (const item of job.items) {
     const tx = listTradeEvents(store).find((entry) => entry.id === item.tradeEventId);

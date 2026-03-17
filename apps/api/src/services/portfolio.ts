@@ -17,6 +17,7 @@ import {
   replaceLotAllocationsForTrade,
   replaceInventoryLots,
 } from "./accountingStore.js";
+import { routeError } from "../lib/routeError.js";
 import type {
   BookedTradeEvent,
   CashLedgerEntry,
@@ -56,10 +57,10 @@ export function createTransaction(
   input: CreateTransactionInput,
 ): Transaction {
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
-  if (!account) throw new Error("Account not found");
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
 
   const instrument = store.symbols.find((item) => item.ticker === input.symbol);
-  if (!instrument) throw new Error("Unsupported symbol");
+  if (!instrument) throw routeError(400, "unsupported_symbol", "Unsupported symbol");
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,
@@ -68,7 +69,7 @@ export function createTransaction(
     account.feeProfileId,
   );
   if (input.priceCurrency !== profile.commissionCurrency) {
-    throw new Error("Trade currency must match fee profile commission currency");
+    throw routeError(400, "currency_mismatch", "Trade currency must match fee profile commission currency");
   }
 
   const tradeValueAmount = input.quantity * input.unitPrice;

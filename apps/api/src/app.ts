@@ -88,7 +88,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
         return;
       }
 
-      callback(new Error("Origin not allowed"), false);
+      callback(null, false);
     },
   });
 
