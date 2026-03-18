@@ -77,11 +77,18 @@ export const Env = Object.freeze({
 
     const uniqueHostnames = new Set(hostnames.map((item) => item.hostname));
     if (uniqueHostnames.size > 1) {
-      const description = hostnames.map(({ name, hostname }) => `${name}=${hostname}`).join(", ");
-      throw new Error(
-        `Hostname mismatch in session-critical URLs (${description}). ` +
-        "Use 'localhost' consistently to avoid OAuth cookie/session failures.",
-      );
+      // Only enforce consistency for localhost-style deployments where mixing
+      // 'localhost' and '127.0.0.1' causes session/cookie failures.
+      // Public subdomains (e.g. web.example.com vs api.example.com) are valid.
+      const LOCALHOST_RE = /^(localhost|127\.0\.0\.1|::1)$/;
+      const hasLocalhost = [...uniqueHostnames].some((h) => LOCALHOST_RE.test(h));
+      if (hasLocalhost) {
+        const description = hostnames.map(({ name, hostname }) => `${name}=${hostname}`).join(", ");
+        throw new Error(
+          `Hostname mismatch in session-critical URLs (${description}). ` +
+          "Use 'localhost' consistently to avoid OAuth cookie/session failures.",
+        );
+      }
     }
 
     // Google redirect URI port validation
