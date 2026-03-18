@@ -28,6 +28,10 @@ export const envSchema = z.object({
   SESSION_COOKIE_NAME: z.string().min(1).default("__Host-g_auth_session"),
   GOOGLE_TOKEN_URL: z.string().optional(),
   APP_BASE_URL: z.string().optional(),
+  // COOKIE_DOMAIN: when set, the session cookie is scoped to this domain (e.g. ".kzokvdevs.dpdns.org")
+  // so it is shared across API and web subdomains. Required when those subdomains differ.
+  // Must not be set when SESSION_COOKIE_NAME starts with "__Host-" (incompatible prefix).
+  COOKIE_DOMAIN: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

@@ -18,6 +18,7 @@ export const envGroups: EnvGroup[] = [
       "GOOGLE_REDIRECT_URI",
       "SESSION_SECRET",
       "SESSION_COOKIE_NAME",
+      "COOKIE_DOMAIN",
       "GOOGLE_TOKEN_URL",
       "APP_BASE_URL",
     ],
@@ -30,7 +31,7 @@ export const dockerDevGroups: EnvGroup[] = [
   { label: "Postgres", keys: ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"] },
   { label: "Redis", keys: ["REDIS_PASSWORD"] },
   { label: "Cloudflare Tunnel", keys: ["CLOUDFLARE_TUNNEL_TOKEN"] },
-  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET"] },
+  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "SESSION_COOKIE_NAME", "COOKIE_DOMAIN"] },
   {
     label: "Application",
     keys: [
@@ -56,7 +57,7 @@ export const dockerProdGroups: EnvGroup[] = [
   { label: "Postgres", keys: ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"] },
   { label: "Redis", keys: ["REDIS_PASSWORD"] },
   { label: "Cloudflare Tunnel", keys: ["CLOUDFLARE_TUNNEL_TOKEN"] },
-  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET"] },
+  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "SESSION_COOKIE_NAME", "COOKIE_DOMAIN"] },
   {
     label: "Application",
     keys: [

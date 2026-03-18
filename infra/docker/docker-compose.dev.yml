@@ -104,6 +104,8 @@ services:
       ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
       APP_BASE_URL: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
       GOOGLE_REDIRECT_URI: https://${PUBLIC_DOMAIN_API:-twp-dev-api.kzokvdevs.dpdns.org}/auth/google/callback
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.kzokvdevs.dpdns.org}
     networks:
       - twp-dev-net
     healthcheck:
@@ -141,6 +143,7 @@ services:
       NODE_ENV: production
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
     networks:
       - twp-dev-net
     healthcheck:

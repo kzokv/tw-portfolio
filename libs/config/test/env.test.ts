@@ -134,13 +134,15 @@ describe("validateHostConsistency", () => {
   });
 
   it("passes for production HTTPS URLs without explicit port", () => {
+    // Different public subdomains are valid (e.g. Cloudflare tunnel where web and API
+    // live on separate subdomains). Only localhost-style mismatches are rejected.
     expect(() =>
       Env.validateHostConsistency({
         APP_BASE_URL: "https://app.example.com",
         GOOGLE_REDIRECT_URI: "https://api.example.com/auth/google/callback",
         API_PORT: 4000,
       }),
-    ).toThrow("Hostname mismatch"); // different hostnames: app.example.com vs api.example.com
+    ).not.toThrow();
   });
 
   it("passes for production HTTPS with same host and no port in redirect URI", () => {

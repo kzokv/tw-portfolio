@@ -151,9 +151,11 @@ function routeError(statusCode: number, code: string, message: string): RouteErr
   return error;
 }
 
-function buildCookieAttrs(cookieName: string, isProduction: boolean): string {
+function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomain?: string): string {
   const secure = isProduction || cookieName.startsWith("__Host-");
-  return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+  // __Host- prefix prohibits Domain attribute per RFC 6265bis; skip it for prefixed names.
+  const domain = cookieDomain && !cookieName.startsWith("__Host-") ? `; Domain=${cookieDomain}` : "";
+  return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
 }
 
 function parseSessionCookie(cookieHeader: string | undefined): string | null {
@@ -374,7 +376,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/auth/logout", async (_req, reply) => {
-    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production");
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`);
     return reply.redirect(`${app.appBaseUrl}/login`, 302);
   });
@@ -411,7 +413,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const tokens = await exchangeCodeForTokens(app.oauthConfig, query.code);
     const claims = decodeIdTokenPayload(tokens.id_token);
 
-    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production");
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     const cookie = `${Env.SESSION_COOKIE_NAME}=${claims.sub}; ${attrs}`;
     reply.header("set-cookie", cookie);
     return reply.redirect(`${app.appBaseUrl}/`, 302);
