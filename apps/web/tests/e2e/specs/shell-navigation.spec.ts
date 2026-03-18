@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures/test";
-import { gotoRoute, openMobileNavigation, waitForAppReady } from "../helpers/flows";
+import { gotoRoute, openMobileNavigation, reloadRoute, waitForAppReady } from "../helpers/flows";
 
 test("desktop shell supports collapse persistence and route navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -18,8 +18,7 @@ test("desktop shell supports collapse persistence and route navigation", async (
   await page.getByTestId("desktop-nav-toggle").click();
   await expect(desktopSidebar).toHaveAttribute("data-collapsed", "true");
 
-  await page.reload();
-  await waitForAppReady(page);
+  await reloadRoute(page);
   await expect(desktopSidebar).toHaveAttribute("data-collapsed", "true");
 
   await desktopSidebar.getByTestId("sidebar-link-portfolio").click();
@@ -55,7 +54,9 @@ test("desktop quick search navigates to routes and symbol detail without icon ov
 
   await page.getByTestId("topbar-search").fill("2330");
   await expect(desktopResults).toBeVisible();
-  await desktopResults.getByRole("button", { name: /2330/ }).click();
+  const symbolButton = desktopResults.getByRole("button", { name: /2330/ });
+  await expect(symbolButton).toBeVisible();
+  await symbolButton.click();
   await expect(page).toHaveURL(/\/symbols\/2330$/);
   await expect(page.getByTestId("symbol-history-title")).toContainText("2330");
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures/test";
-import { gotoRoute, openSettingsDrawer, waitForAppReady } from "../helpers/flows";
+import { gotoRoute, openSettingsDrawer, reloadRoute, waitForAppReady } from "../helpers/flows";
 
 const getNextQuotePoll = (current: string): string => (current === "12" ? "10" : "12");
 
@@ -27,8 +27,7 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await expect(page.getByTestId("topbar-title")).toContainText("儀表板");
   await expect(page.getByTestId("settings-quote-poll-value")).toContainText(`${nextQuotePoll} 秒`);
 
-  await page.reload();
-  await waitForAppReady(page);
+  await reloadRoute(page);
   await expect(page.getByTestId("topbar-title")).toContainText("儀表板");
   await expect(page.getByTestId("settings-quote-poll-value")).toContainText(`${nextQuotePoll} 秒`);
 });

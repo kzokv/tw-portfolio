@@ -1,10 +1,10 @@
 import { buildApp } from "./app.js";
-import { env, validatePortConflicts } from "./config/env.js";
+import { Env } from "@tw-portfolio/config";
 
 async function start() {
-  validatePortConflicts();
+  Env.validatePortConflicts();
   const app = await buildApp();
-  await app.listen({ host: "0.0.0.0", port: env.API_PORT });
+  await app.listen({ host: "::", port: Env.API_PORT });
 }
 
 start().catch((error) => {

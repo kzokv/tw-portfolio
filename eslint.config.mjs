@@ -19,6 +19,7 @@
  * (e.g. missing-playwright-await, no-focused-test, no-page-pause, expect-expect).
  */
 import eslint from '@eslint/js';
+import globals from 'globals';
 import playwright from 'eslint-plugin-playwright';
 import tseslint from 'typescript-eslint';
 
@@ -35,9 +36,22 @@ export default [
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
+  // Node.js globals for .mjs scripts (process, Buffer, URLSearchParams, etc.)
+  {
+    files: ['**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   // Playwright recommended rules for e2e test files only
   {
     files: ['apps/web/tests/e2e/**/*.ts'],
     ...playwright.configs['flat/recommended'],
+  },
+  // Setup files require conditional skip logic — relax Playwright test-purity rules
+  {
+    files: ['apps/web/tests/e2e/setup/**/*.ts'],
+    rules: {
+      'playwright/no-conditional-in-test': 'off',
+      'playwright/no-skipped-test': 'off',
+    },
   },
 ];

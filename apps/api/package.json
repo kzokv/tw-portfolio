@@ -9,13 +9,14 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:integration": "RUN_POSTGRES_INTEGRATION=0 POSTGRES_TEST_DB_URL= POSTGRES_TEST_REDIS_URL= vitest run test/integration/",
-    "test:integration:full": "vitest run test/integration/",
+    "test:integration:full": "vitest run --no-file-parallelism test/integration/",
     "test:html": "vitest run --reporter=verbose --reporter=html",
     "test:json": "vitest run --reporter=verbose --reporter=json",
     "test:junit": "vitest run --reporter=verbose --reporter=junit"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@tw-portfolio/config": "0.1.0",
     "@tw-portfolio/domain": "0.1.0",
     "@tw-portfolio/shared-types": "0.1.0",
     "fastify": "^5.1.0",

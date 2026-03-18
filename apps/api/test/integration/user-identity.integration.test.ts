@@ -72,12 +72,18 @@ describePostgres("user identity schema", () => {
   });
 
   it("user gets default timestamps on insert", async () => {
-    const before = new Date();
+    const { rows: [{ now: before }] } = await pool.query<{ now: Date }>(
+      "SELECT NOW()::timestamp AS now",
+    );
 
     await pool.query(
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
        VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)`,
       ["user-timestamps", "ts@example.com"],
+    );
+
+    const { rows: [{ now: after }] } = await pool.query<{ now: Date }>(
+      "SELECT NOW()::timestamp AS now",
     );
 
     const result = await pool.query("SELECT created_at, updated_at FROM users WHERE id = $1", [
@@ -90,8 +96,8 @@ describePostgres("user identity schema", () => {
 
     expect(createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
     expect(updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
-    expect(createdAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
-    expect(updatedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    expect(createdAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
+    expect(updatedAt.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
   });
 
   it("user can have display_name", async () => {

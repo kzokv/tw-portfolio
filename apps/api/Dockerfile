@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY libs/config/package.json libs/config/
 COPY libs/domain/package.json libs/domain/
 COPY libs/shared-types/package.json libs/shared-types/
 
@@ -13,7 +14,8 @@ COPY tsconfig.base.json ./
 COPY libs/ libs/
 COPY apps/api/ apps/api/
 
-RUN npm run build -w @tw-portfolio/domain \
+RUN npm run build -w @tw-portfolio/config \
+ && npm run build -w @tw-portfolio/domain \
  && npm run build -w @tw-portfolio/shared-types \
  && npm run build -w @tw-portfolio/api
 
@@ -24,12 +26,14 @@ WORKDIR /app
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/apps/api/package.json apps/api/
+COPY --from=build /app/libs/config/package.json libs/config/
 COPY --from=build /app/libs/domain/package.json libs/domain/
 COPY --from=build /app/libs/shared-types/package.json libs/shared-types/
 
 RUN npm ci --omit=dev
 
 COPY --from=build /app/apps/api/dist/ apps/api/dist/
+COPY --from=build /app/libs/config/dist/ libs/config/dist/
 COPY --from=build /app/libs/domain/dist/ libs/domain/dist/
 COPY --from=build /app/libs/shared-types/dist/ libs/shared-types/dist/
 COPY db/migrations/ db/migrations/

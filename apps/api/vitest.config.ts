@@ -6,6 +6,8 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   test: {
+    // Force dev_bypass so tests are never affected by a local .env.local with AUTH_MODE=oauth.
+    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test" },
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
     //   npm run test:html  → vitest-report/ (view: npx vite preview --outDir vitest-report)
     //   npm run test:json  → test-results/vitest-results.json
@@ -20,6 +22,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@tw-portfolio/config": resolve(rootDir, "../../libs/config/src/index.ts"),
       "@tw-portfolio/domain": resolve(rootDir, "../../libs/domain/src/index.ts"),
       "@tw-portfolio/shared-types": resolve(rootDir, "../../libs/shared-types/src/index.ts"),
     },

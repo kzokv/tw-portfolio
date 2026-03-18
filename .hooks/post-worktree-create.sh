@@ -5,8 +5,8 @@ set -euo pipefail
 # Available env vars:
 #   MAIN_ROOT      – absolute path to the main repo checkout
 
-echo "→ Copying .env from main repo…"
-cp "$MAIN_ROOT/.env" .env
+echo "→ Setting up environment files from main repo..."
+npx tsx scripts/env-setup.ts --target root:local,web:local --non-interactive --source "$MAIN_ROOT"
 
 echo "→ Installing dependencies…"
 npm ci

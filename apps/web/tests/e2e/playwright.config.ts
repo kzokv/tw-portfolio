@@ -1,18 +1,22 @@
 import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { TestEnv } from "@tw-portfolio/config/test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolves to repo root from apps/web/tests/e2e/; update if E2E layout changes
 const repoRoot = path.resolve(__dirname, "../../../..");
 
-const webPort = Number(process.env.WEB_PORT ?? 3333);
-const apiPort = Number(process.env.API_PORT ?? 4000);
+const webPort = TestEnv.ports.web;
+const apiPort = TestEnv.ports.api;
+const mockOAuthPort = TestEnv.ports.mockOAuth;
+
+const host = TestEnv.host;
 
 export default defineConfig({
   testDir: "./specs",
   fullyParallel: true,
-  timeout: 45_000,
+  timeout: 30_000,
   expect: {
     timeout: 10_000,
   },
@@ -23,7 +27,7 @@ export default defineConfig({
     ["html", { open: "on-failure", outputFolder: path.join(repoRoot, "apps/web/playwright-report") }],
   ],
   use: {
-    baseURL: `http://127.0.0.1:${webPort}`,
+    baseURL: `http://${host}:${webPort}`,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: {
@@ -32,8 +36,16 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "npm run build -w libs/domain -w libs/shared-types && npm run dev -w apps/api",
-      url: `http://127.0.0.1:${apiPort}/health/live`,
+      command: "node tests/e2e/helpers/mock-oauth-server.mjs",
+      port: mockOAuthPort,
+      cwd: path.resolve(repoRoot, "apps/web"),
+      reuseExistingServer: true,
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+    {
+      command: "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run dev -w apps/api",
+      url: `http://${host}:${apiPort}/health/live`,
       timeout: 60_000,
       cwd: repoRoot,
       reuseExistingServer: true,
@@ -43,19 +55,16 @@ export default defineConfig({
         signal: "SIGINT",
         timeout: 10_000,
       },
-      env: {
-        API_PORT: String(apiPort),
-        WEB_PORT: String(webPort),
+      env: TestEnv.apiServerEnv({
         AUTH_MODE: "dev_bypass",
-        NODE_ENV: "development",
-        PERSISTENCE_BACKEND: "memory",
-      },
+        GOOGLE_TOKEN_URL: TestEnv.mockTokenUrl,
+      }),
     },
     {
-      command: "npm run build -w libs/shared-types -w @tw-portfolio/web && npm run start -w apps/web",
+      command: "npm run dev -w @tw-portfolio/web",
       cwd: repoRoot,
-      url: `http://127.0.0.1:${webPort}`,
-      timeout: 120_000,
+      url: `http://${host}:${webPort}`,
+      timeout: 60_000,
       reuseExistingServer: true,
       stderr: "pipe",
       stdout: "ignore",
@@ -63,11 +72,9 @@ export default defineConfig({
         signal: "SIGINT",
         timeout: 10_000,
       },
-      env: {
-        API_PORT: String(apiPort),
-        WEB_PORT: String(webPort),
-        NEXT_PUBLIC_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
-      },
+      env: TestEnv.webServerEnv({
+        NEXT_PUBLIC_AUTH_MODE: "dev_bypass",
+      }),
     },
   ],
 });

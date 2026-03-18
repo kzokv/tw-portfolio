@@ -27,6 +27,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - run: npm run build -w @tw-portfolio/config
       - run: npm run build -w @tw-portfolio/domain
       - run: npm run build -w @tw-portfolio/shared-types
       - run: npm run build -w @tw-portfolio/api
@@ -82,6 +83,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - run: npm run build -w @tw-portfolio/config
       - run: npm run build -w @tw-portfolio/domain
       - run: npm run build -w @tw-portfolio/shared-types
       - run: npm run test:integration

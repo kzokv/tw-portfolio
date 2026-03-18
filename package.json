@@ -12,7 +12,7 @@
     "libs/*"
   ],
   "scripts": {
-    "build": "npm run build -w libs/domain -w libs/shared-types && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
+    "build": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
     "dev": "bash scripts/dev.sh",
     "test": "npm run test --workspaces",
     "test:unit": "npm run test -w libs/domain",
@@ -20,6 +20,7 @@
     "test:integration:ci:host": "bash scripts/test-integration-ci-host.sh",
     "test:integration:ci:container": "bash scripts/test-integration-ci-container.sh",
     "test:e2e": "npm run test -w @tw-portfolio/web",
+    "test:e2e:oauth": "npm run test:e2e:oauth -w @tw-portfolio/web",
     "test:e2e:ci": "npm run test:e2e:ci -w @tw-portfolio/web",
     "test:e2e:show-report": "npm run test:e2e:show-report -w @tw-portfolio/web",
     "onboard": "bash scripts/onboard.sh",
@@ -28,13 +29,16 @@
     "lint:fix": "eslint . --fix",
     "docker:cleanup": "bash scripts/docker-cleanup.sh",
     "docker:cleanup:dry-run": "bash scripts/docker-cleanup.sh --dry-run",
-    "docker:cleanup:yes": "bash scripts/docker-cleanup.sh --yes"
+    "docker:cleanup:yes": "bash scripts/docker-cleanup.sh --yes",
+    "env:setup": "tsx scripts/env-setup.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@inquirer/prompts": "^7.10.1",
     "@playwright/test": "^1.51.1",
     "eslint": "^9.15.0",
     "eslint-plugin-playwright": "^2.8.0",
+    "tsx": "^4.21.0",
     "typescript-eslint": "^8.15.0"
   }
 }
