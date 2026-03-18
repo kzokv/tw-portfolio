@@ -155,3 +155,32 @@ describe("validateHostConsistency", () => {
     ).not.toThrow();
   });
 });
+
+describe("validateCookieConfig", () => {
+  it("passes when COOKIE_DOMAIN is unset (local dev default)", () => {
+    expect(() =>
+      Env.validateCookieConfig({
+        SESSION_COOKIE_NAME: "__Host-g_auth_session",
+        COOKIE_DOMAIN: undefined,
+      }),
+    ).not.toThrow();
+  });
+
+  it("passes when COOKIE_DOMAIN is set with a non-prefixed cookie name", () => {
+    expect(() =>
+      Env.validateCookieConfig({
+        SESSION_COOKIE_NAME: "g_auth_session",
+        COOKIE_DOMAIN: ".kzokvdevs.dpdns.org",
+      }),
+    ).not.toThrow();
+  });
+
+  it("throws when __Host- prefix is combined with COOKIE_DOMAIN", () => {
+    expect(() =>
+      Env.validateCookieConfig({
+        SESSION_COOKIE_NAME: "__Host-g_auth_session",
+        COOKIE_DOMAIN: ".kzokvdevs.dpdns.org",
+      }),
+    ).toThrow("__Host-");
+  });
+});

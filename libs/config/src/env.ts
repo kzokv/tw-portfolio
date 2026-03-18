@@ -47,6 +47,7 @@ export const Env = Object.freeze({
     }
 
     Env.validateHostConsistency(_parsed);
+    Env.validateCookieConfig(_parsed);
   },
 
   /**
@@ -109,6 +110,25 @@ export const Env = Object.freeze({
         }
         // Ignore URL parse errors — already handled above
       }
+    }
+  },
+
+  /**
+   * Validates that COOKIE_DOMAIN and SESSION_COOKIE_NAME are compatible.
+   * The __Host- cookie prefix prohibits the Domain attribute (RFC 6265bis); combining
+   * the two would silently drop the Domain, leaving the cookie host-bound to the API
+   * subdomain and invisible to the web proxy — reproducing the original auth bug.
+   */
+  validateCookieConfig(
+    envInput: Pick<EnvConfig, "SESSION_COOKIE_NAME" | "COOKIE_DOMAIN"> = _parsed,
+  ): void {
+    if (envInput.COOKIE_DOMAIN && envInput.SESSION_COOKIE_NAME?.startsWith("__Host-")) {
+      throw new Error(
+        `COOKIE_DOMAIN="${envInput.COOKIE_DOMAIN}" is incompatible with ` +
+        `SESSION_COOKIE_NAME="${envInput.SESSION_COOKIE_NAME}": ` +
+        `the __Host- prefix prohibits the Domain cookie attribute (RFC 6265bis). ` +
+        `Use a name without __Host- (e.g. "g_auth_session") when COOKIE_DOMAIN is set.`,
+      );
     }
   },
 

@@ -15,6 +15,10 @@ const dockerBaseExtension = {
   TWP_STATE_DIR: z.string().optional(),
   BACKUP_DIR: z.string().optional(),
   DEPLOY_LOG_DIR: z.string().optional(),
+  // Docker deployments route API and web through separate subdomains, so the session
+  // cookie must be scoped to the shared parent domain rather than using __Host- (which
+  // is host-bound). Override the base default so COOKIE_DOMAIN works out of the box.
+  SESSION_COOKIE_NAME: z.string().min(1).default("g_auth_session"),
 };
 
 export const dockerDevSchema = envSchema.extend({
@@ -24,6 +28,7 @@ export const dockerDevSchema = envSchema.extend({
   PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
   PUBLIC_DOMAIN_WEB: z.string().default("twp-dev-web.kzokvdevs.dpdns.org"),
   PUBLIC_DOMAIN_API: z.string().default("twp-dev-api.kzokvdevs.dpdns.org"),
+  COOKIE_DOMAIN: z.string().default(".kzokvdevs.dpdns.org"),
 });
 
 export const dockerProdSchema = envSchema.extend({
