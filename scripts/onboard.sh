@@ -7,7 +7,7 @@
 #   2. Builds workspace libraries (domain, shared-types).
 #   3. Installs Playwright browsers (npx playwright install).
 #   4. On Linux (interactive only): installs Playwright system deps; prompts for sudo if needed.
-#   5. If .env is missing and .env.example exists, copies .env.example to .env and reminds you to edit.
+#   5. If .env.local is missing, runs env-setup script to generate it (interactive or CI mode).
 #   6. Runs a quick sanity check (lint) to verify setup.
 #
 # Idempotent: safe to run multiple times. Re-running will reinstall deps and Playwright;
@@ -138,24 +138,21 @@ if [ "$INSTALL_ONLY" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 5. .env from .env.example if missing (skip in CI)
+# 5. Environment setup
 # ---------------------------------------------------------------------------
 if [ "$CI_MODE" -eq 0 ]; then
   echo ""
-  echo "[5/6] Checking .env..."
-  if [ ! -f .env ]; then
-    if [ -f .env.example ]; then
-      cp .env.example .env
-      echo "     Created .env from .env.example. Edit .env if you need different DB/Redis or ports."
-    else
-      echo "     No .env or .env.example found. Create .env with at least: AUTH_MODE, PERSISTENCE_BACKEND, optional DB_URL, REDIS_URL (see docs/runbook.md)."
-    fi
+  echo "[5/6] Setting up environment files..."
+  if [ ! -f .env.local ]; then
+    npx tsx scripts/env-setup.ts --target root:local
   else
-    echo "     .env already exists; leaving it unchanged."
+    echo "     .env.local already exists; leaving it unchanged."
+    echo "     Run 'npm run env:setup' to reconfigure."
   fi
 else
   echo ""
-  echo "[5/6] Skipping .env (CI mode)."
+  echo "[5/6] Setting up environment files (CI mode)..."
+  npx tsx scripts/env-setup.ts --target root:local --non-interactive
 fi
 
 # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ if ! version_gte "$node_version" "$MIN_NODE_VERSION"; then
 fi
 
 set -a
-[ -f ./.env ] && . ./.env
+[ -f ./.env.local ] && . ./.env.local
 set +a
 
 api_pid=""

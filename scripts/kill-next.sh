@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE=".env"
+ENV_FILE=".env.local"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB_LOCK_FILE="$ROOT_DIR/apps/web/.next/dev/lock"
 SCRIPT_PATH="${0##*/}"

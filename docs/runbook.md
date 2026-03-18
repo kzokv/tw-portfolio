@@ -24,7 +24,7 @@ This document is the single source of truth for deploying and operating the **tw
 - `infra/docker/docker-compose.yml` is local fallback Postgres/Redis and is not required for memory mode or external URL mode.
 
 Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example`), a previous instance likely still owns the port. Identify the orphaned process with `ps -ef | grep -i "next dev"` and stop it via `kill <pid>` or `pkill -f "next dev -p"`, then rerun `npm run dev -w apps/web`.
-`scripts/kill-next.sh` clears the web and API ports from `.env`. Run `./scripts/kill-next.sh` to target both, `./scripts/kill-next.sh web`/`api` for a specific service, or supply any port number directly.
+`scripts/kill-next.sh` clears the web and API ports from `.env.local`. Run `./scripts/kill-next.sh` to target both, `./scripts/kill-next.sh web`/`api` for a specific service, or supply any port number directly.
 
 
 ### Build model
@@ -56,6 +56,23 @@ What these settings mean:
 - `RATE_LIMIT_WINDOW_MS`: rolling time window for mutation rate limiting, in milliseconds. Example: `60000` for a one-minute window.
 - `RATE_LIMIT_MAX_MUTATIONS`: maximum number of allowed write operations within the rate-limit window. Example: `60`.
 
+#### OAuth settings (required when `AUTH_MODE=oauth`)
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 client secret |
+| `GOOGLE_REDIRECT_URI` | Callback URL: `https://<PUBLIC_DOMAIN_API>/auth/google/callback`. Computed in compose. |
+| `SESSION_SECRET` | >=32 char hex string for signing session cookies. Generate: `openssl rand -hex 32` |
+| `APP_BASE_URL` | Post-login redirect base: `https://<PUBLIC_DOMAIN_WEB>`. Computed in compose. |
+| `SESSION_COOKIE_NAME` | Session cookie name (default: `__Host-g_auth_session`) |
+
+Web build args:
+
+| Arg | Description |
+|---|---|
+| `NEXT_PUBLIC_AUTH_MODE` | Set to `oauth` for OAuth deployments. Activates the OAuth middleware and login page in the web container. |
+
 ### Notes
 
 - Use `AUTH_MODE=dev_bypass` for local development only.
@@ -69,7 +86,7 @@ What these settings mean:
 
 - **Run**: From repo root, `npm run test:e2e` (or `npm run test:e2e:ci` for JUnit output).
 - **Setup**: Run `npm run onboard` or `npm run install:full` from repo root once per machine (installs npm deps, Playwright browsers, and on Linux prompts for system deps). If Chromium fails with missing shared libraries, run `npx playwright install-deps` manually (may need `sudo`).
-- **Ports**: E2E uses `WEB_PORT` (default `3000` from `.env.example`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
+- **Ports**: E2E uses `WEB_PORT` (default `3000` from `.env.local`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
 - **Servers**: Playwright's `webServer` starts API and web automatically; no separate server script needed. Uses `PERSISTENCE_BACKEND=memory` and `AUTH_MODE=dev_bypass`.
 
 ### Integration tests with isolated host DB stack (CI-like local run)
@@ -200,11 +217,44 @@ If the host has less than 8 GB RAM, reduce per-container limits in `infra/docker
 
 3. **Configure the Cloudflare Tunnel** in the Cloudflare Zero Trust dashboard (see `infra/cloudflared/README.md`). Add both public hostnames for the web and API services.
 
-4. **Deploy**:
+4. **Set up Google OAuth credentials** (see [Section 4.0 Google OAuth Credentials](#40-google-oauth-credentials) below). Fill in `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET` in the env file.
+
+5. **Deploy**:
    ```bash
    cd ~/tw-portfolio
    bash infra/scripts/deploy.sh --environment production
    ```
+
+### 4.0 Google OAuth Credentials
+
+Follow these steps once per environment to obtain OAuth credentials from Google Cloud Console.
+
+1. **Create a GCP project** (or reuse an existing one). In [Google Cloud Console](https://console.cloud.google.com/), go to `APIs & Services` -> `OAuth consent screen`.
+2. **Configure the consent screen**:
+   - Choose **Internal** (Google Workspace only) or **External** (any Google account) as the user type.
+   - Fill in the app name, support email, and developer contact.
+   - Add any required scopes (for this app: `openid`, `email`, `profile`).
+3. **Create an OAuth 2.0 client ID**:
+   - Go to `APIs & Services` -> `Credentials` -> `Create credentials` -> `OAuth client ID`.
+   - Choose **Web application** as the application type.
+   - Add the authorized redirect URI for each environment:
+     - Production: `https://<PUBLIC_DOMAIN_API>/auth/google/callback`
+     - Dev: `https://<PUBLIC_DOMAIN_API>/auth/google/callback`
+   - Click `Create` and copy the **Client ID** and **Client Secret**.
+4. **Update the env file** with the values from step 3:
+   ```bash
+   # In infra/docker/.env.prod or infra/docker/.env.dev:
+   GOOGLE_CLIENT_ID=<your-client-id>
+   GOOGLE_CLIENT_SECRET=<your-client-secret>
+   ```
+5. **Generate a SESSION_SECRET**:
+   ```bash
+   openssl rand -hex 32
+   ```
+   Add the output as `SESSION_SECRET` in the env file.
+6. **Reference**: [Google OAuth 2.0 for Web Server Applications](https://developers.google.com/identity/protocols/oauth2/web-server)
+
+`GOOGLE_REDIRECT_URI` and `APP_BASE_URL` are computed automatically in the compose files from `PUBLIC_DOMAIN_API` and `PUBLIC_DOMAIN_WEB`. Do not set them in the env file.
 
 ### 4.1 GitHub Actions Deploy Path via WARP
 
@@ -1034,11 +1084,48 @@ Container recreation causes about **10–30 seconds** of downtime while `docker 
 
 ---
 
-## 13. App behavior (reference)
+## 13. Secrets Management
+
+### 13.1 File permissions
+
+`.env.prod` and `.env.dev` must be `chmod 600` (owner-only read/write). This is enforced by the first-time setup `chmod 600` step and should be re-verified after any manual copy.
+
+### 13.2 Never commit real env files
+
+`.env.prod` and `.env.dev` are gitignored. Only `.env.*.example` files with placeholders are committed to the repository. Never commit or share real credentials.
+
+### 13.3 Secret rotation
+
+| Secret | How to rotate |
+|---|---|
+| `SESSION_SECRET` | Generate new value with `openssl rand -hex 32`, update env file, redeploy. Active sessions are invalidated; users must re-login. |
+| `POSTGRES_PASSWORD` | Update in env file AND recreate the Postgres container with the new password. |
+| `REDIS_PASSWORD` | Update in env file AND recreate the Redis container with the new password. |
+| `GOOGLE_CLIENT_SECRET` | Rotate in Google Cloud Console (`APIs & Services` -> `Credentials`), update env file, redeploy. |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Rotate in the Cloudflare dashboard, update env file, redeploy `cloudflared`. |
+
+### 13.4 Backup exclusion
+
+The database backup script stores Postgres dumps only. Do not include `.env.*` files in any backup artifact. Env files contain secrets and must not leave the deployment host.
+
+### 13.5 GitHub Actions secrets
+
+Deploy credentials (SSH keys, CF tokens, WARP service tokens) are scoped to GitHub Environment secrets, never stored in the repository. See Section 4.4 for the full list.
+
+### 13.6 Best practices for home lab
+
+- Use a dedicated deploy user with minimal permissions (deploy script execution and Docker access only).
+- Restrict SSH access to key-based auth only; disable password authentication.
+- Consider encrypting env files at rest if the host filesystem supports it.
+- Docker secrets (`docker secret create`) are an alternative for Swarm mode. For Compose, env files with `chmod 600` permissions are standard practice.
+
+---
+
+## 14. App behavior (reference)
 
 The following sections describe product behavior for support and verification. They are not part of the deployment procedure.
 
-### 13.1 Page-load progress bar
+### 14.1 Page-load progress bar
 
 - The thin bar at the very top during **initial page load** is a frontend-only visual indicator.
 - It is rendered by the web app’s root layout (`apps/web/app/layout.tsx`) via `LoadingProgressBar` (`apps/web/components/ui/LoadingProgressBar.tsx`) and styled in `apps/web/app/globals.css` (`.loading-progress`, `.loading-progress__bar`).
@@ -1046,17 +1133,17 @@ The following sections describe product behavior for support and verification. T
 - Accessibility: respects `prefers-reduced-motion`; uses `aria-live="off"` to avoid spamming screen readers.
 - **Operational note**: This bar reflects perceived performance, not backend health; use `/health/live` and `/health/ready` for service status. If the bar is missing or wrong, verify the web container serves the expected layout, `globals.css` (including `.loading-progress` and theme tokens) is loaded, and no overlay is masking the bar (it uses `z-index: 1000`).
 
-### 13.2 Settings drawer
+### 14.2 Settings drawer
 
 - Open settings from the top-right avatar. Drawer URL state is `/?drawer=settings` for direct linking.
 - Tabs: **General** and **Fee Profiles**. **Save Settings** persists locale, poll interval, weighted-average cost basis, and fee profiles atomically via `/settings/full`. Fee profiles support account fallback and per-security overrides; new profile IDs are system-generated (UUID). **Discard Changes** reverts unsaved edits without closing the drawer. Closing with unsaved edits shows a warning.
 - In **Fee Profiles**, **Commission Currency** is a dropdown. The UI ships with common options and also preserves already-saved currency codes present in the loaded profile set.
 - In **Record Transaction**, the **Currency** field is display-only. It is disabled in the form and is derived from the effective fee profile for the selected account and symbol. Change it from **Settings > Fee Profiles**, not from the transaction card.
 
-### 13.3 Localization
+### 14.3 Localization
 
 - UI locales: `en` and `zh-TW`. After saving locale, visible wording (including settings tabs and dialogs) switches to the selected language. If language appears stale, reopen the settings drawer or reload and verify the `/settings` response.
 
-### 13.4 Tooltips
+### 14.4 Tooltips
 
 - Settings terms and key financial terms on the dashboard/forms have hover/focus tooltips. Weighted-average cost basis includes detailed explanatory content in settings. Tooltips are keyboard-accessible via the info icon triggers.

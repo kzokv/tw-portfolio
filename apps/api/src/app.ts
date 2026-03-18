@@ -1,13 +1,23 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import { env, getAllowedOrigins, normalizeOrigin } from "./config/env.js";
+import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
 import { registerRoutes } from "./routes/registerRoutes.js";
+import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
+// Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
+// If fields ever drift, this line fails to compile and surfaces the problem immediately.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertAssignable = GoogleOAuthEnvConfig extends GoogleOAuthConfig ? true : never;
 
 interface BuildAppOptions {
   persistenceBackend?: "postgres" | "memory";
+  /** Inject OAuth config directly (used in tests). Pass null to explicitly disable OAuth.
+   *  When omitted, reads from environment variables via getGoogleOAuthEnvConfig(). */
+  oauthConfig?: GoogleOAuthConfig | null;
+  /** Override the web app base URL for post-OAuth redirects (used in tests). */
+  appBaseUrl?: string;
 }
 
 interface RateCounter {
@@ -50,14 +60,16 @@ function isLocalDevOrigin(origin: string): boolean {
 export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
   const app = Fastify({ logger: true }) as AppInstance;
   app.persistence = createPersistence(options.persistenceBackend);
+  app.oauthConfig = options.oauthConfig !== undefined ? options.oauthConfig : Env.getGoogleOAuthEnvConfig();
+  app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
   await app.persistence.init();
 
   app.addHook("onClose", async () => {
     await app.persistence.close();
   });
 
-  const allowedOrigins = getAllowedOrigins();
-  const normalizedAllowed = new Set(allowedOrigins.map(normalizeOrigin));
+  const allowedOrigins = Env.getAllowedOrigins();
+  const normalizedAllowed = new Set(allowedOrigins.map(Env.normalizeOrigin));
   await app.register(cors, {
     credentials: true,
     origin(origin, callback) {
@@ -66,12 +78,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
         return;
       }
 
-      if (normalizedAllowed.has(normalizeOrigin(origin))) {
+      if (normalizedAllowed.has(Env.normalizeOrigin(origin))) {
         callback(null, true);
         return;
       }
 
-      if ((env.NODE_ENV === "development" || env.NODE_ENV === "test") && isLocalDevOrigin(origin)) {
+      if ((Env.NODE_ENV === "development" || Env.NODE_ENV === "test") && isLocalDevOrigin(origin)) {
         callback(null, true);
         return;
       }
@@ -85,8 +97,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
 
     const key = getRateLimitKey(req);
     const now = Date.now();
-    const windowMs = env.RATE_LIMIT_WINDOW_MS;
-    const limit = env.RATE_LIMIT_MAX_MUTATIONS;
+    const windowMs = Env.RATE_LIMIT_WINDOW_MS;
+    const limit = Env.RATE_LIMIT_MAX_MUTATIONS;
     const existing = mutationBuckets.get(key);
 
     if (!existing || now - existing.windowStartedAt >= windowMs) {

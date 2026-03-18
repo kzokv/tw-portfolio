@@ -101,7 +101,9 @@ services:
       DB_URL: postgres://${POSTGRES_USER:-twp}:${POSTGRES_PASSWORD}@twp-dev-postgres:5432/${POSTGRES_DB:-tw_portfolio}
       REDIS_URL: redis://:${REDIS_PASSWORD}@twp-dev-redis:6379
       API_PORT: "4000"
-      ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-dev-twp-web.example.com}
+      ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
+      APP_BASE_URL: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
+      GOOGLE_REDIRECT_URI: https://${PUBLIC_DOMAIN_API:-twp-dev-api.kzokvdevs.dpdns.org}/auth/google/callback
     networks:
       - twp-dev-net
     healthcheck:
@@ -126,8 +128,9 @@ services:
       context: ../..
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-dev-twp-api.example.com}
+        NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-twp-dev-api.kzokvdevs.dpdns.org}
         NEXT_PUBLIC_AUTH_USER_ID: ${AUTH_USER_ID:-}
+        NEXT_PUBLIC_AUTH_MODE: oauth
     image: twp-dev-web:${IMAGE_TAG:-latest}
     container_name: twp-dev-web
     restart: unless-stopped

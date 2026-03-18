@@ -4,10 +4,10 @@
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT,
-  display_name TEXT,
   locale TEXT NOT NULL DEFAULT 'en',
   cost_basis_method TEXT NOT NULL DEFAULT 'WEIGHTED_AVERAGE',
   quote_poll_interval_seconds INTEGER NOT NULL DEFAULT 10,
+  display_name TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deactivated_at TIMESTAMP,

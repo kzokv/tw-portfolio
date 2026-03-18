@@ -1,4 +1,33 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? `http://localhost:${process.env.API_PORT ?? 4000}`;
+/**
+ * Resolves the API base URL.
+ *
+ * Server-side (SSR/RSC): use NEXT_PUBLIC_API_BASE_URL (baked at build time).
+ *
+ * Client-side (browser): if the baked URL targets localhost or 127.0.0.1,
+ * replace the hostname with window.location.hostname instead. This ensures the
+ * session cookie is always sent with API requests — cookies are scoped to
+ * the exact hostname, so "localhost" cookies are not sent to "127.0.0.1" and
+ * vice versa. Deriving from window.location makes the client robust to stale
+ * builds where NEXT_PUBLIC_API_BASE_URL was baked with a different loopback alias.
+ *
+ * In production (API on a remote domain) NEXT_PUBLIC_API_BASE_URL is returned
+ * unchanged on both server and client.
+ */
+function resolveApiBase(): string {
+  // Use || (not ??) so an accidentally-baked empty string falls back to the default.
+  const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.NEXT_PUBLIC_API_PORT || process.env.API_PORT || 4000}`;
+  if (typeof window === "undefined") return baked;
+
+  // Client-side: if the baked URL is a local loopback alias, use the browser's
+  // actual hostname so the session cookie is included in API requests.
+  const { hostname: bakedHost, port, protocol } = new URL(baked);
+  if (bakedHost === "localhost" || bakedHost === "127.0.0.1") {
+    return `${protocol}//${window.location.hostname}${port ? `:${port}` : ""}`;
+  }
+  return baked;
+}
+
+export const API_BASE = resolveApiBase();
 const E2E_USER_COOKIE = "tw_e2e_user";
 
 /**
@@ -62,20 +91,30 @@ async function parseError(res: Response, path: string): Promise<Error> {
   return new Error(message);
 }
 
+async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.location.href = `${API_BASE}/auth/logout`;
+    return new Promise<T>(() => {});
+  }
+  throw await parseError(res, path);
+}
+
 const defaultHeaders = (): Record<string, string> => ({ ...getAuthHeaders() });
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
+    credentials: "include",
     headers: defaultHeaders(),
   });
-  if (!res.ok) throw await parseError(res, path);
+  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
 
 export async function postJson<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "content-type": "application/json",
       ...(headers ?? {}),
@@ -83,35 +122,38 @@ export async function postJson<T>(path: string, body: unknown, headers?: Record<
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw await parseError(res, path);
+  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
 
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
+    credentials: "include",
     headers: { "content-type": "application/json", ...defaultHeaders() },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw await parseError(res, path);
+  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
 
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
+    credentials: "include",
     headers: { "content-type": "application/json", ...defaultHeaders() },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw await parseError(res, path);
+  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
+    credentials: "include",
     headers: defaultHeaders(),
   });
-  if (!res.ok) throw await parseError(res, path);
+  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }

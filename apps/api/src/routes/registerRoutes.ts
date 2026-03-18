@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import {
+  buildAuthorizationUrl,
+  decodeIdTokenPayload,
+  exchangeCodeForTokens,
+  generateState,
+  refreshAccessToken,
+  verifyState,
+} from "../auth/googleOAuth.js";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
-import { env } from "../config/env.js";
+import { Env } from "@tw-portfolio/config";
 import { getQuotesWithFallback } from "../providers/marketData.js";
 import {
   listCorporateActions,
@@ -143,14 +151,37 @@ function routeError(statusCode: number, code: string, message: string): RouteErr
   return error;
 }
 
+function buildCookieAttrs(cookieName: string, isProduction: boolean): string {
+  const secure = isProduction || cookieName.startsWith("__Host-");
+  return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+}
+
+function parseSessionCookie(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx <= 0) continue;
+    if (part.slice(0, eqIdx).trim() === Env.SESSION_COOKIE_NAME) {
+      const value = part.slice(eqIdx + 1).trim();
+      return value || null;
+    }
+  }
+  return null;
+}
+
 function resolveUserId(req: FastifyRequest): string {
-  if (env.AUTH_MODE === "oauth") {
+  if (Env.AUTH_MODE === "oauth") {
+    // Prefer x-authenticated-user-id (set by a gateway/proxy in production).
     const authenticatedHeader = req.headers["x-authenticated-user-id"];
-    if (!authenticatedHeader || Array.isArray(authenticatedHeader)) {
-      throw routeError(401, "auth_required", "authentication required");
+    if (authenticatedHeader && !Array.isArray(authenticatedHeader)) {
+      return userScopedIdSchema.parse(authenticatedHeader);
     }
 
-    return userScopedIdSchema.parse(authenticatedHeader);
+    // Fall back to session cookie (direct browser requests after OAuth login).
+    const sub = parseSessionCookie(req.headers.cookie);
+    if (sub) return userScopedIdSchema.parse(sub);
+
+    throw routeError(401, "auth_required", "authentication required");
   }
 
   const bypassHeader = req.headers["x-user-id"];
@@ -169,7 +200,7 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
 }
 
 function assertE2EResetEnabled(): void {
-  if (env.NODE_ENV !== "development" || env.AUTH_MODE !== "dev_bypass" || env.PERSISTENCE_BACKEND !== "memory") {
+  if (Env.NODE_ENV !== "development" || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
     throw routeError(404, "not_found", "not found");
   }
 }
@@ -342,8 +373,65 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/auth/google/start", async () => ({ status: "todo", message: "Google OAuth start endpoint placeholder" }));
-  app.get("/auth/google/callback", async () => ({ status: "todo", message: "Google OAuth callback endpoint placeholder" }));
+  app.get("/auth/logout", async (_req, reply) => {
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production");
+    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`);
+    return reply.redirect(`${app.appBaseUrl}/login`, 302);
+  });
+
+  app.get("/auth/google/start", async (_req, reply) => {
+    if (!app.oauthConfig) {
+      throw routeError(503, "oauth_not_configured", "Google OAuth is not configured");
+    }
+    const state = generateState(app.oauthConfig.sessionSecret);
+    const url = buildAuthorizationUrl(app.oauthConfig, state);
+    return reply.redirect(url, 302);
+  });
+
+  app.get("/auth/google/callback", async (req, reply) => {
+    if (!app.oauthConfig) {
+      throw routeError(503, "oauth_not_configured", "Google OAuth is not configured");
+    }
+
+    const rawQuery = req.query as Record<string, string | undefined>;
+
+    if (rawQuery.error) {
+      throw routeError(400, "oauth_error", `OAuth provider returned error: ${rawQuery.error}`);
+    }
+
+    const query = z.object({
+      code: z.string().min(1),
+      state: z.string().min(1),
+    }).parse(rawQuery);
+
+    if (!verifyState(query.state, app.oauthConfig.sessionSecret)) {
+      throw routeError(400, "invalid_state", "OAuth state is invalid or expired");
+    }
+
+    const tokens = await exchangeCodeForTokens(app.oauthConfig, query.code);
+    const claims = decodeIdTokenPayload(tokens.id_token);
+
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production");
+    const cookie = `${Env.SESSION_COOKIE_NAME}=${claims.sub}; ${attrs}`;
+    reply.header("set-cookie", cookie);
+    return reply.redirect(`${app.appBaseUrl}/`, 302);
+  });
+
+  app.post("/auth/token/refresh", async (req) => {
+    if (!app.oauthConfig) {
+      throw routeError(503, "oauth_not_configured", "Google OAuth is not configured");
+    }
+
+    const body = z.object({
+      refreshToken: z.string().min(1),
+    }).parse(req.body);
+
+    const result = await refreshAccessToken(app.oauthConfig, body.refreshToken);
+    return {
+      accessToken: result.access_token,
+      expiresIn: result.expires_in,
+    };
+  });
 
   app.get("/settings", async (req) => {
     const { store } = await loadUserStore(app, req);
