@@ -154,7 +154,7 @@ test.describe("401 session expiry", () => {
     );
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
-    await expect(page.getByTestId("global-error-banner")).not.toBeVisible();
+    await expect(page.getByTestId("global-error-banner")).toBeHidden();
   });
 });
 
