@@ -21,7 +21,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
   const items: RecomputePreviewItem[] = candidates.map((tx) => {
     const account = accountsById.get(tx.accountId);
     if (!account) {
-      throw new Error(`Account not found for transaction ${tx.id}`);
+      throw routeError(404, "account_not_found", `Account not found for transaction ${tx.id}`);
     }
 
     const symbolBinding = input.useFallbackBindings
@@ -98,7 +98,7 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
 
 function mustGetProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error("Fee profile not found");
+  if (!profile) throw routeError(404, "fee_profile_not_found", `Fee profile ${profileId} not found`);
   return profile;
 }
 

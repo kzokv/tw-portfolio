@@ -244,7 +244,7 @@ function buildDividendCashLedgerEntries(
 
   for (const deduction of deductions) {
     if (deduction.currencyCode !== dividendEvent.cashDividendCurrency) {
-      throw new Error("Dividend deduction currency must match dividend cash currency");
+      throw routeError(400, "currency_mismatch", "Dividend deduction currency must match dividend cash currency");
     }
 
     entries.push({
@@ -318,25 +318,25 @@ function roundCurrencyAmount(value: number): number {
 
 function assertDividendEventShape(input: CreateDividendEventInput): void {
   if (input.paymentDate < input.exDividendDate) {
-    throw new Error("Payment date must not be earlier than ex-dividend date");
+    throw routeError(400, "invalid_dividend_dates", "Payment date must not be earlier than ex-dividend date");
   }
 
   if (input.cashDividendPerShare < 0 || input.stockDividendPerShare < 0) {
-    throw new Error("Dividend per-share values must be non-negative");
+    throw routeError(400, "invalid_dividend_values", "Dividend per-share values must be non-negative");
   }
 
   const hasCash = input.cashDividendPerShare > 0;
   const hasStock = input.stockDividendPerShare > 0;
 
   if (input.eventType === "CASH" && (!hasCash || hasStock)) {
-    throw new Error("Cash dividend events must only include cash per-share value");
+    throw routeError(400, "invalid_dividend_shape", "Cash dividend events must only include cash per-share value");
   }
 
   if (input.eventType === "STOCK" && (hasCash || !hasStock)) {
-    throw new Error("Stock dividend events must only include stock per-share value");
+    throw routeError(400, "invalid_dividend_shape", "Stock dividend events must only include stock per-share value");
   }
 
   if (input.eventType === "CASH_AND_STOCK" && (!hasCash || !hasStock)) {
-    throw new Error("Cash-and-stock dividend events must include both per-share values");
+    throw routeError(400, "invalid_dividend_shape", "Cash-and-stock dividend events must include both per-share values");
   }
 }

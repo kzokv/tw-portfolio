@@ -44,7 +44,12 @@ export class PostgresPersistence implements Persistence {
   private readonly redis: RedisClientType;
 
   constructor(private readonly options: PostgresPersistenceOptions) {
-    this.pool = new Pool({ connectionString: options.databaseUrl });
+    this.pool = new Pool({
+      connectionString: options.databaseUrl,
+      max: 20,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+    });
     this.redis = createClient({ url: options.redisUrl });
   }
 
@@ -1444,6 +1449,10 @@ export class PostgresPersistence implements Persistence {
     const feeProfileId = this.defaultFeeProfileId(userId);
     const accountId = this.defaultAccountId(userId);
 
+    // Quick check: skip all seed work if user already exists (common path)
+    const existing = await this.pool.query(`SELECT 1 FROM users WHERE id = $1`, [userId]);
+    if (existing.rows.length > 0) return;
+
     await this.pool.query(
       `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
        VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
@@ -1451,7 +1460,7 @@ export class PostgresPersistence implements Persistence {
       [userId, `${userId}@example.com`],
     );
 
-    await this.pool.query(
+    const profileResult = await this.pool.query(
       `INSERT INTO fee_profiles (
          id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
          minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
@@ -1463,7 +1472,7 @@ export class PostgresPersistence implements Persistence {
          30, 15,
          10, 0, 'CHARGED_UPFRONT'
        )
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (id) DO NOTHING RETURNING id`,
       [feeProfileId, userId],
     );
 
@@ -1474,21 +1483,26 @@ export class PostgresPersistence implements Persistence {
       [accountId, userId, feeProfileId],
     );
 
-    await replaceFeeProfileTaxRules(this.pool, userId, {
-      id: feeProfileId,
-      name: "Default Broker",
-      boardCommissionRate: 1.425,
-      commissionDiscountPercent: 0,
-      minimumCommissionAmount: 20,
-      commissionCurrency: "TWD",
-      commissionRoundingMode: "FLOOR",
-      taxRoundingMode: "FLOOR",
-      stockSellTaxRateBps: 30,
-      stockDayTradeTaxRateBps: 15,
-      etfSellTaxRateBps: 10,
-      bondEtfSellTaxRateBps: 0,
-      commissionChargeMode: "CHARGED_UPFRONT",
-    });
+    // Only seed tax rules when the fee profile was actually created;
+    // avoids a destructive DELETE+INSERT race when concurrent requests
+    // both call ensureUserSeed for the same user.
+    if (profileResult.rowCount && profileResult.rowCount > 0) {
+      await ensureFeeProfileTaxRules(this.pool, userId, {
+        id: feeProfileId,
+        name: "Default Broker",
+        boardCommissionRate: 1.425,
+        commissionDiscountPercent: 0,
+        minimumCommissionAmount: 20,
+        commissionCurrency: "TWD",
+        commissionRoundingMode: "FLOOR",
+        taxRoundingMode: "FLOOR",
+        stockSellTaxRateBps: 30,
+        stockDayTradeTaxRateBps: 15,
+        etfSellTaxRateBps: 10,
+        bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
+      });
+    }
   }
 
   private defaultFeeProfileId(userId: string): string {
@@ -2220,6 +2234,43 @@ async function replaceFeeProfileTaxRules(
          $1, $2, $3, $4, $5, $6, $7,
          $8, $9, $10, $11, $12, $13
        )`,
+      [
+        rule.id,
+        userId,
+        profile.id,
+        rule.marketCode,
+        rule.tradeSide,
+        rule.instrumentType,
+        rule.dayTradeScope,
+        rule.taxComponentCode,
+        rule.calculationMethod,
+        rule.rateBps,
+        rule.effectiveFrom ?? null,
+        rule.effectiveTo ?? null,
+        rule.sortOrder,
+      ],
+    );
+  }
+}
+
+/** Idempotent insert of default tax rules — safe under concurrent calls. */
+async function ensureFeeProfileTaxRules(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  userId: string,
+  profile: FeeProfile,
+): Promise<void> {
+  const taxRules = materializeFeeProfileTaxRules(profile);
+
+  for (const rule of taxRules) {
+    await client.query(
+      `INSERT INTO fee_profile_tax_rules (
+         id, user_id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+         tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12, $13
+       )
+       ON CONFLICT (id) DO NOTHING`,
       [
         rule.id,
         userId,
