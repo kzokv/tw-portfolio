@@ -92,8 +92,10 @@ export const Env = Object.freeze({
       }
     }
 
-    // Google redirect URI port validation
-    if (envInput.GOOGLE_REDIRECT_URI) {
+    // Google redirect URI port validation — only in development mode.
+    // In Docker/production, the redirect URI uses the host-mapped port (e.g., 4300)
+    // which legitimately differs from API_PORT (e.g., 4000) due to port mapping.
+    if (envInput.GOOGLE_REDIRECT_URI && Env.NODE_ENV === "development") {
       try {
         const parsed = new URL(envInput.GOOGLE_REDIRECT_URI);
         if (parsed.port) {

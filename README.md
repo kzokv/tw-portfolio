@@ -37,6 +37,7 @@ Use Node `24.13.0` or newer with npm `11.x` for this repo.
 3. Choose one dev mode:
    - Memory mode (default): set `PERSISTENCE_BACKEND=memory`, then run `npm run dev`.
    - Postgres + local Docker mode: set `PERSISTENCE_BACKEND=postgres`, set local `DB_URL`/`REDIS_URL` (or rely on localhost defaults), run `docker compose -f infra/docker/docker-compose.yml up -d`, then run `npm run dev`.
+   - Full Docker stack validation (build, migrate, up, healthcheck): generate `infra/docker/.env.local` via `npm run env:setup -- --target docker:local`, then run `bash infra/scripts/validate-local.sh`. This uses `infra/docker/docker-compose.local.yml` (ports: web 3300, api 4300, DB 5732, Redis 6679) and does not require cloudflared.
    - Postgres + external service mode (for example QNAP-hosted DB/Redis): set `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`, then run `npm run dev`.
 4. `npm run dev` and onboarding build workspace libs when needed, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
 

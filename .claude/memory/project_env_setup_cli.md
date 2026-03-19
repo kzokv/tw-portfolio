@@ -17,20 +17,21 @@ scripts/
   env-setup.ts              # entry point: CLI arg parsing, orchestration
   env-setup/
     types.ts                # TargetId, TargetConfig, MergeStrategy, ResolvedValue
-    targets.ts              # 8-target registry (root:local, docker:dev, web:local, etc.)
+    targets.ts              # 9-target registry (root:local, docker:local, docker:dev, web:local, etc.)
     parser.ts               # parseDotEnvLine + parseDotEnvFile
     source-reader.ts        # --source flag: reads values from existing env files
     generator.ts            # generates .env file content from schema + metadata
     prompts.ts              # @inquirer/prompts wrappers + Zod schema introspection
 ```
 
-## 8 targets
+## 9 targets
 
 | id | targetPath |
 |---|---|
 | root:local | .env.local |
 | root:dev | .env.dev |
 | root:prod | .env.prod |
+| docker:local | infra/docker/.env.local |
 | docker:dev | infra/docker/.env.dev |
 | docker:prod | infra/docker/.env.prod |
 | web:local | apps/web/.env.local |
@@ -40,8 +41,8 @@ scripts/
 ## Lib modules added to `libs/config/src/`
 
 - `env-schema.ts` — side-effect-free: exports `envSchema`, `parseDotEnvLine`, `EnvConfig`. **Critical**: importing this does NOT trigger `loadDotEnv()`. Required for the script to import without side effects.
-- `env-metadata.ts` — `EnvGroup`, `envGroups`, `dockerDevGroups`, `dockerProdGroups`, `webEnvGroups`, `sensitiveKeys`, `autoGenerateKeys`
-- `env-docker.ts` — `dockerDevSchema`, `dockerProdSchema`
+- `env-metadata.ts` — `EnvGroup`, `envGroups`, `dockerDevGroups`, `dockerProdGroups`, `dockerLocalGroups`, `webEnvGroups`, `sensitiveKeys`, `autoGenerateKeys`
+- `env-docker.ts` — `dockerDevSchema`, `dockerProdSchema`, `dockerLocalSchema`
 - `env-web.ts` — `webEnvSchema`
 
 `env.ts` now imports from `env-schema.ts` and re-exports `EnvConfig` and `envSchema`.

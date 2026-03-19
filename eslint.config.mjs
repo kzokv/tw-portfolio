@@ -32,6 +32,7 @@ export default [
       '**/build/**',
       '**/.turbo/**',
       '**/vitest-report/**',
+      '.worktrees/**',
     ],
   },
   eslint.configs.recommended,

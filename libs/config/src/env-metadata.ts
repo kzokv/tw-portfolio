@@ -77,6 +77,30 @@ export const dockerProdGroups: EnvGroup[] = [
   { label: "State paths", keys: ["TWP_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
 ];
 
+// Docker local groups — strict subset for docker-compose.local.yml
+export const dockerLocalGroups: EnvGroup[] = [
+  { label: "Postgres", keys: ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"] },
+  { label: "Redis", keys: ["REDIS_PASSWORD"] },
+  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "SESSION_SECRET", "SESSION_COOKIE_NAME"] },
+  {
+    label: "Application",
+    keys: [
+      "NODE_ENV",
+      "AUTH_MODE",
+      "AUTH_USER_ID",
+      "PERSISTENCE_BACKEND",
+      "API_PORT",
+      "WEB_PORT",
+      "DATA_PROVIDER_TIMEOUT_MS",
+      "PRIMARY_PROVIDER",
+      "FALLBACK_PROVIDER",
+      "RATE_LIMIT_WINDOW_MS",
+      "RATE_LIMIT_MAX_MUTATIONS",
+    ],
+  },
+  { label: "Docker", keys: ["IMAGE_TAG"] },
+];
+
 // Web env groups
 export const webEnvGroups: EnvGroup[] = [
   { label: "Web app", keys: ["NEXT_PUBLIC_AUTH_MODE", "NEXT_PUBLIC_API_BASE_URL"] },

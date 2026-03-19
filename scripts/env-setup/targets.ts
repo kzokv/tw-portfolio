@@ -1,10 +1,11 @@
 import { envSchema } from "../../libs/config/src/env-schema.js";
-import { dockerDevSchema, dockerProdSchema } from "../../libs/config/src/env-docker.js";
+import { dockerDevSchema, dockerProdSchema, dockerLocalSchema } from "../../libs/config/src/env-docker.js";
 import { webEnvSchema } from "../../libs/config/src/env-web.js";
 import {
   envGroups,
   dockerDevGroups,
   dockerProdGroups,
+  dockerLocalGroups,
   webEnvGroups,
 } from "../../libs/config/src/env-metadata.js";
 import type { TargetConfig } from "./types.js";
@@ -37,6 +38,13 @@ export const targets: TargetConfig[] = [
     targetPath: "infra/docker/.env.dev",
     schema: dockerDevSchema,
     groups: dockerDevGroups,
+  },
+  {
+    id: "docker:local",
+    label: "Docker: local",
+    targetPath: "infra/docker/.env.local",
+    schema: dockerLocalSchema,
+    groups: dockerLocalGroups,
   },
   {
     id: "docker:prod",

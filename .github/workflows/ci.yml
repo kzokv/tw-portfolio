@@ -109,3 +109,17 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f infra/docker/docker-compose.dev.yml --env-file infra/docker/fixtures/env.dev.ci config >/dev/null
+      - name: Validate local compose rendering
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker/docker-compose.local.yml --env-file infra/docker/fixtures/env.local.ci config >/dev/null
+
+  docker-build-validation:
+    needs: [deploy-config-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build all Docker images
+        run: |
+          set -euo pipefail
+          docker compose -f infra/docker/docker-compose.local.yml --env-file infra/docker/fixtures/env.local.ci --profile migrate build

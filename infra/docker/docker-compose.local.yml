@@ -1,0 +1,179 @@
+name: twp-local
+
+services:
+  twp-local-postgres:
+    image: postgres:16
+    container_name: twp-local-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-twp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-tw_portfolio}
+    volumes:
+      - pgdata_local:/var/lib/postgresql/data
+    networks:
+      - twp-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-twp} -d ${POSTGRES_DB:-tw_portfolio}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "5732:5432"
+
+  twp-local-redis:
+    image: redis:7
+    container_name: twp-local-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    networks:
+      - twp-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "6679:6379"
+
+  twp-local-migrate:
+    profiles: ["migrate"]
+    build:
+      context: ../..
+      dockerfile: db/Dockerfile.migrate
+    image: twp-local-migrate:${IMAGE_TAG:-latest}
+    container_name: twp-local-migrate
+    depends_on:
+      twp-local-postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGHOST: twp-local-postgres
+      PGUSER: ${POSTGRES_USER:-twp}
+      PGDATABASE: ${POSTGRES_DB:-tw_portfolio}
+    networks:
+      - twp-local-net
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  twp-local-api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: twp-local-api:${IMAGE_TAG:-latest}
+    container_name: twp-local-api
+    restart: unless-stopped
+    depends_on:
+      twp-local-postgres:
+        condition: service_healthy
+      twp-local-redis:
+        condition: service_healthy
+    env_file:
+      - ${APP_ENV_FILE:-.env.local}
+    environment:
+      NODE_ENV: production
+      DB_URL: postgres://${POSTGRES_USER:-twp}:${POSTGRES_PASSWORD}@twp-local-postgres:5432/${POSTGRES_DB:-tw_portfolio}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@twp-local-redis:6379
+      API_PORT: "4000"
+      # Host ports are fixed at +300 offset from container ports (3000→3300,
+      # 4000→4300) to avoid collision with host-level dev servers.
+      ALLOWED_ORIGINS: http://localhost:3300
+      APP_BASE_URL: http://localhost:3300
+      # Overrides env_file — must use host-side port (4300), not container port (4000)
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4300/auth/google/callback}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
+    networks:
+      - twp-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "4300:4000"
+
+  twp-local-web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:4300
+        NEXT_PUBLIC_AUTH_MODE: ${AUTH_MODE:-oauth}
+        NEXT_PUBLIC_AUTH_USER_ID: ${AUTH_USER_ID:-}
+    image: twp-local-web:${IMAGE_TAG:-latest}
+    container_name: twp-local-web
+    restart: unless-stopped
+    depends_on:
+      twp-local-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
+    networks:
+      - twp-local-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    ports:
+      - "3300:3000"
+
+volumes:
+  pgdata_local:
+
+networks:
+  twp-local-net:
+    driver: bridge

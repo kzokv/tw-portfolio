@@ -4,6 +4,182 @@ This document is the single source of truth for deploying and operating the **tw
 
 ---
 
+## Architecture Diagrams
+
+### System Overview
+
+```
+                          +------------------+
+                          |   Cloudflare     |
+                          |   Zero Trust     |
+                          +--------+---------+
+                                   |
+                    +--------------+--------------+
+                    |                             |
+             +------+------+              +------+------+
+             | WARP Tunnel |              |  CF Tunnel  |
+             | (CI Deploy) |              | (Ingress)   |
+             +------+------+              +------+------+
+                    |                             |
+                    +----------+   +--------------+
+                               |   |
+                          +----+---+----+
+                          |  QNAP Host  |
+                          | 192.168.2.10|
+                          +------+------+
+                                 |
+              +------------------+------------------+
+              |                                     |
+     +--------+--------+                  +---------+--------+
+     |  twp-prod-net   |                  |   twp-dev-net    |
+     |  (production)   |                  |   (staging)      |
+     +--------+--------+                  +---------+--------+
+              |                                     |
+  +-----------+-----------+           +-------------+-----------+
+  |     |     |     |     |           |     |     |     |     |
+ web  api  postgres redis cf         web  api  postgres redis cf
+ :3000 :4000 :5432 :6379             :3000 :4000 :5432 :6379
+```
+
+### Local Docker Stack (no cloudflared)
+
+```
+     +---------------------+
+     |    twp-local-net     |
+     +----------+----------+
+                |
+  +-------------+-------------+-------------+
+  |             |             |             |
+ web          api         postgres       redis
+ :3000        :4000        :5432         :6379
+  |             |             |             |
+ :3300        :4300        :5732         :6679
+ (host)       (host)       (host)        (host)
+```
+
+### CI/CD Pipeline Flow
+
+```
+  developer
+     |
+     | git push
+     v
+  +--------+     +----------+     +-----------+     +----------+
+  | GitHub |---->|    CI     |---->| Deploy    |---->| QNAP     |
+  | Repo   |     | Workflow  |     | Workflow  |     | Host     |
+  +--------+     +----------+     +-----------+     +----------+
+                      |                |                  |
+                      v                v                  v
+                 +---------+    +-----------+     +-------------+
+                 | lint    |    | WARP      |     | deploy.sh   |
+                 | build   |    | enroll    |     |  checkout   |
+                 | test    |    | SSH       |     |  build      |
+                 | docker  |    | connect   |     |  backup     |
+                 | build   |    |           |     |  migrate    |
+                 +---------+    +-----------+     |  deploy     |
+                                                  |  healthcheck|
+                                                  +-------------+
+```
+
+### Deploy Script Phases
+
+```
+  deploy.sh
+     |
+     v
+  [1] Preflight -----> validate git, docker, env file, compose config
+     |
+     v
+  [2] Checkout ------> git fetch + checkout + reset to target SHA
+     |
+     v
+  [3] Build ---------> docker compose --profile migrate build
+     |
+     v
+  [4] Backup --------> pg_dump | gzip (if postgres running)
+     |
+     v
+  [5] Migrate -------> docker compose run --rm migrate
+     |                     |
+     |                 FAIL? --> collect logs --> ROLLBACK --> exit 1
+     v
+  [6] Deploy --------> docker compose up -d --remove-orphans
+     |                     |
+     |                 FAIL? --> collect diagnostics --> ROLLBACK --> exit 1
+     v
+  [7] Health Check --> API: /health/live (30s) + Web: / (20s)
+     |                     |
+     |                 FAIL? --> ROLLBACK --> exit 1
+     v
+  [8] Cleanup -------> remove old images
+     |
+     v
+  SUCCESS (exit 0)
+
+
+  ROLLBACK:
+     restore previous branch/SHA
+     rebuild images
+     restore DB from backup
+     docker compose up -d
+```
+
+### Local Validation Flow
+
+```
+  validate-local.sh
+     |
+     v
+  [1] Preflight -----> check docker, compose file, env file
+     |
+     v
+  [2] Build ---------> docker compose --profile migrate build
+     |
+     v
+  [3] Start Infra ---> postgres + redis, wait for healthy (60s)
+     |
+     v
+  [4] Migrate -------> run twp-local-migrate container
+     |
+     v
+  [5] Start Apps ----> api + web containers
+     |
+     v
+  [6] Health Check --> API: /health/live (30s) + Web: / (20s)
+     |
+     v
+  [7] Summary -------> docker compose ps
+     |
+     +--[--teardown]--> docker compose down -v
+     |
+     v
+  PASS/FAIL (exit 0/1)
+```
+
+### Environment Comparison
+
+```
+  +------------------+------------------+------------------+
+  |     LOCAL        |      DEV         |   PRODUCTION     |
+  +------------------+------------------+------------------+
+  | compose: local   | compose: dev     | compose: prod    |
+  | env: .env.local  | env: .env.dev    | env: .env.prod   |
+  | project: twp-    | project: twp-    | project: twp-    |
+  |   local          |   dev            |   prod           |
+  +------------------+------------------+------------------+
+  | web:  3300:3000  | web:  internal   | web:  internal   |
+  | api:  4300:4000  | api:  internal   | api:  internal   |
+  | db:   5732:5432  | db:   5454:5432  | db:   internal   |
+  | redis:6679:6379  | redis:6363:6379  | redis: internal  |
+  +------------------+------------------+------------------+
+  | NO cloudflared   | cloudflared      | cloudflared      |
+  | AUTH: oauth      | AUTH: oauth      | AUTH: oauth      |
+  | Direct localhost  | Tunnel ingress   | Tunnel ingress   |
+  +------------------+------------------+------------------+
+```
+
+---
+
 ## 1. Prerequisites
 
 - **Docker** and **Docker Compose** on the deployment host
@@ -81,6 +257,115 @@ Web build args:
 - Recompute history is explicit and audited via preview/confirm APIs.
 - For local tests without DB/Redis, set `PERSISTENCE_BACKEND=memory`.
 - For external Postgres/Redis mode, keep `PERSISTENCE_BACKEND=postgres` and set external `DB_URL`/`REDIS_URL`; do not start local compose DB/Redis unless needed for fallback.
+
+### Local Docker Stack Validation
+
+Use the local Docker stack to validate that Docker images build and the full containerized stack works before pushing to CI. This catches Dockerfile dependency drift that host-level builds don't detect.
+
+#### Setup (one time)
+
+```bash
+# Generate the local Docker env file interactively
+npm run env:setup -- --target docker:local
+
+# Or non-interactively with defaults (requires manual password editing)
+npx tsx scripts/env-setup.ts --target docker:local --non-interactive
+```
+
+This creates `infra/docker/.env.local` with the required variables. Edit passwords and Google OAuth credentials as needed.
+
+#### Validate the full stack
+
+```bash
+# Build, migrate, start, and health-check — leaves stack running
+npm run docker:validate
+
+# Same, but tear down after validation
+npm run docker:validate:teardown
+```
+
+**What `docker:validate` does** (phases in order):
+
+1. **Preflight** — checks docker, compose file, and env file exist
+2. **Build** — `docker compose --profile migrate build` (api, web, migrate images)
+3. **Start infra** — postgres and redis, waits for healthy (up to 60s)
+4. **Migrate** — runs the migration container against local postgres
+5. **Start apps** — api and web containers
+6. **Health check** — API at `/health/live` (30s), web at `/` (20s)
+7. **Summary** — reports pass/fail and shows `docker compose ps`
+
+If any phase fails, the script collects container logs and exits with code 1.
+
+#### Access the local stack
+
+After validation passes (stack left running):
+
+```bash
+# Web app
+open http://localhost:3300
+
+# API health
+curl http://localhost:4300/health/live
+
+# Connect to local postgres
+docker exec -it twp-local-postgres psql -U twp tw_portfolio
+
+# View logs
+docker compose -p twp-local -f infra/docker/docker-compose.local.yml logs -f twp-local-api
+```
+
+#### Port mappings (host:container, +300 offset)
+
+| Service  | Host port | Container port |
+|----------|-----------|----------------|
+| Web      | 3300      | 3000           |
+| API      | 4300      | 4000           |
+| Postgres | 5732      | 5432           |
+| Redis    | 6679      | 6379           |
+
+These ports avoid collision with host-level dev servers (`npm run dev` uses 3000/3333 + 4000).
+
+#### Tear down manually
+
+```bash
+# Stop and remove containers (keep volumes)
+docker compose -p twp-local -f infra/docker/docker-compose.local.yml down
+
+# Stop, remove containers AND volumes (fresh start)
+docker compose -p twp-local -f infra/docker/docker-compose.local.yml down -v
+```
+
+#### OAuth in local Docker stack
+
+The local stack defaults to `AUTH_MODE=oauth` (not `dev_bypass`) because:
+- The API enforces `dev_bypass` is only allowed when `NODE_ENV=development`
+- The Docker stack runs `NODE_ENV=production` to match production behavior
+- `GOOGLE_REDIRECT_URI` is hardcoded to `http://localhost:4300/auth/google/callback` in the compose file (uses host port 4300, not container port 4000)
+- `SESSION_COOKIE_NAME` uses `g_auth_session` (no `__Host-` prefix) because local Docker runs on HTTP
+
+To use the local stack with OAuth, ensure your `infra/docker/.env.local` has valid `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET` values.
+
+### Redeploy a Single Service
+
+Use `redeploy-service.sh` to rebuild and restart just one service without a full deployment:
+
+```bash
+# Rebuild and restart just the web container (local)
+bash infra/scripts/redeploy-service.sh -e local web
+
+# Rebuild and restart just the API (dev server)
+bash infra/scripts/redeploy-service.sh -e dev api
+
+# Rebuild with dependencies (restarts dependent services too)
+bash infra/scripts/redeploy-service.sh -e production --with-deps web
+```
+
+**Options:**
+- `-e, --environment ENV` — `local`, `dev`, or `production` (required)
+- `--with-deps` — also restart services that depend on the target
+- `SERVICE` — `api` or `web`
+
+The script builds the target, restarts it (with `--no-deps` by default), runs a health check, and reports pass/fail. On failure, it logs the last 50 lines of the container and suggests recovery commands.
 
 ### E2E tests (local)
 
@@ -172,7 +457,18 @@ Glossary:
 
 Keep concrete private IPs, Cloudflare tunnel IDs, and public hostnames out of this document. Store them in the appropriate GitHub Environment secrets or variables instead.
 
-### 3.2 Host resource budget
+### 3.2 CI Docker Build Validation
+
+CI now includes a `docker-build-validation` job that builds all Docker images on every PR/push. This catches Dockerfile dependency drift (e.g., missing workspace packages in COPY steps) before code reaches the deploy server.
+
+The job:
+1. Validates `docker-compose.local.yml` renders correctly with the CI fixture env file
+2. Builds all images including the migrate container (`--profile migrate`)
+3. Runs after `deploy-config-validation` passes (gated via `needs:`)
+
+If a PR changes workspace dependencies or Dockerfiles, this job will catch broken image builds before merge.
+
+### 3.3 Host resource budget
 
 The QNAP NAS provides compute. Container limits are set to stay within host capacity with headroom for OS and QTS.
 
@@ -183,12 +479,13 @@ The QNAP NAS provides compute. Container limits are set to stay within host capa
 
 If the host has less than 8 GB RAM, reduce per-container limits in `infra/docker/docker-compose.prod.yml` to avoid OOM kills.
 
-### 3.3 Containers
+### 3.4 Containers
 
-| Environment | Stack prefix | Example containers |
-|-------------|--------------|--------------------|
-| `production` | `twp-prod` | `twp-prod-web`, `twp-prod-api`, `twp-prod-postgres` |
-| `dev` | `twp-dev` | `twp-dev-web`, `twp-dev-api`, `twp-dev-postgres` |
+| Environment | Stack prefix | Example containers | Compose file |
+|-------------|--------------|--------------------|----|
+| `local` | `twp-local` | `twp-local-web`, `twp-local-api`, `twp-local-postgres` | `docker-compose.local.yml` |
+| `dev` | `twp-dev` | `twp-dev-web`, `twp-dev-api`, `twp-dev-postgres` | `docker-compose.dev.yml` |
+| `production` | `twp-prod` | `twp-prod-web`, `twp-prod-api`, `twp-prod-postgres` | `docker-compose.prod.yml` |
 
 `IMAGE_TAG` is set by the deploy script (see Deploy script options). App images are environment-specific (`twp-prod-*` or `twp-dev-*`), while Postgres, Redis, and cloudflared use fixed upstream images.
 

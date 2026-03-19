@@ -6,6 +6,7 @@ export type TargetId =
   | "root:dev"
   | "root:prod"
   | "docker:dev"
+  | "docker:local"
   | "docker:prod"
   | "web:local"
   | "web:dev"

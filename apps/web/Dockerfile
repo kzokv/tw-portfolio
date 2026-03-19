@@ -5,11 +5,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/
 COPY libs/shared-types/package.json libs/shared-types/
+COPY libs/config/package.json libs/config/
 
 RUN npm ci
 
 COPY tsconfig.base.json ./
 COPY libs/shared-types/ libs/shared-types/
+COPY libs/config/ libs/config/
 COPY apps/web/ apps/web/
 
 ARG NEXT_PUBLIC_API_BASE_URL
@@ -19,7 +21,8 @@ ENV NEXT_PUBLIC_AUTH_USER_ID=${NEXT_PUBLIC_AUTH_USER_ID}
 ARG NEXT_PUBLIC_AUTH_MODE
 ENV NEXT_PUBLIC_AUTH_MODE=${NEXT_PUBLIC_AUTH_MODE}
 
-RUN npm run build -w @tw-portfolio/shared-types \
+RUN npm run build -w @tw-portfolio/config \
+ && npm run build -w @tw-portfolio/shared-types \
  && npm run build -w @tw-portfolio/web
 
 FROM node:24-alpine
@@ -31,6 +34,7 @@ COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static apps/web/.next/static
 COPY --from=build /app/apps/web/public/ apps/web/public/
 COPY --from=build /app/libs/shared-types/dist/ libs/shared-types/dist/
+COPY --from=build /app/libs/config/dist/ libs/config/dist/
 
 RUN chown -R app:app /app
 USER app

@@ -30,6 +30,8 @@
     "docker:cleanup": "bash scripts/docker-cleanup.sh",
     "docker:cleanup:dry-run": "bash scripts/docker-cleanup.sh --dry-run",
     "docker:cleanup:yes": "bash scripts/docker-cleanup.sh --yes",
+    "docker:validate": "bash infra/scripts/validate-local.sh",
+    "docker:validate:teardown": "bash infra/scripts/validate-local.sh --teardown",
     "env:setup": "tsx scripts/env-setup.ts",
     "auth:refresh-token": "node scripts/get-google-refresh-token.mjs"
   },

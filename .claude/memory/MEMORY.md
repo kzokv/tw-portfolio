@@ -11,14 +11,18 @@
 ## Project context
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 8 targets, CLI flags, .env→.env.local rename, integration points
 - [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
+- [project_ise_fixes.md](project_ise_fixes.md) — Five ISE root-cause fixes implemented on dev-issue: loadStore parallelization, CORS callback, routeError lib, error boundaries, try/catch in symbol page
+- [project_ci_deployment_stability.md](project_ci_deployment_stability.md) — CI deployment stability: Dockerfile drift detection gap, local Docker validation stack (docker-compose.local.yml), CI Docker build job added
+- [project_infrastructure_architecture.md](project_infrastructure_architecture.md) — Deploy target: QNAP 192.168.2.10 via Cloudflare WARP + SSH; three Docker compose environments (dev, prod, local)
+- [project_nextjs_proxy_convention.md](project_nextjs_proxy_convention.md) — Next.js 16 (v16.1.6): proxy.ts replaces deprecated middleware.ts, auto-discovered at build time
 
 ## Agent workflow
-- [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User prefers multi-agent teams: TDD impl (Opus), test runner, resolver, reviewer (Sonnet)
+- [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User prefers multi-agent teams: TDD Implementer (Opus), Test Validator, Resolver, Code Reviewer, Findings Fixer, Technical Writer, Memory Curator
 
 ## Feedback & preferences
+- [feedback_npm_script_wrapping.md](feedback_npm_script_wrapping.md) — CLI scripts with positional args should NOT be wrapped as npm scripts; direct invocation is preferred
 - [feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md) — @inquirer/prompts: loop:false, dynamic pageSize, no search/filter, "loop navigation" disambiguation
 - [feedback_pr_workflow.md](feedback_pr_workflow.md) — PRs target dev, ticket ID from branch name, commit memory files
-- [project_ise_fixes.md](project_ise_fixes.md) — Five ISE root-cause fixes implemented on dev-issue: loadStore parallelization, CORS callback, routeError lib, error boundaries, try/catch in symbol page
 - [feedback_routeError_pattern.md](feedback_routeError_pattern.md) — Service throws must use routeError() from lib/routeError.ts, not plain Error, to avoid 500s
 - [feedback_web_env_utility.md](feedback_web_env_utility.md) — Use WebEnv.SESSION_COOKIE_NAME from @tw-portfolio/config/web, never raw process.env with hardcoded fallbacks
 - [feedback_vitest_alias_order.md](feedback_vitest_alias_order.md) — More specific package aliases (config/web, config/test) must precede bare config alias in vitest.config.ts to prevent prefix clobbering
