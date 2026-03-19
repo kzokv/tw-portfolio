@@ -5,10 +5,15 @@
 
 ## Auth / session
 - [project_cookie_domain_session.md](project_cookie_domain_session.md) — SESSION_COOKIE_NAME + COOKIE_DOMAIN coupling: why __Host- breaks cross-subdomain OAuth, correct docker defaults, startup guard
+- [project_session_cookie_hmac.md](project_session_cookie_hmac.md) — Session cookies are HMAC-signed (sub.hmac format) using SESSION_SECRET, not plain sub values
+- [project_oauth_e2e_automation.md](project_oauth_e2e_automation.md) — OAuth e2e uses refresh token (local) or hardcoded sub (CI), no manual login; `npm run auth:refresh-token` to renew
 
 ## Project context
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 8 targets, CLI flags, .env→.env.local rename, integration points
 - [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
+
+## Agent workflow
+- [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User prefers multi-agent teams: TDD impl (Opus), test runner, resolver, reviewer (Sonnet)
 
 ## Feedback & preferences
 - [feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md) — @inquirer/prompts: loop:false, dynamic pageSize, no search/filter, "loop navigation" disambiguation

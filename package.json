@@ -30,7 +30,8 @@
     "docker:cleanup": "bash scripts/docker-cleanup.sh",
     "docker:cleanup:dry-run": "bash scripts/docker-cleanup.sh --dry-run",
     "docker:cleanup:yes": "bash scripts/docker-cleanup.sh --yes",
-    "env:setup": "tsx scripts/env-setup.ts"
+    "env:setup": "tsx scripts/env-setup.ts",
+    "auth:refresh-token": "node scripts/get-google-refresh-token.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

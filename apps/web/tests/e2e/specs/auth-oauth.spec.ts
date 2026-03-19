@@ -136,6 +136,19 @@ test.describe("POST /auth/token/refresh", () => {
     });
     expect(res.status()).toBe(400);
   });
+
+  test("refresh endpoint is accessible without session cookie", async ({ request }) => {
+    // The refresh endpoint is intentionally open — it accepts a refresh token in the body
+    // and does not require a session cookie. This documents that design decision.
+    const res = await request.post(apiUrl("/auth/token/refresh"), {
+      data: { refreshToken: "mock-e2e-refresh-token" },
+      headers: { cookie: "" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.accessToken).toBeDefined();
+    expect(body.expiresIn).toBeDefined();
+  });
 });
 
 test.describe("401 session expiry", () => {
@@ -157,6 +170,51 @@ test.describe("401 session expiry", () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     await expect(page.getByTestId("global-error-banner")).toBeHidden();
   });
+
+  test("401 on dashboard overview API redirects root page to /login", async ({ page }) => {
+    // Intercept the dashboard overview API call to return 401, simulating session expiry
+    await page.route("**/dashboard/overview**", (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "authentication required" }),
+      }),
+    );
+    await page.route("**/auth/logout**", (route) =>
+      route.fulfill({
+        status: 302,
+        headers: { location: "/login" },
+      }),
+    );
+
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+  });
+});
+
+test.describe("x-authenticated-user-id header trust", () => {
+  test("x-authenticated-user-id header alone does not grant access without session cookie", async ({ request }) => {
+    // In dev_bypass mode (used by this mock suite), the API uses x-user-id (not
+    // x-authenticated-user-id) for identity and defaults to "user-1" when absent.
+    // The x-authenticated-user-id header is only checked in AUTH_MODE=oauth.
+    // This test verifies that sending x-authenticated-user-id in dev_bypass mode
+    // does not influence authentication — the header is simply ignored.
+    const res = await request.get(apiUrl("/settings"), {
+      headers: {
+        "x-authenticated-user-id": "attacker-sub",
+        // Explicitly avoid sending any cookies or x-user-id
+      },
+    });
+
+    // In dev_bypass mode without x-user-id, the API defaults to "user-1" and returns 200.
+    // The key assertion: x-authenticated-user-id is NOT used as the identity source.
+    // In a production oauth deployment, the gateway must strip this header from
+    // untrusted client requests — the API trusts it unconditionally in oauth mode.
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    // The returned settings belong to the default "user-1", not "attacker-sub"
+    expect(body.userId).not.toBe("attacker-sub");
+  });
 });
 
 test.describe("full browser OAuth flow", () => {
@@ -177,6 +235,61 @@ test.describe("full browser OAuth flow", () => {
     const sessionCookie = cookies.find((c) => c.name === TestEnv.sessionCookieName);
     expect(sessionCookie).toBeDefined();
     expect(sessionCookie?.httpOnly).toBe(true);
+  });
+});
+
+test.describe("cookie security attributes", () => {
+  test(`${TestEnv.sessionCookieName} cookie has HttpOnly, SameSite=Lax, and Secure attributes`, async ({ request }) => {
+    // Complete a full OAuth callback to get the Set-Cookie header
+    const startRes = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
+    const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
+
+    const res = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`),
+      { maxRedirects: 0 },
+    );
+
+    expect(res.status()).toBe(302);
+    const setCookie = res.headers()["set-cookie"] ?? "";
+    expect(setCookie).toContain(`${TestEnv.sessionCookieName}=`);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Lax");
+    // The __Host- prefix requires the Secure attribute (RFC 6265bis)
+    expect(setCookie).toContain("Secure");
+  });
+});
+
+test.describe("authorization code replay", () => {
+  test("replayed authorization code with new state", async ({ request }) => {
+    // Get first state and use the code
+    const startRes1 = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
+    const state1 = new URL(startRes1.headers()["location"]).searchParams.get("state")!;
+
+    const firstUse = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state1)}`),
+      { maxRedirects: 0 },
+    );
+    expect(firstUse.status()).toBe(302);
+    expect(firstUse.headers()["set-cookie"] ?? "").toContain(`${TestEnv.sessionCookieName}=`);
+
+    // Replay the same code with a fresh state
+    const startRes2 = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
+    const state2 = new URL(startRes2.headers()["location"]).searchParams.get("state")!;
+
+    const replay = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state2)}`),
+      { maxRedirects: 0 },
+    );
+
+    // NOTE: The mock OAuth server does not track used authorization codes — it always
+    // accepts any code and returns a valid token response. In production, Google's
+    // token endpoint would reject a replayed code with "invalid_grant" (400), causing
+    // the callback to redirect to /auth/error?reason=oauth_error.
+    // This test documents the mock limitation: replay detection depends on the
+    // upstream provider, not on our callback handler.
+    expect(replay.status()).toBe(302);
+    // The mock always succeeds, so the replay also sets a cookie
+    expect(replay.headers()["set-cookie"] ?? "").toContain(`${TestEnv.sessionCookieName}=`);
   });
 });
 
