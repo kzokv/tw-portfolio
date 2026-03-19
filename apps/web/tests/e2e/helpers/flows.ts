@@ -86,4 +86,11 @@ export function buildE2EUserId(testInfo: TestInfo): string {
   return `qa-${slug || "e2e"}`;
 }
 
+/** Extract a cookie value from a Set-Cookie header string by cookie name. */
+export function extractCookieValue(setCookieHeader: string, cookieName: string): string | null {
+  const escaped = cookieName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = setCookieHeader.match(new RegExp(`${escaped}=([^;]+)`));
+  return match?.[1] ?? null;
+}
+
 export { TestEnv };

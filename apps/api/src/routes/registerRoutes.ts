@@ -7,6 +7,8 @@ import {
   exchangeCodeForTokens,
   generateState,
   refreshAccessToken,
+  signSessionCookie,
+  verifySessionCookie,
   verifyState,
   type GoogleTokenResponse,
 } from "../auth/googleOAuth.js";
@@ -159,29 +161,35 @@ function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomai
   return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
 }
 
-function parseSessionCookie(cookieHeader: string | undefined): string | null {
+function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const eqIdx = part.indexOf("=");
     if (eqIdx <= 0) continue;
     if (part.slice(0, eqIdx).trim() === Env.SESSION_COOKIE_NAME) {
       const value = part.slice(eqIdx + 1).trim();
-      return value || null;
+      if (!value) return null;
+      // Verify HMAC signature before trusting the sub
+      if (!sessionSecret) return null;
+      return verifySessionCookie(value, sessionSecret);
     }
   }
   return null;
 }
 
-function resolveUserId(req: FastifyRequest): string {
+function resolveUserId(req: FastifyRequest, sessionSecret?: string): string {
   if (Env.AUTH_MODE === "oauth") {
-    // Prefer x-authenticated-user-id (set by a gateway/proxy in production).
+    // Trust x-authenticated-user-id header — intended for gateway/proxy use only.
+    // In production, ensure the gateway strips this header from untrusted client requests
+    // and only sets it after authenticating the user upstream. Without a gateway, this
+    // header is NOT verified by the API and should not be exposed to direct client access.
     const authenticatedHeader = req.headers["x-authenticated-user-id"];
     if (authenticatedHeader && !Array.isArray(authenticatedHeader)) {
       return userScopedIdSchema.parse(authenticatedHeader);
     }
 
     // Fall back to session cookie (direct browser requests after OAuth login).
-    const sub = parseSessionCookie(req.headers.cookie);
+    const sub = parseSessionCookie(req.headers.cookie, sessionSecret);
     if (sub) return userScopedIdSchema.parse(sub);
 
     throw routeError(401, "auth_required", "authentication required");
@@ -196,7 +204,7 @@ function resolveUserId(req: FastifyRequest): string {
 }
 
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
-  const userId = resolveUserId(req);
+  const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
   const store = await app.persistence.loadStore(userId);
   syncAccountingPolicy(store);
   return { userId, store };
@@ -204,6 +212,13 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
 
 function assertE2EResetEnabled(): void {
   if (Env.NODE_ENV !== "development" || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
+    throw routeError(404, "not_found", "not found");
+  }
+}
+
+/** Guard for `/__e2e/oauth-session` — allowed in development and test, blocked in production. */
+export function assertE2EOauthSessionEnabled(nodeEnv: string = Env.NODE_ENV): void {
+  if (nodeEnv !== "development" && nodeEnv !== "test") {
     throw routeError(404, "not_found", "not found");
   }
 }
@@ -370,10 +385,33 @@ function requireAccount(store: Store, accountId: string) {
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
-    const userId = resolveUserId(req);
+    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = createSeededStoreForUser(userId);
     await app.persistence.saveStore(store);
     return { status: "reset", userId };
+  });
+
+  app.post("/__e2e/oauth-session", async (req, reply) => {
+    assertE2EOauthSessionEnabled();
+
+    const body = z.object({ id_token: z.string().min(1).optional() }).nullable().parse(req.body ?? {});
+    let sub: string;
+
+    if (body?.id_token) {
+      const claims = decodeIdTokenPayload(body.id_token);
+      sub = claims.sub;
+    } else {
+      sub = "e2e-ci-google-sub-001";
+    }
+
+    const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
+    if (!sessionSecret) {
+      throw routeError(500, "missing_secret", "SESSION_SECRET is required for session cookie signing");
+    }
+    const signedCookie = signSessionCookie(sub, sessionSecret);
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, (Env.NODE_ENV as string) === "production", Env.COOKIE_DOMAIN);
+    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
+    return { status: "ok", sub };
   });
 
   app.get("/health/live", async () => ({ status: "ok" }));
@@ -432,8 +470,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const claims = decodeIdTokenPayload(tokens.id_token);
+    const signedCookie = signSessionCookie(claims.sub, app.oauthConfig.sessionSecret);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
-    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${claims.sub}; ${attrs}`);
+    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
     return reply.redirect(`${app.appBaseUrl}/`, 302);
   });
 
@@ -757,7 +796,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "idempotency_key_required", "idempotency-key header required");
     }
 
-    const userId = resolveUserId(req);
+    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
@@ -871,7 +910,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "idempotency_key_required", "idempotency-key header required");
     }
 
-    const userId = resolveUserId(req);
+    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);

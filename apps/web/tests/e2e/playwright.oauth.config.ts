@@ -48,15 +48,7 @@ export default defineConfig({
       name: "setup",
       testDir: "./setup",
       testMatch: /.*\.setup\.ts/,
-      use: {
-        headless: false,
-        // Real Chrome avoids Google's bot-detection (Playwright's Chromium triggers "Couldn't sign you in").
-        // --disable-blink-features=AutomationControlled removes the navigator.webdriver flag.
-        channel: "chrome",
-        launchOptions: {
-          args: ["--disable-blink-features=AutomationControlled"],
-        },
-      },
+      // No browser needed — setup uses Playwright's request API context only.
     },
     {
       name: "oauth",
@@ -84,10 +76,10 @@ export default defineConfig({
       env: TestEnv.apiServerEnv({
         AUTH_MODE: "oauth",
         PERSISTENCE_BACKEND: process.env.PERSISTENCE_BACKEND ?? "memory",
-        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? "",
-        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? "",
+        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? TestEnv.oauth.clientId,
+        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? TestEnv.oauth.clientSecret,
         GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI ?? TestEnv.googleRedirectUri,
-        SESSION_SECRET: process.env.SESSION_SECRET ?? "",
+        SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
         APP_BASE_URL: process.env.APP_BASE_URL ?? TestEnv.appBaseUrl,
       }),
     },
