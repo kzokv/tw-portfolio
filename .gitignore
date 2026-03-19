@@ -8,6 +8,7 @@ infra/docker/.env.prod
 .env.dev
 infra/docker/.env.dev
 .next
+.worktrees/
 
 **/*next-env.d.ts
 dist
