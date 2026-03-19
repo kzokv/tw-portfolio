@@ -8,6 +8,7 @@ import {
   generateState,
   refreshAccessToken,
   verifyState,
+  type GoogleTokenResponse,
 } from "../auth/googleOAuth.js";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
@@ -404,27 +405,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(503, "oauth_not_configured", "Google OAuth is not configured");
     }
 
+    const errorRedirect = (reason: string) =>
+      reply.redirect(`${app.appBaseUrl}/auth/error?reason=${encodeURIComponent(reason)}`, 302);
+
     const rawQuery = req.query as Record<string, string | undefined>;
 
-    if (rawQuery.error) {
-      throw routeError(400, "oauth_error", `OAuth provider returned error: ${rawQuery.error}`);
-    }
+    if (rawQuery.error) return errorRedirect("oauth_error");
 
-    const query = z.object({
-      code: z.string().min(1),
-      state: z.string().min(1),
-    }).parse(rawQuery);
+    let query: { code: string; state: string };
+    try {
+      query = z.object({ code: z.string().min(1), state: z.string().min(1) }).parse(rawQuery);
+    } catch {
+      return errorRedirect("invalid_state");
+    }
 
     if (!verifyState(query.state, app.oauthConfig.sessionSecret)) {
-      throw routeError(400, "invalid_state", "OAuth state is invalid or expired");
+      return errorRedirect("invalid_state");
     }
 
-    const tokens = await exchangeCodeForTokens(app.oauthConfig, query.code);
-    const claims = decodeIdTokenPayload(tokens.id_token);
+    let tokens: GoogleTokenResponse;
+    try {
+      tokens = await exchangeCodeForTokens(app.oauthConfig, query.code);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      return errorRedirect(code === "oauth_client_error" ? "oauth_error" : "server_error");
+    }
 
+    const claims = decodeIdTokenPayload(tokens.id_token);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
-    const cookie = `${Env.SESSION_COOKIE_NAME}=${claims.sub}; ${attrs}`;
-    reply.header("set-cookie", cookie);
+    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${claims.sub}; ${attrs}`);
     return reply.redirect(`${app.appBaseUrl}/`, 302);
   });
 

@@ -20,8 +20,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@tw-portfolio/config": resolve(rootDir, "../../libs/config/src/index.ts"),
       "@tw-portfolio/config/test": resolve(rootDir, "../../libs/config/src/test.ts"),
+      "@tw-portfolio/config/web": resolve(rootDir, "../../libs/config/src/env-web.ts"),
+      "@tw-portfolio/config": resolve(rootDir, "../../libs/config/src/index.ts"),
       "@tw-portfolio/domain": resolve(rootDir, "../../libs/domain/src/index.ts"),
       "@tw-portfolio/shared-types": resolve(rootDir, "../../libs/shared-types/src/index.ts"),
     },
