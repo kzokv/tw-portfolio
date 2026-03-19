@@ -370,10 +370,10 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         bookingSequence: 1,
       }),
     });
-    expect(secondResponse.statusCode).toBe(400);
+    expect(secondResponse.statusCode).toBe(409);
     expect(secondResponse.json()).toMatchObject({
-      error: "invalid_request",
-      message: "Invalid booking sequence: already exists for the same account and trade date",
+      error: "duplicate_booking_sequence",
+      message: "Booking sequence already exists for the same account and trade date",
     });
   });
 
