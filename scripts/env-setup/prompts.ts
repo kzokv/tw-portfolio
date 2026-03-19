@@ -1,10 +1,21 @@
 import crypto from "node:crypto";
-import { checkbox, select, input, password, confirm } from "@inquirer/prompts";
-
 /** Dynamic page size: terminal height minus chrome rows, with a safe minimum. */
 function getPageSize(): number {
   return Math.max(10, (process.stdout.rows ?? 24) - 4);
 }
+
+/** Lazily load @inquirer/prompts — only needed in interactive mode. */
+async function loadPrompts() {
+  try {
+    return await import("@inquirer/prompts");
+  } catch {
+    throw new Error(
+      "Missing @inquirer/prompts — run `npm install` first.\n" +
+        "This dependency is only required for interactive mode.",
+    );
+  }
+}
+
 import { z } from "zod";
 import { sensitiveKeys, autoGenerateKeys } from "../../libs/config/src/env-metadata.js";
 import type { TargetConfig, TargetId } from "./types.js";
@@ -52,6 +63,7 @@ export function getSchemaKeysAndDefaults(
 
 /** Prompt user to select which targets to process. */
 export async function promptTargetSelection(): Promise<TargetId[]> {
+  const { checkbox } = await loadPrompts();
   const choices = [
     { name: "All targets", value: "all" as const },
     ...targets.map((t) => ({ name: t.label, value: t.id })),
@@ -73,6 +85,7 @@ export async function promptTargetSelection(): Promise<TargetId[]> {
 
 /** Prompt user to choose a merge strategy for an existing file. */
 export async function promptMergeStrategy(targetPath: string): Promise<"sync" | "override"> {
+  const { select } = await loadPrompts();
   return select({
     message: `${targetPath} already exists. Choose merge strategy:`,
     choices: [
@@ -88,6 +101,7 @@ export async function promptKeySelection(
   target: TargetConfig,
   schemaKeys: Map<string, SchemaKeyInfo>,
 ): Promise<string[]> {
+  const { checkbox } = await loadPrompts();
   const choices: Array<{ name: string; value: string; disabled?: string }> = [];
 
   // Group keys by section for display
@@ -138,6 +152,7 @@ export async function promptKeySelection(
 
 /** Prompt for a single key's value, using password/confirm/input as appropriate. */
 export async function promptKeyValue(key: string, defaultValue?: string): Promise<string | undefined> {
+  const { confirm, password, input } = await loadPrompts();
   if (autoGenerateKeys.has(key)) {
     const autoGen = await confirm({
       message: `Auto-generate ${key}?`,
