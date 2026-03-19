@@ -15,10 +15,30 @@ export default async function SymbolHistoryPage({ params, searchParams }: Symbol
   const symbol = decodeURIComponent(rawSymbol).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
 
-  const [dashboard, transactions] = await Promise.all([
-    fetchDashboardSnapshot(),
-    fetchTransactionHistory({ symbol, accountId: scopedAccountId }),
-  ]);
+  let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
+  let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
+
+  try {
+    [dashboard, transactions] = await Promise.all([
+      fetchDashboardSnapshot(),
+      fetchTransactionHistory({ symbol, accountId: scopedAccountId }),
+    ]);
+  } catch {
+    // render error fallback below
+  }
+
+  if (!dashboard) {
+    return (
+      <div className="app-shell relative min-h-screen min-w-0 overflow-x-hidden">
+        <main className="relative mx-auto min-w-0 w-full max-w-7xl px-4 py-6 md:px-8 md:py-8 lg:px-10 lg:py-10">
+          <p>
+            Failed to load data for {symbol}.{" "}
+            <Link href="/portfolio">Back to portfolio</Link>
+          </p>
+        </main>
+      </div>
+    );
+  }
 
   const locale = dashboard.settings?.locale ?? "en";
   const dict = getDictionary(locale);

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
 import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
 
@@ -20,7 +21,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
   const items: RecomputePreviewItem[] = candidates.map((tx) => {
     const account = accountsById.get(tx.accountId);
     if (!account) {
-      throw new Error(`Account not found for transaction ${tx.id}`);
+      throw routeError(404, "account_not_found", `Account not found for transaction ${tx.id}`);
     }
 
     const symbolBinding = input.useFallbackBindings
@@ -72,7 +73,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
 
 export function confirmRecompute(store: Store, userId: string, jobId: string): RecomputeJob {
   const job = store.recomputeJobs.find((item) => item.id === jobId && item.userId === userId);
-  if (!job) throw new Error("Recompute job not found");
+  if (!job) throw routeError(404, "job_not_found", "Recompute job not found");
 
   for (const item of job.items) {
     const tx = listTradeEvents(store).find((entry) => entry.id === item.tradeEventId);
@@ -97,7 +98,7 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
 
 function mustGetProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error("Fee profile not found");
+  if (!profile) throw routeError(404, "fee_profile_not_found", `Fee profile ${profileId} not found`);
   return profile;
 }
 

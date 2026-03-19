@@ -17,6 +17,7 @@ import {
   replaceLotAllocationsForTrade,
   replaceInventoryLots,
 } from "./accountingStore.js";
+import { routeError } from "../lib/routeError.js";
 import type {
   BookedTradeEvent,
   CashLedgerEntry,
@@ -56,10 +57,10 @@ export function createTransaction(
   input: CreateTransactionInput,
 ): Transaction {
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
-  if (!account) throw new Error("Account not found");
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
 
   const instrument = store.symbols.find((item) => item.ticker === input.symbol);
-  if (!instrument) throw new Error("Unsupported symbol");
+  if (!instrument) throw routeError(400, "unsupported_symbol", "Unsupported symbol");
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,
@@ -68,7 +69,7 @@ export function createTransaction(
     account.feeProfileId,
   );
   if (input.priceCurrency !== profile.commissionCurrency) {
-    throw new Error("Trade currency must match fee profile commission currency");
+    throw routeError(400, "currency_mismatch", "Trade currency must match fee profile commission currency");
   }
 
   const tradeValueAmount = input.quantity * input.unitPrice;
@@ -148,7 +149,7 @@ function applyToLots(store: Store, tx: Transaction): void {
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error("Fee profile missing");
+  if (!profile) throw routeError(404, "fee_profile_not_found", `Fee profile ${profileId} not found`);
   return profile;
 }
 
@@ -185,7 +186,7 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
   }
 
   if (action.denominator <= 0 || action.numerator <= 0) {
-    throw new Error("Invalid split ratio");
+    throw routeError(400, "invalid_split_ratio", "Invalid split ratio");
   }
 
   for (const lot of listInventoryLots(store)) {
@@ -256,7 +257,7 @@ function resolveBookingSequence(
       trade.accountId === accountId && trade.tradeDate === tradeDate && trade.bookingSequence === requestedSequence,
   );
   if (collides) {
-    throw new Error("Invalid booking sequence: already exists for the same account and trade date");
+    throw routeError(409, "duplicate_booking_sequence", "Booking sequence already exists for the same account and trade date");
   }
 
   return requestedSequence;
@@ -265,14 +266,14 @@ function resolveBookingSequence(
 function assertTradeTimestampMatchesTradeDate(tradeDate: string, tradeTimestamp?: string): void {
   if (!tradeTimestamp) return;
   if (tradeTimestamp.slice(0, 10) !== tradeDate) {
-    throw new Error("Trade timestamp must match trade date");
+    throw routeError(400, "timestamp_date_mismatch", "Trade timestamp must match trade date");
   }
 }
 
 function assertBookedCharge(value: number | undefined, message: string): void {
   if (value === undefined) return;
   if (!Number.isInteger(value) || value < 0) {
-    throw new Error(message);
+    throw routeError(400, "invalid_charge", message);
   }
 }
 

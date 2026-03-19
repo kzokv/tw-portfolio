@@ -12,3 +12,6 @@
 
 ## Feedback & preferences
 - [feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md) — @inquirer/prompts: loop:false, dynamic pageSize, no search/filter, "loop navigation" disambiguation
+- [feedback_pr_workflow.md](feedback_pr_workflow.md) — PRs target dev, ticket ID from branch name, commit memory files
+- [project_ise_fixes.md](project_ise_fixes.md) — Five ISE root-cause fixes implemented on dev-issue: loadStore parallelization, CORS callback, routeError lib, error boundaries, try/catch in symbol page
+- [feedback_routeError_pattern.md](feedback_routeError_pattern.md) — Service throws must use routeError() from lib/routeError.ts, not plain Error, to avoid 500s

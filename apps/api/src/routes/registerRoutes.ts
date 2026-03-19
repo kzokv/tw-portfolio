@@ -221,13 +221,22 @@ async function resolveLatestQuotes(app: FastifyInstance, symbols: string[]) {
     return [];
   }
 
-  const cached = await app.persistence.getCachedQuotes(symbols);
+  let cached: Record<string, Awaited<ReturnType<typeof getQuotesWithFallback>>[number]> = {};
+  try {
+    cached = await app.persistence.getCachedQuotes(symbols);
+  } catch {
+    // Redis/cache unavailable — fall through to fetch all symbols
+  }
   const missing = symbols.filter((symbol) => !cached[symbol]);
 
   let fetched = [] as Awaited<ReturnType<typeof getQuotesWithFallback>>;
   if (missing.length > 0) {
     fetched = await getQuotesWithFallback(missing);
-    await app.persistence.cacheQuotes(fetched);
+    try {
+      await app.persistence.cacheQuotes(fetched);
+    } catch {
+      // Cache write failure is non-fatal — quotes still returned
+    }
   }
 
   const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.symbol, quote]));

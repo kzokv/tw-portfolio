@@ -44,7 +44,12 @@ export class PostgresPersistence implements Persistence {
   private readonly redis: RedisClientType;
 
   constructor(private readonly options: PostgresPersistenceOptions) {
-    this.pool = new Pool({ connectionString: options.databaseUrl });
+    this.pool = new Pool({
+      connectionString: options.databaseUrl,
+      max: 20,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+    });
     this.redis = createClient({ url: options.redisUrl });
   }
 
@@ -61,176 +66,199 @@ export class PostgresPersistence implements Persistence {
 
   async loadStore(userId: string): Promise<Store> {
     await this.ensureUserSeed(userId);
-    const userResult = await this.pool.query(
-      `SELECT id, locale, cost_basis_method, quote_poll_interval_seconds
-       FROM users
-       WHERE id = $1`,
-      [userId],
-    );
+    // Batch 1: all queries with no inter-query dependencies
+    const [
+      userResult,
+      accountsResult,
+      feeProfilesResult,
+      tradeEventsResult,
+      lotAllocationsResult,
+      dividendEventsResult,
+      jobsResult,
+      cashLedgerResult,
+      snapshotsResult,
+      symbolsResult,
+    ] = await Promise.all([
+      this.pool.query(
+        `SELECT id, locale, cost_basis_method, quote_poll_interval_seconds
+         FROM users
+         WHERE id = $1`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id
+         FROM accounts
+         WHERE user_id = $1
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, minimum_commission_amount,
+                commission_currency,
+                commission_rounding_mode, tax_rounding_mode,
+                stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
+                etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
+         FROM fee_profiles
+         WHERE user_id = $1
+         ORDER BY id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.symbol,
+                trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
+                trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
+                trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
+                trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source_type,
+                trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+                snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
+                snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
+                snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
+                snapshot.stock_sell_tax_rate_bps, snapshot.stock_day_trade_tax_rate_bps,
+                snapshot.etf_sell_tax_rate_bps, snapshot.bond_etf_sell_tax_rate_bps,
+                snapshot.commission_charge_mode
+         FROM trade_events AS trade_event
+         JOIN trade_fee_policy_snapshots AS snapshot
+           ON snapshot.id = trade_event.fee_policy_snapshot_id
+         WHERE trade_event.user_id = $1
+         ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+                lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+         FROM lot_allocations
+         WHERE user_id = $1
+         ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, symbol, event_type, ex_dividend_date, payment_date,
+                cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+                source_type, source_reference, created_at
+         FROM dividend_events
+         ORDER BY ex_dividend_date, id`,
+      ),
+      this.pool.query(
+        `SELECT id, user_id, account_id, profile_id, status, created_at
+         FROM recompute_jobs
+         WHERE user_id = $1
+         ORDER BY created_at, id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
+                related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+                source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+         ORDER BY entry_date, booked_at, id`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id, snapshot_date, total_market_value_amount, total_cost_amount,
+                total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
+                total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
+         FROM daily_portfolio_snapshots
+         WHERE user_id = $1
+         ORDER BY snapshot_date DESC, generated_at DESC, id DESC`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT ticker, instrument_type, market_code, is_provisional, last_synced_at
+         FROM symbols
+         ORDER BY market_code, ticker`,
+      ),
+    ]);
 
-    const accountsResult = await this.pool.query(
-      `SELECT id, user_id, name, fee_profile_id
-       FROM accounts
-       WHERE user_id = $1
-       ORDER BY id`,
-      [userId],
-    );
-
-    const feeProfilesResult = await this.pool.query(
-      `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, minimum_commission_amount,
-              commission_currency,
-              commission_rounding_mode, tax_rounding_mode,
-              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
-              etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
-       FROM fee_profiles
-       WHERE user_id = $1
-       ORDER BY id`,
-      [userId],
-    );
+    // Extract IDs needed for Batch 2
     const feeProfileIds = feeProfilesResult.rows.map((row) => String(row.id));
-    const feeProfileTaxRulesResult = feeProfileIds.length
-      ? await this.pool.query(
-          `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
-                  tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
-           FROM fee_profile_tax_rules
-           WHERE fee_profile_id = ANY($1)
-           ORDER BY fee_profile_id, sort_order, id`,
-          [feeProfileIds],
-        )
-      : { rows: [] };
-
-    const tradeEventsResult = await this.pool.query(
-      `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.symbol,
-              trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
-              trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
-              trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
-              trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source_type,
-              trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
-              snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
-              snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
-              snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
-              snapshot.stock_sell_tax_rate_bps, snapshot.stock_day_trade_tax_rate_bps,
-              snapshot.etf_sell_tax_rate_bps, snapshot.bond_etf_sell_tax_rate_bps,
-              snapshot.commission_charge_mode
-       FROM trade_events AS trade_event
-       JOIN trade_fee_policy_snapshots AS snapshot
-         ON snapshot.id = trade_event.fee_policy_snapshot_id
-       WHERE trade_event.user_id = $1
-       ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
-      [userId],
-    );
     const feePolicySnapshotIds = tradeEventsResult.rows.map((row) => String(row.fee_policy_snapshot_id));
-    const snapshotTaxComponentsResult = feePolicySnapshotIds.length
-      ? await this.pool.query(
-          `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
-                  tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
-           FROM trade_fee_policy_snapshot_tax_components
-           WHERE snapshot_id = ANY($1)
-           ORDER BY snapshot_id, sort_order, id`,
-          [feePolicySnapshotIds],
-        )
-      : { rows: [] };
-
     const accountIds = accountsResult.rows.map((row) => row.id);
-    const bindingsResult = accountIds.length
-      ? await this.pool.query(
-          `SELECT account_id, symbol, market_code, fee_profile_id
-           FROM account_fee_profile_overrides
-           WHERE account_id = ANY($1)
-           ORDER BY account_id, market_code, symbol`,
-          [accountIds],
-        )
-      : { rows: [] };
-
-    const lotsResult = accountIds.length
-      ? await this.pool.query(
-          `SELECT id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
-           FROM lots
-           WHERE account_id = ANY($1)
-           ORDER BY opened_at, opened_sequence, id`,
-          [accountIds],
-        )
-      : { rows: [] };
-
-    const lotAllocationsResult = await this.pool.query(
-      `SELECT id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
-              lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
-       FROM lot_allocations
-       WHERE user_id = $1
-       ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
-      [userId],
-    );
-
-    const actionsResult = accountIds.length
-      ? await this.pool.query(
-          `SELECT id, account_id, symbol, action_type, numerator, denominator, action_date
-           FROM corporate_actions
-           WHERE account_id = ANY($1)
-           ORDER BY action_date, id`,
-          [accountIds],
-        )
-      : { rows: [] };
-
-    const dividendEventsResult = await this.pool.query(
-      `SELECT id, symbol, event_type, ex_dividend_date, payment_date,
-              cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-              source_type, source_reference, created_at
-       FROM dividend_events
-       ORDER BY ex_dividend_date, id`,
-    );
-    const dividendLedgerEntriesResult = accountIds.length
-      ? await this.pool.query(
-          `SELECT id, account_id, dividend_event_id, eligible_quantity,
-                  expected_cash_amount, expected_stock_quantity,
-                  received_stock_quantity,
-                  posting_status, reconciliation_status, booked_at,
-                  reversal_of_dividend_ledger_entry_id, superseded_at
-           FROM dividend_ledger_entries
-           WHERE account_id = ANY($1)
-           ORDER BY booked_at, id`,
-          [accountIds],
-        )
-      : { rows: [] };
-    const jobsResult = await this.pool.query(
-      `SELECT id, user_id, account_id, profile_id, status, created_at
-       FROM recompute_jobs
-       WHERE user_id = $1
-       ORDER BY created_at, id`,
-      [userId],
-    );
-
-    const cashLedgerResult = await this.pool.query(
-      `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
-              related_trade_event_id, related_dividend_ledger_entry_id, source_type,
-              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
-       FROM cash_ledger_entries
-       WHERE user_id = $1
-       ORDER BY entry_date, booked_at, id`,
-      [userId],
-    );
-
-    const snapshotsResult = await this.pool.query(
-      `SELECT id, snapshot_date, total_market_value_amount, total_cost_amount,
-              total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
-              total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
-       FROM daily_portfolio_snapshots
-       WHERE user_id = $1
-       ORDER BY snapshot_date DESC, generated_at DESC, id DESC`,
-      [userId],
-    );
-
     const jobIds = jobsResult.rows.map((row) => row.id);
-    const jobItemsResult = jobIds.length
-      ? await this.pool.query(
-          `SELECT id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
-                  next_commission_amount, next_tax_amount
-           FROM recompute_job_items
-           WHERE job_id = ANY($1)
-           ORDER BY id`,
-          [jobIds],
-        )
-      : { rows: [] };
 
+    // Batch 2: queries that depend on IDs from Batch 1
+    const [
+      feeProfileTaxRulesResult,
+      snapshotTaxComponentsResult,
+      bindingsResult,
+      lotsResult,
+      actionsResult,
+      dividendLedgerEntriesResult,
+      jobItemsResult,
+    ] = await Promise.all([
+      feeProfileIds.length
+        ? this.pool.query(
+            `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+             FROM fee_profile_tax_rules
+             WHERE fee_profile_id = ANY($1)
+             ORDER BY fee_profile_id, sort_order, id`,
+            [feeProfileIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      feePolicySnapshotIds.length
+        ? this.pool.query(
+            `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+                    tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+             FROM trade_fee_policy_snapshot_tax_components
+             WHERE snapshot_id = ANY($1)
+             ORDER BY snapshot_id, sort_order, id`,
+            [feePolicySnapshotIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT account_id, symbol, market_code, fee_profile_id
+             FROM account_fee_profile_overrides
+             WHERE account_id = ANY($1)
+             ORDER BY account_id, market_code, symbol`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+             FROM lots
+             WHERE account_id = ANY($1)
+             ORDER BY opened_at, opened_sequence, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, symbol, action_type, numerator, denominator, action_date
+             FROM corporate_actions
+             WHERE account_id = ANY($1)
+             ORDER BY action_date, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, account_id, dividend_event_id, eligible_quantity,
+                    expected_cash_amount, expected_stock_quantity,
+                    received_stock_quantity,
+                    posting_status, reconciliation_status, booked_at,
+                    reversal_of_dividend_ledger_entry_id, superseded_at
+             FROM dividend_ledger_entries
+             WHERE account_id = ANY($1)
+             ORDER BY booked_at, id`,
+            [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      jobIds.length
+        ? this.pool.query(
+            `SELECT id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
+                    next_commission_amount, next_tax_amount
+             FROM recompute_job_items
+             WHERE job_id = ANY($1)
+             ORDER BY id`,
+            [jobIds],
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    // Batch 3: queries that depend on IDs from Batch 2
     const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
     const dividendDeductionsResult = dividendLedgerEntryIds.length
       ? await this.pool.query(
@@ -242,12 +270,6 @@ export class PostgresPersistence implements Persistence {
           [dividendLedgerEntryIds],
         )
       : { rows: [] };
-
-    const symbolsResult = await this.pool.query(
-      `SELECT ticker, instrument_type, market_code, is_provisional, last_synced_at
-       FROM symbols
-       ORDER BY market_code, ticker`,
-    );
 
     const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
     const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
@@ -1427,6 +1449,10 @@ export class PostgresPersistence implements Persistence {
     const feeProfileId = this.defaultFeeProfileId(userId);
     const accountId = this.defaultAccountId(userId);
 
+    // Quick check: skip all seed work if user already exists (common path)
+    const existing = await this.pool.query(`SELECT 1 FROM users WHERE id = $1`, [userId]);
+    if (existing.rows.length > 0) return;
+
     await this.pool.query(
       `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
        VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
@@ -1434,7 +1460,7 @@ export class PostgresPersistence implements Persistence {
       [userId, `${userId}@example.com`],
     );
 
-    await this.pool.query(
+    const profileResult = await this.pool.query(
       `INSERT INTO fee_profiles (
          id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
          minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
@@ -1446,7 +1472,7 @@ export class PostgresPersistence implements Persistence {
          30, 15,
          10, 0, 'CHARGED_UPFRONT'
        )
-       ON CONFLICT (id) DO NOTHING`,
+       ON CONFLICT (id) DO NOTHING RETURNING id`,
       [feeProfileId, userId],
     );
 
@@ -1457,21 +1483,26 @@ export class PostgresPersistence implements Persistence {
       [accountId, userId, feeProfileId],
     );
 
-    await replaceFeeProfileTaxRules(this.pool, userId, {
-      id: feeProfileId,
-      name: "Default Broker",
-      boardCommissionRate: 1.425,
-      commissionDiscountPercent: 0,
-      minimumCommissionAmount: 20,
-      commissionCurrency: "TWD",
-      commissionRoundingMode: "FLOOR",
-      taxRoundingMode: "FLOOR",
-      stockSellTaxRateBps: 30,
-      stockDayTradeTaxRateBps: 15,
-      etfSellTaxRateBps: 10,
-      bondEtfSellTaxRateBps: 0,
-      commissionChargeMode: "CHARGED_UPFRONT",
-    });
+    // Only seed tax rules when the fee profile was actually created;
+    // avoids a destructive DELETE+INSERT race when concurrent requests
+    // both call ensureUserSeed for the same user.
+    if (profileResult.rowCount && profileResult.rowCount > 0) {
+      await ensureFeeProfileTaxRules(this.pool, userId, {
+        id: feeProfileId,
+        name: "Default Broker",
+        boardCommissionRate: 1.425,
+        commissionDiscountPercent: 0,
+        minimumCommissionAmount: 20,
+        commissionCurrency: "TWD",
+        commissionRoundingMode: "FLOOR",
+        taxRoundingMode: "FLOOR",
+        stockSellTaxRateBps: 30,
+        stockDayTradeTaxRateBps: 15,
+        etfSellTaxRateBps: 10,
+        bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
+      });
+    }
   }
 
   private defaultFeeProfileId(userId: string): string {
@@ -2203,6 +2234,43 @@ async function replaceFeeProfileTaxRules(
          $1, $2, $3, $4, $5, $6, $7,
          $8, $9, $10, $11, $12, $13
        )`,
+      [
+        rule.id,
+        userId,
+        profile.id,
+        rule.marketCode,
+        rule.tradeSide,
+        rule.instrumentType,
+        rule.dayTradeScope,
+        rule.taxComponentCode,
+        rule.calculationMethod,
+        rule.rateBps,
+        rule.effectiveFrom ?? null,
+        rule.effectiveTo ?? null,
+        rule.sortOrder,
+      ],
+    );
+  }
+}
+
+/** Idempotent insert of default tax rules — safe under concurrent calls. */
+async function ensureFeeProfileTaxRules(
+  client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
+  userId: string,
+  profile: FeeProfile,
+): Promise<void> {
+  const taxRules = materializeFeeProfileTaxRules(profile);
+
+  for (const rule of taxRules) {
+    await client.query(
+      `INSERT INTO fee_profile_tax_rules (
+         id, user_id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+         tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12, $13
+       )
+       ON CONFLICT (id) DO NOTHING`,
       [
         rule.id,
         userId,
