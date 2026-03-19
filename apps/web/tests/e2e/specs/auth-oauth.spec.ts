@@ -88,12 +88,13 @@ test.describe("GET /auth/google/callback", () => {
     expect(res.headers()["set-cookie"] ?? "").toContain(`${TestEnv.sessionCookieName}=`);
   });
 
-  test("missing state returns 400", async ({ request }) => {
-    const res = await request.get(apiUrl("/auth/google/callback?code=e2e-auth-code"));
-    expect(res.status()).toBe(400);
+  test("missing state redirects to /auth/error?reason=invalid_state", async ({ request }) => {
+    const res = await request.get(apiUrl("/auth/google/callback?code=e2e-auth-code"), { maxRedirects: 0 });
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("/auth/error?reason=invalid_state");
   });
 
-  test("tampered state returns 400 with invalid_state error", async ({ request }) => {
+  test("tampered state redirects to /auth/error?reason=invalid_state", async ({ request }) => {
     const startRes = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
     const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
     const [nonce] = state.split(".");
@@ -101,20 +102,20 @@ test.describe("GET /auth/google/callback", () => {
 
     const res = await request.get(
       apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(tamperedState)}`),
+      { maxRedirects: 0 },
     );
 
-    expect(res.status()).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("invalid_state");
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("/auth/error?reason=invalid_state");
   });
 
-  test("provider error param returns 400 with oauth_error", async ({ request }) => {
+  test("provider error param redirects to /auth/error?reason=oauth_error", async ({ request }) => {
     const res = await request.get(
       apiUrl("/auth/google/callback?error=access_denied&state=irrelevant"),
+      { maxRedirects: 0 },
     );
-    expect(res.status()).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("oauth_error");
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("/auth/error?reason=oauth_error");
   });
 });
 
@@ -176,5 +177,42 @@ test.describe("full browser OAuth flow", () => {
     const sessionCookie = cookies.find((c) => c.name === TestEnv.sessionCookieName);
     expect(sessionCookie).toBeDefined();
     expect(sessionCookie?.httpOnly).toBe(true);
+  });
+});
+
+test.describe("callback error page (browser)", () => {
+  test("missing state lands on /auth/error with invalid_state reason", async ({ page }) => {
+    await page.goto(
+      apiUrl("/auth/google/callback?code=e2e-auth-code"),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page).toHaveURL(/\/auth\/error\?reason=invalid_state/, { timeout: 10_000 });
+  });
+
+  test("tampered state lands on /auth/error with invalid_state reason", async ({ page, request: apiRequest }) => {
+    const startRes = await apiRequest.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
+    const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
+    const [nonce] = state.split(".");
+    const tamperedState = `${nonce}.badhmacsignature`;
+
+    await page.goto(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(tamperedState)}`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page).toHaveURL(/\/auth\/error\?reason=invalid_state/, { timeout: 10_000 });
+  });
+
+  test("provider error param lands on /auth/error with oauth_error reason", async ({ page }) => {
+    await page.goto(
+      apiUrl("/auth/google/callback?error=access_denied&state=irrelevant"),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page).toHaveURL(/\/auth\/error\?reason=oauth_error/, { timeout: 10_000 });
+  });
+
+  test("error page renders try-again link to /login", async ({ page }) => {
+    await page.goto("/auth/error?reason=oauth_error");
+    await expect(page.getByTestId("auth-error-try-again")).toBeVisible();
+    await expect(page.getByTestId("auth-error-try-again")).toHaveAttribute("href", "/login");
   });
 });

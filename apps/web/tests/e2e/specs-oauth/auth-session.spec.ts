@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "../helpers/flows";
 
 test.describe("authenticated session", () => {
   test("dashboard loads without redirect to /login", async ({ page }) => {
@@ -18,24 +18,34 @@ test.describe("authenticated session", () => {
     await page.goto("/");
     await expect(page).not.toHaveURL(/\/login/);
 
-    // Navigate to the logout endpoint (API redirects to /login)
-    // await page.goto(apiUrl("/auth/logout"));
-    // await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    // Navigate to the real logout endpoint — clears session cookie and redirects to /login
+    await page.goto(`http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`, { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
 
-    
-    // Sanity check: session cookie exists
-    const before = (await page.context().cookies()).find((c) => c.name === TestEnv.sessionCookieName);
-    expect(before).toBeTruthy();
-
-    // Simulate logout by deleting only the session cookie
-    await page.context().clearCookies({ name: TestEnv.sessionCookieName });
-
-    // Confirm cookie is gone
-    const after = (await page.context().cookies()).find((c) => c.name === TestEnv.sessionCookieName);
-    expect(after).toBeFalsy();
-
-    // Subsequent navigation to / should redirect to /login
+    // Subsequent navigation to / should redirect to /login via middleware
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+  });
+});
+
+test.describe("route protection", () => {
+  test("unauthenticated visit to / redirects to /login", async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
+  });
+
+  test("unauthenticated visit to /login renders login page without redirect", async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByTestId("google-sign-in-button")).toBeVisible();
+  });
+
+  test("unauthenticated visit to /auth/error renders error page without redirect", async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto("/auth/error?reason=server_error");
+    await expect(page).toHaveURL(/\/auth\/error/);
+    await expect(page.getByTestId("auth-error-try-again")).toBeVisible();
   });
 });

@@ -152,35 +152,37 @@ describe("GET /auth/google/callback", () => {
     if (app) await app.close();
   });
 
-  it("returns 400 when code is missing", async () => {
+  it("redirects to /auth/error?reason=invalid_state when code is missing", async () => {
     const state = await getValidState(app);
     const res = await app.inject({ method: "GET", url: `/auth/google/callback?state=${state}` });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=invalid_state");
   });
 
-  it("returns 400 when state is missing", async () => {
+  it("redirects to /auth/error?reason=invalid_state when state is missing", async () => {
     const res = await app.inject({ method: "GET", url: "/auth/google/callback?code=auth-code" });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=invalid_state");
   });
 
-  it("returns 400 when state is tampered with", async () => {
+  it("redirects to /auth/error?reason=invalid_state when state is tampered with", async () => {
     const state = await getValidState(app);
     const tamperedState = `${state.split(".")[0]}.badhmacsignature`;
     const res = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(tamperedState)}`,
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe("invalid_state");
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=invalid_state");
   });
 
-  it("returns 400 when provider sends error query param", async () => {
+  it("redirects to /auth/error?reason=oauth_error when provider sends error query param", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/auth/google/callback?error=access_denied&state=irrelevant",
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe("oauth_error");
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=oauth_error");
   });
 
   it(`sets ${Env.SESSION_COOKIE_NAME} cookie and redirects to app on successful code exchange (first-time signup flow)`, async () => {
@@ -234,7 +236,7 @@ describe("GET /auth/google/callback", () => {
     expect(sentBody).toContain("grant_type=authorization_code");
   });
 
-  it("returns 400 when Google returns 400 on token exchange (invalid grant)", async () => {
+  it("redirects to /auth/error?reason=oauth_error when Google returns 400 on token exchange (invalid grant)", async () => {
     vi.stubGlobal("fetch", makeFetchMock(400, { error: "invalid_grant", error_description: "Code was already redeemed" }));
     const state = await getValidState(app);
 
@@ -243,10 +245,11 @@ describe("GET /auth/google/callback", () => {
       url: `/auth/google/callback?code=expired-code&state=${encodeURIComponent(state)}`,
     });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=oauth_error");
   });
 
-  it("returns 502 when Google returns 500 on token exchange", async () => {
+  it("redirects to /auth/error?reason=server_error when Google returns 500 on token exchange", async () => {
     vi.stubGlobal("fetch", makeFetchMock(500, { error: "internal_error" }));
     const state = await getValidState(app);
 
@@ -255,7 +258,8 @@ describe("GET /auth/google/callback", () => {
       url: `/auth/google/callback?code=some-code&state=${encodeURIComponent(state)}`,
     });
 
-    expect(res.statusCode).toBe(502);
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=server_error");
   });
 
   it("redirects successfully even when refresh_token is absent (offline access not always granted)", async () => {

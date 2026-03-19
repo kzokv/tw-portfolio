@@ -1,25 +1,26 @@
+import { WebEnv } from "@tw-portfolio/config/web";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME ?? "__Host-g_auth_session";
-
-/**
- * Protect all routes except /login when AUTH_MODE=oauth.
- * In dev_bypass mode (NEXT_PUBLIC_AUTH_MODE unset or not "oauth") the proxy
- * is transparent so existing dev/E2E flows are unaffected.
- */
 export function proxy(request: NextRequest): NextResponse {
-  if (process.env.NEXT_PUBLIC_AUTH_MODE !== "oauth") {
+  // In dev_bypass mode, skip session enforcement so standard E2E tests and
+  // local development work without needing a real session cookie.
+  if (WebEnv.NEXT_PUBLIC_AUTH_MODE !== "oauth") {
     return NextResponse.next();
   }
 
-  if (!request.cookies.has(SESSION_COOKIE)) {
-    return NextResponse.redirect(new URL("/login", request.url));
+  const session = request.cookies.get(WebEnv.SESSION_COOKIE_NAME);
+  if (!session?.value?.trim()) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    return NextResponse.redirect(loginUrl);
   }
-
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/((?!login|_next/static|_next/image|favicon\\.ico).*)"],
+  matcher: [
+    // Protect all paths except: /login, /auth/error, /_next/*, static assets
+    "/((?!login|auth/error|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
+  ],
 };
