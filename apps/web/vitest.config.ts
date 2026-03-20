@@ -10,6 +10,7 @@ export default defineConfig({
     jsxImportSource: "react",
   },
   test: {
+    setupFiles: [resolve(rootDir, "test/setup/react-global.ts")],
     reporters: ["verbose"],
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     outputFile: {

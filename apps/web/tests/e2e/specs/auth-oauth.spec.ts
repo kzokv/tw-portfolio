@@ -218,17 +218,19 @@ test.describe("x-authenticated-user-id header trust", () => {
 });
 
 test.describe("full browser OAuth flow", () => {
-  test(`OAuth callback sets ${TestEnv.sessionCookieName} cookie and redirects browser to app root`, async ({ page, request }) => {
+  test(`OAuth callback sets ${TestEnv.sessionCookieName} cookie and redirects browser to /dashboard`, async ({ page, request }) => {
     // Get a valid CSRF state from the API (same as what Google would receive)
     const startRes = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
     const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
 
-    // Navigate the browser directly to the callback URL, simulating Google's redirect
+    // Navigate the browser directly to the callback URL, simulating Google's redirect.
+    // Must use TestEnv.host (localhost) not apiUrl() (127.0.0.1) — the API sets the
+    // session cookie on localhost; cross-host navigation would lose the cookie.
     await page.goto(
-      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`),
+      `http://${TestEnv.host}:${TestEnv.ports.api}/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`,
       { waitUntil: "domcontentloaded" },
     );
-    await expect(page).toHaveURL("/", { timeout: 10_000 });
+    await expect(page).toHaveURL("/dashboard", { timeout: 10_000 });
 
     // The API sets an HttpOnly session cookie — verify it was received
     const cookies = await page.context().cookies();
@@ -327,5 +329,56 @@ test.describe("callback error page (browser)", () => {
     await page.goto("/auth/error?reason=oauth_error");
     await expect(page.getByTestId("auth-error-try-again")).toBeVisible();
     await expect(page.getByTestId("auth-error-try-again")).toHaveAttribute("href", "/login");
+  });
+});
+
+test.describe("returnTo in OAuth state", () => {
+  test("start with returnTo generates 3-part state", async ({ request }) => {
+    const res = await request.get(apiUrl("/auth/google/start?returnTo=/transactions"), { maxRedirects: 0 });
+    const location = new URL(res.headers()["location"]);
+    const state = location.searchParams.get("state")!;
+    const parts = state.split(".");
+    expect(parts.length).toBe(3);
+  });
+
+  test("callback with 3-part state redirects to returnTo destination", async ({ request }) => {
+    const startRes = await request.get(apiUrl("/auth/google/start?returnTo=/transactions"), { maxRedirects: 0 });
+    const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
+
+    const res = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`),
+      { maxRedirects: 0 },
+    );
+
+    expect(res.status()).toBe(302);
+    const location = res.headers()["location"];
+    expect(location).toContain("/transactions");
+  });
+
+  test("absolute URL returnTo is rejected and redirects to /dashboard", async ({ request }) => {
+    const startRes = await request.get(apiUrl("/auth/google/start?returnTo=https://evil.com"), { maxRedirects: 0 });
+    const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
+    // State should be 2-part (returnTo was rejected at /start)
+    expect(state.split(".").length).toBe(2);
+
+    const res = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`),
+      { maxRedirects: 0 },
+    );
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("/dashboard");
+  });
+
+  test("scheme-relative returnTo is rejected and redirects to /dashboard", async ({ request }) => {
+    const startRes = await request.get(apiUrl("/auth/google/start?returnTo=//evil.com"), { maxRedirects: 0 });
+    const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
+    expect(state.split(".").length).toBe(2);
+
+    const res = await request.get(
+      apiUrl(`/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`),
+      { maxRedirects: 0 },
+    );
+    expect(res.status()).toBe(302);
+    expect(res.headers()["location"]).toContain("/dashboard");
   });
 });

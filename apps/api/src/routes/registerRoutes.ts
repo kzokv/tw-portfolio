@@ -5,7 +5,9 @@ import {
   buildAuthorizationUrl,
   decodeIdTokenPayload,
   exchangeCodeForTokens,
+  extractReturnTo,
   generateState,
+  isValidReturnTo,
   refreshAccessToken,
   signSessionCookie,
   verifySessionCookie,
@@ -447,11 +449,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return reply.redirect(`${app.appBaseUrl}/login`, 302);
   });
 
-  app.get("/auth/google/start", async (_req, reply) => {
+  app.get("/auth/google/start", async (req, reply) => {
     if (!app.oauthConfig) {
       throw routeError(503, "oauth_not_configured", "Google OAuth is not configured");
     }
-    const state = generateState(app.oauthConfig.sessionSecret);
+    const rawQuery = req.query as Record<string, string | undefined>;
+    const returnTo = rawQuery.returnTo && isValidReturnTo(rawQuery.returnTo) ? rawQuery.returnTo : undefined;
+    const state = generateState(app.oauthConfig.sessionSecret, returnTo);
     const url = buildAuthorizationUrl(app.oauthConfig, state);
     return reply.redirect(url, 302);
   });
@@ -507,7 +511,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const signedCookie = signSessionCookie(userId, app.oauthConfig.sessionSecret);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
-    return reply.redirect(`${app.appBaseUrl}/`, 302);
+    const returnTo = extractReturnTo(query.state);
+    const destination = returnTo ? `${app.appBaseUrl}${returnTo}` : `${app.appBaseUrl}/dashboard`;
+    return reply.redirect(destination, 302);
   });
 
   app.post("/auth/token/refresh", async (req) => {

@@ -196,7 +196,7 @@ describe("GET /auth/google/callback", () => {
     });
 
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe("http://localhost:3000/");
+    expect(res.headers.location).toBe("http://localhost:3000/dashboard");
     const setCookie = res.headers["set-cookie"] as string;
     // Cookie now contains the internal UUID (not the Google sub)
     expect(setCookie).toContain(`${Env.SESSION_COOKIE_NAME}=`);

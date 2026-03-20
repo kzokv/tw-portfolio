@@ -48,6 +48,7 @@ export async function reloadRoute(page: Page): Promise<void> {
 export async function openSettingsDrawer(page: Page): Promise<void> {
   await waitForAppReady(page);
   await page.getByTestId("avatar-button").click();
+  await page.getByTestId("avatar-menu-settings").click();
   await expect(page.getByTestId("settings-drawer")).toBeVisible();
   await expect(page).toHaveURL(/drawer=settings/);
 }

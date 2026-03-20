@@ -1,11 +1,20 @@
-"use client";
-
 import { Card } from "../../components/ui/Card";
 import { buttonVariants } from "../../components/ui/Button";
-import { API_BASE } from "../../lib/api";
 import { cn } from "../../lib/utils";
+import { isValidReturnTo } from "../../lib/auth";
+import { API_BASE } from "../../lib/api";
 
-export default function LoginPage() {
+interface Props {
+  searchParams: Promise<{ returnTo?: string }>;
+}
+
+export default async function LoginPage({ searchParams }: Props) {
+  const { returnTo } = await searchParams;
+  const validReturnTo = returnTo && isValidReturnTo(returnTo) ? returnTo : null;
+  const signInHref = validReturnTo
+    ? `${API_BASE}/auth/google/start?returnTo=${encodeURIComponent(validReturnTo)}`
+    : `${API_BASE}/auth/google/start`;
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-bg px-4">
       <Card className="flex w-full max-w-sm flex-col items-center gap-6 py-10">
@@ -14,12 +23,7 @@ export default function LoginPage() {
           <p className="text-sm text-slate-500">Sign in to access your portfolio dashboard.</p>
         </div>
         <a
-          href={`${API_BASE}/auth/google/start`}
-          suppressHydrationWarning
-          onClick={(e) => {
-            e.preventDefault();
-            window.location.href = `${API_BASE}/auth/google/start`;
-          }}
+          href={signInHref}
           data-testid="google-sign-in-button"
           className={cn(buttonVariants({ variant: "default" }), "w-full")}
         >
