@@ -7,9 +7,28 @@ export interface ReadinessStatus {
   redis: boolean;
 }
 
+/** Claims from the OAuth provider's ID token, used for identity resolution. */
+export interface OAuthClaims {
+  email: string;
+  name?: string;
+  picture?: string;
+  emailVerified?: boolean;
+}
+
 export interface Persistence {
   init(): Promise<void>;
   close(): Promise<void>;
+  /**
+   * Resolve an existing user by email or create a new one.
+   * Returns the internal UUID for the user.
+   *
+   * Field sync rules:
+   * - First login: seed all fields from claims
+   * - Subsequent login: update display_name, provider fields, last_seen_at; never touch email
+   */
+  resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string>;
+  /** @internal — used by resolveOrCreateUser and dev_bypass loadStore. Not for direct use from routes. */
+  ensureDefaultPortfolioData(userId: string): Promise<void>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertSymbols(userId: string, symbols: SymbolDef[]): Promise<void>;

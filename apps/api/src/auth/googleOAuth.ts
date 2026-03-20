@@ -60,24 +60,24 @@ function hmacVerify(data: string, receivedHmac: string, secret: string): boolean
   }
 }
 
-/** Sign a session cookie value: `${sub}.${hmac(sub, secret)}` */
-export function signSessionCookie(sub: string, sessionSecret: string): string {
-  return `${sub}.${hmacSign(sub, sessionSecret)}`;
+/** Sign a session cookie value: `${userId}.${hmac(userId, secret)}` */
+export function signSessionCookie(userId: string, sessionSecret: string): string {
+  return `${userId}.${hmacSign(userId, sessionSecret)}`;
 }
 
 /**
- * Verify an HMAC-signed session cookie and extract the sub.
- * Returns the sub if the signature is valid, or null if tampered/malformed.
+ * Verify an HMAC-signed session cookie and extract the userId.
+ * Returns the userId (UUID) if the signature is valid, or null if tampered/malformed.
  */
 export function verifySessionCookie(cookieValue: string, sessionSecret: string): string | null {
   const dotIndex = cookieValue.lastIndexOf(".");
   if (dotIndex <= 0) return null;
 
-  const sub = cookieValue.slice(0, dotIndex);
+  const userId = cookieValue.slice(0, dotIndex);
   const receivedHmac = cookieValue.slice(dotIndex + 1);
-  if (!sub || !receivedHmac) return null;
+  if (!userId || !receivedHmac) return null;
 
-  return hmacVerify(sub, receivedHmac, sessionSecret) ? sub : null;
+  return hmacVerify(userId, receivedHmac, sessionSecret) ? userId : null;
 }
 
 /** Generate a stateless HMAC-signed CSRF state token: `${nonce}.${hmac}` */

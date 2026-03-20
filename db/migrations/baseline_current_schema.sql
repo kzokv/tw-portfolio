@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS user_external_identities (
   CONSTRAINT ck_uei_provider CHECK (provider ~ '^[a-z][a-z0-9_]{0,49}$')
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email
+  ON users(email) WHERE email IS NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS ux_uei_provider_subject
   ON user_external_identities(provider, provider_subject);
 

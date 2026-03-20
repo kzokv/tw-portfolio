@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,7 @@ import type {
   SymbolDef,
   Transaction,
 } from "../types/store.js";
-import type { Persistence, ReadinessStatus } from "./types.js";
+import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -64,8 +65,111 @@ export class PostgresPersistence implements Persistence {
     await this.pool.end();
   }
 
+  async resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string> {
+    // Upsert user by email — eliminates TOCTOU race between SELECT and INSERT.
+    // The partial unique index (ux_users_email WHERE email IS NOT NULL) requires
+    // the matching WHERE predicate in ON CONFLICT to identify the correct index.
+    const userResult = await this.pool.query<{ id: string }>(
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, $3, 'en', 'WEIGHTED_AVERAGE', 10)
+       ON CONFLICT (email) WHERE email IS NOT NULL DO UPDATE
+         SET display_name = COALESCE($3, users.display_name),
+             updated_at = CURRENT_TIMESTAMP
+       RETURNING id`,
+      [randomUUID(), claims.email, claims.name ?? null],
+    );
+    const userId = userResult.rows[0].id;
+
+    // Upsert external identity.
+    // First, remove any stale row for (user_id, provider) with a different provider_subject
+    // (handles the rare case where a user recreated their Google account and got a new sub).
+    await this.pool.query(
+      `DELETE FROM user_external_identities
+       WHERE user_id = $1 AND provider = $2 AND provider_subject <> $3`,
+      [userId, provider, providerSubject],
+    );
+
+    await this.pool.query(
+      `INSERT INTO user_external_identities (id, user_id, provider, provider_subject, provider_email, provider_display_name, provider_picture_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (provider, provider_subject) DO UPDATE
+         SET provider_display_name = $6,
+             provider_picture_url = $7,
+             last_seen_at = CURRENT_TIMESTAMP`,
+      [randomUUID(), userId, provider, providerSubject, claims.email, claims.name ?? null, claims.picture ?? null],
+    );
+
+    // Default portfolio data seeded after upsert (idempotent safety net)
+    await this.ensureDefaultPortfolioData(userId);
+
+    return userId;
+  }
+
+  async ensureDefaultPortfolioData(userId: string): Promise<void> {
+    const feeProfileId = this.defaultFeeProfileId(userId);
+    const accountId = this.defaultAccountId(userId);
+
+    // Quick check: skip all seed work if fee profile already exists (common path)
+    const existing = await this.pool.query(`SELECT 1 FROM fee_profiles WHERE id = $1`, [feeProfileId]);
+    if (existing.rows.length > 0) return;
+
+    // Lazy user creation for dev_bypass mode: create placeholder user if not exists.
+    // In OAuth mode, resolveOrCreateUser creates the user first.
+    // Deterministic placeholder email for dev_bypass mode — not used in production.
+    await this.pool.query(
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
+       ON CONFLICT (id) DO NOTHING`,
+      [userId, `${userId}@placeholder.local`],
+    );
+
+    const profileResult = await this.pool.query(
+      `INSERT INTO fee_profiles (
+         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
+         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
+       ) VALUES (
+         $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
+         20, 'TWD', 'FLOOR', 'FLOOR',
+         30, 15,
+         10, 0, 'CHARGED_UPFRONT'
+       )
+       ON CONFLICT (id) DO NOTHING RETURNING id`,
+      [feeProfileId, userId],
+    );
+
+    await this.pool.query(
+      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+       VALUES ($1, $2, 'Main', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [accountId, userId, feeProfileId],
+    );
+
+    // Only seed tax rules when the fee profile was actually created;
+    // avoids a destructive DELETE+INSERT race when concurrent requests
+    // both call ensureDefaultPortfolioData for the same user.
+    if (profileResult.rowCount && profileResult.rowCount > 0) {
+      await ensureFeeProfileTaxRules(this.pool, userId, {
+        id: feeProfileId,
+        name: "Default Broker",
+        boardCommissionRate: 1.425,
+        commissionDiscountPercent: 0,
+        minimumCommissionAmount: 20,
+        commissionCurrency: "TWD",
+        commissionRoundingMode: "FLOOR",
+        taxRoundingMode: "FLOOR",
+        stockSellTaxRateBps: 30,
+        stockDayTradeTaxRateBps: 15,
+        etfSellTaxRateBps: 10,
+        bondEtfSellTaxRateBps: 0,
+        commissionChargeMode: "CHARGED_UPFRONT",
+      });
+    }
+  }
+
   async loadStore(userId: string): Promise<Store> {
-    await this.ensureUserSeed(userId);
+    await this.ensureDefaultPortfolioData(userId);
     // Batch 1: all queries with no inter-query dependencies
     const [
       userResult,
@@ -80,7 +184,7 @@ export class PostgresPersistence implements Persistence {
       symbolsResult,
     ] = await Promise.all([
       this.pool.query(
-        `SELECT id, locale, cost_basis_method, quote_poll_interval_seconds
+        `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
          FROM users
          WHERE id = $1`,
         [userId],
@@ -435,6 +539,7 @@ export class PostgresPersistence implements Persistence {
       userId,
       settings: {
         userId,
+        displayName: userResult.rows[0].display_name ?? null,
         locale: userResult.rows[0].locale,
         costBasisMethod: userResult.rows[0].cost_basis_method,
         quotePollIntervalSeconds: userResult.rows[0].quote_poll_interval_seconds,
@@ -744,7 +849,7 @@ export class PostgresPersistence implements Persistence {
 
   async saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void> {
     validateAccountingStoreInvariants(accounting);
-    await this.ensureUserSeed(userId);
+    await this.ensureDefaultPortfolioData(userId);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -761,7 +866,7 @@ export class PostgresPersistence implements Persistence {
 
   async savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void> {
     validateAccountingStoreInvariants(accounting);
-    await this.ensureUserSeed(userId);
+    await this.ensureDefaultPortfolioData(userId);
 
     const trade = accounting.facts.tradeEvents.find((item) => item.id === tradeEventId);
     if (!trade) {
@@ -909,7 +1014,7 @@ export class PostgresPersistence implements Persistence {
 
   async savePostedDividend(userId: string, accounting: AccountingStore, dividendLedgerEntryId: string): Promise<void> {
     validateAccountingStoreInvariants(accounting);
-    await this.ensureUserSeed(userId);
+    await this.ensureDefaultPortfolioData(userId);
 
     const dividendLedgerEntry = accounting.facts.dividendLedgerEntries.find((entry) => entry.id === dividendLedgerEntryId);
     if (!dividendLedgerEntry) {
@@ -1406,7 +1511,7 @@ export class PostgresPersistence implements Persistence {
 
   private async seedDefaults(): Promise<void> {
     await this.seedSymbols();
-    await this.ensureUserSeed("user-1");
+    await this.ensureDefaultPortfolioData("user-1");
   }
 
   private async seedSymbols(): Promise<void> {
@@ -1442,66 +1547,6 @@ export class PostgresPersistence implements Persistence {
           symbol.lastSyncedAt ?? null,
         ],
       );
-    }
-  }
-
-  private async ensureUserSeed(userId: string): Promise<void> {
-    const feeProfileId = this.defaultFeeProfileId(userId);
-    const accountId = this.defaultAccountId(userId);
-
-    // Quick check: skip all seed work if user already exists (common path)
-    const existing = await this.pool.query(`SELECT 1 FROM users WHERE id = $1`, [userId]);
-    if (existing.rows.length > 0) return;
-
-    await this.pool.query(
-      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
-       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
-       ON CONFLICT (id) DO NOTHING`,
-      [userId, `${userId}@example.com`],
-    );
-
-    const profileResult = await this.pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
-         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
-       ) VALUES (
-         $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
-         20, 'TWD', 'FLOOR', 'FLOOR',
-         30, 15,
-         10, 0, 'CHARGED_UPFRONT'
-       )
-       ON CONFLICT (id) DO NOTHING RETURNING id`,
-      [feeProfileId, userId],
-    );
-
-    await this.pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-       VALUES ($1, $2, 'Main', $3)
-       ON CONFLICT (id) DO NOTHING`,
-      [accountId, userId, feeProfileId],
-    );
-
-    // Only seed tax rules when the fee profile was actually created;
-    // avoids a destructive DELETE+INSERT race when concurrent requests
-    // both call ensureUserSeed for the same user.
-    if (profileResult.rowCount && profileResult.rowCount > 0) {
-      await ensureFeeProfileTaxRules(this.pool, userId, {
-        id: feeProfileId,
-        name: "Default Broker",
-        boardCommissionRate: 1.425,
-        commissionDiscountPercent: 0,
-        minimumCommissionAmount: 20,
-        commissionCurrency: "TWD",
-        commissionRoundingMode: "FLOOR",
-        taxRoundingMode: "FLOOR",
-        stockSellTaxRateBps: 30,
-        stockDayTradeTaxRateBps: 15,
-        etfSellTaxRateBps: 10,
-        bondEtfSellTaxRateBps: 0,
-        commissionChargeMode: "CHARGED_UPFRONT",
-      });
     }
   }
 

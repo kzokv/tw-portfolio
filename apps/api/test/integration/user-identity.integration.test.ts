@@ -195,6 +195,38 @@ describePostgres("user identity schema", () => {
     expect(result.rows).toHaveLength(0);
   });
 
+  it("UNIQUE constraint on users.email prevents duplicate non-NULL emails", async () => {
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)`,
+      ["user-email-a", "same@example.com"],
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+         VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)`,
+        ["user-email-b", "same@example.com"],
+      ),
+    ).rejects.toThrow(/unique/i);
+  });
+
+  it("UNIQUE constraint allows multiple NULL emails (partial index)", async () => {
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)`,
+      ["user-null-a", null],
+    );
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)`,
+      ["user-null-b", null],
+    );
+
+    const result = await pool.query("SELECT COUNT(*) AS cnt FROM users WHERE email IS NULL");
+    expect(Number(result.rows[0].cnt)).toBeGreaterThanOrEqual(2);
+  });
+
   it("multiple providers can be linked to the same user", async () => {
     await pool.query(
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)

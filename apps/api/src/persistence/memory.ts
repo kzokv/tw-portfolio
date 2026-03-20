@@ -1,17 +1,69 @@
+import { randomUUID } from "node:crypto";
 import { createStore } from "../services/store.js";
 import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
 import type { AccountingStore, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { Persistence, ReadinessStatus } from "./types.js";
+import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
+
+interface MemoryUser {
+  id: string;
+  email: string;
+  displayName: string | null;
+  providerSubject: string;
+  providerDisplayName: string | null;
+  providerPictureUrl: string | null;
+}
 
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
   private readonly quoteCache = new Map<string, Quote>();
+  /** email → MemoryUser (identity resolution index) */
+  private readonly usersByEmail = new Map<string, MemoryUser>();
 
   async init(): Promise<void> {}
 
   async close(): Promise<void> {}
+
+  async resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string> {
+    const existing = this.usersByEmail.get(claims.email);
+
+    if (existing) {
+      // Subsequent login: update mutable fields, never touch email
+      existing.displayName = claims.name ?? existing.displayName;
+      existing.providerSubject = providerSubject;
+      existing.providerDisplayName = claims.name ?? existing.providerDisplayName;
+      existing.providerPictureUrl = claims.picture ?? existing.providerPictureUrl;
+      // Sync displayName to already-cached store settings so callers see the updated name.
+      if (claims.name) {
+        const cachedStore = this.stores.get(existing.id);
+        if (cachedStore) cachedStore.settings.displayName = claims.name;
+      }
+      return existing.id;
+    }
+
+    // New user: generate UUID, seed all fields
+    const userId = randomUUID();
+    this.usersByEmail.set(claims.email, {
+      id: userId,
+      email: claims.email,
+      displayName: claims.name ?? null,
+      providerSubject,
+      providerDisplayName: claims.name ?? null,
+      providerPictureUrl: claims.picture ?? null,
+    });
+
+    // Ensure default portfolio data for the new user
+    await this.ensureDefaultPortfolioData(userId);
+
+    return userId;
+  }
+
+  async ensureDefaultPortfolioData(userId: string): Promise<void> {
+    // In memory persistence, loadStore already creates default data (fee profile, account, etc.)
+    // Just ensure the store exists for this user.
+    await this.loadStore(userId);
+  }
 
   async loadStore(userId: string) {
     const existing = this.stores.get(userId);
@@ -21,6 +73,12 @@ export class MemoryPersistence implements Persistence {
     store.userId = userId;
     store.settings.userId = userId;
     store.accounts = store.accounts.map((account) => ({ ...account, userId }));
+
+    // Surface displayName from identity resolution (if user was bootstrapped via resolveOrCreateUser)
+    const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
+    if (memUser?.displayName) {
+      store.settings.displayName = memUser.displayName;
+    }
 
     this.stores.set(userId, store);
     return store;

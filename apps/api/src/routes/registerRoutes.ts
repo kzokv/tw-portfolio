@@ -169,7 +169,7 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
     if (part.slice(0, eqIdx).trim() === Env.SESSION_COOKIE_NAME) {
       const value = part.slice(eqIdx + 1).trim();
       if (!value) return null;
-      // Verify HMAC signature before trusting the sub
+      // Verify HMAC signature before trusting the userId
       if (!sessionSecret) return null;
       return verifySessionCookie(value, sessionSecret);
     }
@@ -193,6 +193,13 @@ function resolveUserId(req: FastifyRequest, sessionSecret?: string): string {
     if (sub) return userScopedIdSchema.parse(sub);
 
     throw routeError(401, "auth_required", "authentication required");
+  }
+
+  // dev_bypass: also accept a valid session cookie when sessionSecret is available,
+  // so integration tests that exercise the OAuth flow work without setting AUTH_MODE=oauth.
+  if (sessionSecret) {
+    const sub = parseSessionCookie(req.headers.cookie, sessionSecret);
+    if (sub) return userScopedIdSchema.parse(sub);
   }
 
   const bypassHeader = req.headers["x-user-id"];
@@ -395,23 +402,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2EOauthSessionEnabled();
 
     const body = z.object({ id_token: z.string().min(1).optional() }).nullable().parse(req.body ?? {});
+
     let sub: string;
+    let email: string;
+    let name: string | undefined;
+    let picture: string | undefined;
 
     if (body?.id_token) {
       const claims = decodeIdTokenPayload(body.id_token);
       sub = claims.sub;
+      email = claims.email ?? `${claims.sub}@e2e.local`;
+      name = claims.name;
+      picture = claims.picture;
     } else {
       sub = "e2e-ci-google-sub-001";
+      email = "e2e-ci@e2e.local";
+      name = "E2E CI User";
     }
+
+    const userId = await app.persistence.resolveOrCreateUser("google", sub, { email, name, picture });
 
     const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
     if (!sessionSecret) {
       throw routeError(500, "missing_secret", "SESSION_SECRET is required for session cookie signing");
     }
-    const signedCookie = signSessionCookie(sub, sessionSecret);
+    const signedCookie = signSessionCookie(userId, sessionSecret);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, (Env.NODE_ENV as string) === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
-    return { status: "ok", sub };
+    return { status: "ok", sub, userId };
   });
 
   app.get("/health/live", async () => ({ status: "ok" }));
@@ -470,7 +488,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const claims = decodeIdTokenPayload(tokens.id_token);
-    const signedCookie = signSessionCookie(claims.sub, app.oauthConfig.sessionSecret);
+    if (!claims.email || claims.email_verified === false) {
+      return errorRedirect("oauth_error");
+    }
+
+    let userId: string;
+    try {
+      userId = await app.persistence.resolveOrCreateUser("google", claims.sub, {
+        email: claims.email,
+        name: claims.name,
+        picture: claims.picture,
+        emailVerified: claims.email_verified,
+      });
+    } catch {
+      return errorRedirect("oauth_error");
+    }
+
+    const signedCookie = signSessionCookie(userId, app.oauthConfig.sessionSecret);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
     return reply.redirect(`${app.appBaseUrl}/`, 302);

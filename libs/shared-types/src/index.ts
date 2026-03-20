@@ -5,6 +5,7 @@ export type CurrencyCode = string;
 
 export interface UserSettings {
   userId: string;
+  displayName?: string | null;
   locale: LocaleCode;
   costBasisMethod: CostBasisMethod;
   quotePollIntervalSeconds: number;
