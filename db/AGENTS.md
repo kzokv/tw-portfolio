@@ -28,4 +28,4 @@
 - Document practical rollback strategy for high-risk migrations.
 
 ## Context7 standards sources
-- Use root Context7 sources from `/home/ubuntu/github/tw-portfolio/AGENTS.md`.
+- Use the root `AGENTS.md` Context7 sources.

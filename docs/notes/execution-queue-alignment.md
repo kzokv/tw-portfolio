@@ -29,23 +29,6 @@ The PRD/backlog document still presents an earlier wave order where core read AP
 
 This avoids building user-facing workflow on top of legacy accounting seams.
 
-## Repo-State Notes
-
-The repository now reflects a larger portion of this cutover:
-
-- canonical schema exists for `trade_events`, `cash_ledger_entries`, dividend entities, reconciliation, snapshots, and `lot_allocations`
-- booking sequence and lot-allocation persistence have migration support
-- `POST /portfolio/transactions` now persists through a dedicated `savePostedTrade` path
-- dividend declaration and posting now persist through first-class dividend store and Postgres paths instead of relying only on the legacy `CorporateAction` shortcut
-- Postgres-backed tests now cover canonical posted-buy, posted-sell, and posted-dividend persistence at the persistence seam
-
-Important transitional seams still exist:
-
-- trade fee snapshots are now relational, but some service code still keeps a local `Transaction` alias around canonical `BookedTradeEvent`
-- legacy recompute endpoints still exist in the API surface
-- the legacy `CorporateAction` dividend write path still exists beside the newer dividend endpoints
-- posted-dividend correction flow still needs reversal and supersession API support; use [posted-fact-correction-rules.md](./posted-fact-correction-rules.md) as the durable contract for that work
-
 ## Suggested Follow-up
 
 When the next planning pass happens, keep ranked pickup order in Linear rather than duplicating issue-by-issue queue state in repository markdown. Use repository notes for durable sequencing rules and compatibility caveats, not for naming the next ticket.

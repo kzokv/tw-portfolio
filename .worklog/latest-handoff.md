@@ -1,41 +1,37 @@
 # Latest Handoff
 
 ## Completed
-- Implemented most of `KZO-55` hard retirement of TWD/NTD-specific fields across domain types, shared types, API routes, services, persistence, migration SQL, and web consumers.
-- Added `db/migrations/008_retire_twd_ntd_fields.sql` to rename `_ntd` columns to neutral amount names, add explicit currency columns, backfill them to `TWD`, and remove TWD-only dividend currency checks.
-- Updated web transaction, settings, and holdings flows to use neutral amount fields plus explicit currency codes.
-- Verified on March 11, 2026:
-  - `npm run build -w @tw-portfolio/web`
-  - `npm run test:unit -w apps/web`
-  - `npx playwright test apps/web/tests/e2e/specs/transactions-weighted-average-buy-sell.spec.ts --config=apps/web/tests/e2e/playwright.config.ts`
-  - `npx playwright test apps/web/tests/e2e/specs/settings-binding-affects-transaction-fees.spec.ts --config=apps/web/tests/e2e/playwright.config.ts`
-  - `npm run build -w libs/domain -w libs/shared-types`
-  - `npm run build -w @tw-portfolio/api`
+- Implemented `KZO-59` normalized fee-profile tax modeling across domain logic, Postgres persistence, migrations, and migration parity tests.
+- Added normalized runtime tax storage in `fee_profile_tax_rules` and immutable booked tax component snapshots in `trade_fee_policy_snapshot_tax_components`.
+- Propagated `market_code` through symbols, fee-profile overrides, and trade facts so normalized tax rules have explicit market identity.
+- Kept the current Taiwan-facing settings and API contracts stable by projecting normalized tax rows back into the existing compatibility fields.
+- Updated canonical accounting documentation and migration coverage to reflect the normalized tax-policy model.
+- Opened PR `#52`: https://github.com/kzokv/tw-portfolio/pull/52
+- Verified on March 12, 2026:
+  - `npm run build -w libs/domain`
   - `npm run test -w libs/domain`
+  - `npm run build -w apps/api`
   - `npm run test -w apps/api`
+  - `npm run test:integration:ci:host`
 
 ## Remaining work
-- Update `apps/api/test/integration/postgres-migrations.integration.test.ts` for the hard-cutover schema and contracts:
-  - rename direct SQL column references from legacy `_ntd` names
-  - add explicit `price_currency`, `commission_currency`, `cash_dividend_currency`, `cost_currency`, and snapshot `currency` fields where fixtures bypass route defaults
-  - update expectations to neutral amount names and explicit currency-bearing objects
-- Re-run `npm run test:integration:ci:host` after the fixture and SQL updates.
+- Address review feedback on PR `#52`.
+- Pick the next ranked Wave 2 Linear ticket after `KZO-59` review status changes or a reviewer identifies follow-up work.
 
 ## Risks or blockers
-- `npm run test:integration:ci:host` still fails only in `apps/api/test/integration/postgres-migrations.integration.test.ts`.
-- The web keeps `TWD` as the default currency for new transactions and fee profiles; this is intentional default data, not a legacy contract.
-- Currency entry in the web UI is currently free-form 3-letter uppercase text. If product wants a constrained list or market-specific rules, that should be a follow-up ticket.
-- Two Playwright specs currently need serial execution because parallel runs try to start duplicate local web and API servers on the same ports.
+- Multi-market tax editing is still backend-first. The current UI and API remain Taiwan-shaped by design and will need a later ticket for fully generic tax-rule editing.
+- Legacy compatibility columns still exist in `fee_profiles` and `trade_fee_policy_snapshots`; the runtime now prefers normalized tax rows/components underneath them.
 
 ## Open questions
-- Whether product wants currency entry to remain free-form 3-letter uppercase codes or move to a constrained currency list or market-specific rule set in a later ticket.
+- Which ranked Wave 2 ticket should follow `KZO-59` once review feedback is resolved.
 
 ## Relevant files
-- `db/migrations/008_retire_twd_ntd_fields.sql`
+- `db/migrations/011_fee_profile_tax_rule_normalization.sql`
+- `db/migrations/012_market_code_on_symbols_bindings_and_trades.sql`
+- `db/migrations/baseline_current_schema.sql`
 - `apps/api/src/persistence/postgres.ts`
-- `apps/api/src/routes/registerRoutes.ts`
 - `apps/api/src/services/portfolio.ts`
-- `apps/api/src/services/dividends.ts`
+- `apps/api/src/services/recompute.ts`
 - `apps/api/test/integration/postgres-migrations.integration.test.ts`
-- `apps/web/components/portfolio/AddTransactionCard.tsx`
-- `apps/web/features/settings/components/FeeProfilesSection.tsx`
+- `libs/domain/src/fee.ts`
+- `docs/canonical-accounting-model.md`
