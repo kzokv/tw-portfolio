@@ -177,3 +177,13 @@ export interface UserExternalIdentity {
   linkedAt: string;
   lastSeenAt: string;
 }
+
+export interface ProfileDto {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  providerPictureUrl: string | null;
+  providerDisplayName: string | null;
+  linkedAt: string | null;
+  lastSeenAt: string | null;
+}

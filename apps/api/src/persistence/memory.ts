@@ -3,6 +3,8 @@ import { createStore } from "../services/store.js";
 import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
 import type { AccountingStore, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
+import type { ProfileDto } from "@tw-portfolio/shared-types";
+import { routeError } from "../lib/routeError.js";
 import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
 
 interface MemoryUser {
@@ -141,6 +143,40 @@ export class MemoryPersistence implements Persistence {
     if (!existing) return;
     existing.delete(key);
     if (existing.size === 0) this.idempotencyKeys.delete(userId);
+  }
+
+  async getProfile(userId: string): Promise<ProfileDto> {
+    const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
+    if (!memUser) {
+      throw routeError(404, "not_found", "Profile not found");
+    }
+    return {
+      userId: memUser.id,
+      email: memUser.email,
+      displayName: memUser.displayName,
+      providerPictureUrl: memUser.providerPictureUrl,
+      providerDisplayName: memUser.providerDisplayName,
+      linkedAt: null,
+      lastSeenAt: null,
+    };
+  }
+
+  async updateProfileEmail(userId: string, email: string): Promise<ProfileDto> {
+    const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
+    if (!memUser) {
+      throw routeError(404, "not_found", "Profile not found");
+    }
+    // Re-key the map if email changed
+    if (memUser.email !== email) {
+      const existing = this.usersByEmail.get(email);
+      if (existing && existing.id !== userId) {
+        throw routeError(409, "email_conflict", "Email is already in use");
+      }
+      this.usersByEmail.delete(memUser.email);
+      memUser.email = email;
+      this.usersByEmail.set(email, memUser);
+    }
+    return this.getProfile(userId);
   }
 
   async getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>> {

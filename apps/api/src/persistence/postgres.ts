@@ -33,6 +33,8 @@ import type {
   SymbolDef,
   Transaction,
 } from "../types/store.js";
+import type { ProfileDto } from "@tw-portfolio/shared-types";
+import { routeError } from "../lib/routeError.js";
 import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
 
 export interface PostgresPersistenceOptions {
@@ -820,6 +822,54 @@ export class PostgresPersistence implements Persistence {
       pipeline.set(`quote:${quote.symbol}`, JSON.stringify(quote), { EX: 30 });
     }
     await pipeline.exec();
+  }
+
+  async getProfile(userId: string): Promise<ProfileDto> {
+    const result = await this.pool.query<{
+      user_id: string;
+      email: string | null;
+      display_name: string | null;
+      provider_picture_url: string | null;
+      provider_display_name: string | null;
+      linked_at: string | null;
+      last_seen_at: string | null;
+    }>(
+      `SELECT u.id AS user_id, u.email, u.display_name,
+              e.provider_picture_url, e.provider_display_name,
+              e.linked_at, e.last_seen_at
+       FROM users u
+       LEFT JOIN user_external_identities e ON e.user_id = u.id AND e.provider = 'google'
+       WHERE u.id = $1`,
+      [userId],
+    );
+    if (result.rows.length === 0) {
+      throw routeError(404, "not_found", "Profile not found");
+    }
+    const row = result.rows[0];
+    return {
+      userId: row.user_id,
+      email: row.email,
+      displayName: row.display_name,
+      providerPictureUrl: row.provider_picture_url,
+      providerDisplayName: row.provider_display_name,
+      linkedAt: row.linked_at,
+      lastSeenAt: row.last_seen_at,
+    };
+  }
+
+  async updateProfileEmail(userId: string, email: string): Promise<ProfileDto> {
+    try {
+      await this.pool.query(
+        `UPDATE users SET email = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [userId, email],
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error && "code" in err && (err as { code: string }).code === "23505") {
+        throw routeError(409, "email_conflict", "Email is already in use");
+      }
+      throw err;
+    }
+    return this.getProfile(userId);
   }
 
   async readiness(): Promise<ReadinessStatus> {

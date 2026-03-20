@@ -186,6 +186,15 @@ export interface AppDictionary {
     bindingSectionDescription: string;
     bindingEmptyState: string;
     closeWarning: string;
+    tabProfile: string;
+    profileDisplayNameLabel: string;
+    profileEmailLabel: string;
+    profileAvatarLabel: string;
+    profileSyncedFromGoogle: string;
+    profileSaveEmail: string;
+    profileSavingEmail: string;
+    profileEmailSaved: string;
+    profileEmailError: string;
   };
   recompute: {
     title: string;

@@ -1,5 +1,6 @@
 import type { AccountingStore, Store, SymbolDef } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
+import type { ProfileDto } from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -38,6 +39,8 @@ export interface Persistence {
   savePostedDividend(userId: string, accounting: AccountingStore, dividendLedgerEntryId: string): Promise<void>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
+  getProfile(userId: string): Promise<ProfileDto>;
+  updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
   getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>>;
   cacheQuotes(quotes: Quote[]): Promise<void>;
   readiness(): Promise<ReadinessStatus>;

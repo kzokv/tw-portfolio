@@ -17,3 +17,5 @@ type: feedback
 **How to apply:** When verifying a feature branch is ready, run all five. When a team agent reports test results, check that all five suites are covered.
 
 **Integration test command:** Always use `test:integration:ci:host`, never `test:integration` — the bare integration command is not the correct target for development work.
+
+**Root `npm run test` warning:** Running `npm run test` at the repo root executes `npm run test --workspaces`, which runs web Playwright E2E but does NOT run `test:integration:ci:host`. It is NOT equivalent to the full five-suite definition above — do not rely on it as a substitute.

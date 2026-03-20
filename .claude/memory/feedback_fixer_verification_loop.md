@@ -17,3 +17,6 @@ The Fixer must follow a **red-green verification loop**, not TDD. Full TDD (writ
 4. 🔁 **Sweep** — run the **full suite the test belongs to**: for E2E config changes → run ALL E2E suites; for unit config changes → run full unit suite. Report the suite result explicitly before sending `[DONE]`.
 
 The Fixer should only write a new test when the fix reveals a coverage gap that would cause a silent regression. This is situational, not a default.
+
+**Additional rule — do not modify production auth code for test-only issues:**
+If a test fails because of auth mode semantics (e.g. 401 not firing in dev_bypass mode), the fix belongs in the test setup, not in `app.ts` or `registerRoutes.ts`. Changing production auth plumbing to satisfy a test will cause E2E regressions. See `feedback_vitest_auth_mode_override.md` for the correct pattern.

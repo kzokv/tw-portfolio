@@ -27,6 +27,7 @@ import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeA
 import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
+import { useProfile } from "../../features/profile/hooks/useProfile";
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { ActionCenterSection } from "../dashboard/ActionCenterSection";
 import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
@@ -140,6 +141,8 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
     refresh: refreshAfterRecompute,
   });
 
+  const profileData = useProfile();
+
   const settingsSave = useSettingsSave({
     refresh: dashboard.refresh,
     closeDrawer: () => setDrawerOpen(false),
@@ -239,6 +242,9 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
       <TopBar
         skeleton={dashboard.isBootstrapping}
         userId={dashboard.settings?.userId}
+        displayName={profileData.profile?.displayName}
+        pictureUrl={profileData.profile?.providerPictureUrl}
+        email={profileData.profile?.email}
         onOpenSettings={() => setDrawerOpen(true)}
         onToggleNavigation={() => setMobileNavOpen((current) => !current)}
         onToggleDesktopNavigation={toggleDesktopNavigation}
@@ -403,6 +409,8 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
         accounts={dashboard.accounts}
         feeProfiles={dashboard.feeProfiles}
         feeProfileBindings={dashboard.feeProfileBindings}
+        profile={profileData.profile}
+        onProfileUpdate={profileData.refresh}
         isSaving={settingsSave.isSaving}
         errorMessage={settingsSave.errorMessage}
         onSave={settingsSave.save}

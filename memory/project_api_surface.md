@@ -5,15 +5,18 @@ type: reference
 ---
 
 ## Auth Model
-- `AUTH_MODE=oauth`: requires `x-authenticated-user-id` header, missing returns 401
+- `AUTH_MODE=oauth`: `resolveUserId` accepts `x-authenticated-user-id` header (gateway/proxy) or HMAC-signed session cookie (direct browser); missing both returns 401
 - `AUTH_MODE=dev_bypass`: optional `x-user-id`, defaults to `user-1`
-- OAuth callback routes exist as placeholders only
 
 ## Route Surface
 
 ### Health
 - `GET /health/live` — liveness
 - `GET /health/ready` — Postgres + Redis health check
+
+### User Profile
+- `GET /profile` — returns `ProfileDto` (auth-guarded; userId, email, displayName, providerPictureUrl, providerDisplayName, linkedAt, lastSeenAt)
+- `PATCH /profile` — update mutable email, returns updated `ProfileDto` (auth-guarded, Zod-validated)
 
 ### Settings & Fee Config
 - `GET /settings` — UserSettings (web-consumed)
@@ -52,4 +55,9 @@ type: reference
 - **Full rewrite**: `saveStore` (users+profiles+accounts+overrides+recompute → `saveAccountingStoreTx` full delete/reinsert of all accounting tables)
 
 ## Web-Consumed Routes (shipped UI)
-`GET /settings`, `GET /settings/fee-config`, `GET /portfolio/holdings`, `PUT /settings/full`, `POST /portfolio/transactions`, `POST /portfolio/recompute/preview`, `POST /portfolio/recompute/confirm`
+`GET /profile` (via Next.js proxy), `PATCH /profile` (via Next.js proxy), `GET /settings`, `GET /settings/fee-config`, `GET /portfolio/holdings`, `PUT /settings/full`, `POST /portfolio/transactions`, `POST /portfolio/recompute/preview`, `POST /portfolio/recompute/confirm`
+
+## Next.js API Proxy Routes (`apps/web/app/api/`)
+- `GET /api/profile` — server-side proxy: validates session via `getSession()`, returns 401 JSON if absent, forwards to `GET /profile` with `x-authenticated-user-id` header
+- `PATCH /api/profile` — server-side proxy: validates session, forwards body to `PATCH /profile`
+- Frontend calls relative `/api/profile` URLs; session auth is handled server-side to avoid CORS

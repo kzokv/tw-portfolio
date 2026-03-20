@@ -552,6 +552,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return store.settings;
   });
 
+  app.get("/profile", async (req) => {
+    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return app.persistence.getProfile(userId);
+  });
+
+  app.patch("/profile", async (req) => {
+    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
+    return app.persistence.updateProfileEmail(userId, body.email);
+  });
+
   app.put("/settings/full", async (req) => {
     const body = z
       .object({

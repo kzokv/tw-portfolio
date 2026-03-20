@@ -26,8 +26,14 @@
 - [feedback_qa_test_infra_check.md](feedback_qa_test_infra_check.md) — QA must verify test infrastructure (mock servers, playwright configs) exists before writing infra-dependent tests
 - [feedback_test_coupling_split.md](feedback_test_coupling_split.md) — Implementer owns implementation-coupled test updates; QA owns new behavioral tests — distinguish in task descriptions
 
+## Persistence layer
+- [project_memory_persistence_gaps.md](project_memory_persistence_gaps.md) — MemoryPersistence gaps vs Postgres: no email uniqueness, null timestamps, O(n) scan; 409 conflict tests belong in Postgres integration layer
+
 ## DB / migrations
 - [feedback_migration_update_vs_new.md](feedback_migration_update_vs_new.md) — Update existing migration file for constraint additions; don't create a new file for minor changes to already-migrated tables
+
+## Auth / API patterns
+- [feedback_picture_url_sanitization.md](feedback_picture_url_sanitization.md) — providerPictureUrl must be HTTPS-only validated before rendering; use referrerPolicy="no-referrer" on Google avatar imgs
 
 ## Feedback & preferences
 - [feedback_npm_script_wrapping.md](feedback_npm_script_wrapping.md) — CLI scripts with positional args should NOT be wrapped as npm scripts; direct invocation is preferred

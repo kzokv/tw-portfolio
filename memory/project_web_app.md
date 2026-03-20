@@ -27,18 +27,26 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
 - `services/` — `portfolioService` (trade submission, holdings fetch)
 - `i18n.ts`
 
+### `profile/`
+- `hooks/useProfile.ts` — fetches `GET /api/profile`, returns `{ profile: ProfileDto | null, isLoading, error, refresh }`
+- Used by `AppShell` to supply profile data to `TopBar` (avatar) and `SettingsDrawer` (Profile tab)
+
 ### `settings/`
-- `components/`, `hooks/` (`useSettingsForm`, `useSettingsSave`)
+- `components/` — includes `ProfileSection.tsx` (avatar preview, read-only Google fields, editable email with PATCH save)
+- `hooks/` (`useSettingsForm`, `useSettingsSave`)
 - `services/` (`settingsService`, `commissionDiscount`, `settingsDraft`)
-- `mappers/`, `validators/`, `types/`, `i18n.ts`
+- `mappers/`, `validators/`, `types/` (`SettingsTab` includes `"profile"` | `"general"` | `"fees"`), `i18n.ts`
+
+## Next.js API Proxy Routes (`apps/web/app/api/`)
+- `profile/route.ts` — `GET` and `PATCH` handlers: validate session server-side, forward to API with trusted header
 
 ## Component Organization (`apps/web/components/`)
 - `ui/` — Base components (Card, Button, TooltipInfo, etc.)
-- `layout/` — AppShell, TopBar, SideNavigation
+- `layout/` — AppShell (calls `useProfile()`, wires profile to TopBar + SettingsDrawer), TopBar, SideNavigation
 - `dashboard/` — Dashboard-specific
 - `portfolio/` — HoldingsTable, TransactionHistoryTable, etc.
-- `profile/` — User profile
-- `settings/` — Settings drawer
+- `profile/` — `UserAvatarButton` (renders Google picture or display-name initials; identity header in dropdown)
+- `settings/` — Settings drawer (Profile tab renders outside form; General/Fees tabs use existing form flow)
 
 ## Patterns
 - API calls live in `features/*/services/` (not in components)

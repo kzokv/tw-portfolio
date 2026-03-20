@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Settings, LogOut, UserCircle2 } from "lucide-react";
 import { Button } from "../ui/Button";
@@ -15,12 +16,12 @@ const AVATAR_COLORS = [
   "#312E81",
 ];
 
-function deriveAvatar(userId: string | undefined) {
-  if (!userId) {
+function deriveAvatar(source: string | undefined) {
+  if (!source) {
     return { initials: "U", color: AVATAR_COLORS[0] };
   }
 
-  const cleaned = userId.replace(/[^a-zA-Z0-9\s_-]/g, "").trim();
+  const cleaned = source.replace(/[^a-zA-Z0-9\s_-]/g, "").trim();
   const segments = cleaned.split(/[\s_-]+/).filter(Boolean);
 
   let initials = "U";
@@ -38,6 +39,9 @@ function deriveAvatar(userId: string | undefined) {
 
 interface UserAvatarButtonProps {
   userId?: string;
+  displayName?: string | null;
+  pictureUrl?: string | null;
+  email?: string | null;
   onOpenSettings: () => void;
   openSettingsLabel: string;
   signOutLabel: string;
@@ -46,12 +50,16 @@ interface UserAvatarButtonProps {
 
 export function UserAvatarButton({
   userId,
+  displayName,
+  pictureUrl,
+  email,
   onOpenSettings,
   openSettingsLabel,
   signOutLabel,
   signOutHref,
 }: UserAvatarButtonProps) {
-  const avatar = deriveAvatar(userId);
+  const avatar = deriveAvatar(displayName ?? userId);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <DropdownMenu.Root>
@@ -62,13 +70,24 @@ export function UserAvatarButton({
           aria-label="User menu"
           data-testid="avatar-button"
         >
-          <span
-            className="flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-            style={{ backgroundColor: avatar.color }}
-            aria-hidden="true"
-          >
-            {avatar.initials || <UserCircle2 className="h-4 w-4" />}
-          </span>
+          {pictureUrl && !imgError ? (
+            <img
+              src={pictureUrl}
+              alt=""
+              className="h-10 w-10 rounded-full object-cover"
+              aria-hidden="true"
+              referrerPolicy="no-referrer"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <span
+              className="flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+              style={{ backgroundColor: avatar.color }}
+              aria-hidden="true"
+            >
+              {avatar.initials || <UserCircle2 className="h-4 w-4" />}
+            </span>
+          )}
         </Button>
       </DropdownMenu.Trigger>
 
@@ -79,6 +98,20 @@ export function UserAvatarButton({
           className="z-50 min-w-[200px] rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_20px_50px_rgba(15,23,42,0.14)]"
           data-testid="avatar-dropdown-menu"
         >
+          {(displayName || email) && (
+            <>
+              <div className="px-3 py-2.5" data-testid="avatar-menu-identity">
+                {displayName && (
+                  <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                )}
+                {email && (
+                  <p className="truncate text-xs text-slate-500">{email}</p>
+                )}
+              </div>
+              <DropdownMenu.Separator className="my-1 h-px bg-slate-200" />
+            </>
+          )}
+
           <DropdownMenu.Item
             onSelect={onOpenSettings}
             className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none transition hover:bg-slate-100 focus:bg-slate-100 data-[highlighted]:bg-slate-100"

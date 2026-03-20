@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
+import { PostgresPersistence } from "../../src/persistence/postgres.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
@@ -263,5 +264,224 @@ describePostgres("user identity schema", () => {
     expect(result.rows[0].provider_subject).toBe("github-sub-789");
     expect(result.rows[1].provider).toBe("google");
     expect(result.rows[1].provider_subject).toBe("google-sub-456");
+  });
+});
+
+describePostgres("resolveOrCreateUser field sync rules", () => {
+  let pool: Pool;
+  let persistence: PostgresPersistence;
+
+  async function resetPublicSchema(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("DROP SCHEMA IF EXISTS public CASCADE");
+      await client.query("CREATE SCHEMA public");
+      await client.query("GRANT ALL ON SCHEMA public TO public");
+    } finally {
+      client.release();
+    }
+  }
+
+  async function applyNumberedMigrations(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    const client = await pool.connect();
+    try {
+      for (const file of manifest.numberedMigrations) {
+        const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(migrationSql);
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  beforeEach(async () => {
+    pool = new Pool({ connectionString: databaseUrl });
+    await resetPublicSchema();
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+  });
+
+  afterEach(async () => {
+    await persistence.close();
+    await pool.end();
+  });
+
+  it("first login seeds all fields from claims", async () => {
+    const userId = await persistence.resolveOrCreateUser("google", "sub-first-login", {
+      email: "alice@example.com",
+      name: "Alice Chen",
+      picture: "https://lh3.googleusercontent.com/alice.jpg",
+    });
+
+    const user = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+    expect(user.rows).toHaveLength(1);
+    expect(user.rows[0].email).toBe("alice@example.com");
+    expect(user.rows[0].display_name).toBe("Alice Chen");
+
+    const ext = await pool.query(
+      "SELECT * FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+    expect(ext.rows).toHaveLength(1);
+    expect(ext.rows[0].provider_subject).toBe("sub-first-login");
+    expect(ext.rows[0].provider_email).toBe("alice@example.com");
+    expect(ext.rows[0].provider_display_name).toBe("Alice Chen");
+    expect(ext.rows[0].provider_picture_url).toBe("https://lh3.googleusercontent.com/alice.jpg");
+  });
+
+  it("repeat login updates mutable fields (display_name, provider fields, last_seen_at)", async () => {
+    // First login
+    const userId = await persistence.resolveOrCreateUser("google", "sub-repeat", {
+      email: "bob@example.com",
+      name: "Bob Original",
+      picture: "https://lh3.googleusercontent.com/bob-old.jpg",
+    });
+
+    const extBefore = await pool.query(
+      "SELECT last_seen_at FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+
+    // Small delay to ensure last_seen_at changes
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Repeat login with updated info
+    const sameUserId = await persistence.resolveOrCreateUser("google", "sub-repeat", {
+      email: "bob@example.com",
+      name: "Bob Updated",
+      picture: "https://lh3.googleusercontent.com/bob-new.jpg",
+    });
+
+    expect(sameUserId).toBe(userId);
+
+    const user = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+    expect(user.rows[0].display_name).toBe("Bob Updated");
+
+    const ext = await pool.query(
+      "SELECT * FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+    expect(ext.rows[0].provider_display_name).toBe("Bob Updated");
+    expect(ext.rows[0].provider_picture_url).toBe("https://lh3.googleusercontent.com/bob-new.jpg");
+    expect(new Date(ext.rows[0].last_seen_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(extBefore.rows[0].last_seen_at).getTime(),
+    );
+  });
+
+  it("repeat login does NOT touch users.email or ext.provider_email", async () => {
+    // First login
+    const userId = await persistence.resolveOrCreateUser("google", "sub-immutable", {
+      email: "carol@example.com",
+      name: "Carol",
+      picture: "https://lh3.googleusercontent.com/carol.jpg",
+    });
+
+    // Repeat login (same email — resolves to same user)
+    await persistence.resolveOrCreateUser("google", "sub-immutable", {
+      email: "carol@example.com",
+      name: "Carol Updated",
+      picture: "https://lh3.googleusercontent.com/carol-new.jpg",
+    });
+
+    const user = await pool.query("SELECT email FROM users WHERE id = $1", [userId]);
+    expect(user.rows[0].email).toBe("carol@example.com");
+
+    const ext = await pool.query(
+      "SELECT provider_email FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+    expect(ext.rows[0].provider_email).toBe("carol@example.com");
+  });
+
+  it("same email, different provider_subject — same UUID, stale ext row deleted", async () => {
+    // First login with sub-A
+    const userId = await persistence.resolveOrCreateUser("google", "sub-old", {
+      email: "dave@example.com",
+      name: "Dave",
+      picture: "https://lh3.googleusercontent.com/dave.jpg",
+    });
+
+    // Second login with different sub but same email (e.g. user recreated Google account)
+    const sameUserId = await persistence.resolveOrCreateUser("google", "sub-new", {
+      email: "dave@example.com",
+      name: "Dave Recreated",
+      picture: "https://lh3.googleusercontent.com/dave-new.jpg",
+    });
+
+    expect(sameUserId).toBe(userId);
+
+    // Old ext row should be gone, new one should exist
+    const ext = await pool.query(
+      "SELECT * FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+    expect(ext.rows).toHaveLength(1);
+    expect(ext.rows[0].provider_subject).toBe("sub-new");
+    expect(ext.rows[0].provider_display_name).toBe("Dave Recreated");
+  });
+
+  it("different email, same provider_subject — creates new user", async () => {
+    // First user with email A
+    const userIdA = await persistence.resolveOrCreateUser("google", "sub-shared", {
+      email: "eve-a@example.com",
+      name: "Eve A",
+      picture: "https://lh3.googleusercontent.com/eve-a.jpg",
+    });
+
+    // Different email resolves to a different user (email is the identity anchor)
+    const userIdB = await persistence.resolveOrCreateUser("google", "sub-shared", {
+      email: "eve-b@example.com",
+      name: "Eve B",
+      picture: "https://lh3.googleusercontent.com/eve-b.jpg",
+    });
+
+    expect(userIdB).not.toBe(userIdA);
+
+    const userA = await pool.query("SELECT email FROM users WHERE id = $1", [userIdA]);
+    expect(userA.rows[0].email).toBe("eve-a@example.com");
+
+    const userB = await pool.query("SELECT email FROM users WHERE id = $1", [userIdB]);
+    expect(userB.rows[0].email).toBe("eve-b@example.com");
+  });
+
+  it("display name change propagates to users.display_name", async () => {
+    const userId = await persistence.resolveOrCreateUser("google", "sub-name-change", {
+      email: "frank@example.com",
+      name: "Frank Original",
+    });
+
+    const before = await pool.query("SELECT display_name FROM users WHERE id = $1", [userId]);
+    expect(before.rows[0].display_name).toBe("Frank Original");
+
+    await persistence.resolveOrCreateUser("google", "sub-name-change", {
+      email: "frank@example.com",
+      name: "Frank Renamed",
+    });
+
+    const after = await pool.query("SELECT display_name FROM users WHERE id = $1", [userId]);
+    expect(after.rows[0].display_name).toBe("Frank Renamed");
+  });
+
+  it("null name claim results in NULL display_name and provider_display_name", async () => {
+    const userId = await persistence.resolveOrCreateUser("google", "sub-null-name", {
+      email: "nullname@example.com",
+      // name is omitted (undefined)
+    });
+
+    const user = await pool.query("SELECT display_name FROM users WHERE id = $1", [userId]);
+    expect(user.rows[0].display_name).toBeNull();
+
+    const ext = await pool.query(
+      "SELECT provider_display_name, provider_picture_url FROM user_external_identities WHERE user_id = $1 AND provider = 'google'",
+      [userId],
+    );
+    expect(ext.rows).toHaveLength(1);
+    expect(ext.rows[0].provider_display_name).toBeNull();
+    expect(ext.rows[0].provider_picture_url).toBeNull();
   });
 });

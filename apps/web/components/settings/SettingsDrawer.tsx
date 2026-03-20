@@ -1,6 +1,6 @@
 "use client";
 
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, ProfileDto, UserSettings } from "@tw-portfolio/shared-types";
 import type { FormEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -8,6 +8,7 @@ import { GeneralSettingsSection } from "../../features/settings/components/Gener
 import { FeeProfilesSection } from "../../features/settings/components/FeeProfilesSection";
 import { AccountFallbackSection } from "../../features/settings/components/AccountFallbackSection";
 import { SecurityBindingsSection } from "../../features/settings/components/SecurityBindingsSection";
+import { ProfileSection } from "../../features/settings/components/ProfileSection";
 import { SettingsDrawerShell } from "../../features/settings/components/SettingsDrawerShell";
 import { UnsavedChangesFooter } from "../../features/settings/components/UnsavedChangesFooter";
 import { useSettingsForm } from "../../features/settings/hooks/useSettingsForm";
@@ -22,6 +23,8 @@ interface SettingsDrawerProps {
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
+  profile: ProfileDto | null;
+  onProfileUpdate: () => void;
   isSaving: boolean;
   errorMessage: string;
   onSave: (draft: SettingsDraft) => Promise<void>;
@@ -35,6 +38,8 @@ export function SettingsDrawer({
   accounts,
   feeProfiles,
   feeProfileBindings,
+  profile,
+  onProfileUpdate,
   isSaving,
   errorMessage,
   onSave,
@@ -61,8 +66,18 @@ export function SettingsDrawer({
       {!form.draft ? (
         <p className="text-sm text-slate-300">{dict.feedback.loadingSettings}</p>
       ) : (
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+        <>
           <div className="mb-3 inline-flex w-fit gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1 md:mb-4">
+            <Button
+              type="button"
+              variant={form.tab === "profile" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "profile" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
+              onClick={() => form.setTab("profile")}
+              data-testid="settings-tab-profile"
+            >
+              {dict.settings.tabProfile}
+            </Button>
             <Button
               type="button"
               variant={form.tab === "general" ? "default" : "secondary"}
@@ -85,68 +100,80 @@ export function SettingsDrawer({
             </Button>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
-              {form.tab === "general" && (
-                <GeneralSettingsSection
-                  locale={form.draft.locale}
-                  costBasisMethod={form.draft.costBasisMethod}
-                  quotePollInterval={form.quotePollInterval}
-                  onLocaleChange={(locale) => form.updateField("locale", locale)}
-                  onCostBasisChange={(costBasisMethod) => form.updateField("costBasisMethod", costBasisMethod)}
-                  onQuotePollIntervalChange={form.setQuotePollInterval}
-                  dict={dict}
-                />
-              )}
-
-              {form.tab === "fees" && (
-                <>
-                  <FeeProfilesSection
-                    profiles={form.draft.feeProfiles}
-                    activeLocale={settings?.locale ?? "en"}
-                    onAddProfile={form.addProfile}
-                    onRemoveProfile={form.removeProfile}
-                    onUpdateProfileField={form.updateProfileField}
-                    dict={dict}
-                  />
-                  <AccountFallbackSection
-                    accounts={accounts}
-                    bindings={form.draft.accounts}
-                    profiles={form.draft.feeProfiles}
-                    onUpdateAccountProfile={form.updateAccountProfile}
-                    dict={dict}
-                  />
-                  <SecurityBindingsSection
-                    accounts={accounts}
-                    profiles={form.draft.feeProfiles}
-                    bindings={form.draft.feeProfileBindings}
-                    onAddBinding={form.addBinding}
-                    onUpdateBinding={form.updateBinding}
-                    onRemoveBinding={form.removeBinding}
-                    dict={dict}
-                  />
-                </>
-              )}
+          {form.tab === "profile" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
+                <ProfileSection profile={profile} onProfileUpdate={onProfileUpdate} dict={dict} />
+              </div>
             </div>
-          </div>
+          )}
 
-          <UnsavedChangesFooter
-            isDirty={form.isDirty}
-            showCloseWarning={form.showCloseWarning}
-            validationError={form.validationError}
-            errorMessage={errorMessage}
-            discardNotice={form.discardNotice}
-            isSaving={isSaving}
-            onKeepEditing={() => form.setShowCloseWarning(false)}
-            onCancel={() => form.handleOpenChange(false)}
-            onCloseWithoutSaving={() => {
-              form.setShowCloseWarning(false);
-              onOpenChange(false);
-            }}
-            onDiscardChanges={form.resetToBaseline}
-            dict={dict}
-          />
-        </form>
+          {(form.tab === "general" || form.tab === "fees") && (
+            <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
+                  {form.tab === "general" && (
+                    <GeneralSettingsSection
+                      locale={form.draft.locale}
+                      costBasisMethod={form.draft.costBasisMethod}
+                      quotePollInterval={form.quotePollInterval}
+                      onLocaleChange={(locale) => form.updateField("locale", locale)}
+                      onCostBasisChange={(costBasisMethod) => form.updateField("costBasisMethod", costBasisMethod)}
+                      onQuotePollIntervalChange={form.setQuotePollInterval}
+                      dict={dict}
+                    />
+                  )}
+
+                  {form.tab === "fees" && (
+                    <>
+                      <FeeProfilesSection
+                        profiles={form.draft.feeProfiles}
+                        activeLocale={settings?.locale ?? "en"}
+                        onAddProfile={form.addProfile}
+                        onRemoveProfile={form.removeProfile}
+                        onUpdateProfileField={form.updateProfileField}
+                        dict={dict}
+                      />
+                      <AccountFallbackSection
+                        accounts={accounts}
+                        bindings={form.draft.accounts}
+                        profiles={form.draft.feeProfiles}
+                        onUpdateAccountProfile={form.updateAccountProfile}
+                        dict={dict}
+                      />
+                      <SecurityBindingsSection
+                        accounts={accounts}
+                        profiles={form.draft.feeProfiles}
+                        bindings={form.draft.feeProfileBindings}
+                        onAddBinding={form.addBinding}
+                        onUpdateBinding={form.updateBinding}
+                        onRemoveBinding={form.removeBinding}
+                        dict={dict}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <UnsavedChangesFooter
+                isDirty={form.isDirty}
+                showCloseWarning={form.showCloseWarning}
+                validationError={form.validationError}
+                errorMessage={errorMessage}
+                discardNotice={form.discardNotice}
+                isSaving={isSaving}
+                onKeepEditing={() => form.setShowCloseWarning(false)}
+                onCancel={() => form.handleOpenChange(false)}
+                onCloseWithoutSaving={() => {
+                  form.setShowCloseWarning(false);
+                  onOpenChange(false);
+                }}
+                onDiscardChanges={form.resetToBaseline}
+                dict={dict}
+              />
+            </form>
+          )}
+        </>
       )}
     </SettingsDrawerShell>
   );

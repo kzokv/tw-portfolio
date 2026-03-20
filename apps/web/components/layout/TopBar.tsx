@@ -19,6 +19,9 @@ export interface QuickSearchItem {
 
 interface TopBarProps {
   userId?: string;
+  displayName?: string | null;
+  pictureUrl?: string | null;
+  email?: string | null;
   onOpenSettings: () => void;
   onToggleNavigation?: () => void;
   navigationOpen?: boolean;
@@ -47,6 +50,9 @@ interface TopBarProps {
 
 export function TopBar({
   userId,
+  displayName,
+  pictureUrl,
+  email,
   onOpenSettings,
   onToggleNavigation,
   navigationOpen = false,
@@ -264,7 +270,7 @@ export function TopBar({
           </Button>
 
           <div className="shrink-0">
-            <UserAvatarButton userId={userId} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
+            <UserAvatarButton userId={userId} displayName={displayName} pictureUrl={pictureUrl} email={email} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
           </div>
         </div>
       </header>
