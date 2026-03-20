@@ -1,12 +1,53 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Module mocks — must be declared before any imports that depend on them
+// ---------------------------------------------------------------------------
 
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    // Make cache transparent so each test gets a fresh call
+    cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+  };
+});
+
+// Mutable WebEnv mock — tests can override per-case
+const mockWebEnv = {
+  NEXT_PUBLIC_AUTH_MODE: "oauth" as "oauth" | "dev_bypass",
+  SESSION_COOKIE_NAME: "__Host-g_auth_session",
+  SESSION_SECRET: "test-session-secret-that-is-long-enough-32chars!!",
+};
+
 vi.mock("@tw-portfolio/config/web", () => ({
-  WebEnv: { SESSION_COOKIE_NAME: "__Host-g_auth_session" },
+  get WebEnv() {
+    return mockWebEnv;
+  },
 }));
 
+// Now import the modules under test — they will pick up our mocks
 import { cookies } from "next/headers";
-import { getSession } from "../../../lib/auth";
+import { redirect } from "next/navigation";
+import { getSession, requireSession } from "../../../lib/auth";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const SECRET = "test-session-secret-that-is-long-enough-32chars!!";
+const SESSION_COOKIE = "__Host-g_auth_session";
+
+function hmacSign(data: string, secret: string): string {
+  return createHmac("sha256", secret).update(data).digest("hex");
+}
+
+function signCookie(userId: string, secret: string = SECRET): string {
+  return `${userId}.${hmacSign(userId, secret)}`;
+}
 
 function makeCookieStore(pairs: Record<string, string>) {
   return {
@@ -15,36 +56,169 @@ function makeCookieStore(pairs: Record<string, string>) {
   };
 }
 
-const SESSION_COOKIE = "__Host-g_auth_session";
+function setCookie(value: string) {
+  vi.mocked(cookies).mockResolvedValue(
+    makeCookieStore({ [SESSION_COOKIE]: value }) as Awaited<
+      ReturnType<typeof cookies>
+    >,
+  );
+}
+
+function setNoCookie() {
+  vi.mocked(cookies).mockResolvedValue(
+    makeCookieStore({}) as Awaited<ReturnType<typeof cookies>>,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 afterEach(() => {
   vi.clearAllMocks();
+  // Reset to oauth defaults
+  mockWebEnv.NEXT_PUBLIC_AUTH_MODE = "oauth";
+  mockWebEnv.SESSION_SECRET = SECRET;
 });
 
-describe("getSession", () => {
+// ---- oauth mode -----------------------------------------------------------
+
+describe("getSession (oauth mode)", () => {
   it("returns null when session cookie is absent", async () => {
-    vi.mocked(cookies).mockResolvedValue(makeCookieStore({}) as Awaited<ReturnType<typeof cookies>>);
+    setNoCookie();
     expect(await getSession()).toBeNull();
   });
 
   it("returns null when session cookie value is empty string", async () => {
-    vi.mocked(cookies).mockResolvedValue(makeCookieStore({ [SESSION_COOKIE]: "" }) as Awaited<ReturnType<typeof cookies>>);
+    setCookie("");
     expect(await getSession()).toBeNull();
   });
 
   it("returns null when session cookie value is whitespace only", async () => {
-    vi.mocked(cookies).mockResolvedValue(makeCookieStore({ [SESSION_COOKIE]: "   " }) as Awaited<ReturnType<typeof cookies>>);
+    setCookie("   ");
     expect(await getSession()).toBeNull();
   });
 
-  it("returns { userId } when session cookie has a valid value", async () => {
-    vi.mocked(cookies).mockResolvedValue(makeCookieStore({ [SESSION_COOKIE]: "google-sub-123" }) as Awaited<ReturnType<typeof cookies>>);
+  it("returns { userId } for a validly-signed cookie", async () => {
+    setCookie(signCookie("google-sub-123"));
     expect(await getSession()).toEqual({ userId: "google-sub-123" });
   });
 
-  it("trims whitespace from the cookie value", async () => {
-    vi.mocked(cookies).mockResolvedValue(makeCookieStore({ [SESSION_COOKIE]: "  google-sub-456  " }) as Awaited<ReturnType<typeof cookies>>);
-    expect(await getSession()).toEqual({ userId: "google-sub-456" });
+  it("returns null for a tampered HMAC", async () => {
+    const tampered =
+      "google-sub-123.badhmacsignaturebadhmacsignaturebadhmacsignaturebadhmacsignature";
+    setCookie(tampered);
+    expect(await getSession()).toBeNull();
   });
 
+  it("returns null for a plain userId with no HMAC", async () => {
+    setCookie("google-sub-123");
+    expect(await getSession()).toBeNull();
+  });
+
+  it("returns null when signed with a different secret", async () => {
+    setCookie(signCookie("google-sub-123", "other-secret-that-is-long-enough-32chars!!"));
+    expect(await getSession()).toBeNull();
+  });
+
+  it("returns null for malformed input (no dot separator)", async () => {
+    setCookie("no-dot-here");
+    expect(await getSession()).toBeNull();
+  });
+
+  it("returns null when HMAC portion is empty (trailing dot)", async () => {
+    setCookie("sub.");
+    expect(await getSession()).toBeNull();
+  });
+
+  it("returns null when userId portion is empty (leading dot)", async () => {
+    setCookie(".somehmacsig");
+    expect(await getSession()).toBeNull();
+  });
+
+  it("correctly handles a userId that contains dots", async () => {
+    const userId = "numeric.sub.with.dots";
+    setCookie(signCookie(userId));
+    expect(await getSession()).toEqual({ userId });
+  });
+
+  it("logs a warning on HMAC mismatch", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setCookie(
+      "google-sub-123.badhmacsignaturebadhmacsignaturebadhmacsignaturebadhmacsignature",
+    );
+    await getSession();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[auth] HMAC verification failed for session cookie",
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("returns null and logs warning when SESSION_SECRET is not configured", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockWebEnv.SESSION_SECRET = undefined as unknown as string;
+    setCookie(signCookie("google-sub-123"));
+    expect(await getSession()).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[auth] SESSION_SECRET is not configured but AUTH_MODE is oauth",
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+// ---- dev_bypass mode ------------------------------------------------------
+
+describe("getSession (dev_bypass mode)", () => {
+  beforeEach(() => {
+    mockWebEnv.NEXT_PUBLIC_AUTH_MODE = "dev_bypass";
+  });
+
+  it("returns { userId } from plain cookie value without HMAC check", async () => {
+    setCookie("user-1");
+    expect(await getSession()).toEqual({ userId: "user-1" });
+  });
+
+  it("trims whitespace from the cookie value", async () => {
+    setCookie("  user-1  ");
+    expect(await getSession()).toEqual({ userId: "user-1" });
+  });
+
+  it("returns null when session cookie is absent", async () => {
+    setNoCookie();
+    expect(await getSession()).toBeNull();
+  });
+
+  it("returns null when session cookie value is empty", async () => {
+    setCookie("");
+    expect(await getSession()).toBeNull();
+  });
+
+  it("does not require SESSION_SECRET", async () => {
+    mockWebEnv.SESSION_SECRET = undefined as unknown as string;
+    setCookie("user-1");
+    expect(await getSession()).toEqual({ userId: "user-1" });
+  });
+});
+
+// ---- requireSession -------------------------------------------------------
+
+describe("requireSession", () => {
+  it("returns session when authenticated", async () => {
+    setCookie(signCookie("google-sub-123"));
+    const session = await requireSession();
+    expect(session).toEqual({ userId: "google-sub-123" });
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("redirects to /login when not authenticated", async () => {
+    setNoCookie();
+    await requireSession();
+    expect(redirect).toHaveBeenCalledWith("/login");
+  });
+
+  it("redirects to /login when cookie is invalid", async () => {
+    setCookie("tampered-value");
+    await requireSession();
+    expect(redirect).toHaveBeenCalledWith("/login");
+  });
 });
