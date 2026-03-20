@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
+import { verifySessionCookie } from "../../src/auth/googleOAuth.js";
 import { Env } from "@tw-portfolio/config";
 
 const testOAuthConfig: GoogleOAuthConfig = {
@@ -197,10 +198,20 @@ describe("GET /auth/google/callback", () => {
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe("http://localhost:3000/");
     const setCookie = res.headers["set-cookie"] as string;
-    expect(setCookie).toContain(`${Env.SESSION_COOKIE_NAME}=google-sub-123`);
+    // Cookie now contains the internal UUID (not the Google sub)
+    expect(setCookie).toContain(`${Env.SESSION_COOKIE_NAME}=`);
+    expect(setCookie).not.toContain("google-sub-123");
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
     expect(setCookie).toContain("Secure");
+
+    // Extract cookie value and verify it contains a valid HMAC-signed UUID
+    const cookieMatch = setCookie.match(new RegExp(`${Env.SESSION_COOKIE_NAME}=([^;]+)`));
+    expect(cookieMatch).toBeTruthy();
+    const cookieValue = cookieMatch![1];
+    const verifiedUserId = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
+    expect(verifiedUserId).toBeTruthy();
+    expect(verifiedUserId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it(`sets ${Env.SESSION_COOKIE_NAME} cookie and redirects on returning user login flow`, async () => {
@@ -275,6 +286,42 @@ describe("GET /auth/google/callback", () => {
 
     expect(res.statusCode).toBe(302);
     expect(res.headers["set-cookie"] as string).toContain(`${Env.SESSION_COOKIE_NAME}=`);
+  });
+
+  it("redirects to /auth/error?reason=oauth_error when email_verified is false", async () => {
+    const unverifiedClaims = { ...defaultIdTokenClaims, email_verified: false };
+    vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse({
+      id_token: makeMockIdToken(unverifiedClaims),
+    })));
+    const state = await getValidState(app);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state)}`,
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=oauth_error");
+  });
+
+  it("redirects to /auth/error?reason=oauth_error when resolveOrCreateUser throws", async () => {
+    vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
+    const state = await getValidState(app);
+
+    // Sabotage resolveOrCreateUser to throw
+    const originalResolve = app.persistence.resolveOrCreateUser.bind(app.persistence);
+    app.persistence.resolveOrCreateUser = async () => { throw new Error("simulated DB error"); };
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state)}`,
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("http://localhost:3000/auth/error?reason=oauth_error");
+
+    // Restore
+    app.persistence.resolveOrCreateUser = originalResolve;
   });
 });
 

@@ -1,4 +1,4 @@
-import { test as setup } from "@playwright/test";
+import { test as setup, type APIResponse } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -18,7 +18,7 @@ setup("authenticate with Google OAuth", async ({ request }) => {
   const apiBaseUrl = TestEnv.apiBaseUrl;
   const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
 
-  let sessionResponse;
+  let sessionResponse: APIResponse;
 
   if (refreshToken) {
     // Path A: Local dev with refresh token — exchange for id_token, then create session
@@ -74,7 +74,7 @@ setup("authenticate with Google OAuth", async ({ request }) => {
     throw new Error(`/__e2e/oauth-session failed (${sessionResponse.status()}): ${text}`);
   }
 
-  const body = (await sessionResponse.json()) as { status: string; sub: string };
+  const body = (await sessionResponse.json()) as { status: string; sub: string; userId: string };
   console.log(`Session created for sub: ${body.sub.slice(0, 4)}...`);
 
   // Extract session cookie from response headers

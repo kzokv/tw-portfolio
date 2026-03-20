@@ -6,6 +6,11 @@
 -- Make email nullable (mutable profile data, not durable identity)
 ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
 
+-- Email is the identity-resolution key (KZO-77); enforce uniqueness.
+-- Partial index: only non-NULL emails must be unique (dev_bypass users may have NULL email).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email
+  ON users(email) WHERE email IS NOT NULL;
+
 -- Add display name
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
 

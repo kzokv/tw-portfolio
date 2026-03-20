@@ -9,7 +9,7 @@ type: reference
 ### `users` (tenant root)
 - `id TEXT PK`, `email TEXT` (nullable since migration 014), `display_name TEXT`, `locale TEXT`, `cost_basis_method TEXT` (locked to WEIGHTED_AVERAGE), `quote_poll_interval_seconds INTEGER`
 - `created_at TIMESTAMP`, `updated_at TIMESTAMP`, `deactivated_at TIMESTAMP`, `deleted_at TIMESTAMP` (added migration 014)
-- Read: `loadStore`. Write: `saveStore`, `ensureUserSeed`.
+- Read: `loadStore`. Write: `saveStore`, `resolveOrCreateUser` (upserts on first/subsequent login, email-based; KZO-77).
 
 ### `user_external_identities` (added migration 014)
 - `id TEXT PK`, `user_id TEXT FK->users`, `provider TEXT`, `provider_subject TEXT`, `provider_email TEXT`, `provider_display_name TEXT`, `provider_picture_url TEXT`, `linked_at TIMESTAMP`, `last_seen_at TIMESTAMP`
@@ -17,7 +17,7 @@ type: reference
 
 ### `fee_profiles`
 - `id TEXT PK`, `user_id FK->users`, `name`, rate fields (commission_rate_bps, board_commission_rate, commission_discount_percent, etc.), rounding modes, tax rates by instrument type
-- Read: `loadStore`. Write: `saveStore`, `ensureUserSeed`.
+- Read: `loadStore`. Write: `saveStore`, `ensureDefaultPortfolioData` (called on first login; KZO-77).
 
 ### `fee_profile_tax_rules` (normalized in migration 011)
 - Per-profile tax rules with `market_code`, `trade_side`, `instrument_type`, `day_trade_scope`, `tax_component_code`, `rate_bps`, date range, sort order.

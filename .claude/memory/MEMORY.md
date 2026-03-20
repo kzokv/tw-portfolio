@@ -5,8 +5,9 @@
 
 ## Auth / session
 - [project_cookie_domain_session.md](project_cookie_domain_session.md) — SESSION_COOKIE_NAME + COOKIE_DOMAIN coupling: why __Host- breaks cross-subdomain OAuth, correct docker defaults, startup guard
-- [project_session_cookie_hmac.md](project_session_cookie_hmac.md) — Session cookies are HMAC-signed (sub.hmac format) using SESSION_SECRET, not plain sub values
+- [project_session_cookie_hmac.md](project_session_cookie_hmac.md) — Session cookies are HMAC-signed (userId.hmac format) using SESSION_SECRET; cookie contains internal UUID, not Google sub (KZO-77)
 - [project_oauth_e2e_automation.md](project_oauth_e2e_automation.md) — OAuth e2e uses refresh token (local) or hardcoded sub (CI), no manual login; `npm run auth:refresh-token` to renew
+- [project_kzo77_identity_resolution_design.md](project_kzo77_identity_resolution_design.md) — KZO-77 design: email-based identity resolution, UUID user IDs, field sync rules, ensureUserSeed split, architecture decisions
 
 ## Project context
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 8 targets, CLI flags, .env→.env.local rename, integration points
@@ -18,6 +19,9 @@
 
 ## Agent workflow
 - [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User prefers multi-agent teams: TDD Implementer (Opus), Test Validator, Resolver, Code Reviewer, Findings Fixer, Technical Writer, Memory Curator
+
+## DB / migrations
+- [feedback_migration_update_vs_new.md](feedback_migration_update_vs_new.md) — Update existing migration file for constraint additions; don't create a new file for minor changes to already-migrated tables
 
 ## Feedback & preferences
 - [feedback_npm_script_wrapping.md](feedback_npm_script_wrapping.md) — CLI scripts with positional args should NOT be wrapped as npm scripts; direct invocation is preferred

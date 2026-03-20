@@ -164,7 +164,7 @@ Fields:
 | Column | Type / default | Constraints | Notes |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | tenant key |
-| `email` | `TEXT` | `NOT NULL` | seeded as `<userId>@example.com` |
+| `email` | `TEXT` | `NOT NULL`, UNIQUE partial index (KZO-77) | user's real email from OAuth; identity resolution key |
 | `locale` | `TEXT DEFAULT 'en'` | `NOT NULL` | route layer restricts to `en` or `zh-TW` |
 | `cost_basis_method` | `TEXT DEFAULT 'WEIGHTED_AVERAGE'` | `NOT NULL`, later check-constrained | migration `002` locks this to `WEIGHTED_AVERAGE` only |
 | `quote_poll_interval_seconds` | `INTEGER DEFAULT 10` | `NOT NULL` | route layer caps at `86400` |
@@ -174,7 +174,7 @@ Read path:
 
 Write path:
 - updated by `saveStore`
-- seeded by `ensureUserSeed`
+- upserted by `resolveOrCreateUser` (email-based identity resolution; KZO-77)
 
 #### `fee_profiles`
 
@@ -207,7 +207,7 @@ Read path:
 
 Write path:
 - upserted and pruned by `saveStore`
-- seeded with the default profile by `ensureUserSeed`
+- seeded with the default profile by `ensureDefaultPortfolioData` (called from `resolveOrCreateUser` on first login; KZO-77)
 
 #### `accounts`
 
@@ -232,7 +232,7 @@ Read path:
 
 Write path:
 - upserted and pruned by `saveStore`
-- seeded with `Main` account by `ensureUserSeed`
+- seeded with `Main` account by `ensureDefaultPortfolioData` (called on first login; KZO-77)
 
 #### `account_fee_profile_overrides`
 
@@ -1029,17 +1029,17 @@ POST /ai/transactions/confirm
 
 ### Endpoint catalog
 
-#### Health and auth placeholders
+#### Health and auth
 
 | Method | Path | Request shape | Response shape | Dependencies | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/health/live` | none | `{ status: "ok" }` | none | liveness only |
 | `GET` | `/health/ready` | none | `{ status, dependencies }` | `persistence.readiness()` | status is `ready` only when both Postgres and Redis are healthy |
-| `GET` | `/auth/google/start` | none | `{ status: "todo", message }` | none | placeholder |
-| `GET` | `/auth/google/callback` | none | `{ status: "todo", message }` | none | placeholder |
+| `GET` | `/auth/google/start` | none | redirect to Google consent screen | `SESSION_SECRET` for CSRF state | generates HMAC-signed state token; redirects to Google OAuth |
+| `GET` | `/auth/google/callback` | query `code`, `state` | redirect to `APP_BASE_URL` | `resolveOrCreateUser`, session cookie signing | rejects unverified emails; sets HMAC-signed UUID session cookie (KZO-77) |
 
 Finding:
-- OAuth route surface exists only as placeholder endpoints. Real auth currently depends on header-based identity injection.
+- OAuth routes are fully implemented (KZO-77). Identity resolution is email-based (`users.email` UNIQUE). The session cookie contains the internal UUID, not the Google `sub`.
 
 #### Settings and fee configuration
 
