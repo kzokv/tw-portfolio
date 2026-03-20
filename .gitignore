@@ -24,3 +24,5 @@ libs/*/src/*.js.map
 libs/*/src/*.d.ts
 
 **/plans/**.md
+
+.team/
