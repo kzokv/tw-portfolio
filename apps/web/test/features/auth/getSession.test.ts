@@ -12,7 +12,7 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     // Make cache transparent so each test gets a fresh call
-    cache: (fn: Function) => fn,
+    cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
   };
 });
 
