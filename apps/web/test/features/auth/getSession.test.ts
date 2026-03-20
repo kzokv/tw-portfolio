@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Module mocks — must be declared before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+const mockHeaders = new Map<string, string>();
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+  headers: vi.fn(async () => ({
+    get: (name: string) => mockHeaders.get(name) ?? null,
+  })),
+}));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
@@ -76,6 +82,7 @@ function setNoCookie() {
 
 afterEach(() => {
   vi.clearAllMocks();
+  mockHeaders.clear();
   // Reset to oauth defaults
   mockWebEnv.NEXT_PUBLIC_AUTH_MODE = "oauth";
   mockWebEnv.SESSION_SECRET = SECRET;
@@ -198,6 +205,20 @@ describe("getSession (dev_bypass mode)", () => {
     setCookie("user-1");
     expect(await getSession()).toEqual({ userId: "user-1" });
   });
+
+  it("falls back to tw_e2e_user cookie when session cookie is absent", async () => {
+    vi.mocked(cookies).mockResolvedValue(
+      makeCookieStore({ tw_e2e_user: "qa-user-1" }) as Awaited<ReturnType<typeof cookies>>,
+    );
+    expect(await getSession()).toEqual({ userId: "qa-user-1" });
+  });
+
+  it("decodes URL-encoded tw_e2e_user cookie value", async () => {
+    vi.mocked(cookies).mockResolvedValue(
+      makeCookieStore({ tw_e2e_user: encodeURIComponent("qa-user-1") }) as Awaited<ReturnType<typeof cookies>>,
+    );
+    expect(await getSession()).toEqual({ userId: "qa-user-1" });
+  });
 });
 
 // ---- requireSession -------------------------------------------------------
@@ -218,6 +239,20 @@ describe("requireSession", () => {
 
   it("redirects to /login when cookie is invalid", async () => {
     setCookie("tampered-value");
+    await requireSession();
+    expect(redirect).toHaveBeenCalledWith("/login");
+  });
+
+  it("redirects to /login?returnTo when x-current-path is set and not authenticated", async () => {
+    setNoCookie();
+    mockHeaders.set("x-current-path", "/transactions");
+    await requireSession();
+    expect(redirect).toHaveBeenCalledWith("/login?returnTo=%2Ftransactions");
+  });
+
+  it("does not include returnTo for /login path", async () => {
+    setNoCookie();
+    mockHeaders.set("x-current-path", "/login");
     await requireSession();
     expect(redirect).toHaveBeenCalledWith("/login");
   });

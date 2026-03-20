@@ -72,7 +72,6 @@ export default defineConfig({
         signal: "SIGINT",
         timeout: 10_000,
       },
-      // CRITICAL (P3): No GOOGLE_TOKEN_URL here — real OAuth must use Google's actual token endpoint.
       env: TestEnv.apiServerEnv({
         AUTH_MODE: "oauth",
         PERSISTENCE_BACKEND: process.env.PERSISTENCE_BACKEND ?? "memory",
@@ -81,6 +80,12 @@ export default defineConfig({
         GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI ?? TestEnv.googleRedirectUri,
         SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
         APP_BASE_URL: process.env.APP_BASE_URL ?? TestEnv.appBaseUrl,
+        // Route code-exchange through the mock OAuth server so callback tests work with
+        // code=e2e-auth-code. The mock server is started by playwright.config.ts (dev_bypass
+        // suite); when both suites run together the mock is already on TestEnv.ports.mockOAuth.
+        // auth.setup.ts Path A (real refresh token) is unaffected — it calls the Google token
+        // endpoint directly from the test runner, not via the API's GOOGLE_TOKEN_URL env var.
+        GOOGLE_TOKEN_URL: TestEnv.mockTokenUrl,
       }),
     },
     {

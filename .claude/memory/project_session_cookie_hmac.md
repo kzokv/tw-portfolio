@@ -14,3 +14,4 @@ Session cookie contains the internal UUID (`users.id`), signed as `${userId}.${h
 - Shared `hmacSign`/`hmacVerify` helpers are used by both session cookies and CSRF state tokens
 - Test-only `/__e2e/oauth-session` endpoint mints signed cookies (gated to development/test); returns `{ status, sub, userId }` where `userId` is the UUID stored in the cookie
 - Any code that reads or sets the session cookie must use the signed UUID format
+- **SESSION_SECRET bypass:** `proxy.ts` silently skips HMAC verification when `SESSION_SECRET` is falsy — this is by design for dev mode. All pages remain protected because `requireSession()` enforces auth at the route level regardless. Do not treat the missing HMAC in proxy.ts as a bug to fix; it is intentional. In OAuth mode, always ensure SESSION_SECRET is set at config level.

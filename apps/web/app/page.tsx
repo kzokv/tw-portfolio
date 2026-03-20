@@ -1,11 +1,5 @@
-import { Suspense } from "react";
-import { DashboardLoading } from "../components/dashboard/DashboardLoading";
-import { AppShell } from "../components/layout/AppShell";
+import { redirect } from "next/navigation";
 
-export default function HomePage() {
-  return (
-    <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dashboard" />
-    </Suspense>
-  );
+export default function RootPage() {
+  redirect("/dashboard");
 }

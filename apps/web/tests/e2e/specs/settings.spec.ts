@@ -22,7 +22,7 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await expect(page.getByTestId("topbar-title")).toContainText("持倉");
 
   await page.getByTestId("desktop-sidebar").getByTestId("sidebar-link-dashboard").click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/dashboard/);
   await waitForAppReady(page);
   await expect(page.getByTestId("topbar-title")).toContainText("儀表板");
   await expect(page.getByTestId("settings-quote-poll-value")).toContainText(`${nextQuotePoll} 秒`);

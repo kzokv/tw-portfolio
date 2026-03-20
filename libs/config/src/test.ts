@@ -5,9 +5,11 @@ import path from "node:path";
  * Centralised test/E2E configuration.
  * Replaces EnvHandler in flows.ts and inline parsers in playwright configs.
  *
- * CRITICAL (P3): GOOGLE_TOKEN_URL is NEVER included in apiServerEnv() defaults.
- * Standard Playwright config passes it explicitly (mock server).
- * OAuth Playwright config omits it entirely (real Google endpoint).
+ * GOOGLE_TOKEN_URL is NOT included in apiServerEnv() defaults — always pass it explicitly.
+ * Both playwright configs (dev_bypass and oauth) pass TestEnv.mockTokenUrl so that
+ * browser-navigated callback tests work with code=e2e-auth-code. auth.setup.ts Path A
+ * (real refresh token) calls the Google token endpoint directly from the test runner, so
+ * it is unaffected by the API-side GOOGLE_TOKEN_URL override.
  */
 export const TestEnv = {
   get host(): string {
@@ -59,7 +61,7 @@ export const TestEnv = {
   /**
    * Build env block for API webServer.
    * Returns standard mock credentials + port defaults.
-   * Does NOT include GOOGLE_TOKEN_URL — pass it as an override when needed (standard config).
+   * Does NOT include GOOGLE_TOKEN_URL — pass it as an explicit override (e.g. TestEnv.mockTokenUrl).
    * Does NOT include AUTH_MODE — always pass it explicitly as an override.
    */
   apiServerEnv(overrides: Record<string, string> = {}): Record<string, string> {

@@ -2,9 +2,9 @@ import { test, expect } from "@playwright/test";
 import { apiUrl, extractCookieValue, TestEnv } from "../helpers/flows";
 
 test.describe("authenticated session", () => {
-  test("dashboard loads without redirect to /login", async ({ page }) => {
+  test("dashboard loads at /dashboard after root redirect", async ({ page }) => {
     await page.goto("/");
-    await expect(page).not.toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/dashboard/);
     await expect(page.getByTestId("app-shell-ready")).toBeAttached({ timeout: 30_000 });
   });
 
@@ -18,8 +18,9 @@ test.describe("authenticated session", () => {
     await page.goto("/");
     await expect(page).not.toHaveURL(/\/login/);
 
-    // Navigate to the real logout endpoint — clears session cookie and redirects to /login
-    await page.goto(`http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`, { waitUntil: "domcontentloaded" });
+    // Navigate to the real logout endpoint — clears session cookie and redirects to /login.
+    // Cross-port 302 may ERR_ABORTED in Playwright; catch and let the URL assertion verify.
+    await page.goto(`http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`, { waitUntil: "domcontentloaded" }).catch(() => {});
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
 
     // Subsequent navigation to / should redirect to /login via middleware
@@ -27,21 +28,11 @@ test.describe("authenticated session", () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
   });
 
-  // TODO: No in-app logout button with a data-testid exists in the current UI.
-  // The settings drawer (opened via avatar-button) does not contain a logout action.
-  // The existing "logout clears session" test above navigates directly to the API
-  // /auth/logout endpoint instead. When a UI logout button is added, uncomment
-  // and update this test.
-  //
-  // test("in-app logout button clears session", async ({ page }) => {
-  //   await page.goto("/");
-  //   await expect(page).not.toHaveURL(/\/login/);
-  //   // click logout button, assert redirect to /login, navigate to / again, assert /login
-  // });
+  // NOTE: In-app logout via avatar dropdown is now tested in routing.spec.ts (N12).
 });
 
 test.describe("HMAC session cookie integrity", () => {
-  test("tampered HMAC session cookie redirects to /login", async ({ page }) => {
+  test("tampered HMAC session cookie redirects to /auth/error?reason=session_expired", async ({ page }) => {
     // Retrieve a valid signed session cookie from the storage state
     const cookies = await page.context().cookies();
     const sessionCookie = cookies.find((c) => c.name === TestEnv.sessionCookieName);
@@ -67,12 +58,12 @@ test.describe("HMAC session cookie integrity", () => {
     ]);
 
     await page.goto("/");
-    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/auth\/error\?reason=session_expired/, { timeout: 15_000 });
   });
 
-  test("plain sub without HMAC (old format) redirects to /login", async ({ page }) => {
+  test("plain sub without HMAC (old format) redirects to /auth/error?reason=session_expired", async ({ page }) => {
     // A bare sub value with no dot separator mimics the pre-HMAC cookie format.
-    // verifySessionCookie rejects values without a dot, so the API treats this as unauthenticated.
+    // verifySessionCookie rejects values without a dot, so the middleware treats this as invalid HMAC.
     await page.context().clearCookies();
     await page.context().addCookies([
       {
@@ -87,7 +78,7 @@ test.describe("HMAC session cookie integrity", () => {
     ]);
 
     await page.goto("/");
-    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/auth\/error\?reason=session_expired/, { timeout: 15_000 });
   });
 });
 
@@ -140,8 +131,9 @@ test.describe("stateless session re-use after logout", () => {
     expect(sessionCookie).toBeDefined();
     const savedCookieValue = sessionCookie!.value;
 
-    // Logout via the API endpoint — clears the cookie in the browser
-    await page.goto(`http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`, { waitUntil: "domcontentloaded" });
+    // Logout via the API endpoint — clears the cookie in the browser.
+    // Cross-port 302 may ERR_ABORTED in Playwright; catch and let the URL assertion verify.
+    await page.goto(`http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`, { waitUntil: "domcontentloaded" }).catch(() => {});
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
 
     // Re-plant the previously captured cookie value

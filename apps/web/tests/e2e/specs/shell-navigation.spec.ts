@@ -29,6 +29,9 @@ test("desktop shell supports collapse persistence and route navigation", async (
 
   await page.getByTestId("desktop-nav-toggle").click();
   await expect(desktopSidebar).toHaveAttribute("data-collapsed", "false");
+  // Wait for the link to be visible — the sidebar DOM structure changes during collapse/expand
+  // (links move in/out of Tooltip.Trigger wrappers), so we must wait for stability before clicking.
+  await expect(desktopSidebar.getByTestId("sidebar-link-transactions")).toBeVisible();
 
   await desktopSidebar.getByTestId("sidebar-link-transactions").click();
   await expect(page).toHaveURL(/\/transactions$/);
@@ -79,7 +82,7 @@ test("mobile drawer and mobile quick search stay usable without horizontal overf
 
   await openMobileNavigation(page);
   await page.getByTestId("mobile-sidebar").getByTestId("sidebar-link-dashboard").click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/dashboard/);
   await waitForAppReady(page);
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({

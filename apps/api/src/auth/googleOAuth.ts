@@ -80,9 +80,14 @@ export function verifySessionCookie(cookieValue: string, sessionSecret: string):
   return hmacVerify(userId, receivedHmac, sessionSecret) ? userId : null;
 }
 
-/** Generate a stateless HMAC-signed CSRF state token: `${nonce}.${hmac}` */
-export function generateState(sessionSecret: string): string {
+/** Generate a stateless HMAC-signed CSRF state token, optionally embedding a returnTo path. */
+export function generateState(sessionSecret: string, returnTo?: string): string {
   const nonce = randomBytes(16).toString("hex");
+  if (returnTo) {
+    const encoded = Buffer.from(returnTo, "utf8").toString("base64url");
+    const payload = `${nonce}.${encoded}`;
+    return `${payload}.${hmacSign(payload, sessionSecret)}`;
+  }
   return `${nonce}.${hmacSign(nonce, sessionSecret)}`;
 }
 
@@ -96,6 +101,32 @@ export function verifyState(state: string, sessionSecret: string): boolean {
   if (!nonce || !receivedHmac) return false;
 
   return hmacVerify(nonce, receivedHmac, sessionSecret);
+}
+
+/** Validate a returnTo path: must be relative, no scheme, no protocol-relative. */
+export function isValidReturnTo(path: string): boolean {
+  if (!path.startsWith("/") || path.startsWith("//")) return false;
+  try {
+    const url = new URL(path, "http://n");
+    return url.host === "n";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract and validate a returnTo path from a verified state token.
+ * Returns null for 2-part states (no returnTo) or invalid paths.
+ */
+export function extractReturnTo(state: string): string | null {
+  const parts = state.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const decoded = Buffer.from(parts[1], "base64url").toString("utf8");
+    return isValidReturnTo(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Build the Google OAuth2 authorization URL. */

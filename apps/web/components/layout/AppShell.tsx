@@ -17,6 +17,7 @@ import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { API_BASE } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
@@ -173,7 +174,7 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
     () => [
       {
         id: "dashboard",
-        href: "/",
+        href: "/dashboard",
         label: dict.navigation.dashboardLabel,
         description: dict.navigation.dashboardDescription,
       },
@@ -247,6 +248,8 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
         title={shellTitle}
         titleTooltip={shellDescription}
         openSettingsLabel={dict.topBar.openSettingsLabel}
+        signOutLabel="Sign out"
+        signOutHref={`${API_BASE}/auth/logout`}
         searchPlaceholder={dict.topBar.searchPlaceholder}
         searchLabel={dict.topBar.searchLabel}
         searchEmptyLabel={dict.topBar.searchEmptyLabel}

@@ -15,3 +15,5 @@ type: feedback
 **Why:** The user explicitly defined this set. Never declare "all tests pass" with a subset — e.g. passing unit+integration is NOT "full tests pass".
 
 **How to apply:** When verifying a feature branch is ready, run all five. When a team agent reports test results, check that all five suites are covered.
+
+**Integration test command:** Always use `test:integration:ci:host`, never `test:integration` — the bare integration command is not the correct target for development work.

@@ -28,6 +28,8 @@ interface TopBarProps {
   title: string;
   titleTooltip: string;
   openSettingsLabel: string;
+  signOutLabel: string;
+  signOutHref: string;
   searchPlaceholder: string;
   searchLabel: string;
   searchEmptyLabel: string;
@@ -54,6 +56,8 @@ export function TopBar({
   title,
   titleTooltip,
   openSettingsLabel,
+  signOutLabel,
+  signOutHref,
   searchPlaceholder,
   searchLabel,
   searchEmptyLabel,
@@ -260,7 +264,7 @@ export function TopBar({
           </Button>
 
           <div className="shrink-0">
-            <UserAvatarButton userId={userId} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} />
+            <UserAvatarButton userId={userId} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
           </div>
         </div>
       </header>

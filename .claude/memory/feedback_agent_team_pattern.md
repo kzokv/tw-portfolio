@@ -1,19 +1,22 @@
 ---
 name: agent_team_pattern
-description: User prefers multi-agent teams with TDD implementation (Opus), test runner, resolver, reviewer, technical writer, and memory curator
+description: User's multi-agent team workflow formalized as /team skill with 3 tiers, convergence loop, Architect-as-lead, and state file tracking
 type: feedback
 ---
 
-When tackling complex implementation tasks, user wants a structured agent team:
+User's agent team pattern has been formalized as the `/team` skill at `.codex/skills/team/`. This supersedes the original 7-agent flat pattern.
 
-1. **TDD Implementer** (Opus) — writes failing tests first, then implements until green
-2. **Test Validator** (Sonnet) — runs all tests after implementation, reports failures without fixing
-3. **Resolver** (Sonnet) — fixes failures reported by the validator, re-runs to confirm
-4. **Code Reviewer** (Sonnet, background) — reviews code quality and produces findings report
-5. **Findings Fixer** (Opus) — addresses review findings, runs all tests, iterates until clean
-6. **Technical Writer** (Sonnet) — updates docs (README, changelogs, inline comments) after implementation is stable
-7. **Memory Curator** (Sonnet, background) — saves important facts and decisions to project memory
+Key design decisions (2026-03-20):
+1. **Resolver + Findings Fixer merged** into single Fixer agent
+2. **Architect is team lead** with trust-but-escalate model
+3. **3 tiers:** Solo (4 agents), Squad (6), Full Team (8) — Claude recommends, user approves
+4. **QA writes test scripts at all tiers** — full two-phase ceremony only at Tier 3
+5. **Convergence loop:** 3 default iterations, Architect can extend to 5, then hard escalate
+6. **Architect self-check:** if same area fails 2 consecutive iterations, re-evaluate design
+7. **Memory:** Architect owns at Tier 1-2, dedicated Memory Curator wrap-up at Tier 3
+8. **State file:** `.team/state.json` for loop control and phase tracking
+9. **Code Reviewer runs inside the loop**, parallel with Validator in Phase 3
 
-**Why:** User values separation of concerns between writing, validating, reviewing, and documenting. Opus for complex implementation and fix work, Sonnet for validation/review/docs.
+**Why:** User values separation of writing/validating/reviewing, wants bounded iteration with escape hatches, and needs tier scaling to avoid over-engineering small tasks.
 
-**How to apply:** Use this pattern when the user says "create a team" or "spawn agents". Launch independent agents in parallel where possible (e.g., Code Reviewer and Memory Curator can run in the background while other agents proceed). Sequential agents (Test Validator → Resolver) wait for dependencies.
+**How to apply:** Use `/team` skill instead of manually spawning agents. The skill handles tier recommendation, agent spawning, state tracking, and scaling.

@@ -3,7 +3,7 @@ import { Card } from "../../../components/ui/Card";
 import { buttonVariants } from "../../../components/ui/Button";
 import { cn } from "../../../lib/utils";
 
-const REASON_MESSAGES: Record<string, { title: string; description: string }> = {
+const REASON_MESSAGES: Record<string, { title: string; description: string; linkText?: string }> = {
   invalid_state: {
     title: "Sign-in failed",
     description: "The sign-in request was invalid or expired. Please try again.",
@@ -16,9 +16,14 @@ const REASON_MESSAGES: Record<string, { title: string; description: string }> = 
     title: "Something went wrong",
     description: "A server error occurred during sign-in. Please try again in a moment.",
   },
+  session_expired: {
+    title: "Your session has expired",
+    description: "Please sign in again to continue.",
+    linkText: "Sign in again",
+  },
 };
 
-const DEFAULT_MESSAGE = {
+const DEFAULT_MESSAGE: { title: string; description: string; linkText?: string } = {
   title: "Sign-in failed",
   description: "An unexpected error occurred during sign-in. Please try again.",
 };
@@ -43,7 +48,7 @@ export default async function AuthErrorPage({ searchParams }: Props) {
           data-testid="auth-error-try-again"
           className={cn(buttonVariants({ variant: "default" }), "w-full")}
         >
-          Try again
+          {message.linkText ?? "Try again"}
         </Link>
       </Card>
     </main>

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 
 import { WebEnv } from "@tw-portfolio/config/web";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 // ---------------------------------------------------------------------------
 // Session type
@@ -46,8 +46,12 @@ const resolveSession = cache(async (): Promise<Session | null> => {
   if (WebEnv.NEXT_PUBLIC_AUTH_MODE === "dev_bypass") {
     const cookieStore = await cookies();
     const raw = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
-    if (!raw?.trim()) return null;
-    return { userId: raw.trim() };
+    if (raw?.trim()) return { userId: raw.trim() };
+    // SESSION_COOKIE_NAME uses the __Host- prefix which requires HTTPS,
+    // so local/E2E environments set tw_e2e_user instead.
+    const e2eRaw = cookieStore.get("tw_e2e_user")?.value;
+    if (e2eRaw?.trim()) return { userId: decodeURIComponent(e2eRaw.trim()) };
+    return null;
   }
 
   // oauth mode: HMAC verification required
@@ -79,6 +83,16 @@ const resolveSession = cache(async (): Promise<Session | null> => {
   return { userId };
 });
 
+export function isValidReturnTo(path: string): boolean {
+  if (!path.startsWith("/") || path.startsWith("//")) return false;
+  try {
+    const url = new URL(path, "http://n");
+    return url.host === "n";
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -99,6 +113,11 @@ export async function getSession(): Promise<Session | null> {
 export async function requireSession(): Promise<Session> {
   const session = await getSession();
   if (!session) {
+    const headerStore = await headers();
+    const pathname = headerStore.get("x-current-path");
+    if (pathname && isValidReturnTo(pathname) && pathname !== "/login") {
+      redirect(`/login?returnTo=${encodeURIComponent(pathname)}`);
+    }
     redirect("/login");
   }
   return session;
