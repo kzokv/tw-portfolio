@@ -398,8 +398,8 @@ validate_env_file_keys() {
     fi
   done
 
-  if [ "${AUTH_MODE:-}" = "oauth" ] && [ -z "${AUTH_USER_ID:-}" ]; then
-    echo "ERROR: AUTH_USER_ID is required in $ENV_FILE when AUTH_MODE=oauth" >&2
+  if [ "${AUTH_MODE:-}" = "oauth" ] && [ -n "${AUTH_USER_ID:-}" ]; then
+    echo "ERROR: AUTH_USER_ID must not be set when AUTH_MODE=oauth (identity conflict)" >&2
     exit 1
   fi
 }

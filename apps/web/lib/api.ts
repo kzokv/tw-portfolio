@@ -15,7 +15,7 @@
  */
 function resolveApiBase(): string {
   // Use || (not ??) so an accidentally-baked empty string falls back to the default.
-  const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.NEXT_PUBLIC_API_PORT || process.env.API_PORT || 4000}`;
+  const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.API_PORT || 4000}`;
   if (typeof window === "undefined") return baked;
 
   // Client-side: if the baked URL is a local loopback alias, use the browser's
@@ -32,26 +32,13 @@ const E2E_USER_COOKIE = "tw_e2e_user";
 
 /**
  * Headers sent with every API request for auth.
- * - When AUTH_MODE=oauth the API requires x-authenticated-user-id.
- *   Set NEXT_PUBLIC_AUTH_USER_ID in production (e.g. from gateway/session or single-user env).
  * - When AUTH_MODE=dev_bypass the API accepts optional x-user-id; default is "user-1".
+ * - tw_e2e_user cookie → x-user-id header for E2E per-test isolation.
  */
 function getAuthHeaders(): Record<string, string> {
-  const oauthUserId = typeof process.env.NEXT_PUBLIC_AUTH_USER_ID === "string"
-    ? process.env.NEXT_PUBLIC_AUTH_USER_ID.trim()
-    : "";
-  if (oauthUserId) {
-    return { "x-authenticated-user-id": oauthUserId };
-  }
   const runtimeDevUserId = getRuntimeDevUserId();
   if (runtimeDevUserId) {
     return { "x-user-id": runtimeDevUserId };
-  }
-  const devUserId = typeof process.env.NEXT_PUBLIC_DEV_USER_ID === "string"
-    ? process.env.NEXT_PUBLIC_DEV_USER_ID.trim()
-    : "";
-  if (devUserId) {
-    return { "x-user-id": devUserId };
   }
   return {};
 }

@@ -181,16 +181,7 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
 
 function resolveUserId(req: FastifyRequest, sessionSecret?: string): string {
   if (Env.AUTH_MODE === "oauth") {
-    // Trust x-authenticated-user-id header — intended for gateway/proxy use only.
-    // In production, ensure the gateway strips this header from untrusted client requests
-    // and only sets it after authenticating the user upstream. Without a gateway, this
-    // header is NOT verified by the API and should not be exposed to direct client access.
-    const authenticatedHeader = req.headers["x-authenticated-user-id"];
-    if (authenticatedHeader && !Array.isArray(authenticatedHeader)) {
-      return userScopedIdSchema.parse(authenticatedHeader);
-    }
-
-    // Fall back to session cookie (direct browser requests after OAuth login).
+    // Session cookie is the sole identity source in oauth mode.
     const sub = parseSessionCookie(req.headers.cookie, sessionSecret);
     if (sub) return userScopedIdSchema.parse(sub);
 

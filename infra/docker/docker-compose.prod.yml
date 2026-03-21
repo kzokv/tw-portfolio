@@ -125,7 +125,6 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-twp-api.kzokvdevs.dpdns.org}
-        NEXT_PUBLIC_AUTH_USER_ID: ${AUTH_USER_ID:-}
         NEXT_PUBLIC_AUTH_MODE: oauth
     image: twp-prod-web:${IMAGE_TAG:-latest}
     container_name: twp-prod-web

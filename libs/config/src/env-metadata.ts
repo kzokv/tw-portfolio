@@ -37,7 +37,6 @@ export const dockerDevGroups: EnvGroup[] = [
     keys: [
       "NODE_ENV",
       "AUTH_MODE",
-      "AUTH_USER_ID",
       "PERSISTENCE_BACKEND",
       "API_PORT",
       "WEB_PORT",
@@ -63,7 +62,6 @@ export const dockerProdGroups: EnvGroup[] = [
     keys: [
       "NODE_ENV",
       "AUTH_MODE",
-      "AUTH_USER_ID",
       "PERSISTENCE_BACKEND",
       "API_PORT",
       "WEB_PORT",
@@ -87,7 +85,6 @@ export const dockerLocalGroups: EnvGroup[] = [
     keys: [
       "NODE_ENV",
       "AUTH_MODE",
-      "AUTH_USER_ID",
       "PERSISTENCE_BACKEND",
       "API_PORT",
       "WEB_PORT",

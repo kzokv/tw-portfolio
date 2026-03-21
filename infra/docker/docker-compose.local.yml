@@ -138,7 +138,6 @@ services:
       args:
         NEXT_PUBLIC_API_BASE_URL: http://localhost:4300
         NEXT_PUBLIC_AUTH_MODE: ${AUTH_MODE:-oauth}
-        NEXT_PUBLIC_AUTH_USER_ID: ${AUTH_USER_ID:-}
     image: twp-local-web:${IMAGE_TAG:-latest}
     container_name: twp-local-web
     restart: unless-stopped
