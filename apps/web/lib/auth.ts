@@ -51,7 +51,7 @@ const resolveSession = cache(async (): Promise<Session | null> => {
     // so local/E2E environments set tw_e2e_user instead.
     const e2eRaw = cookieStore.get("tw_e2e_user")?.value;
     if (e2eRaw?.trim()) return { userId: decodeURIComponent(e2eRaw.trim()) };
-    return null;
+    return { userId: "user-1" };  // matches API's resolveUserId() fallback
   }
 
   // oauth mode: HMAC verification required
