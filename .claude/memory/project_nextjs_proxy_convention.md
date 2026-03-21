@@ -6,12 +6,22 @@ type: project
 
 ## Convention
 
-Next.js 16 introduced `proxy.ts` as the replacement for the deprecated `middleware.ts` pattern for request proxying and middleware logic.
+Next.js 16 (v16.1.6) resolves the middleware handler via named export priority:
+
+```js
+// next/dist/server/next-server.js:1233
+handler: middlewareModule.proxy || middlewareModule.middleware || middlewareModule
+```
+
+`proxy` is checked first. `apps/web/proxy.ts` exports `export function proxy(...)` — it matches.
+
+`PROXY_FILENAME = 'proxy'` is defined in `next/dist/lib/constants.js:274`.
 
 - **File location:** `apps/web/proxy.ts`
-- **Auto-discovery:** Next.js discovers and applies it automatically at build time — no imports or wrapper needed
-- **No middleware.ts required:** Do not add a `middleware.ts` file; it is deprecated in v16 and would conflict
+- **Auto-discovery:** Next.js resolves `proxy.ts` natively — no `middleware.ts` wrapper needed
+- **Do NOT add middleware.ts:** Adding it alongside `proxy.ts` crashes the app (both files define middleware handlers)
+- **`x-current-path` header:** Set by `proxy.ts` on authorized requests; used by `requireSession()` for returnTo redirect
 
 ## Project status
 
-`apps/web/proxy.ts` is already correctly named and in place. This convention should be preserved when adding or modifying request-level middleware logic.
+`apps/web/proxy.ts` is the active Next.js 16 middleware. Treat it as production middleware, not dead code.
