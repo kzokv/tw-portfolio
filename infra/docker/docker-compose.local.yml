@@ -149,6 +149,7 @@ services:
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
+      SESSION_SECRET: ${SESSION_SECRET:?required}
     networks:
       - twp-local-net
     healthcheck:
