@@ -10,6 +10,7 @@
 - [project_kzo77_identity_resolution_design.md](project_kzo77_identity_resolution_design.md) — KZO-77 design: email-based identity resolution, UUID user IDs, field sync rules, ensureUserSeed split, architecture decisions
 
 ## Project context
+- [project_validatehostconsistency_singleton_bug.md](project_validatehostconsistency_singleton_bug.md) — validateHostConsistency uses Env.NODE_ENV singleton (not injectable); test failure is pre-existing and intentionally unfixed
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 8 targets, CLI flags, .env→.env.local rename, integration points
 - [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
 - [project_ise_fixes.md](project_ise_fixes.md) — Five ISE root-cause fixes implemented on dev-issue: loadStore parallelization, CORS callback, routeError lib, error boundaries, try/catch in symbol page
@@ -36,6 +37,7 @@
 - [feedback_picture_url_sanitization.md](feedback_picture_url_sanitization.md) — providerPictureUrl must be HTTPS-only validated before rendering; use referrerPolicy="no-referrer" on Google avatar imgs
 
 ## Feedback & preferences
+- [feedback_rename_caller_grep.md](feedback_rename_caller_grep.md) — When renaming exported functions, grep all callers across entire repo before marking implementation complete
 - [feedback_npm_script_wrapping.md](feedback_npm_script_wrapping.md) — CLI scripts with positional args should NOT be wrapped as npm scripts; direct invocation is preferred
 - [feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md) — @inquirer/prompts: loop:false, dynamic pageSize, no search/filter, "loop navigation" disambiguation
 - [feedback_pr_workflow.md](feedback_pr_workflow.md) — PRs target dev, ticket ID from branch name, commit memory files

@@ -55,4 +55,16 @@ export default [
       'playwright/no-skipped-test': 'off',
     },
   },
+  // Prevent env-web.ts from importing env.ts — fs.readFileSync crashes Edge Runtime
+  {
+    files: ['libs/config/src/env-web.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          { name: './env', message: 'env-web.ts must not import from env.ts — fs.readFileSync crashes Edge Runtime' },
+          { name: './env.js', message: 'env-web.ts must not import from env.ts — fs.readFileSync crashes Edge Runtime' },
+        ],
+      }],
+    },
+  },
 ];
