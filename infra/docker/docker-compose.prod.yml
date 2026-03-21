@@ -100,6 +100,7 @@ services:
       ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-twp-web.kzokvdevs.dpdns.org}
       APP_BASE_URL: https://${PUBLIC_DOMAIN_WEB:-twp-web.kzokvdevs.dpdns.org}
       GOOGLE_REDIRECT_URI: https://${PUBLIC_DOMAIN_API:-twp-api.kzokvdevs.dpdns.org}/auth/google/callback
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.kzokvdevs.dpdns.org}
     networks:
       - twp-prod-net
     healthcheck:

@@ -37,6 +37,7 @@ export const dockerProdSchema = envSchema.extend({
   PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
   PUBLIC_DOMAIN_WEB: z.string().default("twp-web.kzokvdevs.dpdns.org"),
   PUBLIC_DOMAIN_API: z.string().default("twp-api.kzokvdevs.dpdns.org"),
+  COOKIE_DOMAIN: z.string().default(".kzokvdevs.dpdns.org"),
 });
 
 // Docker local — strict subset: only vars docker-compose.local.yml actually needs.
