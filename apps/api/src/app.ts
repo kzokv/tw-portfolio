@@ -48,7 +48,7 @@ function isKnownClientError(message: string): { statusCode: number; code: string
 }
 
 function getRateLimitKey(req: FastifyRequest): string {
-  const userId = String(req.headers["x-authenticated-user-id"] ?? req.headers["x-user-id"] ?? "anonymous");
+  const userId = String(req.headers["x-user-id"] ?? "anonymous");
   const path = req.url.split("?")[0] ?? req.url;
   return `${req.ip}:${userId}:${req.method}:${path}`;
 }

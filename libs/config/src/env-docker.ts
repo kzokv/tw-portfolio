@@ -9,7 +9,6 @@ const dockerBaseExtension = {
   POSTGRES_DB: z.string().default("tw_portfolio"),
   REDIS_PASSWORD: z.string().min(1),
   CLOUDFLARE_TUNNEL_TOKEN: z.string().min(1),
-  AUTH_USER_ID: z.string().default("user-1"),
   PRIMARY_PROVIDER: z.string().default("mock-primary"),
   FALLBACK_PROVIDER: z.string().default("mock-fallback"),
   TWP_STATE_DIR: z.string().optional(),
@@ -72,6 +71,5 @@ export const dockerLocalSchema = z.object({
   // and __Host- requires the Secure flag which needs HTTPS.
   SESSION_COOKIE_NAME: z.string().min(1).default("g_auth_session"),
   // Optional
-  AUTH_USER_ID: z.string().default("user-1"),
   IMAGE_TAG: z.string().optional(),
 });
