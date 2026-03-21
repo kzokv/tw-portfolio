@@ -184,3 +184,116 @@ describe("validateCookieConfig", () => {
     ).toThrow("__Host-");
   });
 });
+
+describe("validateEnvConstraints", () => {
+  const baseEnv = {
+    API_PORT: 4000,
+    WEB_PORT: 3000,
+    DB_PORT: 5432,
+    REDIS_PORT: 6379,
+    AUTH_MODE: "dev_bypass" as const,
+    NODE_ENV: "development" as const,
+    GOOGLE_CLIENT_ID: undefined,
+    GOOGLE_CLIENT_SECRET: undefined,
+    GOOGLE_REDIRECT_URI: undefined,
+    SESSION_SECRET: undefined,
+  };
+
+  it("passes with unique ports and dev_bypass in development", () => {
+    expect(() => Env.validateEnvConstraints(baseEnv)).not.toThrow();
+  });
+
+  it("throws when ports conflict", () => {
+    expect(() =>
+      Env.validateEnvConstraints({ ...baseEnv, WEB_PORT: 4000 }),
+    ).toThrow("Port conflict");
+  });
+
+  it("throws when dev_bypass used in production", () => {
+    expect(() =>
+      Env.validateEnvConstraints({ ...baseEnv, NODE_ENV: "production" as const }),
+    ).toThrow("dev_bypass");
+  });
+
+  it("passes when dev_bypass used in development", () => {
+    expect(() =>
+      Env.validateEnvConstraints({ ...baseEnv, NODE_ENV: "development" as const }),
+    ).not.toThrow();
+  });
+
+  it("passes when dev_bypass used in test", () => {
+    expect(() =>
+      Env.validateEnvConstraints({ ...baseEnv, NODE_ENV: "test" as const }),
+    ).not.toThrow();
+  });
+
+  it("throws when oauth mode missing GOOGLE_CLIENT_ID", () => {
+    expect(() =>
+      Env.validateEnvConstraints({ ...baseEnv, AUTH_MODE: "oauth" as const }),
+    ).toThrow("GOOGLE_CLIENT_ID");
+  });
+
+  it("passes when oauth mode has all required vars", () => {
+    expect(() =>
+      Env.validateEnvConstraints({
+        ...baseEnv,
+        AUTH_MODE: "oauth" as const,
+        GOOGLE_CLIENT_ID: "id",
+        GOOGLE_CLIENT_SECRET: "secret",
+        GOOGLE_REDIRECT_URI: "http://localhost:4000/callback",
+        SESSION_SECRET: "a-secret-that-is-at-least-32-chars-long",
+      }),
+    ).not.toThrow();
+  });
+
+  // QA edge cases (E8-E11)
+  it("throws when oauth mode has partial creds (only SESSION_SECRET missing)", () => {
+    expect(() =>
+      Env.validateEnvConstraints({
+        ...baseEnv,
+        AUTH_MODE: "oauth" as const,
+        GOOGLE_CLIENT_ID: "id",
+        GOOGLE_CLIENT_SECRET: "secret",
+        GOOGLE_REDIRECT_URI: "http://localhost:4000/callback",
+        SESSION_SECRET: undefined,
+      }),
+    ).toThrow("SESSION_SECRET");
+  });
+
+  it("rejects dev_bypass in production even with oauth creds present", () => {
+    expect(() =>
+      Env.validateEnvConstraints({
+        ...baseEnv,
+        NODE_ENV: "production" as const,
+        AUTH_MODE: "dev_bypass" as const,
+        GOOGLE_CLIENT_ID: "id",
+        GOOGLE_CLIENT_SECRET: "secret",
+        GOOGLE_REDIRECT_URI: "http://localhost:4000/callback",
+        SESSION_SECRET: "a-secret-that-is-at-least-32-chars-long",
+      }),
+    ).toThrow("dev_bypass");
+  });
+
+  it("detects conflict when three ports share the same value", () => {
+    expect(() =>
+      Env.validateEnvConstraints({
+        ...baseEnv,
+        API_PORT: 4000,
+        WEB_PORT: 4000,
+        DB_PORT: 4000,
+      }),
+    ).toThrow("Port conflict");
+  });
+
+  it("uses injectable params, not Env singleton, for port check", () => {
+    // Env singleton has valid unique ports. Injectable params have a conflict.
+    // If the function correctly uses envInput, it should throw.
+    expect(() =>
+      Env.validateEnvConstraints({
+        ...baseEnv,
+        API_PORT: 9999,
+        WEB_PORT: 9999,
+      }),
+    ).toThrow("Port conflict");
+  });
+});

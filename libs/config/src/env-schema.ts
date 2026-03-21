@@ -36,6 +36,21 @@ export const envSchema = z.object({
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
+/**
+ * Web-side env schema. Safe to import in Edge Runtime (no Node.js modules).
+ * SESSION_SECRET is inherited as optional from envSchema. Enforcement (required in
+ * oauth mode) relies on validateEnvConstraints() — webEnvSchema.parse() alone will
+ * not throw if SESSION_SECRET is absent.
+ */
+export const webEnvSchema = envSchema
+  .pick({ SESSION_SECRET: true, SESSION_COOKIE_NAME: true })
+  .extend({
+    NEXT_PUBLIC_AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
+    NEXT_PUBLIC_API_BASE_URL: z.string().default("http://localhost:4000"),
+  });
+
+export type WebEnvConfig = z.infer<typeof webEnvSchema>;
+
 export function parseDotEnvLine(line: string): { key: string; value: string } | null {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("#")) return null;

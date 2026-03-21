@@ -25,8 +25,8 @@ export const envGroups: EnvGroup[] = [
   },
 ];
 
-// Docker dev groups
-export const dockerDevGroups: EnvGroup[] = [
+// Docker cloud groups (dev + prod — unified)
+export const dockerCloudGroups: EnvGroup[] = [
   { label: "Public domains", keys: ["PUBLIC_DOMAIN_WEB", "PUBLIC_DOMAIN_API"] },
   { label: "Postgres", keys: ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"] },
   { label: "Redis", keys: ["REDIS_PASSWORD"] },
@@ -38,31 +38,7 @@ export const dockerDevGroups: EnvGroup[] = [
       "NODE_ENV",
       "AUTH_MODE",
       "PERSISTENCE_BACKEND",
-      "API_PORT",
-      "WEB_PORT",
-      "DATA_PROVIDER_TIMEOUT_MS",
-      "PRIMARY_PROVIDER",
-      "FALLBACK_PROVIDER",
-      "RATE_LIMIT_WINDOW_MS",
-      "RATE_LIMIT_MAX_MUTATIONS",
-    ],
-  },
-  { label: "State paths", keys: ["TWP_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
-];
-
-// Docker prod groups — same structure as dev
-export const dockerProdGroups: EnvGroup[] = [
-  { label: "Public domains", keys: ["PUBLIC_DOMAIN_WEB", "PUBLIC_DOMAIN_API"] },
-  { label: "Postgres", keys: ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"] },
-  { label: "Redis", keys: ["REDIS_PASSWORD"] },
-  { label: "Cloudflare Tunnel", keys: ["CLOUDFLARE_TUNNEL_TOKEN"] },
-  { label: "Google OAuth", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "SESSION_COOKIE_NAME", "COOKIE_DOMAIN"] },
-  {
-    label: "Application",
-    keys: [
-      "NODE_ENV",
-      "AUTH_MODE",
-      "PERSISTENCE_BACKEND",
+      "DEPLOY_ENV",
       "API_PORT",
       "WEB_PORT",
       "DATA_PROVIDER_TIMEOUT_MS",

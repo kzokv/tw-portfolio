@@ -20,24 +20,18 @@ const dockerBaseExtension = {
   SESSION_COOKIE_NAME: z.string().min(1).default("g_auth_session"),
 };
 
-export const dockerDevSchema = envSchema.extend({
+export const dockerCloudSchema = envSchema.extend({
   ...dockerBaseExtension,
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
   AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("oauth"),
   PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
-  PUBLIC_DOMAIN_WEB: z.string().default("twp-dev-web.kzokvdevs.dpdns.org"),
-  PUBLIC_DOMAIN_API: z.string().default("twp-dev-api.kzokvdevs.dpdns.org"),
-  COOKIE_DOMAIN: z.string().default(".kzokvdevs.dpdns.org"),
-});
-
-export const dockerProdSchema = envSchema.extend({
-  ...dockerBaseExtension,
-  NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
-  AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("oauth"),
-  PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
-  PUBLIC_DOMAIN_WEB: z.string().default("twp-web.kzokvdevs.dpdns.org"),
-  PUBLIC_DOMAIN_API: z.string().default("twp-api.kzokvdevs.dpdns.org"),
-  COOKIE_DOMAIN: z.string().default(".kzokvdevs.dpdns.org"),
+  DEPLOY_ENV: z.enum(["dev", "production"]),
+  // Re-declared to document: no default (overrides dockerBaseExtension spread which also has these fields).
+  // env:setup provides domain values.
+  PUBLIC_DOMAIN_WEB: z.string().min(1),
+  PUBLIC_DOMAIN_API: z.string().min(1),
+  // Required — no default. Cross-subdomain session sharing needs explicit domain.
+  COOKIE_DOMAIN: z.string().min(1),
 });
 
 // Docker local — strict subset: only vars docker-compose.local.yml actually needs.
@@ -56,13 +50,13 @@ export const dockerLocalSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
   AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("oauth"),
   PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
-  API_PORT: z.string().default("4000"),
-  WEB_PORT: z.string().default("3000"),
-  DATA_PROVIDER_TIMEOUT_MS: z.string().default("3000"),
+  API_PORT: z.coerce.number().int().positive().default(4000),
+  WEB_PORT: z.coerce.number().int().positive().default(3000),
+  DATA_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   PRIMARY_PROVIDER: z.string().default("mock-primary"),
   FALLBACK_PROVIDER: z.string().default("mock-fallback"),
-  RATE_LIMIT_WINDOW_MS: z.string().default("60000"),
-  RATE_LIMIT_MAX_MUTATIONS: z.string().default("120"),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  RATE_LIMIT_MAX_MUTATIONS: z.coerce.number().int().positive().default(120),
   // Google OAuth
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
@@ -74,3 +68,22 @@ export const dockerLocalSchema = z.object({
   // Optional
   IMAGE_TAG: z.string().optional(),
 });
+
+/**
+ * Validates that COOKIE_DOMAIN is set when API and web live on different subdomains.
+ * Cross-subdomain session sharing requires an explicit cookie domain scope.
+ */
+export function validateCookieDomainRequired(input: {
+  PUBLIC_DOMAIN_WEB: string;
+  PUBLIC_DOMAIN_API: string;
+  COOKIE_DOMAIN?: string;
+}): void {
+  if (input.PUBLIC_DOMAIN_WEB === input.PUBLIC_DOMAIN_API) return;
+  if (!input.COOKIE_DOMAIN) {
+    throw new Error(
+      `PUBLIC_DOMAIN_WEB (${input.PUBLIC_DOMAIN_WEB}) and PUBLIC_DOMAIN_API (${input.PUBLIC_DOMAIN_API}) ` +
+      `use different hostnames but COOKIE_DOMAIN is not set. ` +
+      `Cross-subdomain session sharing requires COOKIE_DOMAIN (e.g. ".kzokvdevs.dpdns.org").`,
+    );
+  }
+}

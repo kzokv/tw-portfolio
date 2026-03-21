@@ -27,20 +27,26 @@ export interface GoogleOAuthEnvConfig {
 export const Env = Object.freeze({
   ..._parsed,
 
-  validatePortConflicts(): void {
-    const ports = [Env.API_PORT, Env.WEB_PORT, Env.DB_PORT, Env.REDIS_PORT];
+  validateEnvConstraints(
+    envInput: Pick<EnvConfig,
+      "API_PORT" | "WEB_PORT" | "DB_PORT" | "REDIS_PORT" |
+      "AUTH_MODE" | "NODE_ENV" |
+      "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "GOOGLE_REDIRECT_URI" | "SESSION_SECRET"
+    > = _parsed,
+  ): void {
+    const ports = [envInput.API_PORT, envInput.WEB_PORT, envInput.DB_PORT, envInput.REDIS_PORT];
     const unique = new Set(ports);
     if (unique.size !== ports.length) {
       throw new Error("Port conflict detected in env configuration");
     }
 
-    if (Env.NODE_ENV !== "development" && Env.AUTH_MODE === "dev_bypass") {
-      throw new Error("AUTH_MODE=dev_bypass is only allowed in development");
+    if (envInput.NODE_ENV === "production" && envInput.AUTH_MODE === "dev_bypass") {
+      throw new Error("AUTH_MODE=dev_bypass is not allowed in production");
     }
 
-    if (Env.AUTH_MODE === "oauth") {
+    if (envInput.AUTH_MODE === "oauth") {
       const missing = (["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "SESSION_SECRET"] as const)
-        .filter((key) => !Env[key]);
+        .filter((key) => !envInput[key]);
       if (missing.length > 0) {
         throw new Error(`AUTH_MODE=oauth requires the following env vars to be set: ${missing.join(", ")}`);
       }

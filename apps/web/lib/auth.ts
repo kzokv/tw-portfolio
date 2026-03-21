@@ -57,9 +57,13 @@ const resolveSession = cache(async (): Promise<Session | null> => {
   // oauth mode: HMAC verification required
   const secret = WebEnv.SESSION_SECRET;
   if (!secret) {
-    console.warn(
-      "[auth] SESSION_SECRET is not configured but AUTH_MODE is oauth",
-    );
+    // During Docker build (static generation), SESSION_SECRET is unavailable —
+    // it's a runtime-only secret, not a build arg. Silence the warning.
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      console.warn(
+        "[auth] SESSION_SECRET is not configured but AUTH_MODE is oauth",
+      );
+    }
     return null;
   }
 
