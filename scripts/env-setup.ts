@@ -5,8 +5,8 @@
  * Usage:
  *   npm run env:setup
  *   npm run env:setup -- --target root:local
- *   npm run env:setup -- --target root:local,web:local --non-interactive
- *   npm run env:setup -- --target root:local,web:local --non-interactive --source .
+ *   npm run env:setup -- --target root:local,docker:local --non-interactive
+ *   npm run env:setup -- --target root:local,docker:local --non-interactive --source .
  */
 
 import fs from "node:fs";

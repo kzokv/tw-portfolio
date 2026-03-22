@@ -3,14 +3,9 @@ import type { EnvGroup } from "../../libs/config/src/env-metadata.js";
 
 export type TargetId =
   | "root:local"
-  | "root:dev"
-  | "root:prod"
   | "docker:dev"
   | "docker:local"
-  | "docker:prod"
-  | "web:local"
-  | "web:dev"
-  | "web:prod";
+  | "docker:prod";
 
 export interface TargetConfig {
   id: TargetId;
@@ -19,6 +14,7 @@ export interface TargetConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   schema: z.ZodObject<any>;
   groups: EnvGroup[];
+  footerNotes?: string[];
 }
 
 export type MergeStrategy = "sync" | "override";

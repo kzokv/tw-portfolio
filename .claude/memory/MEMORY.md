@@ -2,6 +2,8 @@
 
 ## E2E / testing
 - [project_e2e_webserver_gotchas.md](project_e2e_webserver_gotchas.md) — Playwright webServer startup bugs: IPv6 health-check URL fix + .env.local sourcing override fix
+- [feedback_scripts_test_location.md](feedback_scripts_test_location.md) — Test files for scripts/env-setup/ must live in libs/config/test/ because scripts/ is not a workspace
+- [project_env_test_preexisting_failure.md](project_env_test_preexisting_failure.md) — Pre-existing env.test.ts:123 failure: validateHostConsistency NODE_ENV guard mismatch (KZO-101/102 introduced)
 
 ## Auth / session
 - [project_cookie_domain_session.md](project_cookie_domain_session.md) — SESSION_COOKIE_NAME + COOKIE_DOMAIN coupling: why __Host- breaks cross-subdomain OAuth, correct docker defaults, startup guard

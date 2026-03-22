@@ -25,6 +25,12 @@ export const envGroups: EnvGroup[] = [
   },
 ];
 
+// Root local groups — includes NEXT_PUBLIC_* for Next.js env generation
+export const rootLocalGroups: EnvGroup[] = [
+  ...envGroups,
+  { label: "Web app (Next.js)", keys: ["NEXT_PUBLIC_AUTH_MODE", "NEXT_PUBLIC_API_BASE_URL"] },
+];
+
 // Docker cloud groups (dev + prod — unified)
 export const dockerCloudGroups: EnvGroup[] = [
   { label: "Public domains", keys: ["PUBLIC_DOMAIN_WEB", "PUBLIC_DOMAIN_API"] },
@@ -72,11 +78,6 @@ export const dockerLocalGroups: EnvGroup[] = [
     ],
   },
   { label: "Docker", keys: ["IMAGE_TAG"] },
-];
-
-// Web env groups
-export const webEnvGroups: EnvGroup[] = [
-  { label: "Web app", keys: ["NEXT_PUBLIC_AUTH_MODE", "NEXT_PUBLIC_API_BASE_URL"] },
 ];
 
 // Sensitive keys — masked input in prompts

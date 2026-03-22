@@ -43,6 +43,10 @@ set -a
 [ -f ./.env.local ] && . ./.env.local
 set +a
 
+# Derive NEXT_PUBLIC_* from root vars if not explicitly set (prevents split-brain auth)
+export NEXT_PUBLIC_AUTH_MODE="${NEXT_PUBLIC_AUTH_MODE:-${AUTH_MODE:-dev_bypass}}"
+export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}}"
+
 api_pid=""
 web_pid=""
 last_pid=""
