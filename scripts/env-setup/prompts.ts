@@ -24,6 +24,8 @@ import { targets } from "./targets.js";
 export interface SchemaKeyInfo {
   defaultValue?: string;
   optional: boolean;
+  enumOptions?: string[];
+  fieldType?: "string" | "number" | "enum";
 }
 
 /**
@@ -50,11 +52,28 @@ export function getSchemaKeysAndDefaults(
 
     if (field instanceof z.ZodOptional) {
       optional = true;
+      field = (field as z.ZodOptional<z.ZodTypeAny>)._def.innerType;
+    }
+
+    // Extract enum options and field type from the unwrapped inner type
+    let enumOptions: string[] | undefined;
+    let fieldType: "string" | "number" | "enum" = "string";
+
+    if (field instanceof z.ZodEnum) {
+      enumOptions = (field as z.ZodEnum<[string, ...string[]]>).options as string[];
+      fieldType = "enum";
+    } else if (field instanceof z.ZodNumber) {
+      fieldType = "number";
+    } else if (field instanceof z.ZodEffects && field._def.schema instanceof z.ZodNumber) {
+      // z.coerce.number() wraps ZodNumber in ZodEffects
+      fieldType = "number";
     }
 
     result.set(key, {
       defaultValue: hasDefault ? String(defaultValue) : undefined,
       optional,
+      enumOptions,
+      fieldType,
     });
   }
 
@@ -96,53 +115,93 @@ export async function promptMergeStrategy(targetPath: string): Promise<"sync" | 
   });
 }
 
+/**
+ * Build a display hint for a key showing its current/default value and type info.
+ * Format: "KEY = value  [type hint]"
+ */
+function formatKeyHint(
+  key: string,
+  info: SchemaKeyInfo,
+  existingValue: string | undefined,
+): string {
+  const value = existingValue ?? info.defaultValue;
+  let valueStr: string;
+  if (sensitiveKeys.has(key) && existingValue !== undefined) {
+    valueStr = "= ****";
+  } else if (value !== undefined) {
+    valueStr = `= ${value}`;
+  } else {
+    valueStr = "(not set)";
+  }
+
+  let typeHint: string;
+  if (sensitiveKeys.has(key)) {
+    typeHint = autoGenerateKeys.has(key) ? "[sensitive, auto-gen]" : "[sensitive]";
+  } else if (info.enumOptions) {
+    typeHint = `[${info.enumOptions.join(" | ")}]`;
+  } else if (info.fieldType === "number") {
+    typeHint = "[number]";
+  } else if (info.optional && value === undefined) {
+    typeHint = "[optional]";
+  } else {
+    typeHint = "";
+  }
+
+  const padded = key.padEnd(28);
+  const valuePadded = valueStr.padEnd(36);
+  return typeHint ? `  ${padded} ${valuePadded} ${typeHint}` : `  ${padded} ${valuePadded}`;
+}
+
 /** Prompt user to choose which keys to customize. */
 export async function promptKeySelection(
   target: TargetConfig,
   schemaKeys: Map<string, SchemaKeyInfo>,
+  existingValues?: Map<string, string>,
 ): Promise<string[]> {
-  const { checkbox } = await loadPrompts();
-  const choices: Array<{ name: string; value: string; disabled?: string }> = [];
+  const { checkbox, Separator } = await loadPrompts();
+  const existing = existingValues ?? new Map<string, string>();
 
-  // Group keys by section for display
-  const grouped: Array<{ section: string; keys: string[] }> = [];
+  // Collect all keys in group order
+  const orderedKeys: string[] = [];
   const allGroupKeys = new Set<string>();
-
   for (const group of target.groups) {
-    const keys = group.keys.filter((k) => schemaKeys.has(k));
-    if (keys.length > 0) {
-      grouped.push({ section: group.label, keys });
-      keys.forEach((k) => allGroupKeys.add(k));
+    for (const k of group.keys) {
+      if (schemaKeys.has(k)) {
+        orderedKeys.push(k);
+        allGroupKeys.add(k);
+      }
+    }
+  }
+  const ungrouped = [...schemaKeys.keys()].filter((k) => !allGroupKeys.has(k));
+  orderedKeys.push(...ungrouped);
+
+  // Partition into new vs existing
+  const newKeys = orderedKeys.filter((k) => !existing.has(k));
+  const existingKeys = orderedKeys.filter((k) => existing.has(k));
+
+  // Build choices with Separator dividers
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const choices: any[] = [];
+
+  if (newKeys.length > 0) {
+    choices.push(new Separator(`── New keys (${newKeys.length}) ──`));
+    for (const key of newKeys) {
+      const info = schemaKeys.get(key)!;
+      choices.push({ name: formatKeyHint(key, info, undefined), value: key });
     }
   }
 
-  // Add ungrouped keys
-  const ungrouped = [...schemaKeys.keys()].filter((k) => !allGroupKeys.has(k));
-  if (ungrouped.length > 0) {
-    grouped.push({ section: "Other", keys: ungrouped });
-  }
-
-  for (const { section, keys } of grouped) {
-    choices.push({ name: `── ${section} ──`, value: `__section_${section}`, disabled: "" });
-    for (const key of keys) {
+  if (existingKeys.length > 0) {
+    choices.push(new Separator(`── Existing keys (${existingKeys.length}) — select to override current value ──`));
+    for (const key of existingKeys) {
       const info = schemaKeys.get(key)!;
-      const hint = sensitiveKeys.has(key)
-        ? "[sensitive]"
-        : info.defaultValue !== undefined
-          ? `default: ${info.defaultValue}`
-          : info.optional
-            ? "[optional]"
-            : "[required]";
-      choices.push({ name: `  ${key}  (${hint})`, value: key });
+      choices.push({ name: formatKeyHint(key, info, existing.get(key)), value: key });
     }
   }
 
   const selected = await checkbox({
-    message: `Select keys to customize for ${target.label}:`,
-    choices: choices.filter((c) => !c.disabled && !c.value.startsWith("__section_")).map((c) => ({
-      name: c.name,
-      value: c.value,
-    })),
+    message: `Select keys to customize for ${target.label}: (space to toggle, enter to confirm)`,
+    choices,
     loop: false,
     pageSize: getPageSize(),
   });
@@ -150,9 +209,13 @@ export async function promptKeySelection(
   return selected;
 }
 
-/** Prompt for a single key's value, using password/confirm/input as appropriate. */
-export async function promptKeyValue(key: string, defaultValue?: string): Promise<string | undefined> {
-  const { confirm, password, input } = await loadPrompts();
+/** Prompt for a single key's value, using select/password/confirm/input as appropriate. */
+export async function promptKeyValue(
+  key: string,
+  defaultValue?: string,
+  info?: SchemaKeyInfo,
+): Promise<string | undefined> {
+  const { confirm, password, input, select } = await loadPrompts();
   if (autoGenerateKeys.has(key)) {
     const autoGen = await confirm({
       message: `Auto-generate ${key}?`,
@@ -166,6 +229,20 @@ export async function promptKeyValue(key: string, defaultValue?: string): Promis
   if (sensitiveKeys.has(key)) {
     const val = await password({ message: `${key}:` });
     return val || undefined;
+  }
+
+  // Use dropdown select for enum fields
+  if (info?.enumOptions) {
+    const val = await select({
+      message: `${key}:`,
+      choices: info.enumOptions.map((opt) => ({
+        name: opt === defaultValue ? `${opt}    (current)` : opt,
+        value: opt,
+      })),
+      default: defaultValue,
+      loop: false,
+    });
+    return val;
   }
 
   const val = await input({

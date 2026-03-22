@@ -114,7 +114,7 @@ async function resolveInteractive(
       console.log("  All keys are already present in the existing file.\n");
     } else {
       console.log(`  ${keysToPrompt.length} new key(s) found. You can customize them:\n`);
-      keysToPrompt = await promptKeySelection(target, schemaKeys);
+      keysToPrompt = await promptKeySelection(target, schemaKeys, existingValues);
     }
   } else {
     keysToPrompt = await promptKeySelection(target, schemaKeys);
@@ -124,7 +124,7 @@ async function resolveInteractive(
   for (const key of keysToPrompt) {
     const info = schemaKeys.get(key)!;
     const currentDefault = resolved.get(key)?.value ?? info.defaultValue;
-    const value = await promptKeyValue(key, currentDefault);
+    const value = await promptKeyValue(key, currentDefault, info);
     resolved.set(key, {
       key,
       value,
