@@ -11,7 +11,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    setupFiles: [resolve(rootDir, "test/setup/react-global.ts")],
+    setupFiles: [
+      resolve(rootDir, "test/setup/react-global.ts"),
+      resolve(rootDir, "test/setup/next-mocks.ts"),
+    ],
     reporters: ["verbose"],
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     outputFile: {
@@ -22,6 +25,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "next/link": resolve(rootDir, "test/setup/next-stubs/link.tsx"),
+      "next/navigation": resolve(rootDir, "test/setup/next-stubs/navigation.ts"),
+      "next/headers": resolve(rootDir, "test/setup/next-stubs/headers.ts"),
       "@tw-portfolio/config/test": resolve(rootDir, "../../libs/config/src/test.ts"),
       "@tw-portfolio/config/web": resolve(rootDir, "../../libs/config/src/env-web.ts"),
       "@tw-portfolio/config": resolve(rootDir, "../../libs/config/src/index.ts"),
