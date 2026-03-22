@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { envSchema, webEnvSchema } from "../src/env-schema.js";
+import { envSchema, rootLocalSchema, webEnvSchema } from "../src/env-schema.js";
 
 // Group A: webEnvSchema behavioral tests (QA-owned)
 describe("webEnvSchema", () => {
@@ -63,5 +63,48 @@ describe("envSchema structural", () => {
 
   it("does NOT contain NEXT_PUBLIC_API_BASE_URL", () => {
     expect("NEXT_PUBLIC_API_BASE_URL" in envSchema.shape).toBe(false);
+  });
+});
+
+// Group R: rootLocalSchema acceptance tests (QA-owned)
+describe("rootLocalSchema", () => {
+  it("contains all envSchema keys", () => {
+    const baseKeys = Object.keys(envSchema.shape);
+    const rootKeys = Object.keys(rootLocalSchema.shape);
+    for (const key of baseKeys) {
+      expect(rootKeys).toContain(key);
+    }
+  });
+
+  it("has exactly envSchema keys + 2 NEXT_PUBLIC keys", () => {
+    const baseCount = Object.keys(envSchema.shape).length;
+    const rootCount = Object.keys(rootLocalSchema.shape).length;
+    expect(rootCount).toBe(baseCount + 2);
+  });
+
+  it("contains NEXT_PUBLIC_AUTH_MODE", () => {
+    expect("NEXT_PUBLIC_AUTH_MODE" in rootLocalSchema.shape).toBe(true);
+  });
+
+  it("contains NEXT_PUBLIC_API_BASE_URL", () => {
+    expect("NEXT_PUBLIC_API_BASE_URL" in rootLocalSchema.shape).toBe(true);
+  });
+
+  it("defaults NEXT_PUBLIC_AUTH_MODE to dev_bypass", () => {
+    const result = rootLocalSchema.parse({});
+    expect(result.NEXT_PUBLIC_AUTH_MODE).toBe("dev_bypass");
+  });
+
+  it("defaults NEXT_PUBLIC_API_BASE_URL to http://localhost:4000", () => {
+    const result = rootLocalSchema.parse({});
+    expect(result.NEXT_PUBLIC_API_BASE_URL).toBe("http://localhost:4000");
+  });
+
+  it("inherits all envSchema defaults", () => {
+    const baseDefaults = envSchema.parse({});
+    const rootDefaults = rootLocalSchema.parse({});
+    for (const [key, value] of Object.entries(baseDefaults)) {
+      expect(rootDefaults[key as keyof typeof rootDefaults]).toEqual(value);
+    }
   });
 });

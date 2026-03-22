@@ -44,5 +44,13 @@ export function generateFileContent(
     lines.push("");
   }
 
+  // Footer notes (compose-computed derivation hints, etc.)
+  if (target.footerNotes?.length) {
+    for (const note of target.footerNotes) {
+      lines.push(`## ${note}`);
+    }
+    lines.push("");
+  }
+
   return lines.join("\n");
 }

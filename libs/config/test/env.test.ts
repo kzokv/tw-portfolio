@@ -119,6 +119,7 @@ describe("validateHostConsistency", () => {
         APP_BASE_URL: "http://localhost:3333",
         GOOGLE_REDIRECT_URI: "http://localhost:9999/auth/google/callback",
         API_PORT: 4000,
+        NODE_ENV: "development",
       }),
     ).toThrow("API_PORT");
   });
@@ -129,6 +130,7 @@ describe("validateHostConsistency", () => {
         APP_BASE_URL: "http://localhost:3333",
         GOOGLE_REDIRECT_URI: "http://localhost:4000/auth/google/callback",
         API_PORT: 4000,
+        NODE_ENV: "development",
       }),
     ).not.toThrow();
   });
