@@ -99,7 +99,8 @@ services:
     env_file:
       - ${APP_ENV_FILE:-.env.local}
     environment:
-      NODE_ENV: production
+      # 'test' avoids Secure cookie flag (production) and port validation mismatch (development)
+      NODE_ENV: ${NODE_ENV:-test}
       DB_URL: postgres://${POSTGRES_USER:-twp}:${POSTGRES_PASSWORD}@twp-local-postgres:5432/${POSTGRES_DB:-tw_portfolio}
       REDIS_URL: redis://:${REDIS_PASSWORD}@twp-local-redis:6379
       API_PORT: "4000"
@@ -145,9 +146,12 @@ services:
       twp-local-api:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      # 'test' avoids Secure cookie flag (production) and port validation mismatch (development)
+      NODE_ENV: ${NODE_ENV:-test}
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
+      # Server-side API base URL for route handlers running inside the container network.
+      SERVER_API_BASE_URL: http://twp-local-api:4000
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
       SESSION_SECRET: ${SESSION_SECRET:?required}
     networks:

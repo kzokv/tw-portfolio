@@ -6,12 +6,19 @@ cd "$ROOT_DIR"
 
 COMPOSE_FILE="infra/docker/docker-compose.local.yml"
 MIGRATE=0
+BANNER_NAME="${1:-dev:docker}"
+
+# Save CLI-provided env vars before sourcing .env.local
+CLI_AUTH_MODE="${AUTH_MODE:-}"
+CLI_PERSISTENCE_BACKEND="${PERSISTENCE_BACKEND:-}"
+
+shift 2>/dev/null || true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --migrate) MIGRATE=1 ;;
     -h|--help)
-      echo "Usage: dev-docker.sh [--migrate]"
+      echo "Usage: dev-docker.sh [banner-name] [--migrate]"
       echo ""
       echo "Start the local Docker Compose development stack."
       echo ""
@@ -30,12 +37,12 @@ if [[ -f "infra/docker/.env.local" ]]; then
   set +a
 fi
 
-# Docker local always runs oauth + postgres — override for accurate banner
-export AUTH_MODE="${AUTH_MODE:-oauth}"
-export PERSISTENCE_BACKEND="${PERSISTENCE_BACKEND:-postgres}"
+# CLI overrides take precedence over env file
+export AUTH_MODE="${CLI_AUTH_MODE:-${AUTH_MODE:-oauth}}"
+export PERSISTENCE_BACKEND="${CLI_PERSISTENCE_BACKEND:-${PERSISTENCE_BACKEND:-postgres}}"
 
 source "$ROOT_DIR/scripts/lib/banner.sh"
-print_banner "dev:docker" docker
+print_banner "${BANNER_NAME}" docker
 
 # Verify Docker is available
 if ! command -v docker >/dev/null 2>&1; then

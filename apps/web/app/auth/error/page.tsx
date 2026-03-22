@@ -21,6 +21,12 @@ const REASON_MESSAGES: Record<string, { title: string; description: string; link
     description: "Please sign in again to continue.",
     linkText: "Sign in again",
   },
+  insecure_transport: {
+    title: "Session cookie rejected",
+    description:
+      "Your browser rejected the session cookie because you're accessing the app over HTTP, but the cookie requires HTTPS (Secure flag). To fix this, set NODE_ENV=test in your Docker env file (infra/docker/.env.local) and rebuild.",
+    linkText: "Back to login",
+  },
 };
 
 const DEFAULT_MESSAGE: { title: string; description: string; linkText?: string } = {

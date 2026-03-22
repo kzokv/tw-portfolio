@@ -53,6 +53,9 @@ export const webEnvSchema = envSchema
   .extend({
     NEXT_PUBLIC_AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
     NEXT_PUBLIC_API_BASE_URL: z.string().default("http://localhost:4000"),
+    /** Server-side API base URL. In Docker, route handlers fetch via container network
+     *  (e.g. http://twp-local-api:4000) instead of the host-published port. */
+    SERVER_API_BASE_URL: z.string().url().optional(),
   });
 
 export type WebEnvConfig = z.infer<typeof webEnvSchema>;
