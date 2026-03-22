@@ -252,8 +252,8 @@ Web build args:
 ### Notes
 
 - Use `AUTH_MODE=dev_bypass` for local development only.
-- For production-like runs use `AUTH_MODE=oauth`. With `AUTH_MODE=oauth`, the API expects the header `x-authenticated-user-id`. The web app sends it when `NEXT_PUBLIC_AUTH_USER_ID` is set (production: set `AUTH_USER_ID` in `infra/docker/.env.prod`; it is passed as a build arg, so the web image must be rebuilt after changing it). If `AUTH_USER_ID` is blank with `AUTH_MODE=oauth`, the web app sends no auth header and calls like `GET /settings` return 401.
-- With `AUTH_USER_ID` / `NEXT_PUBLIC_AUTH_USER_ID`, the user id is embedded in the client bundle and is visible to anyone who can load the web app. This is acceptable for the intended single-user home-lab deployment; do not reuse for multi-tenant or untrusted-user environments.
+- For production-like runs use `AUTH_MODE=oauth`. With `AUTH_MODE=oauth`, the session cookie is the **sole identity source**. After Google OAuth login, an HMAC-signed session cookie is set. The API reads identity exclusively from this cookie — no headers, no env vars in the identity path.
+- `AUTH_USER_ID` / `NEXT_PUBLIC_AUTH_USER_ID` have been **removed**. If `AUTH_USER_ID` is set in the env file with `AUTH_MODE=oauth`, `deploy.sh` will error. Remove it from any existing env files.
 - Recompute history is explicit and audited via preview/confirm APIs.
 - For local tests without DB/Redis, set `PERSISTENCE_BACKEND=memory`.
 - For external Postgres/Redis mode, keep `PERSISTENCE_BACKEND=postgres` and set external `DB_URL`/`REDIS_URL`; do not start local compose DB/Redis unless needed for fallback.
@@ -500,17 +500,15 @@ If the host has less than 8 GB RAM, reduce per-container limits in `infra/docker
 
 2. **Create the environment file on the deploy host**:
    ```bash
-   cp infra/docker/.env.prod.example infra/docker/.env.prod
-   # Edit .env.prod with real passwords, tunnel token, and AUTH_USER_ID (required for AUTH_MODE=oauth)
+   # Interactive setup (recommended — validates with Zod, prompts for secrets)
+   npm run env:setup -- --target docker:prod
    chmod 600 infra/docker/.env.prod
-   ```
-   For the dev lane, create a separate file:
-   ```bash
-   cp infra/docker/.env.dev.example infra/docker/.env.dev
-   # Edit .env.dev with dev-specific passwords, tunnel token, public domains, and AUTH_USER_ID
+
+   # For the dev lane:
+   npm run env:setup -- --target docker:dev
    chmod 600 infra/docker/.env.dev
    ```
-   With `AUTH_MODE=oauth`, set `AUTH_USER_ID` to a stable user id (e.g. `user-1` or your email). The web app sends it as `x-authenticated-user-id` on every API request so endpoints like `GET /settings` succeed instead of returning 401.
+   All variables are documented in the unified `.env.example` at the repo root. The `env:setup` tool reads the schema, prompts for values, and auto-generates passwords where possible. See `.env.example` for `[context]` annotations indicating which vars apply to each deployment context.
 
 3. **Configure the Cloudflare Tunnel** in the Cloudflare Zero Trust dashboard (see `infra/cloudflared/README.md`). Add both public hostnames for the web and API services.
 

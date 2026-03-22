@@ -1,10 +1,9 @@
-import { envSchema, webEnvSchema } from "../../libs/config/src/env-schema.js";
+import { rootLocalSchema } from "../../libs/config/src/env-schema.js";
 import { dockerCloudSchema, dockerLocalSchema } from "../../libs/config/src/env-docker.js";
 import {
-  envGroups,
+  rootLocalGroups,
   dockerCloudGroups,
   dockerLocalGroups,
-  webEnvGroups,
 } from "../../libs/config/src/env-metadata.js";
 import type { TargetConfig } from "./types.js";
 
@@ -13,22 +12,8 @@ export const targets: TargetConfig[] = [
     id: "root:local",
     label: "Root: local",
     targetPath: ".env.local",
-    schema: envSchema,
-    groups: envGroups,
-  },
-  {
-    id: "root:dev",
-    label: "Root: dev",
-    targetPath: ".env.dev",
-    schema: envSchema,
-    groups: envGroups,
-  },
-  {
-    id: "root:prod",
-    label: "Root: prod",
-    targetPath: ".env.prod",
-    schema: envSchema,
-    groups: envGroups,
+    schema: rootLocalSchema,
+    groups: rootLocalGroups,
   },
   {
     id: "docker:dev",
@@ -36,6 +21,14 @@ export const targets: TargetConfig[] = [
     targetPath: "infra/docker/.env.dev",
     schema: dockerCloudSchema,
     groups: dockerCloudGroups,
+    footerNotes: [
+      "Compose-computed — set by docker-compose environment: block, not this file",
+      "To change GOOGLE_REDIRECT_URI  → update PUBLIC_DOMAIN_API",
+      "To change APP_BASE_URL         → update PUBLIC_DOMAIN_WEB",
+      "To change DB_URL               → update POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB",
+      "To change REDIS_URL            → update REDIS_PASSWORD",
+      "To change ALLOWED_ORIGINS      → update PUBLIC_DOMAIN_WEB",
+    ],
   },
   {
     id: "docker:local",
@@ -50,26 +43,13 @@ export const targets: TargetConfig[] = [
     targetPath: "infra/docker/.env.prod",
     schema: dockerCloudSchema,
     groups: dockerCloudGroups,
-  },
-  {
-    id: "web:local",
-    label: "Web: local",
-    targetPath: "apps/web/.env.local",
-    schema: webEnvSchema,
-    groups: webEnvGroups,
-  },
-  {
-    id: "web:dev",
-    label: "Web: dev",
-    targetPath: "apps/web/.env.dev",
-    schema: webEnvSchema,
-    groups: webEnvGroups,
-  },
-  {
-    id: "web:prod",
-    label: "Web: prod",
-    targetPath: "apps/web/.env.prod",
-    schema: webEnvSchema,
-    groups: webEnvGroups,
+    footerNotes: [
+      "Compose-computed — set by docker-compose environment: block, not this file",
+      "To change GOOGLE_REDIRECT_URI  → update PUBLIC_DOMAIN_API",
+      "To change APP_BASE_URL         → update PUBLIC_DOMAIN_WEB",
+      "To change DB_URL               → update POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB",
+      "To change REDIS_URL            → update REDIS_PASSWORD",
+      "To change ALLOWED_ORIGINS      → update PUBLIC_DOMAIN_WEB",
+    ],
   },
 ];

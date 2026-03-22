@@ -36,6 +36,12 @@ export const envSchema = z.object({
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
+/** Generation schema for root:local target. Includes NEXT_PUBLIC_* for Next.js. */
+export const rootLocalSchema = envSchema.extend({
+  NEXT_PUBLIC_AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
+  NEXT_PUBLIC_API_BASE_URL: z.string().default("http://localhost:4000"),
+});
+
 /**
  * Web-side env schema. Safe to import in Edge Runtime (no Node.js modules).
  * SESSION_SECRET is inherited as optional from envSchema. Enforcement (required in
