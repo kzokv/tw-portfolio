@@ -27,7 +27,14 @@ done
 
 if [[ $UNIT -eq 1 ]]; then
   echo "── Running unit tests ──"
-  npm run test --workspaces
+  if [[ $FULL -eq 1 ]]; then
+    # Full integration runs separately with managed DB — skip API integration
+    # tests here to avoid running them twice.
+    npm run test -w @tw-portfolio/web -w @tw-portfolio/config -w @tw-portfolio/domain
+    npm run test -w @tw-portfolio/api -- --exclude '**/integration/**'
+  else
+    npm run test --workspaces
+  fi
 fi
 
 if [[ $INTEGRATION -eq 1 ]]; then

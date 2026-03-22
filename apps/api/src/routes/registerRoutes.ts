@@ -501,6 +501,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const signedCookie = signSessionCookie(userId, app.oauthConfig.sessionSecret);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+
+    // Detect misconfigured Docker local: NODE_ENV=production sets the Secure
+    // cookie flag, but HTTP transport means the browser silently drops it.
+    if (Env.NODE_ENV === "production" && app.appBaseUrl?.startsWith("http://")) {
+      return errorRedirect("insecure_transport");
+    }
+
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
     const returnTo = extractReturnTo(query.state);
     const destination = returnTo ? `${app.appBaseUrl}${returnTo}` : `${app.appBaseUrl}/dashboard`;

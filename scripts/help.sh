@@ -15,11 +15,9 @@ Available dev commands:
   dev:local:bypass:pg        Bypass auth, real Postgres
   dev:local:oauth:mem        Google OAuth, in-memory
   dev:local:oauth:pg         Google OAuth, Postgres (closest to prod)
-  dev:docker                 Docker Compose local stack (oauth + postgres)
-  dev:docker --migrate       Docker Compose + run DB migrations
-  dev:docker:cleanup         Clean up Docker images/containers
-  dev:docker:cleanup:dry     Dry run cleanup
-  dev:docker:cleanup:force   Auto-confirm cleanup
+  dev:docker:bypass:pg       Docker stack, bypass auth, Postgres
+  dev:docker:oauth:pg        Docker stack, Google OAuth, Postgres (closest to prod)
+  dev:docker:* --migrate     Include DB migrations
   dev:docker:validate        Validate local compose config
   dev:docker:validate:teardown  Validate then tear down
 

@@ -45,9 +45,8 @@ export const dockerLocalSchema = z.object({
   // Redis
   REDIS_PASSWORD: z.string().min(1),
   // Application
-  // Note: NODE_ENV, API_PORT, and WEB_PORT are overridden by compose at runtime
-  // via the service environment block in docker-compose.local.yml.
-  NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
+  // 'test' is recommended for local Docker — see runbook for NODE_ENV behavior matrix
+  NODE_ENV: z.enum(["development", "test", "production"]).default("test"),
   AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("oauth"),
   PERSISTENCE_BACKEND: z.enum(["postgres", "memory"]).default("postgres"),
   API_PORT: z.coerce.number().int().positive().default(4000),

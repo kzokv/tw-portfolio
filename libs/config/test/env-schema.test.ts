@@ -3,12 +3,13 @@ import { envSchema, rootLocalSchema, webEnvSchema } from "../src/env-schema.js";
 
 // Group A: webEnvSchema behavioral tests (QA-owned)
 describe("webEnvSchema", () => {
-  it("has exactly 4 shape keys", () => {
+  it("has exactly 5 shape keys", () => {
     const keys = Object.keys(webEnvSchema.shape);
-    expect(keys).toHaveLength(4);
+    expect(keys).toHaveLength(5);
     expect(keys.sort()).toEqual([
       "NEXT_PUBLIC_API_BASE_URL",
       "NEXT_PUBLIC_AUTH_MODE",
+      "SERVER_API_BASE_URL",
       "SESSION_COOKIE_NAME",
       "SESSION_SECRET",
     ]);

@@ -1285,6 +1285,40 @@ docker compose version
 
 If you are debugging production, replace the dev file names with the production equivalents.
 
+### 8.5 Local Docker Deployment
+
+#### SSH tunnel for Docker-hosted API
+
+If the API runs inside a Docker container (e.g. via `docker-compose.local.yml`), the browser on the host cannot reach the container's internal port directly. Create an SSH tunnel forwarding the API port to the Docker host IP:
+
+```bash
+ssh -L 4300:192.168.64.1:4300 user@docker-host
+```
+
+Replace `192.168.64.1` with your Docker host IP (varies by environment — check `docker network inspect bridge` or your VM's network config).
+
+#### SESSION_COOKIE_NAME
+
+Do not use the `__Host-` prefix (e.g. `__Host-g_auth_session`) when running over HTTP. The `__Host-` prefix requires the `Secure` flag, which browsers reject over plain HTTP. Use `g_auth_session` instead.
+
+#### NODE_ENV behavior matrix
+
+| Value | Cookie `Secure` flag | Port validation | `/__e2e/oauth-session` | `/__e2e/reset` |
+|-------|---------------------|-----------------|----------------------|----------------|
+| `production` | Set — browser silently drops cookie over HTTP | Standard | Unavailable | Blocked |
+| `development` | Not set | Rejects mismatched container/host ports (4000 vs 4300) | Available | Available |
+| `test` (recommended) | Not set | Relaxed — no port mismatch errors | Available | Blocked |
+
+`test` is recommended for local Docker because it avoids both the `Secure` cookie problem (production) and the port validation mismatch (development), while keeping the `/__e2e/oauth-session` endpoint available for debugging.
+
+#### NEXT_PUBLIC_AUTH_MODE
+
+`NEXT_PUBLIC_AUTH_MODE` is baked into the Next.js client bundle at build time. Setting it as a runtime environment variable in `docker-compose.local.yml` does not override the value in browser-side JavaScript. To change auth mode, update the `AUTH_MODE` variable (which feeds the build arg) and rebuild the web image.
+
+#### SERVER_API_BASE_URL
+
+Server-side Next.js route handlers (e.g. `app/api/profile/route.ts`) run inside the Docker network and need to reach the API via the container hostname (`http://twp-local-api:4000`), not the host-published port (`http://localhost:4300`). `SERVER_API_BASE_URL` provides this override. It is set in `docker-compose.local.yml` and should not be added to `infra/docker/.env.local`.
+
 ---
 
 ## 9. Rollback

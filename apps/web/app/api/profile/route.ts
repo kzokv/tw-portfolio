@@ -3,7 +3,9 @@ import { cookies } from "next/headers";
 import { getSession } from "../../../lib/auth";
 import { WebEnv } from "@tw-portfolio/config/web";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.API_PORT || 4000}`;
+// In Docker, server-side route handlers fetch via container network (SERVER_API_BASE_URL),
+// not the host-published port. Falls back to NEXT_PUBLIC_API_BASE_URL for bare-metal dev.
+const API_BASE = WebEnv.SERVER_API_BASE_URL ?? WebEnv.NEXT_PUBLIC_API_BASE_URL;
 
 async function buildSessionCookieHeader(): Promise<string> {
   const cookieStore = await cookies();

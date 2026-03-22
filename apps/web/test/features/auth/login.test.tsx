@@ -12,6 +12,16 @@ vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@tw-portfolio/config/web", () => ({
   WebEnv: { NEXT_PUBLIC_AUTH_MODE: "dev_bypass", SESSION_COOKIE_NAME: "__Host-g_auth_session" },
 }));
+vi.mock("../../../components/SignInButton", () => ({
+  SignInButton: function MockSignInButton(props: Record<string, unknown>) {
+    const R = (globalThis as Record<string, unknown>).React as typeof import("react");
+    return R.createElement("a", {
+      href: props.href,
+      className: props.className,
+      "data-testid": "google-sign-in-button",
+    }, "Sign in with Google");
+  },
+}));
 
 import LoginPage from "../../../app/login/page";
 
