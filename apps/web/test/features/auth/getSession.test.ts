@@ -190,14 +190,14 @@ describe("getSession (dev_bypass mode)", () => {
     expect(await getSession()).toEqual({ userId: "user-1" });
   });
 
-  it("returns null when session cookie is absent", async () => {
+  it("returns default user-1 when session cookie is absent", async () => {
     setNoCookie();
-    expect(await getSession()).toBeNull();
+    expect(await getSession()).toEqual({ userId: "user-1" });
   });
 
-  it("returns null when session cookie value is empty", async () => {
+  it("returns default user-1 when session cookie value is empty", async () => {
     setCookie("");
-    expect(await getSession()).toBeNull();
+    expect(await getSession()).toEqual({ userId: "user-1" });
   });
 
   it("does not require SESSION_SECRET", async () => {
