@@ -193,10 +193,13 @@ This document is the single source of truth for deploying and operating the **tw
 
 ### Start services
 
+- `npm run dev` prints a help listing of available dev modes.
 - Choose one local mode:
-- Memory mode (default): set `PERSISTENCE_BACKEND=memory`, then run `npm run dev`.
-- Postgres + local Docker mode: set `PERSISTENCE_BACKEND=postgres`, run `docker compose -f infra/docker/docker-compose.yml up -d`, then run `npm run dev`.
-- Postgres + external services mode: set `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`, then run `npm run dev`.
+- `npm run dev:local:bypass:mem` — Fastest iteration, no auth, in-memory storage.
+- `npm run dev:local:bypass:pg` — Bypass auth, real Postgres. Start Postgres first: `docker compose -f infra/docker/docker-compose.yml up -d`.
+- `npm run dev:local:oauth:mem` — Google OAuth, in-memory storage.
+- `npm run dev:local:oauth:pg` — Google OAuth, Postgres (closest to prod). Start Postgres first.
+- `npm run dev:docker` — Full Docker Compose local stack (oauth + postgres). Use `npm run dev:docker -- --migrate` to run DB migrations.
 - `infra/docker/docker-compose.yml` is local fallback Postgres/Redis and is not required for memory mode or external URL mode.
 
 Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example`), a previous instance likely still owns the port. Identify the orphaned process with `ps -ef | grep -i "next dev"` and stop it via `kill <pid>` or `pkill -f "next dev -p"`, then rerun `npm run dev -w apps/web`.
@@ -206,7 +209,7 @@ Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example
 ### Build model
 
 - Workspace libraries (`@tw-portfolio/domain`, `@tw-portfolio/shared-types`) are **not** built during `npm install` / `npm ci`. `npm run onboard` now builds them before handing you the lockfile results, but you still need to run `npm run build -w libs/domain -w libs/shared-types` if you skip onboarding or if you edit those packages after the initial setup.
-- Local: `npm run dev` (from repo root) starts the API and web dev servers. Onboarding already builds the workspace libs and `npm run dev` will rebuild them when the outputs are missing, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
+- Local: `npm run dev:local:bypass:mem` (or any `dev:local:*` variant) from repo root starts the API and web dev servers. Onboarding already builds the workspace libs and the dev scripts will rebuild them when the outputs are missing, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
 - CI: `npm ci` then explicit `npm run build -w ...` steps for domain/shared-types/api (and web typecheck).
 - Production: Dockerfiles run `npm ci` then explicit `npm run build -w ...` in the same order; deploy builds images from the checked-out ref.
 
@@ -278,13 +281,13 @@ This creates `infra/docker/.env.local` with the required variables. Edit passwor
 
 ```bash
 # Build, migrate, start, and health-check — leaves stack running
-npm run docker:validate
+npm run dev:docker:validate
 
 # Same, but tear down after validation
-npm run docker:validate:teardown
+npm run dev:docker:validate:teardown
 ```
 
-**What `docker:validate` does** (phases in order):
+**What `dev:docker:validate` does** (phases in order):
 
 1. **Preflight** — checks docker, compose file, and env file exist
 2. **Build** — `docker compose --profile migrate build` (api, web, migrate images)
@@ -323,7 +326,7 @@ docker compose -p twp-local -f infra/docker/docker-compose.local.yml logs -f twp
 | Postgres | 5732      | 5432           |
 | Redis    | 6679      | 6379           |
 
-These ports avoid collision with host-level dev servers (`npm run dev` uses 3000/3333 + 4000).
+These ports avoid collision with host-level dev servers (`npm run dev:local:*` uses 3000/3333 + 4000).
 
 #### Tear down manually
 
@@ -339,7 +342,7 @@ docker compose -p twp-local -f infra/docker/docker-compose.local.yml down -v
 
 The local stack defaults to `AUTH_MODE=oauth` (not `dev_bypass`) because:
 - The API enforces `dev_bypass` is only allowed when `NODE_ENV=development`
-- The Docker stack runs `NODE_ENV=production` to match production behavior
+- The Docker stack runs `NODE_ENV=test` by default (configurable via `NODE_ENV` env var), which blocks `dev_bypass`
 - `GOOGLE_REDIRECT_URI` is hardcoded to `http://localhost:4300/auth/google/callback` in the compose file (uses host port 4300, not container port 4000)
 - `SESSION_COOKIE_NAME` uses `g_auth_session` (no `__Host-` prefix) because local Docker runs on HTTP
 
@@ -369,7 +372,7 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
 
 ### E2E tests (local)
 
-- **Run**: From repo root, `npm run test:e2e` (or `npm run test:e2e:ci` for JUnit output).
+- **Run**: From repo root, `npm run test:e2e:bypass:mem` (or `npm run test:e2e:ci:bypass:mem` for JUnit output).
 - **Setup**: Run `npm run onboard` or `npm run install:full` from repo root once per machine (installs npm deps, Playwright browsers, and on Linux prompts for system deps). If Chromium fails with missing shared libraries, run `npx playwright install-deps` manually (may need `sudo`).
 - **Ports**: E2E uses `WEB_PORT` (default `3000` from `.env.local`) and `API_PORT` (default `4000`). Playwright only reclaims stale repo-owned web/API dev servers on those ports. If another process owns a port, the run fails and reports the owning PID/cwd/command; stop that process or override the ports.
 - **Servers**: Playwright's `webServer` starts API and web automatically; no separate server script needed. Uses `PERSISTENCE_BACKEND=memory` and `AUTH_MODE=dev_bypass`.
@@ -380,8 +383,8 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
 
 - **Run from repo root (explicit modes)**:
   ```bash
-  npm run test:integration:ci:host
-  npm run test:integration:ci:container
+  npm run test:integration:full:host
+  npm run test:integration:full:container
   ```
 - `npm run test:integration:ci` is retired to avoid ambiguous host routing.
 - Both explicit commands:
@@ -406,7 +409,7 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
   - Existing stacks such as `twp-dev-postgres` (`5454`) and `twp-dev-redis` (`6363`) are untouched.
 
 - **Mode-specific host routing**:
-  - `test:integration:ci:host`:
+  - `test:integration:full:host`:
     - Intended for host shells, including guest VM shells that can access a Docker daemon.
     - Resolution order:
       1. `CI_TEST_HOST` (if set)
@@ -415,7 +418,7 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
       4. `localhost`
     - The script probes both DB/Redis ports and fails fast with `CI_TEST_HOST=<host-ip-or-dns>` guidance when no candidate is reachable.
     - Guest VM note: `localhost` usually points at the guest itself, not the physical host running Docker.
-  - `test:integration:ci:container`:
+  - `test:integration:full:container`:
     - Intended for Linux/containerized shells.
     - Uses `host.docker.internal` and requires host-gateway mapping.
     - `docker run` example:

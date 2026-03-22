@@ -15,3 +15,20 @@ echo "→ Building…"
 npm run build
 
 echo "✓ Worktree ready."
+
+if [ -t 0 ]; then
+  echo ""
+  echo "→ To run OAuth E2E tests, you need a Google refresh token."
+  read -t 10 -rp "→ Run auth:refresh-token now? [Y/n] " ans || {
+    echo ""
+    echo "⚠ Timed out — skipping auth:refresh-token."
+    echo "  Run manually later: npm run auth:refresh-token"
+    ans="n"
+  }
+  if [[ "${ans:-Y}" =~ ^[Yy] ]]; then
+    npm run auth:refresh-token
+  fi
+else
+  echo "→ Non-interactive mode: skipping auth:refresh-token."
+  echo "  Run manually if needed: npm run auth:refresh-token"
+fi

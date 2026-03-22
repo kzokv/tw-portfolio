@@ -1,11 +1,8 @@
 import { expect, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 
-// CRITICAL (P6): Keep 127.0.0.1 for e2eBaseURL/e2eApiBaseURL to avoid IPv6 issues.
-// The mock OAuth server binds IPv4-only at 127.0.0.1 (mock-oauth-server.mjs:67).
-// TestEnv.host uses 'localhost' for web/API server config (where cookie consistency matters).
-const e2eBaseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${TestEnv.ports.web}`;
-const e2eApiBaseURL = process.env.E2E_API_BASE_URL ?? `http://127.0.0.1:${TestEnv.ports.api}`;
+const e2eBaseURL = TestEnv.appBaseUrl;
+const e2eApiBaseURL = TestEnv.apiBaseUrl;
 const E2E_USER_COOKIE = "tw_e2e_user";
 const DEFAULT_APP_READY_TIMEOUT_MS = 20_000;
 

@@ -34,12 +34,14 @@ Use Node `24.13.0` or newer with npm `11.x` for this repo.
 1. Copy `.env.example` to `.env` (or use `npm run onboard` to do this automatically).
 2. Install dependencies: `npm run install:full` or `npm install`
    - Onboarding already builds `@tw-portfolio/domain` and `@tw-portfolio/shared-types`. If you install dependencies without running `npm run onboard`, or if you edit either lib, rerun `npm run build -w libs/domain -w libs/shared-types` before starting the dev servers.
-3. Choose one dev mode:
-   - Memory mode (default): set `PERSISTENCE_BACKEND=memory`, then run `npm run dev`.
-   - Postgres + local Docker mode: set `PERSISTENCE_BACKEND=postgres`, set local `DB_URL`/`REDIS_URL` (or rely on localhost defaults), run `docker compose -f infra/docker/docker-compose.yml up -d`, then run `npm run dev`.
-   - Full Docker stack validation (build, migrate, up, healthcheck): generate `infra/docker/.env.local` via `npm run env:setup -- --target docker:local`, then run `bash infra/scripts/validate-local.sh`. This uses `infra/docker/docker-compose.local.yml` (ports: web 3300, api 4300, DB 5732, Redis 6679) and does not require cloudflared.
-   - Postgres + external service mode (for example QNAP-hosted DB/Redis): set `PERSISTENCE_BACKEND=postgres` with external `DB_URL`/`REDIS_URL`, then run `npm run dev`.
-4. `npm run dev` and onboarding build workspace libs when needed, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
+3. Choose one dev mode (`npm run dev` prints the full list):
+   - `npm run dev:local:bypass:mem` — Fastest iteration, no auth, in-memory storage.
+   - `npm run dev:local:bypass:pg` — Bypass auth, real Postgres. Start Postgres first: `docker compose -f infra/docker/docker-compose.yml up -d`.
+   - `npm run dev:local:oauth:mem` — Google OAuth, in-memory storage.
+   - `npm run dev:local:oauth:pg` — Google OAuth, Postgres (closest to prod).
+   - `npm run dev:docker` — Full Docker Compose local stack (oauth + postgres).
+   - Full Docker stack validation (build, migrate, up, healthcheck): generate `infra/docker/.env.local` via `npm run env:setup -- --target docker:local`, then run `npm run dev:docker:validate`. This uses `infra/docker/docker-compose.local.yml` (ports: web 3300, api 4300, DB 5732, Redis 6679) and does not require cloudflared.
+4. The dev scripts and onboarding build workspace libs when needed, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
 
 Notes:
 - `infra/docker/docker-compose.yml` is a local fallback Postgres/Redis provider and is not required when using memory mode or external DB/Redis URLs.
@@ -48,7 +50,7 @@ Notes:
 
 - Unit: `npm run test:unit`
 - Integration: `npm run test:integration`
-- E2E: `npm run test:e2e`
+- E2E: `npm run test:e2e:bypass:mem`
 - API test reports (HTML / JSON / JUnit): see [apps/api/README.md](apps/api/README.md#testing-vitest).
 
 ## Web UI behavior

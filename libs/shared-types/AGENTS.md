@@ -9,7 +9,7 @@
 - Build package: `npm run build -w libs/shared-types`.
 - Validate API impact: `npm run test:integration`.
 - Validate web impact: `npm run test:unit -w apps/web`.
-- Run e2e when contract changes affect user flows: `npm run test:e2e`.
+- Run e2e when contract changes affect user flows: `npm run test:e2e:bypass:mem`.
 
 ## Code style guidelines
 - TypeScript policy: keep `compilerOptions.strict` enabled for shared-types tsconfig.

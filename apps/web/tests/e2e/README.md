@@ -29,8 +29,8 @@ E2E covers **user-visible behavior** and full-stack flows. It does not re-test A
 
 From **repo root** (scripts live in root package.json):
 
-- `npm run test:e2e` – Runs Playwright with config at `apps/web/tests/e2e/`. `webServer` starts API and web automatically, reuses healthy existing repo servers, and fails fast on unrelated port conflicts. Generates an HTML report; opens automatically on failure.
-- `npm run test:e2e:ci` – Same, with `--reporter=junit` for CI integration.
+- `npm run test:e2e:bypass:mem` – Runs Playwright with config at `apps/web/tests/e2e/`. `webServer` starts API and web automatically, reuses healthy existing repo servers, and fails fast on unrelated port conflicts. Generates an HTML report; opens automatically on failure.
+- `npm run test:e2e:ci:bypass:mem` – Same, with `--reporter=junit` for CI integration.
 - `npm run test:e2e:show-report` – View the last generated HTML report (run from repo root or `apps/web`).
 - `npm run install:full` – Install npm deps + Playwright browsers + system deps (Linux; prompts for sudo if needed).
 

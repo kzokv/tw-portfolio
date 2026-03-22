@@ -6,8 +6,8 @@
 - Keep e2e specs focused on user-visible critical flows and regressions.
 
 ## Build and test commands
-- Run e2e suite: `npm run test:e2e`.
-- Run CI reporter mode: `npm run test:e2e:ci`.
+- Run e2e suite: `npm run test:e2e:bypass:mem`.
+- Run CI reporter mode: `npm run test:e2e:ci:bypass:mem`.
 - Open Playwright report: `npm run test:e2e:show-report`.
 - Run single spec when iterating: `npx playwright test tests/e2e/specs/<spec>.spec.ts --config=apps/web/tests/e2e/playwright.config.ts`.
 

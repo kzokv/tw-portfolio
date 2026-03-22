@@ -11,8 +11,8 @@
 - Run API tests: `npm run test -w apps/api`.
 - Run integration tests: `npm run test:integration -w apps/api`.
 - Run managed Postgres integration variants from repo root:
-  - `npm run test:integration:ci:host` on the macOS host or lume VM shell
-  - `npm run test:integration:ci:container` in a Linux container shell
+  - `npm run test:integration:full:host` on the macOS host or lume VM shell
+  - `npm run test:integration:full:container` in a Linux container shell
 - Generate reports: `npm run test:html -w apps/api`, `npm run test:json -w apps/api`, `npm run test:junit -w apps/api`.
 
 ## Code style guidelines

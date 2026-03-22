@@ -9,8 +9,8 @@
 - Dev server: `npm run dev -w apps/web`.
 - Build package: `npm run build -w @tw-portfolio/web`.
 - Start built app: `npm run start -w apps/web`.
-- Run web unit tests: `npm run test:unit -w apps/web`.
-- Run web e2e suite from repo root: `npm run test:e2e`.
+- Run web unit tests: `npm run test -w apps/web`.
+- Run web e2e suite from repo root: `npm run test:e2e:bypass:mem`.
 
 ## Code style guidelines
 - TypeScript policy: keep `compilerOptions.strict` enabled for web tsconfig.
