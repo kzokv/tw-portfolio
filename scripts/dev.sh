@@ -39,13 +39,25 @@ if ! version_gte "$node_version" "$MIN_NODE_VERSION"; then
   exit 1
 fi
 
+# Save mode overrides set by npm scripts (e.g., dev:local:bypass:pg)
+# before sourcing .env.local, which would otherwise overwrite them.
+_saved_auth="${AUTH_MODE:-}"
+_saved_persist="${PERSISTENCE_BACKEND:-}"
+
 set -a
 [ -f ./.env.local ] && . ./.env.local
 set +a
 
-# Derive NEXT_PUBLIC_* from root vars if not explicitly set (prevents split-brain auth)
-export NEXT_PUBLIC_AUTH_MODE="${NEXT_PUBLIC_AUTH_MODE:-${AUTH_MODE:-dev_bypass}}"
+# Restore npm-script overrides (take precedence over .env.local)
+[ -n "$_saved_auth" ] && export AUTH_MODE="$_saved_auth"
+[ -n "$_saved_persist" ] && export PERSISTENCE_BACKEND="$_saved_persist"
+
+# Derive NEXT_PUBLIC_* from root vars (always sync with AUTH_MODE to prevent split-brain auth)
+export NEXT_PUBLIC_AUTH_MODE="${AUTH_MODE:-dev_bypass}"
 export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-http://localhost:${API_PORT:-4000}}"
+
+source "$ROOT_DIR/scripts/lib/banner.sh"
+print_banner "${1:-dev}"
 
 api_pid=""
 web_pid=""

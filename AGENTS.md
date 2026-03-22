@@ -14,7 +14,7 @@
 - Keep `compilerOptions.strict` enabled across the TypeScript config chain.
 - Keep scripts, commands, and docs synchronized when workflows change.
 - Run the smallest relevant test scope first, then broader regression checks.
-- Use `npm run test:integration:ci:host` on Darwin or the lume VM shell, and `npm run test:integration:ci:container` in Linux containers, for managed API Postgres integration coverage.
+- Use `npm run test:integration:full:host` on Darwin or the lume VM shell, and `npm run test:integration:full:container` in Linux containers, for managed API Postgres integration coverage.
 
 ## Git And PR Gate
 

@@ -30,9 +30,9 @@ If `docker` or `docker compose` (without subcommands) prints help, that only con
 ## Integration CI commands
 
 - Host shell / guest VM shell:
-  - `npm run test:integration:ci:host`
+  - `npm run test:integration:full:host`
 - Linux/containerized shell:
-  - `npm run test:integration:ci:container`
+  - `npm run test:integration:full:container`
 
 ## Issues encountered and fixes
 
@@ -99,7 +99,7 @@ Cause:
 
 Fix:
 
-- Use managed CI commands (`test:integration:ci:host` / `test:integration:ci:container`) which run `test:integration:full` with required Postgres env vars.
+- Use managed CI commands (`test:integration:full:host` / `test:integration:full:container`) which run `test:integration:full` with required Postgres env vars.
 - Keep plain `npm run test:integration` as the non-Postgres integration path.
 
 ### 4. `host.docker.internal` confusion
@@ -110,8 +110,8 @@ Symptom:
 
 Clarification:
 
-- For `test:integration:ci:container`, `host.docker.internal` is required and must resolve.
-- For `test:integration:ci:host` in guest VM topology, host routing is resolved from:
+- For `test:integration:full:container`, `host.docker.internal` is required and must resolve.
+- For `test:integration:full:host` in guest VM topology, host routing is resolved from:
   1. `CI_TEST_HOST` (explicit override)
   2. `DOCKER_HOST` TCP host
   3. OS default gateway
@@ -120,7 +120,7 @@ Clarification:
 If auto-detection fails, set:
 
 ```bash
-CI_TEST_HOST=<physical-host-ip-or-dns> npm run test:integration:ci:host
+CI_TEST_HOST=<physical-host-ip-or-dns> npm run test:integration:full:host
 ```
 
 ## Recommended VM shell profile

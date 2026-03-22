@@ -12,7 +12,7 @@ CI only does host-level builds (npm/tsc), so Dockerfile drift goes undetected un
 
 Three additions close the gap:
 
-1. **`docker-compose.local.yml`** — Local Docker validation stack (twp-local-* naming). Ports: web 3300, api 4300, postgres 5732, redis 6679. No cloudflared. Validate with `npm run docker:validate` or `npm run docker:validate:teardown`.
+1. **`docker-compose.local.yml`** — Local Docker validation stack (twp-local-* naming). Ports: web 3300, api 4300, postgres 5732, redis 6679. No cloudflared. Validate with `npm run dev:docker:validate` or `npm run dev:docker:validate:teardown`.
 
 2. **CI Docker build validation job** — GitHub Actions job that builds Docker images (without running them) on every PR/push. Catches Dockerfile dependency drift before deploy.
 

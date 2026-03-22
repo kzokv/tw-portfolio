@@ -64,6 +64,6 @@ const server = http.createServer((req, res) => {
   res.end("Not found");
 });
 
-server.listen(port, "127.0.0.1", () => {
-  process.stderr.write(`Mock OAuth server listening on http://127.0.0.1:${port}\n`);
+server.listen(port, "0.0.0.0", () => {
+  process.stderr.write(`Mock OAuth server listening on http://localhost:${port}\n`);
 });

@@ -4,7 +4,7 @@ description: Two root causes for Playwright webServer timeout failures; fixed 20
 type: project
 ---
 
-Two bugs caused `npm run test:e2e` to time out on startup:
+Two bugs caused `npm run test:e2e:bypass:mem` to time out on startup:
 
 ## Bug 1 — IPv6/IPv4 mismatch (server binds IPv4-only, localhost resolves IPv6 first)
 

@@ -14,7 +14,7 @@ TEST_HOST=""
 COMPOSE_BIN=()
 
 log_ci() {
-  echo "[test:integration:ci:${INTEGRATION_CI_MODE}] $*"
+  echo "[test:integration:full:${INTEGRATION_CI_MODE}] $*"
 }
 
 compose() {
@@ -284,7 +284,7 @@ ERROR: Could not auto-detect a reachable test host for CI DB/Redis ports.
 Tried candidates: ${candidates_display}
 
 Set CI_TEST_HOST explicitly to the Docker-host machine address, for example:
-  CI_TEST_HOST=<host-ip-or-dns> npm run test:integration:ci:host
+  CI_TEST_HOST=<host-ip-or-dns> npm run test:integration:full:host
 EOF
   exit 1
 }

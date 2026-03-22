@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 /**
  * Centralised test/E2E configuration.
@@ -11,20 +12,36 @@ import path from "node:path";
  * (real refresh token) calls the Google token endpoint directly from the test runner, so
  * it is unaffected by the API-side GOOGLE_TOKEN_URL override.
  */
+export const e2eEnvSchema = z.object({
+  HOST: z.string().default("localhost"),
+  MOCK_OAUTH_PORT: z.coerce.number().default(4445),
+  API_PORT: z.coerce.number().default(4000),
+  WEB_PORT: z.coerce.number().default(3333),
+  SESSION_COOKIE_NAME: z.string().default("__Host-g_auth_session"),
+  GOOGLE_OAUTH_REFRESH_TOKEN: z.string().optional(),
+  GOOGLE_TOKEN_URL: z.string().optional(),
+});
+
+let _e2eCache: z.infer<typeof e2eEnvSchema> | undefined;
+function e2eParsed(): z.infer<typeof e2eEnvSchema> {
+  if (!_e2eCache) _e2eCache = e2eEnvSchema.parse(process.env);
+  return _e2eCache;
+}
+
 export const TestEnv = {
   get host(): string {
-    return process.env.HOST ?? "localhost";
+    return e2eParsed().HOST;
   },
 
   ports: {
     get web(): number {
-      return Number(process.env.WEB_PORT ?? 3333);
+      return e2eParsed().WEB_PORT;
     },
     get api(): number {
-      return Number(process.env.API_PORT ?? 4000);
+      return e2eParsed().API_PORT;
     },
     get mockOAuth(): number {
-      return Number(process.env.MOCK_OAUTH_PORT ?? 4445);
+      return e2eParsed().MOCK_OAUTH_PORT;
     },
   },
 
@@ -35,7 +52,7 @@ export const TestEnv = {
   },
 
   get sessionCookieName(): string {
-    return process.env.SESSION_COOKIE_NAME ?? "__Host-g_auth_session";
+    return e2eParsed().SESSION_COOKIE_NAME;
   },
 
   get mockTokenUrl(): string {

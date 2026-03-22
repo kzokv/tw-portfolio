@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 print_help() {
   cat <<EOF
 Description:
-  Run managed Postgres/Redis integration CI tests from a Linux/containerized shell using
+  Run managed Postgres/Redis full integration tests from a Linux/containerized shell using
   host.docker.internal host-gateway mapping.
 
 Usage: ${SCRIPT_PATH} [OPTIONS]
