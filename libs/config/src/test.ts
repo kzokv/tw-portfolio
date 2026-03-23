@@ -17,7 +17,7 @@ export const e2eEnvSchema = z.object({
   MOCK_OAUTH_PORT: z.coerce.number().default(4445),
   API_PORT: z.coerce.number().default(4000),
   WEB_PORT: z.coerce.number().default(3333),
-  SESSION_COOKIE_NAME: z.string().default("__Host-g_auth_session"),
+  SESSION_COOKIE_NAME: z.string().default("g_auth_session"),
   GOOGLE_OAUTH_REFRESH_TOKEN: z.string().optional(),
   GOOGLE_TOKEN_URL: z.string().optional(),
 });

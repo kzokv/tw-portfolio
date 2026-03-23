@@ -8,4 +8,7 @@ declare module "fastify" {
     oauthConfig: GoogleOAuthConfig | null;
     appBaseUrl: string;
   }
+  interface FastifyRequest {
+    __sessionType?: "demo" | "oauth";
+  }
 }

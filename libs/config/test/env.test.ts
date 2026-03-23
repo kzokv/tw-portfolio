@@ -57,8 +57,8 @@ describe("getGoogleOAuthEnvConfig", () => {
 });
 
 describe("SESSION_COOKIE_NAME", () => {
-  it("defaults to __Host-g_auth_session in the parsed env", () => {
-    expect(Env.SESSION_COOKIE_NAME).toBe("__Host-g_auth_session");
+  it("defaults to g_auth_session in the parsed env", () => {
+    expect(Env.SESSION_COOKIE_NAME).toBe("g_auth_session");
   });
 });
 

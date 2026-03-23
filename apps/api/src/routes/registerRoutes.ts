@@ -13,6 +13,7 @@ import {
   verifySessionCookie,
   verifyState,
   type GoogleTokenResponse,
+  type SessionIdentity,
 } from "../auth/googleOAuth.js";
 import type { FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
@@ -29,6 +30,7 @@ import { buildDashboardOverview, buildDashboardPerformance } from "../services/d
 import { createDividendEvent, postDividend } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
+import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureSymbolDefinition, isSymbolQuoteable } from "../services/symbolRegistry.js";
 import type { Store, Transaction } from "../types/store.js";
@@ -163,7 +165,7 @@ function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomai
   return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
 }
 
-function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): string | null {
+function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): SessionIdentity | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const eqIdx = part.indexOf("=");
@@ -171,7 +173,6 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
     if (part.slice(0, eqIdx).trim() === Env.SESSION_COOKIE_NAME) {
       const value = part.slice(eqIdx + 1).trim();
       if (!value) return null;
-      // Verify HMAC signature before trusting the userId
       if (!sessionSecret) return null;
       return verifySessionCookie(value, sessionSecret);
     }
@@ -179,32 +180,35 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
   return null;
 }
 
-function resolveUserId(req: FastifyRequest, sessionSecret?: string): string {
+function resolveUserId(req: FastifyRequest, sessionSecret?: string): { userId: string; isDemo: boolean } {
   if (Env.AUTH_MODE === "oauth") {
-    // Session cookie is the sole identity source in oauth mode.
-    const sub = parseSessionCookie(req.headers.cookie, sessionSecret);
-    if (sub) return userScopedIdSchema.parse(sub);
-
+    const identity = parseSessionCookie(req.headers.cookie, sessionSecret);
+    if (identity) {
+      req.__sessionType = identity.isDemo ? "demo" : "oauth";
+      return { userId: userScopedIdSchema.parse(identity.userId), isDemo: identity.isDemo };
+    }
     throw routeError(401, "auth_required", "authentication required");
   }
 
   // dev_bypass: also accept a valid session cookie when sessionSecret is available,
   // so integration tests that exercise the OAuth flow work without setting AUTH_MODE=oauth.
   if (sessionSecret) {
-    const sub = parseSessionCookie(req.headers.cookie, sessionSecret);
-    if (sub) return userScopedIdSchema.parse(sub);
+    const identity = parseSessionCookie(req.headers.cookie, sessionSecret);
+    if (identity) {
+      req.__sessionType = identity.isDemo ? "demo" : "oauth";
+      return { userId: userScopedIdSchema.parse(identity.userId), isDemo: identity.isDemo };
+    }
   }
 
   const bypassHeader = req.headers["x-user-id"];
   if (!bypassHeader || Array.isArray(bypassHeader)) {
-    return "user-1";
+    return { userId: "user-1", isDemo: false };
   }
-
-  return userScopedIdSchema.parse(bypassHeader);
+  return { userId: userScopedIdSchema.parse(bypassHeader), isDemo: false };
 }
 
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
-  const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+  const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
   const store = await app.persistence.loadStore(userId);
   syncAccountingPolicy(store);
   return { userId, store };
@@ -382,10 +386,17 @@ function requireAccount(store: Store, accountId: string) {
   return account;
 }
 
+const demoRateBuckets = new Map<string, { count: number; windowStartedAt: number }>();
+
+/** @internal — test-only helper to reset the demo rate limiter between test runs. */
+export function _resetDemoRateBuckets(): void {
+  demoRateBuckets.clear();
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
-    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = createSeededStoreForUser(userId);
     await app.persistence.saveStore(store);
     return { status: "reset", userId };
@@ -423,6 +434,53 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, (Env.NODE_ENV as string) === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
     return { status: "ok", sub, userId };
+  });
+
+  app.post("/auth/demo/start", async (req, reply) => {
+    if (Env.DEMO_MODE_ENABLED !== "true") {
+      throw routeError(404, "not_found", "not found");
+    }
+
+    // Per-IP rate limit: 5 requests per minute
+    const demoRateKey = `${req.ip}:POST:/auth/demo/start`;
+    const now = Date.now();
+    const windowMs = 60_000;
+    const demoLimit = 5;
+    const existing = demoRateBuckets.get(demoRateKey);
+
+    if (existing && now - existing.windowStartedAt < windowMs && existing.count >= demoLimit) {
+      return reply.code(429).send({ error: "rate_limit_exceeded" });
+    }
+
+    if (!existing || now - existing.windowStartedAt >= windowMs) {
+      demoRateBuckets.set(demoRateKey, { count: 1, windowStartedAt: now });
+    } else {
+      existing.count += 1;
+    }
+
+    const demoId = randomUUID();
+    const email = `demo-${demoId}@demo.local`;
+    const ttlSeconds = Env.DEMO_SESSION_TTL_SECONDS;
+
+    const userId = await app.persistence.resolveOrCreateUser("demo", demoId, {
+      email,
+      name: "Demo User",
+    });
+
+    await app.persistence.markDemoUser(userId, ttlSeconds);
+    await seedDemoTransactions(app.persistence, userId);
+
+    const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
+    if (!sessionSecret) {
+      throw routeError(500, "missing_secret", "SESSION_SECRET is required");
+    }
+
+    const signedCookie = signSessionCookie(userId, sessionSecret, true);
+    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}; Max-Age=${ttlSeconds}`);
+
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    return { userId, expiresAt, sessionType: "demo" };
   });
 
   app.get("/health/live", async () => ({ status: "ok" }));
@@ -551,12 +609,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/profile", async (req) => {
-    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     return app.persistence.getProfile(userId);
   });
 
   app.patch("/profile", async (req) => {
-    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
     return app.persistence.updateProfileEmail(userId, body.email);
   });
@@ -845,7 +903,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "idempotency_key_required", "idempotency-key header required");
     }
 
-    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
@@ -959,7 +1017,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "idempotency_key_required", "idempotency-key header required");
     }
 
-    const userId = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);

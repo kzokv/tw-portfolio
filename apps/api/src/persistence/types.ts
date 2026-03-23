@@ -44,4 +44,5 @@ export interface Persistence {
   getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>>;
   cacheQuotes(quotes: Quote[]): Promise<void>;
   readiness(): Promise<ReadinessStatus>;
+  markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
 }

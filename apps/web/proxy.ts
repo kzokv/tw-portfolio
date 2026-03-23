@@ -69,7 +69,7 @@ export function proxy(request: NextRequest): NextResponse {
 
 export const config = {
   matcher: [
-    // Protect all paths except: /login, /auth/error, /_next/*, static assets
-    "/((?!login|auth/error|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
+    // Protect all paths except: /login, /auth/error, /api/demo/*, /_next/*, static assets
+    "/((?!login|auth/error|api/demo|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
   ],
 };

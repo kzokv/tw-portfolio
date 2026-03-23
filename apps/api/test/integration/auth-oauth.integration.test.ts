@@ -209,9 +209,9 @@ describe("GET /auth/google/callback", () => {
     const cookieMatch = setCookie.match(new RegExp(`${Env.SESSION_COOKIE_NAME}=([^;]+)`));
     expect(cookieMatch).toBeTruthy();
     const cookieValue = cookieMatch![1];
-    const verifiedUserId = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
-    expect(verifiedUserId).toBeTruthy();
-    expect(verifiedUserId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
+    expect(verifiedIdentity?.userId).toBeTruthy();
+    expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it(`sets ${Env.SESSION_COOKIE_NAME} cookie and redirects on returning user login flow`, async () => {

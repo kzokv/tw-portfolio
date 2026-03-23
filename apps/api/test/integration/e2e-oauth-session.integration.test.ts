@@ -53,9 +53,9 @@ describe("POST /__e2e/oauth-session", () => {
     // Verify the cookie value is HMAC-signed and verifies correctly
     // Cookie is signed with userId (UUID), not the Google sub
     const cookieValue = setCookie.split(`${Env.SESSION_COOKIE_NAME}=`)[1].split(";")[0];
-    const verifiedUserId = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
-    expect(verifiedUserId).toBe(body.userId);
-    expect(verifiedUserId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
+    expect(verifiedIdentity?.userId).toBe(body.userId);
+    expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it("returns signed session cookie from decoded id_token when provided", async () => {
@@ -83,9 +83,9 @@ describe("POST /__e2e/oauth-session", () => {
     const setCookie = res.headers["set-cookie"] as string;
     const cookieValue = setCookie.split(`${Env.SESSION_COOKIE_NAME}=`)[1].split(";")[0];
     // Cookie is signed with userId (UUID), not the Google sub
-    const verifiedUserId = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
-    expect(verifiedUserId).toBe(body.userId);
-    expect(verifiedUserId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
+    expect(verifiedIdentity?.userId).toBe(body.userId);
+    expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it("uses buildCookieAttrs for cookie attributes (same as real callback)", async () => {

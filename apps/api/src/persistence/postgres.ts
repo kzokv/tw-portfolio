@@ -1893,6 +1893,17 @@ export class PostgresPersistence implements Persistence {
       }
     }
   }
+
+  async markDemoUser(userId: string, ttlSeconds: number): Promise<void> {
+    await this.pool.query(
+      `UPDATE users SET is_demo = true, demo_expires_at = NOW() + $2 * INTERVAL '1 second' WHERE id = $1`,
+      [userId, ttlSeconds],
+    );
+  }
+
+  getPool(): Pool {
+    return this.pool;
+  }
 }
 
 function validateStoreInvariants(store: Store): void {

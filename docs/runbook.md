@@ -227,7 +227,7 @@ What these settings mean:
 - `API_PORT`: local port where the API server listens. Example: `4000`.
 - `DB_PORT`: local compose Postgres mapped port used when `DB_URL` is unset. Example: `5432`.
 - `REDIS_PORT`: local compose Redis mapped port used when `REDIS_URL` is unset. Example: `6379`.
-- `AUTH_MODE`: authentication strategy. `dev_bypass` skips real auth for local development; `oauth` expects an authenticated user id header from the web app or a fronting auth layer.
+- `AUTH_MODE`: authentication strategy. `dev_bypass` skips real auth for local development; `oauth` uses HMAC-signed session cookies as the sole identity source (set after Google OAuth login).
 - `PERSISTENCE_BACKEND`: storage mode used by the API. Example values: `memory` for local tests, `postgres` for normal development and production-like runs.
 - `DB_URL`: Postgres connection string used by the API. Local mode example: `postgres://app:app@localhost:5432/tw_portfolio`. External mode example: `postgres://<user>:<password>@192.168.2.10:5454/tw_portfolio`.
 - `REDIS_URL`: Redis connection string used by the API. Local mode example: `redis://localhost:6379`. External mode example: `redis://:<password>@192.168.2.10:6363`.
@@ -251,6 +251,26 @@ Web build args:
 | Arg | Description |
 |---|---|
 | `NEXT_PUBLIC_AUTH_MODE` | Set to `oauth` for OAuth deployments. Activates the OAuth middleware and login page in the web container. |
+
+#### Demo mode settings (optional)
+
+| Variable | Description |
+|---|---|
+| `DEMO_MODE_ENABLED` | `"true"` to enable the demo sign-in button on the login page. Default: `"false"`. |
+| `DEMO_SESSION_TTL_SECONDS` | Demo session lifetime in seconds. Default: `1800` (30 minutes). |
+
+When demo mode is enabled:
+- The login page shows a "Try it — no sign-up needed" button below Google sign-in.
+- `POST /auth/demo/start` creates a temporary user with 12 seeded transactions across 5 Taiwan stock/ETF symbols.
+- Demo sessions use the same HMAC-signed cookie mechanism as OAuth, with a `demo:` prefix in the payload.
+- Demo users see an amber banner ("You're using a demo session.") on all protected pages.
+- When a demo session expires (401 from API), the client redirects to `/login?demoExpired=true` with a message instead of the OAuth logout flow.
+
+**Cleanup (Postgres only):** When `PERSISTENCE_BACKEND=postgres` and `DEMO_MODE_ENABLED=true`, the API server runs a cleanup job every 15 minutes. It deletes demo users whose `demo_expires_at` is older than 1 hour (grace period). The cleanup runs in a single transaction, deleting across 17 tables in FK topological order. The cleanup interval handle is cleared on Fastify `onClose`.
+
+**Disabling demo mode:** Set `DEMO_MODE_ENABLED=false` (or remove it). The demo button disappears, `POST /auth/demo/start` returns 404, and any existing demo sessions continue until they expire. The cleanup service stops running.
+
+**Rate limiting:** Demo session creation is rate-limited to 5 requests per minute per IP, using a separate rate bucket from the standard mutation rate limiter.
 
 ### Notes
 

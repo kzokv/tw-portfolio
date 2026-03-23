@@ -39,6 +39,7 @@ type ViewportMode = "mobile" | "compact" | "wide";
 
 interface AppShellProps {
   section?: AppSection;
+  isDemo?: boolean;
 }
 
 interface NavigationItem {
@@ -60,7 +61,7 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   isDayTrade: false,
 };
 
-export function AppShell({ section = "dashboard" }: AppShellProps) {
+export function AppShell({ section = "dashboard", isDemo = false }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -239,6 +240,14 @@ export function AppShell({ section = "dashboard" }: AppShellProps) {
 
   return (
     <div className="app-shell relative min-h-screen min-w-0 overflow-x-hidden">
+      {isDemo && (
+        <div
+          className="flex h-8 items-center justify-center bg-amber-100 text-xs font-medium text-amber-800"
+          data-testid="demo-banner"
+        >
+          You&apos;re using a demo session.
+        </div>
+      )}
       <TopBar
         skeleton={dashboard.isBootstrapping}
         userId={dashboard.settings?.userId}

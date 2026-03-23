@@ -10,11 +10,11 @@ The project deploys to a **QNAP NAS server at 192.168.2.10**. GitHub Actions rea
 
 ## Docker Compose Environments
 
-| Environment | File | Container prefix | Ports |
-|-------------|------|-----------------|-------|
-| dev | `docker-compose.dev.yml` | `twp-dev-*` | web 5454, api 6363 |
-| production | `docker-compose.prod.yml` | `twp-prod-*` | (standard) |
-| local (new) | `docker-compose.local.yml` | `twp-local-*` | web 5732, api 6679, storybook 4300, adminer 3300 |
+| Environment | File | Container prefix | Host ports |
+|-------------|------|-----------------|------------|
+| local | `docker-compose.local.yml` | `twp-local-*` | web 3300, api 4300, postgres 5732, redis 6679 |
+| dev | `docker-compose.dev.yml` | `twp-dev-*` | postgres 5454, redis 6363 (web/api via cloudflared) |
+| production | `docker-compose.prod.yml` | `twp-prod-*` | (via cloudflared) |
 
 ## CI/CD Flow
 

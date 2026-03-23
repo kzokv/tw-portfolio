@@ -3,10 +3,11 @@ import { envSchema, rootLocalSchema, webEnvSchema } from "../src/env-schema.js";
 
 // Group A: webEnvSchema behavioral tests (QA-owned)
 describe("webEnvSchema", () => {
-  it("has exactly 5 shape keys", () => {
+  it("has exactly 6 shape keys", () => {
     const keys = Object.keys(webEnvSchema.shape);
-    expect(keys).toHaveLength(5);
+    expect(keys).toHaveLength(6);
     expect(keys.sort()).toEqual([
+      "DEMO_MODE_ENABLED",
       "NEXT_PUBLIC_API_BASE_URL",
       "NEXT_PUBLIC_AUTH_MODE",
       "SERVER_API_BASE_URL",
@@ -27,7 +28,7 @@ describe("webEnvSchema", () => {
 
   it("inherits SESSION_COOKIE_NAME default from envSchema", () => {
     const result = webEnvSchema.parse({});
-    expect(result.SESSION_COOKIE_NAME).toBe("__Host-g_auth_session");
+    expect(result.SESSION_COOKIE_NAME).toBe("g_auth_session");
   });
 
   it("inherits SESSION_SECRET as optional from envSchema", () => {
