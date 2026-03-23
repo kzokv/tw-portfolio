@@ -1,182 +1,8 @@
-# Deployment Guide
+# Deployment & Operations Guide
 
-This document is the single source of truth for deploying and operating the **tw-portfolio** stack: local development, production on the QNAP home lab, and related runbooks. It is written for operators and developers who deploy or troubleshoot the stack.
+Operational runbook for running, deploying, and troubleshooting the **tw-portfolio** stack.
 
----
-
-## Architecture Diagrams
-
-### System Overview
-
-```
-                          +------------------+
-                          |   Cloudflare     |
-                          |   Zero Trust     |
-                          +--------+---------+
-                                   |
-                    +--------------+--------------+
-                    |                             |
-             +------+------+              +------+------+
-             | WARP Tunnel |              |  CF Tunnel  |
-             | (CI Deploy) |              | (Ingress)   |
-             +------+------+              +------+------+
-                    |                             |
-                    +----------+   +--------------+
-                               |   |
-                          +----+---+----+
-                          |  QNAP Host  |
-                          | 192.168.2.10|
-                          +------+------+
-                                 |
-              +------------------+------------------+
-              |                                     |
-     +--------+--------+                  +---------+--------+
-     |  twp-prod-net   |                  |   twp-dev-net    |
-     |  (production)   |                  |   (staging)      |
-     +--------+--------+                  +---------+--------+
-              |                                     |
-  +-----------+-----------+           +-------------+-----------+
-  |     |     |     |     |           |     |     |     |     |
- web  api  postgres redis cf         web  api  postgres redis cf
- :3000 :4000 :5432 :6379             :3000 :4000 :5432 :6379
-```
-
-### Local Docker Stack (no cloudflared)
-
-```
-     +---------------------+
-     |    twp-local-net     |
-     +----------+----------+
-                |
-  +-------------+-------------+-------------+
-  |             |             |             |
- web          api         postgres       redis
- :3000        :4000        :5432         :6379
-  |             |             |             |
- :3300        :4300        :5732         :6679
- (host)       (host)       (host)        (host)
-```
-
-### CI/CD Pipeline Flow
-
-```
-  developer
-     |
-     | git push
-     v
-  +--------+     +----------+     +-----------+     +----------+
-  | GitHub |---->|    CI     |---->| Deploy    |---->| QNAP     |
-  | Repo   |     | Workflow  |     | Workflow  |     | Host     |
-  +--------+     +----------+     +-----------+     +----------+
-                      |                |                  |
-                      v                v                  v
-                 +---------+    +-----------+     +-------------+
-                 | lint    |    | WARP      |     | deploy.sh   |
-                 | build   |    | enroll    |     |  checkout   |
-                 | test    |    | SSH       |     |  build      |
-                 | docker  |    | connect   |     |  backup     |
-                 | build   |    |           |     |  migrate    |
-                 +---------+    +-----------+     |  deploy     |
-                                                  |  healthcheck|
-                                                  +-------------+
-```
-
-### Deploy Script Phases
-
-```
-  deploy.sh
-     |
-     v
-  [1] Preflight -----> validate git, docker, env file, compose config
-     |
-     v
-  [2] Checkout ------> git fetch + checkout + reset to target SHA
-     |
-     v
-  [3] Build ---------> docker compose --profile migrate build
-     |
-     v
-  [4] Backup --------> pg_dump | gzip (if postgres running)
-     |
-     v
-  [5] Migrate -------> docker compose run --rm migrate
-     |                     |
-     |                 FAIL? --> collect logs --> ROLLBACK --> exit 1
-     v
-  [6] Deploy --------> docker compose up -d --remove-orphans
-     |                     |
-     |                 FAIL? --> collect diagnostics --> ROLLBACK --> exit 1
-     v
-  [7] Health Check --> API: /health/live (30s) + Web: / (20s)
-     |                     |
-     |                 FAIL? --> ROLLBACK --> exit 1
-     v
-  [8] Cleanup -------> remove old images
-     |
-     v
-  SUCCESS (exit 0)
-
-
-  ROLLBACK:
-     restore previous branch/SHA
-     rebuild images
-     restore DB from backup
-     docker compose up -d
-```
-
-### Local Validation Flow
-
-```
-  validate-local.sh
-     |
-     v
-  [1] Preflight -----> check docker, compose file, env file
-     |
-     v
-  [2] Build ---------> docker compose --profile migrate build
-     |
-     v
-  [3] Start Infra ---> postgres + redis, wait for healthy (60s)
-     |
-     v
-  [4] Migrate -------> run twp-local-migrate container
-     |
-     v
-  [5] Start Apps ----> api + web containers
-     |
-     v
-  [6] Health Check --> API: /health/live (30s) + Web: / (20s)
-     |
-     v
-  [7] Summary -------> docker compose ps
-     |
-     +--[--teardown]--> docker compose down -v
-     |
-     v
-  PASS/FAIL (exit 0/1)
-```
-
-### Environment Comparison
-
-```
-  +------------------+------------------+------------------+
-  |     LOCAL        |      DEV         |   PRODUCTION     |
-  +------------------+------------------+------------------+
-  | compose: local   | compose: dev     | compose: prod    |
-  | env: .env.local  | env: .env.dev    | env: .env.prod   |
-  | project: twp-    | project: twp-    | project: twp-    |
-  |   local          |   dev            |   prod           |
-  +------------------+------------------+------------------+
-  | web:  3300:3000  | web:  internal   | web:  internal   |
-  | api:  4300:4000  | api:  internal   | api:  internal   |
-  | db:   5732:5432  | db:   5454:5432  | db:   internal   |
-  | redis:6679:6379  | redis:6363:6379  | redis: internal  |
-  +------------------+------------------+------------------+
-  | NO cloudflared   | cloudflared      | cloudflared      |
-  | AUTH: oauth      | AUTH: oauth      | AUTH: oauth      |
-  | Direct localhost  | Tunnel ingress   | Tunnel ingress   |
-  +------------------+------------------+------------------+
-```
+For system design, data flow, and deployment topology diagrams, see [Architecture](./architecture.md). For environment variables, schemas, and validation, see [Environment Variables](./environment-variables.md). For auth flows, session cookies, and demo mode, see [Auth and Session](./auth-and-session.md). For CI/CD pipelines and deploy workflows, see [CI/CD](./ci-cd.md).
 
 ---
 
@@ -215,62 +41,16 @@ Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example
 
 ### Required env
 
-- `WEB_PORT`, `API_PORT`, `DB_PORT`, `REDIS_PORT`
-- `AUTH_MODE`, `PERSISTENCE_BACKEND`
-- `DB_URL`, `REDIS_URL` (required for external Postgres/Redis mode; optional in local Postgres mode)
-- `ALLOWED_ORIGINS` (comma-separated CORS allowlist)
-- `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_MUTATIONS`
+See [Environment Variables](./environment-variables.md) for the full reference (all variables, defaults, schemas, and validation rules).
 
-What these settings mean:
+Quick reference for local dev:
 
-- `WEB_PORT`: local port where the Next.js web app listens. Example: `3000`.
-- `API_PORT`: local port where the API server listens. Example: `4000`.
-- `DB_PORT`: local compose Postgres mapped port used when `DB_URL` is unset. Example: `5432`.
-- `REDIS_PORT`: local compose Redis mapped port used when `REDIS_URL` is unset. Example: `6379`.
-- `AUTH_MODE`: authentication strategy. `dev_bypass` skips real auth for local development; `oauth` uses HMAC-signed session cookies as the sole identity source (set after Google OAuth login).
-- `PERSISTENCE_BACKEND`: storage mode used by the API. Example values: `memory` for local tests, `postgres` for normal development and production-like runs.
-- `DB_URL`: Postgres connection string used by the API. Local mode example: `postgres://app:app@localhost:5432/tw_portfolio`. External mode example: `postgres://<user>:<password>@192.168.2.10:5454/tw_portfolio`.
-- `REDIS_URL`: Redis connection string used by the API. Local mode example: `redis://localhost:6379`. External mode example: `redis://:<password>@192.168.2.10:6363`.
-- `ALLOWED_ORIGINS`: comma-separated list of browser origins allowed to call the API. Example: `http://localhost:3000,https://twp-web.example.com`.
-- `RATE_LIMIT_WINDOW_MS`: rolling time window for mutation rate limiting, in milliseconds. Example: `60000` for a one-minute window.
-- `RATE_LIMIT_MAX_MUTATIONS`: maximum number of allowed write operations within the rate-limit window. Example: `60`.
-
-#### OAuth settings (required when `AUTH_MODE=oauth`)
-
-| Variable | Description |
-|---|---|
-| `GOOGLE_CLIENT_ID` | OAuth 2.0 client ID from Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 client secret |
-| `GOOGLE_REDIRECT_URI` | Callback URL: `https://<PUBLIC_DOMAIN_API>/auth/google/callback`. Computed in compose. |
-| `SESSION_SECRET` | >=32 char hex string for signing session cookies. Generate: `openssl rand -hex 32` |
-| `APP_BASE_URL` | Post-login redirect base: `https://<PUBLIC_DOMAIN_WEB>`. Computed in compose. |
-| `SESSION_COOKIE_NAME` | Session cookie name (default: `__Host-g_auth_session`) |
-
-Web build args:
-
-| Arg | Description |
-|---|---|
-| `NEXT_PUBLIC_AUTH_MODE` | Set to `oauth` for OAuth deployments. Activates the OAuth middleware and login page in the web container. |
-
-#### Demo mode settings (optional)
-
-| Variable | Description |
-|---|---|
-| `DEMO_MODE_ENABLED` | `"true"` to enable the demo sign-in button on the login page. Default: `"false"`. |
-| `DEMO_SESSION_TTL_SECONDS` | Demo session lifetime in seconds. Default: `1800` (30 minutes). |
-
-When demo mode is enabled:
-- The login page shows a "Try it — no sign-up needed" button below Google sign-in.
-- `POST /auth/demo/start` creates a temporary user with 12 seeded transactions across 5 Taiwan stock/ETF symbols.
-- Demo sessions use the same HMAC-signed cookie mechanism as OAuth, with a `demo:` prefix in the payload.
-- Demo users see an amber banner ("You're using a demo session.") on all protected pages.
-- When a demo session expires (401 from API), the client redirects to `/login?demoExpired=true` with a message instead of the OAuth logout flow.
-
-**Cleanup (Postgres only):** When `PERSISTENCE_BACKEND=postgres` and `DEMO_MODE_ENABLED=true`, the API server runs a cleanup job every 15 minutes. It deletes demo users whose `demo_expires_at` is older than 1 hour (grace period). The cleanup runs in a single transaction, deleting across 17 tables in FK topological order. The cleanup interval handle is cleared on Fastify `onClose`.
-
-**Disabling demo mode:** Set `DEMO_MODE_ENABLED=false` (or remove it). The demo button disappears, `POST /auth/demo/start` returns 404, and any existing demo sessions continue until they expire. The cleanup service stops running.
-
-**Rate limiting:** Demo session creation is rate-limited to 5 requests per minute per IP, using a separate rate bucket from the standard mutation rate limiter.
+- `AUTH_MODE`: `dev_bypass` (no auth) or `oauth` (Google OAuth). Default: `dev_bypass`.
+- `PERSISTENCE_BACKEND`: `memory` (no DB) or `postgres`. Default: `memory`.
+- `API_PORT`, `WEB_PORT`, `DB_PORT`, `REDIS_PORT`: Server ports. Defaults: 4000, 3000, 5432, 6379.
+- `DB_URL`, `REDIS_URL`: Connection strings (required for `postgres` mode; auto-built from ports if unset).
+- When `AUTH_MODE=oauth`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` required.
+- When `DEMO_MODE_ENABLED=true`: Shows "Try demo" button on login page. See [Auth and Session](./auth-and-session.md) for demo mode details.
 
 ### Notes
 
@@ -464,45 +244,9 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
 
 ## 3. Deployment Overview
 
-### 3.1 Architecture
+For architecture diagrams, deployment topology, and port mappings, see [Architecture](./architecture.md). For CI pipeline and deploy workflow details, see [CI/CD](./ci-cd.md).
 
-- **Deployment host**: QNAP-based home lab running the deploy target and app containers
-- **Deploy transport**: GitHub Actions runner -> Cloudflare WARP -> private SSH target
-- **App network**: Docker bridge `twp-prod-net`
-- **External access**: Cloudflare Tunnel terminates public traffic and forwards to the web and API containers
-
-Glossary:
-
-- **Cloudflare WARP**: the client installed on the GitHub-hosted runner so the runner can securely reach private network destinations during the workflow.
-- **Cloudflare Tunnel**: the outbound tunnel running on your infrastructure that publishes selected internal services to Cloudflare without opening inbound firewall ports.
-- **Private SSH target**: the internal machine or container that accepts SSH from the runner once WARP routing is active.
-- **Docker bridge**: the private Docker network that lets the app containers talk to each other on the deployment host.
-
-Keep concrete private IPs, Cloudflare tunnel IDs, and public hostnames out of this document. Store them in the appropriate GitHub Environment secrets or variables instead.
-
-### 3.2 CI Docker Build Validation
-
-CI now includes a `docker-build-validation` job that builds all Docker images on every PR/push. This catches Dockerfile dependency drift (e.g., missing workspace packages in COPY steps) before code reaches the deploy server.
-
-The job:
-1. Validates `docker-compose.local.yml` renders correctly with the CI fixture env file
-2. Builds all images including the migrate container (`--profile migrate`)
-3. Runs after `deploy-config-validation` passes (gated via `needs:`)
-
-If a PR changes workspace dependencies or Dockerfiles, this job will catch broken image builds before merge.
-
-### 3.3 Host resource budget
-
-The QNAP NAS provides compute. Container limits are set to stay within host capacity with headroom for OS and QTS.
-
-| Resource | Container limits total | Host available (est.) | Headroom        |
-|----------|------------------------|------------------------|-----------------|
-| Memory   | ~1,920 MB              | 8 GB                   | ~6 GB for OS/QTS |
-| vCPUs    | 3.75                   | 4 cores                | ~0.25 for OS    |
-
-If the host has less than 8 GB RAM, reduce per-container limits in `infra/docker/docker-compose.prod.yml` to avoid OOM kills.
-
-### 3.4 Containers
+### Containers
 
 | Environment | Stack prefix | Example containers | Compose file |
 |-------------|--------------|--------------------|----|
@@ -510,7 +254,7 @@ If the host has less than 8 GB RAM, reduce per-container limits in `infra/docker
 | `dev` | `twp-dev` | `twp-dev-web`, `twp-dev-api`, `twp-dev-postgres` | `docker-compose.dev.yml` |
 | `production` | `twp-prod` | `twp-prod-web`, `twp-prod-api`, `twp-prod-postgres` | `docker-compose.prod.yml` |
 
-`IMAGE_TAG` is set by the deploy script (see Deploy script options). App images are environment-specific (`twp-prod-*` or `twp-dev-*`), while Postgres, Redis, and cloudflared use fixed upstream images.
+`IMAGE_TAG` is set by the deploy script. App images are environment-specific (`twp-prod-*` or `twp-dev-*`), while Postgres, Redis, and cloudflared use fixed upstream images.
 
 ---
 

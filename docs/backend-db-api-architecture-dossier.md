@@ -1,23 +1,13 @@
 # Backend DB and API Architecture Dossier
 
-This dossier documents the current backend runtime in `apps/api` and `db/migrations` as implemented in the repository on March 11, 2026.
+This dossier documents the Postgres schema, HTTP API surface, and persistence architecture of `apps/api`.
 
-Sources of truth used for this report:
-- `db/migrations/*.sql`
-- `apps/api/src/routes/registerRoutes.ts`
-- `apps/api/src/app.ts`
-- `apps/api/src/persistence/postgres.ts`
-- `apps/api/src/persistence/memory.ts`
-- `apps/api/src/services/*.ts`
-- `apps/api/src/types/store.ts`
-- `apps/api/test/integration/*.test.ts`
-- `apps/web/lib/api.ts`
-- `apps/web/features/*/services/*.ts`
+For auth flows and session cookie mechanics, see [Auth and Session](./auth-and-session.md). For environment variable schemas, see [Environment Variables](./environment-variables.md).
 
 The report covers:
-- current Postgres schema, including snapshot/projection and dormant tables
+- current Postgres schema, including user identity, demo user, and dormant tables
 - current HTTP API surface and route dependencies
-- cross-cutting data flow, dependency graphs, and drift findings
+- cross-cutting data flow, dependency graphs, and persistence write paths
 
 ## Database
 
@@ -64,6 +54,7 @@ Workflow or dormant tables still matter:
 
 ```mermaid
 erDiagram
+  users ||--o{ user_external_identities : identity_mapping
   users ||--o{ fee_profiles : owns
   users ||--o{ accounts : owns
   users ||--o{ trade_events : owns
@@ -101,6 +92,7 @@ Plain-text adjacency list:
 
 ```text
 users
+  -> user_external_identities.user_id
   -> fee_profiles.user_id
   -> accounts.user_id
   -> trade_events.user_id
@@ -157,17 +149,28 @@ recompute_job_items
 #### `users`
 
 Purpose:
-- per-user settings and tenancy root
+- per-user settings, tenancy root, and demo user tracking
 
 Fields:
 
 | Column | Type / default | Constraints | Notes |
 | --- | --- | --- | --- |
-| `id` | `TEXT` | PK | tenant key |
-| `email` | `TEXT` | `NOT NULL`, UNIQUE partial index (KZO-77) | user's real email from OAuth; identity resolution key |
+| `id` | `TEXT` | PK | tenant key (UUID) |
+| `email` | `TEXT` | UNIQUE partial index (WHERE email IS NOT NULL) | user's real email from OAuth; nullable for dev_bypass users |
+| `display_name` | `TEXT` | nullable | from OAuth provider or user profile |
 | `locale` | `TEXT DEFAULT 'en'` | `NOT NULL` | route layer restricts to `en` or `zh-TW` |
-| `cost_basis_method` | `TEXT DEFAULT 'WEIGHTED_AVERAGE'` | `NOT NULL`, later check-constrained | migration `002` locks this to `WEIGHTED_AVERAGE` only |
+| `cost_basis_method` | `TEXT DEFAULT 'WEIGHTED_AVERAGE'` | `NOT NULL`, check-constrained | locked to `WEIGHTED_AVERAGE` |
 | `quote_poll_interval_seconds` | `INTEGER DEFAULT 10` | `NOT NULL` | route layer caps at `86400` |
+| `is_demo` | `BOOLEAN DEFAULT false` | `NOT NULL` | flag for demo users (migration 015) |
+| `demo_expires_at` | `TIMESTAMP` | nullable | TTL marker for demo cleanup (migration 015) |
+| `created_at` | `TIMESTAMP` | nullable | creation time (migration 014) |
+| `updated_at` | `TIMESTAMP` | nullable | last update (migration 014) |
+| `deactivated_at` | `TIMESTAMP` | nullable | soft deactivation (migration 014) |
+| `deleted_at` | `TIMESTAMP` | nullable | soft delete (migration 014) |
+
+Indexes:
+- Partial unique index on `email` WHERE `email IS NOT NULL`
+- Index on `demo_expires_at` WHERE `is_demo = true` (for cleanup queries)
 
 Read path:
 - loaded in `loadStore`
@@ -175,6 +178,35 @@ Read path:
 Write path:
 - updated by `saveStore`
 - upserted by `resolveOrCreateUser` (email-based identity resolution; KZO-77)
+- `is_demo` and `demo_expires_at` set by `markDemoUser` (KZO-107)
+
+#### `user_external_identities`
+
+Purpose:
+- maps external OAuth providers to internal user accounts (migration 014)
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | identity record ID |
+| `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owning user |
+| `provider` | `TEXT` | `NOT NULL` | `"google"`, `"demo"` |
+| `provider_subject` | `TEXT` | `NOT NULL` | Google `sub` claim or demo UUID |
+| `provider_email` | `TEXT` | nullable | email from provider |
+| `provider_display_name` | `TEXT` | nullable | name from provider |
+| `provider_picture_url` | `TEXT` | nullable | avatar URL from provider |
+| `linked_at` | `TIMESTAMP` | `NOT NULL` | when identity was first linked |
+| `last_seen_at` | `TIMESTAMP` | `NOT NULL` | when user last authenticated via this provider |
+
+Indexes and uniqueness:
+- `UNIQUE (provider, provider_subject)` — one identity per provider per user
+
+Read path:
+- not loaded into Store (used only during auth resolution)
+
+Write path:
+- upserted by `resolveOrCreateUser` on every login
 
 #### `fee_profiles`
 
@@ -745,6 +777,9 @@ Current numbered migration inventory:
 - `008_commission_discount_percent.sql`: derives `commission_discount_percent` from legacy basis-point storage
 - `009_retire_twd_ntd_fields.sql`: renames `_ntd` amount fields to amount-plus-currency names and adds currency validation
 - `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash receipts, and drops retired legacy structures
+- `011_symbol_definitions.sql` through `013_*`: symbol and binding management additions
+- `014_user_identity_and_external_mapping.sql`: adds `user_external_identities` table, makes `users.email` nullable with partial unique index, adds display_name and lifecycle timestamps
+- `015_demo_user_columns.sql`: adds `is_demo` and `demo_expires_at` columns to `users` with conditional index for cleanup queries
 
 ### Persistence write-path map
 
@@ -859,13 +894,13 @@ Framework and middleware:
 - Zod request validation at route boundary
 - centralized error normalization
 
-Auth/tenant resolution:
+Auth/tenant resolution (see [Auth and Session](./auth-and-session.md) for full details):
 - `AUTH_MODE=oauth`
-  - requires `x-authenticated-user-id`
-  - missing header returns `401 auth_required`
+  - requires valid HMAC-signed session cookie (sole identity source)
+  - missing or invalid cookie returns `401 auth_required`
+  - demo sessions identified by `demo:` prefix in cookie payload
 - `AUTH_MODE=dev_bypass`
-  - accepts optional `x-user-id`
-  - defaults to `user-1` if missing
+  - accepts signed cookie > `x-user-id` header > defaults to `user-1`
 
 Mutation-only common behavior:
 - `POST`, `PATCH`, `PUT`, `DELETE` share rate limiting
@@ -885,6 +920,13 @@ Response/error conventions:
 flowchart LR
   R["registerRoutes"] --> H1["/health/live"]
   R --> H2["/health/ready"]
+  R --> AUTH1["/auth/google/start"]
+  R --> AUTH2["/auth/google/callback"]
+  R --> AUTH3["/auth/logout"]
+  R --> AUTH4["/auth/demo/start"]
+  R --> AUTH5["/auth/token/refresh"]
+  R --> E2E1["/__e2e/oauth-session"]
+  R --> E2E2["/__e2e/reset"]
   R --> S1["/settings"]
   R --> S2["/settings/full"]
   R --> A1["/accounts"]
@@ -1037,9 +1079,15 @@ POST /ai/transactions/confirm
 | `GET` | `/health/ready` | none | `{ status, dependencies }` | `persistence.readiness()` | status is `ready` only when both Postgres and Redis are healthy |
 | `GET` | `/auth/google/start` | none | redirect to Google consent screen | `SESSION_SECRET` for CSRF state | generates HMAC-signed state token; redirects to Google OAuth |
 | `GET` | `/auth/google/callback` | query `code`, `state` | redirect to `APP_BASE_URL` | `resolveOrCreateUser`, session cookie signing | rejects unverified emails; sets HMAC-signed UUID session cookie (KZO-77) |
+| `GET` | `/auth/logout` | none | redirect to `/login` | clears session cookie | sets Max-Age=0 on session cookie |
+| `POST` | `/auth/token/refresh` | JSON `{ refreshToken }` | `{ accessToken, expiresIn }` | Google token refresh | refreshes OAuth access token |
+| `POST` | `/auth/demo/start` | none | JSON `{ userId, expiresAt, sessionType }` | `resolveOrCreateUser`, `seedDemoTransactions` | creates demo user with seeded data; rate-limited 5/min per IP; guarded by `DEMO_MODE_ENABLED` (KZO-107) |
+| `POST` | `/__e2e/oauth-session` | optional JSON `{ idToken }` | JSON `{ status, sub, userId }` | `resolveOrCreateUser`, session cookie signing | E2E test helper; blocked when `NODE_ENV=production` |
+| `POST` | `/__e2e/reset` | none | `{ status: "ok" }` | persistence reset | E2E test helper; blocked when `NODE_ENV=production` |
 
 Finding:
-- OAuth routes are fully implemented (KZO-77). Identity resolution is email-based (`users.email` UNIQUE). The session cookie contains the internal UUID, not the Google `sub`.
+- OAuth routes are fully implemented (KZO-77). Identity resolution is email-based (`users.email` partial UNIQUE). The session cookie contains the internal UUID, not the Google `sub`.
+- Demo mode (KZO-107) reuses the same `resolveOrCreateUser` + HMAC cookie flow as OAuth, with a `demo:` payload prefix.
 
 #### Settings and fee configuration
 
@@ -1177,10 +1225,13 @@ Shipped web code currently calls:
 - `POST /portfolio/transactions`
 - `POST /portfolio/recompute/preview`
 - `POST /portfolio/recompute/confirm`
+- `GET /auth/google/start` (via SignInButton redirect)
+- `GET /auth/google/callback` (via Google redirect)
+- `GET /auth/logout` (via logout button)
+- `POST /auth/demo/start` (via web API proxy, when demo mode enabled)
 
 Defined server routes not currently called by the shipped web app:
 - both health endpoints
-- both auth placeholder endpoints
 - `PATCH /settings`
 - `PUT /settings/fee-config`
 - `GET /accounts`
