@@ -618,11 +618,35 @@ fi
 phase_done
 
 phase_start "Database migrations"
-if ! dc --profile migrate run --rm "$MIGRATE_SERVICE"; then
+# --build forces a fresh image so new migration files are never missed due to
+# Docker layer cache (the full service build ran earlier, so this only rebuilds
+# the lightweight migrate image — typically < 2s).
+if ! dc --profile migrate run --build --rm "$MIGRATE_SERVICE"; then
   log "ERROR: Migration failed; triggering rollback"
   collect_container_logs
   rollback
   exit 1
+fi
+
+# Post-migration verification: confirm the newest numbered migration file is
+# recorded in schema_migrations.  Catches silent skips (stale image, cache hit
+# on an already-applied name, or a swallowed error).
+latest_migration="$(find "$REPO_ROOT/db/migrations" -maxdepth 1 -name '[0-9][0-9][0-9]_*.sql' -type f -exec basename {} \; | sort | tail -1)"
+if [ -n "$latest_migration" ]; then
+  applied_check="$(docker exec "$POSTGRES_CONTAINER" \
+    psql -U "${POSTGRES_USER:-twp}" -d "${POSTGRES_DB:-tw_portfolio}" -Atqc \
+    "SELECT name FROM schema_migrations WHERE name = '${latest_migration}'" 2>/dev/null || true)"
+  if [ "$applied_check" != "$latest_migration" ]; then
+    log "ERROR: Post-migration verification failed — '$latest_migration' not found in schema_migrations"
+    log "Applied migrations:"
+    docker exec "$POSTGRES_CONTAINER" \
+      psql -U "${POSTGRES_USER:-twp}" -d "${POSTGRES_DB:-tw_portfolio}" -Atqc \
+      "SELECT name FROM schema_migrations ORDER BY name" 2>/dev/null || true
+    collect_container_logs
+    rollback
+    exit 1
+  fi
+  log "Verified: $latest_migration is applied"
 fi
 phase_done
 
