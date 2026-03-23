@@ -126,4 +126,4 @@ Before running GitHub Actions deploys, confirm all of the following:
    - `infra/docker/.env.prod` for production
 7. The deploy user can run `docker compose`
 
-For the canonical workflow and troubleshooting guide, see [docs/runbook.md](/home/ubuntu/github/tw-portfolio/docs/runbook.md).
+For the canonical workflow and troubleshooting guide, see [docs/002-operations/runbook.md](/home/ubuntu/github/tw-portfolio/docs/002-operations/runbook.md).

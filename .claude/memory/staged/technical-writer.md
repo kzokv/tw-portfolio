@@ -8,11 +8,11 @@ task: KZO-101 + KZO-102 doc update
 
 ### Files Updated
 
-**`docs/notes/oauth-env-refactor/05-kzo-101-102-implementation-todo.md`**
+**`docs/004-notes/003-oauth-env-refactor/005b-kzo-101-102-implementation-todo.md`**
 - Added `Status: COMPLETE` header note
 - Marked all `[ ]` checklist items as `[x]`
 
-**`docs/notes/oauth-env-refactor/01-env-variable-refactor-plan.md`**
+**`docs/004-notes/003-oauth-env-refactor/001-env-variable-refactor-plan.md`**
 - Section 2.3: Updated schema consolidation table — `webEnvSchema` row corrected from "Removed / Folded into envSchema" to "Derived via `pick().extend()`" with reference to doc 05 decision #1
 - Section 3: All three `validatePortConflicts()` references → `validateEnvConstraints()`. Added `validateCookieDomainRequired()` row.
 - Section 3: dev_bypass restriction description updated from allowlist logic (`NODE_ENV=development`) to denylist (`NODE_ENV=production`)

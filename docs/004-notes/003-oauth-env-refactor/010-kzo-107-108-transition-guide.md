@@ -2,7 +2,7 @@
 
 > Covers: KZO-107 (backend, 5pts), KZO-108 (frontend, 3pts)
 > Date: 2026-03-23
-> Status: Frozen — for current behavior, see `docs/runbook.md`
+> Status: Frozen — for current behavior, see `docs/002-operations/runbook.md`
 
 This guide covers the demo user feature added to the tw-portfolio stack. If you last worked on the codebase before these changes shipped, read this to understand what changed.
 

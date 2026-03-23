@@ -1,6 +1,6 @@
 # ADRs
 
-Use `docs/adr/` for architecture, design, or strategy decisions that deserve rationale and future traceability.
+Use `docs/003-adr/` for architecture, design, or strategy decisions that deserve rationale and future traceability.
 
 Create an ADR only when the decision is likely to be questioned later or materially shapes future implementation.
 

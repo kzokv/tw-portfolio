@@ -23,7 +23,7 @@ E2E tests are owned by the web app and run against the full stack (web + API). C
 
 ## Coverage (vs integration)
 
-E2E covers **user-visible behavior** and full-stack flows. It does not re-test API contracts (those live in `apps/api/test/integration/`). See `docs/acceptance-test-mapping.md` for which acceptance criteria are covered by E2E vs integration.
+E2E covers **user-visible behavior** and full-stack flows. It does not re-test API contracts (those live in `apps/api/test/integration/`). See `docs/002-operations/acceptance-test-mapping.md` for which acceptance criteria are covered by E2E vs integration.
 
 ## Running
 

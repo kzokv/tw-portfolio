@@ -3,8 +3,8 @@
 "Full tests pass" for this project requires ALL five suites to be clean:
 
 1. `npx eslint .` — full project lint (run from repo root)
-2. `npm run test:unit --prefix apps/web` — web unit tests (vitest)
-3. `npm run test:integration:full:host --prefix apps/api` — API integration tests (CI/host mode)
+2. `npm run test --prefix apps/web` — web unit tests (vitest)
+3. `npm run test:integration:full:host` — API integration tests (CI/host mode, run from repo root)
 4. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, mock OAuth, dev_bypass mode)
 5. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, real/mock Google OAuth, AUTH_MODE=oauth)
 

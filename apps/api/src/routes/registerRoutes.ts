@@ -214,8 +214,9 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   return { userId, store };
 }
 
+/** Guard for `/__e2e/reset` — allowed in development and test with dev_bypass + memory, blocked in production. */
 function assertE2EResetEnabled(): void {
-  if (Env.NODE_ENV !== "development" || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
+  if ((Env.NODE_ENV !== "development" && Env.NODE_ENV !== "test") || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
     throw routeError(404, "not_found", "not found");
   }
 }

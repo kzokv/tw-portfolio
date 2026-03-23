@@ -12,7 +12,7 @@ Read `AGENTS.md` before any git commit, PR creation, or branch operation.
 
 `AGENTS.md` is the policy authority. `.claude/rules/` supplements it with Claude-specific behavioral rules (incident-learned, scope-guarded). Rules do not override `AGENTS.md` policy.
 
-New rule routing: agent-agnostic → `AGENTS.md` (nearest subtree), Claude-specific → `.claude/rules/`, ephemeral / session-scoped → `.worklog/` or memory, durable reference → `docs/notes/`.
+New rule routing: agent-agnostic → `AGENTS.md` (nearest subtree), Claude-specific → `.claude/rules/`, ephemeral / session-scoped → `.worklog/` or memory, durable reference → `docs/004-notes/`.
 
 ## Session Context
 
