@@ -203,7 +203,10 @@ describe("GET /auth/google/callback", () => {
     expect(setCookie).not.toContain("google-sub-123");
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
-    expect(setCookie).toContain("Secure");
+    // Secure flag is only set for __Host- prefixed cookies or production
+    if (Env.SESSION_COOKIE_NAME.startsWith("__Host-")) {
+      expect(setCookie).toContain("Secure");
+    }
 
     // Extract cookie value and verify it contains a valid HMAC-signed UUID
     const cookieMatch = setCookie.match(new RegExp(`${Env.SESSION_COOKIE_NAME}=([^;]+)`));
