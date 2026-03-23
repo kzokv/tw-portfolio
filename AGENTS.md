@@ -22,6 +22,18 @@
 - The only waiver path is PR label `waiver:linear-ticket` plus `## Waiver` fields `Reason:`, `Approved-by: @handle`, and `Scope: title|commits|both`.
 - If the work is repo or process improvement and no ticket is already anchored in the branch, commits, or explicit user request, stop and confirm whether to use the waiver path before creating ticketed git metadata.
 
+### PR Submission
+
+- **Base branch:** Always target `dev`.
+- **Assignee:** `--assignee @me` on every PR.
+- **Label:** Exactly one primary label matching PR content: `bug`, `enhancement`, or `documentation`. Additional labels allowed.
+- **Body format:** Use `docs/git-pr-flow.md` (global) required sections:
+  - `## Problem`
+  - `## Solution`
+  - `## Testing` — must include `Evidence:` or `Waiver:` block
+  - `## Risk/Rollback`
+- CI enforces all of the above via `.github/workflows/pr-gate.yml`.
+
 ## Context7 Sources
 
 - `/microsoft/typescript`
