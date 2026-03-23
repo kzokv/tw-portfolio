@@ -1,6 +1,6 @@
 # Notes
 
-Use `docs/notes/` for durable technical knowledge that should help future contributors without becoming repo-wide policy.
+Use `docs/004-notes/` for durable technical knowledge that should help future contributors without becoming repo-wide policy.
 
 Examples:
 - debugging gotchas
@@ -12,4 +12,4 @@ Guidelines:
 - write for teammates who were not in the original session
 - prefer one topic per file
 - keep notes concise and easy to scan
-- move actual decisions to `docs/adr/`
+- move actual decisions to `docs/003-adr/`

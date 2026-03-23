@@ -153,7 +153,7 @@
 
 ## 7. Documentation
 
-### 7.1 `docs/runbook.md`
+### 7.1 `docs/002-operations/runbook.md`
 - [ ] Add "Local Docker Deployment" troubleshooting section with:
   - SSH tunnel: if API runs in Docker container, forward API port to Docker host IP (e.g. `192.168.64.1` — varies by environment)
   - `SESSION_COOKIE_NAME`: must not use `__Host-` prefix over HTTP
@@ -212,9 +212,9 @@
 | `scripts/dev-docker.sh` | Banner name `$1`, env var precedence fix |
 | `scripts/help.sh` | Update dev section Docker listings |
 | `scripts/docker-cleanup.sh` | Selective target support |
-| `docs/runbook.md` | Add Docker local troubleshooting section |
+| `docs/002-operations/runbook.md` | Add Docker local troubleshooting section |
 | `.env.example` | Add `[Docker local]` annotations |
-| `docs/notes/oauth-env-refactor/09-kzo-112-implementation-todo.md` | This file |
+| `docs/004-notes/003-oauth-env-refactor/009-kzo-112-implementation-todo.md` | This file |
 
 ---
 

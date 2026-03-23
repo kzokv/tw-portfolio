@@ -2,7 +2,7 @@
 
 > Covers: KZO-98, KZO-99, KZO-100, KZO-101, KZO-102, KZO-103
 > Date: 2026-03-22
-> Status: Frozen — for current behavior, see `docs/runbook.md`
+> Status: Frozen — for current behavior, see `docs/002-operations/runbook.md`
 
 This guide covers the full OAuth identity fix and environment variable refactor arc. If you last worked on the codebase before these changes shipped, read this to understand what changed.
 

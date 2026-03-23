@@ -115,7 +115,7 @@ Primary ticket:
 
 Migration design reference:
 
-- `docs/kzo-14-migration-strategy.md`
+- `docs/004-notes/001-planning/kzo-14-migration-strategy.md`
 
 Goal:
 

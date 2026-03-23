@@ -34,4 +34,4 @@
 - `apps/api/src/services/recompute.ts`
 - `apps/api/test/integration/postgres-migrations.integration.test.ts`
 - `libs/domain/src/fee.ts`
-- `docs/canonical-accounting-model.md`
+- `docs/001-architecture/canonical-accounting-model.md`

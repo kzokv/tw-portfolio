@@ -74,7 +74,7 @@ The app supports a demo mode that lets visitors try the portfolio tracker withou
 - Demo users get 12 seeded transactions across 5 Taiwan stock/ETF symbols.
 - An amber "You're using a demo session" banner appears on all pages for demo users.
 - Expired demo users and their data are cleaned up automatically every 15 minutes (Postgres only).
-- See `docs/runbook.md` for operational procedures and `docs/notes/oauth-env-refactor/10-kzo-107-108-transition-guide.md` for full technical details.
+- See `docs/002-operations/runbook.md` for operational procedures and `docs/004-notes/003-oauth-env-refactor/010-kzo-107-108-transition-guide.md` for full technical details.
 
 ## API security defaults
 
