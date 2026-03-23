@@ -41,7 +41,7 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
 
   for (const tx of transactions) {
     const tradeEvent: BookedTradeEvent = {
-      id: `demo-tx-${tx.tradeDate}-${tx.symbol}-${tx.type}`,
+      id: `demo-tx-${userId}-${tx.tradeDate}-${tx.symbol}-${tx.type}`,
       userId,
       accountId: tx.accountId,
       symbol: tx.symbol,
