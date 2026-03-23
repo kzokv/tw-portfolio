@@ -139,6 +139,11 @@ services:
       PORT: "3000"
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      # Build-time NEXT_PUBLIC_* args are NOT inherited by the Dockerfile runtime
+      # stage; the web server (proxy.ts, auth.ts) reads process.env at runtime.
+      NEXT_PUBLIC_AUTH_MODE: oauth
+      DEMO_MODE_ENABLED: ${DEMO_MODE_ENABLED:-false}
+      SERVER_API_BASE_URL: http://twp-prod-api:4000
     networks:
       - twp-prod-net
     healthcheck:
