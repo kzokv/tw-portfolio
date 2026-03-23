@@ -1,0 +1,34 @@
+{
+  "task": "KZO-107 + KZO-108: Demo user implementation",
+  "tier": 3,
+  "iteration": 1,
+  "max_iterations": 3,
+  "phase": "wave2_complete",
+  "wave": 2,
+  "branch": "kzo-107",
+  "exit_check": {
+    "tests_green": true,
+    "findings_addressed": true,
+    "no_regressions": true
+  },
+  "teammates": {
+    "impl-backend": { "status": "done_clean", "phases": ["0", "1", "2", "3"] },
+    "qa-backend": { "status": "done_clean", "reviews": ["phase1_tests", "phase2_tests", "phase3_tests"] },
+    "impl-frontend": { "status": "done_findings", "phases": ["4", "5"], "findings": ["middleware_exclusion", "cookie_forwarding_approach", "requireSession_additions"] },
+    "qa-frontend": { "status": "pending_review" }
+  },
+  "phase_history": [
+    { "phase": "init", "completed_at": "2026-03-22T00:00:00Z" },
+    { "phase": "design_complete", "completed_at": "2026-03-22T00:01:00Z", "artifact": ".team/design.md" },
+    { "phase": "wave1_complete", "completed_at": "2026-03-22T00:10:00Z", "results": "lint 0err, unit 16/16, integration 134/134" },
+    { "phase": "wave2_complete", "completed_at": "2026-03-22T00:25:00Z", "results": "lint 0err, tsc 0err, api 127pass/40skip, web 66pass, decorateRequest null→undefined fix" }
+  ],
+  "commits": [],
+  "escalations": [],
+  "cost": {
+    "estimated_usd": "~$15-40",
+    "notes": "Tier 3, both waves complete"
+  },
+  "started_at": "2026-03-22T00:00:00Z",
+  "updated_at": "2026-03-22T00:25:00Z"
+}
