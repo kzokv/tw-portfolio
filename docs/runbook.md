@@ -1379,7 +1379,9 @@ Replace `<latest>` with the appropriate backup filename (e.g. the pre-migration 
 
 ### 9.4 Migration runner and contract
 
-Migrations run in a dedicated image (`db/Dockerfile.migrate`) that bakes SQL files in at build time. Both the API startup path and the container runner now use `schema_migrations` as the source of truth and acquire the same advisory lock before applying pending work.
+Migrations run in a dedicated image (`db/Dockerfile.migrate`) that bakes SQL files in at build time. The deploy script uses `docker compose run --build --rm` to force a fresh image build before running, preventing Docker layer cache from serving a stale migrate image that is missing new migration files. Both the API startup path and the container runner now use `schema_migrations` as the source of truth and acquire the same advisory lock before applying pending work.
+
+After the migrate container exits successfully, the deploy script runs a **post-migration verification**: it queries `schema_migrations` to confirm the newest numbered migration file is recorded. If verification fails, the deploy logs the current migration state and triggers rollback.
 
 Fresh databases bootstrap from `db/migrations/baseline_current_schema.sql`, then mark the superseded numbered files listed in `db/migrations/manifest.env` as applied. Existing databases continue through the numbered `db/migrations/[0-9][0-9][0-9]_*.sql` files in lexical order, with each file inserted into `schema_migrations` after it succeeds.
 
