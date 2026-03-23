@@ -104,12 +104,7 @@ test.describe("avatar dropdown menu", () => {
 
 test.describe("returnTo roundtrip", () => {
   // N8: full OAuth roundtrip: unauthenticated /transactions → full OAuth → lands on /transactions
-  // FIXME: Depends on mock OAuth server (started by playwright.config.ts / dev_bypass suite).
-  // Adding the mock server to playwright.oauth.config.ts webServer causes ERR_ABORTED in other
-  // oauth tests. When the dev_bypass suite doesn't run first (or its mock server has shut down),
-  // the API's token exchange fails → oauth_error/server_error. Needs a dedicated mock server
-  // lifecycle solution (per-suite fixture or shared server with health-check gate).
-  test.fixme("full returnTo roundtrip through OAuth", async ({ page, request }) => {
+  test("full returnTo roundtrip through OAuth", async ({ page, request }) => {
     // 1. Unauthenticated → /transactions redirects to /login?returnTo=%2Ftransactions
     await page.context().clearCookies();
     await page.goto("/transactions");
@@ -133,8 +128,6 @@ test.describe("returnTo roundtrip", () => {
     // header directly from the 302 response, plant it manually, then verify the browser
     // session works.
     //
-    // Note: requires the mock OAuth server (started by playwright.config.ts / dev_bypass
-    // suite) to be running so the API can exchange code=e2e-auth-code via GOOGLE_TOKEN_URL.
     const callbackRes = await request.get(
       `http://${TestEnv.host}:${TestEnv.ports.api}/auth/google/callback?code=e2e-auth-code&state=${encodeURIComponent(state)}`,
       { maxRedirects: 0 },

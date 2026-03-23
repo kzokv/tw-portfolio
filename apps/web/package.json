@@ -11,6 +11,7 @@
     "test:e2e:bypass:mem": "npm run build -w @tw-portfolio/config && npx playwright test --workers=2 --config=tests/e2e/playwright.config.ts",
     "test:e2e:oauth:mem": "npm run build -w @tw-portfolio/config && [ -f ../../.env.local ] && set -a && . ../../.env.local && set +a; npx playwright test --config=tests/e2e/playwright.oauth.config.ts",
     "test:e2e:ci:bypass:mem": "npx playwright test --config=tests/e2e/playwright.config.ts --reporter=junit",
+    "test:e2e:ci:oauth:mem": "npx playwright test --config=tests/e2e/playwright.oauth.config.ts --reporter=junit",
     "test:e2e:show-report": "npx playwright show-report playwright-report",
     "test:html": "vitest run --reporter=verbose --reporter=html",
     "test:json": "vitest run --reporter=verbose --reporter=json",

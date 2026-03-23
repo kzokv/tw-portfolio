@@ -10,8 +10,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -21,8 +21,8 @@ jobs:
   build-and-typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -37,8 +37,8 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -77,8 +77,8 @@ jobs:
       AUTH_MODE: dev_bypass
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -88,10 +88,112 @@ jobs:
       - run: npm run build -w @tw-portfolio/shared-types
       - run: npm run test:integration
 
+  e2e-bypass:
+    needs: [build-and-typecheck]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: tw_portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_URL: postgres://app:app@localhost:5432/tw_portfolio
+      REDIS_URL: redis://localhost:6379
+      PERSISTENCE_BACKEND: postgres
+      AUTH_MODE: dev_bypass
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @tw-portfolio/config
+      - run: npm run build -w @tw-portfolio/domain
+      - run: npm run build -w @tw-portfolio/shared-types
+      - run: npx playwright install --with-deps
+      - run: npm run test:e2e:ci:bypass:mem --prefix apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-bypass-results
+          path: apps/web/tests/e2e/test-results/
+          retention-days: 7
+
+  e2e-oauth:
+    needs: [build-and-typecheck]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: tw_portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_URL: postgres://app:app@localhost:5432/tw_portfolio
+      REDIS_URL: redis://localhost:6379
+      PERSISTENCE_BACKEND: postgres
+      AUTH_MODE: dev_bypass
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @tw-portfolio/config
+      - run: npm run build -w @tw-portfolio/domain
+      - run: npm run build -w @tw-portfolio/shared-types
+      - run: npx playwright install --with-deps
+      - run: npm run test:e2e:ci:oauth:mem --prefix apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-oauth-results
+          path: apps/web/tests/e2e/test-results/
+          retention-days: 7
+
   deploy-config-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate deploy script CLI
         run: |
           set -euo pipefail
@@ -113,12 +215,32 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f infra/docker/docker-compose.local.yml --env-file infra/docker/fixtures/env.local.ci config >/dev/null
+      - name: Validate compose auth-vars consistency
+        run: |
+          set -euo pipefail
+          missing=""
+
+          # Dev compose — check web service
+          dev_config=$(docker compose -f infra/docker/docker-compose.dev.yml --env-file infra/docker/fixtures/env.dev.ci config)
+          echo "$dev_config" | grep -q "SESSION_SECRET" || missing="$missing dev:SESSION_SECRET"
+          echo "$dev_config" | grep -q "SESSION_COOKIE_NAME" || missing="$missing dev:SESSION_COOKIE_NAME"
+
+          # Prod compose — check web service
+          prod_config=$(docker compose -f infra/docker/docker-compose.prod.yml --env-file infra/docker/fixtures/env.prod.ci config)
+          echo "$prod_config" | grep -q "SESSION_SECRET" || missing="$missing prod:SESSION_SECRET"
+          echo "$prod_config" | grep -q "SESSION_COOKIE_NAME" || missing="$missing prod:SESSION_COOKIE_NAME"
+
+          if [ -n "$missing" ]; then
+            echo "::error::Missing auth vars in compose config:$missing"
+            exit 1
+          fi
+          echo "✓ SESSION_SECRET and SESSION_COOKIE_NAME present in dev and prod compose configs"
 
   docker-build-validation:
     needs: [deploy-config-validation]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build all Docker images
         run: |
           set -euo pipefail

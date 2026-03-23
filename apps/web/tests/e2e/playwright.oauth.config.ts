@@ -61,6 +61,14 @@ export default defineConfig({
   ],
   webServer: [
     {
+      command: "node tests/e2e/helpers/mock-oauth-server.mjs",
+      port: TestEnv.ports.mockOAuth,
+      cwd: path.resolve(repoRoot, "apps/web"),
+      reuseExistingServer: true,
+      stdout: "ignore",
+      stderr: "pipe",
+    },
+    {
       command: "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run dev -w apps/api",
       url: `http://${host}:${apiPort}/health/live`,
       timeout: 60_000,
@@ -82,10 +90,8 @@ export default defineConfig({
         SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
         APP_BASE_URL: process.env.APP_BASE_URL ?? TestEnv.appBaseUrl,
         // Route code-exchange through the mock OAuth server so callback tests work with
-        // code=e2e-auth-code. The mock server is started by playwright.config.ts (dev_bypass
-        // suite); when both suites run together the mock is already on TestEnv.ports.mockOAuth.
-        // auth.setup.ts Path A (real refresh token) is unaffected — it calls the Google token
-        // endpoint directly from the test runner, not via the API's GOOGLE_TOKEN_URL env var.
+        // code=e2e-auth-code. auth.setup.ts Path A (real refresh token) is unaffected — it
+        // calls the Google token endpoint directly from the test runner, not via this env var.
         GOOGLE_TOKEN_URL: TestEnv.mockTokenUrl,
       }),
     },

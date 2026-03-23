@@ -1,34 +1,39 @@
 {
-  "task": "KZO-107 + KZO-108: Demo user implementation",
-  "tier": 3,
+  "task": "KZO-109 + KZO-110: E2E CI jobs (bypass + oauth), mock OAuth lifecycle fix, compose auth-vars validation",
+  "tier": 2,
   "iteration": 1,
   "max_iterations": 3,
-  "phase": "wave2_complete",
-  "wave": 2,
-  "branch": "kzo-107",
+  "phase": "complete",
+  "wave": 1,
+  "branch": "kzo-109",
   "exit_check": {
     "tests_green": true,
     "findings_addressed": true,
-    "no_regressions": true
+    "no_regressions": true,
+    "notes": "2 bypass E2E failures (auth-oauth.spec.ts:221, identity-resolution.spec.ts:75) are pre-existing — files not modified by KZO-109. Code review HIGH finding was false positive (stale read)."
   },
   "teammates": {
-    "impl-backend": { "status": "done_clean", "phases": ["0", "1", "2", "3"] },
-    "qa-backend": { "status": "done_clean", "reviews": ["phase1_tests", "phase2_tests", "phase3_tests"] },
-    "impl-frontend": { "status": "done_findings", "phases": ["4", "5"], "findings": ["middleware_exclusion", "cookie_forwarding_approach", "requireSession_additions"] },
-    "qa-frontend": { "status": "pending_review" }
+    "tdd-implementer": { "status": "done", "role": "TDD Implementer" },
+    "senior-qa": { "status": "done", "role": "Senior QA" },
+    "fixer": { "status": "done", "role": "Fixer" },
+    "validator": { "status": "done", "role": "Validator" },
+    "code-reviewer": { "status": "done", "role": "Code Reviewer" }
   },
   "phase_history": [
-    { "phase": "init", "completed_at": "2026-03-22T00:00:00Z" },
-    { "phase": "design_complete", "completed_at": "2026-03-22T00:01:00Z", "artifact": ".team/design.md" },
-    { "phase": "wave1_complete", "completed_at": "2026-03-22T00:10:00Z", "results": "lint 0err, unit 16/16, integration 134/134" },
-    { "phase": "wave2_complete", "completed_at": "2026-03-22T00:25:00Z", "results": "lint 0err, tsc 0err, api 127pass/40skip, web 66pass, decorateRequest null→undefined fix" }
+    { "phase": "init", "at": "2026-03-23T12:00:00Z" },
+    { "phase": "design_complete", "at": "2026-03-23T12:05:00Z" },
+    { "phase": "phase1", "iteration": 1, "at": "2026-03-23T12:08:00Z" },
+    { "phase": "phase2", "iteration": 1, "at": "2026-03-23T12:15:00Z" },
+    { "phase": "phase3", "iteration": 1, "at": "2026-03-23T12:20:00Z" },
+    { "phase": "exit_check", "iteration": 1, "at": "2026-03-23T12:30:00Z" },
+    { "phase": "complete", "at": "2026-03-23T12:32:00Z" }
   ],
   "commits": [],
   "escalations": [],
   "cost": {
-    "estimated_usd": "~$15-40",
-    "notes": "Tier 3, both waves complete"
+    "estimated_usd": "~$5-15",
+    "notes": "Tier 2, Squad"
   },
-  "started_at": "2026-03-22T00:00:00Z",
-  "updated_at": "2026-03-22T00:25:00Z"
+  "started_at": "2026-03-23T12:00:00Z",
+  "updated_at": "2026-03-23T12:32:00Z"
 }

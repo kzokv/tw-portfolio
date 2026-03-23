@@ -10,6 +10,7 @@ const authFile = path.join(__dirname, "../.auth/oauth-session.json");
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+// eslint-disable-next-line playwright/expect-expect -- setup file uses throw for failures, not expect assertions
 setup("authenticate with Google OAuth", async ({ request }) => {
   setup.setTimeout(30_000); // 30 seconds — no browser needed
 

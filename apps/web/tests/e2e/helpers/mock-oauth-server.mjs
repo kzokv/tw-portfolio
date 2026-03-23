@@ -67,3 +67,6 @@ const server = http.createServer((req, res) => {
 server.listen(port, "0.0.0.0", () => {
   process.stderr.write(`Mock OAuth server listening on http://localhost:${port}\n`);
 });
+
+process.on("SIGINT", () => server.close(() => process.exit(0)));
+process.on("SIGTERM", () => server.close(() => process.exit(0)));

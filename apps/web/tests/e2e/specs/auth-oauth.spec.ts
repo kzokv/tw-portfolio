@@ -241,7 +241,7 @@ test.describe("full browser OAuth flow", () => {
 });
 
 test.describe("cookie security attributes", () => {
-  test(`${TestEnv.sessionCookieName} cookie has HttpOnly, SameSite=Lax, and Secure attributes`, async ({ request }) => {
+  test(`${TestEnv.sessionCookieName} cookie has correct security attributes`, async ({ request }) => {
     // Complete a full OAuth callback to get the Set-Cookie header
     const startRes = await request.get(apiUrl("/auth/google/start"), { maxRedirects: 0 });
     const state = new URL(startRes.headers()["location"]).searchParams.get("state")!;
@@ -256,8 +256,13 @@ test.describe("cookie security attributes", () => {
     expect(setCookie).toContain(`${TestEnv.sessionCookieName}=`);
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
-    // The __Host- prefix requires the Secure attribute (RFC 6265bis)
-    expect(setCookie).toContain("Secure");
+    // Secure is set when cookie name uses __Host- prefix (RFC 6265bis) or NODE_ENV=production.
+    // In HTTP/localhost E2E, Secure is correctly omitted to avoid browsers silently dropping the cookie.
+    if (TestEnv.sessionCookieName.startsWith("__Host-")) {
+      expect(setCookie).toContain("; Secure");
+    } else {
+      expect(setCookie).not.toContain("; Secure");
+    }
   });
 });
 
