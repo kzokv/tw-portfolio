@@ -53,7 +53,7 @@ export const rootLocalSchema = envSchema.extend({
  * not throw if SESSION_SECRET is absent.
  */
 export const webEnvSchema = envSchema
-  .pick({ SESSION_SECRET: true, SESSION_COOKIE_NAME: true })
+  .pick({ SESSION_SECRET: true, SESSION_COOKIE_NAME: true, COOKIE_DOMAIN: true })
   .extend({
     NEXT_PUBLIC_AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
     NEXT_PUBLIC_API_BASE_URL: z.string().default("http://localhost:4000"),

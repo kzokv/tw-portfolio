@@ -148,6 +148,7 @@ services:
       # stage; the web server (proxy.ts, auth.ts) reads process.env at runtime.
       NEXT_PUBLIC_AUTH_MODE: oauth
       DEMO_MODE_ENABLED: ${DEMO_MODE_ENABLED:-false}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.kzokvdevs.dpdns.org}
       SERVER_API_BASE_URL: http://twp-dev-api:4000
     networks:
       - twp-dev-net
