@@ -70,9 +70,9 @@ jobs:
             }
 
             const primaryLabels = labels.filter((label) => allowedPrimaryLabels.includes(label));
-            if (primaryLabels.length !== 1) {
+            if (primaryLabels.length < 1) {
               invalidReasons.push(
-                "PR must have exactly one primary label: bug, enhancement, or documentation.",
+                "PR must have at least one primary label: bug, enhancement, or documentation.",
               );
             }
 

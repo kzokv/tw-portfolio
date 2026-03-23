@@ -26,7 +26,7 @@
 
 - **Base branch:** Always target `dev`.
 - **Assignee:** `--assignee @me` on every PR.
-- **Label:** Exactly one primary label matching PR content: `bug`, `enhancement`, or `documentation`. Additional labels allowed.
+- **Labels:** At least one primary label matching PR content: `bug`, `enhancement`, `documentation`. Multiple primary labels allowed when the PR spans categories (e.g., a feature with significant doc updates gets both `enhancement` and `documentation`).
 - **Body format:** Use `docs/git-pr-flow.md` (global) required sections:
   - `## Problem`
   - `## Solution`
