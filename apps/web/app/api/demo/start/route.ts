@@ -48,12 +48,19 @@ export async function POST(request: Request) {
       Math.floor((new Date(body.expiresAt).getTime() - Date.now()) / 1000),
     );
 
+    // __Host- prefix prohibits Domain attribute per RFC 6265bis.
+    const cookieDomain =
+      WebEnv.COOKIE_DOMAIN && !cookieName.startsWith("__Host-")
+        ? `Domain=${WebEnv.COOKIE_DOMAIN}`
+        : "";
+
     const setCookie = [
       `${cookieName}=${signedCookie}`,
       "Path=/",
       "HttpOnly",
       "SameSite=Lax",
       ...(secure ? ["Secure"] : []),
+      ...(cookieDomain ? [cookieDomain] : []),
       `Max-Age=${maxAge}`,
     ].join("; ");
 
