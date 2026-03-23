@@ -110,6 +110,7 @@ export default defineConfig({
       env: TestEnv.webServerEnv({
         NEXT_PUBLIC_AUTH_MODE: "oauth",
         DEMO_MODE_ENABLED: "true",
+        SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
       }),
     },
   ],

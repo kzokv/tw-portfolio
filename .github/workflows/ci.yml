@@ -91,34 +91,7 @@ jobs:
   e2e-bypass:
     needs: [build-and-typecheck]
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: tw_portfolio
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U app"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
-      DB_URL: postgres://app:app@localhost:5432/tw_portfolio
-      REDIS_URL: redis://localhost:6379
-      PERSISTENCE_BACKEND: postgres
-      AUTH_MODE: dev_bypass
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v6
@@ -142,34 +115,7 @@ jobs:
   e2e-oauth:
     needs: [build-and-typecheck]
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: tw_portfolio
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U app"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
-      DB_URL: postgres://app:app@localhost:5432/tw_portfolio
-      REDIS_URL: redis://localhost:6379
-      PERSISTENCE_BACKEND: postgres
-      AUTH_MODE: dev_bypass
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v6
