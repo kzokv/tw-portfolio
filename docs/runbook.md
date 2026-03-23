@@ -1333,11 +1333,15 @@ Do not use the `__Host-` prefix (e.g. `__Host-g_auth_session`) when running over
 
 #### NEXT_PUBLIC_AUTH_MODE
 
-`NEXT_PUBLIC_AUTH_MODE` is baked into the Next.js client bundle at build time. Setting it as a runtime environment variable in `docker-compose.local.yml` does not override the value in browser-side JavaScript. To change auth mode, update the `AUTH_MODE` variable (which feeds the build arg) and rebuild the web image.
+`NEXT_PUBLIC_AUTH_MODE` is baked into the Next.js client bundle at build time via the Dockerfile `ARG`/`ENV`, but the multi-stage build does **not** carry `ARG`/`ENV` values from the build stage to the runtime stage. Server-side code (`proxy.ts`, `auth.ts`) reads `process.env.NEXT_PUBLIC_AUTH_MODE` at runtime, so the variable must also be set in the compose `environment` block. All three compose files set it: local uses `${AUTH_MODE:-oauth}` (matching the build arg), dev and prod hardcode `oauth`.
+
+To change auth mode for client-side JavaScript, update the `AUTH_MODE` variable (which feeds the build arg) and rebuild the web image.
 
 #### SERVER_API_BASE_URL
 
-Server-side Next.js route handlers (e.g. `app/api/profile/route.ts`) run inside the Docker network and need to reach the API via the container hostname (`http://twp-local-api:4000`), not the host-published port (`http://localhost:4300`). `SERVER_API_BASE_URL` provides this override. It is set in `docker-compose.local.yml` and should not be added to `infra/docker/.env.local`.
+Server-side Next.js route handlers (e.g. `app/api/profile/route.ts`) run inside the Docker network and need to reach the API via the container hostname, not the host-published port or the external Cloudflare URL. Without this override, server-side fetches would hairpin through the public internet (web → Cloudflare edge → tunnel → API), adding latency and a fragile external dependency.
+
+`SERVER_API_BASE_URL` is set in all three compose files (`http://twp-{env}-api:4000`) and should not be added to the env files — it is a container-network-specific value.
 
 ---
 
