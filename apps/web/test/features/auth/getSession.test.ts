@@ -106,9 +106,9 @@ describe("getSession (oauth mode)", () => {
     expect(await getSession()).toBeNull();
   });
 
-  it("returns { userId } for a validly-signed cookie", async () => {
+  it("returns { userId, isDemo: false } for a validly-signed cookie", async () => {
     setCookie(signCookie("google-sub-123"));
-    expect(await getSession()).toEqual({ userId: "google-sub-123" });
+    expect(await getSession()).toEqual({ userId: "google-sub-123", isDemo: false });
   });
 
   it("returns null for a tampered HMAC", async () => {
@@ -146,7 +146,7 @@ describe("getSession (oauth mode)", () => {
   it("correctly handles a userId that contains dots", async () => {
     const userId = "numeric.sub.with.dots";
     setCookie(signCookie(userId));
-    expect(await getSession()).toEqual({ userId });
+    expect(await getSession()).toEqual({ userId, isDemo: false });
   });
 
   it("logs a warning on HMAC mismatch", async () => {
@@ -173,6 +173,21 @@ describe("getSession (oauth mode)", () => {
   });
 });
 
+// ---- oauth mode: demo prefix ------------------------------------------------
+
+describe("getSession (oauth mode) — demo prefix", () => {
+  it("returns { userId, isDemo: true } for demo-prefixed cookie", async () => {
+    const demoSigned = `demo:user-123.${hmacSign("demo:user-123", SECRET)}`;
+    setCookie(demoSigned);
+    expect(await getSession()).toEqual({ userId: "user-123", isDemo: true });
+  });
+
+  it("returns { userId, isDemo: false } for non-demo cookie", async () => {
+    setCookie(signCookie("user-123"));
+    expect(await getSession()).toEqual({ userId: "user-123", isDemo: false });
+  });
+});
+
 // ---- dev_bypass mode ------------------------------------------------------
 
 describe("getSession (dev_bypass mode)", () => {
@@ -180,44 +195,44 @@ describe("getSession (dev_bypass mode)", () => {
     mockWebEnv.NEXT_PUBLIC_AUTH_MODE = "dev_bypass";
   });
 
-  it("returns { userId } from plain cookie value without HMAC check", async () => {
+  it("returns { userId, isDemo: false } from plain cookie value without HMAC check", async () => {
     setCookie("user-1");
-    expect(await getSession()).toEqual({ userId: "user-1" });
+    expect(await getSession()).toEqual({ userId: "user-1", isDemo: false });
   });
 
   it("trims whitespace from the cookie value", async () => {
     setCookie("  user-1  ");
-    expect(await getSession()).toEqual({ userId: "user-1" });
+    expect(await getSession()).toEqual({ userId: "user-1", isDemo: false });
   });
 
   it("returns default user-1 when session cookie is absent", async () => {
     setNoCookie();
-    expect(await getSession()).toEqual({ userId: "user-1" });
+    expect(await getSession()).toEqual({ userId: "user-1", isDemo: false });
   });
 
   it("returns default user-1 when session cookie value is empty", async () => {
     setCookie("");
-    expect(await getSession()).toEqual({ userId: "user-1" });
+    expect(await getSession()).toEqual({ userId: "user-1", isDemo: false });
   });
 
   it("does not require SESSION_SECRET", async () => {
     mockWebEnv.SESSION_SECRET = undefined as unknown as string;
     setCookie("user-1");
-    expect(await getSession()).toEqual({ userId: "user-1" });
+    expect(await getSession()).toEqual({ userId: "user-1", isDemo: false });
   });
 
   it("falls back to tw_e2e_user cookie when session cookie is absent", async () => {
     vi.mocked(cookies).mockResolvedValue(
       makeCookieStore({ tw_e2e_user: "qa-user-1" }) as Awaited<ReturnType<typeof cookies>>,
     );
-    expect(await getSession()).toEqual({ userId: "qa-user-1" });
+    expect(await getSession()).toEqual({ userId: "qa-user-1", isDemo: false });
   });
 
   it("decodes URL-encoded tw_e2e_user cookie value", async () => {
     vi.mocked(cookies).mockResolvedValue(
       makeCookieStore({ tw_e2e_user: encodeURIComponent("qa-user-1") }) as Awaited<ReturnType<typeof cookies>>,
     );
-    expect(await getSession()).toEqual({ userId: "qa-user-1" });
+    expect(await getSession()).toEqual({ userId: "qa-user-1", isDemo: false });
   });
 });
 
@@ -227,7 +242,7 @@ describe("requireSession", () => {
   it("returns session when authenticated", async () => {
     setCookie(signCookie("google-sub-123"));
     const session = await requireSession();
-    expect(session).toEqual({ userId: "google-sub-123" });
+    expect(session).toEqual({ userId: "google-sub-123", isDemo: false });
     expect(redirect).not.toHaveBeenCalled();
   });
 

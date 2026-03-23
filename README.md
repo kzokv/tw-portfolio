@@ -65,6 +65,17 @@ Notes:
 - Drawer warns before closing with unsaved edits and supports explicit `Discard Changes`.
 - Key terms expose contextual tooltips, including weighted-average cost-basis guidance.
 
+## Demo mode
+
+The app supports a demo mode that lets visitors try the portfolio tracker without signing in to Google OAuth.
+
+- Set `DEMO_MODE_ENABLED=true` in your env to enable. Disabled by default.
+- `DEMO_SESSION_TTL_SECONDS` controls session lifetime (default 1800 = 30 min).
+- Demo users get 12 seeded transactions across 5 Taiwan stock/ETF symbols.
+- An amber "You're using a demo session" banner appears on all pages for demo users.
+- Expired demo users and their data are cleaned up automatically every 15 minutes (Postgres only).
+- See `docs/runbook.md` for operational procedures and `docs/notes/oauth-env-refactor/10-kzo-107-108-transition-guide.md` for full technical details.
+
 ## API security defaults
 
 - CORS allowlist is controlled by `ALLOWED_ORIGINS`.

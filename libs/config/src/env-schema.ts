@@ -25,13 +25,17 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
   SESSION_SECRET: z.string().optional(),
-  SESSION_COOKIE_NAME: z.string().min(1).default("__Host-g_auth_session"),
+  // Default is "g_auth_session" (no __Host- prefix) so cookies work on HTTP localhost.
+  // Production HTTPS deploys should set SESSION_COOKIE_NAME=__Host-g_auth_session explicitly.
+  SESSION_COOKIE_NAME: z.string().min(1).default("g_auth_session"),
   GOOGLE_TOKEN_URL: z.string().optional(),
   APP_BASE_URL: z.string().optional(),
   // COOKIE_DOMAIN: when set, the session cookie is scoped to this domain (e.g. ".kzokvdevs.dpdns.org")
   // so it is shared across API and web subdomains. Required when those subdomains differ.
   // Must not be set when SESSION_COOKIE_NAME starts with "__Host-" (incompatible prefix).
   COOKIE_DOMAIN: z.string().optional(),
+  DEMO_MODE_ENABLED: z.enum(["true", "false"]).default("false"),
+  DEMO_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
@@ -56,6 +60,7 @@ export const webEnvSchema = envSchema
     /** Server-side API base URL. In Docker, route handlers fetch via container network
      *  (e.g. http://twp-local-api:4000) instead of the host-published port. */
     SERVER_API_BASE_URL: z.string().url().optional(),
+    DEMO_MODE_ENABLED: z.enum(["true", "false"]).default("false"),
   });
 
 export type WebEnvConfig = z.infer<typeof webEnvSchema>;

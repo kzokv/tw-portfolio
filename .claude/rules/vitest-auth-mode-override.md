@@ -28,3 +28,14 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 **Why:** In KZO-78 iteration 1, the Fixer changed `app.ts` and `registerRoutes.ts` to fix 401 test failures. This caused 24 E2E regressions — OAuth routes began returning 503 instead of 302, cascading across all `auth-oauth.spec.ts` tests. Production auth code must not be changed to fix test setup problems. Reverted in iteration 2 in favor of the `vi.mock()` approach.
 
 **How to apply:** When writing api tests that assert on 401 behavior, use the `vi.mock("@tw-portfolio/config")` pattern at the top of the test file.
+
+## Route Protection E2E Test Placement
+
+Route protection tests (clear cookies → visit / → expect redirect to /login) only work when `NEXT_PUBLIC_AUTH_MODE=oauth`. The standard E2E suite (`specs/`) runs in `dev_bypass` mode where `proxy.ts` skips session enforcement by design.
+
+Place route protection tests in `specs-oauth/` (e.g. `auth-session.spec.ts`), not `specs/`. The `proxy.ts` guard `if (WebEnv.NEXT_PUBLIC_AUTH_MODE !== "oauth") return NextResponse.next()` makes auth enforcement conditional — tests in `specs/` will silently pass in CI but fail to exercise the auth path.
+
+**How to apply:**
+- Place route protection tests in `specs-oauth/auth-session.spec.ts` (runs with real `AUTH_MODE=oauth`)
+- In those tests, call `page.context().clearCookies()` before each navigation to simulate unauthenticated state
+- Do NOT put route protection tests in `specs/` — they will pass locally in oauth mode but fail in standard E2E

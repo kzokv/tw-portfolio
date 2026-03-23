@@ -80,6 +80,12 @@ async function parseError(res: Response, path: string): Promise<Error> {
 
 async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {
   if (res.status === 401 && typeof window !== "undefined") {
+    // Demo session expired — redirect to login with message
+    if (sessionStorage.getItem("isDemo")) {
+      sessionStorage.removeItem("isDemo");
+      window.location.href = "/login?demoExpired=true";
+      return new Promise<T>(() => {});
+    }
     window.location.href = `${API_BASE}/auth/logout`;
     return new Promise<T>(() => {});
   }

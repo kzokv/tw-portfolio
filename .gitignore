@@ -26,6 +26,6 @@ libs/*/src/*.d.ts
 
 **/plans/**.md
 
-.team/
+#.team/
 
 **/playwright-report*

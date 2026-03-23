@@ -11,6 +11,7 @@ import { cookies, headers } from "next/headers";
 
 export interface Session {
   userId: string;
+  isDemo: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,12 +47,12 @@ const resolveSession = cache(async (): Promise<Session | null> => {
   if (WebEnv.NEXT_PUBLIC_AUTH_MODE === "dev_bypass") {
     const cookieStore = await cookies();
     const raw = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
-    if (raw?.trim()) return { userId: raw.trim() };
+    if (raw?.trim()) return { userId: raw.trim(), isDemo: false };
     // SESSION_COOKIE_NAME uses the __Host- prefix which requires HTTPS,
     // so local/E2E environments set tw_e2e_user instead.
     const e2eRaw = cookieStore.get("tw_e2e_user")?.value;
-    if (e2eRaw?.trim()) return { userId: decodeURIComponent(e2eRaw.trim()) };
-    return { userId: "user-1" };  // matches API's resolveUserId() fallback
+    if (e2eRaw?.trim()) return { userId: decodeURIComponent(e2eRaw.trim()), isDemo: false };
+    return { userId: "user-1", isDemo: false };  // matches API's resolveUserId() fallback
   }
 
   // oauth mode: HMAC verification required
@@ -84,7 +85,11 @@ const resolveSession = cache(async (): Promise<Session | null> => {
     return null;
   }
 
-  return { userId };
+  // Check for demo prefix on verified payload
+  if (userId.startsWith("demo:")) {
+    return { userId: userId.slice(5), isDemo: true };
+  }
+  return { userId, isDemo: false };
 });
 
 export function isValidReturnTo(path: string): boolean {

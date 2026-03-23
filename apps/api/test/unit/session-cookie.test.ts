@@ -35,7 +35,7 @@ describe("signSessionCookie", () => {
 describe("verifySessionCookie", () => {
   it("returns the sub for a validly-signed cookie", () => {
     const signed = signSessionCookie("google-sub-123", SECRET);
-    expect(verifySessionCookie(signed, SECRET)).toBe("google-sub-123");
+    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: "google-sub-123", isDemo: false });
   });
 
   it("returns null for a tampered HMAC", () => {
@@ -72,6 +72,28 @@ describe("verifySessionCookie", () => {
   it("correctly round-trips a sub that contains dots", () => {
     const sub = "numeric.sub.with.dots";
     const signed = signSessionCookie(sub, SECRET);
-    expect(verifySessionCookie(signed, SECRET)).toBe(sub);
+    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: sub, isDemo: false });
+  });
+});
+
+describe("demo cookie prefix", () => {
+  it("signSessionCookie with isDemo=true prepends demo: to payload", () => {
+    const signed = signSessionCookie("user-123", SECRET, true);
+    expect(signed.startsWith("demo:user-123.")).toBe(true);
+  });
+
+  it("verifySessionCookie returns isDemo=true for demo-prefixed cookie", () => {
+    const signed = signSessionCookie("user-123", SECRET, true);
+    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: "user-123", isDemo: true });
+  });
+
+  it("round-trip: sign demo cookie and verify returns correct identity", () => {
+    const signed = signSessionCookie("demo-user-uuid", SECRET, true);
+    const result = verifySessionCookie(signed, SECRET);
+    expect(result).toEqual({ userId: "demo-user-uuid", isDemo: true });
+    // Verify tampering fails
+    const nonDemo = signSessionCookie("demo-user-uuid", SECRET, false);
+    const nonDemoResult = verifySessionCookie(nonDemo, SECRET);
+    expect(nonDemoResult).toEqual({ userId: "demo-user-uuid", isDemo: false });
   });
 });

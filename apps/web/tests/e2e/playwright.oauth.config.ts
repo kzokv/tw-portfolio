@@ -74,6 +74,7 @@ export default defineConfig({
       },
       env: TestEnv.apiServerEnv({
         AUTH_MODE: "oauth",
+        DEMO_MODE_ENABLED: "true",
         PERSISTENCE_BACKEND: process.env.PERSISTENCE_BACKEND ?? "memory",
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? TestEnv.oauth.clientId,
         GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? TestEnv.oauth.clientSecret,
@@ -102,6 +103,7 @@ export default defineConfig({
       },
       env: TestEnv.webServerEnv({
         NEXT_PUBLIC_AUTH_MODE: "oauth",
+        DEMO_MODE_ENABLED: "true",
       }),
     },
   ],

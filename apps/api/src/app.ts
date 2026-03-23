@@ -59,6 +59,7 @@ function isLocalDevOrigin(origin: string): boolean {
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
   const app = Fastify({ logger: true }) as AppInstance;
+  app.decorateRequest("__sessionType", undefined);
   app.persistence = createPersistence(options.persistenceBackend);
   app.oauthConfig = options.oauthConfig !== undefined ? options.oauthConfig : Env.getGoogleOAuthEnvConfig();
   app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
@@ -114,11 +115,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     }
   });
 
-  app.addHook("onSend", async (_req, reply) => {
+  app.addHook("onSend", async (req, reply) => {
     reply.header("x-content-type-options", "nosniff");
     reply.header("x-frame-options", "DENY");
     reply.header("referrer-policy", "no-referrer");
     reply.header("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    if (req.__sessionType) {
+      reply.header("x-session-type", req.__sessionType);
+    }
   });
 
   app.setErrorHandler((error: HttpishError, req, reply) => {

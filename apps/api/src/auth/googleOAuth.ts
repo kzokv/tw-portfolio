@@ -60,24 +60,38 @@ function hmacVerify(data: string, receivedHmac: string, secret: string): boolean
   }
 }
 
-/** Sign a session cookie value: `${userId}.${hmac(userId, secret)}` */
-export function signSessionCookie(userId: string, sessionSecret: string): string {
-  return `${userId}.${hmacSign(userId, sessionSecret)}`;
+export interface SessionIdentity {
+  userId: string;
+  isDemo: boolean;
+}
+
+/** Sign a session cookie value.
+ *  HMAC signs the full payload including the `demo:` prefix when isDemo=true.
+ *  Stripping or adding the prefix invalidates the signature — tamper-proof by construction. */
+export function signSessionCookie(userId: string, sessionSecret: string, isDemo = false): string {
+  const payload = isDemo ? `demo:${userId}` : userId;
+  return `${payload}.${hmacSign(payload, sessionSecret)}`;
 }
 
 /**
- * Verify an HMAC-signed session cookie and extract the userId.
- * Returns the userId (UUID) if the signature is valid, or null if tampered/malformed.
+ * Verify an HMAC-signed session cookie and extract identity.
+ * Returns { userId, isDemo } if the signature is valid, or null if tampered/malformed.
  */
-export function verifySessionCookie(cookieValue: string, sessionSecret: string): string | null {
+export function verifySessionCookie(cookieValue: string, sessionSecret: string): SessionIdentity | null {
   const dotIndex = cookieValue.lastIndexOf(".");
   if (dotIndex <= 0) return null;
 
-  const userId = cookieValue.slice(0, dotIndex);
+  const payload = cookieValue.slice(0, dotIndex);
   const receivedHmac = cookieValue.slice(dotIndex + 1);
-  if (!userId || !receivedHmac) return null;
+  if (!payload || !receivedHmac) return null;
 
-  return hmacVerify(userId, receivedHmac, sessionSecret) ? userId : null;
+  if (!hmacVerify(payload, receivedHmac, sessionSecret)) return null;
+
+  // Check for demo prefix on verified payload
+  if (payload.startsWith("demo:")) {
+    return { userId: payload.slice(5), isDemo: true };
+  }
+  return { userId: payload, isDemo: false };
 }
 
 /** Generate a stateless HMAC-signed CSRF state token, optionally embedding a returnTo path. */

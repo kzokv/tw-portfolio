@@ -60,7 +60,7 @@ async function getValidState(app: Awaited<ReturnType<typeof buildApp>>): Promise
 function extractCookieUserId(setCookie: string, sessionSecret: string): string | null {
   const match = setCookie.match(new RegExp(`${Env.SESSION_COOKIE_NAME}=([^;]+)`));
   if (!match) return null;
-  return verifySessionCookie(match[1], sessionSecret);
+  return verifySessionCookie(match[1], sessionSecret)?.userId ?? null;
 }
 
 describe("OAuth callback → identity resolution", () => {

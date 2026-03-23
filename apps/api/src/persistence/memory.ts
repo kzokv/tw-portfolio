@@ -14,6 +14,8 @@ interface MemoryUser {
   providerSubject: string;
   providerDisplayName: string | null;
   providerPictureUrl: string | null;
+  isDemo?: boolean;
+  demoExpiresAt?: Date;
 }
 
 export class MemoryPersistence implements Persistence {
@@ -196,5 +198,13 @@ export class MemoryPersistence implements Persistence {
 
   async readiness(): Promise<ReadinessStatus> {
     return { backend: "memory", postgres: true, redis: true };
+  }
+
+  async markDemoUser(userId: string, ttlSeconds: number): Promise<void> {
+    const user = [...this.usersByEmail.values()].find((u) => u.id === userId);
+    if (user) {
+      user.isDemo = true;
+      user.demoExpiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    }
   }
 }
