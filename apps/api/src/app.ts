@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
+import { createEventBus, type EventBus } from "./events/index.js";
 import { registerRoutes } from "./routes/registerRoutes.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
@@ -13,6 +14,7 @@ type _AssertAssignable = GoogleOAuthEnvConfig extends GoogleOAuthConfig ? true :
 
 interface BuildAppOptions {
   persistenceBackend?: "postgres" | "memory";
+  eventBusBackend?: "postgres" | "memory";
   /** Inject OAuth config directly (used in tests). Pass null to explicitly disable OAuth.
    *  When omitted, reads from environment variables via getGoogleOAuthEnvConfig(). */
   oauthConfig?: GoogleOAuthConfig | null;
@@ -32,6 +34,7 @@ interface HttpishError extends Error {
 
 export type AppInstance = FastifyInstance & {
   persistence: Persistence;
+  eventBus: EventBus;
 };
 
 const mutationBuckets = new Map<string, RateCounter>();
@@ -61,11 +64,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const app = Fastify({ logger: true }) as AppInstance;
   app.decorateRequest("__sessionType", undefined);
   app.persistence = createPersistence(options.persistenceBackend);
+  const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
+  app.eventBus = createEventBus(ebBackend);
+  if ("init" in app.eventBus && typeof (app.eventBus as { init?: () => Promise<void> }).init === "function") {
+    await (app.eventBus as { init: () => Promise<void> }).init();
+  }
   app.oauthConfig = options.oauthConfig !== undefined ? options.oauthConfig : Env.getGoogleOAuthEnvConfig();
   app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
   await app.persistence.init();
 
   app.addHook("onClose", async () => {
+    await app.eventBus.close();
     await app.persistence.close();
   });
 

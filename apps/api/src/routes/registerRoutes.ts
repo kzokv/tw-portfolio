@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { registerSSERoute } from "./sseRoute.js";
 import {
   buildAuthorizationUrl,
   decodeIdTokenPayload,
@@ -180,7 +181,7 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
   return null;
 }
 
-function resolveUserId(req: FastifyRequest, sessionSecret?: string): { userId: string; isDemo: boolean } {
+export function resolveUserId(req: FastifyRequest, sessionSecret?: string): { userId: string; isDemo: boolean } {
   if (Env.AUTH_MODE === "oauth") {
     const identity = parseSessionCookie(req.headers.cookie, sessionSecret);
     if (identity) {
@@ -1208,4 +1209,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await app.persistence.saveAccountingStore(userId, draftStore.accounting);
     return { created };
   });
+
+  registerSSERoute(app, resolveUserId);
 }

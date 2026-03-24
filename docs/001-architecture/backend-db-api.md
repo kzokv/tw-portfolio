@@ -1190,6 +1190,24 @@ Quote behavior:
 Finding:
 - `/quotes/latest` is structurally production-like but still wired to mock providers, not a live market-data integration.
 
+#### Server-Sent Events
+
+| Method | Path | Request shape | Response shape | Dependencies | Web usage |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/events/stream` | none (session cookie or `x-user-id` header) | `text/event-stream` — `heartbeat`, domain events | `EventBus.subscribe`, session cookie (oauth) or `tw_e2e_user` cookie (dev_bypass) | via `useEventStream` hook |
+| `POST` | `/__test/publish-event` | `{ type, data? }` | `{ published, type, userId }` | `EventBus.publishEvent`, `NODE_ENV !== "production"` | not called by shipped UI — test/dev only |
+
+SSE stream behavior:
+- Streams `text/event-stream` with headers `Cache-Control: no-cache`, `Connection: keep-alive`
+- Each event frame includes `id:` (per-connection monotonic integer), `event:` (type), `data:` (JSON)
+- Sends an initial `heartbeat` event on connect; subsequent heartbeats every 30 seconds
+- Per-user connection limit: max 5 concurrent connections. The 6th connection receives an `event: error` with `{"code":"connection_limit_exceeded"}` and is closed immediately (200 status, not 429)
+- On reconnect, parses `Last-Event-ID` header and logs gap telemetry (`userId`, `lastEventId`, gap size); **does not replay** missed events (phase 1)
+- `EventSource` sends session cookie automatically via `withCredentials: true`; dev_bypass mode also accepts `tw_e2e_user` cookie for E2E test user isolation
+
+Finding:
+- `/events/stream` is consumed by the `useEventStream` React hook (`apps/web/hooks/useEventStream.ts`). The EventBus (`apps/api/src/events/`) is wired into `AppInstance` alongside `persistence`. In-memory backend uses `InMemoryEventBus` (EventEmitter); postgres backend uses `RedisEventBus` (2 Redis connections: publisher + subscriber).
+
 #### AI transaction endpoints
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
@@ -1224,6 +1242,7 @@ Shipped web code currently calls:
 - `GET /auth/google/callback` (OAuth callback)
 - `GET /auth/logout` (sign-out)
 - `POST /auth/demo/start` (demo mode entry)
+- `GET /events/stream` (via `useEventStream` hook)
 
 Defined server routes not currently called by the shipped web app:
 - both health endpoints
@@ -1239,6 +1258,7 @@ Defined server routes not currently called by the shipped web app:
 - `GET /quotes/latest`
 - both AI endpoints
 - both E2E endpoints (`/__e2e/oauth-session`, `/__e2e/reset`)
+- `POST /__test/publish-event` (test/dev only, blocked in production)
 
 Finding:
 - the server surface is substantially broader than the shipped UI surface. The primary user journey currently depends on dashboard bootstrap, full settings save, manual transaction posting, and recompute only.

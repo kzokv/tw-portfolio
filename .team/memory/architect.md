@@ -28,3 +28,17 @@ Two bypass E2E tests are failing as of KZO-109 validation (2026-03-23). Confirme
 **Why:** These tests exercise OAuth session behavior in dev_bypass mode. The session cookie isn't being set/recognized, causing fallthrough to the dev_bypass default identity.
 
 **How to apply:** Don't treat these as regressions when validating other PRs. They need their own fix ticket (likely a test setup issue, not a production bug — per the fixer-scope-guardrail rule).
+
+---
+
+---
+name: fastify-cors-sse-raw-writeHead
+description: "@fastify/cors headers don't reach reply.raw.writeHead() — SSE routes must manually propagate CORS headers"
+type: feedback
+---
+
+When using raw `reply.raw.writeHead()` for SSE streaming in Fastify, CORS headers set by `@fastify/cors` in the `onRequest` hook are NOT included. They live in Fastify's internal header buffer (`reply.header()`) and only flush on `reply.send()` — which SSE routes skip.
+
+**Why:** Discovered in KZO-113 iteration 1. All 4 SSE E2E tests failed because browsers blocked EventSource connections with CORS errors. Integration tests (using `http.get()` directly) passed because they don't enforce CORS.
+
+**How to apply:** Any Fastify route that bypasses `reply.send()` (SSE, WebSocket upgrade, raw streaming) must call `reply.getHeader()` to extract CORS headers and include them in `writeHead()`. Use the `pickCorsHeaders(reply)` helper pattern from `sseRoute.ts`.
