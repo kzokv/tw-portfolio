@@ -1,6 +1,6 @@
 import type { AppDictionary } from "../../lib/i18n/types";
 
-export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" | "navigation" | "hero" | "dialogs" | "dashboardHome" | "symbolHistory"> & {
+export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" | "navigation" | "hero" | "dialogs" | "dashboardHome" | "symbolHistory" | "mutations"> & {
   tooltips: Pick<AppDictionary["tooltips"], "appTitle" | "heroTitle">;
 }> = {
   en: {
@@ -117,6 +117,30 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       realizedPnlLabel: "Realized P&L",
       feeProfileLabel: "Fee Profile",
       noRealizedPnl: "-",
+    },
+    mutations: {
+      deleteTitle: "Delete Transaction",
+      deleteConfirmButton: "Delete Transaction",
+      deleteSummaryLabel: "Transaction Summary",
+      deleteImpactLabel: "Downstream Impact",
+      deleteImpactDetail: "{cashEntries} cash entries and {lotAllocations} lot allocations will be recalculated",
+      deleteNegativeLotsWarning: "Deleting this trade will result in a negative position of {quantity} for {symbol}. The recompute may fail.",
+      deleteSuccessMessage: "Transaction deleted. Recomputing portfolio...",
+      editSaveButton: "Save",
+      editCancelButton: "Cancel",
+      editSymbolAccountHint: "To change symbol or account, delete and re-create the transaction",
+      editSuccessMessage: "Transaction updated. Recomputing portfolio...",
+      feeRecalcTitle: "Fee Handling Required",
+      feeRecalcDescription: "This transaction has manually set fees. Changing quantity or price requires a decision about fee handling.",
+      feeRecalcButton: "Recalculate Fees",
+      feeKeepManualButton: "Keep Manual Fees",
+      recomputeCompleteMessage: "Portfolio recomputed successfully.",
+      recomputeRetryMessage: "Recompute failed, retrying...",
+      recomputeExhaustedMessage: "Recompute failed. Try editing/deleting again, or refresh the page.",
+      recomputeTimeoutMessage: "Recompute is taking longer than expected. Refresh to check status.",
+      actionsColumnLabel: "Actions",
+      editTooltip: "Edit transaction",
+      deleteTooltip: "Delete transaction",
     },
     dialogs: {
       integrityTitle: "Configuration Issue Detected",
@@ -241,6 +265,30 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       realizedPnlLabel: "已實現損益",
       feeProfileLabel: "費率設定",
       noRealizedPnl: "-",
+    },
+    mutations: {
+      deleteTitle: "刪除交易",
+      deleteConfirmButton: "刪除交易",
+      deleteSummaryLabel: "交易摘要",
+      deleteImpactLabel: "下游影響",
+      deleteImpactDetail: "將重新計算 {cashEntries} 筆現金分錄和 {lotAllocations} 筆持倉分配",
+      deleteNegativeLotsWarning: "刪除此筆交易將導致 {symbol} 出現 {quantity} 的負部位，重算可能失敗。",
+      deleteSuccessMessage: "交易已刪除，正在重算投資組合⋯",
+      editSaveButton: "儲存",
+      editCancelButton: "取消",
+      editSymbolAccountHint: "如需變更標的或帳戶，請先刪除再重新建立交易",
+      editSuccessMessage: "交易已更新，正在重算投資組合⋯",
+      feeRecalcTitle: "需要處理手續費",
+      feeRecalcDescription: "此筆交易使用手動設定的手續費。變更數量或價格需要決定手續費的處理方式。",
+      feeRecalcButton: "重新計算手續費",
+      feeKeepManualButton: "保留手動手續費",
+      recomputeCompleteMessage: "投資組合重算完成。",
+      recomputeRetryMessage: "重算失敗，正在重試⋯",
+      recomputeExhaustedMessage: "重算失敗。請再試一次編輯/刪除，或重新整理頁面。",
+      recomputeTimeoutMessage: "重算花費的時間超出預期，請重新整理頁面查看狀態。",
+      actionsColumnLabel: "操作",
+      editTooltip: "編輯交易",
+      deleteTooltip: "刪除交易",
     },
     dialogs: {
       integrityTitle: "偵測到設定異常",

@@ -126,51 +126,51 @@ superseded_by: null
 
 ### useEventStream Hook Extension
 
-- [ ] Extend `useEventStream` to accept `eventTypes: string[]` (array of event types)
-- [ ] Register multiple `addEventListener` calls on single EventSource connection
-- [ ] Stabilize dependency array (use `JSON.stringify(eventTypes)` or `useMemo`) to avoid reconnection on every render
-- [ ] Maintain backward compatibility or update all existing consumers
+- [x] Extend `useEventStream` to accept `eventTypes: string[]` (array of event types)
+- [x] Register multiple `addEventListener` calls on single EventSource connection
+- [x] Stabilize dependency array (use `JSON.stringify(eventTypes)` or `useMemo`) to avoid reconnection on every render
+- [x] Maintain backward compatibility or update all existing consumers
 
 ### Transaction List — Delete Flow
 
-- [ ] Add delete icon button per row in `TransactionHistoryTable`
-- [ ] On click: call preview endpoint → show confirmation dialog
-- [ ] Confirmation dialog contents:
+- [x] Add delete icon button per row in `TransactionHistoryTable`
+- [x] On click: call preview endpoint → show confirmation dialog
+- [x] Confirmation dialog contents:
   - Trade summary (date, symbol, side, quantity, price)
   - Negative lots warning (conditional, from preview)
   - Downstream impact counts (from preview: N cash entries, N lot allocations)
   - Confirm (destructive styling) / Cancel buttons
-- [ ] On confirm: call DELETE endpoint → show info toast ("Transaction deleted. Recomputing portfolio...")
-- [ ] Scoped loading skeleton on affected symbol's holdings row
+- [x] On confirm: call DELETE endpoint → show info toast ("Transaction deleted. Recomputing portfolio...")
+- [x] Scoped loading skeleton on affected symbol's holdings row
 
 ### Transaction List — Inline Edit Flow
 
-- [ ] Add edit icon button per row
-- [ ] On click: row enters edit mode — all 4 fields (date, quantity, price, side) become editable inputs
-- [ ] Explicit Save / Cancel buttons at end of row
-- [ ] Extract `EditableTransactionRow` component for per-row state management (6 states: viewing, editing, validating, submitting, recompute-pending, recompute-complete)
-- [ ] On save: call preview endpoint for negative lots check → if warning, show confirmation dialog → call PATCH endpoint
-- [ ] If `fees_source = MANUAL` and quantity/price changed: show fee recalculation prompt before submitting
-- [ ] Show UI hint: "To change symbol or account, delete and re-create the transaction"
-- [ ] Handle mobile card view (share state logic with desktop table via extracted component)
+- [x] Add edit icon button per row
+- [x] On click: row enters edit mode — all 4 fields (date, quantity, price, side) become editable inputs
+- [x] Explicit Save / Cancel buttons at end of row
+- [x] Extract `EditableTransactionRow` component for per-row state management (6 states: viewing, editing, validating, submitting, recompute-pending, recompute-complete)
+- [x] On save: call preview endpoint for negative lots check → if warning, show confirmation dialog → call PATCH endpoint
+- [x] If `fees_source = MANUAL` and quantity/price changed: show fee recalculation prompt before submitting
+- [x] Show UI hint: "To change symbol or account, delete and re-create the transaction"
+- [x] Handle mobile card view (share state logic with desktop table via extracted component)
 
 ### SSE Event Handling + Loading State
 
-- [ ] Subscribe to `recompute_complete` + `recompute_failed` via extended `useEventStream`
-- [ ] On `recompute_complete`: clear scoped skeleton, show success toast with summary data (avg cost, PnL), trigger holdings/transactions refetch
-- [ ] On `recompute_failed` with `retriesExhausted: false`: show warning toast "Recompute failed, retrying..."
-- [ ] On `recompute_failed` with `retriesExhausted: true`: show error toast with guidance "Recompute failed. Try editing/deleting again, or refresh the page."
-- [ ] On timeout (`NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS`, default 30s): show warning toast "Recompute is taking longer than expected. Refresh to check status."
+- [x] Subscribe to `recompute_complete` + `recompute_failed` via extended `useEventStream`
+- [x] On `recompute_complete`: clear scoped skeleton, show success toast with summary data (avg cost, PnL), trigger holdings/transactions refetch
+- [x] On `recompute_failed` with `retriesExhausted: false`: show warning toast "Recompute failed, retrying..."
+- [x] On `recompute_failed` with `retriesExhausted: true`: show error toast with guidance "Recompute failed. Try editing/deleting again, or refresh the page."
+- [x] On timeout (`NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS`, default 30s): show warning toast "Recompute is taking longer than expected. Refresh to check status."
 
 ### E2E Tests (Layer 3)
 
-- [ ] **Delete flow**: click delete → preview dialog → confirm → toast → scoped loading → skeleton clears on SSE → verify updated holdings numbers
-- [ ] **Edit flow**: click edit → modify fields → save → toast → scoped loading → skeleton clears → verify updated numbers
-- [ ] **Negative lots warning**: set up trades where delete produces negative lots → verify warning appears in dialog
-- [ ] **BUY→SELL side flip**: verify correct/error state displayed
-- [ ] **Weighted-average cost correctness**: book known trades, delete one, verify displayed average cost matches hand-calculated value
-- [ ] Use DOM-based assertions for SSE waiting (wait for toast appearance / skeleton disappearance)
-- [ ] Use configurable timeout (`NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS=3000`) for timeout tests
+- [x] **Delete flow**: click delete → preview dialog → confirm → toast → scoped loading → skeleton clears on SSE → verify updated holdings numbers
+- [x] **Edit flow**: click edit → modify fields → save → toast → scoped loading → skeleton clears → verify updated numbers
+- [x] **Negative lots warning**: set up trades where delete produces negative lots → verify warning appears in dialog
+- [x] **BUY→SELL side flip**: verify correct/error state displayed
+- [x] **Weighted-average cost correctness**: book known trades, delete one, verify displayed average cost matches hand-calculated value
+- [x] Use DOM-based assertions for SSE waiting (wait for toast appearance / skeleton disappearance)
+- [x] Use configurable timeout (`NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS=3000`) for timeout tests
 
 ---
 

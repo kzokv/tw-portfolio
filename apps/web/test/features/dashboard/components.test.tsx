@@ -71,6 +71,7 @@ const transactions: TransactionHistoryItemDto[] = [
     feeProfileId: "fp-default",
     feeProfileName: "Default Broker",
     bookedAt: "2026-03-12T08:00:00.000Z",
+    feesSource: "CALCULATED",
   },
 ];
 

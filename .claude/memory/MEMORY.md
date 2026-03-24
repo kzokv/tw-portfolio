@@ -16,11 +16,13 @@
 - [project_validatehostconsistency_singleton_bug.md](project_validatehostconsistency_singleton_bug.md) — validateHostConsistency uses Env.NODE_ENV singleton (not injectable); test failure is pre-existing and intentionally unfixed
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 4 targets, CLI flags, integration points
 - [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
-- [project_ise_fixes.md](project_ise_fixes.md) — Five ISE root-cause fixes implemented on dev-issue: loadStore parallelization, CORS callback, routeError lib, error boundaries, try/catch in symbol page
+- ~~project_ise_fixes.md~~ — **REMOVED** (stale — fixes are in code/git history)
 - [project_ci_deployment_stability.md](project_ci_deployment_stability.md) — CI deployment stability: Dockerfile drift detection gap, local Docker validation stack (docker-compose.local.yml), CI Docker build job added
 - [project_infrastructure_architecture.md](project_infrastructure_architecture.md) — Deploy target: QNAP 192.168.2.10 via Cloudflare WARP + SSH; three Docker compose environments (dev, prod, local)
 - [project_nextjs_proxy_convention.md](project_nextjs_proxy_convention.md) — Next.js 16 (v16.1.6): proxy.ts replaces deprecated middleware.ts, auto-discovered at build time
-- [project_store_accounting_structure.md](project_store_accounting_structure.md) — Trade events live at store.accounting.facts.tradeEvents, not store.transactions; BookedTradeEvent requires userId
+- [project_i18n_function_serialization.md](project_i18n_function_serialization.md) — i18n dictionary functions can't cross Next.js server→client boundary; use string templates with `.replace("{key}", value)` instead
+- [project_ssr_document_cookie.md](project_ssr_document_cookie.md) — `document.cookie` unavailable in server components; use `next/headers` `cookies()` for server-side auth header reading
+- ~~project_store_accounting_structure.md~~ — **REMOVED** (stale — derivable from code)
 
 ## Agent team workflow
 - [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User's multi-agent team workflow formalized as /team skill with 3 tiers, convergence loop, Architect-as-lead, and state file tracking
@@ -34,6 +36,8 @@
 
 ## SSE / streaming
 - ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
+- ~~playwright_sse_networkidle~~ — **PROMOTED** to `.claude/rules/playwright-sse-networkidle.md` — `networkidle` can never resolve with open SSE connection; use `load` or element assertions
+- [project_sse_preconnect_race.md](project_sse_preconnect_race.md) — `useEventStream` with `enabled:condition` loses events if backend fires via setImmediate; pre-connect with `enabled:true` instead
 
 ## Persistence layer (continued)
 - [project_fk_cascade_alter_pattern.md](project_fk_cascade_alter_pattern.md) — PostgreSQL unnamed FKs require dynamic constraint name lookup via pg_constraint to add ON DELETE CASCADE
@@ -47,3 +51,10 @@
 - [feedback_e2e_cross_port_goto.md](feedback_e2e_cross_port_goto.md) — page.goto() to API port that 302-redirects cross-port must use { waitUntil: "domcontentloaded" } to avoid ERR_ABORTED
 - [feedback_e2e_cookie_domain_scope.md](feedback_e2e_cookie_domain_scope.md) — OAuth session cookies live on localhost; logout nav must use TestEnv.host (localhost), not apiUrl() (127.0.0.1)
 - [project_demo_rate_bucket_isolation.md](project_demo_rate_bucket_isolation.md) — Module-level demoRateBuckets Map persists across buildApp() calls in same test worker — needs _resetDemoRateBuckets() in beforeEach
+
+## Accounting / replay (KZO-114)
+- [project_savestore_full_replace.md](project_savestore_full_replace.md) — saveStore deletes ALL user trade events — replay functions must use scoped persistence methods, never saveStore
+- [project_replay_order_invariant.md](project_replay_order_invariant.md) — replayPositionHistory must ORDER BY trade_date ASC, booking_sequence ASC — not booked_at or trade_timestamp
+- [project_allocate_sell_lots_error.md](project_allocate_sell_lots_error.md) — allocateSellLots throws plain Error with no trade context — replay must catch and enrich for recompute_failed payload
+- [project_cash_ledger_zero_amount.md](project_cash_ledger_zero_amount.md) — cash_ledger_entries CHECK (amount <> 0) — replay must filter out zero-amount settlement entries
+- [feedback_interface_dead_code.md](feedback_interface_dead_code.md) — When designing persistence interfaces with many methods, verify all methods have callers before shipping

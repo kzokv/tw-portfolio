@@ -26,6 +26,7 @@ import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashb
 import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
+import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
 import { useProfile } from "../../features/profile/hooks/useProfile";
 import { DividendsSection } from "../dashboard/DividendsSection";
@@ -140,6 +141,12 @@ export function AppShell({ section = "dashboard", isDemo = false }: AppShellProp
     locale,
     fallbackConfirm: dict.recompute.fallbackConfirm,
     refresh: refreshAfterRecompute,
+  });
+
+  const mutations = useTransactionMutations({
+    locale,
+    dict,
+    refresh: refreshAfterTransaction,
   });
 
   const profileData = useProfile();
@@ -366,6 +373,22 @@ export function AppShell({ section = "dashboard", isDemo = false }: AppShellProp
               </p>
             ) : null}
 
+            {!globalError && (mutations.message || mutations.errorMessage) ? (
+              <p
+                className={cn(
+                  "mb-5 rounded-[22px] border px-4 py-3 text-sm shadow-[0_18px_36px_rgba(52,211,153,0.1)]",
+                  mutations.errorMessage
+                    ? "border-[rgba(251,113,133,0.28)] bg-[rgba(254,226,226,0.9)] text-rose-700"
+                    : "border-[rgba(52,211,153,0.22)] bg-[rgba(236,253,245,0.96)] text-emerald-700",
+                )}
+                data-testid="mutation-status"
+                role="status"
+                aria-live="polite"
+              >
+                {mutations.errorMessage || mutations.message}
+              </p>
+            ) : null}
+
             {!globalError && !transactionMessage && recomputeMessage ? (
               <p
                 className="mb-5 rounded-[22px] border border-[rgba(52,211,153,0.22)] bg-[rgba(236,253,245,0.96)] px-4 py-3 text-sm text-emerald-700 shadow-[0_18px_36px_rgba(52,211,153,0.1)]"
@@ -396,6 +419,7 @@ export function AppShell({ section = "dashboard", isDemo = false }: AppShellProp
                   transactionSubmission,
                   recomputeAction,
                   setDrawerOpen,
+                  recomputingSymbols: mutations.recomputingSymbols,
                 })}
               </>
             )}
@@ -441,6 +465,7 @@ function renderSection({
   transactionSubmission,
   recomputeAction,
   setDrawerOpen,
+  recomputingSymbols,
 }: {
   section: AppSection;
   dashboard: ReturnType<typeof useDashboardData>;
@@ -453,6 +478,7 @@ function renderSection({
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   setDrawerOpen: (open: boolean) => void;
+  recomputingSymbols: Set<string>;
 }) {
   const largestHolding = dashboard.holdings[0] ?? null;
   const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -489,7 +515,7 @@ function renderSection({
             {
               label: dict.dashboardHome.holdingCountLabel,
               value: formatNumber(dashboard.holdings.length, locale),
-              detail: dict.holdings.entries(dashboard.holdings.length),
+              detail: dict.holdings.entries.replace("{count}", String(dashboard.holdings.length)),
             },
             {
               label: dict.dashboardHome.quoteCoverageLabel,
@@ -498,7 +524,7 @@ function renderSection({
             },
           ]}
         />
-        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} />
+        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} recomputingSymbols={recomputingSymbols} />
         <DividendsSection upcoming={dashboard.dividends.upcoming} recent={dashboard.dividends.recent} dict={dict} locale={locale} />
       </div>
     );
@@ -521,7 +547,7 @@ function renderSection({
             {
               label: dict.dashboardHome.holdingCountLabel,
               value: formatNumber(dashboard.summary.holdingCount, locale),
-              detail: dict.holdings.entries(dashboard.summary.holdingCount),
+              detail: dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount)),
             },
             {
               label: dict.dashboardHome.issueCountLabel,
@@ -666,7 +692,7 @@ function renderSection({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
-        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} />
+        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} recomputingSymbols={recomputingSymbols} />
         <ActionCenterSection
           locale={locale}
           settings={dashboard.settings}
