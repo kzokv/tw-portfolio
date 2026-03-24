@@ -222,12 +222,13 @@ CREATE TABLE IF NOT EXISTS trade_events (
   source_type TEXT NOT NULL,
   source_reference TEXT,
   booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  reversal_of_trade_event_id TEXT REFERENCES trade_events(id),
+  reversal_of_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
   trade_timestamp TIMESTAMP NOT NULL,
   booking_sequence INTEGER NOT NULL,
   price_currency TEXT NOT NULL DEFAULT 'TWD',
   fee_policy_snapshot_id TEXT NOT NULL REFERENCES trade_fee_policy_snapshots(id),
   market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  fees_source TEXT NOT NULL DEFAULT 'CALCULATED' CHECK (fees_source IN ('CALCULATED', 'MANUAL')),
   FOREIGN KEY (account_id, user_id) REFERENCES accounts(id, user_id),
   CHECK (reversal_of_trade_event_id IS NULL OR reversal_of_trade_event_id <> id),
   CONSTRAINT trade_events_booking_sequence_positive
@@ -255,7 +256,7 @@ CREATE TABLE IF NOT EXISTS lot_allocations (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  trade_event_id TEXT NOT NULL REFERENCES trade_events(id),
+  trade_event_id TEXT NOT NULL REFERENCES trade_events(id) ON DELETE CASCADE,
   symbol TEXT NOT NULL,
   lot_id TEXT NOT NULL,
   lot_opened_at DATE NOT NULL,
@@ -335,7 +336,7 @@ CREATE TABLE IF NOT EXISTS cash_ledger_entries (
   ),
   amount INTEGER NOT NULL CHECK (amount <> 0),
   currency TEXT NOT NULL,
-  related_trade_event_id TEXT REFERENCES trade_events(id),
+  related_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
   related_dividend_ledger_entry_id TEXT REFERENCES dividend_ledger_entries(id),
   source_type TEXT NOT NULL,
   source_reference TEXT,
@@ -427,7 +428,7 @@ CREATE TABLE IF NOT EXISTS recompute_job_items (
   previous_tax_amount INTEGER NOT NULL,
   next_commission_amount INTEGER NOT NULL,
   next_tax_amount INTEGER NOT NULL,
-  trade_event_id TEXT NOT NULL REFERENCES trade_events(id)
+  trade_event_id TEXT NOT NULL REFERENCES trade_events(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);

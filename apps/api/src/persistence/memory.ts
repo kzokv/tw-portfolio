@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
+import type { Lot } from "@tw-portfolio/domain";
 import { createStore } from "../services/store.js";
 import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
-import type { AccountingStore, Store } from "../types/store.js";
+import type { AccountingStore, BookedTradeEvent, CashLedgerEntry, LotAllocationProjection, Store } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
-import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
+import { rebuildHoldingProjection } from "../services/accountingStore.js";
+import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
 
 interface MemoryUser {
   id: string;
@@ -206,5 +208,170 @@ export class MemoryPersistence implements Persistence {
       user.isDemo = true;
       user.demoExpiresAt = new Date(Date.now() + ttlSeconds * 1000);
     }
+  }
+
+  async getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null> {
+    const store = await this.loadStore(userId);
+    return store.accounting.facts.tradeEvents.find((t) => t.id === tradeEventId && t.userId === userId) ?? null;
+  }
+
+  async deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult> {
+    const store = await this.loadStore(userId);
+    const tradeIndex = store.accounting.facts.tradeEvents.findIndex((t) => t.id === tradeEventId && t.userId === userId);
+    if (tradeIndex === -1) {
+      throw routeError(404, "trade_event_not_found", "Trade event not found");
+    }
+    const trade = store.accounting.facts.tradeEvents[tradeIndex];
+
+    // Count child rows
+    const cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(
+      (e) => e.relatedTradeEventId === tradeEventId,
+    ).length;
+    const lotAllocations = store.accounting.projections.lotAllocations.filter(
+      (a) => a.tradeEventId === tradeEventId,
+    ).length;
+
+    // Remove trade
+    store.accounting.facts.tradeEvents.splice(tradeIndex, 1);
+
+    // Remove related cash ledger entries (CASCADE equivalent)
+    store.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(
+      (e) => e.relatedTradeEventId !== tradeEventId,
+    );
+
+    // Remove related lot allocations (CASCADE equivalent)
+    store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
+      (a) => a.tradeEventId !== tradeEventId,
+    );
+
+    return {
+      accountId: trade.accountId,
+      symbol: trade.symbol,
+      feePolicySnapshotId: `trade-fee-snapshot:${tradeEventId}`,
+      deletedChildRows: { cashLedgerEntries, lotAllocations },
+    };
+  }
+
+  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }> {
+    const store = await this.loadStore(userId);
+    const trade = store.accounting.facts.tradeEvents.find((t) => t.id === tradeEventId && t.userId === userId);
+    if (!trade) {
+      throw routeError(404, "trade_event_not_found", "Trade event not found");
+    }
+
+    const oldTradeDate = trade.tradeDate;
+
+    if (patch.date !== undefined) {
+      trade.tradeDate = patch.date;
+      trade.tradeTimestamp = new Date(`${patch.date}T00:00:00.000Z`).toISOString();
+    }
+    if (patch.quantity !== undefined) trade.quantity = patch.quantity;
+    if (patch.price !== undefined) trade.unitPrice = patch.price;
+    if (patch.side !== undefined) trade.type = patch.side;
+    if (patch.commissionAmount !== undefined) trade.commissionAmount = patch.commissionAmount;
+    if (patch.taxAmount !== undefined) trade.taxAmount = patch.taxAmount;
+    if (patch.feesSource !== undefined) trade.feesSource = patch.feesSource;
+
+    // Handle date change: assign new booking sequence + compact old date
+    if (patch.date && patch.date !== oldTradeDate) {
+      // Find next available sequence for new date
+      const tradesOnNewDate = store.accounting.facts.tradeEvents.filter(
+        (t) => t.accountId === trade.accountId && t.tradeDate === patch.date && t.id !== tradeEventId,
+      );
+      trade.bookingSequence = tradesOnNewDate.length + 1;
+
+      // Compact old date's booking sequence
+      const tradesOnOldDate = store.accounting.facts.tradeEvents
+        .filter((t) => t.accountId === trade.accountId && t.tradeDate === oldTradeDate)
+        .sort((a, b) => (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+      tradesOnOldDate.forEach((t, i) => {
+        t.bookingSequence = i + 1;
+      });
+    }
+
+    return { accountId: trade.accountId, symbol: trade.symbol };
+  }
+
+  async getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]> {
+    const store = await this.loadStore(userId);
+    return store.accounting.facts.tradeEvents
+      .filter((t) => t.userId === userId && t.accountId === accountId && t.symbol === symbol)
+      .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+  }
+
+  async deleteLotsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+    const store = await this.loadStore(userId);
+    const before = store.accounting.projections.lots.length;
+    store.accounting.projections.lots = store.accounting.projections.lots.filter(
+      (l) => !(l.accountId === accountId && l.symbol === symbol),
+    );
+    rebuildHoldingProjection(store);
+    return before - store.accounting.projections.lots.length;
+  }
+
+  async deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+    const store = await this.loadStore(userId);
+    const before = store.accounting.projections.lotAllocations.length;
+    store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
+      (a) => !(a.userId === userId && a.accountId === accountId && a.symbol === symbol),
+    );
+    return before - store.accounting.projections.lotAllocations.length;
+  }
+
+  async deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+    const store = await this.loadStore(userId);
+    // Collect trade event IDs for the given account+symbol
+    const tradeEventIds = new Set(
+      store.accounting.facts.tradeEvents
+        .filter((t) => t.userId === userId && t.accountId === accountId && t.symbol === symbol)
+        .map((t) => t.id),
+    );
+
+    const before = store.accounting.facts.cashLedgerEntries.length;
+    store.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(
+      (e) =>
+        !(
+          e.userId === userId &&
+          e.accountId === accountId &&
+          (e.entryType === "TRADE_SETTLEMENT_IN" || e.entryType === "TRADE_SETTLEMENT_OUT") &&
+          e.relatedTradeEventId &&
+          tradeEventIds.has(e.relatedTradeEventId)
+        ),
+    );
+    return before - store.accounting.facts.cashLedgerEntries.length;
+  }
+
+  async bulkUpsertLots(userId: string, lots: Lot[]): Promise<void> {
+    if (lots.length === 0) return;
+    const store = await this.loadStore(userId);
+    for (const lot of lots) {
+      const existingIndex = store.accounting.projections.lots.findIndex((l) => l.id === lot.id);
+      if (existingIndex >= 0) {
+        store.accounting.projections.lots[existingIndex] = lot;
+      } else {
+        store.accounting.projections.lots.push(lot);
+      }
+    }
+    rebuildHoldingProjection(store);
+  }
+
+  async bulkInsertLotAllocations(userId: string, allocations: LotAllocationProjection[]): Promise<void> {
+    const store = await this.loadStore(userId);
+    store.accounting.projections.lotAllocations.push(...allocations);
+  }
+
+  async bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void> {
+    const store = await this.loadStore(userId);
+    store.accounting.facts.cashLedgerEntries.push(...entries);
+  }
+
+  async compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void> {
+    const store = await this.loadStore(userId);
+    const trades = store.accounting.facts.tradeEvents
+      .filter((t) => t.accountId === accountId && t.tradeDate === tradeDate)
+      .sort((a, b) => (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+    trades.forEach((t, i) => {
+      t.bookingSequence = i + 1;
+    });
   }
 }

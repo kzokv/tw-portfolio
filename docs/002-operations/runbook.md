@@ -61,7 +61,7 @@ For full variable documentation, see [Environment Variables](./environment-varia
 - Use `AUTH_MODE=dev_bypass` for local development only.
 - For production-like runs use `AUTH_MODE=oauth`.
 - `AUTH_USER_ID` / `NEXT_PUBLIC_AUTH_USER_ID` have been **removed**. If `AUTH_USER_ID` is set in the env file with `AUTH_MODE=oauth`, `deploy.sh` will error. Remove it from any existing env files.
-- Recompute history is explicit and audited via preview/confirm APIs.
+- Recompute history is explicit and audited via preview/confirm APIs (fee profile recompute) or via cascade recompute triggered by transaction delete/edit (KZO-114). Cascade recompute runs asynchronously and publishes results over the SSE stream.
 - For local tests without DB/Redis, set `PERSISTENCE_BACKEND=memory`.
 - For external Postgres/Redis mode, keep `PERSISTENCE_BACKEND=postgres` and set external `DB_URL`/`REDIS_URL`; do not start local compose DB/Redis unless needed for fallback.
 
@@ -1155,6 +1155,7 @@ Current numbered migration inventory:
 - `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash ledger entries, and drops retired legacy structures such as `transactions`.
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities`; makes `users.email` nullable with partial unique index.
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing.
+- `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`.
 
 ---
 

@@ -331,7 +331,7 @@ test.describe("callback error page (browser)", () => {
   });
 
   test("error page renders try-again link to /login", async ({ page }) => {
-    await page.goto("/auth/error?reason=oauth_error");
+    await page.goto("/auth/error?reason=oauth_error", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("auth-error-try-again")).toBeVisible();
     await expect(page.getByTestId("auth-error-try-again")).toHaveAttribute("href", "/login");
   });

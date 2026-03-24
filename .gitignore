@@ -10,6 +10,7 @@ infra/docker/.env.dev
 infra/docker/.env.local
 .next
 .worktrees/
+.worklog/
 
 **/*next-env.d.ts
 dist

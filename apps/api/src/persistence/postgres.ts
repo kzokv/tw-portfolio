@@ -35,7 +35,9 @@ import type {
 } from "../types/store.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
-import type { OAuthClaims, Persistence, ReadinessStatus } from "./types.js";
+import type { Lot } from "@tw-portfolio/domain";
+import type { BookedTradeEvent } from "../types/store.js";
+import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -1901,6 +1903,360 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  async getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null> {
+    const tradeResult = await this.pool.query(
+      `SELECT te.id, te.user_id, te.account_id, te.symbol,
+              te.market_code, te.instrument_type, te.trade_type, te.quantity,
+              te.unit_price, te.price_currency, te.trade_date,
+              te.trade_timestamp, te.booking_sequence, te.commission_amount,
+              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source_type,
+              te.source_reference, te.booked_at, te.reversal_of_trade_event_id, te.fees_source,
+              s.profile_id_at_booking, s.profile_name_at_booking, s.board_commission_rate,
+              s.commission_discount_percent, s.minimum_commission_amount,
+              s.commission_currency, s.commission_rounding_mode, s.tax_rounding_mode,
+              s.stock_sell_tax_rate_bps, s.stock_day_trade_tax_rate_bps,
+              s.etf_sell_tax_rate_bps, s.bond_etf_sell_tax_rate_bps,
+              s.commission_charge_mode
+       FROM trade_events AS te
+       JOIN trade_fee_policy_snapshots AS s ON s.id = te.fee_policy_snapshot_id
+       WHERE te.id = $1 AND te.user_id = $2`,
+      [tradeEventId, userId],
+    );
+    if (tradeResult.rows.length === 0) return null;
+
+    const row = tradeResult.rows[0];
+    const snapshotId = String(row.fee_policy_snapshot_id);
+
+    const taxComponentsResult = await this.pool.query(
+      `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+              tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+       FROM trade_fee_policy_snapshot_tax_components
+       WHERE snapshot_id = $1
+       ORDER BY sort_order, id`,
+      [snapshotId],
+    );
+
+    return mapTradeEventRow(row, taxComponentsResult.rows);
+  }
+
+  async deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // 1. Load trade to get accountId, symbol, snapshotId
+      const tradeResult = await client.query(
+        `SELECT account_id, symbol, fee_policy_snapshot_id FROM trade_events WHERE id = $1 AND user_id = $2`,
+        [tradeEventId, userId],
+      );
+      if (tradeResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "trade_event_not_found", "Trade event not found");
+      }
+      const { account_id: accountId, symbol, fee_policy_snapshot_id: feePolicySnapshotId } = tradeResult.rows[0];
+
+      // 2. Count child rows before delete
+      const [cashCount, allocCount] = await Promise.all([
+        client.query(`SELECT COUNT(*)::int AS cnt FROM cash_ledger_entries WHERE related_trade_event_id = $1`, [tradeEventId]),
+        client.query(`SELECT COUNT(*)::int AS cnt FROM lot_allocations WHERE trade_event_id = $1`, [tradeEventId]),
+      ]);
+
+      // 3. Delete trade event (CASCADE handles cash_ledger_entries, lot_allocations, recompute_job_items)
+      await client.query(`DELETE FROM trade_events WHERE id = $1 AND user_id = $2`, [tradeEventId, userId]);
+
+      // 4. Delete orphaned fee policy snapshot (FK direction: trade_events → snapshots, cascade doesn't help)
+      await client.query(`DELETE FROM trade_fee_policy_snapshot_tax_components WHERE snapshot_id = $1`, [feePolicySnapshotId]);
+      await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE id = $1`, [feePolicySnapshotId]);
+
+      await client.query("COMMIT");
+
+      return {
+        accountId,
+        symbol,
+        feePolicySnapshotId,
+        deletedChildRows: {
+          cashLedgerEntries: cashCount.rows[0].cnt,
+          lotAllocations: allocCount.rows[0].cnt,
+        },
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Load the current trade
+      const tradeResult = await client.query(
+        `SELECT account_id, symbol, trade_date FROM trade_events WHERE id = $1 AND user_id = $2`,
+        [tradeEventId, userId],
+      );
+      if (tradeResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "trade_event_not_found", "Trade event not found");
+      }
+      const { account_id: accountId, symbol, trade_date: oldTradeDate } = tradeResult.rows[0];
+      const oldDateStr = normalizeDate(oldTradeDate);
+
+      // Build dynamic UPDATE
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+      let paramIndex = 1;
+
+      if (patch.date !== undefined) {
+        setClauses.push(`trade_date = $${paramIndex}`);
+        values.push(patch.date);
+        paramIndex++;
+        setClauses.push(`trade_timestamp = $${paramIndex}`);
+        values.push(new Date(`${patch.date}T00:00:00.000Z`).toISOString());
+        paramIndex++;
+      }
+      if (patch.quantity !== undefined) {
+        setClauses.push(`quantity = $${paramIndex}`);
+        values.push(patch.quantity);
+        paramIndex++;
+      }
+      if (patch.price !== undefined) {
+        setClauses.push(`unit_price = $${paramIndex}`);
+        values.push(patch.price);
+        paramIndex++;
+      }
+      if (patch.side !== undefined) {
+        setClauses.push(`trade_type = $${paramIndex}`);
+        values.push(patch.side);
+        paramIndex++;
+      }
+      if (patch.commissionAmount !== undefined) {
+        setClauses.push(`commission_amount = $${paramIndex}`);
+        values.push(patch.commissionAmount);
+        paramIndex++;
+      }
+      if (patch.taxAmount !== undefined) {
+        setClauses.push(`tax_amount = $${paramIndex}`);
+        values.push(patch.taxAmount);
+        paramIndex++;
+      }
+      if (patch.feesSource !== undefined) {
+        setClauses.push(`fees_source = $${paramIndex}`);
+        values.push(patch.feesSource);
+        paramIndex++;
+      }
+
+      if (setClauses.length > 0) {
+        values.push(tradeEventId, userId);
+        await client.query(
+          `UPDATE trade_events SET ${setClauses.join(", ")} WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}`,
+          values,
+        );
+      }
+
+      // Handle date change: compact old date's booking sequence + assign new sequence
+      if (patch.date && patch.date !== oldDateStr) {
+        // Get the next available booking_sequence for the new date
+        const maxSeqResult = await client.query(
+          `SELECT COALESCE(MAX(booking_sequence), 0) + 1 AS next_seq
+           FROM trade_events
+           WHERE account_id = $1 AND trade_date = $2 AND user_id = $3 AND id <> $4`,
+          [accountId, patch.date, userId, tradeEventId],
+        );
+        await client.query(
+          `UPDATE trade_events SET booking_sequence = $1 WHERE id = $2 AND user_id = $3`,
+          [maxSeqResult.rows[0].next_seq, tradeEventId, userId],
+        );
+
+        // Compact old date's booking sequence
+        await client.query(
+          `WITH ordered AS (
+             SELECT id, ROW_NUMBER() OVER (ORDER BY booking_sequence) AS new_seq
+             FROM trade_events
+             WHERE account_id = $1 AND trade_date = $2 AND user_id = $3
+           )
+           UPDATE trade_events AS te
+           SET booking_sequence = ordered.new_seq
+           FROM ordered
+           WHERE te.id = ordered.id
+             AND te.booking_sequence <> ordered.new_seq`,
+          [accountId, oldDateStr, userId],
+        );
+      }
+
+      await client.query("COMMIT");
+      return { accountId, symbol };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]> {
+    const tradeResult = await this.pool.query(
+      `SELECT te.id, te.user_id, te.account_id, te.symbol,
+              te.market_code, te.instrument_type, te.trade_type, te.quantity,
+              te.unit_price, te.price_currency, te.trade_date,
+              te.trade_timestamp, te.booking_sequence, te.commission_amount,
+              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source_type,
+              te.source_reference, te.booked_at, te.reversal_of_trade_event_id, te.fees_source,
+              s.profile_id_at_booking, s.profile_name_at_booking, s.board_commission_rate,
+              s.commission_discount_percent, s.minimum_commission_amount,
+              s.commission_currency, s.commission_rounding_mode, s.tax_rounding_mode,
+              s.stock_sell_tax_rate_bps, s.stock_day_trade_tax_rate_bps,
+              s.etf_sell_tax_rate_bps, s.bond_etf_sell_tax_rate_bps,
+              s.commission_charge_mode
+       FROM trade_events AS te
+       JOIN trade_fee_policy_snapshots AS s ON s.id = te.fee_policy_snapshot_id
+       WHERE te.user_id = $1 AND te.account_id = $2 AND te.symbol = $3
+       ORDER BY te.trade_date ASC, te.booking_sequence ASC`,
+      [userId, accountId, symbol],
+    );
+
+    if (tradeResult.rows.length === 0) return [];
+
+    const snapshotIds = tradeResult.rows.map((r) => String(r.fee_policy_snapshot_id));
+    const taxComponentsResult = await this.pool.query(
+      `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
+              tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
+       FROM trade_fee_policy_snapshot_tax_components
+       WHERE snapshot_id = ANY($1)
+       ORDER BY snapshot_id, sort_order, id`,
+      [snapshotIds],
+    );
+
+    const taxBySnapshot = groupRowsByKey(taxComponentsResult.rows, "snapshot_id");
+
+    return tradeResult.rows.map((row) =>
+      mapTradeEventRow(row, taxBySnapshot.get(String(row.fee_policy_snapshot_id)) ?? []),
+    );
+  }
+
+  async deleteLotsForAccountSymbol(_userId: string, accountId: string, symbol: string): Promise<number> {
+    // lots table has no user_id column — accountId provides tenant scoping
+    const result = await this.pool.query(
+      `DELETE FROM lots WHERE account_id = $1 AND symbol = $2`,
+      [accountId, symbol],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM lot_allocations WHERE user_id = $1 AND account_id = $2 AND symbol = $3`,
+      [userId, accountId, symbol],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM cash_ledger_entries
+       WHERE user_id = $1
+         AND account_id = $2
+         AND entry_type IN ('TRADE_SETTLEMENT_IN', 'TRADE_SETTLEMENT_OUT')
+         AND related_trade_event_id IN (
+           SELECT id FROM trade_events
+           WHERE user_id = $1 AND account_id = $2 AND symbol = $3
+         )`,
+      [userId, accountId, symbol],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async bulkUpsertLots(_userId: string, lots: Lot[]): Promise<void> {
+    for (const lot of lots) {
+      await this.pool.query(
+        `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           open_quantity = EXCLUDED.open_quantity,
+           total_cost_amount = EXCLUDED.total_cost_amount,
+           cost_currency = EXCLUDED.cost_currency`,
+        [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+      );
+    }
+  }
+
+  async bulkInsertLotAllocations(_userId: string, allocations: LotAllocationProjection[]): Promise<void> {
+    for (const allocation of allocations) {
+      await this.pool.query(
+        `INSERT INTO lot_allocations (
+           id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+           lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12
+         )`,
+        [
+          allocation.id,
+          allocation.userId,
+          allocation.accountId,
+          allocation.tradeEventId,
+          allocation.symbol,
+          allocation.lotId,
+          allocation.lotOpenedAt,
+          allocation.lotOpenedSequence,
+          allocation.allocatedQuantity,
+          allocation.allocatedCostAmount,
+          allocation.costCurrency,
+          allocation.createdAt ?? new Date().toISOString(),
+        ],
+      );
+    }
+  }
+
+  async bulkInsertCashLedgerEntries(_userId: string, entries: CashLedgerEntry[]): Promise<void> {
+    for (const entry of entries) {
+      await this.pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $14
+         )`,
+        [
+          entry.id,
+          entry.userId,
+          entry.accountId,
+          entry.entryDate,
+          entry.entryType,
+          entry.amount,
+          entry.currency,
+          entry.relatedTradeEventId ?? null,
+          entry.relatedDividendLedgerEntryId ?? null,
+          entry.sourceType,
+          entry.sourceReference ?? null,
+          entry.note ?? null,
+          entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
+          entry.reversalOfCashLedgerEntryId ?? null,
+        ],
+      );
+    }
+  }
+
+  async compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void> {
+    await this.pool.query(
+      `WITH ordered AS (
+         SELECT id, ROW_NUMBER() OVER (ORDER BY booking_sequence) AS new_seq
+         FROM trade_events
+         WHERE account_id = $1 AND trade_date = $2 AND user_id = $3
+       )
+       UPDATE trade_events AS te
+       SET booking_sequence = ordered.new_seq
+       FROM ordered
+       WHERE te.id = ordered.id
+         AND te.booking_sequence <> ordered.new_seq`,
+      [accountId, tradeDate, userId],
+    );
+  }
+
   getPool(): Pool {
     return this.pool;
   }
@@ -2121,6 +2477,34 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
       throw new Error(`snapshot ${snapshot.id} has invalid currency ${snapshot.currency}`);
     }
   }
+}
+
+function mapTradeEventRow(row: Record<string, unknown>, taxRuleRows: Record<string, unknown>[]): BookedTradeEvent {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    accountId: String(row.account_id),
+    symbol: String(row.symbol),
+    marketCode: row.market_code ? String(row.market_code) : undefined,
+    instrumentType: String(row.instrument_type) as BookedTradeEvent["instrumentType"],
+    type: String(row.trade_type) as BookedTradeEvent["type"],
+    quantity: Number(row.quantity),
+    unitPrice: Number(row.unit_price),
+    priceCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+    tradeDate: normalizeDate(row.trade_date as string | Date),
+    tradeTimestamp: normalizeDateTime(row.trade_timestamp as string | Date),
+    bookingSequence: Number(row.booking_sequence),
+    commissionAmount: Number(row.commission_amount),
+    taxAmount: Number(row.tax_amount),
+    isDayTrade: Boolean(row.is_day_trade),
+    feeSnapshot: hydrateTradeFeeSnapshot(row, taxRuleRows),
+    sourceType: String(row.source_type),
+    sourceReference: row.source_reference ? String(row.source_reference) : undefined,
+    bookedAt: normalizeDateTime(row.booked_at as string | Date),
+    realizedPnlCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+    reversalOfTradeEventId: row.reversal_of_trade_event_id ? String(row.reversal_of_trade_event_id) : undefined,
+    feesSource: row.fees_source ? (String(row.fees_source) as BookedTradeEvent["feesSource"]) : undefined,
+  };
 }
 
 function normalizeDate(value: string | Date): string {

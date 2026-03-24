@@ -16,7 +16,7 @@ import {
   type GoogleTokenResponse,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import type { FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import { getQuotesWithFallback } from "../providers/marketData.js";
@@ -31,6 +31,7 @@ import { buildDashboardOverview, buildDashboardPerformance } from "../services/d
 import { createDividendEvent, postDividend } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
+import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureSymbolDefinition, isSymbolQuoteable } from "../services/symbolRegistry.js";
@@ -932,6 +933,198 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return tx;
+  });
+
+  // --- Transaction Mutation Routes (KZO-114) ---
+
+  const patchTransactionSchema = z.object({
+    date: isoDateSchema.optional(),
+    quantity: z.number().int().positive().optional(),
+    price: z.number().int().positive().optional(),
+    side: z.enum(["BUY", "SELL"]).optional(),
+    confirmFeeRecalculation: z.boolean().optional(),
+    keepManualFees: z.boolean().optional(),
+  }).refine(
+    (data) => data.date || data.quantity || data.price || data.side,
+    { message: "At least one field must be provided" },
+  );
+
+  app.delete("/portfolio/transactions/:tradeEventId", async (req, reply) => {
+    const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    // Verify ownership and get accountId/symbol
+    const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
+    if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
+
+    req.log.info({
+      msg: "trade_event_delete",
+      tradeEventId,
+      accountId: trade.accountId,
+      symbol: trade.symbol,
+      type: trade.type,
+      quantity: trade.quantity,
+    });
+
+    const result = await app.persistence.deleteTradeEvent(userId, tradeEventId);
+
+    // Schedule async recompute
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.symbol);
+
+    reply.code(202);
+    return {
+      accountId: result.accountId,
+      symbol: result.symbol,
+      deletedTradeEventId: tradeEventId,
+      deletedChildRows: result.deletedChildRows,
+    };
+  });
+
+  app.patch("/portfolio/transactions/:tradeEventId", async (req, reply) => {
+    const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const body = patchTransactionSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
+    if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
+
+    // Build patch
+    const patch: import("../persistence/types.js").TradeEventPatch = {};
+    const changedFields: string[] = [];
+
+    if (body.date !== undefined && body.date !== trade.tradeDate) {
+      patch.date = body.date;
+      changedFields.push("date");
+    }
+    if (body.quantity !== undefined && body.quantity !== trade.quantity) {
+      patch.quantity = body.quantity;
+      changedFields.push("quantity");
+    }
+    if (body.price !== undefined && body.price !== trade.unitPrice) {
+      patch.price = body.price;
+      changedFields.push("price");
+    }
+    if (body.side !== undefined && body.side !== trade.type) {
+      patch.side = body.side;
+      changedFields.push("side");
+    }
+
+    if (changedFields.length === 0) {
+      throw routeError(400, "no_changes", "No fields changed");
+    }
+
+    // Fee recalculation check
+    const feeFieldsChanged = changedFields.includes("quantity") || changedFields.includes("price");
+    if (feeFieldsChanged) {
+      const feesSource = trade.feesSource ?? "CALCULATED";
+
+      if (feesSource === "MANUAL" && !body.confirmFeeRecalculation && !body.keepManualFees) {
+        return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
+      }
+
+      if (feesSource === "MANUAL" && body.keepManualFees) {
+        // Keep existing fees — no recalculation
+      } else {
+        // Recalculate fees from bound fee profile
+        const newQuantity = body.quantity ?? trade.quantity;
+        const newPrice = body.price ?? trade.unitPrice;
+        const tradeValue = newQuantity * newPrice;
+        const newSide = body.side ?? trade.type;
+
+        const fees = newSide === "BUY"
+          ? calculateBuyFees(trade.feeSnapshot, tradeValue, trade.priceCurrency)
+          : calculateSellFees(trade.feeSnapshot, {
+              tradeValueAmount: tradeValue,
+              tradeCurrency: trade.priceCurrency,
+              instrumentType: trade.instrumentType,
+              isDayTrade: trade.isDayTrade,
+              marketCode: trade.marketCode ?? "TW",
+            });
+
+        patch.commissionAmount = fees.commissionAmount;
+        patch.taxAmount = fees.taxAmount;
+        patch.feesSource = "CALCULATED";
+      }
+    }
+
+    await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
+
+    // Schedule async recompute
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.symbol);
+
+    reply.code(202);
+    return {
+      accountId: trade.accountId,
+      symbol: trade.symbol,
+      updatedTradeEventId: tradeEventId,
+      changedFields,
+    };
+  });
+
+  app.get("/portfolio/transactions/:tradeEventId/preview-impact", async (req) => {
+    const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const query = z.object({
+      action: z.enum(["delete", "patch"]),
+      quantity: z.coerce.number().int().positive().optional(),
+      price: z.coerce.number().int().positive().optional(),
+      side: z.enum(["BUY", "SELL"]).optional(),
+      date: isoDateSchema.optional(),
+    }).parse(req.query);
+
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
+    if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
+
+    // Count affected rows
+    const store = await app.persistence.loadStore(userId);
+    const cashEntries = store.accounting.facts.cashLedgerEntries.filter(
+      (e) => e.relatedTradeEventId === tradeEventId,
+    ).length;
+    const lotAllocs = store.accounting.projections.lotAllocations.filter(
+      (a) => a.tradeEventId === tradeEventId,
+    ).length;
+
+    // Check for negative lots
+    let negativeLots = { wouldOccur: false, resultingQuantity: 0, symbol: trade.symbol };
+
+    if (query.action === "delete" || query.side || query.quantity) {
+      const accountTrades = store.accounting.facts.tradeEvents
+        .filter((t) => t.accountId === trade.accountId && t.symbol === trade.symbol)
+        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+
+      let simulatedQty = 0;
+      let wouldGoNegative = false;
+
+      for (const t of accountTrades) {
+        if (query.action === "delete" && t.id === tradeEventId) continue;
+
+        const qty = t.id === tradeEventId ? (query.quantity ?? t.quantity) : t.quantity;
+        const side = t.id === tradeEventId ? (query.side ?? t.type) : t.type;
+
+        if (side === "BUY") {
+          simulatedQty += qty;
+        } else {
+          simulatedQty -= qty;
+          if (simulatedQty < 0) wouldGoNegative = true;
+        }
+      }
+
+      negativeLots = {
+        wouldOccur: wouldGoNegative,
+        resultingQuantity: simulatedQty,
+        symbol: trade.symbol,
+      };
+    }
+
+    return {
+      affectedRows: {
+        cashLedgerEntries: cashEntries,
+        lotAllocations: lotAllocs,
+        feePolicySnapshots: 1,
+      },
+      negativeLots,
+    };
   });
 
   app.get("/portfolio/transactions", async (req) => {

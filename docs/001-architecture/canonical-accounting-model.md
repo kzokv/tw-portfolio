@@ -74,6 +74,8 @@ The MVP model is split into four categories.
 
 Booked facts are records that represent posted accounting reality. They are append-oriented and must not be silently rewritten.
 
+Exception (KZO-114): `TradeEvent` facts support hard delete and inline edit via `DELETE /portfolio/transactions/:id` and `PATCH /portfolio/transactions/:id`. This is intentional for the single-tenant personal portfolio use case. See [Practical Mutation Model](#practical-mutation-model-kzo-114) below.
+
 - `TradeEvent`
 - `CashLedgerEntry`
 - `DividendLedgerEntry`
@@ -157,6 +159,21 @@ For posted `TradeEvent`, `CashLedgerEntry`, and `DividendLedgerEntry` facts:
 - reconciliation status `explained` is not a correction method and must not be used when the booked economic fact is wrong
 - the correction chain must complete atomically across the parent fact, generated reversal rows, replacement rows, and any required projection refresh
 - external traceability metadata such as `sourceReference` remains separate from internal correction-chain linkage
+
+### Practical Mutation Model (KZO-114)
+
+The reversal contract above applies to audit-grade shared financial records. For the user-owned MVP portfolio (single-tenant, personal bookkeeping), `KZO-114` introduces a practical hard-delete + cascade-recompute model as the primary correction path for trade events:
+
+- **Hard delete**: `DELETE /portfolio/transactions/:tradeEventId` removes the trade event row permanently. `ON DELETE CASCADE` database constraints automatically remove linked child rows (`cash_ledger_entries`, `lot_allocations`, `recompute_job_items`).
+- **Inline edit**: `PATCH /portfolio/transactions/:tradeEventId` edits trade fields in place (date, quantity, price, side). Not a reversal — the original row is mutated.
+- **Cascade recompute**: After any delete or edit, `replayPositionHistory` asynchronously replays all remaining trade events for the affected account+symbol in chronological order, rebuilding lots, lot allocations, and cash entries from scratch. The result is published as a `recompute_complete` or `recompute_failed` SSE event.
+
+This model is intentionally different from the reversal-based audit contract because:
+1. Users of a personal portfolio tool expect to fix mistakes by editing or deleting, not by creating reversal chains.
+2. The data is single-tenant and user-owned — there are no counterparty audit obligations.
+3. Cascade recompute produces a mathematically identical state to booking a fresh set of trades, preserving correctness without preserving history.
+
+The reversal contract remains the target for any future multi-party reconciliation or import-source traceability work.
 
 ### Currency Normalization
 
@@ -270,7 +287,7 @@ Represents an account-and-symbol mapping from a tradable instrument to the fee p
 
 ### Purpose
 
-Represents an immutable booked security trade fact for one account and one instrument.
+Represents a booked security trade fact for one account and one instrument. In the single-tenant MVP, trade events support hard delete and inline edit (KZO-114); see the Practical Mutation Model section for context.
 
 ### MVP Responsibility
 

@@ -24,6 +24,10 @@ Current runtime write modes:
 - incremental writes:
   - `savePostedTrade`
   - `savePostedDividend`
+- mutation writes (KZO-114):
+  - `deleteTradeEvent` — hard-deletes one trade event and cascades to child rows
+  - `updateTradeEvent` — patches one trade event's fields in place
+  - `replayPositionHistory` (via `scheduleReplayWithRetry`) — async cascade recompute after delete or update
 - full-store or full-accounting rewrites:
   - `saveStore`
   - `saveAccountingStore`
@@ -426,7 +430,7 @@ Fields:
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | `${jobId}:${tradeEventId}` in current writes |
 | `job_id` | `TEXT` | `NOT NULL`, FK -> `recompute_jobs.id` | parent job |
-| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` | canonical trade reference |
+| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` `ON DELETE CASCADE` (migration `016`) | canonical trade reference — row deleted automatically when the trade event is deleted |
 | `previous_commission_amount` | `INTEGER` | `NOT NULL` | prior value |
 | `previous_tax_amount` | `INTEGER` | `NOT NULL` | prior value |
 | `next_commission_amount` | `INTEGER` | `NOT NULL` | previewed value |
@@ -466,7 +470,8 @@ Fields:
 | `source_type` | `TEXT` | `NOT NULL` | origin channel |
 | `source_reference` | `TEXT` | nullable | idempotent source reference |
 | `booked_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | persistence time |
-| `reversal_of_trade_event_id` | `TEXT` | nullable, self-FK | trade reversal link |
+| `reversal_of_trade_event_id` | `TEXT` | nullable, self-FK `ON DELETE CASCADE` (migration `016`) | trade reversal link |
+| `fees_source` | `TEXT DEFAULT 'CALCULATED'` | `NOT NULL`, check `CALCULATED` or `MANUAL` (migration `016`) | `CALCULATED` = fees auto-derived from fee profile at recompute; `MANUAL` = fees set explicitly, not recalculated unless user confirms |
 
 Indexes and uniqueness:
 - `idx_trade_events_user_id`
@@ -481,6 +486,8 @@ Read path:
 
 Write path:
 - single-trade insert via `savePostedTrade`
+- hard delete via `deleteTradeEvent` (cascades to `cash_ledger_entries`, `lot_allocations`, `recompute_job_items`)
+- field patch via `updateTradeEvent`
 - full delete/reinsert via `saveAccountingStoreTx`
 
 #### `dividend_events`
@@ -603,7 +610,7 @@ Fields:
 | `entry_type` | `TEXT` | `NOT NULL`, checked | `TRADE_SETTLEMENT_IN`, `TRADE_SETTLEMENT_OUT`, `DIVIDEND_RECEIPT`, `DIVIDEND_DEDUCTION`, `MANUAL_ADJUSTMENT`, `REVERSAL` |
 | `amount` | `INTEGER` | `NOT NULL`, non-zero plus sign checks | signed cash amount |
 | `currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | explicit cash currency |
-| `related_trade_event_id` | `TEXT` | nullable, FK -> `trade_events.id` | trade link |
+| `related_trade_event_id` | `TEXT` | nullable, FK -> `trade_events.id` `ON DELETE CASCADE` (migration `016`) | trade link — row deleted automatically when the trade event is deleted |
 | `related_dividend_ledger_entry_id` | `TEXT` | nullable, FK -> `dividend_ledger_entries.id` | dividend link |
 | `source_type` | `TEXT` | `NOT NULL` | source channel |
 | `source_reference` | `TEXT` | nullable | source key |
@@ -718,7 +725,7 @@ Fields:
 | `id` | `TEXT` | PK | allocation id |
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
 | `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id`, composite FK with `user_id` | account |
-| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` | parent sell trade |
+| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` `ON DELETE CASCADE` (migration `016`) | parent sell trade — row deleted automatically when the trade event is deleted |
 | `symbol` | `TEXT` | `NOT NULL` | ticker |
 | `lot_id` | `TEXT` | `NOT NULL` | references lot by id, but not FK-constrained |
 | `lot_opened_at` | `DATE` | `NOT NULL` | lot order key |
@@ -773,6 +780,7 @@ Current numbered migration inventory:
 - `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash receipts, and drops retired legacy structures
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities` table with `UNIQUE(provider, provider_subject)`; makes `users.email` nullable with partial unique index
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing
+- `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
 
 ### Persistence write-path map
 
@@ -811,6 +819,21 @@ flowchart TD
   X --> M
   X --> J
   X --> Q
+
+  DEL["DELETE /portfolio/transactions/:id"] --> DTE[deleteTradeEvent]
+  DTE --> I
+  DTE -.->|CASCADE| J
+  DTE -.->|CASCADE| N
+  DEL --> SCHED[scheduleReplayWithRetry]
+  SCHED --> RPH[replayPositionHistory]
+  RPH --> I2[trade_events reads]
+  RPH --> Q2[lots upsert]
+  RPH --> N2[lot_allocations insert]
+  RPH --> J2[cash_ledger_entries insert]
+
+  PATCH["PATCH /portfolio/transactions/:id"] --> UTE[updateTradeEvent]
+  UTE --> I
+  PATCH --> SCHED
 ```
 
 Plain-text write paths:
@@ -845,6 +868,22 @@ savePostedDividend
   replaces dividend_deduction_entries for that ledger row
   replaces linked cash_ledger_entries for that ledger row
   replaces lots for that account+symbol
+
+deleteTradeEvent (KZO-114)
+  deletes one trade_events row (user+id scoped)
+  cascades to: cash_ledger_entries (TRADE_SETTLEMENT_IN/OUT), lot_allocations, recompute_job_items
+
+updateTradeEvent (KZO-114)
+  patches one trade_events row (user+id scoped)
+  updates: trade_type, quantity, unit_price, trade_date, trade_timestamp, commission_amount, tax_amount, fees_source
+
+replayPositionHistory (KZO-114)
+  deletes lots for account+symbol
+  deletes lot_allocations for account+symbol
+  deletes TRADE_SETTLEMENT_IN/OUT cash_ledger_entries for account+symbol
+  replays all trade_events for account+symbol in trade_date + booking_sequence order
+  inserts: lots, lot_allocations, cash_ledger_entries
+  publishes: recompute_complete or recompute_failed SSE event
 ```
 
 ### Data integrity invariants enforced in application code
@@ -874,6 +913,8 @@ In addition to SQL constraints, `validateStoreInvariants` and `validateAccountin
 - `daily_portfolio_snapshots` is persisted in the model but not actively generated by current route/service flows.
 - Full-store save paths no longer rewrite compatibility trade mirrors.
 - Some tables use strong `(account_id, user_id)` composite integrity, while older projection tables like `lots` and `corporate_actions` still only key through `accounts(id)`.
+- Migration `016` (KZO-114) added `ON DELETE CASCADE` to four FKs referencing `trade_events(id)`: `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id` (self-referential), and `recompute_job_items.trade_event_id`. This enables hard-delete of trade events without manual cleanup.
+- `trade_events.fees_source` (migration `016`) distinguishes auto-calculated fees (`CALCULATED`) from user-supplied fees (`MANUAL`). PATCH routes use this to decide whether to recalculate fees or prompt for confirmation.
 
 ## API
 
@@ -926,6 +967,9 @@ flowchart LR
   R --> F1["/fee-profiles"]
   R --> F2["/fee-profile-bindings"]
   R --> P1["/portfolio/transactions"]
+  R --> P1D["DELETE /portfolio/transactions/:id"]
+  R --> P1P["PATCH /portfolio/transactions/:id"]
+  R --> P1V["GET /portfolio/transactions/:id/preview-impact"]
   R --> P2["/portfolio/holdings"]
   R --> D1["/dividend-events"]
   R --> D2["/portfolio/dividends/ledger"]
@@ -942,6 +986,11 @@ flowchart LR
 
   P1 --> SV1["createTransaction"]
   P1 --> PR1["savePostedTrade"]
+  P1D --> SV8["deleteTradeEvent"]
+  P1D --> SV9["scheduleReplayWithRetry"]
+  P1P --> SV10["updateTradeEvent"]
+  P1P --> SV9
+  P1V --> SV11["loadStore (preview only)"]
   P2 --> SV2["listHoldings"]
   D1 --> SV3["createDividendEvent"]
   D1 --> PR2["saveAccountingStore"]
@@ -1008,6 +1057,26 @@ POST /portfolio/transactions
   -> claimIdempotencyKey
   -> savePostedTrade
   -> releaseIdempotencyKey on failure
+
+DELETE /portfolio/transactions/:tradeEventId
+  -> getTradeEvent (ownership + existence check)
+  -> deleteTradeEvent (DB CASCADE removes child rows)
+  -> scheduleReplayWithRetry (setImmediate)
+    -> replayPositionHistory (async, 1 automatic retry)
+      -> publishes recompute_complete or recompute_failed SSE event
+
+PATCH /portfolio/transactions/:tradeEventId
+  -> getTradeEvent (ownership + existence check)
+  -> fee recalculation if quantity/price changed (uses bound feeSnapshot)
+  -> updateTradeEvent
+  -> scheduleReplayWithRetry (setImmediate)
+    -> replayPositionHistory (async, 1 automatic retry)
+      -> publishes recompute_complete or recompute_failed SSE event
+
+GET /portfolio/transactions/:tradeEventId/preview-impact
+  -> getTradeEvent (ownership check)
+  -> loadStore (count affected rows + simulate quantity for negative-lots check)
+  -> returns affectedRows + negativeLots preview
 
 GET /portfolio/transactions
   -> loadStore
@@ -1125,7 +1194,10 @@ Delete protections for fee profiles:
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/portfolio/transactions` | `{ accountId, symbol, quantity, unitPrice, priceCurrency, tradeDate, tradeTimestamp?, bookingSequence?, commissionAmount?, taxAmount?, type, isDayTrade }` + `idempotency-key` header | created `Transaction` | `createTransaction`, Redis idempotency, `savePostedTrade` | yes |
-| `GET` | `/portfolio/transactions` | none | `BookedTradeEvent[]` | `listTradeEvents` | not used by shipped UI, used heavily in tests |
+| `GET` | `/portfolio/transactions` | query `symbol?`, `accountId?`, `limit?` | `TransactionHistoryItemDto[]` | `listTradeEvents` | not used by shipped UI, used heavily in tests |
+| `DELETE` | `/portfolio/transactions/:tradeEventId` | path param | `202 { accountId, symbol, deletedTradeEventId, deletedChildRows: { cashLedgerEntries, lotAllocations } }` | `deleteTradeEvent`, `scheduleReplayWithRetry` | not yet (PR 2) |
+| `PATCH` | `/portfolio/transactions/:tradeEventId` | `{ date?, quantity?, price?, side?, confirmFeeRecalculation?, keepManualFees? }` | `202 { accountId, symbol, updatedTradeEventId, changedFields }` or `200 { requiresFeeConfirmation: true }` | `updateTradeEvent`, `scheduleReplayWithRetry` | not yet (PR 2) |
+| `GET` | `/portfolio/transactions/:tradeEventId/preview-impact` | query `action=delete\|patch`, `quantity?`, `price?`, `side?`, `date?` | `{ affectedRows: { cashLedgerEntries, lotAllocations, feePolicySnapshots }, negativeLots: { wouldOccur, resultingQuantity, symbol } }` | `loadStore` for simulation | not yet (PR 2) |
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
 Trade posting behavior:
@@ -1138,8 +1210,16 @@ Trade posting behavior:
 - BUY updates lots directly
 - SELL allocates against weighted-average lot projection and computes realized PnL
 
+Transaction mutation behavior (KZO-114):
+- `DELETE` hard-deletes the trade event row; DB `ON DELETE CASCADE` removes linked `cash_ledger_entries` (TRADE_SETTLEMENT_IN/OUT), `lot_allocations`, and `recompute_job_items` automatically; `trade_fee_policy_snapshots` row remains (orphaned, not FK-constrained)
+- `PATCH` validates at least one field changed; if `quantity` or `price` changes and `fees_source = CALCULATED`, fees are recalculated from the bound fee snapshot; if `fees_source = MANUAL`, a `requiresFeeConfirmation: true` response is returned unless `confirmFeeRecalculation` or `keepManualFees` is provided
+- both mutations respond `202` and immediately fire `scheduleReplayWithRetry` in `setImmediate` — the HTTP response returns before recompute completes
+- recompute result is delivered via SSE: `recompute_complete` on success, `recompute_failed` on failure (with one automatic retry; second failure sets `retriesExhausted: true`)
+- `GET /preview-impact` is side-effect-free: counts affected rows and simulates the post-mutation quantity sequence to detect negative lots before committing
+
 Finding:
 - `/portfolio/transactions` uses the incremental persistence path with Redis-backed idempotency, while AI-confirmed trades do not.
+- DELETE and PATCH use a focused mutation path (KZO-114) with async cascade recompute — no loadStore round-trip, no full-store rewrite.
 
 #### Dividends and corporate actions
 
@@ -1205,8 +1285,13 @@ SSE stream behavior:
 - On reconnect, parses `Last-Event-ID` header and logs gap telemetry (`userId`, `lastEventId`, gap size); **does not replay** missed events (phase 1)
 - `EventSource` sends session cookie automatically via `withCredentials: true`; dev_bypass mode also accepts `tw_e2e_user` cookie for E2E test user isolation
 
+SSE event types (KZO-114 additions):
+- `recompute_complete` — `{ type, accountId, symbol, updatedHoldings: { openQuantity, averageCost, totalRealizedPnl, totalCommission, totalTax }, cashBalanceChange, lotsRecalculated, affectedTradeCount }` — published after successful `replayPositionHistory`
+- `recompute_failed` — `{ type, accountId, symbol, reason, retriesExhausted: boolean }` — published when `replayPositionHistory` throws. `retriesExhausted: false` on first failure (retry scheduled); `retriesExhausted: true` when retry also fails
+
 Finding:
 - `/events/stream` is consumed by the `useEventStream` React hook (`apps/web/hooks/useEventStream.ts`). The EventBus (`apps/api/src/events/`) is wired into `AppInstance` alongside `persistence`. In-memory backend uses `InMemoryEventBus` (EventEmitter); postgres backend uses `RedisEventBus` (2 Redis connections: publisher + subscriber).
+- `recompute_complete` and `recompute_failed` are emitted by `scheduleReplayWithRetry` in `apps/api/src/services/replayPositionHistory.ts`. The frontend (PR 2) will subscribe to these for scoped loading states and toast notifications.
 
 #### AI transaction endpoints
 
@@ -1255,6 +1340,9 @@ Defined server routes not currently called by the shipped web app:
 - all dividend endpoints
 - all corporate action endpoints
 - `GET /portfolio/transactions`
+- `DELETE /portfolio/transactions/:tradeEventId` (KZO-114 backend only; frontend in PR 2)
+- `PATCH /portfolio/transactions/:tradeEventId` (KZO-114 backend only; frontend in PR 2)
+- `GET /portfolio/transactions/:tradeEventId/preview-impact` (KZO-114 backend only; frontend in PR 2)
 - `GET /quotes/latest`
 - both AI endpoints
 - both E2E endpoints (`/__e2e/oauth-session`, `/__e2e/reset`)
