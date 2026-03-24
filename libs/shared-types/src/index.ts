@@ -157,6 +157,42 @@ export interface TransactionHistoryItemDto {
   feeProfileId: string;
   feeProfileName: string;
   bookedAt: string | null;
+  feesSource: "CALCULATED" | "MANUAL";
+}
+
+export interface PreviewImpactResponse {
+  affectedRows: {
+    cashLedgerEntries: number;
+    lotAllocations: number;
+    feePolicySnapshots: number;
+  };
+  negativeLots: {
+    wouldOccur: boolean;
+    resultingQuantity: number;
+    symbol: string;
+  };
+}
+
+export interface DeleteTransactionResponse {
+  accountId: string;
+  symbol: string;
+  deletedTradeEventId: string;
+  deletedChildRows: {
+    cashLedgerEntries: number;
+    lotAllocations: number;
+  };
+}
+
+export interface PatchTransactionResponse {
+  accountId: string;
+  symbol: string;
+  updatedTradeEventId: string;
+  changedFields: string[];
+}
+
+export interface PatchFeeConfirmationResponse {
+  requiresFeeConfirmation: true;
+  tradeEventId: string;
 }
 
 export interface UserIdentity {

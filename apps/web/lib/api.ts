@@ -35,29 +35,40 @@ const E2E_USER_COOKIE = "tw_e2e_user";
  * - When AUTH_MODE=dev_bypass the API accepts optional x-user-id; default is "user-1".
  * - tw_e2e_user cookie → x-user-id header for E2E per-test isolation.
  */
-function getAuthHeaders(): Record<string, string> {
-  const runtimeDevUserId = getRuntimeDevUserId();
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const runtimeDevUserId = await getRuntimeDevUserId();
   if (runtimeDevUserId) {
     return { "x-user-id": runtimeDevUserId };
   }
   return {};
 }
 
-function getRuntimeDevUserId(): string {
-  if (typeof document === "undefined") {
+async function getRuntimeDevUserId(): Promise<string> {
+  // Client-side: read from document.cookie
+  if (typeof document !== "undefined") {
+    const cookie = document.cookie
+      .split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`${E2E_USER_COOKIE}=`));
+
+    if (cookie) {
+      return decodeURIComponent(cookie.slice(E2E_USER_COOKIE.length + 1)).trim();
+    }
     return "";
   }
 
-  const cookie = document.cookie
-    .split(";")
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith(`${E2E_USER_COOKIE}=`));
-
-  if (!cookie) {
-    return "";
+  // Server-side (RSC/SSR): read from next/headers cookies()
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { cookies } = require("next/headers") as typeof import("next/headers");
+    const cookieStore = await cookies();
+    const e2eRaw = cookieStore.get(E2E_USER_COOKIE)?.value;
+    if (e2eRaw?.trim()) return decodeURIComponent(e2eRaw.trim());
+  } catch {
+    // next/headers not available outside of RSC render — ignore
   }
 
-  return decodeURIComponent(cookie.slice(E2E_USER_COOKIE.length + 1)).trim();
+  return "";
 }
 
 async function parseError(res: Response, path: string): Promise<Error> {
@@ -92,13 +103,11 @@ async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T>
   throw await parseError(res, path);
 }
 
-const defaultHeaders = (): Record<string, string> => ({ ...getAuthHeaders() });
-
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
     credentials: "include",
-    headers: defaultHeaders(),
+    headers: await getAuthHeaders(),
   });
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
@@ -111,7 +120,7 @@ export async function postJson<T>(path: string, body: unknown, headers?: Record<
     headers: {
       "content-type": "application/json",
       ...(headers ?? {}),
-      ...defaultHeaders(),
+      ...(await getAuthHeaders()),
     },
     body: JSON.stringify(body),
   });
@@ -123,7 +132,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
     credentials: "include",
-    headers: { "content-type": "application/json", ...defaultHeaders() },
+    headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
@@ -134,7 +143,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
     credentials: "include",
-    headers: { "content-type": "application/json", ...defaultHeaders() },
+    headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
@@ -145,7 +154,7 @@ export async function deleteJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
     credentials: "include",
-    headers: defaultHeaders(),
+    headers: await getAuthHeaders(),
   });
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;

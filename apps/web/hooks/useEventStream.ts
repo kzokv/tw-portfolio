@@ -4,7 +4,10 @@ import { useEffect, useRef } from "react";
 import { getApiBaseUrl } from "../lib/api";
 
 export interface UseEventStreamOptions {
-  eventType: string;
+  /** @deprecated Use eventTypes instead */
+  eventType?: string;
+  /** Array of SSE event types to listen for */
+  eventTypes?: string[];
   onEvent: (data: unknown) => void;
   onReconnect?: (gap: { lastReceivedId: number; currentId: number }) => void;
   onError?: (error: Event) => void;
@@ -15,6 +18,7 @@ const MAX_RETRIES = 5;
 
 export function useEventStream({
   eventType,
+  eventTypes,
   onEvent,
   onReconnect,
   onError,
@@ -31,8 +35,11 @@ export function useEventStream({
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
+  const types = eventTypes ?? (eventType ? [eventType] : []);
+  const typesKey = JSON.stringify(types);
+
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || types.length === 0) return;
 
     shouldReconnectRef.current = true;
     retryCountRef.current = 0;
@@ -44,7 +51,7 @@ export function useEventStream({
       retryCountRef.current = 0;
     });
 
-    eventSource.addEventListener(eventType, (event: MessageEvent) => {
+    function handleEvent(event: MessageEvent) {
       const currentId = parseInt(event.lastEventId, 10);
 
       if (lastEventIdRef.current > 0 && currentId === 1) {
@@ -64,7 +71,11 @@ export function useEventStream({
       } catch {
         onEventRef.current(event.data);
       }
-    });
+    }
+
+    for (const type of types) {
+      eventSource.addEventListener(type, handleEvent);
+    }
 
     eventSource.addEventListener("heartbeat", (event: MessageEvent) => {
       const currentId = parseInt(event.lastEventId, 10);
@@ -109,5 +120,5 @@ export function useEventStream({
       shouldReconnectRef.current = false;
       eventSource.close();
     };
-  }, [eventType, enabled]);
+  }, [typesKey, enabled]);
 }

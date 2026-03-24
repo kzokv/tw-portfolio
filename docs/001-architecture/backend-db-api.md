@@ -1195,9 +1195,9 @@ Delete protections for fee profiles:
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/portfolio/transactions` | `{ accountId, symbol, quantity, unitPrice, priceCurrency, tradeDate, tradeTimestamp?, bookingSequence?, commissionAmount?, taxAmount?, type, isDayTrade }` + `idempotency-key` header | created `Transaction` | `createTransaction`, Redis idempotency, `savePostedTrade` | yes |
 | `GET` | `/portfolio/transactions` | query `symbol?`, `accountId?`, `limit?` | `TransactionHistoryItemDto[]` | `listTradeEvents` | not used by shipped UI, used heavily in tests |
-| `DELETE` | `/portfolio/transactions/:tradeEventId` | path param | `202 { accountId, symbol, deletedTradeEventId, deletedChildRows: { cashLedgerEntries, lotAllocations } }` | `deleteTradeEvent`, `scheduleReplayWithRetry` | not yet (PR 2) |
-| `PATCH` | `/portfolio/transactions/:tradeEventId` | `{ date?, quantity?, price?, side?, confirmFeeRecalculation?, keepManualFees? }` | `202 { accountId, symbol, updatedTradeEventId, changedFields }` or `200 { requiresFeeConfirmation: true }` | `updateTradeEvent`, `scheduleReplayWithRetry` | not yet (PR 2) |
-| `GET` | `/portfolio/transactions/:tradeEventId/preview-impact` | query `action=delete\|patch`, `quantity?`, `price?`, `side?`, `date?` | `{ affectedRows: { cashLedgerEntries, lotAllocations, feePolicySnapshots }, negativeLots: { wouldOccur, resultingQuantity, symbol } }` | `loadStore` for simulation | not yet (PR 2) |
+| `DELETE` | `/portfolio/transactions/:tradeEventId` | path param | `202 { accountId, symbol, deletedTradeEventId, deletedChildRows: { cashLedgerEntries, lotAllocations } }` | `deleteTradeEvent`, `scheduleReplayWithRetry` | yes (KZO-114 PR 2) |
+| `PATCH` | `/portfolio/transactions/:tradeEventId` | `{ date?, quantity?, price?, side?, confirmFeeRecalculation?, keepManualFees? }` | `202 { accountId, symbol, updatedTradeEventId, changedFields }` or `200 { requiresFeeConfirmation: true }` | `updateTradeEvent`, `scheduleReplayWithRetry` | yes (KZO-114 PR 2) |
+| `GET` | `/portfolio/transactions/:tradeEventId/preview-impact` | query `action=delete\|patch`, `quantity?`, `price?`, `side?`, `date?` | `{ affectedRows: { cashLedgerEntries, lotAllocations, feePolicySnapshots }, negativeLots: { wouldOccur, resultingQuantity, symbol } }` | `loadStore` for simulation | yes (KZO-114 PR 2) |
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
 Trade posting behavior:
@@ -1339,17 +1339,14 @@ Defined server routes not currently called by the shipped web app:
 - all standalone fee profile and binding CRUD endpoints
 - all dividend endpoints
 - all corporate action endpoints
-- `GET /portfolio/transactions`
-- `DELETE /portfolio/transactions/:tradeEventId` (KZO-114 backend only; frontend in PR 2)
-- `PATCH /portfolio/transactions/:tradeEventId` (KZO-114 backend only; frontend in PR 2)
-- `GET /portfolio/transactions/:tradeEventId/preview-impact` (KZO-114 backend only; frontend in PR 2)
+- `GET /portfolio/transactions` (not used by shipped UI; used in tests)
 - `GET /quotes/latest`
 - both AI endpoints
 - both E2E endpoints (`/__e2e/oauth-session`, `/__e2e/reset`)
 - `POST /__test/publish-event` (test/dev only, blocked in production)
 
 Finding:
-- the server surface is substantially broader than the shipped UI surface. The primary user journey currently depends on dashboard bootstrap, full settings save, manual transaction posting, and recompute only.
+- the server surface is substantially broader than the shipped UI surface. The primary user journey currently depends on dashboard bootstrap, full settings save, manual transaction posting, transaction delete/edit (KZO-114), and recompute only.
 
 ## Cross-cutting Data Flow and Dependencies
 

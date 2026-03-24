@@ -80,6 +80,54 @@ headers: { "x-authenticated-user-id": session.userId }
 
 ---
 
+## SSE and Mutation Hooks
+
+### SSE infrastructure (`hooks/useEventStream.ts`)
+
+`useEventStream` wraps the browser `EventSource` API. It connects to `GET /events/stream` and routes incoming events to registered handlers.
+
+**Interface:**
+
+```ts
+interface UseEventStreamOptions {
+  /** @deprecated Use eventTypes instead */
+  eventType?: string;
+  /** Array of SSE event types to listen for (KZO-113/114) */
+  eventTypes?: string[];
+  onEvent: (data: unknown) => void;
+  onReconnect?: (gap: { lastReceivedId: number; currentId: number }) => void;
+  onError?: (error: Event) => void;
+  enabled?: boolean;
+}
+```
+
+Both `eventType` (single) and `eventTypes` (array) are accepted for backward compatibility. The hook registers one `addEventListener` per type, all sharing a `lastEventIdRef` for gap detection on reconnect. The dependency array is stabilized with `JSON.stringify(eventTypes)` to prevent reconnection on every render.
+
+### Transaction mutation hooks (`features/portfolio/hooks/useTransactionMutations.ts`)
+
+`useTransactionMutations` manages the full delete and inline-edit workflows for `TransactionHistoryTable`. It coordinates:
+- Service calls: `previewImpact`, `deleteTransaction`, `patchTransaction` (via `features/portfolio/services/transactionMutationService.ts`)
+- SSE subscription: `eventTypes: ["recompute_complete", "recompute_failed"]` (enabled only while mutations are active)
+- Recompute skeleton state: `recomputingIds: Set<string>` (per transaction), `recomputingSymbols: Set<string>` (per `accountId:symbol`)
+- Timeout guard: `NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS` (default 30s)
+- Disable guard: prevents new mutations on a symbol while its recompute is in progress
+
+The hook is instantiated in two contexts:
+1. `SymbolHistoryClient` (symbol history page) — `refresh: router.refresh()`
+2. `AppShell` (global layout) — `refresh: refreshAfterTransaction`, passes `recomputingSymbols` to `HoldingsTable`
+
+### Mutation state propagation
+
+```
+useTransactionMutations
+  ├── recomputingIds      → TransactionHistoryTable (row skeleton)
+  ├── recomputingSymbols  → HoldingsTable (holding row skeleton)
+  ├── message/errorMessage→ inline status banners (mutation-status, mutation-error testids)
+  └── callbacks           → TransactionHistoryTable (onDeleteRequest, onEditStart, onEditSave…)
+```
+
+---
+
 ## Demo Mode Components
 
 | Component | Location | Purpose |

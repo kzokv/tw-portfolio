@@ -346,6 +346,7 @@ function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDt
     feeProfileId: trade.feeSnapshot.id,
     feeProfileName: trade.feeSnapshot.name,
     bookedAt: trade.bookedAt ?? null,
+    feesSource: trade.feesSource ?? "CALCULATED",
   };
 }
 

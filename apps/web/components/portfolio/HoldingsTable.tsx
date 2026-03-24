@@ -12,9 +12,10 @@ interface HoldingsTableProps {
   holdings: DashboardOverviewHoldingDto[];
   dict: AppDictionary;
   locale: LocaleCode;
+  recomputingSymbols?: Set<string>;
 }
 
-export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
+export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: HoldingsTableProps) {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
 
@@ -64,7 +65,7 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
         <SummaryTile
           label={dict.dashboardHome.holdingCountLabel}
           value={formatNumber(holdings.length, locale)}
-          detail={query ? formatNumber(filteredHoldings.length, locale) : dict.holdings.entries(holdings.length)}
+          detail={query ? formatNumber(filteredHoldings.length, locale) : dict.holdings.entries.replace("{count}", String(holdings.length))}
         />
       </div>
 
@@ -96,7 +97,7 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
               </thead>
               <tbody>
                 {filteredHoldings.map((holding) => (
-                  <tr key={`${holding.accountId}-${holding.symbol}`} className="border-b border-slate-200 last:border-0">
+                  <tr key={`${holding.accountId}-${holding.symbol}`} className={cn("border-b border-slate-200 last:border-0", recomputingSymbols?.has(`${holding.accountId}:${holding.symbol}`) && "animate-pulse opacity-40")}>
                     <td className="px-4 py-4 font-semibold tracking-[0.12em] text-slate-950">
                       <HoldingHistoryLink holding={holding}>{holding.symbol}</HoldingHistoryLink>
                     </td>
@@ -128,7 +129,7 @@ export function HoldingsTable({ holdings, dict, locale }: HoldingsTableProps) {
             {filteredHoldings.map((holding) => (
               <article
                 key={`${holding.accountId}-${holding.symbol}`}
-                className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
+                className={cn("rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]", recomputingSymbols?.has(`${holding.accountId}:${holding.symbol}`) && "animate-pulse opacity-40")}
                 data-testid="holding-mobile-card"
               >
                 <div className="flex items-start justify-between gap-3">

@@ -229,7 +229,7 @@ export interface AppDictionary {
   holdings: {
     title: string;
     description: string;
-    entries: (count: number) => string;
+    entries: string;
     accountTerm: string;
     symbolTerm: string;
     quantityTerm: string;
@@ -243,6 +243,30 @@ export interface AppDictionary {
     nameTerm: string;
     commissionBpsTerm: string;
     taxModeTerm: string;
+  };
+  mutations: {
+    deleteTitle: string;
+    deleteConfirmButton: string;
+    deleteSummaryLabel: string;
+    deleteImpactLabel: string;
+    deleteImpactDetail: string;
+    deleteNegativeLotsWarning: string;
+    deleteSuccessMessage: string;
+    editSaveButton: string;
+    editCancelButton: string;
+    editSymbolAccountHint: string;
+    editSuccessMessage: string;
+    feeRecalcTitle: string;
+    feeRecalcDescription: string;
+    feeRecalcButton: string;
+    feeKeepManualButton: string;
+    recomputeCompleteMessage: string;
+    recomputeRetryMessage: string;
+    recomputeExhaustedMessage: string;
+    recomputeTimeoutMessage: string;
+    actionsColumnLabel: string;
+    editTooltip: string;
+    deleteTooltip: string;
   };
   dialogs: {
     integrityTitle: string;

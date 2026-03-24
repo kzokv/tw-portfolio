@@ -2,8 +2,8 @@ import Link from "next/link";
 import { getDictionary } from "../../../lib/i18n";
 import { fetchDashboardSnapshot } from "../../../features/dashboard/services/dashboardService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
-import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
 import { formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
+import { SymbolHistoryClient } from "./SymbolHistoryClient";
 
 interface SymbolHistoryPageProps {
   params: Promise<{ symbol: string }>;
@@ -84,7 +84,7 @@ export default async function SymbolHistoryPage({ params, searchParams }: Symbol
         </section>
 
         <div className="mt-6">
-          <TransactionHistoryTable transactions={transactions} dict={dict} locale={locale} />
+          <SymbolHistoryClient transactions={transactions} dict={dict} locale={locale} />
         </div>
       </main>
     </div>

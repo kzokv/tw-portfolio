@@ -83,7 +83,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     holdings: {
       title: "Holdings",
       description: "Aggregated quantity and total cost by account and symbol.",
-      entries: (count) => `${count} entries`,
+      entries: "{count} entries",
       accountTerm: "Account",
       symbolTerm: "Symbol",
       quantityTerm: "Quantity",
@@ -155,7 +155,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     holdings: {
       title: "持倉",
       description: "依帳戶與代號彙整持股數量與總成本。",
-      entries: (count) => `${count} 筆`,
+      entries: "{count} 筆",
       accountTerm: "帳戶",
       symbolTerm: "代號",
       quantityTerm: "股數",
