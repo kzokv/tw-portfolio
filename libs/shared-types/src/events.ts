@@ -12,13 +12,32 @@ export interface SSEErrorEvent {
 // Domain event types
 export interface RecomputeCompleteEvent {
   type: "recompute_complete";
-  portfolioId?: string;
+  accountId: string;
+  symbol: string;
+  updatedHoldings: {
+    openQuantity: number;
+    averageCost: number;
+    totalRealizedPnl: number;
+    totalCommission: number;
+    totalTax: number;
+  };
+  cashBalanceChange: number;
+  lotsRecalculated: number;
+  affectedTradeCount: number;
+}
+
+export interface RecomputeFailedEvent {
+  type: "recompute_failed";
+  accountId: string;
+  symbol: string;
+  reason: string;
+  retriesExhausted: boolean;
 }
 
 // Discriminated union
-export type SSEEvent = HeartbeatEvent | SSEErrorEvent | RecomputeCompleteEvent;
+export type SSEEvent = HeartbeatEvent | SSEErrorEvent | RecomputeCompleteEvent | RecomputeFailedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
-export type SSEDomainEventType = "recompute_complete";
+export type SSEDomainEventType = "recompute_complete" | "recompute_failed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

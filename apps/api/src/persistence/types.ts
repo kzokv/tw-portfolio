@@ -1,4 +1,5 @@
-import type { AccountingStore, Store, SymbolDef } from "../types/store.js";
+import type { Lot } from "@tw-portfolio/domain";
+import type { AccountingStore, BookedTradeEvent, CashLedgerEntry, LotAllocationProjection, Store, SymbolDef } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 
@@ -14,6 +15,26 @@ export interface OAuthClaims {
   name?: string;
   picture?: string;
   emailVerified?: boolean;
+}
+
+export interface TradeEventPatch {
+  date?: string;
+  quantity?: number;
+  price?: number;
+  side?: "BUY" | "SELL";
+  commissionAmount?: number;
+  taxAmount?: number;
+  feesSource?: "CALCULATED" | "MANUAL";
+}
+
+export interface DeleteTradeEventResult {
+  accountId: string;
+  symbol: string;
+  feePolicySnapshotId: string;
+  deletedChildRows: {
+    cashLedgerEntries: number;
+    lotAllocations: number;
+  };
 }
 
 export interface Persistence {
@@ -45,4 +66,17 @@ export interface Persistence {
   cacheQuotes(quotes: Quote[]): Promise<void>;
   readiness(): Promise<ReadinessStatus>;
   markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
+
+  // Transaction mutation methods
+  getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null>;
+  deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult>;
+  updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }>;
+  getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]>;
+  deleteLotsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
+  deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
+  deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
+  bulkUpsertLots(userId: string, lots: Lot[]): Promise<void>;
+  bulkInsertLotAllocations(userId: string, allocations: LotAllocationProjection[]): Promise<void>;
+  bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;
+  compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void>;
 }

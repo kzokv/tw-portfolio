@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures/test";
-import { gotoRoute, waitForAppReady } from "../helpers/flows";
+import { gotoRoute } from "../helpers/flows";
 
 test("transaction submission updates the verification panel and recent ledger", async ({ page }) => {
   await gotoRoute(page, "/transactions");
@@ -49,7 +49,6 @@ test("recompute flow completes within the dashboard route", async ({ page }) => 
   await page.getByTestId("recompute-button").click();
   await previewResponse;
   await confirmResponse;
-  await waitForAppReady(page);
 
   await expect(page.getByTestId("recompute-status")).toContainText(/Recompute CONFIRMED|重算已確認/);
 });

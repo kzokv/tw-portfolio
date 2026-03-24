@@ -25,9 +25,9 @@
 ## Agent team workflow
 - [feedback_agent_team_pattern.md](feedback_agent_team_pattern.md) — User's multi-agent team workflow formalized as /team skill with 3 tiers, convergence loop, Architect-as-lead, and state file tracking
 - [feedback_agent_team_validator_gate.md](feedback_agent_team_validator_gate.md) — Architect must explicitly send "[GO]" to validator; validator must not self-activate on task completion
-- [feedback_fixer_verification_loop.md](feedback_fixer_verification_loop.md) — Fixer uses red-green verification loop (not TDD): reproduce → fix → verify → full suite sweep before DONE
+- ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
 - [feedback_qa_test_infra_check.md](feedback_qa_test_infra_check.md) — QA must verify test infrastructure (mock servers, playwright configs) exists before writing infra-dependent tests
-- [feedback_test_coupling_split.md](feedback_test_coupling_split.md) — Implementer owns implementation-coupled test updates; QA owns new behavioral tests — distinguish in task descriptions
+- ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
 ## Persistence layer
 - [project_memory_persistence_gaps.md](project_memory_persistence_gaps.md) — MemoryPersistence gaps vs Postgres: no email uniqueness, null timestamps, O(n) scan; 409 conflict tests belong in Postgres integration layer
@@ -35,8 +35,8 @@
 ## SSE / streaming
 - ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
 
-## Project discrepancies
-- [project_test_suite_script_discrepancy.md](project_test_suite_script_discrepancy.md) — full-test-suite.md rule references scripts that don't exist in package.json; use actual scripts instead
+## Persistence layer (continued)
+- [project_fk_cascade_alter_pattern.md](project_fk_cascade_alter_pattern.md) — PostgreSQL unnamed FKs require dynamic constraint name lookup via pg_constraint to add ON DELETE CASCADE
 
 ## Feedback & preferences
 - [feedback_rename_caller_grep.md](feedback_rename_caller_grep.md) — When renaming exported functions, grep all callers across entire repo before marking implementation complete

@@ -23,6 +23,8 @@ export function apiUrl(path = "/"): string {
 export async function waitForAppReady(page: Page, options: WaitForAppReadyOptions = {}): Promise<void> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_APP_READY_TIMEOUT_MS;
   await page.waitForLoadState("domcontentloaded");
+  // Soft-wait for full load (JS bundle) — cap at 5s to avoid eating test timeout budget
+  await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
   await expect(page.getByTestId("topbar-title")).toBeVisible({ timeout: timeoutMs });
   await expect(page.getByTestId("app-shell-ready")).toBeAttached({ timeout: timeoutMs });
 

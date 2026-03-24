@@ -49,6 +49,7 @@ export interface BookedTradeEvent {
   sourceReference?: string;
   bookedAt?: string;
   reversalOfTradeEventId?: string;
+  feesSource?: "CALCULATED" | "MANUAL";
 }
 
 export type Transaction = BookedTradeEvent;

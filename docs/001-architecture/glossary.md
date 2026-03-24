@@ -8,7 +8,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 
 | Term | Definition |
 |------|-----------|
-| Booked fact | An immutable accounting record persisted in the database (trade event, cash ledger entry, dividend ledger entry). Facts are never updated in place — corrections use reversals. |
+| Booked fact | An accounting record persisted in the database (trade event, cash ledger entry, dividend ledger entry). For audit-grade systems, corrections use reversals. For user-owned MVP portfolios, trade events also support hard delete and inline edit (KZO-114) — see Practical Mutation Model in `canonical-accounting-model.md`. |
 | Derived state | Computed projections rebuilt from booked facts: lots, lot allocations, holdings, daily portfolio snapshots. Can be regenerated from facts at any time. |
 | Reference data | Slowly changing configuration: users, accounts, fee profiles, symbols. Not accounting facts but required context for booking. |
 | Reversal | A corrective record that negates a prior booked fact. Uses a self-FK (`reversal_of_*_id`) linking back to the original row. |
@@ -24,7 +24,12 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Fee profile binding | A per-account+symbol override that selects a different fee profile than the account default. Stored in `account_fee_profile_overrides`. |
 | Instrument type | The classification of a tradable symbol: `STOCK`, `ETF`, or `BOND_ETF`. Determines which tax rate applies to sells. |
 | Day trade | A same-day buy+sell (or sell+buy) for the same symbol and account. Subject to a different tax rate than regular trades. |
-| Booking sequence | A per-account+trade-date ordering key that ensures deterministic trade ordering within a single day. |
+| Booking sequence | A per-account+trade-date ordering key that ensures deterministic trade ordering within a single day. Compacted (gap-filled) after a trade's date is changed via PATCH. |
+| Fees source | The `fees_source` column on `trade_events` (migration `016`). `CALCULATED` means fees were auto-derived from the bound fee profile and will be recalculated on PATCH if quantity or price changes. `MANUAL` means fees were user-supplied; PATCH prompts for confirmation before recalculating. |
+| Cascade recompute | The async post-mutation process triggered after a trade delete or edit. `replayPositionHistory` replays all trade events for the affected account+symbol in chronological order to rebuild lots, lot allocations, and cash settlement entries. Completes asynchronously and publishes `recompute_complete` or `recompute_failed` via SSE. |
+| replayPositionHistory | The service function (`apps/api/src/services/replayPositionHistory.ts`) that implements cascade recompute. Deletes all lots, lot allocations, and trade settlement cash entries for an account+symbol, then replays all remaining trade events in trade_date + booking_sequence order to produce a fresh derived state. |
+| scheduleReplayWithRetry | The async wrapper around `replayPositionHistory` that runs in `setImmediate` with one automatic retry. On first failure, publishes `recompute_failed` with `retriesExhausted: false`. On retry success, publishes `recompute_complete`. On retry failure, publishes `recompute_failed` with `retriesExhausted: true`. |
+| ReplayError | Custom error class thrown by `replayPositionHistory` when a trade cannot be replayed (e.g., a SELL with insufficient open quantity). Carries `failedTradeEventId` for targeted error reporting in the `recompute_failed` SSE payload. |
 | Reconciliation status | State of a dividend ledger entry: `open`, `matched`, `explained`, or `resolved`. Tracks whether the expected amount matches the actual received amount. |
 | Recompute job | A preview/confirm workflow that recalculates fees and taxes for existing trades using a different fee profile. Stored in `recompute_jobs` and `recompute_job_items`. |
 | Cash ledger entry | A canonical cash movement record in `cash_ledger_entries`. Types include trade settlement, dividend receipt, dividend deduction, manual adjustment, and reversal. |
@@ -92,6 +97,13 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Rollback | The automatic recovery procedure triggered when a deploy health check fails: restores previous branch/SHA, rebuilds images, restores DB from pre-migration backup, restarts containers. |
 | Image tag | The Docker image tag applied to app images. Default: short git SHA. CI deploys use `latest`. Set via `--image-tag` option on `deploy.sh`. |
 | Advisory lock | A Postgres-level lock acquired before running migrations, preventing concurrent migration runners from conflicting. Both the API startup path and the migrate container use the same lock. |
+
+## SSE Events
+
+| Term | Definition |
+|------|-----------|
+| `recompute_complete` | SSE event type published after a successful `replayPositionHistory`. Payload: `{ accountId, symbol, updatedHoldings: { openQuantity, averageCost, totalRealizedPnl, totalCommission, totalTax }, cashBalanceChange, lotsRecalculated, affectedTradeCount }`. |
+| `recompute_failed` | SSE event type published when `replayPositionHistory` throws (e.g., negative lots). Payload: `{ accountId, symbol, reason, retriesExhausted: boolean }`. `retriesExhausted: false` on first failure; `retriesExhausted: true` when the automatic retry also fails. |
 
 ## Database and Persistence
 
