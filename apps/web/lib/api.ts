@@ -13,7 +13,7 @@
  * In production (API on a remote domain) NEXT_PUBLIC_API_BASE_URL is returned
  * unchanged on both server and client.
  */
-function resolveApiBase(): string {
+export function getApiBaseUrl(): string {
   // Use || (not ??) so an accidentally-baked empty string falls back to the default.
   const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.API_PORT || 4000}`;
   if (typeof window === "undefined") return baked;
@@ -27,7 +27,7 @@ function resolveApiBase(): string {
   return baked;
 }
 
-export const API_BASE = resolveApiBase();
+export const API_BASE = getApiBaseUrl();
 const E2E_USER_COOKIE = "tw_e2e_user";
 
 /**

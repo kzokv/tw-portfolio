@@ -2,6 +2,9 @@
 
 ## E2E / testing
 - [project_e2e_webserver_gotchas.md](project_e2e_webserver_gotchas.md) — Playwright webServer startup bugs: IPv6 health-check URL fix + .env.local sourcing override fix
+- [feedback_sse_app_inject_limitation.md](feedback_sse_app_inject_limitation.md) — Fastify app.inject() hangs on live SSE connections; use listen+fetch+AbortController instead
+- [project_preexisting_bypass_failures.md](project_preexisting_bypass_failures.md) — 2 bypass E2E tests (auth-oauth, identity-resolution) failing pre-existing, not regressions
+- [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
 
 ## Auth / session
 - [project_cookie_domain_session.md](project_cookie_domain_session.md) — SESSION_COOKIE_NAME + COOKIE_DOMAIN coupling: why __Host- breaks cross-subdomain OAuth, correct docker defaults, startup guard
@@ -28,6 +31,12 @@
 
 ## Persistence layer
 - [project_memory_persistence_gaps.md](project_memory_persistence_gaps.md) — MemoryPersistence gaps vs Postgres: no email uniqueness, null timestamps, O(n) scan; 409 conflict tests belong in Postgres integration layer
+
+## SSE / streaming
+- ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
+
+## Project discrepancies
+- [project_test_suite_script_discrepancy.md](project_test_suite_script_discrepancy.md) — full-test-suite.md rule references scripts that don't exist in package.json; use actual scripts instead
 
 ## Feedback & preferences
 - [feedback_rename_caller_grep.md](feedback_rename_caller_grep.md) — When renaming exported functions, grep all callers across entire repo before marking implementation complete

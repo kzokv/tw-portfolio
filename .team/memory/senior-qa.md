@@ -1,31 +1,27 @@
-# Senior QA Memory — KZO-109
+# Senior QA Memory — KZO-113
 
-## Final Validation Results (Iteration 2)
+## Phase 1 Test Plan
 
-### Suite Results
+Date: 2026-03-23
 
-| Suite | Status | Details |
-|---|---|---|
-| 1. ESLint | PASS (0 errors) | 1 warning: auth.setup.ts:13:1 — no assertions |
-| 2. Web unit tests | PASS | 10 files, 66 tests |
-| 3. API integration | PASS | 17 files, 134 tests |
-| 4. Bypass E2E | 1 FAIL (pre-existing) | 42 passed, 1 failed |
-| 5. OAuth E2E | PASS | 48 passed |
+### Critical Testing Challenges
 
-### Bypass E2E Failure
+#### 1. `app.inject()` Cannot Test Live SSE Streams
 
-- **Test**: `auth-oauth.spec.ts:244:3` — "cookie security attributes > g_auth_session cookie has HttpOnly, SameSite=Lax, and Secure attributes"
-- **Error**: Cookie string lacks `Secure` attribute over HTTP in local test environment
-- **Pre-existing**: File last modified in KZO-74 (f73068c), not KZO-109
-- **Root cause**: Test expects `Secure` flag, but local dev runs over HTTP (not HTTPS)
+Fastify's `app.inject()` waits for response completion. SSE connections never complete. `app.inject()` will hang indefinitely for normal SSE connections.
 
-### Changes from Iteration 1
+**Exception:** Connection-limit rejection (6th connection) calls `reply.raw.end()` immediately, so `app.inject()` works for that case.
 
-- Previous iteration's 2 failures (auth-oauth.spec.ts:221, identity-resolution.spec.ts:75) now PASS
-- Different pre-existing test (auth-oauth.spec.ts:244) failed instead — environment-dependent
+**Approach:** Use `app.listen({ port: 0 })` + `fetch()` with `AbortController` for streaming tests.
 
-### Script Discrepancies (confirmed by Fixer)
+#### 2. Heartbeat Interval Must Be Configurable
 
-- `test:unit` does not exist in apps/web — use `test`
-- `test:integration:full:host` is root-level, not in apps/api
-- Fixer updated `.claude/rules/full-test-suite.md` to correct these
+`HEARTBEAT_INTERVAL_MS = 30_000` is a module constant. Tests need ~100ms. Request Implementer make it configurable via `buildApp()` options.
+
+#### 3. Module-Scoped Connection Counter
+
+`connectionCounts` is module-level. Could leak between tests. Need to verify reset on `app.close()`.
+
+#### 4. Cookie Domain for E2E EventSource
+
+E2E fixture sets `tw_e2e_user` on web domain. EventSource connects to API domain. Cross-origin cookie may not be sent. Need confirmation from Architect on proxy config.

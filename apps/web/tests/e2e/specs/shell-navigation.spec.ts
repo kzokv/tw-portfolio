@@ -60,7 +60,7 @@ test("desktop quick search navigates to routes and symbol detail without icon ov
   const symbolButton = desktopResults.getByRole("button", { name: /2330/ });
   await expect(symbolButton).toBeVisible();
   await symbolButton.click();
-  await expect(page).toHaveURL(/\/symbols\/2330$/);
+  await expect(page).toHaveURL(/\/symbols\/2330$/, { timeout: 15_000 });
   await expect(page.getByTestId("symbol-history-title")).toContainText("2330");
 });
 

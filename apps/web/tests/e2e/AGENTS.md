@@ -22,6 +22,7 @@
 - Assert user-visible outcomes instead of implementation details.
 - Reduce flakiness by waiting on deterministic UI/network milestones.
 - Add or update coverage for critical journeys when related features change.
+- **Timeout policy:** all tests must complete within the 30-second test timeout; no exceptions. Do not raise per-assertion timeouts or per-test timeouts to paper over slow tests. If a test is flaky due to timing, fix the root cause (reduce work per test, split into smaller tests, add deterministic waits) instead of inflating timeouts.
 
 ## Security considerations
 - Do not place secrets or tokens in test data, fixtures, or committed artifacts.
