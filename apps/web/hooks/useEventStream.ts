@@ -69,7 +69,7 @@ export function useEventStream({
 
       try {
         const data = JSON.parse(event.data);
-        onEventRef.current(data);
+        onEventRef.current({ ...data, type: event.type });
       } catch {
         onEventRef.current(event.data);
       }

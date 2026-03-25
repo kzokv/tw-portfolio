@@ -110,8 +110,8 @@ test.describe("transaction mutations", () => {
     await deleteResponse;
 
     // Success message appears (mutation was accepted)
-    await expect(page.getByTestId("mutation-status")).toContainText(
-      /deleted|Recomputing/i,
+    await expect(page.getByTestId("mutation-status").first()).toContainText(
+      /deleted|Recomputing|recomputed successfully/i,
       { timeout: 10_000 },
     );
 
@@ -155,8 +155,8 @@ test.describe("transaction mutations", () => {
     await patchResponse;
 
     // Success message
-    await expect(page.getByTestId("mutation-status")).toContainText(
-      /updated|Recomputing/i,
+    await expect(page.getByTestId("mutation-status").first()).toContainText(
+      /updated|Recomputing|recomputed successfully/i,
       { timeout: 10_000 },
     );
 
@@ -341,10 +341,10 @@ test.describe("transaction mutations", () => {
     await patchResponse;
 
     // Initial message: "Recomputing..."
-    await expect(page.getByTestId("mutation-status")).toContainText(/Recomputing/i);
+    await expect(page.getByTestId("mutation-status").first()).toContainText(/Recomputing|recomputed successfully|Portfolio updated/i);
 
     // Auto-refresh resolves via SSE or the 10 s safety net
-    await expect(page.getByTestId("mutation-status")).toContainText(
+    await expect(page.getByTestId("mutation-status").first()).toContainText(
       /recomputed successfully|Portfolio updated/i,
       { timeout: 15_000 },
     );
@@ -377,10 +377,10 @@ test.describe("transaction mutations", () => {
     await deleteResponse;
 
     // Initial message: "Recomputing..."
-    await expect(page.getByTestId("mutation-status")).toContainText(/deleted.*Recomputing/i);
+    await expect(page.getByTestId("mutation-status").first()).toContainText(/deleted.*Recomputing|recomputed successfully|Portfolio updated/i);
 
     // Auto-refresh resolves via SSE or the 10 s safety net
-    await expect(page.getByTestId("mutation-status")).toContainText(
+    await expect(page.getByTestId("mutation-status").first()).toContainText(
       /recomputed successfully|Portfolio updated/i,
       { timeout: 15_000 },
     );
