@@ -70,12 +70,7 @@ export interface UseTransactionMutationsResult {
   setErrorMessage: (msg: string) => void;
 }
 
-const TIMEOUT_MS = parseInt(
-  typeof process !== "undefined"
-    ? process.env.NEXT_PUBLIC_RECOMPUTE_TIMEOUT_MS || "30000"
-    : "30000",
-  10,
-);
+const SAFETY_NET_MS = 10_000;
 
 export function useTransactionMutations({
   dict,
@@ -116,6 +111,9 @@ export function useTransactionMutations({
   refreshRef.current = refresh;
   const dictRef = useRef(dict);
   dictRef.current = dict;
+
+  const sseDeliveredRef = useRef(false);
+  const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper: add recomputing state
   const addRecomputing = useCallback((transactionId: string, accountId: string, symbol: string) => {
@@ -309,6 +307,13 @@ export function useTransactionMutations({
   // --- SSE integration ---
   const handleSSEEvent = useCallback(
     (data: unknown) => {
+      // SSE delivered — cancel safety net
+      sseDeliveredRef.current = true;
+      if (safetyNetTimerRef.current !== null) {
+        clearTimeout(safetyNetTimerRef.current);
+        safetyNetTimerRef.current = null;
+      }
+
       const event = data as RecomputeCompleteEvent | RecomputeFailedEvent;
       const key = `${event.accountId}:${event.symbol}`;
 
@@ -338,28 +343,29 @@ export function useTransactionMutations({
     enabled: true,
   });
 
-  // --- Fallback refresh ---
-  // The in-memory backend completes recompute via setImmediate — often before
-  // the browser's EventSource processes the SSE event. Schedule a short delayed
-  // refresh that also clears the recomputing state and message, mirroring what
-  // the SSE recompute_complete handler does. Without clearing state, the stale
-  // "Recomputing..." message stays visible and the 30s timeout fires needlessly.
+  // --- Safety net timer ---
+  // If SSE delivers nothing within SAFETY_NET_MS, assume the event was lost or
+  // SSE is disconnected. Refresh data, clear loading, show neutral message.
   useEffect(() => {
     if (recomputingSymbols.size === 0) return;
-    const fallback = setTimeout(() => {
+
+    sseDeliveredRef.current = false;
+    safetyNetTimerRef.current = setTimeout(() => {
+      if (sseDeliveredRef.current) return; // Defensive: SSE already handled
+      console.warn("[useTransactionMutations] SSE silent for recompute — safety net fired", {
+        symbols: [...recomputingSymbols],
+      });
       clearAllRecomputing();
-      setMessage(dictRef.current.mutations.recomputeCompleteMessage);
+      setMessage(dictRef.current.mutations.safetyNetMessage);
       setErrorMessage("");
       void refreshRef.current();
-    }, 2_000);
-    const timeout = setTimeout(() => {
-      clearAllRecomputing();
-      setMessage(dictRef.current.mutations.recomputeTimeoutMessage);
-      void refreshRef.current();
-    }, TIMEOUT_MS);
+    }, SAFETY_NET_MS);
+
     return () => {
-      clearTimeout(fallback);
-      clearTimeout(timeout);
+      if (safetyNetTimerRef.current !== null) {
+        clearTimeout(safetyNetTimerRef.current);
+        safetyNetTimerRef.current = null;
+      }
     };
   }, [recomputingSymbolsKey, clearAllRecomputing]);
 

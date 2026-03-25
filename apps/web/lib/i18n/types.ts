@@ -272,6 +272,7 @@ export interface AppDictionary {
     recomputeRetryMessage: string;
     recomputeExhaustedMessage: string;
     recomputeTimeoutMessage: string;
+    safetyNetMessage: string;
     actionsColumnLabel: string;
     editTooltip: string;
     deleteTooltip: string;

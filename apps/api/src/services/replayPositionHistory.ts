@@ -194,12 +194,16 @@ export function scheduleReplayWithRetry(
       });
     } catch (firstError) {
       const firstReason = firstError instanceof Error ? firstError.message : String(firstError);
-      await eventBus.publishEvent(userId, "recompute_failed", {
-        accountId,
-        symbol,
-        reason: firstReason,
-        retriesExhausted: false,
-      });
+      try {
+        await eventBus.publishEvent(userId, "recompute_failed", {
+          accountId,
+          symbol,
+          reason: firstReason,
+          retriesExhausted: false,
+        });
+      } catch {
+        // EventBus unavailable — client will hit safety net timeout
+      }
 
       // One automatic retry
       setImmediate(async () => {
@@ -215,12 +219,16 @@ export function scheduleReplayWithRetry(
           });
         } catch (retryError) {
           const retryReason = retryError instanceof Error ? retryError.message : String(retryError);
-          await eventBus.publishEvent(userId, "recompute_failed", {
-            accountId,
-            symbol,
-            reason: retryReason,
-            retriesExhausted: true,
-          });
+          try {
+            await eventBus.publishEvent(userId, "recompute_failed", {
+              accountId,
+              symbol,
+              reason: retryReason,
+              retriesExhausted: true,
+            });
+          } catch {
+            // EventBus unavailable — client will hit safety net timeout
+          }
         }
       });
     }
