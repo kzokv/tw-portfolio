@@ -39,6 +39,7 @@
     "test:e2e:show-report": "npm run test:e2e:show-report -w @tw-portfolio/web",
     "onboard": "bash scripts/onboard.sh",
     "install:full": "bash scripts/onboard.sh --install-only",
+    "typecheck": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "env:setup": "tsx scripts/env-setup.ts",
