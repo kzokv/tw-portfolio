@@ -23,7 +23,7 @@ export interface SettingsAccountBindingModel {
 
 export interface SettingsSecurityBindingModel {
   accountId: string;
-  symbol: string;
+  ticker: string;
   feeProfileId: string;
 }
 
@@ -58,7 +58,7 @@ export interface SaveSettingsRequest {
   }>;
   feeProfileBindings: Array<{
     accountId: string;
-    symbol: string;
+    ticker: string;
     feeProfileRef: string;
   }>;
 }

@@ -35,7 +35,7 @@ const summary: DashboardOverviewSummaryDto = {
 const holdings: DashboardOverviewHoldingDto[] = [
   {
     accountId: "acc-1",
-    symbol: "2330",
+    ticker: "2330",
     quantity: 2_000,
     costBasisAmount: 1_185_472,
     currency: "TWD",
@@ -53,7 +53,7 @@ const transactions: TransactionHistoryItemDto[] = [
   {
     id: "tx-1",
     accountId: "acc-1",
-    symbol: "2330",
+    ticker: "2330",
     marketCode: "TW",
     instrumentType: "STOCK",
     type: "SELL",
@@ -137,7 +137,7 @@ describe("dashboard components", () => {
     expect(html).toContain("Current Price");
     expect(html).toContain("Market Value");
     expect(html).toContain("Unrealized P&amp;L");
-    expect(html).toContain("href=\"/symbols/2330?accountId=acc-1\"");
+    expect(html).toContain("href=\"/tickers/2330?accountId=acc-1\"");
     expect(html).toContain("NT$610");
   });
 
@@ -176,7 +176,7 @@ describe("dashboard components", () => {
       />,
     );
     expect(recentTransactionsHtml).toContain("Recent Transactions");
-    expect(recentTransactionsHtml).toContain("href=\"/symbols/2330?accountId=acc-1\"");
+    expect(recentTransactionsHtml).toContain("href=\"/tickers/2330?accountId=acc-1\"");
   });
 
   it("renders symbol history empty and populated states", () => {
@@ -194,7 +194,7 @@ describe("dashboard components", () => {
       <AddTransactionCard
         value={{
           accountId: "acc-1",
-          symbol: "0050",
+          ticker: "0050",
           quantity: 1,
           unitPrice: 100,
           priceCurrency: "TWD",

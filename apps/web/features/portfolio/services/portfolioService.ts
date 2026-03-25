@@ -14,21 +14,21 @@ export interface RecomputeConfirmResponse {
 export async function submitTransaction(input: TransactionInput): Promise<void> {
   await postJson("/portfolio/transactions", {
     ...input,
-    symbol: input.symbol.trim().toUpperCase(),
+    ticker: input.ticker.trim().toUpperCase(),
   }, {
     "idempotency-key": `web-${Date.now()}`,
   });
 }
 
 export async function fetchTransactionHistory(filters: {
-  symbol?: string;
+  ticker?: string;
   accountId?: string;
   limit?: number;
 }): Promise<TransactionHistoryItemDto[]> {
   const params = new URLSearchParams();
 
-  if (filters.symbol?.trim()) {
-    params.set("symbol", filters.symbol.trim().toUpperCase());
+  if (filters.ticker?.trim()) {
+    params.set("ticker", filters.ticker.trim().toUpperCase());
   }
 
   if (filters.accountId) {

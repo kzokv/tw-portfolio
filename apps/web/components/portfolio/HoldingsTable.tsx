@@ -24,7 +24,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
     if (!normalized) return holdings;
 
     return holdings.filter((holding) =>
-      holding.symbol.toUpperCase().includes(normalized) || holding.accountId.toUpperCase().includes(normalized)
+      holding.ticker.toUpperCase().includes(normalized) || holding.accountId.toUpperCase().includes(normalized)
     );
   }, [deferredQuery, holdings]);
 
@@ -54,13 +54,13 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
       <div className="mt-6 grid gap-3 md:grid-cols-3">
         <SummaryTile
           label={dict.dashboardHome.largestPositionLabel}
-          value={largestHolding ? largestHolding.symbol : "-"}
+          value={largestHolding ? largestHolding.ticker : "-"}
           detail={largestHolding ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.currency, locale) : dict.dashboardHome.holdingsEmpty}
         />
         <SummaryTile
           label={dict.dashboardHome.concentrationLabel}
           value={topWeight !== null ? formatPercent(topWeight, locale) : "-"}
-          detail={largestHolding ? `${largestHolding.accountId} / ${largestHolding.symbol}` : dict.dashboardHome.holdingsEmpty}
+          detail={largestHolding ? `${largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty}
         />
         <SummaryTile
           label={dict.dashboardHome.holdingCountLabel}
@@ -97,9 +97,9 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
               </thead>
               <tbody>
                 {filteredHoldings.map((holding) => (
-                  <tr key={`${holding.accountId}-${holding.symbol}`} className={cn("border-b border-slate-200 last:border-0", recomputingSymbols?.has(`${holding.accountId}:${holding.symbol}`) && "animate-pulse opacity-40")}>
+                  <tr key={`${holding.accountId}-${holding.ticker}`} className={cn("border-b border-slate-200 last:border-0", recomputingSymbols?.has(`${holding.accountId}:${holding.ticker}`) && "animate-pulse opacity-40")}>
                     <td className="px-4 py-4 font-semibold tracking-[0.12em] text-slate-950">
-                      <HoldingHistoryLink holding={holding}>{holding.symbol}</HoldingHistoryLink>
+                      <HoldingHistoryLink holding={holding}>{holding.ticker}</HoldingHistoryLink>
                     </td>
                     <td className="px-4 py-4 text-slate-600">{holding.accountId}</td>
                     <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
@@ -128,14 +128,14 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
           <div className="mt-6 grid gap-3 lg:hidden">
             {filteredHoldings.map((holding) => (
               <article
-                key={`${holding.accountId}-${holding.symbol}`}
-                className={cn("rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]", recomputingSymbols?.has(`${holding.accountId}:${holding.symbol}`) && "animate-pulse opacity-40")}
+                key={`${holding.accountId}-${holding.ticker}`}
+                className={cn("rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]", recomputingSymbols?.has(`${holding.accountId}:${holding.ticker}`) && "animate-pulse opacity-40")}
                 data-testid="holding-mobile-card"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-lg font-semibold tracking-[0.14em] text-slate-950">
-                      <HoldingHistoryLink holding={holding}>{holding.symbol}</HoldingHistoryLink>
+                      <HoldingHistoryLink holding={holding}>{holding.ticker}</HoldingHistoryLink>
                     </p>
                     <p className="mt-1 text-sm text-slate-500">{holding.accountId}</p>
                   </div>
@@ -191,9 +191,9 @@ function HoldingHistoryLink({
 }) {
   return (
     <Link
-      href={`/symbols/${encodeURIComponent(holding.symbol)}?accountId=${encodeURIComponent(holding.accountId)}`}
+      href={`/tickers/${encodeURIComponent(holding.ticker)}?accountId=${encodeURIComponent(holding.accountId)}`}
       className="underline decoration-indigo-200 underline-offset-4 transition hover:text-indigo-600 hover:decoration-indigo-400"
-      data-testid={`holding-history-link-${holding.accountId}-${holding.symbol}`}
+      data-testid={`holding-history-link-${holding.accountId}-${holding.ticker}`}
     >
       {children}
     </Link>

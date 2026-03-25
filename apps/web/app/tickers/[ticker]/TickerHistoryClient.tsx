@@ -19,27 +19,27 @@ import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 
-interface SymbolHistoryClientProps {
+interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
   dict: AppDictionary;
   locale: LocaleCode;
-  symbol: string;
+  ticker: string;
   accountId: string;
   accounts: AccountDto[];
   symbolOptions: SymbolOptionDto[];
   statsBar: React.ReactNode;
 }
 
-export function SymbolHistoryClient({
+export function TickerHistoryClient({
   transactions,
   dict,
   locale,
-  symbol,
+  ticker,
   accountId,
   accounts,
   symbolOptions,
   statsBar,
-}: SymbolHistoryClientProps) {
+}: TickerHistoryClientProps) {
   const router = useRouter();
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
@@ -50,11 +50,10 @@ export function SymbolHistoryClient({
 
   const mutations = useTransactionMutations({ locale, dict, refresh });
 
-  // --- Record transaction setup (symbol + account locked) ---
   const defaultCurrency = transactions[0]?.priceCurrency ?? "TWD";
   const initialTransaction: TransactionInput = {
     accountId,
-    symbol,
+    ticker,
     quantity: 1000,
     unitPrice: 100,
     priceCurrency: defaultCurrency,
@@ -75,19 +74,18 @@ export function SymbolHistoryClient({
 
   const handleDraftChange = useCallback(
     (next: TransactionInput) => {
-      submission.setDraftTransaction({ ...next, symbol, accountId });
+      submission.setDraftTransaction({ ...next, ticker, accountId });
     },
-    [symbol, accountId, submission],
+    [ticker, accountId, submission],
   );
 
-  const lockedSymbolOptions = symbolOptions.filter((s) => s.ticker === symbol);
+  const lockedTickerOptions = symbolOptions.filter((option) => option.ticker === ticker);
   const lockedAccountOptions = accounts
-    .filter((a) => a.id === accountId)
-    .map((a) => ({ id: a.id, name: a.name }));
+    .filter((account) => account.id === accountId)
+    .map((account) => ({ id: account.id, name: account.name }));
 
   return (
     <>
-      {/* Inline header — glass panel, part of normal page flow */}
       <section
         className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8"
         data-testid="symbol-history-section"
@@ -96,7 +94,7 @@ export function SymbolHistoryClient({
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.symbolHistory.eyebrow}</p>
             <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="symbol-history-title">
-              {symbol}
+              {ticker}
             </h1>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -117,18 +115,15 @@ export function SymbolHistoryClient({
           </div>
         </div>
 
-        {/* Stats bar — observed for visibility */}
         <div ref={statsRef} className="mt-6">
           {statsBar}
         </div>
       </section>
 
-      {/* Floating bubble — appears when stats bar scrolls out of view */}
       <FloatingStatsBubble visible={!statsVisible}>
         {statsBar}
       </FloatingStatsBubble>
 
-      {/* Record Transaction dialog (symbol + account locked) */}
       <RecordTransactionDialog
         open={isRecordDialogOpen}
         onOpenChange={setIsRecordDialogOpen}
@@ -137,14 +132,13 @@ export function SymbolHistoryClient({
         onSubmit={submission.submit}
         pending={submission.isSubmitting}
         accountOptions={lockedAccountOptions}
-        symbolOptions={lockedSymbolOptions.length > 0 ? lockedSymbolOptions : symbolOptions}
+        symbolOptions={lockedTickerOptions.length > 0 ? lockedTickerOptions : symbolOptions}
         message={submission.message}
         errorMessage={submission.errorMessage}
         title={dict.symbolHistory.recordTransaction}
         dict={dict}
       />
 
-      {/* Transaction table */}
       <div className="mt-6">
         <TransactionHistoryTable
           transactions={transactions}
@@ -159,7 +153,6 @@ export function SymbolHistoryClient({
         />
       </div>
 
-      {/* Mutation dialogs */}
       <DeleteConfirmationDialog
         open={mutations.isDeleteDialogOpen}
         onOpenChange={(open) => { if (!open) mutations.cancelDelete(); }}
@@ -186,7 +179,6 @@ export function SymbolHistoryClient({
         dict={dict}
       />
 
-      {/* Feedback toasts */}
       <StatusToast message={mutations.message} variant="success" testId="mutation-status" />
       <StatusToast message={mutations.errorMessage} variant="error" testId="mutation-error" />
     </>

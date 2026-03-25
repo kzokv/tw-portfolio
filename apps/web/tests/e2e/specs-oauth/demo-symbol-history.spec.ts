@@ -7,8 +7,8 @@ import { test, expect } from "../fixtures/demo-test";
 
 test.describe("Demo user — data visibility across pages", () => {
   test("demo user can see seeded transactions on the symbol detail page", async ({ page }) => {
-    // Navigate to the symbol detail page for 2330 (seeded with 3 trades: 2 BUYs + 1 SELL)
-    await page.goto("/symbols/2330", { waitUntil: "domcontentloaded" });
+    // Navigate to the symbol detail page for 2330.
+    await page.goto("/tickers/2330", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("symbol-history-section")).toBeVisible({ timeout: 20_000 });
     // Soft-wait for hydration — SSE keeps persistent connection so networkidle never resolves
     await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
@@ -17,12 +17,12 @@ test.describe("Demo user — data visibility across pages", () => {
     const rows = page.getByTestId("transaction-row");
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
 
-    // Demo data seeds 3 trades for 2330: BUY 2@98000, BUY 1@99500, SELL 1@101000
+    // Demo data seeds 3 trades for 2330: BUY 2@98000, BUY 1@99500, SELL 1@101000.
     await expect(rows).toHaveCount(3);
 
-    // Verify at least one BUY and one SELL are visible
-    await expect(rows.filter({ hasText: "BUY" }).first()).toBeVisible();
-    await expect(rows.filter({ hasText: "SELL" }).first()).toBeVisible();
+    await expect(rows.filter({ hasText: "Jan 15, 2026" }).filter({ hasText: "BUY" })).toHaveCount(1);
+    await expect(rows.filter({ hasText: "Jan 22, 2026" }).filter({ hasText: "BUY" })).toHaveCount(1);
+    await expect(rows.filter({ hasText: "Feb 15, 2026" }).filter({ hasText: "SELL" })).toHaveCount(1);
 
     // Verify mutation buttons are accessible (edit + delete on each row)
     const firstRow = rows.first();
@@ -51,7 +51,7 @@ test.describe("Demo user — data visibility across pages", () => {
 
   test("demo user sees empty state on symbol page without trades", async ({ page }) => {
     // Navigate to a symbol with no seeded trades (00919 has no demo data)
-    await page.goto("/symbols/00919", { waitUntil: "domcontentloaded" });
+    await page.goto("/tickers/00919", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("symbol-history-section")).toBeVisible({ timeout: 20_000 });
 
     // Should show 0 ledger entries — not an error page

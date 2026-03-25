@@ -46,7 +46,7 @@ export function EditConfirmationDialog({
                 <p>
                   {dict.mutations.editNegativeLotsWarning
                     .replace("{quantity}", formatNumber(preview.negativeLots.resultingQuantity, locale))
-                    .replace("{symbol}", preview.negativeLots.symbol)}
+                    .replace("{symbol}", preview.negativeLots.ticker)}
                 </p>
               </div>
             </div>

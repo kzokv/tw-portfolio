@@ -33,10 +33,10 @@ export function AddTransactionCard({
 
   const selectedAccount = accountOptions.find((a) => a.id === value.accountId);
   const accountSelectTitle = selectedAccount ? `${selectedAccount.name} (${selectedAccount.id})` : "";
-  const normalizedSymbol = value.symbol.trim().toUpperCase();
-  const selectedSymbol = symbolOptions.find((symbol) => symbol.ticker === normalizedSymbol) ?? symbolOptions[0];
-  const symbolSelectTitle = selectedSymbol
-    ? `${selectedSymbol.ticker} (${selectedSymbol.instrumentType}${selectedSymbol.marketCode ? ` / ${selectedSymbol.marketCode}` : ""})`
+  const normalizedTicker = value.ticker.trim().toUpperCase();
+  const selectedTicker = symbolOptions.find((symbol) => symbol.ticker === normalizedTicker) ?? symbolOptions[0];
+  const symbolSelectTitle = selectedTicker
+    ? `${selectedTicker.ticker} (${selectedTicker.instrumentType}${selectedTicker.marketCode ? ` / ${selectedTicker.marketCode}` : ""})`
     : "";
   const content = (
     <>
@@ -103,8 +103,8 @@ export function AddTransactionCard({
             />
           </span>
           <select
-            value={selectedSymbol?.ticker ?? value.symbol}
-            onChange={(event) => setField("symbol", event.target.value)}
+            value={selectedTicker?.ticker ?? value.ticker}
+            onChange={(event) => setField("ticker", event.target.value)}
             title={symbolSelectTitle}
             className={fieldClassName}
             data-testid="tx-symbol-select"

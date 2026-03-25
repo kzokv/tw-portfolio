@@ -32,7 +32,7 @@ const feeProfiles: FeeProfileDto[] = [
 ];
 
 const bindings: FeeProfileBindingDto[] = [
-  { accountId: "account-1", symbol: "2330", feeProfileId: "profile-1" },
+  { accountId: "account-1", ticker: "2330", feeProfileId: "profile-1" },
 ];
 
 describe("settingsMappers", () => {
@@ -41,7 +41,7 @@ describe("settingsMappers", () => {
 
     expect(model.locale).toBe("en");
     expect(model.accounts[0]).toEqual({ id: "account-1", feeProfileId: "profile-1" });
-    expect(model.feeProfileBindings[0].symbol).toBe("2330");
+    expect(model.feeProfileBindings[0].ticker).toBe("2330");
     expect(model.feeProfiles[0].commissionDiscountPercent).toBe(60);
     expect(model.feeProfiles[0].commissionCurrency).toBe("TWD");
   });
@@ -61,7 +61,7 @@ describe("settingsMappers", () => {
     expect(request.accounts[0]).toEqual({ id: "account-1", feeProfileRef: "profile-1" });
     expect(request.feeProfileBindings[0]).toEqual({
       accountId: "account-1",
-      symbol: "2330",
+      ticker: "2330",
       feeProfileRef: "profile-1",
     });
   });

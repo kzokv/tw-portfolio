@@ -2,6 +2,10 @@ import { test, expect } from "../fixtures/test";
 import { apiUrl, appUrl } from "../helpers/flows";
 import type { APIRequestContext, Page } from "@playwright/test";
 
+// These flows repeatedly cold-start the ticker detail shell and mutate the same
+// backend surfaces; run them serially to avoid dev-server startup contention.
+test.describe.configure({ mode: "serial" });
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -11,7 +15,7 @@ async function seedTrade(
   userId: string,
   overrides: Partial<{
     accountId: string;
-    symbol: string;
+    ticker: string;
     quantity: number;
     unitPrice: number;
     priceCurrency: string;
@@ -28,7 +32,7 @@ async function seedTrade(
     },
     data: {
       accountId: "acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 100,
       unitPrice: 500,
       priceCurrency: "TWD",
@@ -42,9 +46,9 @@ async function seedTrade(
   return res;
 }
 
-/** Navigate to symbol page and wait for the section to render + hydrate. */
-async function gotoSymbol(page: Page, symbol = "2330") {
-  await page.goto(appUrl(`/symbols/${symbol}`), { waitUntil: "domcontentloaded" });
+/** Navigate to ticker page and wait for the section to render + hydrate. */
+async function gotoTicker(page: Page, ticker = "2330") {
+  await page.goto(appUrl(`/tickers/${ticker}`), { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("symbol-history-section")).toBeVisible({ timeout: 20_000 });
   // Soft-wait for hydration — SSE keeps a persistent connection so networkidle never resolves
   await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
@@ -83,7 +87,7 @@ test.describe("transaction mutations", () => {
     await seedTrade(request, e2eUserId, { unitPrice: 550, tradeDate: "2026-01-15" });
     await seedTrade(request, e2eUserId, { unitPrice: 600, tradeDate: "2026-01-20" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     // Verify 3 rows
     const rows = page.getByTestId("transaction-row");
@@ -131,7 +135,7 @@ test.describe("transaction mutations", () => {
   }) => {
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(1);
 
     // Click edit — scope to transaction-row to avoid matching mobile card
@@ -174,7 +178,7 @@ test.describe("transaction mutations", () => {
   }) => {
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     // Enter edit mode — scope to transaction-row
     const row = page.getByTestId("transaction-row").first();
@@ -217,7 +221,7 @@ test.describe("transaction mutations", () => {
       type: "SELL",
     });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     // Click delete on the BUY row
     const buyRow = page.getByTestId("transaction-row").filter({ hasText: "BUY" });
@@ -247,7 +251,7 @@ test.describe("transaction mutations", () => {
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-10" });
     await seedTrade(request, e2eUserId, { quantity: 50, unitPrice: 520, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(2);
 
     // Edit the trade at 520 — use filter to get the right row
@@ -285,7 +289,7 @@ test.describe("transaction mutations", () => {
     // Single BUY 100@500 — flipping to SELL means 0 lots available, negative position
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(1);
 
     // Enter edit mode
@@ -326,7 +330,7 @@ test.describe("transaction mutations", () => {
     //   • SSE silent for 10 s → safety net fires → "Portfolio updated."
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     const row = page.getByTestId("transaction-row").first();
     await row.getByTestId("edit-transaction-button").click();
@@ -363,7 +367,7 @@ test.describe("transaction mutations", () => {
     await seedTrade(request, e2eUserId, { unitPrice: 500, tradeDate: "2026-01-10" });
     await seedTrade(request, e2eUserId, { unitPrice: 600, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(2);
 
     const targetRow = page.getByTestId("transaction-row").filter({ hasText: "500" });
@@ -401,8 +405,8 @@ test.describe("transaction mutations", () => {
     await seedTrade(request, e2eUserId, { quantity: 200, unitPrice: 600, tradeDate: "2026-01-15" });
 
     // Navigate to dashboard to verify initial avg cost
-    await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("dashboard-holdings-section")).toBeVisible({ timeout: 20_000 });
+    await page.goto(appUrl("/portfolio"), { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("holdings-table")).toBeVisible({ timeout: 20_000 });
 
     const holdingsTable = page.getByTestId("holdings-table");
     await expect(holdingsTable).toBeVisible();
@@ -410,7 +414,7 @@ test.describe("transaction mutations", () => {
     await expect(holdingsTable).toContainText(/567/);
 
     // Navigate to symbol page and delete the first BUY (100@500)
-    await gotoSymbol(page);
+    await gotoTicker(page);
     const targetRow = page.getByTestId("transaction-row").filter({ hasText: "500" });
     await targetRow.getByTestId("delete-transaction-button").click();
 
@@ -423,8 +427,8 @@ test.describe("transaction mutations", () => {
 
     // Wait for recompute to settle, then navigate to dashboard
     await page.waitForLoadState("load", { timeout: 5000 }).catch(() => {});
-    await page.goto(appUrl("/"), { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("dashboard-holdings-section")).toBeVisible({ timeout: 20_000 });
+    await page.goto(appUrl("/portfolio"), { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("holdings-table")).toBeVisible({ timeout: 20_000 });
 
     const updatedHoldings = page.getByTestId("holdings-table");
     await expect(updatedHoldings).toBeVisible();
@@ -443,7 +447,7 @@ test.describe("transaction mutations", () => {
   }) => {
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(1);
 
     // Delete the only trade — scope to transaction-row to avoid mobile card match
@@ -472,7 +476,7 @@ test.describe("transaction mutations", () => {
     // Seed one trade so the symbol page has data
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
     await expect(page.getByTestId("transaction-row")).toHaveCount(1);
 
     // Open record transaction dialog
@@ -534,7 +538,7 @@ test.describe("transaction mutations", () => {
     await symbolLink.click();
 
     // Should navigate to the symbol ledger page
-    await expect(page).toHaveURL(/\/symbols\/2330/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/tickers\/2330/, { timeout: 10_000 });
     await expect(page.getByTestId("symbol-history-section")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("symbol-history-title")).toContainText("2330");
 
@@ -550,7 +554,7 @@ test.describe("transaction mutations", () => {
     // Seed a trade so the symbol page renders
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     // Open record transaction dialog
     await page.getByTestId("record-transaction-button").click();
@@ -581,7 +585,7 @@ test.describe("transaction mutations", () => {
   }) => {
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
-    await gotoSymbol(page);
+    await gotoTicker(page);
 
     // Enter edit mode — scope to transaction-row
     const row = page.getByTestId("transaction-row").first();

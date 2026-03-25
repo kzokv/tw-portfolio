@@ -54,7 +54,7 @@ interface NavigationItem {
 const DESKTOP_NAV_STORAGE_KEY = "tw-shell-nav-collapsed";
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
-  symbol: "2330",
+  ticker: "2330",
   quantity: 1000,
   unitPrice: 100,
   priceCurrency: "TWD",
@@ -221,7 +221,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         kind: "symbol" as const,
         label: symbol.ticker,
         description: buildSymbolSearchDescription(symbol),
-        href: `/symbols/${encodeURIComponent(symbol.ticker)}`,
+        href: `/tickers/${encodeURIComponent(symbol.ticker)}`,
         keywords: [symbol.instrumentType, symbol.marketCode ?? "", symbol.ticker],
       })),
     ],
@@ -501,7 +501,7 @@ function renderSection({
           metrics={[
             {
               label: dict.dashboardHome.largestPositionLabel,
-              value: largestHolding?.symbol ?? "-",
+              value: largestHolding?.ticker ?? "-",
               detail: largestHolding
                 ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.currency, locale)
                 : dict.dashboardHome.holdingsEmpty,
@@ -635,7 +635,7 @@ function renderSection({
             value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
               ? formatPercent(largestHolding.allocationPct, locale)
               : "-",
-            detail: largestHolding ? `${largestHolding.accountId} / ${largestHolding.symbol}` : dict.dashboardHome.holdingsEmpty,
+            detail: largestHolding ? `${largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty,
           },
           {
             label: dict.dashboardHome.unrealizedPnlLabel,

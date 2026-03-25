@@ -18,7 +18,7 @@ function createModel(): SettingsFormModel {
       { ...createDraftProfile(2), id: "profile-2", name: "Secondary" },
     ],
     accounts: [{ id: "account-1", feeProfileId: "tmp-1" }],
-    feeProfileBindings: [{ accountId: "account-1", symbol: " 2330 ", feeProfileId: "tmp-1" }],
+    feeProfileBindings: [{ accountId: "account-1", ticker: " 2330 ", feeProfileId: "tmp-1" }],
   };
 }
 
@@ -42,7 +42,7 @@ describe("settingsDraft helpers", () => {
 
   it("normalizes symbols before save", () => {
     const normalized = normalizeSettingsForm(createModel());
-    expect(normalized.feeProfileBindings[0].symbol).toBe("2330");
+    expect(normalized.feeProfileBindings[0].ticker).toBe("2330");
     expect(normalized.feeProfiles[0].commissionCurrency).toBe("TWD");
   });
 

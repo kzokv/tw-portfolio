@@ -35,9 +35,9 @@ export function resolveTransactionDraftAccount(
     return previous;
   }
 
-  const normalizedSymbol = previous.symbol.trim().toUpperCase();
+  const normalizedTicker = previous.ticker.trim().toUpperCase();
   const matchingBinding = feeProfileBindings.find((binding) =>
-    binding.accountId === nextAccountId && binding.symbol.trim().toUpperCase() === normalizedSymbol
+    binding.accountId === nextAccountId && binding.ticker.trim().toUpperCase() === normalizedTicker
   );
   const accountProfileId = accounts.find((account) => account.id === nextAccountId)?.feeProfileId ?? "";
   const effectiveProfileId = matchingBinding?.feeProfileId ?? accountProfileId;

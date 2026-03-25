@@ -60,10 +60,10 @@ export function RecentTransactionsCard({
                   <tr key={item.id} className="border-b border-slate-200 last:border-0">
                     <td className="px-4 py-4 font-semibold text-slate-950">
                       <Link
-                        href={`/symbols/${encodeURIComponent(item.symbol)}?accountId=${encodeURIComponent(item.accountId)}`}
+                        href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
                         className="underline decoration-indigo-200 underline-offset-4 transition hover:text-indigo-600 hover:decoration-indigo-400"
                       >
-                        {item.symbol}
+                        {item.ticker}
                       </Link>
                     </td>
                     <td className="px-4 py-4">
@@ -89,10 +89,10 @@ export function RecentTransactionsCard({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <Link
-                      href={`/symbols/${encodeURIComponent(item.symbol)}?accountId=${encodeURIComponent(item.accountId)}`}
+                      href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
                       className="text-lg font-semibold text-slate-950 underline decoration-indigo-200 underline-offset-4"
                     >
-                      {item.symbol}
+                      {item.ticker}
                     </Link>
                     <p className="mt-1 text-sm text-slate-500">{formatDateLabel(item.tradeDate, locale)}</p>
                   </div>

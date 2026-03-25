@@ -7,7 +7,7 @@ test("settings tooltips and unsaved-changes warning remain accessible", async ({
   await gotoRoute(page, "/portfolio?drawer=settings");
 
   await expect(page.getByTestId("settings-drawer")).toBeVisible();
-  await page.getByTestId("tooltip-settings-locale-trigger").hover();
+  await page.getByTestId("tooltip-settings-locale-trigger").focus();
   await expect(page.getByTestId("tooltip-settings-locale-content")).toBeVisible();
 
   await page.getByTestId("tooltip-settings-cost-basis-trigger").focus();
@@ -31,6 +31,6 @@ test("transaction tooltips and shell controls stay focusable", async ({ page }) 
   await page.getByTestId("avatar-button").focus();
   await expect(page.getByTestId("avatar-button")).toBeFocused();
 
-  await page.getByTestId("tooltip-tx-account-trigger").hover();
+  await page.getByTestId("tooltip-tx-account-trigger").focus();
   await expect(page.getByTestId("tooltip-tx-account-content")).toBeVisible();
 });
