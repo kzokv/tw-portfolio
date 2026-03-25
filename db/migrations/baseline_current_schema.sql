@@ -1,5 +1,5 @@
 -- Fresh-bootstrap baseline equivalent to the numbered migration chain through
--- 014_user_identity_and_external_mapping.sql.
+-- 017_rename_symbol_to_ticker_and_source.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deactivated_at TIMESTAMP,
   deleted_at TIMESTAMP,
+  is_demo BOOLEAN NOT NULL DEFAULT false,
+  demo_expires_at TIMESTAMP,
   CONSTRAINT users_cost_basis_method_check
     CHECK (cost_basis_method = 'WEIGHTED_AVERAGE')
 );
@@ -31,6 +33,9 @@ CREATE TABLE IF NOT EXISTS user_external_identities (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email
   ON users(email) WHERE email IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_demo_cleanup
+  ON users(demo_expires_at) WHERE is_demo = true;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_uei_provider_subject
   ON user_external_identities(provider, provider_subject);
@@ -113,10 +118,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_accounts_id_user_id
 
 CREATE TABLE IF NOT EXISTS account_fee_profile_overrides (
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   fee_profile_id TEXT NOT NULL REFERENCES fee_profiles(id),
   market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
-  PRIMARY KEY (account_id, symbol, market_code)
+  PRIMARY KEY (account_id, ticker, market_code)
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
@@ -130,7 +135,7 @@ CREATE TABLE IF NOT EXISTS symbols (
 CREATE TABLE IF NOT EXISTS corporate_actions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   action_type TEXT NOT NULL,
   numerator INTEGER NOT NULL,
   denominator INTEGER NOT NULL,
@@ -148,13 +153,13 @@ CREATE TABLE IF NOT EXISTS recompute_jobs (
 
 CREATE TABLE IF NOT EXISTS dividend_events (
   id TEXT PRIMARY KEY,
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   event_type TEXT NOT NULL CHECK (event_type IN ('CASH', 'STOCK', 'CASH_AND_STOCK')),
   ex_dividend_date DATE NOT NULL,
   payment_date DATE NOT NULL,
   cash_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0 CHECK (cash_dividend_per_share >= 0),
   stock_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0 CHECK (stock_dividend_per_share >= 0),
-  source_type TEXT NOT NULL,
+  source TEXT NOT NULL,
   source_reference TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   cash_dividend_currency TEXT NOT NULL,
@@ -210,7 +215,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   instrument_type TEXT NOT NULL,
   trade_type TEXT NOT NULL CHECK (trade_type IN ('BUY', 'SELL')),
   quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -219,7 +224,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
   commission_amount INTEGER NOT NULL DEFAULT 0 CHECK (commission_amount >= 0),
   tax_amount INTEGER NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
   is_day_trade BOOLEAN NOT NULL DEFAULT false,
-  source_type TEXT NOT NULL,
+  source TEXT NOT NULL,
   source_reference TEXT,
   booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reversal_of_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
@@ -240,7 +245,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
 CREATE TABLE IF NOT EXISTS lots (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   open_quantity INTEGER NOT NULL,
   total_cost_amount INTEGER NOT NULL,
   opened_at DATE NOT NULL,
@@ -257,7 +262,7 @@ CREATE TABLE IF NOT EXISTS lot_allocations (
   user_id TEXT NOT NULL REFERENCES users(id),
   account_id TEXT NOT NULL REFERENCES accounts(id),
   trade_event_id TEXT NOT NULL REFERENCES trade_events(id) ON DELETE CASCADE,
-  symbol TEXT NOT NULL,
+  ticker TEXT NOT NULL,
   lot_id TEXT NOT NULL,
   lot_opened_at DATE NOT NULL,
   lot_opened_sequence INTEGER NOT NULL CHECK (lot_opened_sequence > 0),
@@ -311,7 +316,7 @@ CREATE TABLE IF NOT EXISTS dividend_deduction_entries (
   amount INTEGER NOT NULL CHECK (amount > 0),
   currency_code TEXT NOT NULL DEFAULT 'TWD',
   withheld_at_source BOOLEAN NOT NULL DEFAULT true,
-  source_type TEXT NOT NULL,
+  source TEXT NOT NULL,
   source_reference TEXT,
   note TEXT,
   booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -338,7 +343,7 @@ CREATE TABLE IF NOT EXISTS cash_ledger_entries (
   currency TEXT NOT NULL,
   related_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
   related_dividend_ledger_entry_id TEXT REFERENCES dividend_ledger_entries(id),
-  source_type TEXT NOT NULL,
+  source TEXT NOT NULL,
   source_reference TEXT,
   note TEXT,
   booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -376,7 +381,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_records (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  source_type TEXT NOT NULL,
+  source TEXT NOT NULL,
   source_reference TEXT,
   source_file_name TEXT,
   source_row_key TEXT,
@@ -439,12 +444,12 @@ CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_fee_profile_id
   ON fee_profile_tax_rules(fee_profile_id, market_code, instrument_type, day_trade_scope, sort_order);
 CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_id
   ON account_fee_profile_overrides(account_id);
-CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_symbol
-  ON account_fee_profile_overrides(account_id, market_code, symbol);
-CREATE INDEX IF NOT EXISTS idx_lots_account_symbol ON lots(account_id, symbol);
+CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_ticker
+  ON account_fee_profile_overrides(account_id, market_code, ticker);
+CREATE INDEX IF NOT EXISTS idx_lots_account_ticker ON lots(account_id, ticker);
 CREATE INDEX IF NOT EXISTS idx_recompute_jobs_user_id ON recompute_jobs(user_id);
-CREATE INDEX IF NOT EXISTS idx_dividend_events_symbol_ex_dividend_date
-  ON dividend_events(symbol, ex_dividend_date);
+CREATE INDEX IF NOT EXISTS idx_dividend_events_ticker_ex_dividend_date
+  ON dividend_events(ticker, ex_dividend_date);
 CREATE INDEX IF NOT EXISTS idx_dividend_events_payment_date
   ON dividend_events(payment_date);
 CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshots_user_id
@@ -453,20 +458,20 @@ CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshot_tax_components_snapshot
   ON trade_fee_policy_snapshot_tax_components(snapshot_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_trade_events_user_id
   ON trade_events(user_id);
-CREATE INDEX IF NOT EXISTS idx_trade_events_account_symbol_trade_date
-  ON trade_events(account_id, symbol, trade_date, booked_at);
-CREATE INDEX IF NOT EXISTS idx_trade_events_account_market_symbol_trade_date
-  ON trade_events(account_id, market_code, symbol, trade_date, booked_at);
-CREATE INDEX IF NOT EXISTS idx_trade_events_account_symbol_booking_order
-  ON trade_events(account_id, symbol, trade_date, booking_sequence, trade_timestamp, id);
+CREATE INDEX IF NOT EXISTS idx_trade_events_account_ticker_trade_date
+  ON trade_events(account_id, ticker, trade_date, booked_at);
+CREATE INDEX IF NOT EXISTS idx_trade_events_account_market_ticker_trade_date
+  ON trade_events(account_id, market_code, ticker, trade_date, booked_at);
+CREATE INDEX IF NOT EXISTS idx_trade_events_account_ticker_booking_order
+  ON trade_events(account_id, ticker, trade_date, booking_sequence, trade_timestamp, id);
 CREATE INDEX IF NOT EXISTS idx_symbols_market_code_ticker
   ON symbols(market_code, ticker);
-CREATE INDEX IF NOT EXISTS idx_lots_account_symbol_opened_order
-  ON lots(account_id, symbol, opened_at, opened_sequence, id);
+CREATE INDEX IF NOT EXISTS idx_lots_account_ticker_opened_order
+  ON lots(account_id, ticker, opened_at, opened_sequence, id);
 CREATE INDEX IF NOT EXISTS idx_lot_allocations_trade_event_id
   ON lot_allocations(trade_event_id);
-CREATE INDEX IF NOT EXISTS idx_lot_allocations_account_symbol
-  ON lot_allocations(account_id, symbol, lot_opened_at, lot_opened_sequence, lot_id);
+CREATE INDEX IF NOT EXISTS idx_lot_allocations_account_ticker
+  ON lot_allocations(account_id, ticker, lot_opened_at, lot_opened_sequence, lot_id);
 CREATE INDEX IF NOT EXISTS idx_dividend_ledger_entries_account_id
   ON dividend_ledger_entries(account_id, booked_at);
 CREATE INDEX IF NOT EXISTS idx_dividend_ledger_entries_dividend_event_id
@@ -488,7 +493,7 @@ CREATE INDEX IF NOT EXISTS idx_reconciliation_records_user_account_status
 CREATE INDEX IF NOT EXISTS idx_reconciliation_records_target_entity
   ON reconciliation_records(target_entity_type, target_entity_id);
 CREATE INDEX IF NOT EXISTS idx_reconciliation_records_source
-  ON reconciliation_records(source_type, source_reference, source_row_key);
+  ON reconciliation_records(source, source_reference, source_row_key);
 CREATE INDEX IF NOT EXISTS idx_daily_portfolio_snapshots_user_snapshot_date
   ON daily_portfolio_snapshots(user_id, snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_daily_portfolio_snapshots_generation_run_id
@@ -497,7 +502,7 @@ CREATE INDEX IF NOT EXISTS idx_recompute_job_items_trade_event_id
   ON recompute_job_items(trade_event_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_account_source_reference
-  ON trade_events(account_id, source_type, source_reference)
+  ON trade_events(account_id, source, source_reference)
   WHERE source_reference IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_fee_profile_tax_rules_identity
   ON fee_profile_tax_rules(
@@ -518,12 +523,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_events_fee_policy_snapshot_id
   ON trade_events(fee_policy_snapshot_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_fee_policy_snapshot_tax_components_snapshot_order
   ON trade_fee_policy_snapshot_tax_components(snapshot_id, sort_order);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_lots_account_symbol_opened_order
-  ON lots(account_id, symbol, opened_at, opened_sequence);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_lots_account_ticker_opened_order
+  ON lots(account_id, ticker, opened_at, opened_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lot_allocations_trade_event_lot
   ON lot_allocations(trade_event_id, lot_id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_events_symbol_source_reference
-  ON dividend_events(symbol, source_type, source_reference)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_events_ticker_source_reference
+  ON dividend_events(ticker, source, source_reference)
   WHERE source_reference IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id
   ON dividend_ledger_entries(reversal_of_dividend_ledger_entry_id)
@@ -533,7 +538,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_ledger_entries_active_account_even
   WHERE reversal_of_dividend_ledger_entry_id IS NULL
     AND superseded_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_ledger_entries_account_source_reference
-  ON cash_ledger_entries(account_id, source_type, source_reference)
+  ON cash_ledger_entries(account_id, source, source_reference)
   WHERE source_reference IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_ledger_entries_reversal_of_cash_ledger_entry_id
   ON cash_ledger_entries(reversal_of_cash_ledger_entry_id)

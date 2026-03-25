@@ -44,7 +44,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(store.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 10,
       }),
     ]);
@@ -60,7 +60,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-provisional-1" },
       payload: transactionPayload({
-        symbol: "qa-test",
+        ticker: "qa-test",
         quantity: 2,
         tradeDate: "2026-01-01",
       }),
@@ -70,7 +70,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-provisional-2" },
       payload: transactionPayload({
-        symbol: "qa-test",
+        ticker: "qa-test",
         quantity: 3,
         tradeDate: "2026-01-02",
       }),
@@ -80,7 +80,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-provisional-3" },
       payload: transactionPayload({
-        symbol: "2330",
+        ticker: "2330",
         quantity: 1,
         tradeDate: "2026-01-03",
       }),
@@ -99,18 +99,18 @@ describe("portfolio (transactions, holdings, recompute)", () => {
 
     const historyResponse = await app.inject({
       method: "GET",
-      url: "/portfolio/transactions?symbol=qa-test&accountId=acc-1",
+      url: "/portfolio/transactions?ticker=qa-test&accountId=acc-1",
     });
     expect(historyResponse.statusCode).toBe(200);
     expect(historyResponse.json()).toEqual([
       expect.objectContaining({
-        symbol: "QA-TEST",
+        ticker: "QA-TEST",
         tradeDate: "2026-01-02",
         feeProfileId: "fp-default",
         feeProfileName: "Default Broker",
       }),
       expect.objectContaining({
-        symbol: "QA-TEST",
+        ticker: "QA-TEST",
         tradeDate: "2026-01-01",
         feeProfileId: "fp-default",
         feeProfileName: "Default Broker",
@@ -223,7 +223,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(buyHoldingsResponse.json()).toEqual([
       {
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 10,
         costBasisAmount: 1_010,
         currency: "TWD",
@@ -267,7 +267,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(store.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 5,
         costBasisAmount: 505,
         currency: "TWD",
@@ -329,7 +329,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(sameDayTrades.map((trade) => trade.bookingSequence)).toEqual([1, 2, 3]);
 
     const sameDayLots = store.accounting.projections.lots
-      .filter((lot) => lot.symbol === "2330")
+      .filter((lot) => lot.ticker === "2330")
       .sort((a, b) => (a.openedSequence ?? 0) - (b.openedSequence ?? 0));
     expect(sameDayLots.map((lot) => lot.id)).toEqual([`lot-${firstBuy.id}`, `lot-${secondBuy.id}`]);
     expect(sameDayLots.map((lot) => lot.openedSequence)).toEqual([1, 2]);
@@ -677,7 +677,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(holdingsResponse.json()).toEqual([
       {
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 15,
         costBasisAmount: 1_650,
         currency: "TWD",
@@ -756,7 +756,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(holdingsResponse.json()).toEqual([
       {
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 15,
         costBasisAmount: 1_650,
         currency: "TWD",
@@ -804,7 +804,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
         feeProfileBindings: [
           {
             accountId: feeConfigBody.accounts[0].id,
-            symbol: "2330",
+            ticker: "2330",
             feeProfileRef: createdProfile.id,
           },
         ],

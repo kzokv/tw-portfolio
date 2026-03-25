@@ -7,7 +7,7 @@ export type TransactionType = "BUY" | "SELL";
 
 interface TransactionPayloadBase {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   unitPrice: number;
   priceCurrency: string;
@@ -22,7 +22,7 @@ interface TransactionPayloadBase {
 
 const defaultTransaction: TransactionPayloadBase = {
   accountId: "acc-1",
-  symbol: "2330",
+  ticker: "2330",
   quantity: 10,
   unitPrice: 100,
   priceCurrency: "TWD",
@@ -61,7 +61,7 @@ export function feeProfilePayload(
 export function corporateActionDividendPayload(overrides: Record<string, unknown> = {}) {
   return {
     accountId: "acc-1",
-    symbol: "2330",
+    ticker: "2330",
     actionType: "DIVIDEND",
     numerator: 1,
     denominator: 1,
@@ -73,7 +73,7 @@ export function corporateActionDividendPayload(overrides: Record<string, unknown
 export function corporateActionSplitPayload(overrides: Record<string, unknown> = {}) {
   return {
     accountId: "acc-1",
-    symbol: "2330",
+    ticker: "2330",
     actionType: "SPLIT",
     numerator: 2,
     denominator: 1,
@@ -84,14 +84,14 @@ export function corporateActionSplitPayload(overrides: Record<string, unknown> =
 
 export function dividendEventPayload(overrides: Record<string, unknown> = {}) {
   return {
-    symbol: "2330",
+    ticker: "2330",
     eventType: "CASH",
     exDividendDate: "2026-02-01",
     paymentDate: "2026-02-20",
     cashDividendPerShare: 12,
     cashDividendCurrency: "TWD",
     stockDividendPerShare: 0,
-    sourceType: "manual_dividend_event",
+    source: "manual_dividend_event",
     ...overrides,
   };
 }
@@ -108,7 +108,7 @@ export function dividendPostingPayload(overrides: Record<string, unknown> = {}) 
         amount: 12,
         currencyCode: "TWD",
         withheldAtSource: true,
-        sourceType: "dividend_posting",
+        source: "dividend_posting",
       },
     ],
     ...overrides,

@@ -31,7 +31,7 @@ describe("dividends", () => {
       method: "POST",
       url: "/dividend-events",
       payload: dividendEventPayload({
-        symbol: "2330",
+        ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-02-01",
         paymentDate: "2026-02-20",
@@ -54,7 +54,7 @@ describe("dividends", () => {
             deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
             amount: 12,
             withheldAtSource: true,
-            sourceType: "dividend_posting",
+            source: "dividend_posting",
           },
         ],
       }),
@@ -89,7 +89,7 @@ describe("dividends", () => {
     expect(store.accounting.facts.dividendEvents).toEqual([
       expect.objectContaining({
         id: dividendEvent.id,
-        symbol: "2330",
+        ticker: "2330",
       }),
     ]);
     expect(store.accounting.facts.dividendDeductionEntries).toEqual([
@@ -134,7 +134,7 @@ describe("dividends", () => {
       method: "POST",
       url: "/dividend-events",
       payload: dividendEventPayload({
-        symbol: "2330",
+        ticker: "2330",
         eventType: "STOCK",
         exDividendDate: "2026-02-01",
         paymentDate: "2026-02-20",
@@ -164,7 +164,7 @@ describe("dividends", () => {
     expect(holdingsResponse.json()).toEqual([
       {
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 11,
         costBasisAmount: 1_000,
         currency: "TWD",

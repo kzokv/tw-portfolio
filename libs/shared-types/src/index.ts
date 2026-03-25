@@ -38,7 +38,7 @@ export interface AccountDto {
 
 export interface FeeProfileBindingDto {
   accountId: string;
-  symbol: string;
+  ticker: string;
   feeProfileId: string;
 }
 
@@ -62,7 +62,7 @@ export interface DashboardOverviewSummaryDto {
 
 export interface DashboardOverviewHoldingDto {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   costBasisAmount: number;
   currency: CurrencyCode;
@@ -77,7 +77,7 @@ export interface DashboardOverviewHoldingDto {
 
 export interface DashboardOverviewUpcomingDividendDto {
   accountId: string;
-  symbol: string;
+  ticker: string;
   exDividendDate: string | null;
   paymentDate: string | null;
   expectedAmount: number | null;
@@ -87,7 +87,7 @@ export interface DashboardOverviewUpcomingDividendDto {
 
 export interface DashboardOverviewRecentDividendDto {
   accountId: string;
-  symbol: string;
+  ticker: string;
   postedAt: string;
   netAmount: number;
   grossAmount: number | null;
@@ -139,7 +139,7 @@ export interface DashboardPerformanceDto {
 export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   marketCode: string | null;
   instrumentType: InstrumentType;
   type: "BUY" | "SELL";
@@ -169,13 +169,13 @@ export interface PreviewImpactResponse {
   negativeLots: {
     wouldOccur: boolean;
     resultingQuantity: number;
-    symbol: string;
+    ticker: string;
   };
 }
 
 export interface DeleteTransactionResponse {
   accountId: string;
-  symbol: string;
+  ticker: string;
   deletedTradeEventId: string;
   deletedChildRows: {
     cashLedgerEntries: number;
@@ -185,7 +185,7 @@ export interface DeleteTransactionResponse {
 
 export interface PatchTransactionResponse {
   accountId: string;
-  symbol: string;
+  ticker: string;
   updatedTradeEventId: string;
   changedFields: string[];
 }

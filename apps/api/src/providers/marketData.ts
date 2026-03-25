@@ -1,5 +1,5 @@
 export interface Quote {
-  symbol: string;
+  ticker: string;
   unitPrice: number;
   asOf: string;
   source: string;
@@ -20,7 +20,7 @@ class MockPrimaryProvider implements MarketDataProvider {
     }
     const now = new Date().toISOString();
     return symbols.map((symbol, idx) => ({
-      symbol,
+      ticker: symbol,
       unitPrice: 100 + idx,
       asOf: now,
       source: this.name,
@@ -35,7 +35,7 @@ class MockFallbackProvider implements MarketDataProvider {
   async getQuotes(symbols: string[]): Promise<Quote[]> {
     const now = new Date().toISOString();
     return symbols.map((symbol, idx) => ({
-      symbol,
+      ticker: symbol,
       unitPrice: 90 + idx,
       asOf: now,
       source: this.name,

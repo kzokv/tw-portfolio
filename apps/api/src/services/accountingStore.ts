@@ -152,9 +152,9 @@ export function listInventoryLots(store: Store): Lot[] {
   return store.accounting.projections.lots;
 }
 
-export function replaceInventoryLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
+export function replaceInventoryLots(store: Store, accountId: string, ticker: string, nextLots: Lot[]): void {
   store.accounting.projections.lots = [
-    ...store.accounting.projections.lots.filter((lot) => lot.accountId !== accountId || lot.symbol !== symbol),
+    ...store.accounting.projections.lots.filter((lot) => lot.accountId !== accountId || lot.ticker !== ticker),
     ...nextLots,
   ];
   rebuildHoldingProjection(store);
@@ -191,10 +191,10 @@ export function rebuildHoldingProjection(store: Store): HoldingProjection[] {
 
   for (const lot of store.accounting.projections.lots) {
     if (lot.openQuantity <= 0) continue;
-    const key = `${lot.accountId}:${lot.symbol}`;
+    const key = `${lot.accountId}:${lot.ticker}`;
     const current = keyMap.get(key) ?? {
       accountId: lot.accountId,
-      symbol: lot.symbol,
+      ticker: lot.ticker,
       quantity: 0,
       costBasisAmount: 0,
       currency: lot.costCurrency,

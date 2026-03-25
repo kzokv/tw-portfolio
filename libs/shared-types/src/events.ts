@@ -13,7 +13,7 @@ export interface SSEErrorEvent {
 export interface RecomputeCompleteEvent {
   type: "recompute_complete";
   accountId: string;
-  symbol: string;
+  ticker: string;
   updatedHoldings: {
     openQuantity: number;
     averageCost: number;
@@ -29,7 +29,7 @@ export interface RecomputeCompleteEvent {
 export interface RecomputeFailedEvent {
   type: "recompute_failed";
   accountId: string;
-  symbol: string;
+  ticker: string;
   reason: string;
   retriesExhausted: boolean;
 }

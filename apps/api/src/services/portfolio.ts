@@ -30,7 +30,7 @@ import type {
 export interface CreateTransactionInput {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   unitPrice: number;
   priceCurrency: string;
@@ -45,7 +45,7 @@ export interface CreateTransactionInput {
 
 export interface HoldingsRow {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   costBasisAmount: number;
   currency: string;
@@ -59,12 +59,12 @@ export function createTransaction(
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) throw routeError(404, "account_not_found", "Account not found");
 
-  const instrument = store.symbols.find((item) => item.ticker === input.symbol);
+  const instrument = store.symbols.find((item) => item.ticker === input.ticker);
   if (!instrument) throw routeError(400, "unsupported_symbol", "Unsupported symbol");
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,
-    input.symbol,
+    input.ticker,
     instrument.marketCode ?? "TW",
     account.feeProfileId,
   );
@@ -94,7 +94,7 @@ export function createTransaction(
     id: input.id,
     userId,
     accountId: input.accountId,
-    symbol: input.symbol,
+    ticker: input.ticker,
     marketCode: instrument.marketCode ?? "TW",
     instrumentType: instrument.type,
     type: input.type,
@@ -108,7 +108,7 @@ export function createTransaction(
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
     bookingSequence,
-    sourceType: "portfolio_transaction_api",
+    source: "portfolio_transaction_api",
     sourceReference: input.id,
     bookedAt: new Date().toISOString(),
   };
@@ -120,13 +120,13 @@ export function createTransaction(
 }
 
 function applyToLots(store: Store, tx: Transaction): void {
-  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol);
+  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === tx.accountId && lot.ticker === tx.ticker);
 
   if (tx.type === "BUY") {
     const lot: Lot = {
       id: `lot-${tx.id}`,
       accountId: tx.accountId,
-      symbol: tx.symbol,
+      ticker: tx.ticker,
       openQuantity: tx.quantity,
       totalCostAmount: tx.unitPrice * tx.quantity + tx.commissionAmount + tx.taxAmount,
       costCurrency: tx.priceCurrency,
@@ -134,14 +134,14 @@ function applyToLots(store: Store, tx: Transaction): void {
       openedSequence: tx.bookingSequence,
     };
     const applied = applyBuyToLots(relevantLots, lot);
-    replaceLots(store, tx.accountId, tx.symbol, applied.updatedLots);
+    replaceLots(store, tx.accountId, tx.ticker, applied.updatedLots);
     return;
   }
 
   const lots = relevantLots.filter((lot) => lot.openQuantity > 0);
   const allocation = allocateSellLots(lots, tx.quantity);
 
-  replaceLots(store, tx.accountId, tx.symbol, allocation.updatedLots);
+  replaceLots(store, tx.accountId, tx.ticker, allocation.updatedLots);
   replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
   tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
   tx.realizedPnlCurrency = tx.priceCurrency;
@@ -156,14 +156,14 @@ function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
 function resolveFeeProfileForTransaction(
   store: Store,
   accountId: string,
-  symbol: string,
+  ticker: string,
   marketCode: string,
   fallbackProfileId: string,
 ): FeeProfile {
   const symbolBinding = store.feeProfileBindings.find(
     (binding) =>
       binding.accountId === accountId &&
-      binding.symbol === symbol &&
+      binding.ticker === ticker &&
       (binding.marketCode === undefined || binding.marketCode === marketCode),
   );
 
@@ -190,7 +190,7 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
   }
 
   for (const lot of listInventoryLots(store)) {
-    if (lot.accountId !== action.accountId || lot.symbol !== action.symbol || lot.openQuantity <= 0) continue;
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) continue;
 
     const splitRatio = action.numerator / action.denominator;
     const nextQty = Math.floor(lot.openQuantity * splitRatio);
@@ -202,8 +202,8 @@ export function applyCorporateAction(store: Store, action: CorporateAction): Cor
   return action;
 }
 
-function replaceLots(store: Store, accountId: string, symbol: string, nextLots: Lot[]): void {
-  replaceInventoryLots(store, accountId, symbol, nextLots);
+function replaceLots(store: Store, accountId: string, ticker: string, nextLots: Lot[]): void {
+  replaceInventoryLots(store, accountId, ticker, nextLots);
 }
 
 function buildLotAllocationProjections(
@@ -222,7 +222,7 @@ function buildLotAllocationProjections(
     userId: tx.userId,
     accountId: tx.accountId,
     tradeEventId: tx.id,
-    symbol: tx.symbol,
+    ticker: tx.ticker,
     lotId: allocation.lotId,
     lotOpenedAt: allocation.openedAt,
     lotOpenedSequence: allocation.openedSequence ?? 1,
@@ -293,7 +293,7 @@ function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
     amount: settlementAmount,
     currency: tx.priceCurrency,
     relatedTradeEventId: tx.id,
-    sourceType: "trade_settlement",
+    source: "trade_settlement",
     sourceReference: tx.id,
     bookedAt: tx.bookedAt,
   };

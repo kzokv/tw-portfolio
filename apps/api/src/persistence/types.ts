@@ -29,7 +29,7 @@ export interface TradeEventPatch {
 
 export interface DeleteTradeEventResult {
   accountId: string;
-  symbol: string;
+  ticker: string;
   feePolicySnapshotId: string;
   deletedChildRows: {
     cashLedgerEntries: number;
@@ -70,11 +70,11 @@ export interface Persistence {
   // Transaction mutation methods
   getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null>;
   deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult>;
-  updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }>;
-  getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]>;
-  deleteLotsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
-  deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
-  deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number>;
+  updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; ticker: string }>;
+  getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]>;
+  deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
+  deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
+  deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number>;
   bulkUpsertLots(userId: string, lots: Lot[]): Promise<void>;
   bulkInsertLotAllocations(userId: string, allocations: LotAllocationProjection[]): Promise<void>;
   bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;

@@ -27,7 +27,7 @@ export function buildDashboardOverview(
   store: Store,
   { integrityIssue, quotes = [] }: BuildDashboardOverviewOptions,
 ): DashboardOverviewDto {
-  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const dividends = {
     upcoming: buildUpcomingDividends(store),
     recent: buildRecentDividends(store),
@@ -108,19 +108,19 @@ function buildOverviewHoldings(
   dividends: DashboardOverviewDividends,
 ): DashboardOverviewHoldingDto[] {
   const recentPostedDividends = new Map(
-    dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.symbol}`, dividend.postedAt]),
+    dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.postedAt]),
   );
   const upcomingDividendDates = new Map(
-    dividends.upcoming.map((dividend) => [`${dividend.accountId}:${dividend.symbol}`, dividend.paymentDate ?? dividend.exDividendDate ?? ""]),
+    dividends.upcoming.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.paymentDate ?? dividend.exDividendDate ?? ""]),
   );
 
   return [...store.accounting.projections.holdings]
     .map((holding) => {
-      const quote = quoteBySymbol.get(holding.symbol);
+      const quote = quoteBySymbol.get(holding.ticker);
       const marketValueAmount = quote ? quote.unitPrice * holding.quantity : null;
       return {
         accountId: holding.accountId,
-        symbol: holding.symbol,
+        ticker: holding.ticker,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
         currency: holding.currency,
@@ -129,11 +129,11 @@ function buildOverviewHoldings(
         marketValueAmount,
         unrealizedPnlAmount: marketValueAmount === null ? null : marketValueAmount - holding.costBasisAmount,
         allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
-        nextDividendDate: upcomingDividendDates.get(`${holding.accountId}:${holding.symbol}`) || null,
-        lastDividendPostedDate: recentPostedDividends.get(`${holding.accountId}:${holding.symbol}`) ?? null,
+        nextDividendDate: upcomingDividendDates.get(`${holding.accountId}:${holding.ticker}`) || null,
+        lastDividendPostedDate: recentPostedDividends.get(`${holding.accountId}:${holding.ticker}`) ?? null,
       };
     })
-    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.symbol.localeCompare(right.symbol));
+    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
 function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividendDto[] {
@@ -157,7 +157,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
     .flatMap((account) =>
       store.accounting.facts.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
         const accountHolding = store.accounting.projections.holdings.find(
-          (holding) => holding.accountId === account.id && holding.symbol === event.symbol && holding.quantity > 0,
+          (holding) => holding.accountId === account.id && holding.ticker === event.ticker && holding.quantity > 0,
         );
         if (!accountHolding) return [];
 
@@ -171,7 +171,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
         return [
           {
             accountId: account.id,
-            symbol: event.symbol,
+            ticker: event.ticker,
             exDividendDate: event.exDividendDate,
             paymentDate: event.paymentDate,
             expectedAmount,
@@ -202,7 +202,7 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
       const deductionAmount = deductionsByLedgerId.get(entry.id) ?? 0;
       return {
         accountId: entry.accountId,
-        symbol: event?.symbol ?? "UNKNOWN",
+        ticker: event?.ticker ?? "UNKNOWN",
         postedAt: entry.bookedAt ?? event?.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
         grossAmount: entry.receivedCashAmount + deductionAmount,
@@ -221,7 +221,7 @@ function compareUpcomingDividends(
 ): number {
   const leftDate = left.paymentDate ?? left.exDividendDate ?? "";
   const rightDate = right.paymentDate ?? right.exDividendDate ?? "";
-  return leftDate.localeCompare(rightDate) || left.symbol.localeCompare(right.symbol) || left.accountId.localeCompare(right.accountId);
+  return leftDate.localeCompare(rightDate) || left.ticker.localeCompare(right.ticker) || left.accountId.localeCompare(right.accountId);
 }
 
 function resolveSourceSummary(eventType: string | undefined): string | null {
@@ -276,7 +276,7 @@ function buildSyntheticPerformance(
   const { startDate, endDate } = resolveRangeBounds(range, asOf);
   const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
   const positions = new Map<string, { quantity: number; costBasisAmount: number }>();
-  const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const quoteBySymbol = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const points: DashboardPerformancePointDto[] = [];
   let tradeIndex = 0;
 
@@ -343,7 +343,7 @@ function applyTradeToPerformancePosition(
   positions: Map<string, { quantity: number; costBasisAmount: number }>,
   trade: Store["accounting"]["facts"]["tradeEvents"][number],
 ): void {
-  const key = `${trade.accountId}:${trade.symbol}`;
+  const key = `${trade.accountId}:${trade.ticker}`;
   const previous = positions.get(key) ?? { quantity: 0, costBasisAmount: 0 };
 
   if (trade.type === "BUY") {
