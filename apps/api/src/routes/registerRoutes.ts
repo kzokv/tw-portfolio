@@ -60,7 +60,7 @@ const currencyCodeSchema = z
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
-  symbol: symbolSchema,
+  ticker: symbolSchema,
   quantity: z.number().int().positive(),
   unitPrice: z.number().int().positive(),
   priceCurrency: currencyCodeSchema.default("TWD"),
@@ -99,13 +99,13 @@ const feeProfileDraftSchema = feeProfilePayloadSchema
 
 const feeBindingSchema = z.object({
   accountId: userScopedIdSchema,
-  symbol: symbolSchema,
+  ticker: symbolSchema,
   feeProfileId: userScopedIdSchema,
 });
 
 const corporateActionSchema = z.object({
   accountId: userScopedIdSchema,
-  symbol: symbolSchema,
+  ticker: symbolSchema,
   actionType: z.enum(["DIVIDEND", "SPLIT", "REVERSE_SPLIT"]),
   numerator: z.number().int().positive().default(1),
   denominator: z.number().int().positive().default(1),
@@ -113,14 +113,14 @@ const corporateActionSchema = z.object({
 });
 
 const dividendEventSchema = z.object({
-  symbol: symbolSchema,
+  ticker: symbolSchema,
   eventType: z.enum(["CASH", "STOCK", "CASH_AND_STOCK"]),
   exDividendDate: isoDateSchema,
   paymentDate: isoDateSchema,
   cashDividendPerShare: z.number().nonnegative(),
   cashDividendCurrency: currencyCodeSchema.default("TWD"),
   stockDividendPerShare: z.number().nonnegative(),
-  sourceType: userScopedIdSchema.default("manual_dividend_event"),
+  source: userScopedIdSchema.default("manual_dividend_event"),
   sourceReference: userScopedIdSchema.optional(),
 });
 
@@ -138,7 +138,7 @@ const dividendDeductionSchema = z.object({
   amount: z.number().int().positive(),
   currencyCode: currencyCodeSchema.default("TWD"),
   withheldAtSource: z.boolean().default(true),
-  sourceType: userScopedIdSchema.default("dividend_posting"),
+  source: userScopedIdSchema.default("dividend_posting"),
   sourceReference: userScopedIdSchema.optional(),
   note: z.string().trim().min(1).max(200).optional(),
 });
@@ -298,7 +298,7 @@ async function resolveLatestQuotes(app: FastifyInstance, symbols: string[]) {
     }
   }
 
-  const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.symbol, quote]));
+  const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.ticker, quote]));
   return symbols.map((symbol) => cached[symbol] ?? fetchedMap[symbol]).filter(Boolean);
 }
 
@@ -324,7 +324,7 @@ function getStoreIntegrityIssue(store: Store): IntegrityIssueDto | null {
     if (!feeProfileIds.has(binding.feeProfileId)) {
       return {
         code: "invalid_fee_profile_binding",
-        message: `Fee profile override for ${binding.accountId}/${binding.symbol} references missing profile ${binding.feeProfileId}.`,
+        message: `Fee profile override for ${binding.accountId}/${binding.ticker} references missing profile ${binding.feeProfileId}.`,
       };
     }
 
@@ -351,10 +351,10 @@ function normalizeBindings(rawBindings: Array<z.infer<typeof feeBindingSchema>>)
   for (const binding of rawBindings) {
     const normalized = {
       accountId: binding.accountId,
-      symbol: binding.symbol,
+      ticker: binding.ticker,
       feeProfileId: binding.feeProfileId,
     };
-    deduped.set(`${normalized.accountId}:${normalized.symbol}`, normalized);
+    deduped.set(`${normalized.accountId}:${normalized.ticker}`, normalized);
   }
 
   return [...deduped.values()];
@@ -364,7 +364,7 @@ function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDt
   return {
     id: trade.id,
     accountId: trade.accountId,
-    symbol: trade.symbol,
+    ticker: trade.ticker,
     marketCode: trade.marketCode ?? null,
     instrumentType: trade.instrumentType,
     type: trade.type,
@@ -676,7 +676,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .array(
             z.object({
               accountId: userScopedIdSchema,
-              symbol: symbolSchema,
+              ticker: symbolSchema,
               feeProfileRef: userScopedIdSchema,
             }),
           )
@@ -752,7 +752,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const nextBindings = normalizeBindings(
       body.feeProfileBindings.map((binding) => ({
         accountId: binding.accountId,
-        symbol: binding.symbol,
+        ticker: binding.ticker,
         feeProfileId: resolveFeeProfileRef(binding.feeProfileRef),
       })),
     );
@@ -943,7 +943,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
-    const ensuredSymbol = ensureSymbolDefinition(draftStore, body.symbol);
+    const ensuredSymbol = ensureSymbolDefinition(draftStore, body.ticker);
 
     const tx = createTransaction(draftStore, userId, {
       ...body,
@@ -986,7 +986,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
 
-    // Verify ownership and get accountId/symbol
+    // Verify ownership and get accountId/ticker
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
 
@@ -994,7 +994,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       msg: "trade_event_delete",
       tradeEventId,
       accountId: trade.accountId,
-      symbol: trade.symbol,
+      ticker: trade.ticker,
       type: trade.type,
       quantity: trade.quantity,
     });
@@ -1002,12 +1002,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const result = await app.persistence.deleteTradeEvent(userId, tradeEventId);
 
     // Schedule async recompute
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.symbol);
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker);
 
     reply.code(202);
     return {
       accountId: result.accountId,
-      symbol: result.symbol,
+      ticker: result.ticker,
       deletedTradeEventId: tradeEventId,
       deletedChildRows: result.deletedChildRows,
     };
@@ -1083,12 +1083,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
 
     // Schedule async recompute
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.symbol);
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker);
 
     reply.code(202);
     return {
       accountId: trade.accountId,
-      symbol: trade.symbol,
+      ticker: trade.ticker,
       updatedTradeEventId: tradeEventId,
       changedFields,
     };
@@ -1119,11 +1119,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     ).length;
 
     // Check for negative lots
-    let negativeLots = { wouldOccur: false, resultingQuantity: 0, symbol: trade.symbol };
+    let negativeLots = { wouldOccur: false, resultingQuantity: 0, ticker: trade.ticker };
 
     if (query.action === "delete" || query.side || query.quantity) {
       const accountTrades = store.accounting.facts.tradeEvents
-        .filter((t) => t.accountId === trade.accountId && t.symbol === trade.symbol)
+        .filter((t) => t.accountId === trade.accountId && t.ticker === trade.ticker)
         .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
 
       let simulatedQty = 0;
@@ -1146,7 +1146,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       negativeLots = {
         wouldOccur: wouldGoNegative,
         resultingQuantity: simulatedQty,
-        symbol: trade.symbol,
+        ticker: trade.ticker,
       };
     }
 
@@ -1162,13 +1162,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/transactions", async (req) => {
     const query = z.object({
-      symbol: symbolSchema.optional(),
+      ticker: symbolSchema.optional(),
       accountId: userScopedIdSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
     const { store } = await loadUserStore(app, req);
     const items = listTradeEvents(store)
-      .filter((trade) => (query.symbol ? trade.symbol === query.symbol : true))
+      .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
       .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
       .sort(compareTransactionsForHistory)
       .map(mapTransactionHistoryItem);
@@ -1186,7 +1186,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const holdings = listHoldings(store, userId);
     const symbols = [...new Set(
       holdings
-        .map((holding) => holding.symbol)
+        .map((holding) => holding.ticker)
         .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
     )];
     const quotes = await resolveLatestQuotes(app, symbols);
@@ -1204,7 +1204,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { store } = await loadUserStore(app, req);
     const symbols = [...new Set(
       store.accounting.facts.tradeEvents
-        .map((trade) => trade.symbol)
+        .map((trade) => trade.ticker)
         .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
     )];
     const quotes = await resolveLatestQuotes(app, symbols);
@@ -1263,7 +1263,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         amount: entry.amount,
         currencyCode: entry.currencyCode,
         withheldAtSource: entry.withheldAtSource,
-        sourceType: entry.sourceType,
+        source: entry.source,
         sourceReference: entry.sourceReference,
         note: entry.note,
       })),
@@ -1382,7 +1382,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return {
           id: `proposal-${idx + 1}`,
           type: proposalType,
-          symbol: symbolSchema.parse(symbol),
+          ticker: symbolSchema.parse(symbol),
           quantity: z.coerce.number().int().positive().parse(qty),
           unitPrice: z.coerce.number().int().positive().parse(price),
           priceCurrency: "TWD",
@@ -1401,7 +1401,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .array(
             z.object({
               type: z.enum(["BUY", "SELL"]),
-              symbol: symbolSchema,
+              ticker: symbolSchema,
               quantity: z.number().int().positive(),
               unitPrice: z.number().int().positive(),
               priceCurrency: currencyCodeSchema.default("TWD"),
@@ -1422,7 +1422,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       createTransaction(draftStore, userId, {
         id: `${randomUUID()}-${idx}`,
         accountId: body.accountId,
-        symbol: proposal.symbol,
+        ticker: proposal.ticker,
         quantity: proposal.quantity,
         unitPrice: proposal.unitPrice,
         priceCurrency: proposal.priceCurrency,

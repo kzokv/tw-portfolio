@@ -21,7 +21,7 @@ describe("ai transactions", () => {
         proposals: [
           {
             type: "BUY",
-            symbol: "2330",
+            ticker: "2330",
             quantity: 1,
             unitPrice: 100,
             tradeDate: "2026-01-01",
@@ -29,7 +29,7 @@ describe("ai transactions", () => {
           },
           {
             type: "BUY",
-            symbol: "UNKNOWN",
+            ticker: "UNKNOWN",
             quantity: 1,
             unitPrice: 100,
             tradeDate: "2026-01-01",

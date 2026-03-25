@@ -120,7 +120,7 @@ describe("POST /auth/demo/start", () => {
 
     // Verify holdings cover the expected symbols from demo data
     const holdingSymbols = store.accounting.projections.holdings.map(
-      (h: { symbol: string }) => h.symbol,
+      (h: { ticker: string }) => h.ticker,
     );
     expect(holdingSymbols).toContain("2330");
     expect(holdingSymbols).toContain("0050");

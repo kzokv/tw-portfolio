@@ -254,7 +254,7 @@ describePostgres("postgres migrations", () => {
     id: string;
     userId: string;
     accountId: string;
-    symbol: string;
+    ticker: string;
     instrumentType: string;
     tradeType: string;
     quantity: number;
@@ -266,7 +266,7 @@ describePostgres("postgres migrations", () => {
     commissionAmount: number;
     taxAmount: number;
     isDayTrade?: boolean;
-    sourceType?: string;
+    source?: string;
     sourceReference?: string;
     bookedAt?: string;
     reversalOfTradeEventId?: string;
@@ -291,9 +291,9 @@ describePostgres("postgres migrations", () => {
 
     await pool.query(
       `INSERT INTO trade_events (
-         id, user_id, account_id, symbol, instrument_type, trade_type, quantity, unit_price,
+         id, user_id, account_id, ticker, instrument_type, trade_type, quantity, unit_price,
          price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-         tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
+         tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
          reversal_of_trade_event_id
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8,
@@ -305,7 +305,7 @@ describePostgres("postgres migrations", () => {
         input.id,
         input.userId,
         input.accountId,
-        input.symbol,
+        input.ticker,
         input.instrumentType,
         input.tradeType,
         input.quantity,
@@ -318,7 +318,7 @@ describePostgres("postgres migrations", () => {
         input.taxAmount,
         input.isDayTrade ?? false,
         feePolicySnapshotId,
-        input.sourceType ?? "manual",
+        input.source ?? "manual",
         input.sourceReference ?? input.id,
         input.bookedAt ?? input.tradeTimestamp,
         input.reversalOfTradeEventId ?? null,
@@ -452,12 +452,7 @@ describePostgres("postgres migrations", () => {
   it("drops orphaned recompute preview rows before adding the trade event foreign key", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) =>
-        ![
-          "010_trade_snapshot_recompute_normalization.sql",
-          "011_fee_profile_tax_rule_normalization.sql",
-          "012_market_code_on_symbols_bindings_and_trades.sql",
-        ].includes(name),
+      (name) => !/^(010|011|012|013|014|015|016|017)_/.test(name),
     );
     await resetPublicSchema();
     await applyMigrationFiles(pre010Migrations);
@@ -492,12 +487,7 @@ describePostgres("postgres migrations", () => {
   it("recovers from a partially failed 010 retry with orphaned recompute rows", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) =>
-        ![
-          "010_trade_snapshot_recompute_normalization.sql",
-          "011_fee_profile_tax_rule_normalization.sql",
-          "012_market_code_on_symbols_bindings_and_trades.sql",
-        ].includes(name),
+      (name) => !/^(010|011|012|013|014|015|016|017)_/.test(name),
     );
     await resetPublicSchema();
     await applyMigrationFiles(pre010Migrations);
@@ -780,7 +770,7 @@ describePostgres("postgres migrations", () => {
       `SELECT id, opened_sequence
        FROM lots
        WHERE account_id = 'user-1-acc-1'
-         AND symbol = '2330'
+         AND ticker = '2330'
       ORDER BY opened_sequence`,
     );
     expect(lots.rows).toEqual([
@@ -828,20 +818,20 @@ describePostgres("postgres migrations", () => {
     const expectedIndexes = [
       "idx_fee_profile_tax_rules_fee_profile_id",
       "idx_trade_fee_policy_snapshot_tax_components_snapshot_id",
-      "idx_trade_events_account_symbol_trade_date",
-      "idx_trade_events_account_symbol_booking_order",
+      "idx_trade_events_account_ticker_trade_date",
+      "idx_trade_events_account_ticker_booking_order",
       "ux_fee_profile_tax_rules_identity",
       "ux_trade_fee_policy_snapshot_tax_components_snapshot_order",
       "ux_trade_events_account_trade_date_booking_sequence",
       "ux_trade_events_account_source_reference",
       "ux_trade_events_reversal_of_trade_event_id",
       "idx_lot_allocations_trade_event_id",
-      "ux_lots_account_symbol_opened_order",
+      "ux_lots_account_ticker_opened_order",
       "ux_lot_allocations_trade_event_lot",
       "idx_cash_ledger_entries_account_entry_date",
       "ux_cash_ledger_entries_account_source_reference",
       "ux_cash_ledger_entries_reversal_of_cash_ledger_entry_id",
-      "idx_dividend_events_symbol_ex_dividend_date",
+      "idx_dividend_events_ticker_ex_dividend_date",
       "idx_dividend_ledger_entries_dividend_event_id",
       "ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id",
       "idx_dividend_deduction_entries_dividend_ledger_entry_id",
@@ -966,7 +956,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-base",
       userId,
       accountId,
-      symbol: "2330",
+      ticker: "2330",
       instrumentType: "STOCK",
       tradeType: "BUY",
       quantity: 100,
@@ -981,9 +971,9 @@ describePostgres("postgres migrations", () => {
     await expect(
       pool.query(
         `INSERT INTO dividend_events (
-           id, symbol, event_type, ex_dividend_date, payment_date,
+           id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source_type, source_reference
+           source, source_reference
          ) VALUES (
            'dividend-invalid-type', '0056', 'CASH', DATE '2026-07-15', DATE '2026-08-10',
            0, 'TWD', 1.2, 'manual', 'dividend-invalid-type'
@@ -995,7 +985,7 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
-           related_trade_event_id, source_type, source_reference
+           related_trade_event_id, source, source_reference
          ) VALUES (
            'cash-invalid-sign', $1, $2, DATE '2026-03-02', 'TRADE_SETTLEMENT_OUT', 100, 'TWD',
            'trade-base', 'manual', 'cash-invalid-sign'
@@ -1008,7 +998,7 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
-           related_trade_event_id, source_type, source_reference
+           related_trade_event_id, source, source_reference
          ) VALUES (
            'cash-invalid-link', $1, $2, DATE '2026-03-02', 'DIVIDEND_RECEIPT', 100, 'TWD',
            'trade-base', 'manual', 'cash-invalid-link'
@@ -1019,9 +1009,9 @@ describePostgres("postgres migrations", () => {
 
     await pool.query(
       `INSERT INTO dividend_events (
-         id, symbol, event_type, ex_dividend_date, payment_date,
+         id, ticker, event_type, ex_dividend_date, payment_date,
          cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-         source_type, source_reference
+         source, source_reference
        ) VALUES (
          'dividend-base', '0056', 'CASH', DATE '2026-07-15', DATE '2026-08-10',
          1.2, 'TWD', 0, 'manual', 'dividend-base'
@@ -1094,7 +1084,7 @@ describePostgres("postgres migrations", () => {
       pool.query(
         `INSERT INTO dividend_deduction_entries (
            id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-           withheld_at_source, source_type, source_reference
+           withheld_at_source, source, source_reference
          ) VALUES (
            'dividend-deduction-invalid-currency', 'dividend-ledger-active-2',
            'NHI_SUPPLEMENTAL_PREMIUM', 120, 'US',
@@ -1106,7 +1096,7 @@ describePostgres("postgres migrations", () => {
     await pool.query(
       `INSERT INTO dividend_deduction_entries (
          id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-         withheld_at_source, source_type, source_reference
+         withheld_at_source, source, source_reference
        ) VALUES (
          'dividend-deduction-valid', 'dividend-ledger-active-2',
          'NHI_SUPPLEMENTAL_PREMIUM', 120, 'TWD',
@@ -1118,7 +1108,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-reversal-1",
       userId,
       accountId,
-      symbol: "2330",
+      ticker: "2330",
       instrumentType: "STOCK",
       tradeType: "SELL",
       quantity: 100,
@@ -1135,7 +1125,7 @@ describePostgres("postgres migrations", () => {
         id: "trade-reversal-2",
         userId,
         accountId,
-        symbol: "2330",
+        ticker: "2330",
         instrumentType: "STOCK",
         tradeType: "SELL",
         quantity: 100,
@@ -1154,7 +1144,7 @@ describePostgres("postgres migrations", () => {
         id: "trade-duplicate-sequence",
         userId,
         accountId,
-        symbol: "2330",
+        ticker: "2330",
         instrumentType: "STOCK",
         tradeType: "BUY",
         quantity: 10,
@@ -1169,7 +1159,7 @@ describePostgres("postgres migrations", () => {
 
     await pool.query(
       `INSERT INTO lots (
-         id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+         id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
        ) VALUES (
          'lot-base', $1, '2330', 100, 60000, 'TWD', DATE '2026-03-01', 1
        )`,
@@ -1179,7 +1169,7 @@ describePostgres("postgres migrations", () => {
     await expect(
       pool.query(
         `INSERT INTO lots (
-           id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+           id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
          ) VALUES (
            'lot-duplicate-order', $1, '2330', 50, 30000, 'TWD', DATE '2026-03-01', 1
          )`,
@@ -1201,7 +1191,7 @@ describePostgres("postgres migrations", () => {
         id: "trade-kzo48-1",
         userId: "user-1",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 10,
@@ -1214,7 +1204,7 @@ describePostgres("postgres migrations", () => {
         taxAmount: 0,
         isDayTrade: false,
         feeSnapshot: store.feeProfiles[0],
-        sourceType: "test",
+        source: "test",
         sourceReference: "trade-kzo48-1",
         bookedAt: "2026-03-01T09:00:00.000Z",
       },
@@ -1229,7 +1219,7 @@ describePostgres("postgres migrations", () => {
         amount: -1020,
         currency: "TWD",
         relatedTradeEventId: "trade-kzo48-1",
-        sourceType: "test",
+        source: "test",
         sourceReference: "cash-kzo48-1",
         bookedAt: "2026-03-01T09:00:01.000Z",
       },
@@ -1238,7 +1228,7 @@ describePostgres("postgres migrations", () => {
       {
         id: "lot-kzo46-1",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         openQuantity: 10,
         totalCostAmount: 1020,
         costCurrency: "TWD",
@@ -1252,7 +1242,7 @@ describePostgres("postgres migrations", () => {
         userId: "user-1",
         accountId: "user-1-acc-1",
         tradeEventId: "trade-kzo48-1",
-        symbol: "2330",
+        ticker: "2330",
         lotId: "lot-kzo46-1",
         lotOpenedAt: "2026-03-01",
         lotOpenedSequence: 1,
@@ -1281,13 +1271,13 @@ describePostgres("postgres migrations", () => {
 
     await persistence.saveStore(store);
 
-    const tradeEvents = await pool.query<{ id: string; source_type: string; booking_sequence: number }>(
-      `SELECT id, source_type, booking_sequence
+    const tradeEvents = await pool.query<{ id: string; source: string; booking_sequence: number }>(
+      `SELECT id, source, booking_sequence
        FROM trade_events
        WHERE user_id = 'user-1'
        ORDER BY id`,
     );
-    expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source_type: "test", booking_sequence: 1 }]);
+    expect(tradeEvents.rows).toEqual([{ id: "trade-kzo48-1", source: "test", booking_sequence: 1 }]);
 
     const lotAllocations = await pool.query<{ id: string; trade_event_id: string; lot_opened_sequence: number }>(
       `SELECT id, trade_event_id, lot_opened_sequence
@@ -1321,7 +1311,7 @@ describePostgres("postgres migrations", () => {
     expect(reloaded.accounting.facts.tradeEvents).toEqual([
       expect.objectContaining({
         id: "trade-kzo48-1",
-        sourceType: "test",
+        source: "test",
         sourceReference: "trade-kzo48-1",
         bookingSequence: 1,
       }),
@@ -1383,14 +1373,14 @@ describePostgres("postgres migrations", () => {
     store.accounting.facts.dividendEvents = [
       {
         id: "dividend-event-kzo34-1",
-        symbol: "0056",
+        ticker: "0056",
         eventType: "CASH",
         exDividendDate: "2026-07-15",
         paymentDate: "2026-08-10",
         cashDividendPerShare: 1.2,
         cashDividendCurrency: "TWD",
         stockDividendPerShare: 0,
-        sourceType: "manual",
+        source: "manual",
         sourceReference: "dividend-event-kzo34-1",
         createdAt: "2026-07-01T00:00:00.000Z",
       },
@@ -1431,7 +1421,7 @@ describePostgres("postgres migrations", () => {
         amount: 100,
         currencyCode: "TWD",
         withheldAtSource: true,
-        sourceType: "broker_statement",
+        source: "broker_statement",
         sourceReference: "stmt-tax",
         note: "withholding tax",
         bookedAt: "2026-08-10T09:00:01.000Z",
@@ -1443,7 +1433,7 @@ describePostgres("postgres migrations", () => {
         amount: 11,
         currencyCode: "TWD",
         withheldAtSource: true,
-        sourceType: "broker_statement",
+        source: "broker_statement",
         sourceReference: "stmt-nhi",
         note: "supplemental premium",
         bookedAt: "2026-08-10T09:00:02.000Z",
@@ -1459,7 +1449,7 @@ describePostgres("postgres migrations", () => {
         amount: 2289,
         currency: "TWD",
         relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
-        sourceType: "dividend_posting",
+        source: "dividend_posting",
         sourceReference: "cash-kzo34-receipt",
         bookedAt: "2026-08-10T09:00:03.000Z",
       },
@@ -1472,7 +1462,7 @@ describePostgres("postgres migrations", () => {
         amount: -111,
         currency: "TWD",
         relatedDividendLedgerEntryId: "dividend-ledger-kzo34-1",
-        sourceType: "dividend_posting",
+        source: "dividend_posting",
         sourceReference: "cash-kzo34-deduction",
         note: "at-source deductions",
         bookedAt: "2026-08-10T09:00:04.000Z",
@@ -1485,9 +1475,9 @@ describePostgres("postgres migrations", () => {
       id: string;
       event_type: string;
       cash_dividend_per_share: string;
-      source_type: string;
+      source: string;
     }>(
-      `SELECT id, event_type, cash_dividend_per_share::text AS cash_dividend_per_share, source_type
+      `SELECT id, event_type, cash_dividend_per_share::text AS cash_dividend_per_share, source
        FROM dividend_events
        ORDER BY id`,
     );
@@ -1496,7 +1486,7 @@ describePostgres("postgres migrations", () => {
         id: "dividend-event-kzo34-1",
         event_type: "CASH",
         cash_dividend_per_share: "1.200000",
-        source_type: "manual",
+        source: "manual",
       },
     ]);
 
@@ -1582,7 +1572,7 @@ describePostgres("postgres migrations", () => {
         id: "dividend-event-kzo34-1",
         eventType: "CASH",
         cashDividendPerShare: 1.2,
-        sourceType: "manual",
+        source: "manual",
       }),
     ]);
     expect(reloaded.accounting.facts.dividendLedgerEntries).toEqual([
@@ -1636,14 +1626,14 @@ describePostgres("postgres migrations", () => {
     store.accounting.facts.dividendEvents = [
       {
         id: "dividend-event-kzo34-duplicate",
-        symbol: "0056",
+        ticker: "0056",
         eventType: "CASH",
         exDividendDate: "2026-07-15",
         paymentDate: "2026-08-10",
         cashDividendPerShare: 1.2,
         cashDividendCurrency: "TWD",
         stockDividendPerShare: 0,
-        sourceType: "manual",
+        source: "manual",
         sourceReference: "dividend-event-kzo34-duplicate",
       },
     ];
@@ -1690,7 +1680,7 @@ describePostgres("postgres migrations", () => {
         id: "trade-kzo46-dupe-1",
         userId: "user-1",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 10,
@@ -1703,7 +1693,7 @@ describePostgres("postgres migrations", () => {
         taxAmount: 0,
         isDayTrade: false,
         feeSnapshot: store.feeProfiles[0],
-        sourceType: "test",
+        source: "test",
         sourceReference: "trade-kzo46-dupe-1",
         bookedAt: "2026-03-01T09:00:00.000Z",
       },
@@ -1711,7 +1701,7 @@ describePostgres("postgres migrations", () => {
         id: "trade-kzo46-dupe-2",
         userId: "user-1",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 5,
@@ -1724,7 +1714,7 @@ describePostgres("postgres migrations", () => {
         taxAmount: 0,
         isDayTrade: false,
         feeSnapshot: store.feeProfiles[0],
-        sourceType: "test",
+        source: "test",
         sourceReference: "trade-kzo46-dupe-2",
         bookedAt: "2026-03-01T09:00:01.000Z",
       },
@@ -1733,7 +1723,7 @@ describePostgres("postgres migrations", () => {
       {
         id: "lot-kzo46-dupe-1",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         openQuantity: 10,
         totalCostAmount: 1000,
         costCurrency: "TWD",
@@ -1743,7 +1733,7 @@ describePostgres("postgres migrations", () => {
       {
         id: "lot-kzo46-dupe-2",
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         openQuantity: 5,
         totalCostAmount: 550,
         costCurrency: "TWD",
@@ -1796,7 +1786,7 @@ describePostgres("postgres migrations", () => {
     const createdTrade = createTransaction(store, "user-1", {
       id: "trade-kzo24-buy",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -1812,13 +1802,13 @@ describePostgres("postgres migrations", () => {
 
     const tradeEvents = await pool.query<{
       id: string;
-      source_type: string;
+      source: string;
       source_reference: string | null;
       booking_sequence: number;
       commission_amount: number;
       tax_amount: number;
     }>(
-      `SELECT id, source_type, source_reference, booking_sequence, commission_amount, tax_amount
+      `SELECT id, source, source_reference, booking_sequence, commission_amount, tax_amount
        FROM trade_events
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -1826,7 +1816,7 @@ describePostgres("postgres migrations", () => {
     expect(tradeEvents.rows).toEqual([
       {
         id: createdTrade.id,
-        source_type: "portfolio_transaction_api",
+        source: "portfolio_transaction_api",
         source_reference: createdTrade.id,
         booking_sequence: 1,
         commission_amount: 7,
@@ -1838,9 +1828,9 @@ describePostgres("postgres migrations", () => {
       related_trade_event_id: string | null;
       entry_type: string;
       amount: number;
-      source_type: string;
+      source: string;
     }>(
-      `SELECT related_trade_event_id, entry_type, amount, source_type
+      `SELECT related_trade_event_id, entry_type, amount, source
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -1850,24 +1840,24 @@ describePostgres("postgres migrations", () => {
         related_trade_event_id: createdTrade.id,
         entry_type: "TRADE_SETTLEMENT_OUT",
         amount: -(10 * 100 + 7 + 3),
-        source_type: "trade_settlement",
+        source: "trade_settlement",
       },
     ]);
 
     const lots = await pool.query<{
-      symbol: string;
+      ticker: string;
       open_quantity: number;
       total_cost_amount: number;
       opened_sequence: number;
     }>(
-      `SELECT symbol, open_quantity, total_cost_amount, opened_sequence
+      `SELECT ticker, open_quantity, total_cost_amount, opened_sequence
        FROM lots
        WHERE account_id = 'user-1-acc-1'
        ORDER BY id`,
     );
     expect(lots.rows).toEqual([
       {
-        symbol: "2330",
+        ticker: "2330",
         open_quantity: 10,
         total_cost_amount: 10 * 100 + 7 + 3,
         opened_sequence: 1,
@@ -1886,7 +1876,7 @@ describePostgres("postgres migrations", () => {
     const buyTrade = createTransaction(store, "user-1", {
       id: "trade-kzo24-seeded-buy",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -1902,7 +1892,7 @@ describePostgres("postgres migrations", () => {
     const sellTrade = createTransaction(store, "user-1", {
       id: "trade-kzo24-sell",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 5,
       unitPrice: 130,
       priceCurrency: "TWD",
@@ -2010,7 +2000,7 @@ describePostgres("postgres migrations", () => {
     expect(reloaded.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 5,
         costBasisAmount: 505,
       }),
@@ -2030,7 +2020,7 @@ describePostgres("postgres migrations", () => {
     const seededBuy = createTransaction(store, "user-1", {
       id: "trade-kzo36-buy",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2045,14 +2035,14 @@ describePostgres("postgres migrations", () => {
 
     const dividendEvent = createDividendEvent(store, {
       id: "dividend-event-kzo36",
-      symbol: "2330",
+      ticker: "2330",
       eventType: "CASH_AND_STOCK",
       exDividendDate: "2026-02-01",
       paymentDate: "2026-02-20",
       cashDividendPerShare: 12,
       cashDividendCurrency: "TWD",
       stockDividendPerShare: 0.1,
-      sourceType: "manual_dividend_event",
+      source: "manual_dividend_event",
       sourceReference: "dividend-event-kzo36",
     });
 
@@ -2069,7 +2059,7 @@ describePostgres("postgres migrations", () => {
           amount: 12,
           currencyCode: "TWD",
           withheldAtSource: true,
-          sourceType: "dividend_posting",
+          source: "dividend_posting",
           sourceReference: "dividend-deduction-kzo36",
         },
       ],
@@ -2180,7 +2170,7 @@ describePostgres("postgres migrations", () => {
     expect(reloaded.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "user-1-acc-1",
-        symbol: "2330",
+        ticker: "2330",
         quantity: 11,
         costBasisAmount: 1000,
       }),
@@ -2198,7 +2188,7 @@ describePostgres("postgres migrations", () => {
     const seededBuy = createTransaction(store, "user-1", {
       id: "trade-kzo51-buy",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2213,14 +2203,14 @@ describePostgres("postgres migrations", () => {
 
     const dividendEvent = createDividendEvent(store, {
       id: "dividend-event-kzo51",
-      symbol: "2330",
+      ticker: "2330",
       eventType: "CASH",
       exDividendDate: "2026-02-01",
       paymentDate: "2026-02-20",
       cashDividendPerShare: 12,
       cashDividendCurrency: "TWD",
       stockDividendPerShare: 0,
-      sourceType: "manual_dividend_event",
+      source: "manual_dividend_event",
       sourceReference: "dividend-event-kzo51",
     });
 
@@ -2237,7 +2227,7 @@ describePostgres("postgres migrations", () => {
           amount: 12,
           currencyCode: "TWD",
           withheldAtSource: true,
-          sourceType: "dividend_posting",
+          source: "dividend_posting",
           sourceReference: "dividend-deduction-kzo51",
         },
       ],
@@ -2291,7 +2281,7 @@ describePostgres("postgres migrations", () => {
     createTransaction(store, "user-1", {
       id: "trade-kzo52-buy",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2305,7 +2295,7 @@ describePostgres("postgres migrations", () => {
     createTransaction(store, "user-1", {
       id: "trade-kzo52-sell",
       accountId: "user-1-acc-1",
-      symbol: "2330",
+      ticker: "2330",
       quantity: 5,
       unitPrice: 130,
       priceCurrency: "TWD",

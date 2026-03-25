@@ -46,7 +46,7 @@ export interface FeeProfile {
 export interface Lot {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   openQuantity: number;
   totalCostAmount: number;
   costCurrency: CurrencyCode;

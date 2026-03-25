@@ -212,11 +212,11 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.symbol,
+        `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.ticker,
                 trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
                 trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
                 trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
-                trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source_type,
+                trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source,
                 trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
                 snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
                 snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
@@ -232,7 +232,7 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+        `SELECT id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
                 lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          FROM lot_allocations
          WHERE user_id = $1
@@ -240,9 +240,9 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT id, symbol, event_type, ex_dividend_date, payment_date,
+        `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-                source_type, source_reference, created_at
+                source, source_reference, created_at
          FROM dividend_events
          ORDER BY ex_dividend_date, id`,
       ),
@@ -255,7 +255,7 @@ export class PostgresPersistence implements Persistence {
       ),
       this.pool.query(
         `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
-                related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+                related_trade_event_id, related_dividend_ledger_entry_id, source,
                 source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          FROM cash_ledger_entries
          WHERE user_id = $1
@@ -316,16 +316,16 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
-            `SELECT account_id, symbol, market_code, fee_profile_id
+            `SELECT account_id, ticker, market_code, fee_profile_id
              FROM account_fee_profile_overrides
              WHERE account_id = ANY($1)
-             ORDER BY account_id, market_code, symbol`,
+             ORDER BY account_id, market_code, ticker`,
             [accountIds],
           )
         : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
-            `SELECT id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+            `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
              FROM lots
              WHERE account_id = ANY($1)
              ORDER BY opened_at, opened_sequence, id`,
@@ -334,7 +334,7 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
-            `SELECT id, account_id, symbol, action_type, numerator, denominator, action_date
+            `SELECT id, account_id, ticker, action_type, numerator, denominator, action_date
              FROM corporate_actions
              WHERE account_id = ANY($1)
              ORDER BY action_date, id`,
@@ -371,7 +371,7 @@ export class PostgresPersistence implements Persistence {
     const dividendDeductionsResult = dividendLedgerEntryIds.length
       ? await this.pool.query(
           `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-                  withheld_at_source, source_type, source_reference, note, booked_at
+                  withheld_at_source, source, source_reference, note, booked_at
            FROM dividend_deduction_entries
            WHERE dividend_ledger_entry_id = ANY($1)
            ORDER BY dividend_ledger_entry_id, booked_at, id`,
@@ -391,7 +391,7 @@ export class PostgresPersistence implements Persistence {
       userId: row.user_id,
       accountId: row.account_id,
       tradeEventId: row.trade_event_id,
-      symbol: row.symbol,
+      ticker: row.ticker,
       lotId: row.lot_id,
       lotOpenedAt: normalizeDate(row.lot_opened_at),
       lotOpenedSequence: row.lot_opened_sequence,
@@ -405,7 +405,7 @@ export class PostgresPersistence implements Persistence {
       id: row.id,
       userId: row.user_id,
       accountId: row.account_id,
-      symbol: row.symbol,
+      ticker: row.ticker,
       marketCode: row.market_code,
       instrumentType: row.instrument_type,
       type: row.trade_type,
@@ -422,7 +422,7 @@ export class PostgresPersistence implements Persistence {
         row,
         snapshotTaxComponentsBySnapshotId.get(String(row.fee_policy_snapshot_id)) ?? [],
       ),
-      sourceType: row.source_type,
+      source: row.source,
       sourceReference: row.source_reference ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
       realizedPnlCurrency: row.price_currency,
@@ -439,7 +439,7 @@ export class PostgresPersistence implements Persistence {
       currency: row.currency,
       relatedTradeEventId: row.related_trade_event_id ?? undefined,
       relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
-      sourceType: row.source_type,
+      source: row.source,
       sourceReference: row.source_reference ?? undefined,
       note: row.note ?? undefined,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
@@ -448,14 +448,14 @@ export class PostgresPersistence implements Persistence {
 
     const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
       id: row.id,
-      symbol: row.symbol,
+      ticker: row.ticker,
       eventType: row.event_type,
       exDividendDate: normalizeDate(row.ex_dividend_date),
       paymentDate: normalizeDate(row.payment_date),
       cashDividendPerShare: Number(row.cash_dividend_per_share),
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
-      sourceType: row.source_type,
+      source: row.source,
       sourceReference: row.source_reference ?? undefined,
       createdAt: normalizeDateTime(row.created_at),
     }));
@@ -467,7 +467,7 @@ export class PostgresPersistence implements Persistence {
       amount: row.amount,
       currencyCode: row.currency_code,
       withheldAtSource: row.withheld_at_source,
-      sourceType: row.source_type,
+      source: row.source,
       sourceReference: row.source_reference ?? undefined,
       note: row.note ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -556,7 +556,7 @@ export class PostgresPersistence implements Persistence {
       })),
       feeProfileBindings: bindingsResult.rows.map((row) => ({
         accountId: row.account_id,
-        symbol: row.symbol,
+        ticker: row.ticker,
         marketCode: row.market_code,
         feeProfileId: row.fee_profile_id,
       })),
@@ -571,7 +571,7 @@ export class PostgresPersistence implements Persistence {
           corporateActions: actionsResult.rows.map((row) => ({
             id: row.id,
             accountId: row.account_id,
-            symbol: row.symbol,
+            ticker: row.ticker,
             actionType: row.action_type,
             numerator: row.numerator,
             denominator: row.denominator,
@@ -582,7 +582,7 @@ export class PostgresPersistence implements Persistence {
           lots: lotsResult.rows.map((row) => ({
             id: row.id,
             accountId: row.account_id,
-            symbol: row.symbol,
+            ticker: row.ticker,
             openQuantity: row.open_quantity,
             totalCostAmount: row.total_cost_amount,
             costCurrency: row.cost_currency,
@@ -725,9 +725,9 @@ export class PostgresPersistence implements Persistence {
         await client.query(`DELETE FROM account_fee_profile_overrides WHERE account_id = ANY($1)`, [accountIds]);
         for (const binding of store.feeProfileBindings) {
           await client.query(
-            `INSERT INTO account_fee_profile_overrides (account_id, symbol, market_code, fee_profile_id)
+            `INSERT INTO account_fee_profile_overrides (account_id, ticker, market_code, fee_profile_id)
              VALUES ($1, $2, $3, $4)`,
-            [binding.accountId, binding.symbol, binding.marketCode ?? "TW", binding.feeProfileId],
+            [binding.accountId, binding.ticker, binding.marketCode ?? "TW", binding.feeProfileId],
           );
         }
       }
@@ -821,7 +821,7 @@ export class PostgresPersistence implements Persistence {
     if (quotes.length === 0) return;
     const pipeline = this.redis.multi();
     for (const quote of quotes) {
-      pipeline.set(`quote:${quote.symbol}`, JSON.stringify(quote), { EX: 30 });
+      pipeline.set(`quote:${quote.ticker}`, JSON.stringify(quote), { EX: 30 });
     }
     await pipeline.exec();
   }
@@ -934,7 +934,7 @@ export class PostgresPersistence implements Persistence {
       (allocation) => allocation.tradeEventId === tradeEventId,
     );
     const nextLots = accounting.projections.lots.filter(
-      (lot) => lot.accountId === trade.accountId && lot.symbol === trade.symbol,
+      (lot) => lot.accountId === trade.accountId && lot.ticker === trade.ticker,
     );
 
     const client = await this.pool.connect();
@@ -946,9 +946,9 @@ export class PostgresPersistence implements Persistence {
 
       await client.query(
         `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, market_code, instrument_type, trade_type,
+           id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
+           tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -960,7 +960,7 @@ export class PostgresPersistence implements Persistence {
           trade.id,
           trade.userId,
           trade.accountId,
-          trade.symbol,
+          trade.ticker,
           trade.marketCode ?? "TW",
           trade.instrumentType,
           trade.type,
@@ -974,7 +974,7 @@ export class PostgresPersistence implements Persistence {
           trade.taxAmount,
           trade.isDayTrade,
           feePolicySnapshotId,
-          trade.sourceType ?? "legacy_transaction",
+          trade.source ?? "legacy_transaction",
           trade.sourceReference ?? trade.id,
           trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
           trade.reversalOfTradeEventId ?? null,
@@ -984,7 +984,7 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
-           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -1001,7 +1001,7 @@ export class PostgresPersistence implements Persistence {
           cashEntry.currency,
           cashEntry.relatedTradeEventId ?? null,
           cashEntry.relatedDividendLedgerEntryId ?? null,
-          cashEntry.sourceType,
+          cashEntry.source,
           cashEntry.sourceReference ?? null,
           cashEntry.note ?? null,
           cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
@@ -1018,7 +1018,7 @@ export class PostgresPersistence implements Persistence {
       for (const allocation of nextAllocations) {
         await client.query(
           `INSERT INTO lot_allocations (
-             id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+             id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
              lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
@@ -1029,7 +1029,7 @@ export class PostgresPersistence implements Persistence {
             allocation.userId,
             allocation.accountId,
             allocation.tradeEventId,
-            allocation.symbol,
+            allocation.ticker,
             allocation.lotId,
             allocation.lotOpenedAt,
             allocation.lotOpenedSequence,
@@ -1044,14 +1044,14 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `DELETE FROM lots
          WHERE account_id = $1
-           AND symbol = $2`,
-        [trade.accountId, trade.symbol],
+           AND ticker = $2`,
+        [trade.accountId, trade.ticker],
       );
         for (const lot of nextLots) {
           await client.query(
-            `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+            `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+          [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -1085,7 +1085,7 @@ export class PostgresPersistence implements Persistence {
       (entry) => entry.dividendLedgerEntryId === dividendLedgerEntryId,
     );
     const nextLots = accounting.projections.lots.filter(
-      (lot) => lot.accountId === dividendLedgerEntry.accountId && lot.symbol === dividendEvent.symbol,
+      (lot) => lot.accountId === dividendLedgerEntry.accountId && lot.ticker === dividendEvent.ticker,
     );
 
     const client = await this.pool.connect();
@@ -1110,9 +1110,9 @@ export class PostgresPersistence implements Persistence {
 
       await client.query(
         `INSERT INTO dividend_events (
-           id, symbol, event_type, ex_dividend_date, payment_date,
+           id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source_type, source_reference, created_at
+           source, source_reference, created_at
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,
@@ -1120,25 +1120,25 @@ export class PostgresPersistence implements Persistence {
          )
          ON CONFLICT (id)
          DO UPDATE SET
-           symbol = EXCLUDED.symbol,
+           ticker = EXCLUDED.ticker,
            event_type = EXCLUDED.event_type,
            ex_dividend_date = EXCLUDED.ex_dividend_date,
            payment_date = EXCLUDED.payment_date,
            cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
            cash_dividend_currency = EXCLUDED.cash_dividend_currency,
            stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
-           source_type = EXCLUDED.source_type,
+           source = EXCLUDED.source,
            source_reference = EXCLUDED.source_reference`,
         [
           dividendEvent.id,
-          dividendEvent.symbol,
+          dividendEvent.ticker,
           dividendEvent.eventType,
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
           dividendEvent.cashDividendCurrency,
           dividendEvent.stockDividendPerShare,
-          dividendEvent.sourceType,
+          dividendEvent.source,
           dividendEvent.sourceReference ?? null,
           dividendEvent.createdAt ?? new Date().toISOString(),
         ],
@@ -1192,7 +1192,7 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO dividend_deduction_entries (
              id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-             withheld_at_source, source_type, source_reference, note, booked_at
+             withheld_at_source, source, source_reference, note, booked_at
            ) VALUES (
              $1, $2, $3, $4, $5,
              $6, $7, $8, $9, $10
@@ -1204,7 +1204,7 @@ export class PostgresPersistence implements Persistence {
             deduction.amount,
             deduction.currencyCode,
             deduction.withheldAtSource,
-            deduction.sourceType,
+            deduction.source,
             deduction.sourceReference ?? null,
             deduction.note ?? null,
             deduction.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
@@ -1222,7 +1222,7 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO cash_ledger_entries (
              id, user_id, account_id, entry_date, entry_type, amount, currency,
-             related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+             related_trade_event_id, related_dividend_ledger_entry_id, source,
              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
@@ -1239,7 +1239,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.currency,
             cashEntry.relatedTradeEventId ?? null,
             cashEntry.relatedDividendLedgerEntryId ?? null,
-            cashEntry.sourceType,
+            cashEntry.source,
             cashEntry.sourceReference ?? null,
             cashEntry.note ?? null,
             cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
@@ -1251,14 +1251,14 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `DELETE FROM lots
          WHERE account_id = $1
-           AND symbol = $2`,
-        [dividendLedgerEntry.accountId, dividendEvent.symbol],
+           AND ticker = $2`,
+        [dividendLedgerEntry.accountId, dividendEvent.ticker],
       );
       for (const lot of nextLots) {
         await client.query(
-          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+          `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+          [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -1646,9 +1646,9 @@ export class PostgresPersistence implements Persistence {
     for (const dividendEvent of accounting.facts.dividendEvents) {
       await client.query(
         `INSERT INTO dividend_events (
-           id, symbol, event_type, ex_dividend_date, payment_date,
+           id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source_type, source_reference, created_at
+           source, source_reference, created_at
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,
@@ -1656,25 +1656,25 @@ export class PostgresPersistence implements Persistence {
          )
          ON CONFLICT (id)
          DO UPDATE SET
-           symbol = EXCLUDED.symbol,
+           ticker = EXCLUDED.ticker,
            event_type = EXCLUDED.event_type,
            ex_dividend_date = EXCLUDED.ex_dividend_date,
            payment_date = EXCLUDED.payment_date,
            cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
            cash_dividend_currency = EXCLUDED.cash_dividend_currency,
            stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
-           source_type = EXCLUDED.source_type,
+           source = EXCLUDED.source,
            source_reference = EXCLUDED.source_reference`,
         [
           dividendEvent.id,
-          dividendEvent.symbol,
+          dividendEvent.ticker,
           dividendEvent.eventType,
           dividendEvent.exDividendDate,
           dividendEvent.paymentDate,
           dividendEvent.cashDividendPerShare,
           dividendEvent.cashDividendCurrency,
           dividendEvent.stockDividendPerShare,
-          dividendEvent.sourceType,
+          dividendEvent.source,
           dividendEvent.sourceReference ?? null,
           dividendEvent.createdAt ?? new Date().toISOString(),
         ],
@@ -1718,7 +1718,7 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO dividend_deduction_entries (
              id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-             withheld_at_source, source_type, source_reference, note, booked_at
+             withheld_at_source, source, source_reference, note, booked_at
            ) VALUES (
              $1, $2, $3, $4, $5,
              $6, $7, $8, $9, $10
@@ -1730,7 +1730,7 @@ export class PostgresPersistence implements Persistence {
             deduction.amount,
             deduction.currencyCode,
             deduction.withheldAtSource,
-            deduction.sourceType,
+            deduction.source,
             deduction.sourceReference ?? null,
             deduction.note ?? null,
             deduction.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
@@ -1745,9 +1745,9 @@ export class PostgresPersistence implements Persistence {
 
       await client.query(
         `INSERT INTO trade_events (
-           id, user_id, account_id, symbol, market_code, instrument_type, trade_type,
+           id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
-           tax_amount, is_day_trade, fee_policy_snapshot_id, source_type, source_reference, booked_at,
+           tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
            reversal_of_trade_event_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -1759,7 +1759,7 @@ export class PostgresPersistence implements Persistence {
           tx.id,
           tx.userId,
           tx.accountId,
-          tx.symbol,
+          tx.ticker,
           tx.marketCode ?? "TW",
           tx.instrumentType,
           tx.type,
@@ -1773,7 +1773,7 @@ export class PostgresPersistence implements Persistence {
           tx.taxAmount,
           tx.isDayTrade,
           feePolicySnapshotId,
-          tx.sourceType ?? "legacy_transaction",
+          tx.source ?? "legacy_transaction",
           tx.sourceReference ?? tx.id,
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.reversalOfTradeEventId ?? null,
@@ -1785,7 +1785,7 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
-           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -1802,7 +1802,7 @@ export class PostgresPersistence implements Persistence {
           entry.currency,
           entry.relatedTradeEventId ?? null,
           entry.relatedDividendLedgerEntryId ?? null,
-          entry.sourceType,
+          entry.source,
           entry.sourceReference ?? null,
           entry.note ?? null,
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
@@ -1814,7 +1814,7 @@ export class PostgresPersistence implements Persistence {
     for (const allocation of accounting.projections.lotAllocations) {
       await client.query(
         `INSERT INTO lot_allocations (
-           id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+           id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
            lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -1825,7 +1825,7 @@ export class PostgresPersistence implements Persistence {
           allocation.userId,
           allocation.accountId,
           allocation.tradeEventId,
-          allocation.symbol,
+          allocation.ticker,
           allocation.lotId,
           allocation.lotOpenedAt,
           allocation.lotOpenedSequence,
@@ -1870,9 +1870,9 @@ export class PostgresPersistence implements Persistence {
       await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
       for (const lot of accounting.projections.lots) {
         await client.query(
-          `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+          `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+          [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
         );
       }
 
@@ -1880,12 +1880,12 @@ export class PostgresPersistence implements Persistence {
       for (const action of accounting.facts.corporateActions) {
         await client.query(
           `INSERT INTO corporate_actions (
-             id, account_id, symbol, action_type, numerator, denominator, action_date
+             id, account_id, ticker, action_type, numerator, denominator, action_date
            ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             action.id,
             action.accountId,
-            action.symbol,
+            action.ticker,
             action.actionType,
             action.numerator,
             action.denominator,
@@ -1905,11 +1905,11 @@ export class PostgresPersistence implements Persistence {
 
   async getTradeEvent(userId: string, tradeEventId: string): Promise<BookedTradeEvent | null> {
     const tradeResult = await this.pool.query(
-      `SELECT te.id, te.user_id, te.account_id, te.symbol,
+      `SELECT te.id, te.user_id, te.account_id, te.ticker,
               te.market_code, te.instrument_type, te.trade_type, te.quantity,
               te.unit_price, te.price_currency, te.trade_date,
               te.trade_timestamp, te.booking_sequence, te.commission_amount,
-              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source_type,
+              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source,
               te.source_reference, te.booked_at, te.reversal_of_trade_event_id, te.fees_source,
               s.profile_id_at_booking, s.profile_name_at_booking, s.board_commission_rate,
               s.commission_discount_percent, s.minimum_commission_amount,
@@ -1944,16 +1944,16 @@ export class PostgresPersistence implements Persistence {
     try {
       await client.query("BEGIN");
 
-      // 1. Load trade to get accountId, symbol, snapshotId
+      // 1. Load trade to get accountId, ticker, snapshotId
       const tradeResult = await client.query(
-        `SELECT account_id, symbol, fee_policy_snapshot_id FROM trade_events WHERE id = $1 AND user_id = $2`,
+        `SELECT account_id, ticker, fee_policy_snapshot_id FROM trade_events WHERE id = $1 AND user_id = $2`,
         [tradeEventId, userId],
       );
       if (tradeResult.rows.length === 0) {
         await client.query("ROLLBACK");
         throw routeError(404, "trade_event_not_found", "Trade event not found");
       }
-      const { account_id: accountId, symbol, fee_policy_snapshot_id: feePolicySnapshotId } = tradeResult.rows[0];
+      const { account_id: accountId, ticker, fee_policy_snapshot_id: feePolicySnapshotId } = tradeResult.rows[0];
 
       // 2. Count child rows before delete
       const [cashCount, allocCount] = await Promise.all([
@@ -1972,7 +1972,7 @@ export class PostgresPersistence implements Persistence {
 
       return {
         accountId,
-        symbol,
+        ticker,
         feePolicySnapshotId,
         deletedChildRows: {
           cashLedgerEntries: cashCount.rows[0].cnt,
@@ -1987,21 +1987,21 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }> {
+  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; ticker: string }> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
 
       // Load the current trade
       const tradeResult = await client.query(
-        `SELECT account_id, symbol, trade_date FROM trade_events WHERE id = $1 AND user_id = $2`,
+        `SELECT account_id, ticker, trade_date FROM trade_events WHERE id = $1 AND user_id = $2`,
         [tradeEventId, userId],
       );
       if (tradeResult.rows.length === 0) {
         await client.query("ROLLBACK");
         throw routeError(404, "trade_event_not_found", "Trade event not found");
       }
-      const { account_id: accountId, symbol, trade_date: oldTradeDate } = tradeResult.rows[0];
+      const { account_id: accountId, ticker, trade_date: oldTradeDate } = tradeResult.rows[0];
       const oldDateStr = normalizeDate(oldTradeDate);
 
       // Build dynamic UPDATE
@@ -2087,7 +2087,7 @@ export class PostgresPersistence implements Persistence {
       }
 
       await client.query("COMMIT");
-      return { accountId, symbol };
+      return { accountId, ticker };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});
       throw error;
@@ -2096,13 +2096,13 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]> {
+  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]> {
     const tradeResult = await this.pool.query(
-      `SELECT te.id, te.user_id, te.account_id, te.symbol,
+      `SELECT te.id, te.user_id, te.account_id, te.ticker,
               te.market_code, te.instrument_type, te.trade_type, te.quantity,
               te.unit_price, te.price_currency, te.trade_date,
               te.trade_timestamp, te.booking_sequence, te.commission_amount,
-              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source_type,
+              te.tax_amount, te.is_day_trade, te.fee_policy_snapshot_id, te.source,
               te.source_reference, te.booked_at, te.reversal_of_trade_event_id, te.fees_source,
               s.profile_id_at_booking, s.profile_name_at_booking, s.board_commission_rate,
               s.commission_discount_percent, s.minimum_commission_amount,
@@ -2112,9 +2112,9 @@ export class PostgresPersistence implements Persistence {
               s.commission_charge_mode
        FROM trade_events AS te
        JOIN trade_fee_policy_snapshots AS s ON s.id = te.fee_policy_snapshot_id
-       WHERE te.user_id = $1 AND te.account_id = $2 AND te.symbol = $3
+       WHERE te.user_id = $1 AND te.account_id = $2 AND te.ticker = $3
        ORDER BY te.trade_date ASC, te.booking_sequence ASC`,
-      [userId, accountId, symbol],
+      [userId, accountId, ticker],
     );
 
     if (tradeResult.rows.length === 0) return [];
@@ -2136,24 +2136,24 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
-  async deleteLotsForAccountSymbol(_userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteLotsForAccountTicker(_userId: string, accountId: string, ticker: string): Promise<number> {
     // lots table has no user_id column — accountId provides tenant scoping
     const result = await this.pool.query(
-      `DELETE FROM lots WHERE account_id = $1 AND symbol = $2`,
-      [accountId, symbol],
+      `DELETE FROM lots WHERE account_id = $1 AND ticker = $2`,
+      [accountId, ticker],
     );
     return result.rowCount ?? 0;
   }
 
-  async deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
     const result = await this.pool.query(
-      `DELETE FROM lot_allocations WHERE user_id = $1 AND account_id = $2 AND symbol = $3`,
-      [userId, accountId, symbol],
+      `DELETE FROM lot_allocations WHERE user_id = $1 AND account_id = $2 AND ticker = $3`,
+      [userId, accountId, ticker],
     );
     return result.rowCount ?? 0;
   }
 
-  async deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
     const result = await this.pool.query(
       `DELETE FROM cash_ledger_entries
        WHERE user_id = $1
@@ -2161,9 +2161,9 @@ export class PostgresPersistence implements Persistence {
          AND entry_type IN ('TRADE_SETTLEMENT_IN', 'TRADE_SETTLEMENT_OUT')
          AND related_trade_event_id IN (
            SELECT id FROM trade_events
-           WHERE user_id = $1 AND account_id = $2 AND symbol = $3
+           WHERE user_id = $1 AND account_id = $2 AND ticker = $3
          )`,
-      [userId, accountId, symbol],
+      [userId, accountId, ticker],
     );
     return result.rowCount ?? 0;
   }
@@ -2171,13 +2171,13 @@ export class PostgresPersistence implements Persistence {
   async bulkUpsertLots(_userId: string, lots: Lot[]): Promise<void> {
     for (const lot of lots) {
       await this.pool.query(
-        `INSERT INTO lots (id, account_id, symbol, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+        `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (id) DO UPDATE SET
            open_quantity = EXCLUDED.open_quantity,
            total_cost_amount = EXCLUDED.total_cost_amount,
            cost_currency = EXCLUDED.cost_currency`,
-        [lot.id, lot.accountId, lot.symbol, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+        [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
       );
     }
   }
@@ -2186,7 +2186,7 @@ export class PostgresPersistence implements Persistence {
     for (const allocation of allocations) {
       await this.pool.query(
         `INSERT INTO lot_allocations (
-           id, user_id, account_id, trade_event_id, symbol, lot_id, lot_opened_at,
+           id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
            lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -2197,7 +2197,7 @@ export class PostgresPersistence implements Persistence {
           allocation.userId,
           allocation.accountId,
           allocation.tradeEventId,
-          allocation.symbol,
+          allocation.ticker,
           allocation.lotId,
           allocation.lotOpenedAt,
           allocation.lotOpenedSequence,
@@ -2215,7 +2215,7 @@ export class PostgresPersistence implements Persistence {
       await this.pool.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
-           related_trade_event_id, related_dividend_ledger_entry_id, source_type,
+           related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -2231,7 +2231,7 @@ export class PostgresPersistence implements Persistence {
           entry.currency,
           entry.relatedTradeEventId ?? null,
           entry.relatedDividendLedgerEntryId ?? null,
-          entry.sourceType,
+          entry.source,
           entry.sourceReference ?? null,
           entry.note ?? null,
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
@@ -2304,8 +2304,8 @@ function validateStoreInvariants(store: Store): void {
     if (!profilesById.has(binding.feeProfileId)) {
       throw new Error(`fee profile binding references unknown profile ${binding.feeProfileId}`);
     }
-    if (!/^[A-Za-z0-9]{1,16}$/.test(binding.symbol)) {
-      throw new Error(`fee profile binding has invalid symbol ${binding.symbol}`);
+    if (!/^[A-Za-z0-9]{1,16}$/.test(binding.ticker)) {
+      throw new Error(`fee profile binding has invalid symbol ${binding.ticker}`);
     }
     if (binding.marketCode && !/^[A-Z]{2,8}$/.test(binding.marketCode)) {
       throw new Error(`fee profile binding has invalid market code ${binding.marketCode}`);
@@ -2375,10 +2375,10 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
 
     if (lot.openedSequence !== undefined) {
-      const openedKey = `${lot.accountId}:${lot.symbol}:${lot.openedAt}:${lot.openedSequence}`;
+      const openedKey = `${lot.accountId}:${lot.ticker}:${lot.openedAt}:${lot.openedSequence}`;
       if (lotOpenedKeys.has(openedKey)) {
         throw new Error(
-          `lot ${lot.id} duplicates opened sequence ${lot.openedSequence} for ${lot.accountId} ${lot.symbol} on ${lot.openedAt}`,
+          `lot ${lot.id} duplicates opened sequence ${lot.openedSequence} for ${lot.accountId} ${lot.ticker} on ${lot.openedAt}`,
         );
       }
       lotOpenedKeys.add(openedKey);
@@ -2484,7 +2484,7 @@ function mapTradeEventRow(row: Record<string, unknown>, taxRuleRows: Record<stri
     id: String(row.id),
     userId: String(row.user_id),
     accountId: String(row.account_id),
-    symbol: String(row.symbol),
+    ticker: String(row.ticker),
     marketCode: row.market_code ? String(row.market_code) : undefined,
     instrumentType: String(row.instrument_type) as BookedTradeEvent["instrumentType"],
     type: String(row.trade_type) as BookedTradeEvent["type"],
@@ -2498,7 +2498,7 @@ function mapTradeEventRow(row: Record<string, unknown>, taxRuleRows: Record<stri
     taxAmount: Number(row.tax_amount),
     isDayTrade: Boolean(row.is_day_trade),
     feeSnapshot: hydrateTradeFeeSnapshot(row, taxRuleRows),
-    sourceType: String(row.source_type),
+    source: String(row.source),
     sourceReference: row.source_reference ? String(row.source_reference) : undefined,
     bookedAt: normalizeDateTime(row.booked_at as string | Date),
     realizedPnlCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],

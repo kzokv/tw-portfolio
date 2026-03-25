@@ -10,7 +10,7 @@ export interface Account {
 
 export interface FeeProfileBinding {
   accountId: string;
-  symbol: string;
+  ticker: string;
   marketCode?: MarketCode;
   feeProfileId: string;
 }
@@ -29,7 +29,7 @@ export interface BookedTradeEvent {
   id: string;
   userId: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   marketCode?: MarketCode;
   instrumentType: InstrumentType;
   type: TransactionType;
@@ -45,7 +45,7 @@ export interface BookedTradeEvent {
   realizedPnlCurrency?: CurrencyCode;
   tradeTimestamp?: string;
   bookingSequence?: number;
-  sourceType?: string;
+  source?: string;
   sourceReference?: string;
   bookedAt?: string;
   reversalOfTradeEventId?: string;
@@ -72,7 +72,7 @@ export interface CashLedgerEntry {
   currency: CurrencyCode;
   relatedTradeEventId?: string;
   relatedDividendLedgerEntryId?: string;
-  sourceType: string;
+  source: string;
   sourceReference?: string;
   note?: string;
   reversalOfCashLedgerEntryId?: string;
@@ -83,14 +83,14 @@ export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";
 
 export interface DividendEvent {
   id: string;
-  symbol: string;
+  ticker: string;
   eventType: DividendEventType;
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
   cashDividendCurrency: CurrencyCode;
   stockDividendPerShare: number;
-  sourceType: string;
+  source: string;
   sourceReference?: string;
   createdAt?: string;
 }
@@ -130,7 +130,7 @@ export interface DividendDeductionEntry {
   amount: number;
   currencyCode: CurrencyCode;
   withheldAtSource: boolean;
-  sourceType: string;
+  source: string;
   sourceReference?: string;
   note?: string;
   bookedAt?: string;
@@ -158,7 +158,7 @@ export type CorporateActionType = "DIVIDEND" | "SPLIT" | "REVERSE_SPLIT";
 export interface CorporateAction {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   actionType: CorporateActionType;
   numerator: number;
   denominator: number;
@@ -167,7 +167,7 @@ export interface CorporateAction {
 
 export interface HoldingProjection {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   costBasisAmount: number;
   currency: CurrencyCode;
@@ -178,7 +178,7 @@ export interface LotAllocationProjection {
   userId: string;
   accountId: string;
   tradeEventId: string;
-  symbol: string;
+  ticker: string;
   lotId: string;
   lotOpenedAt: string;
   lotOpenedSequence: number;

@@ -101,7 +101,7 @@ describe("settings", () => {
         feeProfileBindings: [
           {
             accountId: "acc-missing",
-            symbol: "2330",
+            ticker: "2330",
             feeProfileRef: feeConfigBody.feeProfiles[0].id,
           },
         ],
@@ -134,7 +134,7 @@ describe("settings", () => {
       payload: {
         accounts: [{ id: account.id, feeProfileId: createdProfile.id }],
         feeProfileBindings: [
-          { accountId: "acc-missing", symbol: "2330", feeProfileId: createdProfile.id },
+          { accountId: "acc-missing", ticker: "2330", feeProfileId: createdProfile.id },
         ],
       },
     });

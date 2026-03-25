@@ -194,7 +194,7 @@ export class MemoryPersistence implements Persistence {
 
   async cacheQuotes(quotes: Quote[]): Promise<void> {
     for (const quote of quotes) {
-      this.quoteCache.set(quote.symbol, quote);
+      this.quoteCache.set(quote.ticker, quote);
     }
   }
 
@@ -246,13 +246,13 @@ export class MemoryPersistence implements Persistence {
 
     return {
       accountId: trade.accountId,
-      symbol: trade.symbol,
+      ticker: trade.ticker,
       feePolicySnapshotId: `trade-fee-snapshot:${tradeEventId}`,
       deletedChildRows: { cashLedgerEntries, lotAllocations },
     };
   }
 
-  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; symbol: string }> {
+  async updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; ticker: string }> {
     const store = await this.loadStore(userId);
     const trade = store.accounting.facts.tradeEvents.find((t) => t.id === tradeEventId && t.userId === userId);
     if (!trade) {
@@ -289,41 +289,41 @@ export class MemoryPersistence implements Persistence {
       });
     }
 
-    return { accountId: trade.accountId, symbol: trade.symbol };
+    return { accountId: trade.accountId, ticker: trade.ticker };
   }
 
-  async getTradeEventsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<BookedTradeEvent[]> {
+  async getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<BookedTradeEvent[]> {
     const store = await this.loadStore(userId);
     return store.accounting.facts.tradeEvents
-      .filter((t) => t.userId === userId && t.accountId === accountId && t.symbol === symbol)
+      .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
       .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
   }
 
-  async deleteLotsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteLotsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
     const store = await this.loadStore(userId);
     const before = store.accounting.projections.lots.length;
     store.accounting.projections.lots = store.accounting.projections.lots.filter(
-      (l) => !(l.accountId === accountId && l.symbol === symbol),
+      (l) => !(l.accountId === accountId && l.ticker === ticker),
     );
     rebuildHoldingProjection(store);
     return before - store.accounting.projections.lots.length;
   }
 
-  async deleteLotAllocationsForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteLotAllocationsForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
     const store = await this.loadStore(userId);
     const before = store.accounting.projections.lotAllocations.length;
     store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
-      (a) => !(a.userId === userId && a.accountId === accountId && a.symbol === symbol),
+      (a) => !(a.userId === userId && a.accountId === accountId && a.ticker === ticker),
     );
     return before - store.accounting.projections.lotAllocations.length;
   }
 
-  async deleteTradeCashEntriesForAccountSymbol(userId: string, accountId: string, symbol: string): Promise<number> {
+  async deleteTradeCashEntriesForAccountTicker(userId: string, accountId: string, ticker: string): Promise<number> {
     const store = await this.loadStore(userId);
-    // Collect trade event IDs for the given account+symbol
+    // Collect trade event IDs for the given account+ticker
     const tradeEventIds = new Set(
       store.accounting.facts.tradeEvents
-        .filter((t) => t.userId === userId && t.accountId === accountId && t.symbol === symbol)
+        .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker)
         .map((t) => t.id),
     );
 

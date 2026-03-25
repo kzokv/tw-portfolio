@@ -4,7 +4,7 @@ import { allocateSellLots, applyBuyToLots, type Lot } from "../src/index.js";
 const existingLot: Lot = {
   id: "lot-1",
   accountId: "acc-1",
-  symbol: "2330",
+  ticker: "2330",
   openQuantity: 100,
   totalCostAmount: 100_000,
   costCurrency: "TWD",
@@ -15,7 +15,7 @@ const existingLot: Lot = {
 const nextBuyLot: Lot = {
   id: "lot-2",
   accountId: "acc-1",
-  symbol: "2330",
+  ticker: "2330",
   openQuantity: 100,
   totalCostAmount: 120_000,
   costCurrency: "TWD",

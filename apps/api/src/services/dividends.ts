@@ -22,14 +22,14 @@ import type {
 
 export interface CreateDividendEventInput {
   id: string;
-  symbol: string;
+  ticker: string;
   eventType: DividendEventType;
   exDividendDate: string;
   paymentDate: string;
   cashDividendPerShare: number;
   cashDividendCurrency: string;
   stockDividendPerShare: number;
-  sourceType: string;
+  source: string;
   sourceReference?: string;
 }
 
@@ -45,7 +45,7 @@ export interface PostDividendInput {
     amount: number;
     currencyCode: string;
     withheldAtSource: boolean;
-    sourceType: string;
+    source: string;
     sourceReference?: string;
     note?: string;
   }>;
@@ -122,7 +122,7 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
     upsertStockDividendLot(
       store,
       account.id,
-      dividendEvent.symbol,
+      dividendEvent.ticker,
       dividendEvent.paymentDate,
       dividendEvent.cashDividendCurrency,
       postedEntry,
@@ -157,7 +157,7 @@ function materializeExpectedDividendEntry(
   accountId: string,
   dividendEvent: DividendEvent,
 ): DividendLedgerEntry {
-  const eligibleQuantity = deriveEligibleQuantity(store, accountId, dividendEvent.symbol, dividendEvent.exDividendDate);
+  const eligibleQuantity = deriveEligibleQuantity(store, accountId, dividendEvent.ticker, dividendEvent.exDividendDate);
   const expectedEntry: DividendLedgerEntry = {
     id,
     accountId,
@@ -208,7 +208,7 @@ function buildDividendDeductions(
     amount: entry.amount,
     currencyCode: entry.currencyCode,
     withheldAtSource: entry.withheldAtSource,
-    sourceType: entry.sourceType,
+    source: entry.source,
     sourceReference: entry.sourceReference,
     note: entry.note,
     bookedAt,
@@ -236,7 +236,7 @@ function buildDividendCashLedgerEntries(
       amount: dividendLedgerEntry.receivedCashAmount,
       currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
-      sourceType: "dividend_posting",
+      source: "dividend_posting",
       sourceReference: dividendLedgerEntry.id,
       bookedAt,
     });
@@ -256,7 +256,7 @@ function buildDividendCashLedgerEntries(
       amount: -deduction.amount,
       currency: dividendEvent.cashDividendCurrency,
       relatedDividendLedgerEntryId: dividendLedgerEntry.id,
-      sourceType: deduction.sourceType,
+      source: deduction.source,
       sourceReference: deduction.sourceReference ?? deduction.id,
       note: deduction.note,
       bookedAt,
@@ -269,23 +269,23 @@ function buildDividendCashLedgerEntries(
 function upsertStockDividendLot(
   store: Store,
   accountId: string,
-  symbol: string,
+  ticker: string,
   paymentDate: string,
   costCurrency: string,
   dividendLedgerEntry: DividendLedgerEntry,
 ): void {
-  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === accountId && lot.symbol === symbol);
+  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === accountId && lot.ticker === ticker);
   const nextSequence =
     relevantLots
       .filter((lot) => lot.openedAt === paymentDate)
       .reduce((max, lot) => Math.max(max, lot.openedSequence ?? 0), 0) + 1;
 
-  replaceInventoryLots(store, accountId, symbol, [
+  replaceInventoryLots(store, accountId, ticker, [
     ...relevantLots.filter((lot) => lot.id !== `lot-${dividendLedgerEntry.id}`),
     {
       id: `lot-${dividendLedgerEntry.id}`,
       accountId,
-      symbol,
+      ticker,
       openQuantity: dividendLedgerEntry.receivedStockQuantity,
       totalCostAmount: 0,
       costCurrency,
@@ -295,11 +295,11 @@ function upsertStockDividendLot(
   ]);
 }
 
-function deriveEligibleQuantity(store: Store, accountId: string, symbol: string, exDividendDate: string): number {
+function deriveEligibleQuantity(store: Store, accountId: string, ticker: string, exDividendDate: string): number {
   return Math.max(
     0,
     store.accounting.facts.tradeEvents
-      .filter((entry) => entry.accountId === accountId && entry.symbol === symbol && entry.tradeDate < exDividendDate)
+      .filter((entry) => entry.accountId === accountId && entry.ticker === ticker && entry.tradeDate < exDividendDate)
       .reduce((sum, entry) => sum + (entry.type === "BUY" ? entry.quantity : -entry.quantity), 0),
   );
 }

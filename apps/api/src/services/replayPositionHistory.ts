@@ -6,7 +6,7 @@ import type { EventBus } from "../events/types.js";
 
 export interface ReplaySummary {
   accountId: string;
-  symbol: string;
+  ticker: string;
   updatedHoldings: {
     openQuantity: number;
     averageCost: number;
@@ -33,19 +33,19 @@ export async function replayPositionHistory(
   persistence: Persistence,
   userId: string,
   accountId: string,
-  symbol: string,
+  ticker: string,
 ): Promise<ReplaySummary> {
-  // 1. Load all trade events for account+symbol, ordered by trade_date ASC, booking_sequence ASC
-  const trades = await persistence.getTradeEventsForAccountSymbol(userId, accountId, symbol);
+  // 1. Load all trade events for account+ticker, ordered by trade_date ASC, booking_sequence ASC
+  const trades = await persistence.getTradeEventsForAccountTicker(userId, accountId, ticker);
 
-  // 2. Delete lots for account+symbol (CRITICAL — blocker from debate)
-  await persistence.deleteLotsForAccountSymbol(userId, accountId, symbol);
+  // 2. Delete lots for account+ticker (CRITICAL — blocker from debate)
+  await persistence.deleteLotsForAccountTicker(userId, accountId, ticker);
 
-  // 3. Delete lot_allocations for account+symbol
-  await persistence.deleteLotAllocationsForAccountSymbol(userId, accountId, symbol);
+  // 3. Delete lot_allocations for account+ticker
+  await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker);
 
-  // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+symbol
-  await persistence.deleteTradeCashEntriesForAccountSymbol(userId, accountId, symbol);
+  // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker
+  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker);
 
   // 5. Replay each trade in order
   let lots: Lot[] = [];
@@ -65,7 +65,7 @@ export async function replayPositionHistory(
       const lot: Lot = {
         id: `lot-${trade.id}`,
         accountId: trade.accountId,
-        symbol: trade.symbol,
+        ticker: trade.ticker,
         openQuantity: trade.quantity,
         totalCostAmount: trade.unitPrice * trade.quantity + trade.commissionAmount + trade.taxAmount,
         costCurrency: trade.priceCurrency,
@@ -89,7 +89,7 @@ export async function replayPositionHistory(
           userId,
           accountId: trade.accountId,
           tradeEventId: trade.id,
-          symbol: trade.symbol,
+          ticker: trade.ticker,
           lotId: alloc.lotId,
           lotOpenedAt: alloc.openedAt,
           lotOpenedSequence: alloc.openedSequence ?? 1,
@@ -109,7 +109,7 @@ export async function replayPositionHistory(
         // "Insufficient quantity to sell" — wrap with trade context
         const message = error instanceof Error ? error.message : String(error);
         throw new ReplayError(
-          `Replay failed at trade ${trade.id} (${trade.type} ${trade.quantity}x${trade.symbol} on ${trade.tradeDate}): ${message}`,
+          `Replay failed at trade ${trade.id} (${trade.type} ${trade.quantity}x${trade.ticker} on ${trade.tradeDate}): ${message}`,
           trade.id,
         );
       }
@@ -133,7 +133,7 @@ export async function replayPositionHistory(
         amount: settlementAmount,
         currency: trade.priceCurrency,
         relatedTradeEventId: trade.id,
-        sourceType: "trade_settlement",
+        source: "trade_settlement",
         sourceReference: trade.id,
         bookedAt: new Date().toISOString(),
       });
@@ -160,7 +160,7 @@ export async function replayPositionHistory(
 
   return {
     accountId,
-    symbol,
+    ticker,
     updatedHoldings: {
       openQuantity,
       averageCost,
@@ -179,14 +179,14 @@ export function scheduleReplayWithRetry(
   eventBus: EventBus,
   userId: string,
   accountId: string,
-  symbol: string,
+  ticker: string,
 ): void {
   setImmediate(async () => {
     try {
-      const summary = await replayPositionHistory(persistence, userId, accountId, symbol);
+      const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
       await eventBus.publishEvent(userId, "recompute_complete", {
         accountId: summary.accountId,
-        symbol: summary.symbol,
+        ticker: summary.ticker,
         updatedHoldings: summary.updatedHoldings,
         cashBalanceChange: summary.cashBalanceChange,
         lotsRecalculated: summary.lotsRecalculated,
@@ -197,7 +197,7 @@ export function scheduleReplayWithRetry(
       try {
         await eventBus.publishEvent(userId, "recompute_failed", {
           accountId,
-          symbol,
+          ticker,
           reason: firstReason,
           retriesExhausted: false,
         });
@@ -208,10 +208,10 @@ export function scheduleReplayWithRetry(
       // One automatic retry
       setImmediate(async () => {
         try {
-          const summary = await replayPositionHistory(persistence, userId, accountId, symbol);
+          const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
           await eventBus.publishEvent(userId, "recompute_complete", {
             accountId: summary.accountId,
-            symbol: summary.symbol,
+            ticker: summary.ticker,
             updatedHoldings: summary.updatedHoldings,
             cashBalanceChange: summary.cashBalanceChange,
             lotsRecalculated: summary.lotsRecalculated,
@@ -222,7 +222,7 @@ export function scheduleReplayWithRetry(
           try {
             await eventBus.publishEvent(userId, "recompute_failed", {
               accountId,
-              symbol,
+              ticker,
               reason: retryReason,
               retriesExhausted: true,
             });

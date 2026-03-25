@@ -28,7 +28,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
       ? store.feeProfileBindings.find(
           (binding) =>
             binding.accountId === tx.accountId &&
-            binding.symbol === tx.symbol &&
+            binding.ticker === tx.ticker &&
             (binding.marketCode === undefined || binding.marketCode === (tx.marketCode ?? "TW")),
         )
       : undefined;
@@ -118,7 +118,7 @@ function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
     amount: settlementAmount,
     currency: tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD",
     relatedTradeEventId: tx.id,
-    sourceType: "trade_settlement",
+    source: "trade_settlement",
     sourceReference: tx.id,
     bookedAt: tx.bookedAt,
   };

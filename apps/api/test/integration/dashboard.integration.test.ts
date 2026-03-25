@@ -90,7 +90,7 @@ describe("dashboard overview", () => {
       method: "POST",
       url: "/dividend-events",
       payload: dividendEventPayload({
-        symbol: "2330",
+        ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-02-01",
         paymentDate: "2026-02-20",
@@ -112,7 +112,7 @@ describe("dashboard overview", () => {
             amount: 12,
             currencyCode: "TWD",
             withheldAtSource: true,
-            sourceType: "dividend_posting",
+            source: "dividend_posting",
           },
         ],
       }),
@@ -122,7 +122,7 @@ describe("dashboard overview", () => {
       method: "POST",
       url: "/dividend-events",
       payload: dividendEventPayload({
-        symbol: "2330",
+        ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-03-01",
         paymentDate: "2026-03-20",
@@ -147,7 +147,7 @@ describe("dashboard overview", () => {
         holdings: [
           expect.objectContaining({
             accountId: "acc-1",
-            symbol: "2330",
+            ticker: "2330",
             quantity: 10,
             costBasisAmount: 1000,
             averageCostPerShare: 100,
@@ -161,7 +161,7 @@ describe("dashboard overview", () => {
           upcoming: [
             expect.objectContaining({
               accountId: "acc-1",
-              symbol: "2330",
+              ticker: "2330",
               paymentDate: "2026-03-20",
               expectedAmount: 80,
               currency: "TWD",
@@ -170,7 +170,7 @@ describe("dashboard overview", () => {
           recent: [
             expect.objectContaining({
               accountId: "acc-1",
-              symbol: "2330",
+              ticker: "2330",
               netAmount: 108,
               grossAmount: 120,
               deductionAmount: 12,
@@ -188,7 +188,7 @@ describe("dashboard overview", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-dashboard-provisional" },
       payload: transactionPayload({
-        symbol: "qa-sync-later",
+        ticker: "qa-sync-later",
         quantity: 5,
         unitPrice: 80,
         tradeDate: "2026-01-15",
@@ -214,7 +214,7 @@ describe("dashboard overview", () => {
         ]),
         holdings: [
           expect.objectContaining({
-            symbol: "QA-SYNC-LATER",
+            ticker: "QA-SYNC-LATER",
             currentUnitPrice: null,
             marketValueAmount: null,
             unrealizedPnlAmount: null,
@@ -243,7 +243,7 @@ describe("dashboard overview", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-performance-buy-2" },
       payload: transactionPayload({
-        symbol: "0050",
+        ticker: "0050",
         quantity: 5,
         unitPrice: 120,
         tradeDate: "2026-02-10",
@@ -282,7 +282,7 @@ describe("dashboard overview", () => {
       url: "/portfolio/transactions",
       headers: { "idempotency-key": "k-performance-provisional" },
       payload: transactionPayload({
-        symbol: "qa-sync-later",
+        ticker: "qa-sync-later",
         quantity: 5,
         unitPrice: 80,
         tradeDate: "2026-01-15",

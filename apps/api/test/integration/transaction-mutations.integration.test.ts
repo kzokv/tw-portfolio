@@ -24,7 +24,7 @@ async function createTrade(
   return res.json() as {
     id: string;
     accountId: string;
-    symbol: string;
+    ticker: string;
     type: TransactionType;
     quantity: number;
     unitPrice: number;
@@ -105,7 +105,7 @@ describe("transaction mutations (delete + edit)", () => {
       expect(res.statusCode).toBe(202);
       const body = res.json();
       expect(body.accountId).toBe("acc-1");
-      expect(body.symbol).toBe("2330");
+      expect(body.ticker).toBe("2330");
       expect(body.deletedTradeEventId).toBe(trade.id);
       expect(body.deletedChildRows.cashLedgerEntries).toBe(1);
       // A standalone BUY has no lot allocations from sells
@@ -155,12 +155,12 @@ describe("transaction mutations (delete + edit)", () => {
       expect(completeEvent).toBeDefined();
       const data = completeEvent!.data as Record<string, unknown>;
       expect(data.accountId).toBe("acc-1");
-      expect(data.symbol).toBe("2330");
+      expect(data.ticker).toBe("2330");
 
       // After recompute, only the first BUY remains
       const store = await getStore(app);
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330",
+        (l) => l.accountId === "acc-1" && l.ticker === "2330",
       );
       const totalQty = lots.reduce((sum, l) => sum + l.openQuantity, 0);
       expect(totalQty).toBe(10);
@@ -247,7 +247,7 @@ describe("transaction mutations (delete + edit)", () => {
       const bindRes = await app.inject({
         method: "PUT",
         url: "/fee-profile-bindings",
-        payload: { bindings: [{ accountId: "acc-1", symbol: "2330", feeProfileId }] },
+        payload: { bindings: [{ accountId: "acc-1", ticker: "2330", feeProfileId }] },
       });
       expect(bindRes.statusCode).toBe(200);
 
@@ -460,7 +460,7 @@ describe("transaction mutations (delete + edit)", () => {
       const body = res.json();
       expect(body.negativeLots.wouldOccur).toBe(true);
       expect(body.negativeLots.resultingQuantity).toBe(-10);
-      expect(body.negativeLots.symbol).toBe("2330");
+      expect(body.negativeLots.ticker).toBe("2330");
     });
 
     it("no negative lots when safe delete", async () => {
@@ -563,7 +563,7 @@ describe("transaction mutations (delete + edit)", () => {
       //   Lot 2 (150 shares): 13250 - 5300 = 7950
       const store = await getStore(app);
       const lots = store.accounting.projections.lots
-        .filter((l) => l.accountId === "acc-1" && l.symbol === "2330" && l.openQuantity > 0)
+        .filter((l) => l.accountId === "acc-1" && l.ticker === "2330" && l.openQuantity > 0)
         .sort((a, b) => (a.openedSequence ?? 0) - (b.openedSequence ?? 0));
 
       expect(lots).toHaveLength(2);
@@ -621,7 +621,7 @@ describe("transaction mutations (delete + edit)", () => {
       // Remaining: 50 shares, cost = 5000 - 2500 = 2500
       const store = await getStore(app);
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330" && l.openQuantity > 0,
+        (l) => l.accountId === "acc-1" && l.ticker === "2330" && l.openQuantity > 0,
       );
       const totalQty = lots.reduce((sum, l) => sum + l.openQuantity, 0);
       const totalCost = lots.reduce((sum, l) => sum + l.totalCostAmount, 0);
@@ -657,7 +657,7 @@ describe("transaction mutations (delete + edit)", () => {
       // After replay: BUY 200@50 → cost = 200*50 = 10000 (fees=0)
       const store = await getStore(app);
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330" && l.openQuantity > 0,
+        (l) => l.accountId === "acc-1" && l.ticker === "2330" && l.openQuantity > 0,
       );
       expect(lots).toHaveLength(1);
       expect(lots[0].openQuantity).toBe(200);
@@ -701,7 +701,7 @@ describe("transaction mutations (delete + edit)", () => {
 
       // Remaining lot: 50 shares, cost = 7000 - 3500 = 3500
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330" && l.openQuantity > 0,
+        (l) => l.accountId === "acc-1" && l.ticker === "2330" && l.openQuantity > 0,
       );
       expect(lots).toHaveLength(1);
       expect(lots[0].openQuantity).toBe(50);
@@ -768,7 +768,7 @@ describe("transaction mutations (delete + edit)", () => {
         // Compare financial quantities (NOT IDs/timestamps)
         const extractLotFinancials = (store: Awaited<ReturnType<typeof getStore>>) =>
           store.accounting.projections.lots
-            .filter((l) => l.accountId === "acc-1" && l.symbol === "2330")
+            .filter((l) => l.accountId === "acc-1" && l.ticker === "2330")
             .map((l) => ({ qty: l.openQuantity, cost: l.totalCostAmount }))
             .sort((a, b) => a.qty - b.qty || a.cost - b.cost);
 
@@ -841,7 +841,7 @@ describe("transaction mutations (delete + edit)", () => {
 
         const extractLotFinancials = (store: Awaited<ReturnType<typeof getStore>>) =>
           store.accounting.projections.lots
-            .filter((l) => l.accountId === "acc-1" && l.symbol === "2330")
+            .filter((l) => l.accountId === "acc-1" && l.ticker === "2330")
             .map((l) => ({ qty: l.openQuantity, cost: l.totalCostAmount }))
             .sort((a, b) => a.qty - b.qty || a.cost - b.cost);
 
@@ -907,7 +907,7 @@ describe("transaction mutations (delete + edit)", () => {
         // Compare lot financials
         const extractLotFinancials = (store: Awaited<ReturnType<typeof getStore>>) =>
           store.accounting.projections.lots
-            .filter((l) => l.accountId === "acc-1" && l.symbol === "2330")
+            .filter((l) => l.accountId === "acc-1" && l.ticker === "2330")
             .map((l) => ({ qty: l.openQuantity, cost: l.totalCostAmount }))
             .sort((a, b) => a.qty - b.qty || a.cost - b.cost);
 
@@ -992,7 +992,7 @@ describe("transaction mutations (delete + edit)", () => {
 
       // Zero lots for this symbol
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330",
+        (l) => l.accountId === "acc-1" && l.ticker === "2330",
       );
       expect(lots.filter((l) => l.openQuantity > 0)).toHaveLength(0);
 
@@ -1006,7 +1006,7 @@ describe("transaction mutations (delete + edit)", () => {
 
       // No holding projection
       const holdings = store.accounting.projections.holdings.filter(
-        (h) => h.accountId === "acc-1" && h.symbol === "2330",
+        (h) => h.accountId === "acc-1" && h.ticker === "2330",
       );
       expect(holdings).toHaveLength(0);
     });
@@ -1076,14 +1076,14 @@ describe("transaction mutations (delete + edit)", () => {
       // Remaining: 0 shares open
       // Realized PnL = (100*60) - (100*50) = 6000 - 5000 = 1000 (with zero fees)
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330",
+        (l) => l.accountId === "acc-1" && l.ticker === "2330",
       );
       const openQty = lots.reduce((sum, l) => sum + Math.max(0, l.openQuantity), 0);
       expect(openQty).toBe(0);
 
       // Verify sell allocation exists
       const sellAllocations = store.accounting.projections.lotAllocations.filter(
-        (a) => a.symbol === "2330",
+        (a) => a.ticker === "2330",
       );
       expect(sellAllocations).toHaveLength(1);
       expect(sellAllocations[0].allocatedQuantity).toBe(100);
@@ -1140,7 +1140,7 @@ describe("transaction mutations (delete + edit)", () => {
 
       const store = await getStore(app);
       const lots = store.accounting.projections.lots.filter(
-        (l) => l.accountId === "acc-1" && l.symbol === "2330" && l.openQuantity > 0,
+        (l) => l.accountId === "acc-1" && l.ticker === "2330" && l.openQuantity > 0,
       );
 
       const totalQty = lots.reduce((sum, l) => sum + l.openQuantity, 0);
@@ -1150,7 +1150,7 @@ describe("transaction mutations (delete + edit)", () => {
 
       // No realized PnL (no sells in the replayed history)
       const allocs = store.accounting.projections.lotAllocations.filter(
-        (a) => a.symbol === "2330",
+        (a) => a.ticker === "2330",
       );
       expect(allocs).toHaveLength(0);
     });
@@ -1169,8 +1169,8 @@ describe("transaction mutations (delete + edit)", () => {
 
       // Spy on a persistence method used by replayPositionHistory to throw once
       let callCount = 0;
-      const original = app.persistence.getTradeEventsForAccountSymbol.bind(app.persistence);
-      vi.spyOn(app.persistence, "getTradeEventsForAccountSymbol").mockImplementation(
+      const original = app.persistence.getTradeEventsForAccountTicker.bind(app.persistence);
+      vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockImplementation(
         async (...args) => {
           callCount += 1;
           if (callCount === 1) {
@@ -1208,7 +1208,7 @@ describe("transaction mutations (delete + edit)", () => {
       });
 
       // Spy that always throws
-      vi.spyOn(app.persistence, "getTradeEventsForAccountSymbol").mockRejectedValue(
+      vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockRejectedValue(
         new Error("Persistent DB failure"),
       );
 

@@ -506,8 +506,8 @@ describe("SSE infrastructure", () => {
         expect(conn1.frames[0]!.event).toBe("heartbeat");
 
         // Publish 2 events while connected (they get buffered)
-        await app.eventBus.publishEvent(userId, "recompute_started", { symbol: "AAPL" });
-        await app.eventBus.publishEvent(userId, "recompute_complete", { symbol: "AAPL" });
+        await app.eventBus.publishEvent(userId, "recompute_started", { ticker: "AAPL" });
+        await app.eventBus.publishEvent(userId, "recompute_complete", { ticker: "AAPL" });
         await conn1.waitForFrames(3); // heartbeat + 2 events
       } finally {
         conn1.close();
@@ -517,8 +517,8 @@ describe("SSE infrastructure", () => {
       await new Promise((r) => setTimeout(r, 150));
 
       // Publish events while disconnected — these should be buffered
-      await app.eventBus.publishEvent(userId, "recompute_started", { symbol: "MSFT" });
-      await app.eventBus.publishEvent(userId, "recompute_complete", { symbol: "MSFT" });
+      await app.eventBus.publishEvent(userId, "recompute_started", { ticker: "MSFT" });
+      await app.eventBus.publishEvent(userId, "recompute_complete", { ticker: "MSFT" });
 
       // Reconnect with Last-Event-ID pointing to the heartbeat (seq 1)
       // This should replay all buffered events with seq > 1
