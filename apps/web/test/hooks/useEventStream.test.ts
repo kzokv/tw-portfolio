@@ -143,3 +143,333 @@ describe("useEventStream — sliding-window retry reset (Gap D)", () => {
     expect(es.close).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// QA wrapper (supports onReconnect and deprecated eventType prop)
+// ---------------------------------------------------------------------------
+
+function QAWrapper(props: {
+  eventType?: string;
+  eventTypes?: string[];
+  onEvent: (d: unknown) => void;
+  onReconnect?: (gap: { lastReceivedId: number; currentId: number }) => void;
+}) {
+  useEventStream({
+    eventType: props.eventType,
+    eventTypes: props.eventTypes,
+    onEvent: props.onEvent,
+    onReconnect: props.onReconnect,
+    enabled: true,
+  });
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Tests — SSE event.type injection into parsed data
+// ---------------------------------------------------------------------------
+
+describe("useEventStream — event.type injection", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function mount(onEvent: (d: unknown) => void, eventTypes = ["recompute_complete"]) {
+    act(() => {
+      root.render(createElement(Wrapper, { eventTypes, onEvent }));
+    });
+    return MockEventSource.instances.at(-1)!;
+  }
+
+  it("injects SSE frame event.type into parsed JSON data", () => {
+    const onEvent = vi.fn();
+    const es = mount(onEvent);
+
+    const payload = { accountId: "acc-1", symbol: "AAPL" };
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify(payload),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    expect(received.type).toBe("recompute_complete");
+    expect(received.accountId).toBe("acc-1");
+    expect(received.symbol).toBe("AAPL");
+  });
+
+  it("preserves all JSON data fields alongside injected type", () => {
+    const onEvent = vi.fn();
+    const es = mount(onEvent);
+
+    const payload = { accountId: "acc-2", symbol: "TSLA", extra: 42, nested: { a: 1 } };
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify(payload),
+        lastEventId: "2",
+      } as unknown as MessageEvent);
+    });
+
+    const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    expect(received).toEqual({
+      type: "recompute_complete",
+      accountId: "acc-2",
+      symbol: "TSLA",
+      extra: 42,
+      nested: { a: 1 },
+    });
+  });
+
+  it("event.type from SSE frame overrides type inside JSON payload", () => {
+    const onEvent = vi.fn();
+    const es = mount(onEvent);
+
+    // JSON payload has a conflicting type field — SSE frame type should win
+    const payload = { type: "wrong_type", accountId: "acc-3", symbol: "GOOG" };
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify(payload),
+        lastEventId: "3",
+      } as unknown as MessageEvent);
+    });
+
+    const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    // SSE frame type wins because spread puts event.type last
+    expect(received.type).toBe("recompute_complete");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — QA: additional type forwarding coverage
+// ---------------------------------------------------------------------------
+
+describe("useEventStream — QA type forwarding coverage", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    MockEventSource.instances = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("forwards correct type for each event when multiple eventTypes are registered", () => {
+    const onEvent = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventTypes: ["recompute_complete", "recompute_failed"],
+          onEvent,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    act(() => {
+      es._fire("recompute_failed", {
+        type: "recompute_failed",
+        data: JSON.stringify({ accountId: "a2", symbol: "TSLA", reason: "timeout", retriesExhausted: false }),
+        lastEventId: "2",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    const first = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    const second = onEvent.mock.calls[1][0] as Record<string, unknown>;
+    expect(first.type).toBe("recompute_complete");
+    expect(first.accountId).toBe("a1");
+    expect(second.type).toBe("recompute_failed");
+    expect(second.reason).toBe("timeout");
+  });
+
+  it("heartbeat events do NOT trigger onEvent", () => {
+    const onEvent = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventTypes: ["recompute_complete"],
+          onEvent,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    // Fire heartbeat — should be handled by the heartbeat listener, not onEvent
+    act(() => {
+      es._fire("heartbeat", {
+        type: "heartbeat",
+        data: JSON.stringify({}),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    // Fire a domain event — this should trigger onEvent
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        lastEventId: "2",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    expect((onEvent.mock.calls[0][0] as Record<string, unknown>).type).toBe("recompute_complete");
+  });
+
+  it("non-JSON payload passes raw string without type injection", () => {
+    const onEvent = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventTypes: ["recompute_complete"],
+          onEvent,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: "plain text, not JSON",
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    // catch branch passes event.data as-is — raw string, no object wrapping
+    expect(onEvent.mock.calls[0][0]).toBe("plain text, not JSON");
+  });
+
+  it("type forwarding works after an error event", () => {
+    const onEvent = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventTypes: ["recompute_complete"],
+          onEvent,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    // Simulate connection open, then error
+    act(() => es._fire("open"));
+    act(() => es._fireError());
+
+    // Fire a domain event after the error
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a1", symbol: "MSFT" }),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    expect(received.type).toBe("recompute_complete");
+    expect(received.symbol).toBe("MSFT");
+  });
+
+  it("reconnect gap detection coexists with type injection", () => {
+    const onEvent = vi.fn();
+    const onReconnect = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventTypes: ["recompute_complete"],
+          onEvent,
+          onReconnect,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    // First event — establish lastEventId = 5
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        lastEventId: "5",
+      } as unknown as MessageEvent);
+    });
+
+    // Second event — lastEventId resets to 1 (server restart)
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a2", symbol: "GOOG" }),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    // onReconnect should fire with gap info
+    expect(onReconnect).toHaveBeenCalledOnce();
+    expect(onReconnect).toHaveBeenCalledWith({ lastReceivedId: 5, currentId: 1 });
+
+    // onEvent should still receive type-injected data for both calls
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    const second = onEvent.mock.calls[1][0] as Record<string, unknown>;
+    expect(second.type).toBe("recompute_complete");
+    expect(second.symbol).toBe("GOOG");
+  });
+
+  it("deprecated eventType (singular) prop also forwards type", () => {
+    const onEvent = vi.fn();
+    act(() => {
+      root.render(
+        createElement(QAWrapper, {
+          eventType: "recompute_complete",
+          onEvent,
+        }),
+      );
+    });
+    const es = MockEventSource.instances.at(-1)!;
+
+    act(() => {
+      es._fire("recompute_complete", {
+        type: "recompute_complete",
+        data: JSON.stringify({ accountId: "a1", symbol: "NVDA" }),
+        lastEventId: "1",
+      } as unknown as MessageEvent);
+    });
+
+    expect(onEvent).toHaveBeenCalledOnce();
+    const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
+    expect(received.type).toBe("recompute_complete");
+    expect(received.symbol).toBe("NVDA");
+  });
+});
