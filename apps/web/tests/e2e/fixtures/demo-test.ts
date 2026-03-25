@@ -11,7 +11,7 @@ import { TestEnv } from "@tw-portfolio/config/test";
  */
 export const test = base.extend({
   // Empty storage state — demo tests start unauthenticated
-  storageState: [{cookies: [], origins: []}, { option: true }],
+  storageState: [{cookies: [], origins: []}, { scope: "test" }],
 
   page: async ({ page, request }, use) => {
     // Create demo session via E2E-only endpoint (bypasses rate limiter)

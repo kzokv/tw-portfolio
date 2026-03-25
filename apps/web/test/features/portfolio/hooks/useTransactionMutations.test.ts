@@ -76,7 +76,7 @@ function Harness({ refresh }: { refresh: () => Promise<void> }) {
 describe("useTransactionMutations — safety net", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let refresh: ReturnType<typeof vi.fn>;
+  let refresh: ReturnType<typeof vi.fn<() => Promise<void>>>;
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
