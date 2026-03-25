@@ -2,7 +2,7 @@
 
 ## E2E / testing
 - [project_e2e_webserver_gotchas.md](project_e2e_webserver_gotchas.md) — Playwright webServer startup bugs: IPv6 health-check URL fix + .env.local sourcing override fix
-- [feedback_sse_app_inject_limitation.md](feedback_sse_app_inject_limitation.md) — Fastify app.inject() hangs on live SSE connections; use listen+fetch+AbortController instead
+- ~~[feedback_sse_app_inject_limitation.md](feedback_sse_app_inject_limitation.md)~~ — **PROMOTED** to `.claude/rules/sse-app-inject-pattern.md`
 - [project_preexisting_bypass_failures.md](project_preexisting_bypass_failures.md) — 2 bypass E2E tests (auth-oauth, identity-resolution) failing pre-existing, not regressions
 - [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
 
@@ -37,20 +37,22 @@
 ## SSE / streaming
 - ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
 - ~~playwright_sse_networkidle~~ — **PROMOTED** to `.claude/rules/playwright-sse-networkidle.md` — `networkidle` can never resolve with open SSE connection; use `load` or element assertions
-- [project_sse_preconnect_race.md](project_sse_preconnect_race.md) — `useEventStream` with `enabled:condition` loses events if backend fires via setImmediate; pre-connect with `enabled:true` instead
+- ~~[project_sse_preconnect_race.md](project_sse_preconnect_race.md)~~ — **PROMOTED** to `.claude/rules/react-useEventStream-preconnect-pattern.md`
+- ~~[feedback_sse_fast_recompute_e2e_timing.md](feedback_sse_fast_recompute_e2e_timing.md)~~ — **PROMOTED** to `.claude/rules/playwright-fast-sse-assertions.md`
+- ~~[feedback_duplicate_mutation_status_testid.md](feedback_duplicate_mutation_status_testid.md)~~ — **PROMOTED** to `.claude/rules/playwright-duplicate-testid-pattern.md`
 
 ## Persistence layer (continued)
 - [project_fk_cascade_alter_pattern.md](project_fk_cascade_alter_pattern.md) — PostgreSQL unnamed FKs require dynamic constraint name lookup via pg_constraint to add ON DELETE CASCADE
 
 ## Feedback & preferences
-- [feedback_rename_caller_grep.md](feedback_rename_caller_grep.md) — When renaming exported functions, grep all callers across entire repo before marking implementation complete
+- ~~[feedback_rename_caller_grep.md](feedback_rename_caller_grep.md)~~ — **PROMOTED** to `.claude/rules/process-refactor-rename-verification.md`
 - [feedback_npm_script_wrapping.md](feedback_npm_script_wrapping.md) — CLI scripts with positional args should NOT be wrapped as npm scripts; direct invocation is preferred
-- [feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md) — @inquirer/prompts: loop:false, dynamic pageSize, no search/filter, "loop navigation" disambiguation
-- [feedback_web_env_utility.md](feedback_web_env_utility.md) — Use WebEnv.SESSION_COOKIE_NAME from @tw-portfolio/config/web, never raw process.env with hardcoded fallbacks
-- [feedback_vitest_alias_order.md](feedback_vitest_alias_order.md) — More specific package aliases (config/web, config/test) must precede bare config alias in vitest.config.ts to prevent prefix clobbering
-- [feedback_e2e_cross_port_goto.md](feedback_e2e_cross_port_goto.md) — page.goto() to API port that 302-redirects cross-port must use { waitUntil: "domcontentloaded" } to avoid ERR_ABORTED
-- [feedback_e2e_cookie_domain_scope.md](feedback_e2e_cookie_domain_scope.md) — OAuth session cookies live on localhost; logout nav must use TestEnv.host (localhost), not apiUrl() (127.0.0.1)
-- [project_demo_rate_bucket_isolation.md](project_demo_rate_bucket_isolation.md) — Module-level demoRateBuckets Map persists across buildApp() calls in same test worker — needs _resetDemoRateBuckets() in beforeEach
+- ~~[feedback_cli_prompt_ux.md](feedback_cli_prompt_ux.md)~~ — **PROMOTED** to `.claude/rules/cli-inquirer-preferences.md`
+- ~~[feedback_web_env_utility.md](feedback_web_env_utility.md)~~ — **PROMOTED** to `.claude/rules/config-web-env-pattern.md`
+- ~~[feedback_vitest_alias_order.md](feedback_vitest_alias_order.md)~~ — **PROMOTED** to `.claude/rules/vitest-alias-precedence.md`
+- ~~[feedback_e2e_cross_port_goto.md](feedback_e2e_cross_port_goto.md)~~ — **PROMOTED** to `.claude/rules/playwright-cross-port-navigation.md`
+- ~~[feedback_e2e_cookie_domain_scope.md](feedback_e2e_cookie_domain_scope.md)~~ — **PROMOTED** to `.claude/rules/playwright-oauth-cookie-domain.md`
+- ~~[project_demo_rate_bucket_isolation.md](project_demo_rate_bucket_isolation.md)~~ — **PROMOTED** to `.claude/rules/vitest-module-state-isolation.md`
 
 ## Accounting / replay (KZO-114)
 - [project_savestore_full_replace.md](project_savestore_full_replace.md) — saveStore deletes ALL user trade events — replay functions must use scoped persistence methods, never saveStore
