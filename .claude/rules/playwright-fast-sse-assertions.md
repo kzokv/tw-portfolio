@@ -49,3 +49,19 @@ await expect(page.getByTestId("mutation-status").first())
 - When writing E2E assertions on mutation/recompute status, use the regex pattern accepting both states
 - Apply consistently across `specs/` and `specs-oauth/` E2E suites
 - For any new SSE-driven features, apply the same multi-state assertion pattern
+
+## SSE Event ID Assertions
+
+Never assert exact SSE event ID values in E2E tests. Use range assertions instead.
+
+```ts
+// ❌ Wrong — seq is per-user and persists across connections
+expect(result.eventId).toBe("1");
+
+// ✅ Correct — accept any valid seq
+expect(parseInt(result.eventId)).toBeGreaterThanOrEqual(1);
+```
+
+**Why:** `BufferedEventBus` maintains a per-user monotonic sequence counter that persists across SSE connections within the same server process. In E2E suites where multiple tests share a server, earlier tests consume seq values. The `useEventStream` hook (always-on, `enabled: true`) opens its own SSE connection on page load, consuming seq=1 before a test's EventSource connects.
+
+**How to apply:** When writing E2E assertions on SSE event IDs in `specs/` or `specs-oauth/`, always use `toBeGreaterThanOrEqual(1)` or `toBeGreaterThan(0)`, never `toBe("1")`.
