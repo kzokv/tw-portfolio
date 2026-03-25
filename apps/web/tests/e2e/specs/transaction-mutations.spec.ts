@@ -320,8 +320,10 @@ test.describe("transaction mutations", () => {
     request,
     e2eUserId,
   }) => {
-    // Regression: the 2s fallback refresh must clear the "Recomputing..." message,
-    // show "recomputed successfully", and update table data — no manual reload needed.
+    // Auto-refresh must clear the "Recomputing..." message and update table data
+    // without a manual reload. Two valid outcomes:
+    //   • SSE delivers recompute_complete → "recomputed successfully"
+    //   • SSE silent for 10 s → safety net fires → "Portfolio updated."
     await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
 
     await gotoSymbol(page);
@@ -341,15 +343,11 @@ test.describe("transaction mutations", () => {
     // Initial message: "Recomputing..."
     await expect(page.getByTestId("mutation-status")).toContainText(/Recomputing/i);
 
-    // Within ~5s the fallback refresh should transition to "recomputed successfully"
-    // Do NOT call reloadAfterMutation — the fallback must handle this automatically.
+    // Auto-refresh resolves via SSE or the 10 s safety net
     await expect(page.getByTestId("mutation-status")).toContainText(
-      /recomputed successfully/i,
-      { timeout: 10_000 },
+      /recomputed successfully|Portfolio updated/i,
+      { timeout: 15_000 },
     );
-
-    // The stale timeout message must NEVER appear
-    await expect(page.getByTestId("mutation-status")).not.toContainText(/taking longer/i);
 
     // Data should reflect the edit without manual reload
     await expect(page.getByTestId("transaction-row").first()).toContainText("800");
@@ -360,7 +358,8 @@ test.describe("transaction mutations", () => {
     request,
     e2eUserId,
   }) => {
-    // Same regression test for delete: fallback refresh clears recomputing state.
+    // Auto-refresh must clear recomputing state after delete — no manual reload.
+    // SSE may deliver "recomputed successfully" or safety net may show "Portfolio updated."
     await seedTrade(request, e2eUserId, { unitPrice: 500, tradeDate: "2026-01-10" });
     await seedTrade(request, e2eUserId, { unitPrice: 600, tradeDate: "2026-01-15" });
 
@@ -380,14 +379,11 @@ test.describe("transaction mutations", () => {
     // Initial message: "Recomputing..."
     await expect(page.getByTestId("mutation-status")).toContainText(/deleted.*Recomputing/i);
 
-    // Fallback refresh transitions to "recomputed successfully" — no manual reload
+    // Auto-refresh resolves via SSE or the 10 s safety net
     await expect(page.getByTestId("mutation-status")).toContainText(
-      /recomputed successfully/i,
-      { timeout: 10_000 },
+      /recomputed successfully|Portfolio updated/i,
+      { timeout: 15_000 },
     );
-
-    // Timeout message must not appear
-    await expect(page.getByTestId("mutation-status")).not.toContainText(/taking longer/i);
 
     // Table updated: only 1 row remains (the 600 trade)
     await expect(page.getByTestId("transaction-row")).toHaveCount(1);

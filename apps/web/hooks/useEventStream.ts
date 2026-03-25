@@ -27,6 +27,7 @@ export function useEventStream({
   const lastEventIdRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
   const shouldReconnectRef = useRef<boolean>(true);
+  const lastStableTimestampRef = useRef<number>(0);
 
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
@@ -49,6 +50,7 @@ export function useEventStream({
 
     eventSource.addEventListener("open", () => {
       retryCountRef.current = 0;
+      lastStableTimestampRef.current = Date.now();
     });
 
     function handleEvent(event: MessageEvent) {
@@ -109,7 +111,15 @@ export function useEventStream({
 
     eventSource.onerror = (event) => {
       onErrorRef.current?.(event);
-      retryCountRef.current++;
+
+      // If connection was stable for 60+ seconds, treat this as transient —
+      // reset retry count instead of incrementing toward MAX_RETRIES
+      const stableDuration = Date.now() - lastStableTimestampRef.current;
+      if (stableDuration >= 60_000) {
+        retryCountRef.current = 0;
+      } else {
+        retryCountRef.current++;
+      }
 
       if (retryCountRef.current >= MAX_RETRIES || !shouldReconnectRef.current) {
         eventSource.close();

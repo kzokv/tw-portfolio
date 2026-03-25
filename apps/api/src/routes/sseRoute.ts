@@ -88,6 +88,7 @@ export function registerSSERoute(
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
+        "x-accel-buffering": "no",
       });
       reply.raw.write(`event: error\ndata: ${JSON.stringify({ code: "connection_limit_exceeded" })}\n\n`);
       reply.raw.end();
@@ -122,12 +123,17 @@ export function registerSSERoute(
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
+      "x-accel-buffering": "no",
     });
 
     // 6. Helper to write SSE frame
     function writeEvent(eventType: string, data: unknown): void {
-      seq++;
-      reply.raw.write(`id: ${seq}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        seq++;
+        reply.raw.write(`id: ${seq}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        // Socket already destroyed — close handler will clean up
+      }
     }
 
     // 7. Subscribe to EventBus
