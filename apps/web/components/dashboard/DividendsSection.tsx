@@ -59,12 +59,12 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
           {tab === "upcoming"
             ? upcoming.map((item) => (
               <article
-                key={`${item.accountId}-${item.symbol}-${item.paymentDate ?? item.exDividendDate ?? "na"}`}
+                key={`${item.accountId}-${item.ticker}-${item.paymentDate ?? item.exDividendDate ?? "na"}`}
                 className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.symbol}</p>
+                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
                     <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
                   </div>
                   <StatusPill label={resolveUpcomingStatusLabel(dict, item.status)} />
@@ -87,12 +87,12 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
             ))
             : recent.map((item) => (
               <article
-                key={`${item.accountId}-${item.symbol}-${item.postedAt}`}
+                key={`${item.accountId}-${item.ticker}-${item.postedAt}`}
                 className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.symbol}</p>
+                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
                     <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
                   </div>
                   <StatusPill label={item.status === "posted" ? dict.dashboardHome.statusPosted : dict.dashboardHome.statusUnreconciled} />

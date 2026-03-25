@@ -15,7 +15,7 @@ export function serializeSettingsForm(input: SettingsFormModel): string {
   const sortedProfiles = [...input.feeProfiles].sort((left, right) => left.id.localeCompare(right.id));
   const sortedAccounts = [...input.accounts].sort((left, right) => left.id.localeCompare(right.id));
   const sortedBindings = [...input.feeProfileBindings].sort((left, right) =>
-    `${left.accountId}:${left.symbol}`.localeCompare(`${right.accountId}:${right.symbol}`),
+    `${left.accountId}:${left.ticker}`.localeCompare(`${right.accountId}:${right.ticker}`),
   );
 
   return JSON.stringify({
@@ -53,7 +53,7 @@ export function normalizeSettingsForm(input: SettingsFormModel): SettingsFormMod
     })),
     feeProfileBindings: input.feeProfileBindings.map((binding) => ({
       ...binding,
-      symbol: binding.symbol.trim().toUpperCase(),
+      ticker: binding.ticker.trim().toUpperCase(),
     })),
   };
 }

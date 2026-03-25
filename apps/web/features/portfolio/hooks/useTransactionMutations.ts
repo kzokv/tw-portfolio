@@ -116,9 +116,9 @@ export function useTransactionMutations({
   const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper: add recomputing state
-  const addRecomputing = useCallback((transactionId: string, accountId: string, symbol: string) => {
+  const addRecomputing = useCallback((transactionId: string, accountId: string, ticker: string) => {
     setRecomputingIds((prev) => new Set([...prev, transactionId]));
-    setRecomputingSymbols((prev) => new Set([...prev, `${accountId}:${symbol}`]));
+    setRecomputingSymbols((prev) => new Set([...prev, `${accountId}:${ticker}`]));
   }, []);
 
   // Helper: remove recomputing state by symbol key
@@ -140,14 +140,14 @@ export function useTransactionMutations({
 
   // Disable guard — check if symbol is recomputing
   const isSymbolRecomputing = useCallback(
-    (accountId: string, symbol: string) => recomputingSymbols.has(`${accountId}:${symbol}`),
+    (accountId: string, ticker: string) => recomputingSymbols.has(`${accountId}:${ticker}`),
     [recomputingSymbols],
   );
 
   // --- Delete flow ---
   const startDelete = useCallback(
     (transaction: TransactionHistoryItemDto) => {
-      if (isSymbolRecomputing(transaction.accountId, transaction.symbol)) return;
+      if (isSymbolRecomputing(transaction.accountId, transaction.ticker)) return;
       setDeleteTarget(transaction);
       setDeletePreview(null);
       setIsDeletePreviewLoading(true);
@@ -182,7 +182,7 @@ export function useTransactionMutations({
 
     try {
       const result = await deleteTransaction(deleteTarget.id);
-      addRecomputing(deleteTarget.id, result.accountId, result.symbol);
+      addRecomputing(deleteTarget.id, result.accountId, result.ticker);
       setEditingId(null);
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "Delete failed");
@@ -229,10 +229,10 @@ export function useTransactionMutations({
         }
 
         // Success — result is PatchTransactionResponse
-        const patchResult = result as { accountId: string; symbol: string };
+        const patchResult = result as { accountId: string; ticker: string };
         setMessage(dictRef.current.mutations.editSuccessMessage);
         setEditingId(null);
-        addRecomputing(transactionId, patchResult.accountId, patchResult.symbol);
+        addRecomputing(transactionId, patchResult.accountId, patchResult.ticker);
       } catch (err: unknown) {
         setErrorMessage(err instanceof Error ? err.message : "Edit failed");
       }
@@ -315,7 +315,7 @@ export function useTransactionMutations({
       }
 
       const event = data as RecomputeCompleteEvent | RecomputeFailedEvent;
-      const key = `${event.accountId}:${event.symbol}`;
+      const key = `${event.accountId}:${event.ticker}`;
 
       if (event.type === "recompute_complete") {
         removeRecomputingBySymbol(key);

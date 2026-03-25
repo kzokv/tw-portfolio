@@ -55,7 +55,7 @@ const mockDict = {
 const mockTx = {
   id: "tx-1",
   accountId: "acc-1",
-  symbol: "2330",
+  ticker: "2330",
 } as TransactionHistoryItemDto;
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ describe("useTransactionMutations — safety net", () => {
 
     vi.mocked(deleteTransaction).mockResolvedValue({
       accountId: "acc-1",
-      symbol: "2330",
+      ticker: "2330",
     } as never);
   });
 
@@ -164,7 +164,7 @@ describe("useTransactionMutations — safety net", () => {
       capturedOnEvent!({
         type: "recompute_complete",
         accountId: "acc-1",
-        symbol: "2330",
+        ticker: "2330",
       });
     });
 

@@ -48,7 +48,7 @@ export function DeleteConfirmationDialog({
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
               <p className="text-slate-600">{formatDateLabel(transaction.tradeDate, locale)}</p>
-              <p className="text-slate-600">{transaction.symbol}</p>
+              <p className="text-slate-600">{transaction.ticker}</p>
               <p>
                 <span
                   className={
@@ -76,7 +76,7 @@ export function DeleteConfirmationDialog({
                 <p>
                   {dict.mutations.deleteNegativeLotsWarning
                     .replace("{quantity}", formatNumber(preview.negativeLots.resultingQuantity, locale))
-                    .replace("{symbol}", preview.negativeLots.symbol)}
+                    .replace("{symbol}", preview.negativeLots.ticker)}
                 </p>
               </div>
             </div>

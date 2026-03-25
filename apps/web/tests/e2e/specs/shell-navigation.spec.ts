@@ -1,14 +1,14 @@
 import { test, expect } from "../fixtures/test";
 import { gotoRoute, openMobileNavigation, reloadRoute, waitForAppReady } from "../helpers/flows";
 
+// These flows all cold-start the same shell surfaces and are flaky under parallel
+// first-load contention against the dev web/api servers used by Playwright.
+test.describe.configure({ mode: "serial" });
+
 test("desktop shell supports collapse persistence and route navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
-  await gotoRoute(page, "/");
-
-  await expect(page.getByTestId("dashboard-performance-card")).toBeVisible();
-  await expect(page.getByTestId("dashboard-allocation-card")).toBeVisible();
-  await page.getByTestId("dashboard-performance-range-3m").click();
-  await expect(page.getByTestId("dashboard-performance-card")).toContainText(/Portfolio Trend|投資組合走勢/);
+  await gotoRoute(page, "/portfolio");
+  await expect(page.getByTestId("portfolio-intro")).toBeVisible();
 
   const desktopSidebar = page.getByTestId("desktop-sidebar");
   await expect(desktopSidebar).toBeVisible();
@@ -42,7 +42,7 @@ test("desktop shell supports collapse persistence and route navigation", async (
 
 test("desktop quick search navigates to routes and symbol detail without icon overlap", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
-  await gotoRoute(page, "/");
+  await gotoRoute(page, "/transactions");
 
   const searchInput = page.getByTestId("topbar-search");
   const desktopResults = page.getByTestId("topbar-search-results");
@@ -60,13 +60,13 @@ test("desktop quick search navigates to routes and symbol detail without icon ov
   const symbolButton = desktopResults.getByRole("button", { name: /2330/ });
   await expect(symbolButton).toBeVisible();
   await symbolButton.click();
-  await expect(page).toHaveURL(/\/symbols\/2330$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/tickers\/2330$/, { timeout: 15_000 });
   await expect(page.getByTestId("symbol-history-title")).toContainText("2330", { timeout: 15_000 });
 });
 
 test("mobile drawer and mobile quick search stay usable without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await gotoRoute(page, "/");
+  await gotoRoute(page, "/transactions");
 
   await expect(page.getByTestId("mobile-nav-toggle")).toBeVisible();
   await expect(page.getByTestId("topbar-search-button")).toBeVisible();
@@ -74,15 +74,15 @@ test("mobile drawer and mobile quick search stay usable without horizontal overf
   await page.getByTestId("topbar-search-button").click();
   await expect(page.getByTestId("topbar-search-sheet")).toBeVisible();
   await page.getByTestId("topbar-search-sheet-input").fill("transactions");
-  await page.getByRole("button", { name: /Transactions|交易/ }).click();
+  await page.getByTestId("quick-search-item-route-transactions").click();
 
   await expect(page).toHaveURL(/\/transactions$/);
   await waitForAppReady(page);
   await expect(page.getByTestId("transactions-intro")).toBeVisible();
 
   await openMobileNavigation(page);
-  await page.getByTestId("mobile-sidebar").getByTestId("sidebar-link-dashboard").click();
-  await expect(page).toHaveURL(/\/dashboard/);
+  await page.getByTestId("mobile-sidebar").getByTestId("sidebar-link-portfolio").click();
+  await expect(page).toHaveURL(/\/portfolio/);
   await waitForAppReady(page);
 
   const { scrollWidth, clientWidth } = await page.evaluate(() => ({

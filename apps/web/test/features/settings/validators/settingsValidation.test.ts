@@ -26,7 +26,7 @@ function createValidModel(): SettingsFormModel {
       },
     ],
     accounts: [{ id: "account-1", feeProfileId: "profile-1" }],
-    feeProfileBindings: [{ accountId: "account-1", symbol: "2330", feeProfileId: "profile-1" }],
+    feeProfileBindings: [{ accountId: "account-1", ticker: "2330", feeProfileId: "profile-1" }],
   };
 }
 
@@ -81,7 +81,7 @@ describe("validateSettingsForm", () => {
 
   it("rejects invalid security binding symbols", () => {
     const model = createValidModel();
-    model.feeProfileBindings[0].symbol = "bad-symbol";
+    model.feeProfileBindings[0].ticker = "bad-symbol";
 
     expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationBindingSymbol);
   });

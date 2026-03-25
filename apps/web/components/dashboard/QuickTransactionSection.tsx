@@ -41,7 +41,7 @@ export function QuickTransactionSection({
 
         <div className="flex flex-wrap items-center gap-2 rounded-[22px] border border-white/10 bg-slate-950/30 p-4">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-slate-100">{typeLabel} {value.symbol}</p>
+            <p className="text-sm font-medium text-slate-100">{typeLabel} {value.ticker}</p>
             <p className="mt-1 text-sm text-slate-400">{value.accountId || dict.feedback.noAccounts}</p>
           </div>
           <Button

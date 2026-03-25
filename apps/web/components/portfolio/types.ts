@@ -2,7 +2,7 @@ import type { CurrencyCode } from "@tw-portfolio/shared-types";
 
 export interface Holding {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   costBasisAmount: number;
   currency: CurrencyCode;
@@ -10,7 +10,7 @@ export interface Holding {
 
 export interface TransactionInput {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
   unitPrice: number;
   priceCurrency: CurrencyCode;

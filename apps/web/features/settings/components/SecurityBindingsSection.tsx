@@ -47,7 +47,7 @@ export function SecurityBindingsSection({
         <div className="space-y-2">
           {bindings.map((binding, index) => (
             <div
-              key={`${binding.accountId}-${binding.symbol}-${index}`}
+              key={`${binding.accountId}-${binding.ticker}-${index}`}
               className="grid gap-3 rounded-[18px] border border-white/10 bg-slate-950/35 p-3 lg:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)_auto]"
               data-testid={`settings-binding-row-${index}`}
             >
@@ -65,8 +65,8 @@ export function SecurityBindingsSection({
               </select>
 
               <input
-                value={binding.symbol}
-                onChange={(event) => onUpdateBinding(index, { symbol: event.target.value.toUpperCase() })}
+                value={binding.ticker}
+                onChange={(event) => onUpdateBinding(index, { ticker: event.target.value.toUpperCase() })}
                 className={fieldClassName}
                 maxLength={16}
                 placeholder="2330"

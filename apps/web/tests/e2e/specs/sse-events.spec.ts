@@ -4,7 +4,7 @@ import { apiUrl } from "../helpers/flows";
 test.describe("SSE event delivery", () => {
   test("synthetic endpoint publishes event and EventSource receives it", async ({ page, request, e2eUserId }) => {
     // Navigate to ensure app is ready (establishes cookies)
-    await page.goto("/");
+    await page.goto("/transactions", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("domcontentloaded");
 
     const sseUrl = apiUrl("/events/stream");
@@ -54,7 +54,7 @@ test.describe("SSE event delivery", () => {
   });
 
   test("EventSource receives initial heartbeat on connection", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/transactions", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("domcontentloaded");
 
     const sseUrl = apiUrl("/events/stream");

@@ -36,7 +36,7 @@ export function toSettingsFormModel(
     })),
     feeProfileBindings: feeProfileBindings.map((binding) => ({
       accountId: binding.accountId,
-      symbol: binding.symbol,
+      ticker: binding.ticker,
       feeProfileId: binding.feeProfileId,
     })),
   };
@@ -77,7 +77,7 @@ export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsReq
     })),
     feeProfileBindings: model.feeProfileBindings.map((binding) => ({
       accountId: binding.accountId,
-      symbol: binding.symbol,
+      ticker: binding.ticker,
       feeProfileRef: binding.feeProfileId,
     })),
   };

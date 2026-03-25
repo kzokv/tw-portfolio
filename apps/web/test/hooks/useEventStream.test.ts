@@ -195,7 +195,7 @@ describe("useEventStream — event.type injection", () => {
     const onEvent = vi.fn();
     const es = mount(onEvent);
 
-    const payload = { accountId: "acc-1", symbol: "AAPL" };
+    const payload = { accountId: "acc-1", ticker: "AAPL" };
 
     act(() => {
       es._fire("recompute_complete", {
@@ -209,14 +209,14 @@ describe("useEventStream — event.type injection", () => {
     const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
     expect(received.type).toBe("recompute_complete");
     expect(received.accountId).toBe("acc-1");
-    expect(received.symbol).toBe("AAPL");
+    expect(received.ticker).toBe("AAPL");
   });
 
   it("preserves all JSON data fields alongside injected type", () => {
     const onEvent = vi.fn();
     const es = mount(onEvent);
 
-    const payload = { accountId: "acc-2", symbol: "TSLA", extra: 42, nested: { a: 1 } };
+    const payload = { accountId: "acc-2", ticker: "TSLA", extra: 42, nested: { a: 1 } };
 
     act(() => {
       es._fire("recompute_complete", {
@@ -230,7 +230,7 @@ describe("useEventStream — event.type injection", () => {
     expect(received).toEqual({
       type: "recompute_complete",
       accountId: "acc-2",
-      symbol: "TSLA",
+      ticker: "TSLA",
       extra: 42,
       nested: { a: 1 },
     });
@@ -241,7 +241,7 @@ describe("useEventStream — event.type injection", () => {
     const es = mount(onEvent);
 
     // JSON payload has a conflicting type field — SSE frame type should win
-    const payload = { type: "wrong_type", accountId: "acc-3", symbol: "GOOG" };
+    const payload = { type: "wrong_type", accountId: "acc-3", ticker: "GOOG" };
 
     act(() => {
       es._fire("recompute_complete", {
@@ -292,7 +292,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        data: JSON.stringify({ accountId: "a1", ticker: "AAPL" }),
         lastEventId: "1",
       } as unknown as MessageEvent);
     });
@@ -300,7 +300,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_failed", {
         type: "recompute_failed",
-        data: JSON.stringify({ accountId: "a2", symbol: "TSLA", reason: "timeout", retriesExhausted: false }),
+        data: JSON.stringify({ accountId: "a2", ticker: "TSLA", reason: "timeout", retriesExhausted: false }),
         lastEventId: "2",
       } as unknown as MessageEvent);
     });
@@ -339,7 +339,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        data: JSON.stringify({ accountId: "a1", ticker: "AAPL" }),
         lastEventId: "2",
       } as unknown as MessageEvent);
     });
@@ -393,7 +393,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a1", symbol: "MSFT" }),
+        data: JSON.stringify({ accountId: "a1", ticker: "MSFT" }),
         lastEventId: "1",
       } as unknown as MessageEvent);
     });
@@ -401,7 +401,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     expect(onEvent).toHaveBeenCalledOnce();
     const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
     expect(received.type).toBe("recompute_complete");
-    expect(received.symbol).toBe("MSFT");
+    expect(received.ticker).toBe("MSFT");
   });
 
   it("reconnect gap detection coexists with type injection", () => {
@@ -422,7 +422,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a1", symbol: "AAPL" }),
+        data: JSON.stringify({ accountId: "a1", ticker: "AAPL" }),
         lastEventId: "5",
       } as unknown as MessageEvent);
     });
@@ -431,7 +431,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a2", symbol: "GOOG" }),
+        data: JSON.stringify({ accountId: "a2", ticker: "GOOG" }),
         lastEventId: "1",
       } as unknown as MessageEvent);
     });
@@ -444,7 +444,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     expect(onEvent).toHaveBeenCalledTimes(2);
     const second = onEvent.mock.calls[1][0] as Record<string, unknown>;
     expect(second.type).toBe("recompute_complete");
-    expect(second.symbol).toBe("GOOG");
+    expect(second.ticker).toBe("GOOG");
   });
 
   it("deprecated eventType (singular) prop also forwards type", () => {
@@ -462,7 +462,7 @@ describe("useEventStream — QA type forwarding coverage", () => {
     act(() => {
       es._fire("recompute_complete", {
         type: "recompute_complete",
-        data: JSON.stringify({ accountId: "a1", symbol: "NVDA" }),
+        data: JSON.stringify({ accountId: "a1", ticker: "NVDA" }),
         lastEventId: "1",
       } as unknown as MessageEvent);
     });
@@ -470,6 +470,6 @@ describe("useEventStream — QA type forwarding coverage", () => {
     expect(onEvent).toHaveBeenCalledOnce();
     const received = onEvent.mock.calls[0][0] as Record<string, unknown>;
     expect(received.type).toBe("recompute_complete");
-    expect(received.symbol).toBe("NVDA");
+    expect(received.ticker).toBe("NVDA");
   });
 });

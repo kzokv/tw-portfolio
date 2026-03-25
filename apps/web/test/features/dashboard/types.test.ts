@@ -4,7 +4,7 @@ import type { TransactionInput } from "../../../components/portfolio/types";
 
 const transaction: TransactionInput = {
   accountId: "missing",
-  symbol: "2330",
+  ticker: "2330",
   quantity: 1,
   unitPrice: 100,
   priceCurrency: "TWD",
@@ -66,7 +66,7 @@ describe("resolveTransactionDraftAccount", () => {
   });
 
   it("derives transaction currency from the effective bound fee profile", () => {
-    const previous = { ...transaction, accountId: "account-1", symbol: "2330", priceCurrency: "TWD" };
+    const previous = { ...transaction, accountId: "account-1", ticker: "2330", priceCurrency: "TWD" };
     const next = resolveTransactionDraftAccount(
       previous,
       [{ id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" }],
@@ -102,7 +102,7 @@ describe("resolveTransactionDraftAccount", () => {
           commissionChargeMode: "CHARGED_UPFRONT",
         },
       ],
-      [{ accountId: "account-1", symbol: "2330", feeProfileId: "profile-2" }],
+      [{ accountId: "account-1", ticker: "2330", feeProfileId: "profile-2" }],
     );
 
     expect(next.priceCurrency).toBe("USD");

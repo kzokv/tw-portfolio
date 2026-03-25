@@ -173,7 +173,7 @@ export function TransactionHistoryTable({
                 <>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-base font-semibold text-slate-950">{transaction.symbol}</p>
+                      <p className="text-base font-semibold text-slate-950">{transaction.ticker}</p>
                       <p className="mt-1 text-sm text-slate-500">{formatDateLabel(transaction.tradeDate, locale)}</p>
                     </div>
                     <TypePill type={transaction.type} />

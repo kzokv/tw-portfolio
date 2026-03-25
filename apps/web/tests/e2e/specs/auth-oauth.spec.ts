@@ -160,12 +160,6 @@ test.describe("401 session expiry", () => {
         body: JSON.stringify({ message: "authentication required" }),
       }),
     );
-    await page.route("**/auth/logout**", (route) =>
-      route.fulfill({
-        status: 302,
-        headers: { location: "/login" },
-      }),
-    );
     await page.goto("/");
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
     await expect(page.getByTestId("global-error-banner")).toBeHidden();
@@ -178,12 +172,6 @@ test.describe("401 session expiry", () => {
         status: 401,
         contentType: "application/json",
         body: JSON.stringify({ message: "authentication required" }),
-      }),
-    );
-    await page.route("**/auth/logout**", (route) =>
-      route.fulfill({
-        status: 302,
-        headers: { location: "/login" },
       }),
     );
 

@@ -134,7 +134,7 @@ export function useSettingsForm({
         ...draft.feeProfileBindings,
         {
           accountId: draft.accounts[0].id,
-          symbol: "2330",
+          ticker: "2330",
           feeProfileId: draft.feeProfiles[0].id,
         },
       ],

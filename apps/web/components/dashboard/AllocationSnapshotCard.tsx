@@ -69,7 +69,7 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
 function buildAllocationSegments(holdings: DashboardOverviewHoldingDto[], dict: AppDictionary) {
   const ranked = holdings
     .map((holding) => ({
-      label: holding.symbol,
+      label: holding.ticker,
       amount: holding.marketValueAmount ?? holding.costBasisAmount,
     }))
     .filter((holding) => holding.amount > 0)
