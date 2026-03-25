@@ -1,5 +1,8 @@
+import { randomUUID } from "node:crypto";
 import type { Persistence } from "../persistence/types.js";
-import type { BookedTradeEvent } from "../types/store.js";
+import { rebuildHoldingProjection } from "./accountingStore.js";
+import { createTransaction } from "./portfolio.js";
+import { ensureSymbolDefinition } from "./symbolRegistry.js";
 
 interface DemoTransaction {
   accountId: string;
@@ -34,15 +37,15 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
   const accountId = store.accounts[0]?.id;
   if (!accountId) return;
 
-  const feeSnapshot = store.feeProfiles[0];
-  if (!feeSnapshot) return;
-
   const transactions = buildDemoTransactions(accountId);
 
+  // Process each trade through the full booking pipeline so that lots,
+  // cash ledger entries, and holding projections are populated — not just
+  // raw trade events. Without this, the portfolio page shows empty holdings.
   for (const tx of transactions) {
-    const tradeEvent: BookedTradeEvent = {
-      id: `demo-tx-${userId}-${tx.tradeDate}-${tx.symbol}-${tx.type}`,
-      userId,
+    ensureSymbolDefinition(store, tx.symbol);
+    createTransaction(store, userId, {
+      id: `demo-tx-${randomUUID()}`,
       accountId: tx.accountId,
       symbol: tx.symbol,
       type: tx.type,
@@ -51,12 +54,9 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
       priceCurrency: "TWD",
       tradeDate: tx.tradeDate,
       isDayTrade: false,
-      commissionAmount: 0,
-      taxAmount: 0,
-      instrumentType: tx.symbol === "0050" ? "ETF" : "STOCK",
-      feeSnapshot,
-    };
-    store.accounting.facts.tradeEvents.push(tradeEvent);
+    });
   }
+
+  rebuildHoldingProjection(store);
   await persistence.saveStore(store);
 }

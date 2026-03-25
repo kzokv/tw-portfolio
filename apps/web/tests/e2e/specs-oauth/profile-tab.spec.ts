@@ -211,6 +211,15 @@ test.describe("profile tab in settings drawer", () => {
 test.describe("avatar identity display", () => {
   // E8: Avatar shows picture or initials (not UUID)
   test("avatar button shows picture when user has providerPictureUrl", async ({ page, request }) => {
+    // Intercept the fake Google CDN image so it loads successfully —
+    // without this, the 404 triggers onError and the component falls back to initials
+    await page.route("**/profile-e2e.jpg", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "image/gif",
+        body: Buffer.from("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==", "base64"),
+      }),
+    );
     await seedProfileUser(page, request);
     await page.goto("/dashboard");
     await expect(page.getByTestId("app-shell-ready")).toBeAttached({ timeout: 30_000 });

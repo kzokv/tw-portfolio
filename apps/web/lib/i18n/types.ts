@@ -112,6 +112,12 @@ export interface AppDictionary {
     realizedPnlLabel: string;
     feeProfileLabel: string;
     noRealizedPnl: string;
+    quantityLabel: string;
+    avgCostLabel: string;
+    marketValueLabel: string;
+    totalCostLabel: string;
+    recordTransaction: string;
+    noHoldingData: string;
   };
   feedback: {
     requestFailedPrefix: string;
@@ -256,6 +262,8 @@ export interface AppDictionary {
     editCancelButton: string;
     editSymbolAccountHint: string;
     editSuccessMessage: string;
+    editConfirmTitle: string;
+    editNegativeLotsWarning: string;
     feeRecalcTitle: string;
     feeRecalcDescription: string;
     feeRecalcButton: string;

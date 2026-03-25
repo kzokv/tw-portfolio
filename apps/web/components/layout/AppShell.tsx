@@ -41,6 +41,7 @@ type ViewportMode = "mobile" | "compact" | "wide";
 interface AppShellProps {
   section?: AppSection;
   isDemo?: boolean;
+  children?: React.ReactNode;
 }
 
 interface NavigationItem {
@@ -54,15 +55,15 @@ const DESKTOP_NAV_STORAGE_KEY = "tw-shell-nav-collapsed";
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
   symbol: "2330",
-  quantity: 1,
+  quantity: 1000,
   unitPrice: 100,
   priceCurrency: "TWD",
-  tradeDate: "2026-01-01",
+  tradeDate: new Date().toISOString().slice(0, 10),
   type: "BUY",
   isDayTrade: false,
 };
 
-export function AppShell({ section = "dashboard", isDemo = false }: AppShellProps) {
+export function AppShell({ section = "dashboard", isDemo = false, children }: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -246,7 +247,7 @@ export function AppShell({ section = "dashboard", isDemo = false }: AppShellProp
   }
 
   return (
-    <div className="app-shell relative min-h-screen min-w-0 overflow-x-hidden">
+    <div className="app-shell relative min-h-screen min-w-0 overflow-x-clip">
       {isDemo && (
         <div
           className="flex h-8 items-center justify-center bg-amber-100 text-xs font-medium text-amber-800"
@@ -407,7 +408,7 @@ export function AppShell({ section = "dashboard", isDemo = false }: AppShellProp
             ) : (
               <>
                 <div data-testid="app-shell-ready" />
-                {renderSection({
+                {children ?? renderSection({
                   section,
                   dashboard,
                   dict,

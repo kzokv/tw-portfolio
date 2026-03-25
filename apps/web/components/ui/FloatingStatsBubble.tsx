@@ -1,0 +1,122 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BarChart3, X } from "lucide-react";
+
+interface FloatingStatsBubbleProps {
+  visible: boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * A draggable floating bubble that appears when the inline stats bar scrolls
+ * out of view. Click to expand a popover with the stats; click again to collapse.
+ * Drag to reposition anywhere on screen.
+ */
+export function FloatingStatsBubble({ visible, children }: FloatingStatsBubbleProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [initialized, setInitialized] = useState(false);
+  const dragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  // Set initial position (bottom-right corner)
+  useEffect(() => {
+    if (!initialized && visible) {
+      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 72 });
+      setInitialized(true);
+    }
+  }, [visible, initialized]);
+
+  // Collapse popover when bubble hides (user scrolled back to top)
+  useEffect(() => {
+    if (!visible) setExpanded(false);
+  }, [visible]);
+
+  // --- Drag handlers ---
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true;
+    dragOffset.current = {
+      x: e.clientX - pos.x,
+      y: e.clientY - pos.y,
+    };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [pos]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return;
+    setPos({
+      x: Math.max(0, Math.min(window.innerWidth - 56, e.clientX - dragOffset.current.x)),
+      y: Math.max(0, Math.min(window.innerHeight - 56, e.clientY - dragOffset.current.y)),
+    });
+  }, []);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    const wasDragging = dragging.current;
+    dragging.current = false;
+
+    // Only toggle expand if it was a click (not a drag)
+    const moved = Math.abs(e.clientX - (pos.x + dragOffset.current.x)) > 4 ||
+                  Math.abs(e.clientY - (pos.y + dragOffset.current.y)) > 4;
+    if (!wasDragging || !moved) {
+      setExpanded((prev) => !prev);
+    }
+  }, [pos]);
+
+  // Keep bubble in viewport on resize
+  useEffect(() => {
+    function clamp() {
+      setPos((prev) => ({
+        x: Math.max(0, Math.min(window.innerWidth - 56, prev.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 56, prev.y)),
+      }));
+    }
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <>
+      {/* Bubble */}
+      <div
+        ref={bubbleRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        className="group fixed z-50 flex cursor-grab touch-none items-center gap-2 rounded-full bg-indigo-600 py-2.5 pl-3.5 pr-4 text-white shadow-lg transition-all hover:bg-indigo-700 hover:shadow-xl active:cursor-grabbing"
+        style={{ left: pos.x, top: pos.y }}
+        data-testid="floating-stats-bubble"
+      >
+        <BarChart3 className="h-5 w-5 shrink-0" />
+        <span className="text-xs font-medium whitespace-nowrap">Click to view stats</span>
+      </div>
+
+      {/* Expanded popover */}
+      {expanded && (
+        <div
+          className="fixed z-50 w-[min(calc(100vw-2rem),36rem)] rounded-[22px] border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-md"
+          style={{
+            left: Math.min(pos.x, window.innerWidth - 592),
+            top: pos.y + 56,
+          }}
+          data-testid="floating-stats-popover"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Position Summary</p>
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {children}
+        </div>
+      )}
+    </>
+  );
+}

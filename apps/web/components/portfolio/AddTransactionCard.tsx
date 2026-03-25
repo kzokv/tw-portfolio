@@ -130,6 +130,8 @@ export function AddTransactionCard({
           </span>
           <input
             type="number"
+            min="1"
+            step="1"
             value={value.quantity}
             onChange={(event) => setField("quantity", Number(event.target.value))}
             className={fieldClassName}
@@ -149,6 +151,8 @@ export function AddTransactionCard({
           </span>
           <input
             type="number"
+            min="1"
+            step="1"
             value={value.unitPrice}
             onChange={(event) => setField("unitPrice", Number(event.target.value))}
             className={fieldClassName}

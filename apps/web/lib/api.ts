@@ -34,12 +34,32 @@ const E2E_USER_COOKIE = "tw_e2e_user";
  * Headers sent with every API request for auth.
  * - When AUTH_MODE=dev_bypass the API accepts optional x-user-id; default is "user-1".
  * - tw_e2e_user cookie → x-user-id header for E2E per-test isolation.
+ * - OAuth/demo: forward the session cookie so server-side fetches authenticate.
  */
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const runtimeDevUserId = await getRuntimeDevUserId();
   if (runtimeDevUserId) {
     return { "x-user-id": runtimeDevUserId };
   }
+
+  // Server-side: forward the session cookie for OAuth/demo users.
+  // credentials: "include" does NOT auto-forward cookies in Next.js server-side fetch.
+  if (typeof window === "undefined") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { cookies } = require("next/headers") as typeof import("next/headers");
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { WebEnv } = require("@tw-portfolio/config/web") as typeof import("@tw-portfolio/config/web");
+      const cookieStore = await cookies();
+      const sessionValue = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
+      if (sessionValue) {
+        return { cookie: `${WebEnv.SESSION_COOKIE_NAME}=${sessionValue}` };
+      }
+    } catch {
+      // next/headers or config not available — ignore
+    }
+  }
+
   return {};
 }
 
