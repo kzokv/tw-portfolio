@@ -1,4 +1,4 @@
-export type EventHandler = (event: { type: string; data: unknown }) => void;
+export type EventHandler = (event: { type: string; data: unknown; seq?: number }) => void;
 export type Unsubscribe = () => void;
 
 export interface EventBus {

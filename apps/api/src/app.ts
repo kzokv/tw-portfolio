@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
-import { createEventBus, type EventBus } from "./events/index.js";
+import { createEventBus, type BufferedEventBus } from "./events/index.js";
 import { registerRoutes } from "./routes/registerRoutes.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
@@ -34,7 +34,7 @@ interface HttpishError extends Error {
 
 export type AppInstance = FastifyInstance & {
   persistence: Persistence;
-  eventBus: EventBus;
+  eventBus: BufferedEventBus;
 };
 
 const mutationBuckets = new Map<string, RateCounter>();
@@ -66,6 +66,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.persistence = createPersistence(options.persistenceBackend);
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
+  // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.
+  // The inner RedisEventBus.init() (Redis connect) is intentionally skipped in
+  // single-instance mode. When cross-instance pub/sub is needed (KZO-121),
+  // BufferedEventBus should expose init() to initialize the inner transport.
   if ("init" in app.eventBus && typeof (app.eventBus as { init?: () => Promise<void> }).init === "function") {
     await (app.eventBus as { init: () => Promise<void> }).init();
   }
