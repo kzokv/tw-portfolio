@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerSSERoute } from "./sseRoute.js";
 import {
@@ -230,6 +230,42 @@ export function assertE2EOauthSessionEnabled(nodeEnv: string = Env.NODE_ENV): vo
   }
 }
 
+/**
+ * Creates a demo user session: resolves user, marks as demo, seeds transactions,
+ * signs cookie, and sets the Set-Cookie header on the reply.
+ *
+ * Shared between POST /auth/demo/start (production, rate-limited) and
+ * POST /__e2e/demo-session (test-only, bypasses rate limiter).
+ */
+async function createDemoSession(
+  app: FastifyInstance,
+  reply: FastifyReply,
+): Promise<{ userId: string; expiresAt: string }> {
+  const demoId = randomUUID();
+  const email = `demo-${demoId}@demo.local`;
+  const ttlSeconds = Env.DEMO_SESSION_TTL_SECONDS;
+
+  const userId = await app.persistence.resolveOrCreateUser("demo", demoId, {
+    email,
+    name: "Demo User",
+  });
+
+  await app.persistence.markDemoUser(userId, ttlSeconds);
+  await seedDemoTransactions(app.persistence, userId);
+
+  const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
+  if (!sessionSecret) {
+    throw routeError(500, "missing_secret", "SESSION_SECRET is required");
+  }
+
+  const signedCookie = signSessionCookie(userId, sessionSecret, true);
+  const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+  reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}; Max-Age=${ttlSeconds}`);
+
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+  return { userId, expiresAt };
+}
+
 function createSeededStoreForUser(userId: string): Store {
   const store = createStore();
   store.userId = userId;
@@ -440,6 +476,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "ok", sub, userId };
   });
 
+  /**
+   * E2E-only: create a demo session without going through the rate limiter.
+   *
+   * Tests that verify data visibility (e.g. demo-symbol-history.spec.ts) need
+   * a demo session but don't test sign-in UI mechanics. auth-demo.spec.ts
+   * exhausts the 5/60s demoRateBuckets limit, so subsequent specs would get 429.
+   * This endpoint bypasses that coupling entirely.
+   *
+   * The global mutationBuckets (120/60s in app.ts) is NOT bypassed — current
+   * E2E volume (~8 calls) is well within the 120 limit.
+   */
+  app.post("/__e2e/demo-session", async (_req, reply) => {
+    assertE2EOauthSessionEnabled();
+    const { userId, expiresAt } = await createDemoSession(app, reply);
+    return { status: "ok", userId, expiresAt, sessionType: "demo" };
+  });
+
   app.post("/auth/demo/start", async (req, reply) => {
     if (Env.DEMO_MODE_ENABLED !== "true") {
       throw routeError(404, "not_found", "not found");
@@ -462,28 +515,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       existing.count += 1;
     }
 
-    const demoId = randomUUID();
-    const email = `demo-${demoId}@demo.local`;
-    const ttlSeconds = Env.DEMO_SESSION_TTL_SECONDS;
-
-    const userId = await app.persistence.resolveOrCreateUser("demo", demoId, {
-      email,
-      name: "Demo User",
-    });
-
-    await app.persistence.markDemoUser(userId, ttlSeconds);
-    await seedDemoTransactions(app.persistence, userId);
-
-    const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
-    if (!sessionSecret) {
-      throw routeError(500, "missing_secret", "SESSION_SECRET is required");
-    }
-
-    const signedCookie = signSessionCookie(userId, sessionSecret, true);
-    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
-    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}; Max-Age=${ttlSeconds}`);
-
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    const { userId, expiresAt } = await createDemoSession(app, reply);
     return { userId, expiresAt, sessionType: "demo" };
   });
 

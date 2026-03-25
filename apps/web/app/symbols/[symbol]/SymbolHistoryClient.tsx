@@ -1,47 +1,168 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LocaleCode, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import Link from "next/link";
+import { Plus } from "lucide-react";
+import type { LocaleCode, TransactionHistoryItemDto, SymbolOptionDto, AccountDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
+import type { TransactionInput } from "../../../components/portfolio/types";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
+import { RecordTransactionDialog } from "../../../components/portfolio/RecordTransactionDialog";
 import { DeleteConfirmationDialog } from "../../../components/portfolio/DeleteConfirmationDialog";
+import { EditConfirmationDialog } from "../../../components/portfolio/EditConfirmationDialog";
 import { FeeRecalcConfirmDialog } from "../../../components/portfolio/FeeRecalcConfirmDialog";
+import { Button } from "../../../components/ui/Button";
+import { StatusToast } from "../../../components/ui/StatusToast";
+import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
+import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
+import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 
 interface SymbolHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
   dict: AppDictionary;
   locale: LocaleCode;
+  symbol: string;
+  accountId: string;
+  accounts: AccountDto[];
+  symbolOptions: SymbolOptionDto[];
+  statsBar: React.ReactNode;
 }
 
-export function SymbolHistoryClient({ transactions, dict, locale }: SymbolHistoryClientProps) {
+export function SymbolHistoryClient({
+  transactions,
+  dict,
+  locale,
+  symbol,
+  accountId,
+  accounts,
+  symbolOptions,
+  statsBar,
+}: SymbolHistoryClientProps) {
   const router = useRouter();
-  const mutations = useTransactionMutations({
-    locale,
-    dict,
+  const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
+  const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
+
+  const refresh = useCallback(async () => {
+    router.refresh();
+  }, [router]);
+
+  const mutations = useTransactionMutations({ locale, dict, refresh });
+
+  // --- Record transaction setup (symbol + account locked) ---
+  const defaultCurrency = transactions[0]?.priceCurrency ?? "TWD";
+  const initialTransaction: TransactionInput = {
+    accountId,
+    symbol,
+    quantity: 1000,
+    unitPrice: 100,
+    priceCurrency: defaultCurrency,
+    tradeDate: new Date().toISOString().slice(0, 10),
+    type: "BUY",
+    isDayTrade: false,
+  };
+
+  const submission = useTransactionSubmission({
+    initialValue: initialTransaction,
+    noAccountsMessage: dict.feedback.noAccounts,
+    successMessage: dict.feedback.transactionSubmitted,
     refresh: async () => {
-      router.refresh();
+      await refresh();
+      setIsRecordDialogOpen(false);
     },
   });
 
+  const handleDraftChange = useCallback(
+    (next: TransactionInput) => {
+      submission.setDraftTransaction({ ...next, symbol, accountId });
+    },
+    [symbol, accountId, submission],
+  );
+
+  const lockedSymbolOptions = symbolOptions.filter((s) => s.ticker === symbol);
+  const lockedAccountOptions = accounts
+    .filter((a) => a.id === accountId)
+    .map((a) => ({ id: a.id, name: a.name }));
+
   return (
     <>
-      <TransactionHistoryTable
-        transactions={transactions}
+      {/* Inline header — glass panel, part of normal page flow */}
+      <section
+        className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8"
+        data-testid="symbol-history-section"
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.symbolHistory.eyebrow}</p>
+            <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="symbol-history-title">
+              {symbol}
+            </h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/portfolio"
+              className="inline-flex items-center justify-center rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+            >
+              {dict.symbolHistory.backToDashboard}
+            </Link>
+            <Button
+              onClick={() => setIsRecordDialogOpen(true)}
+              data-testid="record-transaction-button"
+              className="gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              {dict.symbolHistory.recordTransaction}
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats bar — observed for visibility */}
+        <div ref={statsRef} className="mt-6">
+          {statsBar}
+        </div>
+      </section>
+
+      {/* Floating bubble — appears when stats bar scrolls out of view */}
+      <FloatingStatsBubble visible={!statsVisible}>
+        {statsBar}
+      </FloatingStatsBubble>
+
+      {/* Record Transaction dialog (symbol + account locked) */}
+      <RecordTransactionDialog
+        open={isRecordDialogOpen}
+        onOpenChange={setIsRecordDialogOpen}
+        value={submission.draftTransaction}
+        onChange={handleDraftChange}
+        onSubmit={submission.submit}
+        pending={submission.isSubmitting}
+        accountOptions={lockedAccountOptions}
+        symbolOptions={lockedSymbolOptions.length > 0 ? lockedSymbolOptions : symbolOptions}
+        message={submission.message}
+        errorMessage={submission.errorMessage}
+        title={dict.symbolHistory.recordTransaction}
         dict={dict}
-        locale={locale}
-        onDeleteRequest={mutations.startDelete}
-        editingId={mutations.editingId}
-        onEditStart={mutations.startEdit}
-        onEditCancel={mutations.cancelEdit}
-        onEditSave={mutations.submitEdit}
-        recomputingIds={mutations.recomputingIds}
       />
+
+      {/* Transaction table */}
+      <div className="mt-6">
+        <TransactionHistoryTable
+          transactions={transactions}
+          dict={dict}
+          locale={locale}
+          onDeleteRequest={mutations.startDelete}
+          editingId={mutations.editingId}
+          onEditStart={mutations.startEdit}
+          onEditCancel={mutations.cancelEdit}
+          onEditSave={mutations.submitEdit}
+          recomputingIds={mutations.recomputingIds}
+        />
+      </div>
+
+      {/* Mutation dialogs */}
       <DeleteConfirmationDialog
         open={mutations.isDeleteDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) mutations.cancelDelete();
-        }}
+        onOpenChange={(open) => { if (!open) mutations.cancelDelete(); }}
         transaction={mutations.deleteTarget}
         preview={mutations.deletePreview}
         isLoading={mutations.isDeletePreviewLoading}
@@ -49,35 +170,25 @@ export function SymbolHistoryClient({ transactions, dict, locale }: SymbolHistor
         dict={dict}
         locale={locale}
       />
+      <EditConfirmationDialog
+        open={mutations.isEditPreviewOpen}
+        onOpenChange={(open) => { if (!open) mutations.cancelEditPreview(); }}
+        preview={mutations.editPreview}
+        isLoading={mutations.isEditPreviewLoading}
+        dict={dict}
+        locale={locale}
+      />
       <FeeRecalcConfirmDialog
         open={mutations.isFeeConfirmOpen}
-        onOpenChange={(open) => {
-          if (!open) mutations.cancelEdit();
-        }}
+        onOpenChange={(open) => { if (!open) mutations.cancelEdit(); }}
         onRecalculate={mutations.confirmFeeRecalc}
         onKeepManual={mutations.keepManualFees}
         dict={dict}
       />
-      {mutations.message && (
-        <p
-          data-testid="mutation-status"
-          role="status"
-          aria-live="polite"
-          className="mt-4 rounded-[22px] border border-[rgba(52,211,153,0.22)] bg-[rgba(236,253,245,0.96)] px-4 py-3 text-sm text-emerald-700"
-        >
-          {mutations.message}
-        </p>
-      )}
-      {mutations.errorMessage && (
-        <p
-          data-testid="mutation-error"
-          role="status"
-          aria-live="polite"
-          className="mt-4 rounded-[22px] border border-[rgba(251,113,133,0.28)] bg-[rgba(254,226,226,0.9)] px-4 py-3 text-sm text-rose-700"
-        >
-          {mutations.errorMessage}
-        </p>
-      )}
+
+      {/* Feedback toasts */}
+      <StatusToast message={mutations.message} variant="success" testId="mutation-status" />
+      <StatusToast message={mutations.errorMessage} variant="error" testId="mutation-error" />
     </>
   );
 }

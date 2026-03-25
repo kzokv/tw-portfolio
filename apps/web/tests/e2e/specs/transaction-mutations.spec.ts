@@ -230,12 +230,15 @@ test.describe("transaction mutations", () => {
       /negative position/i,
     );
 
-    // Cancel — we just verify the warning, don't proceed
+    // Delete is hard-blocked — confirm button is hidden, only cancel available
+    await expect(page.getByTestId("delete-confirm-button")).toBeHidden();
+
+    // Cancel dismisses the dialog
     await page.getByRole("button", { name: /cancel/i }).click();
     await expect(page.getByTestId("delete-confirmation-dialog")).toBeHidden();
   });
 
-  test("BUY→SELL side flip via edit", async ({
+  test("BUY→SELL side flip via edit (sufficient lots — no warning)", async ({
     page,
     request,
     e2eUserId,
@@ -257,18 +260,138 @@ test.describe("transaction mutations", () => {
     await expect(sideSelect).toBeVisible();
     await sideSelect.selectOption("SELL");
 
-    // Save
+    // Save — preview check runs but no negative lots, so PATCH proceeds directly
     const patchResponse = page.waitForResponse(
       (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "PATCH",
     );
     await editRow.getByTestId("edit-save-button").click();
     await patchResponse;
 
+    // No warning dialog should have appeared
+    await expect(page.getByTestId("edit-confirmation-dialog")).toBeHidden();
+
     // Reload to pick up recomputed state
     await reloadAfterMutation(page);
 
     // Verify the row now shows SELL
     await expect(page.getByTestId("transaction-row").filter({ hasText: "520" })).toContainText("SELL");
+  });
+
+  test("BUY→SELL side flip shows negative lots warning when insufficient lots", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Single BUY 100@500 — flipping to SELL means 0 lots available, negative position
+    await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await gotoSymbol(page);
+    await expect(page.getByTestId("transaction-row")).toHaveCount(1);
+
+    // Enter edit mode
+    const row = page.getByTestId("transaction-row").first();
+    await row.getByTestId("edit-transaction-button").click();
+
+    const editRow = page.getByTestId("editable-transaction-row");
+    const sideSelect = editRow.getByTestId("edit-side-select");
+    await expect(sideSelect).toBeVisible();
+    await sideSelect.selectOption("SELL");
+
+    // Click Save — should trigger preview check, NOT a direct PATCH
+    await editRow.getByTestId("edit-save-button").click();
+
+    // Edit confirmation dialog must appear with negative lots warning
+    await expect(page.getByTestId("edit-confirmation-dialog")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("edit-negative-lots-warning")).toBeVisible();
+    await expect(page.getByTestId("edit-negative-lots-warning")).toContainText(/negative position/i);
+
+    // No confirm button — edit is hard-blocked, only cancel is available
+    await expect(page.getByTestId("edit-confirm-button")).toBeHidden();
+    await expect(page.getByTestId("edit-cancel-button")).toBeVisible();
+
+    // Cancel — verify no PATCH was sent and row remains unchanged
+    await page.getByTestId("edit-cancel-button").click();
+    await expect(page.getByTestId("edit-confirmation-dialog")).toBeHidden();
+    await expect(page.getByTestId("transaction-row").first()).toContainText("BUY");
+  });
+
+  test("edit auto-refreshes after recompute without manual reload", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Regression: the 2s fallback refresh must clear the "Recomputing..." message,
+    // show "recomputed successfully", and update table data — no manual reload needed.
+    await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await gotoSymbol(page);
+
+    const row = page.getByTestId("transaction-row").first();
+    await row.getByTestId("edit-transaction-button").click();
+
+    const editRow = page.getByTestId("editable-transaction-row");
+    await editRow.getByTestId("edit-price-input").fill("800");
+
+    const patchResponse = page.waitForResponse(
+      (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "PATCH",
+    );
+    await editRow.getByTestId("edit-save-button").click();
+    await patchResponse;
+
+    // Initial message: "Recomputing..."
+    await expect(page.getByTestId("mutation-status")).toContainText(/Recomputing/i);
+
+    // Within ~5s the fallback refresh should transition to "recomputed successfully"
+    // Do NOT call reloadAfterMutation — the fallback must handle this automatically.
+    await expect(page.getByTestId("mutation-status")).toContainText(
+      /recomputed successfully/i,
+      { timeout: 10_000 },
+    );
+
+    // The stale timeout message must NEVER appear
+    await expect(page.getByTestId("mutation-status")).not.toContainText(/taking longer/i);
+
+    // Data should reflect the edit without manual reload
+    await expect(page.getByTestId("transaction-row").first()).toContainText("800");
+  });
+
+  test("delete auto-refreshes after recompute without manual reload", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Same regression test for delete: fallback refresh clears recomputing state.
+    await seedTrade(request, e2eUserId, { unitPrice: 500, tradeDate: "2026-01-10" });
+    await seedTrade(request, e2eUserId, { unitPrice: 600, tradeDate: "2026-01-15" });
+
+    await gotoSymbol(page);
+    await expect(page.getByTestId("transaction-row")).toHaveCount(2);
+
+    const targetRow = page.getByTestId("transaction-row").filter({ hasText: "500" });
+    await targetRow.getByTestId("delete-transaction-button").click();
+    await expect(page.getByTestId("delete-confirmation-dialog")).toBeVisible();
+
+    const deleteResponse = page.waitForResponse(
+      (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "DELETE",
+    );
+    await page.getByTestId("delete-confirm-button").click();
+    await deleteResponse;
+
+    // Initial message: "Recomputing..."
+    await expect(page.getByTestId("mutation-status")).toContainText(/deleted.*Recomputing/i);
+
+    // Fallback refresh transitions to "recomputed successfully" — no manual reload
+    await expect(page.getByTestId("mutation-status")).toContainText(
+      /recomputed successfully/i,
+      { timeout: 10_000 },
+    );
+
+    // Timeout message must not appear
+    await expect(page.getByTestId("mutation-status")).not.toContainText(/taking longer/i);
+
+    // Table updated: only 1 row remains (the 600 trade)
+    await expect(page.getByTestId("transaction-row")).toHaveCount(1);
+    await expect(page.getByTestId("transaction-row").filter({ hasText: "500" })).toHaveCount(0);
   });
 
   test("weighted-average cost correctness after delete", async ({
@@ -343,6 +466,116 @@ test.describe("transaction mutations", () => {
 
     // Empty state should render (no table, just empty message)
     await expect(page.getByTestId("symbol-history-empty")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("record transaction dialog on symbol page: submit with locked symbol/account", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Seed one trade so the symbol page has data
+    await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await gotoSymbol(page);
+    await expect(page.getByTestId("transaction-row")).toHaveCount(1);
+
+    // Open record transaction dialog
+    await page.getByTestId("record-transaction-button").click();
+    await expect(page.getByTestId("record-transaction-dialog")).toBeVisible();
+
+    // Symbol and account selects should be locked (only one option each)
+    const symbolSelect = page.getByTestId("record-transaction-dialog").getByTestId("tx-symbol-select");
+    const accountSelect = page.getByTestId("record-transaction-dialog").getByTestId("tx-account-select");
+    await expect(symbolSelect).toHaveValue("2330");
+    await expect(accountSelect).toHaveValue("acc-1");
+
+    // Fill in the form — quantity should default to 1000
+    const quantityInput = page.getByTestId("record-transaction-dialog").getByTestId("tx-quantity-input");
+    await expect(quantityInput).toHaveValue("1000");
+
+    // Set a distinct price so we can verify the new row
+    const priceInput = page.getByTestId("record-transaction-dialog").getByTestId("tx-price-input");
+    await priceInput.fill("999");
+
+    // Submit
+    const postResponse = page.waitForResponse(
+      (r) => r.url().includes("/portfolio/transactions") && r.request().method() === "POST",
+    );
+    await page.getByTestId("record-transaction-dialog").getByTestId("tx-submit-button").click();
+    await postResponse;
+
+    // Dialog should close after successful submission
+    await expect(page.getByTestId("record-transaction-dialog")).toBeHidden({ timeout: 10_000 });
+
+    // Reload to pick up the new transaction
+    await reloadAfterMutation(page);
+
+    // Table should now have 2 rows (original + new)
+    await expect(page.getByTestId("transaction-row")).toHaveCount(2);
+    // The new trade with price 999 should appear
+    await expect(page.getByTestId("transaction-row").filter({ hasText: "999" })).toHaveCount(1);
+  });
+
+  test("navigate to symbol page from portfolio holdings link", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Seed a trade so holdings exist
+    await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    // Navigate to portfolio page
+    await page.goto(appUrl("/portfolio"), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load", { timeout: 10_000 }).catch(() => {});
+
+    // Wait for holdings table to render
+    const holdingsTable = page.getByTestId("holdings-table");
+    await expect(holdingsTable).toBeVisible({ timeout: 20_000 });
+
+    // Click the symbol link in the holdings row
+    const symbolLink = holdingsTable.getByRole("link", { name: "2330" });
+    await expect(symbolLink).toBeVisible();
+    await symbolLink.click();
+
+    // Should navigate to the symbol ledger page
+    await expect(page).toHaveURL(/\/symbols\/2330/, { timeout: 10_000 });
+    await expect(page.getByTestId("symbol-history-section")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("symbol-history-title")).toContainText("2330");
+
+    // Transaction should be visible on the symbol page
+    await expect(page.getByTestId("transaction-row")).toHaveCount(1);
+  });
+
+  test("form defaults: quantity=1000, tradeDate=today", async ({
+    page,
+    request,
+    e2eUserId,
+  }) => {
+    // Seed a trade so the symbol page renders
+    await seedTrade(request, e2eUserId, { quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await gotoSymbol(page);
+
+    // Open record transaction dialog
+    await page.getByTestId("record-transaction-button").click();
+    await expect(page.getByTestId("record-transaction-dialog")).toBeVisible();
+
+    const dialog = page.getByTestId("record-transaction-dialog");
+
+    // Quantity should default to 1000
+    await expect(dialog.getByTestId("tx-quantity-input")).toHaveValue("1000");
+
+    // Trade date should default to today (YYYY-MM-DD format)
+    const today = new Date().toISOString().slice(0, 10);
+    await expect(dialog.getByTestId("tx-trade-date-input")).toHaveValue(today);
+
+    // Unit price input should have min=1 (cannot be 0)
+    const priceInput = dialog.getByTestId("tx-price-input");
+    await expect(priceInput).toHaveAttribute("min", "1");
+
+    // Quantity input should also have min=1
+    const quantityInput = dialog.getByTestId("tx-quantity-input");
+    await expect(quantityInput).toHaveAttribute("min", "1");
   });
 
   test("edit price change persists after recompute", async ({

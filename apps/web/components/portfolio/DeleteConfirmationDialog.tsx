@@ -106,15 +106,17 @@ export function DeleteConfirmationDialog({
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               {dict.actions.cancel}
             </Button>
-            <Button
-              type="button"
-              className="border-rose-300 bg-rose-600 text-white shadow-[0_18px_36px_rgba(225,29,72,0.24)] hover:border-rose-400 hover:bg-rose-700"
-              disabled={isLoading}
-              onClick={onConfirm}
-              data-testid="delete-confirm-button"
-            >
-              {dict.mutations.deleteConfirmButton}
-            </Button>
+            {!preview?.negativeLots.wouldOccur && (
+              <Button
+                type="button"
+                className="border-rose-300 bg-rose-600 text-white shadow-[0_18px_36px_rgba(225,29,72,0.24)] hover:border-rose-400 hover:bg-rose-700"
+                disabled={isLoading}
+                onClick={onConfirm}
+                data-testid="delete-confirm-button"
+              >
+                {dict.mutations.deleteConfirmButton}
+              </Button>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>

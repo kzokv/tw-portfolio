@@ -47,6 +47,12 @@ export interface UseTransactionMutationsResult {
   cancelEdit: () => void;
   submitEdit: (transactionId: string, patch: TransactionPatch) => Promise<void>;
 
+  // Edit preview (negative lots block)
+  editPreview: PreviewImpactResponse | null;
+  isEditPreviewOpen: boolean;
+  isEditPreviewLoading: boolean;
+  cancelEditPreview: () => void;
+
   // Fee confirmation
   feeConfirmTarget: { transactionId: string; patch: TransactionPatch } | null;
   isFeeConfirmOpen: boolean;
@@ -83,6 +89,11 @@ export function useTransactionMutations({
 
   // Edit flow state
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Edit preview state (negative lots confirmation before PATCH)
+  const [editPreview, setEditPreview] = useState<PreviewImpactResponse | null>(null);
+  const [isEditPreviewOpen, setIsEditPreviewOpen] = useState(false);
+  const [isEditPreviewLoading, setIsEditPreviewLoading] = useState(false);
 
   // Fee confirmation state
   const [feeConfirmTarget, setFeeConfirmTarget] = useState<{ transactionId: string; patch: TransactionPatch } | null>(null);
@@ -200,7 +211,8 @@ export function useTransactionMutations({
     setFeeConfirmTarget(null);
   }, []);
 
-  const submitEdit = useCallback(
+  // Internal: execute the PATCH (called after preview check passes or user confirms)
+  const executePatch = useCallback(
     async (transactionId: string, patch: TransactionPatch) => {
       try {
         const patchBody: Record<string, unknown> = {};
@@ -229,6 +241,53 @@ export function useTransactionMutations({
     },
     [addRecomputing],
   );
+
+  const submitEdit = useCallback(
+    async (transactionId: string, patch: TransactionPatch) => {
+      // If side or quantity changed, preview for negative lots before patching
+      if (patch.side !== undefined || patch.quantity !== undefined) {
+        setIsEditPreviewLoading(true);
+        setIsEditPreviewOpen(true);
+        setEditPreview(null);
+        setMessage("");
+        setErrorMessage("");
+
+        try {
+          const preview = await previewImpact(transactionId, "patch", {
+            side: patch.side,
+            quantity: patch.quantity,
+            price: patch.price,
+            date: patch.date,
+          });
+          setEditPreview(preview);
+          setIsEditPreviewLoading(false);
+
+          // No negative lots — proceed directly without showing dialog
+          if (!preview.negativeLots.wouldOccur) {
+            setIsEditPreviewOpen(false);
+            await executePatch(transactionId, patch);
+            return;
+          }
+          // Negative lots — dialog stays open (hard-blocked, cancel only)
+        } catch (err: Error | unknown) {
+          setIsEditPreviewLoading(false);
+          setIsEditPreviewOpen(false);
+          setErrorMessage(err instanceof Error ? err.message : "Preview failed");
+        }
+        return;
+      }
+
+      // No side/quantity change — patch directly (date/price-only edits)
+      await executePatch(transactionId, patch);
+    },
+    [executePatch],
+  );
+
+  const cancelEditPreview = useCallback(() => {
+    setIsEditPreviewOpen(false);
+    setEditPreview(null);
+    setEditingId(null); // Exit edit mode entirely when negative lots block is dismissed
+  }, []);
 
   // --- Fee confirmation ---
   const isFeeConfirmOpen = feeConfirmTarget !== null;
@@ -279,15 +338,29 @@ export function useTransactionMutations({
     enabled: true,
   });
 
-  // --- Timeout ---
+  // --- Fallback refresh ---
+  // The in-memory backend completes recompute via setImmediate — often before
+  // the browser's EventSource processes the SSE event. Schedule a short delayed
+  // refresh that also clears the recomputing state and message, mirroring what
+  // the SSE recompute_complete handler does. Without clearing state, the stale
+  // "Recomputing..." message stays visible and the 30s timeout fires needlessly.
   useEffect(() => {
     if (recomputingSymbols.size === 0) return;
-    const timer = setTimeout(() => {
+    const fallback = setTimeout(() => {
+      clearAllRecomputing();
+      setMessage(dictRef.current.mutations.recomputeCompleteMessage);
+      setErrorMessage("");
+      void refreshRef.current();
+    }, 2_000);
+    const timeout = setTimeout(() => {
       clearAllRecomputing();
       setMessage(dictRef.current.mutations.recomputeTimeoutMessage);
       void refreshRef.current();
     }, TIMEOUT_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(fallback);
+      clearTimeout(timeout);
+    };
   }, [recomputingSymbolsKey, clearAllRecomputing]);
 
   return {
@@ -302,6 +375,10 @@ export function useTransactionMutations({
     startEdit,
     cancelEdit,
     submitEdit,
+    editPreview,
+    isEditPreviewOpen,
+    isEditPreviewLoading,
+    cancelEditPreview,
     feeConfirmTarget,
     isFeeConfirmOpen,
     confirmFeeRecalc,

@@ -110,6 +110,20 @@ describe("POST /auth/demo/start", () => {
     // Load the store to check transactions were seeded
     const store = await app.persistence.loadStore(body.userId);
     expect(store.accounting.facts.tradeEvents.length).toBeGreaterThan(0);
+
+    // Regression: demo seeding must process trades through the full booking
+    // pipeline (createTransaction) so that derived data is populated — not just
+    // raw tradeEvents. Without this, the portfolio page shows empty holdings.
+    expect(store.accounting.projections.lots.length).toBeGreaterThan(0);
+    expect(store.accounting.projections.holdings.length).toBeGreaterThan(0);
+    expect(store.accounting.facts.cashLedgerEntries.length).toBeGreaterThan(0);
+
+    // Verify holdings cover the expected symbols from demo data
+    const holdingSymbols = store.accounting.projections.holdings.map(
+      (h: { symbol: string }) => h.symbol,
+    );
+    expect(holdingSymbols).toContain("2330");
+    expect(holdingSymbols).toContain("0050");
   });
 
   it("rate limits after 5 requests per IP", async () => {
@@ -129,6 +143,98 @@ describe("POST /auth/demo/start", () => {
     });
     expect(res.statusCode).toBe(429);
     expect(res.json().error).toBe("rate_limit_exceeded");
+  });
+});
+
+describe("POST /__e2e/demo-session", () => {
+  let app: Awaited<ReturnType<typeof buildApp>>;
+
+  beforeEach(async () => {
+    _resetDemoRateBuckets();
+    app = await buildApp({
+      persistenceBackend: "memory",
+      oauthConfig: testOAuthConfig,
+      appBaseUrl: "http://localhost:3000",
+    });
+  });
+
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  it("creates demo session and returns signed cookie", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/__e2e/demo-session",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.status).toBe("ok");
+    expect(body.userId).toBeTruthy();
+    expect(body.sessionType).toBe("demo");
+    expect(body.expiresAt).toBeTruthy();
+
+    // Verify cookie is a valid signed demo session
+    const setCookie = res.headers["set-cookie"] as string;
+    expect(setCookie).toContain("Max-Age=");
+    expect(setCookie).toContain("HttpOnly");
+
+    const cookieValue = setCookie.split("=").slice(1).join("=").split(";")[0];
+    const identity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
+    expect(identity).not.toBeNull();
+    expect(identity?.userId).toBe(body.userId);
+    expect(identity?.isDemo).toBe(true);
+  });
+
+  it("seeds demo transactions (non-empty store)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/__e2e/demo-session",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    const store = await app.persistence.loadStore(body.userId);
+    expect(store.accounting.facts.tradeEvents.length).toBeGreaterThan(0);
+    expect(store.accounting.projections.lots.length).toBeGreaterThan(0);
+    expect(store.accounting.projections.holdings.length).toBeGreaterThan(0);
+  });
+
+  it("bypasses demo rate limiter (no 429 after bucket exhaustion)", async () => {
+    // Exhaust the demo rate bucket via the real endpoint
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({ method: "POST", url: "/auth/demo/start" });
+      expect(res.statusCode).toBe(200);
+    }
+    // Confirm real endpoint is now rate-limited
+    const rateLimited = await app.inject({ method: "POST", url: "/auth/demo/start" });
+    expect(rateLimited.statusCode).toBe(429);
+
+    // /__e2e/demo-session should still work — it bypasses the rate limiter
+    const res = await app.inject({ method: "POST", url: "/__e2e/demo-session" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("ok");
+  });
+
+  it("returns 404 in production NODE_ENV", async () => {
+    const { Env } = await import("@tw-portfolio/config");
+    const original = Env.NODE_ENV;
+    try {
+      (Env as Record<string, unknown>).NODE_ENV = "production";
+      const prodApp = await buildApp({
+        persistenceBackend: "memory",
+        oauthConfig: testOAuthConfig,
+      });
+      try {
+        const res = await prodApp.inject({ method: "POST", url: "/__e2e/demo-session" });
+        expect(res.statusCode).toBe(404);
+      } finally {
+        await prodApp.close();
+      }
+    } finally {
+      (Env as Record<string, unknown>).NODE_ENV = original;
+    }
   });
 });
 

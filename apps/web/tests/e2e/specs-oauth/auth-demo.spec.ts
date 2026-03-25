@@ -4,6 +4,9 @@ import { test, expect } from "@playwright/test";
 // The oauth project's storageState (auth setup) seeds a real session cookie,
 // so we override it with an empty state for these tests.
 test.use({ storageState: { cookies: [], origins: [] } });
+// ⚠️ This file makes 5 real POST /auth/demo/start calls, exhausting the 5/60s
+// demo rate bucket. Tests in other spec files that need a demo session must use
+// the /__e2e/demo-session fixture (fixtures/demo-test.ts) to avoid 429 failures.
 
 test.describe("Demo user flow", () => {
   test("click demo button creates session and lands on /dashboard", async ({ page }) => {
