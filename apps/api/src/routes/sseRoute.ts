@@ -98,19 +98,14 @@ export function registerSSERoute(
     // 3. Increment connection counter
     connectionCounts.set(userId, currentCount + 1);
 
-    // 4. Parse Last-Event-ID for telemetry
+    // 4. Parse Last-Event-ID for replay
     const lastEventIdHeader = req.headers["last-event-id"];
-    let seq = 0;
+    let lastEventId: number | null = null;
 
     if (lastEventIdHeader && !Array.isArray(lastEventIdHeader)) {
       const parsed = parseInt(lastEventIdHeader, 10);
       if (!isNaN(parsed)) {
-        req.log.info({
-          msg: "sse_reconnect",
-          userId,
-          lastEventId: parsed,
-          gapSize: "unknown_new_connection",
-        });
+        lastEventId = parsed;
       }
     }
 
@@ -126,27 +121,54 @@ export function registerSSERoute(
       "x-accel-buffering": "no",
     });
 
-    // 6. Helper to write SSE frame
-    function writeEvent(eventType: string, data: unknown): void {
+    // 6. Helper to write SSE frame with explicit seq + backpressure (KZO-118)
+    function writeEvent(eventType: string, data: unknown, seq: number): void {
       try {
-        seq++;
-        reply.raw.write(`id: ${seq}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+        const ok = reply.raw.write(
+          `id: ${seq}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`,
+        );
+        if (!ok) {
+          req.log.warn({
+            msg: "sse_backpressure_drop",
+            eventType,
+            userId,
+            seq,
+          });
+        }
       } catch {
         // Socket already destroyed — close handler will clean up
       }
     }
 
-    // 7. Subscribe to EventBus
+    // 7. Replay buffered events on reconnect
+    if (lastEventId !== null) {
+      const missed = app.eventBus.getEventsSince(userId, lastEventId);
+      req.log.info({
+        msg: "sse_replay",
+        userId,
+        lastEventId,
+        replayedCount: missed.length,
+      });
+      for (const event of missed) {
+        writeEvent(event.type, event.data, event.seq);
+      }
+    } else if (lastEventIdHeader) {
+      // Non-parseable Last-Event-ID — log for debugging but don't replay
+      req.log.info({ msg: "sse_reconnect_unparseable", userId, lastEventId: lastEventIdHeader });
+    }
+
+    // 8. Subscribe to EventBus — seq comes from BufferedEventBus
     const unsubscribe = app.eventBus.subscribe(userId, (event) => {
-      writeEvent(event.type, event.data);
+      writeEvent(event.type, event.data, event.seq ?? 0);
     });
 
-    // 8. Heartbeat interval
+    // 9. Heartbeat interval — uses BufferedEventBus.nextSeq()
     const heartbeatInterval = setInterval(() => {
-      writeEvent("heartbeat", {});
+      const hbSeq = app.eventBus.nextSeq(userId);
+      writeEvent("heartbeat", {}, hbSeq);
     }, HEARTBEAT_INTERVAL_MS);
 
-    // 9. Cleanup on connection close
+    // 10. Cleanup on connection close
     req.raw.on("close", () => {
       clearInterval(heartbeatInterval);
       unsubscribe();
@@ -159,7 +181,8 @@ export function registerSSERoute(
     });
 
     // Send initial heartbeat to confirm connection
-    writeEvent("heartbeat", {});
+    const initialSeq = app.eventBus.nextSeq(userId);
+    writeEvent("heartbeat", {}, initialSeq);
 
     return reply;
   });

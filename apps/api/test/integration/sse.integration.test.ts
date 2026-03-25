@@ -139,7 +139,7 @@ describe("SSE infrastructure", () => {
 
       await app.eventBus.publishEvent("user-a", "recompute_complete", { portfolioId: "p1" });
 
-      expect(receivedA).toEqual([{ type: "recompute_complete", data: { portfolioId: "p1" } }]);
+      expect(receivedA).toEqual([{ type: "recompute_complete", data: { portfolioId: "p1" }, seq: 1 }]);
       expect(receivedB).toEqual([]);
     });
 
@@ -292,7 +292,7 @@ describe("SSE infrastructure", () => {
       });
 
       expect(received).toEqual([
-        { type: "recompute_complete", data: { portfolioId: "test-1" } },
+        { type: "recompute_complete", data: { portfolioId: "test-1" }, seq: 1 },
       ]);
     });
 
@@ -374,7 +374,7 @@ describe("SSE infrastructure", () => {
   });
 
   describe("Last-Event-ID", () => {
-    it("accepts connection with Last-Event-ID header (telemetry only, no replay)", async () => {
+    it("accepts connection with Last-Event-ID header (no buffered events for fresh user)", async () => {
       const conn = openSSEConnection(`${baseUrl}/events/stream`, {
         "x-user-id": "reconnect-user",
         "last-event-id": "42",
@@ -384,9 +384,9 @@ describe("SSE infrastructure", () => {
         await conn.waitForFrames(1);
         const status = await conn.statusCode;
 
-        // Connection succeeds — Last-Event-ID is for telemetry only
+        // Connection succeeds — no buffered events for this user
         expect(status).toBe(200);
-        // IDs start fresh (no replay)
+        // Fresh user starts at seq 1
         expect(conn.frames[0]!.id).toBe("1");
       } finally {
         conn.close();
@@ -445,14 +445,15 @@ describe("SSE infrastructure", () => {
       await newConn.waitForFrames(1);
       expect(await newConn.statusCode).toBe(200);
       expect(newConn.frames[0]!.event).toBe("heartbeat");
-      // New connection gets fresh sequence starting at 1
-      expect(newConn.frames[0]!.id).toBe("1");
+      // Per-user seq persists across connections — heartbeat continues from last seq
+      const reconnectId = parseInt(newConn.frames[0]!.id!, 10);
+      expect(reconnectId).toBeGreaterThan(1);
       newConn.close();
     });
   });
 
-  describe("Last-Event-ID telemetry logging", () => {
-    it("logs sse_reconnect with userId and lastEventId on reconnect", async () => {
+  describe("Last-Event-ID replay logging", () => {
+    it("logs sse_replay with userId and lastEventId on reconnect", async () => {
       // Capture log calls from the child request logger.
       // Fastify creates a child logger per request, so we spy on the factory.
       const logEntries: Array<Record<string, unknown>> = [];
@@ -477,12 +478,187 @@ describe("SSE infrastructure", () => {
       try {
         await conn.waitForFrames(1);
 
-        // Check that sse_reconnect was logged
-        const reconnectLog = logEntries.find((e) => e.msg === "sse_reconnect");
-        expect(reconnectLog).toBeDefined();
-        expect(reconnectLog!.userId).toBe("telemetry-user");
-        expect(reconnectLog!.lastEventId).toBe(42);
-        expect(reconnectLog!.gapSize).toBe("unknown_new_connection");
+        // Check that sse_replay was logged
+        const replayLog = logEntries.find((e) => e.msg === "sse_replay");
+        expect(replayLog).toBeDefined();
+        expect(replayLog!.userId).toBe("telemetry-user");
+        expect(replayLog!.lastEventId).toBe(42);
+        expect(replayLog!.replayedCount).toBe(0);
+      } finally {
+        conn.close();
+      }
+    });
+  });
+
+  describe("SSE replay (Last-Event-ID)", () => {
+    // I1: Replay on reconnect — connect, receive events, disconnect, reconnect
+    // with Last-Event-ID, verify replayed events arrive before live heartbeat
+    it("replays buffered events on reconnect with Last-Event-ID", async () => {
+      const userId = "replay-user";
+
+      // First connection: establish seq counter
+      const conn1 = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+      });
+
+      try {
+        await conn1.waitForFrames(1); // heartbeat id=1
+        expect(conn1.frames[0]!.event).toBe("heartbeat");
+
+        // Publish 2 events while connected (they get buffered)
+        await app.eventBus.publishEvent(userId, "recompute_started", { symbol: "AAPL" });
+        await app.eventBus.publishEvent(userId, "recompute_complete", { symbol: "AAPL" });
+        await conn1.waitForFrames(3); // heartbeat + 2 events
+      } finally {
+        conn1.close();
+      }
+
+      // Wait for server to process disconnect
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Publish events while disconnected — these should be buffered
+      await app.eventBus.publishEvent(userId, "recompute_started", { symbol: "MSFT" });
+      await app.eventBus.publishEvent(userId, "recompute_complete", { symbol: "MSFT" });
+
+      // Reconnect with Last-Event-ID pointing to the heartbeat (seq 1)
+      // This should replay all buffered events with seq > 1
+      const conn2 = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+        "last-event-id": "1",
+      });
+
+      try {
+        // Expect: replayed events (seq 2, 3, 4, 5) + new heartbeat
+        // At minimum we should get the 4 replayed events
+        await conn2.waitForFrames(4, 5000);
+
+        // Replayed events should come first, before the live heartbeat
+        const replayedFrames = conn2.frames.filter((f) => f.event !== "heartbeat");
+        expect(replayedFrames.length).toBeGreaterThanOrEqual(2);
+
+        // Verify replayed events have correct sequential IDs > 1
+        for (const frame of replayedFrames) {
+          const id = parseInt(frame.id!, 10);
+          expect(id).toBeGreaterThan(1);
+        }
+
+        // Verify the events contain expected data
+        const eventTypes = replayedFrames.map((f) => f.event);
+        expect(eventTypes).toContain("recompute_started");
+        expect(eventTypes).toContain("recompute_complete");
+      } finally {
+        conn2.close();
+      }
+    });
+
+    // I2: No replay on fresh connection
+    it("does not replay on fresh connection without Last-Event-ID", async () => {
+      const userId = "fresh-conn-user";
+
+      // Publish some events to the buffer before connecting
+      await app.eventBus.publishEvent(userId, "old_event_1", {});
+      await app.eventBus.publishEvent(userId, "old_event_2", {});
+
+      // Connect without Last-Event-ID
+      const conn = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+      });
+
+      try {
+        await conn.waitForFrames(1);
+
+        // First frame should be heartbeat (no replay)
+        expect(conn.frames[0]!.event).toBe("heartbeat");
+
+        // The heartbeat seq should be > 2 because publishEvent already consumed seqs 1, 2
+        const heartbeatId = parseInt(conn.frames[0]!.id!, 10);
+        expect(heartbeatId).toBeGreaterThan(2);
+
+        // No replayed events — only the heartbeat
+        expect(conn.frames).toHaveLength(1);
+      } finally {
+        conn.close();
+      }
+    });
+
+    // I3: Sequence continuity across reconnections
+    it("maintains sequence continuity across reconnections", async () => {
+      const userId = "seq-continuity-user";
+
+      // First connection
+      const conn1 = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+      });
+
+      let lastSeq: number;
+      try {
+        await conn1.waitForFrames(1); // heartbeat
+        await app.eventBus.publishEvent(userId, "event_a", {});
+        await conn1.waitForFrames(2);
+
+        lastSeq = parseInt(conn1.frames[1]!.id!, 10);
+        expect(lastSeq).toBeGreaterThan(0);
+      } finally {
+        conn1.close();
+      }
+
+      await new Promise((r) => setTimeout(r, 150));
+
+      // Reconnect with Last-Event-ID set to last received seq
+      const conn2 = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+        "last-event-id": String(lastSeq!),
+      });
+
+      try {
+        await conn2.waitForFrames(1); // at least heartbeat
+
+        // Publish a new event
+        await app.eventBus.publishEvent(userId, "event_b", {});
+        await conn2.waitForFrames(2);
+
+        // Find the event_b frame
+        const eventB = conn2.frames.find((f) => f.event === "event_b");
+        expect(eventB).toBeDefined();
+
+        const eventBSeq = parseInt(eventB!.id!, 10);
+        // Seq must be strictly greater than the last seq from connection 1
+        expect(eventBSeq).toBeGreaterThan(lastSeq!);
+
+        // Verify all frame IDs are monotonically increasing
+        const ids = conn2.frames.map((f) => parseInt(f.id!, 10));
+        for (let i = 1; i < ids.length; i++) {
+          expect(ids[i]!).toBeGreaterThan(ids[i - 1]!);
+        }
+      } finally {
+        conn2.close();
+      }
+    });
+
+    // I4: Non-parseable Last-Event-ID treated as fresh connection
+    it("treats non-parseable Last-Event-ID as fresh connection", async () => {
+      const userId = "unparseable-id-user";
+
+      // Publish events before connecting
+      await app.eventBus.publishEvent(userId, "buffered_event", {});
+
+      const conn = openSSEConnection(`${baseUrl}/events/stream`, {
+        "x-user-id": userId,
+        "last-event-id": "not-a-number",
+      });
+
+      try {
+        await conn.waitForFrames(1);
+        const status = await conn.statusCode;
+
+        // Connection should succeed
+        expect(status).toBe(200);
+
+        // First frame is heartbeat — no replay attempted
+        expect(conn.frames[0]!.event).toBe("heartbeat");
+
+        // No buffered events replayed (only heartbeat arrived)
+        expect(conn.frames).toHaveLength(1);
       } finally {
         conn.close();
       }
@@ -517,7 +693,7 @@ describe.skipIf(!process.env.REDIS_URL)("RedisEventBus", () => {
     await new Promise((r) => setTimeout(r, 300));
 
     expect(received).toHaveLength(1);
-    expect(received[0]).toEqual({ type: "recompute_complete", data: { test: true } });
+    expect(received[0]).toEqual({ type: "recompute_complete", data: { test: true }, seq: 1 });
   });
 
   it("close() disconnects cleanly without errors", async () => {

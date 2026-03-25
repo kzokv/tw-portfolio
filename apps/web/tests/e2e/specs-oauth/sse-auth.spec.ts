@@ -43,7 +43,10 @@ test.describe("SSE with OAuth session auth", () => {
 
     expect(result.connected).toBe(true);
     expect(result.heartbeatReceived).toBe(true);
-    expect(result.eventId).toBe("1");
+    // seq is per-user and shared across connections — the page's own useEventStream
+    // connection (opened on page.goto) consumes at least seq=1, so this connection's
+    // heartbeat will have seq >= 1 (not necessarily exactly 1)
+    expect(parseInt(result.eventId)).toBeGreaterThanOrEqual(1);
   });
 
   test("synthetic endpoint delivers event via SSE with oauth session", async ({ page, request }) => {
