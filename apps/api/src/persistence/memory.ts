@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@tw-portfolio/domain";
-import { createStore } from "../services/store.js";
+import { createStore, setStoreSymbols, syncLegacySymbols } from "../services/store.js";
 import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
-import type { AccountingStore, BookedTradeEvent, CashLedgerEntry, LotAllocationProjection, Store } from "../types/store.js";
+import { upsertDividendEvent } from "../services/marketDataStore.js";
+import type {
+  AccountingStore,
+  BookedTradeEvent,
+  CashLedgerEntry,
+  LotAllocationProjection,
+  MarketDataFacts,
+  Store,
+  DividendEvent,
+} from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
@@ -91,13 +100,14 @@ export class MemoryPersistence implements Persistence {
   }
 
   async saveStore(store: Store): Promise<void> {
+    syncLegacySymbols(store);
     this.stores.set(store.userId, store);
   }
 
   async upsertSymbols(userId: string, symbols: Store["symbols"]): Promise<void> {
     if (symbols.length === 0) return;
     const store = await this.loadStore(userId);
-    store.symbols = upsertSymbolDefinitions(store.symbols, symbols);
+    setStoreSymbols(store, upsertSymbolDefinitions(store.symbols, symbols));
     this.stores.set(userId, store);
   }
 
@@ -116,9 +126,16 @@ export class MemoryPersistence implements Persistence {
     await this.saveAccountingStore(userId, accounting);
   }
 
+  async saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void> {
+    const store = await this.loadStore(userId);
+    upsertDividendEvent(store, dividendEvent);
+    this.stores.set(userId, store);
+  }
+
   async savePostedDividend(
     userId: string,
     accounting: AccountingStore,
+    marketData: MarketDataFacts,
     dividendLedgerEntryId: string,
   ): Promise<void> {
     const store = await this.loadStore(userId);
@@ -131,7 +148,10 @@ export class MemoryPersistence implements Persistence {
       );
     }
 
-    await this.saveAccountingStore(userId, accounting);
+    store.accounting = accounting;
+    store.marketData = marketData;
+    syncLegacySymbols(store);
+    this.stores.set(userId, store);
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {

@@ -1,4 +1,5 @@
 import type { InstrumentType } from "@tw-portfolio/domain";
+import { setStoreSymbols } from "./store.js";
 import type { Store, SymbolDef } from "../types/store.js";
 
 const DEFAULT_MARKET_CODE = "TW";
@@ -36,7 +37,7 @@ export function listTransactionSymbols(current: SymbolDef[]): SymbolDef[] {
 }
 
 export function ensureSymbolDefinition(store: Store, rawTicker: string): { symbol: SymbolDef; created: boolean } {
-  store.symbols = upsertSymbolDefinitions(store.symbols, createDefaultSymbols());
+  setStoreSymbols(store, upsertSymbolDefinitions(store.symbols, createDefaultSymbols()));
   const ticker = normalizeSymbolInput(rawTicker);
   const existing = store.symbols.find((symbol) => symbol.ticker === ticker);
 
@@ -45,7 +46,7 @@ export function ensureSymbolDefinition(store: Store, rawTicker: string): { symbo
   }
 
   const nextSymbol = buildProvisionalSymbol(ticker);
-  store.symbols = upsertSymbolDefinitions(store.symbols, [nextSymbol]);
+  setStoreSymbols(store, upsertSymbolDefinitions(store.symbols, [nextSymbol]));
   return { symbol: nextSymbol, created: true };
 }
 

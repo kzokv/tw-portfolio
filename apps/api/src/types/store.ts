@@ -1,4 +1,4 @@
-import type { CurrencyCode, FeeProfile, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
+import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
 import type { UserSettings } from "@tw-portfolio/shared-types";
 
 export interface Account {
@@ -206,10 +206,14 @@ export interface DailyPortfolioSnapshot {
 export interface AccountingFacts {
   tradeEvents: BookedTradeEvent[];
   cashLedgerEntries: CashLedgerEntry[];
-  dividendEvents: DividendEvent[];
   dividendLedgerEntries: DividendLedgerEntry[];
   dividendDeductionEntries: DividendDeductionEntry[];
   corporateActions: CorporateAction[];
+}
+
+export interface MarketDataFacts {
+  dividendEvents: DividendEvent[];
+  instruments: InstrumentRef[];
 }
 
 export interface AccountingProjections {
@@ -237,6 +241,8 @@ export interface Store {
   feeProfileBindings: FeeProfileBinding[];
   feeProfiles: FeeProfile[];
   accounting: AccountingStore;
+  marketData: MarketDataFacts;
+  /** @deprecated Phase-1 bridge. Prefer store.marketData.instruments. */
   symbols: SymbolDef[];
   recomputeJobs: RecomputeJob[];
   idempotencyKeys: Set<string>;

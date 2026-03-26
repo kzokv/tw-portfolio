@@ -18,6 +18,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
+import { instrumentRefToSymbolDef } from "../services/store.js";
 import { createDefaultSymbols, upsertSymbolDefinitions } from "../services/symbolRegistry.js";
 import type {
   AccountingStore,
@@ -27,6 +28,7 @@ import type {
   DividendEvent,
   DividendLedgerEntry,
   LotAllocationProjection,
+  MarketDataFacts,
   RecomputeJob,
   RecomputePreviewItem,
   Store,
@@ -538,6 +540,13 @@ export class PostgresPersistence implements Persistence {
       createdAt: normalizeDateTime(row.created_at),
       items: recomputeItems.get(row.id) ?? [],
     }));
+    const instruments = symbolsResult.rows.map((row) => ({
+      ticker: row.ticker,
+      instrumentType: row.instrument_type,
+      marketCode: row.market_code ?? "TW",
+      isProvisional: row.is_provisional,
+      lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+    }));
 
     const store: Store = {
       userId,
@@ -565,7 +574,6 @@ export class PostgresPersistence implements Persistence {
         facts: {
           tradeEvents,
           cashLedgerEntries,
-          dividendEvents,
           dividendLedgerEntries,
           dividendDeductionEntries,
           corporateActions: actionsResult.rows.map((row) => ({
@@ -595,13 +603,11 @@ export class PostgresPersistence implements Persistence {
         },
         policy: buildAccountingPolicy(),
       },
-      symbols: symbolsResult.rows.map((row) => ({
-        ticker: row.ticker,
-        type: row.instrument_type,
-        marketCode: row.market_code,
-        isProvisional: row.is_provisional,
-        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
-      })),
+      marketData: {
+        dividendEvents,
+        instruments,
+      },
+      symbols: instruments.map(instrumentRefToSymbolDef),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
     };
@@ -740,6 +746,7 @@ export class PostgresPersistence implements Persistence {
         [store.userId],
       );
       await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
+      await this.saveMarketDataTx(client, store.marketData);
       await this.saveAccountingStoreTx(client, store.userId, store.accounting, accountIds);
 
       if (feeProfileIds.length) {
@@ -1064,8 +1071,34 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async savePostedDividend(userId: string, accounting: AccountingStore, dividendLedgerEntryId: string): Promise<void> {
+  async saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void> {
+    validateMarketDataInvariants({
+      dividendEvents: [dividendEvent],
+      instruments: [],
+    });
+    await this.ensureDefaultPortfolioData(userId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.saveDividendEventTx(client, dividendEvent);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async savePostedDividend(
+    userId: string,
+    accounting: AccountingStore,
+    marketData: MarketDataFacts,
+    dividendLedgerEntryId: string,
+  ): Promise<void> {
     validateAccountingStoreInvariants(accounting);
+    validateMarketDataInvariants(marketData);
+    validateAccountingMarketDataCrossReferences(accounting, marketData);
     await this.ensureDefaultPortfolioData(userId);
 
     const dividendLedgerEntry = accounting.facts.dividendLedgerEntries.find((entry) => entry.id === dividendLedgerEntryId);
@@ -1073,7 +1106,7 @@ export class PostgresPersistence implements Persistence {
       throw new Error(`dividend ledger entry ${dividendLedgerEntryId} not found in accounting store`);
     }
 
-    const dividendEvent = accounting.facts.dividendEvents.find((entry) => entry.id === dividendLedgerEntry.dividendEventId);
+    const dividendEvent = marketData.dividendEvents.find((entry) => entry.id === dividendLedgerEntry.dividendEventId);
     if (!dividendEvent) {
       throw new Error(`dividend event ${dividendLedgerEntry.dividendEventId} not found in accounting store`);
     }
@@ -1108,41 +1141,7 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query(
-        `INSERT INTO market_data.dividend_events (
-           id, ticker, event_type, ex_dividend_date, payment_date,
-           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source, source_reference, ingested_at
-         ) VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7, $8,
-           $9, $10, $11
-         )
-         ON CONFLICT (id)
-         DO UPDATE SET
-           ticker = EXCLUDED.ticker,
-           event_type = EXCLUDED.event_type,
-           ex_dividend_date = EXCLUDED.ex_dividend_date,
-           payment_date = EXCLUDED.payment_date,
-           cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
-           cash_dividend_currency = EXCLUDED.cash_dividend_currency,
-           stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
-           source = EXCLUDED.source,
-           source_reference = EXCLUDED.source_reference`,
-        [
-          dividendEvent.id,
-          dividendEvent.ticker,
-          dividendEvent.eventType,
-          dividendEvent.exDividendDate,
-          dividendEvent.paymentDate,
-          dividendEvent.cashDividendPerShare,
-          dividendEvent.cashDividendCurrency,
-          dividendEvent.stockDividendPerShare,
-          dividendEvent.source,
-          dividendEvent.sourceReference ?? null,
-          dividendEvent.createdAt ?? new Date().toISOString(),
-        ],
-      );
+      await this.saveDividendEventTx(client, dividendEvent);
 
       await client.query(
         `INSERT INTO dividend_ledger_entries (
@@ -1651,44 +1650,6 @@ export class PostgresPersistence implements Persistence {
     await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
 
-    for (const dividendEvent of accounting.facts.dividendEvents) {
-      await client.query(
-        `INSERT INTO market_data.dividend_events (
-           id, ticker, event_type, ex_dividend_date, payment_date,
-           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source, source_reference, ingested_at
-         ) VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7, $8,
-           $9, $10, $11
-         )
-         ON CONFLICT (id)
-         DO UPDATE SET
-           ticker = EXCLUDED.ticker,
-           event_type = EXCLUDED.event_type,
-           ex_dividend_date = EXCLUDED.ex_dividend_date,
-           payment_date = EXCLUDED.payment_date,
-           cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
-           cash_dividend_currency = EXCLUDED.cash_dividend_currency,
-           stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
-           source = EXCLUDED.source,
-           source_reference = EXCLUDED.source_reference`,
-        [
-          dividendEvent.id,
-          dividendEvent.ticker,
-          dividendEvent.eventType,
-          dividendEvent.exDividendDate,
-          dividendEvent.paymentDate,
-          dividendEvent.cashDividendPerShare,
-          dividendEvent.cashDividendCurrency,
-          dividendEvent.stockDividendPerShare,
-          dividendEvent.source,
-          dividendEvent.sourceReference ?? null,
-          dividendEvent.createdAt ?? new Date().toISOString(),
-        ],
-      );
-    }
-
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
       await client.query(
         `INSERT INTO dividend_ledger_entries (
@@ -2190,6 +2151,50 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
+  private async saveMarketDataTx(client: PoolClient, marketData: MarketDataFacts): Promise<void> {
+    for (const dividendEvent of marketData.dividendEvents) {
+      await this.saveDividendEventTx(client, dividendEvent);
+    }
+  }
+
+  private async saveDividendEventTx(client: PoolClient, dividendEvent: DividendEvent): Promise<void> {
+    await client.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+         source, source_reference, ingested_at
+       ) VALUES (
+         $1, $2, $3, $4, $5,
+         $6, $7, $8,
+         $9, $10, $11
+       )
+       ON CONFLICT (id)
+       DO UPDATE SET
+         ticker = EXCLUDED.ticker,
+         event_type = EXCLUDED.event_type,
+         ex_dividend_date = EXCLUDED.ex_dividend_date,
+         payment_date = EXCLUDED.payment_date,
+         cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
+         cash_dividend_currency = EXCLUDED.cash_dividend_currency,
+         stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
+         source = EXCLUDED.source,
+         source_reference = EXCLUDED.source_reference`,
+      [
+        dividendEvent.id,
+        dividendEvent.ticker,
+        dividendEvent.eventType,
+        dividendEvent.exDividendDate,
+        dividendEvent.paymentDate,
+        dividendEvent.cashDividendPerShare,
+        dividendEvent.cashDividendCurrency,
+        dividendEvent.stockDividendPerShare,
+        dividendEvent.source,
+        dividendEvent.sourceReference ?? null,
+        dividendEvent.createdAt ?? new Date().toISOString(),
+      ],
+    );
+  }
+
   async bulkInsertLotAllocations(_userId: string, allocations: LotAllocationProjection[]): Promise<void> {
     for (const allocation of allocations) {
       await this.pool.query(
@@ -2304,7 +2309,9 @@ function validateStoreInvariants(store: Store): void {
       }
     }
   }
+  validateMarketDataInvariants(store.marketData);
   validateAccountingStoreInvariants(store.accounting, accountIds);
+  validateAccountingMarketDataCrossReferences(store.accounting, store.marketData);
   for (const binding of store.feeProfileBindings) {
     if (!accountIds.has(binding.accountId)) {
       throw new Error(`fee profile binding references unknown account ${binding.accountId}`);
@@ -2332,7 +2339,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
 
   const tradeIds = new Set(accounting.facts.tradeEvents.map((trade) => trade.id));
   const lotIds = new Set(accounting.projections.lots.map((lot) => lot.id));
-  const dividendEventIds = new Set(accounting.facts.dividendEvents.map((event) => event.id));
   const dividendLedgerIds = new Set(accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
   const tradeBookingKeys = new Set<string>();
 
@@ -2367,12 +2373,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
   );
   const activeDividendKeys = new Set<string>();
 
-  for (const dividendEvent of accounting.facts.dividendEvents) {
-    if (!isCurrencyCode(dividendEvent.cashDividendCurrency)) {
-      throw new Error(`dividend event ${dividendEvent.id} has invalid cash currency ${dividendEvent.cashDividendCurrency}`);
-    }
-  }
-
   for (const lot of accounting.projections.lots) {
     if (!isCurrencyCode(lot.costCurrency)) {
       throw new Error(`lot ${lot.id} has invalid cost currency ${lot.costCurrency}`);
@@ -2394,11 +2394,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
   }
 
   for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
-    if (!dividendEventIds.has(dividendLedgerEntry.dividendEventId)) {
-      throw new Error(
-        `dividend ledger entry ${dividendLedgerEntry.id} references unknown dividend event ${dividendLedgerEntry.dividendEventId}`,
-      );
-    }
     if (accountIds && !accountIds.has(dividendLedgerEntry.accountId)) {
       throw new Error(
         `dividend ledger entry ${dividendLedgerEntry.id} references unknown account ${dividendLedgerEntry.accountId}`,
@@ -2453,13 +2448,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
   }
 
-  const dividendEventCurrencyByLedgerId = new Map(
-    accounting.facts.dividendLedgerEntries.map((entry) => {
-      const event = accounting.facts.dividendEvents.find((item) => item.id === entry.dividendEventId);
-      return [entry.id, event?.cashDividendCurrency];
-    }),
-  );
-
   for (const deduction of accounting.facts.dividendDeductionEntries) {
     if (!dividendLedgerIds.has(deduction.dividendLedgerEntryId)) {
       throw new Error(
@@ -2469,6 +2457,59 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     if (!isCurrencyCode(deduction.currencyCode)) {
       throw new Error(`dividend deduction ${deduction.id} has invalid currency ${deduction.currencyCode}`);
     }
+  }
+
+  for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
+    if (!isCurrencyCode(snapshot.currency)) {
+      throw new Error(`snapshot ${snapshot.id} has invalid currency ${snapshot.currency}`);
+    }
+  }
+}
+
+function validateMarketDataInvariants(marketData: MarketDataFacts): void {
+  const dividendEventIds = new Set<string>();
+
+  for (const dividendEvent of marketData.dividendEvents) {
+    if (dividendEventIds.has(dividendEvent.id)) {
+      throw new Error(`duplicate dividend event ${dividendEvent.id}`);
+    }
+    dividendEventIds.add(dividendEvent.id);
+
+    if (!isCurrencyCode(dividendEvent.cashDividendCurrency)) {
+      throw new Error(`dividend event ${dividendEvent.id} has invalid cash currency ${dividendEvent.cashDividendCurrency}`);
+    }
+  }
+
+  for (const instrument of marketData.instruments) {
+    if (!/^[A-Za-z0-9]{1,16}$/.test(instrument.ticker)) {
+      throw new Error(`instrument ${instrument.ticker} has invalid ticker`);
+    }
+    if (!/^[A-Z]{2,8}$/.test(instrument.marketCode)) {
+      throw new Error(`instrument ${instrument.ticker} has invalid market code ${instrument.marketCode}`);
+    }
+  }
+}
+
+function validateAccountingMarketDataCrossReferences(accounting: AccountingStore, marketData: MarketDataFacts): void {
+  const eventById = new Map(marketData.dividendEvents.map((event) => [event.id, event]));
+  const dividendLedgerIds = new Set(accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
+
+  for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
+    if (!eventById.has(dividendLedgerEntry.dividendEventId)) {
+      throw new Error(
+        `dividend ledger entry ${dividendLedgerEntry.id} references unknown dividend event ${dividendLedgerEntry.dividendEventId}`,
+      );
+    }
+  }
+
+  const dividendEventCurrencyByLedgerId = new Map(
+    accounting.facts.dividendLedgerEntries.map((entry) => [entry.id, eventById.get(entry.dividendEventId)?.cashDividendCurrency]),
+  );
+
+  for (const deduction of accounting.facts.dividendDeductionEntries) {
+    if (!dividendLedgerIds.has(deduction.dividendLedgerEntryId)) {
+      continue;
+    }
 
     const expectedCurrency = dividendEventCurrencyByLedgerId.get(deduction.dividendLedgerEntryId);
     if (!expectedCurrency) {
@@ -2477,12 +2518,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
 
     if (deduction.currencyCode !== expectedCurrency) {
       throw new Error(`dividend deduction ${deduction.id} currency must match parent dividend currency ${expectedCurrency}`);
-    }
-  }
-
-  for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
-    if (!isCurrencyCode(snapshot.currency)) {
-      throw new Error(`snapshot ${snapshot.id} has invalid currency ${snapshot.currency}`);
     }
   }
 }

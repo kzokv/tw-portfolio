@@ -6,7 +6,6 @@ import type {
   CashLedgerEntry,
   CorporateAction,
   DividendDeductionEntry,
-  DividendEvent,
   DividendLedgerEntry,
   HoldingProjection,
   LotAllocationProjection,
@@ -38,14 +37,6 @@ export function listCashLedgerEntries(store: Store): CashLedgerEntry[] {
 
 export function appendCashLedgerEntry(store: Store, cashLedgerEntry: CashLedgerEntry): void {
   store.accounting.facts.cashLedgerEntries.push(cashLedgerEntry);
-}
-
-export function listDividendEvents(store: Store): DividendEvent[] {
-  return store.accounting.facts.dividendEvents;
-}
-
-export function appendDividendEvent(store: Store, dividendEvent: DividendEvent): void {
-  store.accounting.facts.dividendEvents.push(dividendEvent);
 }
 
 export function listDividendLedgerEntries(store: Store): DividendLedgerEntry[] {
@@ -166,13 +157,6 @@ export function listCorporateActions(store: Store): CorporateAction[] {
 
 export function appendCorporateAction(store: Store, action: CorporateAction): void {
   store.accounting.facts.corporateActions.push(action);
-}
-
-export function upsertDividendEvent(store: Store, dividendEvent: DividendEvent): void {
-  store.accounting.facts.dividendEvents = [
-    ...store.accounting.facts.dividendEvents.filter((entry) => entry.id !== dividendEvent.id),
-    dividendEvent,
-  ].sort((left, right) => left.exDividendDate.localeCompare(right.exDividendDate) || left.id.localeCompare(right.id));
 }
 
 export function upsertDividendLedgerEntry(store: Store, dividendLedgerEntry: DividendLedgerEntry): void {

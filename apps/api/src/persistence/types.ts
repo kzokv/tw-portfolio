@@ -1,5 +1,14 @@
 import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
-import type { AccountingStore, BookedTradeEvent, CashLedgerEntry, LotAllocationProjection, Store, SymbolDef } from "../types/store.js";
+import type {
+  AccountingStore,
+  BookedTradeEvent,
+  CashLedgerEntry,
+  DividendEvent,
+  LotAllocationProjection,
+  MarketDataFacts,
+  Store,
+  SymbolDef,
+} from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 
@@ -68,7 +77,13 @@ export interface Persistence {
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
-  savePostedDividend(userId: string, accounting: AccountingStore, dividendLedgerEntryId: string): Promise<void>;
+  saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void>;
+  savePostedDividend(
+    userId: string,
+    accounting: AccountingStore,
+    marketData: MarketDataFacts,
+    dividendLedgerEntryId: string,
+  ): Promise<void>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;

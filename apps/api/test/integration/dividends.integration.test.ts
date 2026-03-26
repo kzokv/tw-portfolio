@@ -86,7 +86,7 @@ describe("dividends", () => {
     ]);
 
     const store = await app.persistence.loadStore("user-1");
-    expect(store.accounting.facts.dividendEvents).toEqual([
+    expect(store.marketData.dividendEvents).toEqual([
       expect.objectContaining({
         id: dividendEvent.id,
         ticker: "2330",

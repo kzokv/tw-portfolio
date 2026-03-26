@@ -22,13 +22,13 @@ import { Env } from "@tw-portfolio/config";
 import { getQuotesWithFallback } from "../providers/marketData.js";
 import {
   listCorporateActions,
-  listDividendEvents,
   listDividendLedgerEntries,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildDashboardPerformance } from "../services/dashboard.js";
 import { createDividendEvent, postDividend } from "../services/dividends.js";
+import { listDividendEvents } from "../services/marketDataStore.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
@@ -1229,7 +1229,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ...body,
     });
 
-    await app.persistence.saveAccountingStore(store.userId, store.accounting);
+    await app.persistence.saveDividendEvent(store.userId, dividendEvent);
     return dividendEvent;
   });
 
@@ -1275,7 +1275,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      await app.persistence.savePostedDividend(userId, draftStore.accounting, result.dividendLedgerEntry.id);
+      await app.persistence.savePostedDividend(
+        userId,
+        draftStore.accounting,
+        draftStore.marketData,
+        result.dividendLedgerEntry.id,
+      );
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;

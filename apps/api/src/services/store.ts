@@ -1,7 +1,7 @@
-import type { FeeProfile } from "@tw-portfolio/domain";
+import type { FeeProfile, InstrumentRef } from "@tw-portfolio/domain";
 import { buildAccountingPolicy } from "./accountingStore.js";
 import { createDefaultSymbols } from "./symbolRegistry.js";
-import type { Store } from "../types/store.js";
+import type { Store, SymbolDef } from "../types/store.js";
 
 const defaultFeeProfile: FeeProfile = {
   id: "fp-default",
@@ -23,8 +23,38 @@ function createDefaultFeeProfile(): FeeProfile {
   return { ...defaultFeeProfile };
 }
 
+export function symbolDefToInstrumentRef(symbol: SymbolDef): InstrumentRef {
+  return {
+    ticker: symbol.ticker,
+    instrumentType: symbol.type,
+    marketCode: symbol.marketCode ?? "TW",
+    isProvisional: symbol.isProvisional ?? false,
+    lastSyncedAt: symbol.lastSyncedAt ?? null,
+  };
+}
+
+export function instrumentRefToSymbolDef(instrument: InstrumentRef): SymbolDef {
+  return {
+    ticker: instrument.ticker,
+    type: instrument.instrumentType,
+    marketCode: instrument.marketCode,
+    isProvisional: instrument.isProvisional,
+    lastSyncedAt: instrument.lastSyncedAt ?? null,
+  };
+}
+
+export function setStoreSymbols(store: Pick<Store, "marketData" | "symbols">, symbols: SymbolDef[]): void {
+  store.symbols = symbols;
+  store.marketData.instruments = symbols.map(symbolDefToInstrumentRef);
+}
+
+export function syncLegacySymbols(store: Pick<Store, "marketData" | "symbols">): void {
+  store.symbols = store.marketData.instruments.map(instrumentRefToSymbolDef);
+}
+
 export function createStore(): Store {
   const seededFeeProfile = createDefaultFeeProfile();
+  const seededSymbols = createDefaultSymbols();
 
   return {
     userId: "user-1",
@@ -48,7 +78,6 @@ export function createStore(): Store {
       facts: {
         tradeEvents: [],
         cashLedgerEntries: [],
-        dividendEvents: [],
         dividendLedgerEntries: [],
         dividendDeductionEntries: [],
         corporateActions: [],
@@ -61,7 +90,11 @@ export function createStore(): Store {
       },
       policy: buildAccountingPolicy(),
     },
-    symbols: createDefaultSymbols(),
+    marketData: {
+      dividendEvents: [],
+      instruments: seededSymbols.map(symbolDefToInstrumentRef),
+    },
+    symbols: seededSymbols,
     recomputeJobs: [],
     idempotencyKeys: new Set<string>(),
   };

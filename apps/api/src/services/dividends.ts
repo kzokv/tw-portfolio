@@ -1,14 +1,13 @@
 import {
-  listDividendEvents,
   listDividendLedgerEntries,
   listInventoryLots,
   rebuildHoldingProjection,
   replaceCashLedgerEntriesForDividend,
   replaceDividendDeductionsForLedger,
   replaceInventoryLots,
-  upsertDividendEvent,
   upsertDividendLedgerEntry,
 } from "./accountingStore.js";
+import { listDividendEvents, upsertDividendEvent } from "./marketDataStore.js";
 import { routeError } from "../lib/routeError.js";
 import type {
   CashLedgerEntry,
