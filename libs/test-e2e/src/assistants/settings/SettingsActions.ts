@@ -5,10 +5,12 @@ import { BaseActions } from "@tw-portfolio/test-framework/mixins";
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
 
 export class SettingsActions extends BaseActions {
+  declare protected readonly _instance: SettingsDrawerPage;
+
   private static readonly saveOutcomeTimeoutMs = 10_000;
 
   private get el() {
-    return (this._instance as SettingsDrawerPage).elements;
+    return this._instance.elements;
   }
 
   @Step()

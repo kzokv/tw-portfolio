@@ -7,8 +7,10 @@ import type { AppShellPage } from "../../pages/layout/AppShellPage.js";
 import type { TSidebarDestination } from "../../pages/layout/SideNavigationComponent.js";
 
 export class AppShellActions extends BaseActions {
+  declare protected readonly _instance: AppShellPage;
+
   private get el() {
-    return (this._instance as AppShellPage).elements;
+    return this._instance.elements;
   }
 
   @Step()

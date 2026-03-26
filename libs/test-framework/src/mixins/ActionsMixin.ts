@@ -5,29 +5,19 @@ import type { Constructor, TResponsePredicate } from "../core/types.js";
 
 import { CoreMixin } from "./CoreMixin.js";
 
-export function ActionsMixin<TBase extends Constructor<object>>(Base: TBase) {
+export function ActionsMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
   return class extends CoreMixin(Base) {
     @Step("Navigate To Route")
     async mxNavigateToRoute(path: string, appBaseUrl?: string): Promise<void> {
-      const actor = this as unknown as {
-        page: Page;
-        mxWaitForAppReady: () => Promise<void>;
-      };
-
       const destination = appBaseUrl ? new URL(path, appBaseUrl).href : path;
-      await actor.page.goto(destination, { waitUntil: "domcontentloaded" });
-      await actor.mxWaitForAppReady();
+      await this.page.goto(destination, { waitUntil: "domcontentloaded" });
+      await this.mxWaitForAppReady();
     }
 
     @Step("Reload Page")
     async mxReloadPage(): Promise<void> {
-      const actor = this as unknown as {
-        page: Page;
-        mxWaitForAppReady: () => Promise<void>;
-      };
-
-      await actor.page.reload({ waitUntil: "domcontentloaded" });
-      await actor.mxWaitForAppReady();
+      await this.page.reload({ waitUntil: "domcontentloaded" });
+      await this.mxWaitForAppReady();
     }
 
     @Step("Wait For Response")
@@ -36,14 +26,10 @@ export function ActionsMixin<TBase extends Constructor<object>>(Base: TBase) {
       action?: () => Promise<unknown>,
       timeout?: number,
     ): Promise<import("@playwright/test").Response> {
-      const actor = this as unknown as {
-        page: Page;
-      };
-
       const responsePromise =
         timeout === undefined
-          ? actor.page.waitForResponse(predicate)
-          : actor.page.waitForResponse(predicate, { timeout });
+          ? this.page.waitForResponse(predicate)
+          : this.page.waitForResponse(predicate, { timeout });
       if (action) {
         await action();
       }

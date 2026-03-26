@@ -5,8 +5,8 @@ import type { BasePage } from "./BasePage.js";
 
 import type { TTestAAAOptions, TUIActions } from "./types.js";
 
-export class TestAAA {
-  protected readonly _instance: BasePage<unknown>;
+export class TestAAA<TInstance extends BasePage<unknown> = BasePage<unknown>> {
+  protected readonly _instance: TInstance;
   readonly page: Page;
   readonly request: APIRequestContext;
   readonly role: string | undefined;
@@ -15,9 +15,9 @@ export class TestAAA {
   readonly userId: string | undefined;
 
   constructor(options: TTestAAAOptions) {
-    const instance = options.instance as BasePage<unknown>;
+    const instance = options.instance as TInstance;
     this._instance = instance;
-    this.page = options.page ?? instance.page;
+    this.page = options.page ?? (instance as BasePage<unknown>).page;
     this.request = options.request;
     this.role = options.role;
     this.testUser = options.testUser;
