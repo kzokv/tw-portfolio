@@ -30,9 +30,10 @@ describePostgres("postgres migrations", () => {
   let pool: Pool;
   let persistence: PostgresPersistence | null = null;
 
-  async function resetPublicSchema(): Promise<void> {
+  async function resetDatabase(): Promise<void> {
     const client = await pool.connect();
     try {
+      await client.query("DROP SCHEMA IF EXISTS market_data CASCADE");
       await client.query("DROP SCHEMA IF EXISTS public CASCADE");
       await client.query("CREATE SCHEMA public");
       await client.query("GRANT ALL ON SCHEMA public TO public");
@@ -179,7 +180,7 @@ describePostgres("postgres migrations", () => {
       pool.query<{ table_name: string }>(
         `SELECT table_name
          FROM information_schema.tables
-         WHERE table_schema = 'public'
+         WHERE table_schema IN ('public', 'market_data')
            AND table_type = 'BASE TABLE'
            AND table_name <> 'schema_migrations'
          ORDER BY table_name`,
@@ -193,7 +194,7 @@ describePostgres("postgres migrations", () => {
       }>(
         `SELECT table_name, column_name, data_type, is_nullable, column_default
          FROM information_schema.columns
-         WHERE table_schema = 'public'
+         WHERE table_schema IN ('public', 'market_data')
            AND table_name <> 'schema_migrations'
          ORDER BY table_name, ordinal_position`,
       ),
@@ -210,14 +211,14 @@ describePostgres("postgres migrations", () => {
            ON rel.oid = c.conrelid
          JOIN pg_namespace AS n
            ON n.oid = c.connamespace
-         WHERE n.nspname = 'public'
+         WHERE n.nspname IN ('public', 'market_data')
            AND rel.relname <> 'schema_migrations'
          ORDER BY rel.relname, c.contype, pg_get_constraintdef(c.oid)`,
       ),
       pool.query<{ tablename: string; indexname: string; indexdef: string }>(
         `SELECT tablename, indexname, indexdef
          FROM pg_indexes
-         WHERE schemaname = 'public'
+         WHERE schemaname IN ('public', 'market_data')
            AND tablename <> 'schema_migrations'
          ORDER BY tablename, indexname`,
       ),
@@ -238,7 +239,7 @@ describePostgres("postgres migrations", () => {
 
   beforeEach(async () => {
     pool = new Pool({ connectionString: databaseUrl });
-    await resetPublicSchema();
+    await resetDatabase();
     await seedLegacyUsers();
   });
 
@@ -376,7 +377,7 @@ describePostgres("postgres migrations", () => {
 
   it("bootstraps clean databases from the baseline schema and records superseded history", async () => {
     const manifest = await migrationManifestPromise;
-    await resetPublicSchema();
+    await resetDatabase();
 
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
@@ -409,7 +410,7 @@ describePostgres("postgres migrations", () => {
 
   it("reconciles an empty migration ledger when the current baseline schema already exists", async () => {
     const manifest = await migrationManifestPromise;
-    await resetPublicSchema();
+    await resetDatabase();
     await applyBaselineMigration();
 
     persistence = new PostgresPersistence({
@@ -428,7 +429,7 @@ describePostgres("postgres migrations", () => {
 
   it("reconciles missing 009 and 010 ledger rows when the schema already reflects them", async () => {
     const manifest = await migrationManifestPromise;
-    await resetPublicSchema();
+    await resetDatabase();
     await applyBaselineMigration();
 
     await seedAppliedMigrationLedger(
@@ -452,9 +453,9 @@ describePostgres("postgres migrations", () => {
   it("drops orphaned recompute preview rows before adding the trade event foreign key", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => !/^(010|011|012|013|014|015|016|017)_/.test(name),
+      (name) => !/^(01[0-8])_/.test(name),
     );
-    await resetPublicSchema();
+    await resetDatabase();
     await applyMigrationFiles(pre010Migrations);
     await seedAppliedMigrationLedger(pre010Migrations);
     await seedLegacyRecomputeOrphan();
@@ -487,9 +488,9 @@ describePostgres("postgres migrations", () => {
   it("recovers from a partially failed 010 retry with orphaned recompute rows", async () => {
     const manifest = await migrationManifestPromise;
     const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => !/^(010|011|012|013|014|015|016|017)_/.test(name),
+      (name) => !/^(01[0-8])_/.test(name),
     );
-    await resetPublicSchema();
+    await resetDatabase();
     await applyMigrationFiles(pre010Migrations);
     await seedAppliedMigrationLedger(pre010Migrations);
     await seedLegacyRecomputeOrphan({ simulatePartial010: true });
@@ -512,7 +513,7 @@ describePostgres("postgres migrations", () => {
   });
 
   it("keeps the baseline schema in parity with the numbered upgrade path", async () => {
-    await resetPublicSchema();
+    await resetDatabase();
 
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
@@ -524,7 +525,7 @@ describePostgres("postgres migrations", () => {
 
     const baselineSignature = await captureSchemaSignature();
 
-    await resetPublicSchema();
+    await resetDatabase();
     await applyNumberedMigrations();
 
     const upgradedSignature = await captureSchemaSignature();
@@ -799,7 +800,6 @@ describePostgres("postgres migrations", () => {
       "trade_fee_policy_snapshot_tax_components",
       "lot_allocations",
       "cash_ledger_entries",
-      "dividend_events",
       "dividend_ledger_entries",
       "dividend_deduction_entries",
       "reconciliation_records",
@@ -831,7 +831,6 @@ describePostgres("postgres migrations", () => {
       "idx_cash_ledger_entries_account_entry_date",
       "ux_cash_ledger_entries_account_source_reference",
       "ux_cash_ledger_entries_reversal_of_cash_ledger_entry_id",
-      "idx_dividend_events_ticker_ex_dividend_date",
       "idx_dividend_ledger_entries_dividend_event_id",
       "ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id",
       "idx_dividend_deduction_entries_dividend_ledger_entry_id",
@@ -931,7 +930,7 @@ describePostgres("postgres migrations", () => {
     expect(
       hasConstraint(
         "dividend_ledger_entries",
-        "FOREIGN KEY (dividend_event_id) REFERENCES dividend_events(id)",
+        "FOREIGN KEY (dividend_event_id) REFERENCES market_data.dividend_events(id)",
       ),
     ).toBe(true);
     expect(hasConstraint("dividend_ledger_entries", "posting_status = ANY")).toBe(true);
@@ -970,7 +969,7 @@ describePostgres("postgres migrations", () => {
 
     await expect(
       pool.query(
-        `INSERT INTO dividend_events (
+        `INSERT INTO market_data.dividend_events (
            id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
            source, source_reference
@@ -1008,7 +1007,7 @@ describePostgres("postgres migrations", () => {
     ).rejects.toThrow(/check constraint/i);
 
     await pool.query(
-      `INSERT INTO dividend_events (
+      `INSERT INTO market_data.dividend_events (
          id, ticker, event_type, ex_dividend_date, payment_date,
          cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
          source, source_reference
@@ -1478,7 +1477,7 @@ describePostgres("postgres migrations", () => {
       source: string;
     }>(
       `SELECT id, event_type, cash_dividend_per_share::text AS cash_dividend_per_share, source
-       FROM dividend_events
+       FROM market_data.dividend_events
        ORDER BY id`,
     );
     expect(dividendEvents.rows).toEqual([
@@ -2073,7 +2072,7 @@ describePostgres("postgres migrations", () => {
       stock_dividend_per_share: string;
     }>(
       `SELECT id, event_type, cash_dividend_per_share, stock_dividend_per_share
-       FROM dividend_events
+       FROM market_data.dividend_events
        WHERE id = 'dividend-event-kzo36'`,
     );
     expect(dividendEvents.rows).toEqual([

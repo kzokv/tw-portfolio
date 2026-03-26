@@ -242,8 +242,8 @@ export class PostgresPersistence implements Persistence {
       this.pool.query(
         `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-                source, source_reference, created_at
-         FROM dividend_events
+                source, source_reference, ingested_at AS created_at
+         FROM market_data.dividend_events
          ORDER BY ex_dividend_date, id`,
       ),
       this.pool.query(
@@ -273,7 +273,7 @@ export class PostgresPersistence implements Persistence {
       ),
       this.pool.query(
         `SELECT ticker, instrument_type, market_code, is_provisional, last_synced_at
-         FROM symbols
+         FROM market_data.instruments
          ORDER BY market_code, ticker`,
       ),
     ]);
@@ -1109,10 +1109,10 @@ export class PostgresPersistence implements Persistence {
       }
 
       await client.query(
-        `INSERT INTO dividend_events (
+        `INSERT INTO market_data.dividend_events (
            id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source, source_reference, created_at
+           source, source_reference, ingested_at
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,
@@ -1488,22 +1488,29 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async isMigration012Reflected(client: PoolClient): Promise<boolean> {
-    const [hasTradeEventMarketCode, hasSymbolMarketCode, hasBindingMarketCode] = await Promise.all([
+    const [hasTradeEventMarketCode, hasBindingMarketCode] = await Promise.all([
       this.columnExists(client, "trade_events", "market_code"),
-      this.columnExists(client, "symbols", "market_code"),
       this.columnExists(client, "account_fee_profile_overrides", "market_code"),
     ]);
-
-    return hasTradeEventMarketCode && hasSymbolMarketCode && hasBindingMarketCode;
+    // symbols may have been migrated to market_data.instruments by migration 018
+    const symbolOrInstrument = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE (table_schema = 'public' AND table_name = 'symbols' AND column_name = 'market_code')
+            OR (table_schema = 'market_data' AND table_name = 'instruments' AND column_name = 'market_code')
+       ) AS exists`,
+    );
+    return hasTradeEventMarketCode && Boolean(symbolOrInstrument.rows[0]?.exists) && hasBindingMarketCode;
   }
 
   private async isMigration013Reflected(client: PoolClient): Promise<boolean> {
-    const [hasIsProvisional, hasLastSyncedAt] = await Promise.all([
-      this.columnExists(client, "symbols", "is_provisional"),
-      this.columnExists(client, "symbols", "last_synced_at"),
-    ]);
-
-    return hasIsProvisional && hasLastSyncedAt;
+    const result = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM information_schema.columns
+       WHERE ((table_schema = 'public' AND table_name = 'symbols')
+              OR (table_schema = 'market_data' AND table_name = 'instruments'))
+         AND column_name IN ('is_provisional', 'last_synced_at')`,
+    );
+    return parseInt(result.rows[0]?.count ?? "0", 10) >= 2;
   }
 
   private async hasUserTables(client: PoolClient): Promise<boolean> {
@@ -1575,22 +1582,23 @@ export class PostgresPersistence implements Persistence {
 
     for (const symbol of mergedSymbols) {
       await this.pool.query(
-        `INSERT INTO symbols (ticker, instrument_type, market_code, is_provisional, last_synced_at)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
          ON CONFLICT (ticker) DO UPDATE SET
            instrument_type = CASE
-             WHEN EXCLUDED.is_provisional THEN symbols.instrument_type
+             WHEN EXCLUDED.is_provisional THEN instruments.instrument_type
              ELSE EXCLUDED.instrument_type
            END,
            market_code = CASE
-             WHEN EXCLUDED.is_provisional THEN symbols.market_code
+             WHEN EXCLUDED.is_provisional THEN instruments.market_code
              ELSE EXCLUDED.market_code
            END,
            is_provisional = CASE
-             WHEN EXCLUDED.is_provisional THEN symbols.is_provisional
+             WHEN EXCLUDED.is_provisional THEN instruments.is_provisional
              ELSE EXCLUDED.is_provisional
            END,
-           last_synced_at = COALESCE(EXCLUDED.last_synced_at, symbols.last_synced_at)`,
+           last_synced_at = COALESCE(EXCLUDED.last_synced_at, instruments.last_synced_at),
+           updated_at = NOW()`,
         [
           symbol.ticker,
           symbol.type,
@@ -1645,10 +1653,10 @@ export class PostgresPersistence implements Persistence {
 
     for (const dividendEvent of accounting.facts.dividendEvents) {
       await client.query(
-        `INSERT INTO dividend_events (
+        `INSERT INTO market_data.dividend_events (
            id, ticker, event_type, ex_dividend_date, payment_date,
            cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-           source, source_reference, created_at
+           source, source_reference, ingested_at
          ) VALUES (
            $1, $2, $3, $4, $5,
            $6, $7, $8,

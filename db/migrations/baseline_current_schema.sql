@@ -1,5 +1,5 @@
 -- Fresh-bootstrap baseline equivalent to the numbered migration chain through
--- 017_rename_symbol_to_ticker_and_source.sql.
+-- 018_market_data_schema.sql.
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -124,14 +124,6 @@ CREATE TABLE IF NOT EXISTS account_fee_profile_overrides (
   PRIMARY KEY (account_id, ticker, market_code)
 );
 
-CREATE TABLE IF NOT EXISTS symbols (
-  ticker TEXT PRIMARY KEY,
-  instrument_type TEXT NOT NULL,
-  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
-  is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
-  last_synced_at TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS corporate_actions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),
@@ -149,28 +141,6 @@ CREATE TABLE IF NOT EXISTS recompute_jobs (
   profile_id TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS dividend_events (
-  id TEXT PRIMARY KEY,
-  ticker TEXT NOT NULL,
-  event_type TEXT NOT NULL CHECK (event_type IN ('CASH', 'STOCK', 'CASH_AND_STOCK')),
-  ex_dividend_date DATE NOT NULL,
-  payment_date DATE NOT NULL,
-  cash_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0 CHECK (cash_dividend_per_share >= 0),
-  stock_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0 CHECK (stock_dividend_per_share >= 0),
-  source TEXT NOT NULL,
-  source_reference TEXT,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  cash_dividend_currency TEXT NOT NULL,
-  CHECK (payment_date >= ex_dividend_date),
-  CHECK (
-    (event_type = 'CASH' AND cash_dividend_per_share > 0 AND stock_dividend_per_share = 0)
-    OR (event_type = 'STOCK' AND cash_dividend_per_share = 0 AND stock_dividend_per_share > 0)
-    OR (event_type = 'CASH_AND_STOCK' AND cash_dividend_per_share > 0 AND stock_dividend_per_share > 0)
-  ),
-  CONSTRAINT ck_dividend_events_cash_dividend_currency_code
-    CHECK (cash_dividend_currency ~ '^[A-Z]{3}$')
 );
 
 CREATE TABLE IF NOT EXISTS trade_fee_policy_snapshots (
@@ -275,10 +245,39 @@ CREATE TABLE IF NOT EXISTS lot_allocations (
     CHECK (cost_currency ~ '^[A-Z]{3}$')
 );
 
+-- market_data.dividend_events must precede dividend_ledger_entries (FK dependency)
+CREATE SCHEMA IF NOT EXISTS market_data;
+GRANT USAGE ON SCHEMA market_data TO current_user;
+
+CREATE TABLE IF NOT EXISTS market_data.dividend_events (
+  id TEXT PRIMARY KEY,
+  ticker TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('CASH', 'STOCK', 'CASH_AND_STOCK')),
+  ex_dividend_date DATE NOT NULL,
+  payment_date DATE NOT NULL,
+  cash_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0
+    CHECK (cash_dividend_per_share >= 0),
+  stock_dividend_per_share NUMERIC(20, 6) NOT NULL DEFAULT 0
+    CHECK (stock_dividend_per_share >= 0),
+  cash_dividend_currency TEXT NOT NULL CHECK (cash_dividend_currency ~ '^[A-Z]{3}$'),
+  source TEXT NOT NULL DEFAULT 'finmind',
+  source_reference TEXT,
+  ingested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (payment_date >= ex_dividend_date),
+  CHECK (
+    (event_type = 'CASH' AND cash_dividend_per_share > 0 AND stock_dividend_per_share = 0)
+    OR (event_type = 'STOCK' AND cash_dividend_per_share = 0 AND stock_dividend_per_share > 0)
+    OR (event_type = 'CASH_AND_STOCK' AND cash_dividend_per_share > 0 AND stock_dividend_per_share > 0)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_md_dividend_events_ticker_ex_date
+  ON market_data.dividend_events(ticker, ex_dividend_date);
+
 CREATE TABLE IF NOT EXISTS dividend_ledger_entries (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),
-  dividend_event_id TEXT NOT NULL REFERENCES dividend_events(id),
+  dividend_event_id TEXT NOT NULL REFERENCES market_data.dividend_events(id),
   eligible_quantity INTEGER NOT NULL CHECK (eligible_quantity >= 0),
   expected_cash_amount INTEGER NOT NULL DEFAULT 0 CHECK (expected_cash_amount >= 0),
   expected_stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (expected_stock_quantity >= 0),
@@ -448,10 +447,6 @@ CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_tick
   ON account_fee_profile_overrides(account_id, market_code, ticker);
 CREATE INDEX IF NOT EXISTS idx_lots_account_ticker ON lots(account_id, ticker);
 CREATE INDEX IF NOT EXISTS idx_recompute_jobs_user_id ON recompute_jobs(user_id);
-CREATE INDEX IF NOT EXISTS idx_dividend_events_ticker_ex_dividend_date
-  ON dividend_events(ticker, ex_dividend_date);
-CREATE INDEX IF NOT EXISTS idx_dividend_events_payment_date
-  ON dividend_events(payment_date);
 CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshots_user_id
   ON trade_fee_policy_snapshots(user_id);
 CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshot_tax_components_snapshot_id
@@ -464,8 +459,6 @@ CREATE INDEX IF NOT EXISTS idx_trade_events_account_market_ticker_trade_date
   ON trade_events(account_id, market_code, ticker, trade_date, booked_at);
 CREATE INDEX IF NOT EXISTS idx_trade_events_account_ticker_booking_order
   ON trade_events(account_id, ticker, trade_date, booking_sequence, trade_timestamp, id);
-CREATE INDEX IF NOT EXISTS idx_symbols_market_code_ticker
-  ON symbols(market_code, ticker);
 CREATE INDEX IF NOT EXISTS idx_lots_account_ticker_opened_order
   ON lots(account_id, ticker, opened_at, opened_sequence, id);
 CREATE INDEX IF NOT EXISTS idx_lot_allocations_trade_event_id
@@ -527,9 +520,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_lots_account_ticker_opened_order
   ON lots(account_id, ticker, opened_at, opened_sequence);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lot_allocations_trade_event_lot
   ON lot_allocations(trade_event_id, lot_id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_events_ticker_source_reference
-  ON dividend_events(ticker, source, source_reference)
-  WHERE source_reference IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id
   ON dividend_ledger_entries(reversal_of_dividend_ledger_entry_id)
   WHERE reversal_of_dividend_ledger_entry_id IS NOT NULL;
@@ -545,3 +535,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_ledger_entries_reversal_of_cash_ledger
   WHERE reversal_of_cash_ledger_entry_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_portfolio_snapshots_user_date_run
   ON daily_portfolio_snapshots(user_id, snapshot_date, generation_run_id);
+
+-- market_data schema (instruments and daily_bars; dividend_events defined above)
+
+CREATE TABLE IF NOT EXISTS market_data.instruments (
+  ticker TEXT PRIMARY KEY,
+  instrument_type TEXT NOT NULL CHECK (instrument_type IN ('STOCK', 'ETF', 'BOND_ETF')),
+  market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
+  name TEXT,
+  is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
+  listed_date DATE,
+  delisted_at TIMESTAMP,
+  status_reason TEXT,
+  bars_backfill_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (bars_backfill_status IN ('pending', 'backfilling', 'ready', 'failed')),
+  last_synced_at TIMESTAMP,
+  verification_status TEXT NOT NULL DEFAULT 'unverified'
+    CHECK (verification_status IN ('unverified', 'verified', 'mismatch')),
+  verification_note TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_instruments_market_code_ticker
+  ON market_data.instruments(market_code, ticker);
+CREATE INDEX IF NOT EXISTS idx_instruments_backfill_pending
+  ON market_data.instruments(bars_backfill_status)
+  WHERE bars_backfill_status != 'ready';
+
+CREATE TABLE IF NOT EXISTS market_data.daily_bars (
+  ticker TEXT NOT NULL,
+  bar_date DATE NOT NULL,
+  open NUMERIC(20, 4) NOT NULL,
+  high NUMERIC(20, 4) NOT NULL,
+  low NUMERIC(20, 4) NOT NULL,
+  close NUMERIC(20, 4) NOT NULL,
+  volume BIGINT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'finmind',
+  ingested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ticker, bar_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_bars_ticker_date
+  ON market_data.daily_bars(ticker, bar_date DESC);
