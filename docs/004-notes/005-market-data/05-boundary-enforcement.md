@@ -82,10 +82,10 @@ ticket: KZO-82
 - [x] `npm run typecheck` passes
 - [x] `npm run test --prefix apps/web` passes
 - [x] `npm run test:integration:full:host` passes
-- [ ] `npm run test:e2e:bypass:mem --prefix apps/web` passes
-  - Fresh-port rerun result: `48 passed`, `11 failed`, all failures in `apps/web/tests/e2e/specs/auth-oauth.spec.ts`.
-- [ ] `npm run test:e2e:oauth:mem --prefix apps/web` passes
-  - Fresh-port rerun result: `50 passed`, `3 failed`, in `apps/web/tests/e2e/specs-oauth/auth-identity-source.spec.ts` and `apps/web/tests/e2e/specs-oauth/routing.spec.ts`.
+- [x] `npm run test:e2e:bypass:mem --prefix apps/web` passes
+  - Current fresh-start harness result: `59 passed`.
+- [x] `npm run test:e2e:oauth:mem --prefix apps/web` passes
+  - Current fresh-start harness result: `53 passed`.
 - [x] **Chrome-devtools MCP — demo session:**
   - Navigate to dashboard → verify dividend section renders (data now via market data store)
   - Verify holdings and transactions still load correctly

@@ -61,19 +61,19 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "node tests/e2e/helpers/mock-oauth-server.mjs",
+      command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node tests/e2e/helpers/mock-oauth-server.mjs",
       port: TestEnv.ports.mockOAuth,
       cwd: path.resolve(repoRoot, "apps/web"),
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       stdout: "ignore",
       stderr: "pipe",
     },
     {
-      command: "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run dev -w apps/api",
+      command: "bash scripts/reclaim-e2e-server.sh api && npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run dev -w apps/api",
       url: `http://${host}:${apiPort}/health/live`,
       timeout: 60_000,
       cwd: repoRoot,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       stderr: "pipe",
       stdout: "ignore",
       gracefulShutdown: {
@@ -84,11 +84,11 @@ export default defineConfig({
         AUTH_MODE: "oauth",
         DEMO_MODE_ENABLED: "true",
         PERSISTENCE_BACKEND: process.env.PERSISTENCE_BACKEND ?? "memory",
-        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? TestEnv.oauth.clientId,
-        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? TestEnv.oauth.clientSecret,
-        GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI ?? TestEnv.googleRedirectUri,
-        SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
-        APP_BASE_URL: process.env.APP_BASE_URL ?? TestEnv.appBaseUrl,
+        GOOGLE_CLIENT_ID: TestEnv.oauth.clientId,
+        GOOGLE_CLIENT_SECRET: TestEnv.oauth.clientSecret,
+        GOOGLE_REDIRECT_URI: TestEnv.googleRedirectUri,
+        SESSION_SECRET: TestEnv.oauth.sessionSecret,
+        APP_BASE_URL: TestEnv.appBaseUrl,
         // Route code-exchange through the mock OAuth server so callback tests work with
         // code=e2e-auth-code. auth.setup.ts Path A (real refresh token) is unaffected — it
         // calls the Google token endpoint directly from the test runner, not via this env var.
@@ -96,11 +96,11 @@ export default defineConfig({
       }),
     },
     {
-      command: "npm run dev -w @tw-portfolio/web",
+      command: "bash scripts/reclaim-e2e-server.sh web && npm run dev -w @tw-portfolio/web",
       cwd: repoRoot,
       url: `http://${host}:${webPort}`,
       timeout: 60_000,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       stderr: "pipe",
       stdout: "ignore",
       gracefulShutdown: {
@@ -110,7 +110,7 @@ export default defineConfig({
       env: TestEnv.webServerEnv({
         NEXT_PUBLIC_AUTH_MODE: "oauth",
         DEMO_MODE_ENABLED: "true",
-        SESSION_SECRET: process.env.SESSION_SECRET ?? TestEnv.oauth.sessionSecret,
+        SESSION_SECRET: TestEnv.oauth.sessionSecret,
       }),
     },
   ],
