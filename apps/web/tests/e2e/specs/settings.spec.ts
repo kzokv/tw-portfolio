@@ -3,6 +3,8 @@ import { gotoRoute, openSettingsDrawer, reloadRoute, waitForAppReady } from "../
 
 const getNextQuotePoll = (current: string): string => (current === "12" ? "10" : "12");
 
+test.describe.configure({ mode: "default" });
+
 test("settings persist across routes and reloads for the same seeded user", async ({ page }) => {
   await gotoRoute(page, "/portfolio");
   await openSettingsDrawer(page);

@@ -1,0 +1,69 @@
+{
+  "name": "@tw-portfolio/test-e2e",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pages": {
+      "types": "./dist/pages/index.d.ts",
+      "default": "./dist/pages/index.js"
+    },
+    "./pages/layout": {
+      "types": "./dist/pages/layout/index.d.ts",
+      "default": "./dist/pages/layout/index.js"
+    },
+    "./pages/settings": {
+      "types": "./dist/pages/settings/index.d.ts",
+      "default": "./dist/pages/settings/index.js"
+    },
+    "./assistants": {
+      "types": "./dist/assistants/index.d.ts",
+      "default": "./dist/assistants/index.js"
+    },
+    "./assistants/layout": {
+      "types": "./dist/assistants/layout/index.d.ts",
+      "default": "./dist/assistants/layout/index.js"
+    },
+    "./assistants/settings": {
+      "types": "./dist/assistants/settings/index.d.ts",
+      "default": "./dist/assistants/settings/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures/index.d.ts",
+      "default": "./dist/fixtures/index.js"
+    },
+    "./fixtures/base": {
+      "types": "./dist/fixtures/base.d.ts",
+      "default": "./dist/fixtures/base.js"
+    },
+    "./fixtures/appShell": {
+      "types": "./dist/fixtures/appShell.d.ts",
+      "default": "./dist/fixtures/appShell.js"
+    },
+    "./fixtures/settings": {
+      "types": "./dist/fixtures/settings.d.ts",
+      "default": "./dist/fixtures/settings.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "default": "./dist/config/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "npx tsc -p tsconfig.json",
+    "test": "echo \"no tests\""
+  },
+  "dependencies": {
+    "@playwright/test": "^1.51.1",
+    "@tw-portfolio/config": "0.1.0",
+    "@tw-portfolio/test-framework": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
