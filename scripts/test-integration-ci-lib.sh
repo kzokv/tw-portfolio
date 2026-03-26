@@ -28,7 +28,11 @@ cleanup() {
   fi
 
   log_ci "Stopping CI stack..."
-  compose down -v --remove-orphans >/dev/null 2>&1 || true
+  if ! compose down -v --remove-orphans >/dev/null 2>&1; then
+    log_ci "WARNING: compose down failed on first attempt; retrying..."
+    compose down -v --remove-orphans 2>&1 \
+      || log_ci "WARNING: compose down retry also failed; containers may still be running on ports ${CI_DB_PORT}/${CI_REDIS_PORT}."
+  fi
 }
 
 require_docker_cli() {

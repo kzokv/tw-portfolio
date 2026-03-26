@@ -47,6 +47,14 @@ if [[ $INTEGRATION -eq 1 ]]; then
   fi
 fi
 
+# Sweep orphan Node processes left from integration tests before E2E phase.
+# Any port:0 Fastify server that survived a test timeout/crash is killed here.
+if [[ $INTEGRATION -eq 1 ]] && ( [[ $E2E -eq 1 ]] || [[ $E2E_OAUTH -eq 1 ]] ); then
+  echo "── Sweeping orphan Node processes between phases ──"
+  pkill -f "${ROOT_DIR}/apps/api/src" 2>/dev/null || true
+  sleep 1
+fi
+
 if [[ $E2E -eq 1 ]]; then
   echo "── Running E2E tests (bypass) ──"
   npm run test:e2e:bypass:mem

@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     // Force dev_bypass so tests are never affected by a local .env.local with AUTH_MODE=oauth.
     env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test" },
+    globalTeardown: "./test/globalTeardown.ts",
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
     //   npm run test:html  → vitest-report/ (view: npx vite preview --outDir vitest-report)
     //   npm run test:json  → test-results/vitest-results.json
