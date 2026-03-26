@@ -1369,7 +1369,7 @@ describePostgres("postgres migrations", () => {
       name: "Dividend",
       feeProfileId: store.feeProfiles[0].id,
     });
-    store.accounting.facts.dividendEvents = [
+    store.marketData.dividendEvents = [
       {
         id: "dividend-event-kzo34-1",
         ticker: "0056",
@@ -1566,7 +1566,7 @@ describePostgres("postgres migrations", () => {
     ]);
 
     const reloaded = await persistence.loadStore("user-1");
-    expect(reloaded.accounting.facts.dividendEvents).toEqual([
+    expect(reloaded.marketData.dividendEvents).toEqual([
       expect.objectContaining({
         id: "dividend-event-kzo34-1",
         eventType: "CASH",
@@ -1622,7 +1622,7 @@ describePostgres("postgres migrations", () => {
     await persistence.init();
 
     const store = await persistence.loadStore("user-1");
-    store.accounting.facts.dividendEvents = [
+    store.marketData.dividendEvents = [
       {
         id: "dividend-event-kzo34-duplicate",
         ticker: "0056",
@@ -2063,7 +2063,7 @@ describePostgres("postgres migrations", () => {
         },
       ],
     });
-    await persistence.savePostedDividend("user-1", store.accounting, posting.dividendLedgerEntry.id);
+    await persistence.savePostedDividend("user-1", store.accounting, store.marketData, posting.dividendLedgerEntry.id);
 
     const dividendEvents = await pool.query<{
       id: string;
@@ -2231,7 +2231,7 @@ describePostgres("postgres migrations", () => {
         },
       ],
     });
-    await persistence.savePostedDividend("user-1", store.accounting, posting.dividendLedgerEntry.id);
+    await persistence.savePostedDividend("user-1", store.accounting, store.marketData, posting.dividendLedgerEntry.id);
 
     const overwrittenAccounting = structuredClone(store.accounting);
     const overwrittenDividendLedgerEntry = overwrittenAccounting.facts.dividendLedgerEntries.find(
@@ -2251,7 +2251,7 @@ describePostgres("postgres migrations", () => {
     overwrittenReceiptEntry.amount = 999;
 
     await expect(
-      persistence.savePostedDividend("user-1", overwrittenAccounting, posting.dividendLedgerEntry.id),
+      persistence.savePostedDividend("user-1", overwrittenAccounting, store.marketData, posting.dividendLedgerEntry.id),
     ).rejects.toThrow(/cannot be overwritten in place/i);
 
     const persistedDividendLedgerEntries = await pool.query<{ received_stock_quantity: number; posting_status: string }>(

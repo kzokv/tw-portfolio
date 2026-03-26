@@ -155,7 +155,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
 
   return store.accounts
     .flatMap((account) =>
-      store.accounting.facts.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
+      store.marketData.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
         const accountHolding = store.accounting.projections.holdings.find(
           (holding) => holding.accountId === account.id && holding.ticker === event.ticker && holding.quantity > 0,
         );
@@ -185,7 +185,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
 }
 
 function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[] {
-  const eventById = new Map(store.accounting.facts.dividendEvents.map((event) => [event.id, event]));
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
   const deductionsByLedgerId = new Map<string, number>();
 
   for (const deduction of store.accounting.facts.dividendDeductionEntries) {
