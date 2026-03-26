@@ -7,18 +7,18 @@
 - [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
 
 ## Auth / session
-- [project_session_cookie_architecture.md](project_session_cookie_architecture.md) — Session cookie architecture: HMAC signing, __Host- prefix trap, COOKIE_DOMAIN coupling, cross-subdomain OAuth
+- ~~project_session_cookie_architecture.md~~ — **PROMOTED** to `.claude/rules/session-cookie-host-prefix.md`
 - [project_oauth_e2e_automation.md](project_oauth_e2e_automation.md) — OAuth e2e uses refresh token (local) or hardcoded sub (CI), no manual login; `npm run auth:refresh-token` to renew
 - ~~project_kzo77_identity_resolution_design.md~~ — **DEMOTED** to frozen notes at `docs/004-notes/kzo-77-identity-resolution/` (historical, no longer actionable)
 
 ## Project context
-- [project_validatehostconsistency_singleton_bug.md](project_validatehostconsistency_singleton_bug.md) — validateHostConsistency uses Env.NODE_ENV singleton (not injectable); test failure is pre-existing and intentionally unfixed
+- ~~project_validatehostconsistency_singleton_bug.md~~ — **REMOVED** (stale — bug fixed, test passes, function renamed to validateEnvConstraints)
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 4 targets, CLI flags, integration points
 - [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
 - [project_infrastructure.md](project_infrastructure.md) — QNAP deployment via Cloudflare WARP+SSH, 3 Docker compose environments, CI Docker validation, AUTH_MODE constraint
 - [project_nextjs_proxy_convention.md](project_nextjs_proxy_convention.md) — Next.js 16 (v16.1.6): proxy.ts replaces deprecated middleware.ts, auto-discovered at build time
-- [project_i18n_function_serialization.md](project_i18n_function_serialization.md) — i18n dictionary functions can't cross Next.js server→client boundary; use string templates
-- [project_ssr_document_cookie.md](project_ssr_document_cookie.md) — `document.cookie` unavailable in server components; use `next/headers` `cookies()`
+- ~~project_i18n_function_serialization.md~~ — **PROMOTED** to `.claude/rules/nextjs-i18n-serialization.md`
+- ~~project_ssr_document_cookie.md~~ — **PROMOTED** to `.claude/rules/nextjs-server-cookie-access.md`
 
 ## Agent team workflow
 - [feedback_agent_team_workflow.md](feedback_agent_team_workflow.md) — /team skill: 3 tiers, convergence loop, Architect-as-lead, validator gating, state file tracking
@@ -27,8 +27,8 @@
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
 ## Persistence layer
-- [project_memory_persistence_gaps.md](project_memory_persistence_gaps.md) — MemoryPersistence gaps vs Postgres: no email uniqueness, null timestamps, O(n) scan
-- [project_fk_cascade_alter_pattern.md](project_fk_cascade_alter_pattern.md) — PostgreSQL unnamed FKs require dynamic constraint name lookup via pg_constraint for ON DELETE CASCADE
+- ~~project_memory_persistence_gaps.md~~ — **PROMOTED** to `.claude/rules/test-placement-persistence-backend.md`
+- ~~project_fk_cascade_alter_pattern.md~~ — **PROMOTED** to `docs/004-notes/005-market-data/note-202603261200-fk-cascade-alter-pattern.md`
 
 ## SSE / streaming
 - ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
