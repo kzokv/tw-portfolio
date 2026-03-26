@@ -1,4 +1,4 @@
-import type { Lot } from "@tw-portfolio/domain";
+import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
 import type { AccountingStore, BookedTradeEvent, CashLedgerEntry, LotAllocationProjection, Store, SymbolDef } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
@@ -35,6 +35,17 @@ export interface DeleteTradeEventResult {
     cashLedgerEntries: number;
     lotAllocations: number;
   };
+}
+
+export interface InstrumentRow extends InstrumentRef {
+  listedDate?: string;
+  delistedAt?: string;
+  statusReason?: string;
+  barsBackfillStatus: BackfillStatus;
+  verificationStatus: VerificationStatus;
+  verificationNote?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Persistence {

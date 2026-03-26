@@ -7,6 +7,37 @@ export type MarketCode = string;
 export type TradeSide = "SELL";
 export type DayTradeScope = "ANY" | "DAY_TRADE_ONLY" | "NON_DAY_TRADE_ONLY";
 export type TaxCalculationMethod = "RATE_BPS";
+export type BackfillStatus = "pending" | "backfilling" | "ready" | "failed";
+export type VerificationStatus = "unverified" | "verified" | "mismatch";
+
+export interface InstrumentRef {
+  ticker: string;
+  instrumentType: InstrumentType;
+  marketCode: MarketCode;
+  name?: string;
+  isProvisional: boolean;
+  lastSyncedAt?: string | null;
+}
+
+export interface QuoteSnapshot {
+  ticker: string;
+  close: number;
+  asOf: string;
+  source: string;
+  isProvisional: boolean;
+}
+
+export interface DailyBar {
+  ticker: string;
+  barDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
+  ingestedAt: string;
+}
 
 export interface FeeProfileTaxRule {
   id: string;
