@@ -12,7 +12,7 @@
     "libs/*"
   ],
   "scripts": {
-    "build": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
+    "build": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/test-framework -w @tw-portfolio/test-e2e && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
     "dev": "bash scripts/help.sh dev",
     "dev:local:bypass:mem": "AUTH_MODE=dev_bypass PERSISTENCE_BACKEND=memory bash scripts/dev.sh dev:local:bypass:mem",
     "dev:local:bypass:pg": "AUTH_MODE=dev_bypass PERSISTENCE_BACKEND=postgres bash scripts/dev.sh dev:local:bypass:pg",
@@ -34,12 +34,13 @@
     "test:integration:full:container": "bash scripts/test-integration-ci-container.sh",
     "test:e2e": "bash scripts/help.sh e2e",
     "test:e2e:bypass:mem": "npm run test:e2e:bypass:mem -w @tw-portfolio/web",
+    "test:e2e:settings:parity": "npm run test:e2e:settings:parity -w @tw-portfolio/web",
     "test:e2e:oauth:mem": "npm run test:e2e:oauth:mem -w @tw-portfolio/web",
     "test:e2e:ci:bypass:mem": "npm run test:e2e:ci:bypass:mem -w @tw-portfolio/web",
     "test:e2e:show-report": "npm run test:e2e:show-report -w @tw-portfolio/web",
     "onboard": "bash scripts/onboard.sh",
     "install:full": "bash scripts/onboard.sh --install-only",
-    "typecheck": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json",
+    "typecheck": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/test-framework -w @tw-portfolio/test-e2e -w @tw-portfolio/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "env:setup": "tsx scripts/env-setup.ts",

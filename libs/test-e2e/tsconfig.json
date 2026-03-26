@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "paths": {
+      "@tw-portfolio/config/test": [
+        "../config/dist/test.d.ts"
+      ],
+      "@tw-portfolio/test-framework": [
+        "../test-framework/dist/index.d.ts"
+      ],
+      "@tw-portfolio/test-framework/core": [
+        "../test-framework/dist/core/index.d.ts"
+      ],
+      "@tw-portfolio/test-framework/decorators": [
+        "../test-framework/dist/decorators/index.d.ts"
+      ],
+      "@tw-portfolio/test-framework/mixins": [
+        "../test-framework/dist/mixins/index.d.ts"
+      ],
+      "@tw-portfolio/test-framework/config": [
+        "../test-framework/dist/config/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
+}
