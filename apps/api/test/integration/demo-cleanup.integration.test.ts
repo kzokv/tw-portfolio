@@ -25,9 +25,10 @@ const migrationManifestPromise = loadMigrationManifest(migrationsDir);
 describePostgres("cleanupExpiredDemoUsers", () => {
   let pool: Pool;
 
-  async function resetPublicSchema(): Promise<void> {
+  async function resetDatabase(): Promise<void> {
     const client = await pool.connect();
     try {
+      await client.query("DROP SCHEMA IF EXISTS market_data CASCADE");
       await client.query("DROP SCHEMA IF EXISTS public CASCADE");
       await client.query("CREATE SCHEMA public");
       await client.query("GRANT ALL ON SCHEMA public TO public");
@@ -59,7 +60,7 @@ describePostgres("cleanupExpiredDemoUsers", () => {
 
   beforeEach(async () => {
     pool = new Pool({ connectionString: databaseUrl });
-    await resetPublicSchema();
+    await resetDatabase();
     await applyNumberedMigrations();
   });
 

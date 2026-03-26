@@ -75,7 +75,7 @@ ticket: KZO-82
 - [ ] `postgres-migrations.integration.test.ts` — update access paths
 - [ ] Any other integration test files that reference `store.accounting.facts.dividendEvents`
 
-## 5.8 — Verify (full suite + Playwright MCP)
+## 5.8 — Verify (full suite + Chrome-devtools MCP)
 
 - [ ] `npx eslint .` passes
 - [ ] `npm run typecheck` passes
@@ -83,10 +83,10 @@ ticket: KZO-82
 - [ ] `npm run test:integration:full:host` passes
 - [ ] `npm run test:e2e:bypass:mem --prefix apps/web` passes
 - [ ] `npm run test:e2e:oauth:mem --prefix apps/web` passes
-- [ ] **Playwright MCP — demo session:**
+- [ ] **Chrome-devtools MCP — demo session:**
   - Navigate to dashboard → verify dividend section renders (data now via market data store)
   - Verify holdings and transactions still load correctly
-- [ ] **Playwright MCP — dev_bypass session:**
+- [ ] **Chrome-devtools MCP — dev_bypass session:**
   - Create a dividend event via the UI → verify it persists (new save path)
   - View dividend ledger entries → verify they still link to the event
   - Verify the dividend calendar/upcoming section works
