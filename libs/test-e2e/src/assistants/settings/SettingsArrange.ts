@@ -4,8 +4,10 @@ import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
 
 export class SettingsArrange extends BaseArrange {
+  declare protected readonly _instance: SettingsDrawerPage;
+
   private get el() {
-    return (this._instance as SettingsDrawerPage).elements;
+    return this._instance.elements;
   }
 
   @Step()

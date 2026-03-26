@@ -1,17 +1,16 @@
-import type { SettingsDrawerPage } from "../pages/settings/SettingsDrawerPage.js";
+import { createWebFixture } from "@tw-portfolio/test-framework/config";
+
 import type { TSettingsAssistant } from "../assistants/settings/index.js";
+import { SettingsDrawerPage } from "../pages/settings/SettingsDrawerPage.js";
 
 import { test as base } from "./appShell.js";
-import { SettingsDrawerPage as SettingsDrawerPageClass } from "../pages/settings/SettingsDrawerPage.js";
 
 export interface TSettingsFixtures {
   settings: TSettingsAssistant;
 }
 
 export const test = base.extend<TSettingsFixtures>({
-  settings: async ({ testUser }, use) => {
-    await use(await testUser.useWebAssistant<SettingsDrawerPage, TSettingsAssistant>(SettingsDrawerPageClass));
-  },
+  settings: createWebFixture<TSettingsAssistant>(SettingsDrawerPage),
 });
 
 export { expect } from "./appShell.js";

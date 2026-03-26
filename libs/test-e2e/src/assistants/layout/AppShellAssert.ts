@@ -5,8 +5,10 @@ import { BaseAssert } from "@tw-portfolio/test-framework/mixins";
 import type { AppShellPage } from "../../pages/layout/AppShellPage.js";
 
 export class AppShellAssert extends BaseAssert {
+  declare protected readonly _instance: AppShellPage;
+
   private get el() {
-    return (this._instance as AppShellPage).elements;
+    return this._instance.elements;
   }
 
   @Step()
