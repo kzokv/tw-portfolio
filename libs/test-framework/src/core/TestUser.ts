@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { appInjectAssistantRegistry, webAssistantRegistry } from "../config/mapper.js";
@@ -8,6 +9,7 @@ import type { Constructor, TAssistantFactoryOptions, TUIActions } from "./types.
 const E2E_USER_COOKIE = "tw_e2e_user";
 
 export interface TTestUserOptions {
+  displayName?: string;
   page?: Page;
   request: APIRequestContext;
   role?: string;
@@ -17,6 +19,8 @@ export interface TTestUserOptions {
 
 export class TestUser {
   readonly userId: string;
+  readonly displayName: string | undefined;
+  readonly sessionId: string;
   readonly page: Page | undefined;
   readonly request: APIRequestContext;
   readonly role: string | undefined;
@@ -27,6 +31,8 @@ export class TestUser {
 
   constructor(options: TTestUserOptions) {
     this.userId = options.userId;
+    this.displayName = options.displayName;
+    this.sessionId = randomUUID();
     this.page = options.page;
     this.request = options.request;
     this.role = options.role;

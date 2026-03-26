@@ -1,6 +1,7 @@
 import { test } from "@playwright/test";
 
 interface TStepActor {
+  displayName?: unknown;
   testUser?: unknown;
   userId?: unknown;
 }
@@ -24,27 +25,39 @@ function hasActiveTestContext(): boolean {
   }
 }
 
-function resolveUserId(actor: unknown): string | undefined {
+/**
+ * Resolves the human-readable label for a step actor.
+ * Prefers `testUser.displayName` (e.g. `sa:0:Alice`) over raw `userId`
+ * for shorter, more readable step traces. Falls back to userId if displayName
+ * is not set (e.g. in non-E2E contexts).
+ */
+function resolveDisplayName(actor: unknown): string | undefined {
   if (!actor || typeof actor !== "object") {
     return undefined;
   }
 
   const candidate = actor as TStepActor;
-  if (typeof candidate.userId === "string" && candidate.userId.length > 0) {
-    return candidate.userId;
-  }
-
   const nestedTestUser = candidate.testUser as TStepActor | undefined;
+
+  if (typeof nestedTestUser?.displayName === "string" && nestedTestUser.displayName.length > 0) {
+    return nestedTestUser.displayName;
+  }
+  if (typeof candidate.displayName === "string" && candidate.displayName.length > 0) {
+    return candidate.displayName;
+  }
   if (typeof nestedTestUser?.userId === "string" && nestedTestUser.userId.length > 0) {
     return nestedTestUser.userId;
+  }
+  if (typeof candidate.userId === "string" && candidate.userId.length > 0) {
+    return candidate.userId;
   }
 
   return undefined;
 }
 
 function formatStepLabel(stepLabel: string, actor: unknown): string {
-  const userId = resolveUserId(actor);
-  return userId ? `User[${userId}] ${stepLabel}` : stepLabel;
+  const name = resolveDisplayName(actor);
+  return name ? `User[${name}] ${stepLabel}` : stepLabel;
 }
 
 export function Step(label?: string) {

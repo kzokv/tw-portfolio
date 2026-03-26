@@ -6,10 +6,6 @@ import { TestEnv } from "@tw-portfolio/config/test";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
 
-// Load repo-root .env.local for local runs where vars aren't pre-exported to the shell.
-// Uses the robust parser (P7: strips inline comments and surrounding quotes).
-TestEnv.loadDotEnvSync(repoRoot);
-
 const webPort = TestEnv.ports.web;
 const apiPort = TestEnv.ports.api;
 const authFile = path.join(__dirname, ".auth/oauth-session.json");
