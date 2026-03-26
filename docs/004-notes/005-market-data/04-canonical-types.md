@@ -11,7 +11,7 @@ ticket: KZO-82
 
 ## 4.1 — Domain types
 
-- [ ] Add to `libs/domain/src/types.ts`:
+- [x] Add to `libs/domain/src/types.ts`:
   ```ts
   export interface InstrumentRef {
     ticker: string;
@@ -48,7 +48,7 @@ ticket: KZO-82
 
 ## 4.2 — Persistence types
 
-- [ ] Add `InstrumentRow` to `apps/api/src/types/` or `apps/api/src/persistence/`:
+- [x] Add `InstrumentRow` to `apps/api/src/types/` or `apps/api/src/persistence/`:
   ```ts
   export interface InstrumentRow extends InstrumentRef {
     listedDate?: string;
@@ -64,11 +64,11 @@ ticket: KZO-82
 
 ## 4.3 — Exports
 
-- [ ] Update `libs/domain/src/index.ts` — export all new types:
+- [x] Ensure `libs/domain/src/index.ts` exports all new types:
   - `InstrumentRef`, `QuoteSnapshot`, `DailyBar`, `BackfillStatus`, `VerificationStatus`
-- [ ] Verify no circular imports introduced
+- [x] Verify no circular imports introduced
 
 ## 4.4 — Verify
 
-- [ ] `npm run typecheck` passes
-- [ ] `npx eslint .` passes
+- [x] `npm run typecheck` passes
+- [x] `npx eslint .` passes
