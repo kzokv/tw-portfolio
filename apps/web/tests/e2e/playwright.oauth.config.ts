@@ -8,7 +8,6 @@ const repoRoot = path.resolve(__dirname, "../../../..");
 
 const webPort = TestEnv.ports.web;
 const apiPort = TestEnv.ports.api;
-const authFile = path.join(__dirname, ".auth/oauth-session.json");
 
 // The session cookie (SESSION_COOKIE_NAME, default: __Host-g_auth_session) is set by the API on the hostname used in GOOGLE_REDIRECT_URI.
 // NEXT_PUBLIC_API_BASE_URL and APP_BASE_URL must use that same hostname so the browser
@@ -16,11 +15,11 @@ const authFile = path.join(__dirname, ".auth/oauth-session.json");
 const host = TestEnv.host;
 
 export default defineConfig({
-  fullyParallel: false,
+  fullyParallel: true,
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,
-  workers: 1,
+  workers: 2,
   reporter: [
     ["list"],
     [
@@ -41,18 +40,8 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "setup",
-      testDir: "./setup",
-      testMatch: /.*\.setup\.ts/,
-      // No browser needed — setup uses Playwright's request API context only.
-    },
-    {
       name: "oauth",
       testDir: "./specs-oauth",
-      use: {
-        storageState: authFile,
-      },
-      dependencies: ["setup"],
     },
   ],
   webServer: [
