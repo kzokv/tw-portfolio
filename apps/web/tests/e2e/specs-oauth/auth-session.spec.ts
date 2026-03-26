@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/oauth-base";
 import { apiUrl, extractCookieValue, TestEnv } from "../helpers/flows";
 
 test.describe("authenticated session", () => {

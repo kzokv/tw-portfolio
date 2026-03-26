@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { apiUrl } from "../helpers/flows";
+import { test, expect } from "../fixtures/oauth-base";
+import { apiUrl, TestEnv } from "../helpers/flows";
 
 test.describe("SSE with OAuth session auth", () => {
   test("EventSource receives heartbeat with session cookie auth", async ({ page }) => {
@@ -79,9 +79,18 @@ test.describe("SSE with OAuth session auth", () => {
     // Give EventSource time to establish connection
     await page.waitForTimeout(1000);
 
+    // Extract the session cookie from the page context to authenticate the publish request.
+    // The request fixture has no cookie jar (per-test sessions are planted in page.context() only).
+    const cookies = await page.context().cookies();
+    const sessionCookie = cookies.find((c) => c.name === TestEnv.sessionCookieName);
+    expect(sessionCookie, "oauth-base must have planted the session cookie").toBeDefined();
+
     // Publish via synthetic endpoint (uses same session cookie for auth)
     const publishRes = await request.post(apiUrl("/__test/publish-event"), {
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        cookie: `${TestEnv.sessionCookieName}=${sessionCookie!.value}`,
+      },
       data: {
         type: "recompute_complete",
         data: { portfolioId: "oauth-e2e-test" },

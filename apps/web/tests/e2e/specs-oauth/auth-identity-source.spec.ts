@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/oauth-base";
 import { apiUrl, TestEnv } from "../helpers/flows";
 
 test.describe("session cookie as sole identity source (AUTH_MODE=oauth)", () => {
