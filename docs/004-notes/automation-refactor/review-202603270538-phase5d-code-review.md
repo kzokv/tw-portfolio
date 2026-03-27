@@ -309,7 +309,7 @@ Replace all 8 call sites.
 
 **Fix:** Rename parameter to `_request` in destructuring.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -319,7 +319,7 @@ Replace all 8 call sites.
 
 `mxAssertUrlMatches` and `mxAssertUrlNotMatches` share nearly identical logic. Extract shared helper with `negate` parameter.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -333,7 +333,7 @@ Replace all 8 call sites.
 
 These are empty shells. Either add a comment explaining they exist for framework interface compliance, or remove them if the framework doesn't require the class to exist.
 
-- [ ] Done
+- [x] Done — documented (required by `createAssistantFactory` AAA triple)
 
 ---
 
