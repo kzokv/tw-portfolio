@@ -1,5 +1,5 @@
 import { test, expect } from "@tw-portfolio/test-e2e/fixtures/base";
-import { apiUrl, openSseProbe, waitForSseProbeResult } from "@tw-portfolio/test-e2e/utils";
+import { apiUrl, openSseProbe, publishAndExpectSseEvent, waitForSseProbeResult } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("SSE event delivery", () => {
   test("synthetic endpoint publishes event and EventSource receives it", async ({ page, request, e2eUserId, testUser }) => {
@@ -7,24 +7,14 @@ test.describe("SSE event delivery", () => {
     // Use the lightest authenticated route; the SSE check itself is the subject under test.
     await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
 
-    const sseUrl = apiUrl("/events/stream");
-    await openSseProbe(page, { url: sseUrl, targetEvent: "recompute_complete" });
-
-    // Publish event via synthetic endpoint using the E2E user
-    const publishRes = await request.post(apiUrl("/__test/publish-event"), {
-      headers: {
-        "content-type": "application/json",
-        "x-user-id": e2eUserId,
-      },
-      data: {
-        type: "recompute_complete",
-        data: { portfolioId: "e2e-test-portfolio" },
-      },
+    const result = await publishAndExpectSseEvent({
+      request,
+      page,
+      eventType: "recompute_complete",
+      eventData: { portfolioId: "e2e-test-portfolio" },
+      authHeaders: { "x-user-id": e2eUserId },
     });
-    expect(publishRes.ok()).toBeTruthy();
 
-    // Wait for the EventSource to receive the event
-    const result = await waitForSseProbeResult(page);
     expect(result.received).toBe(true);
     expect(result.data).toEqual({ portfolioId: "e2e-test-portfolio" });
     expect(result.eventId).toBeTruthy();

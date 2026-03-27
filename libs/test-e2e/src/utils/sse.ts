@@ -1,4 +1,6 @@
-import type { Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
+
+import { apiUrl } from "./url.js";
 
 export interface TSseProbeResult {
   data: unknown;
@@ -123,4 +125,46 @@ export async function waitForSseProbeResult(
   } finally {
     await handle.dispose();
   }
+}
+
+interface TPublishAndExpectSseEventOptions {
+  /** Playwright request context for the publish POST */
+  request: APIRequestContext;
+  /** Playwright page with the SSE probe already navigated to an authenticated route */
+  page: Page;
+  /** SSE event type to listen for (e.g. "recompute_complete") */
+  eventType: string;
+  /** Payload for the published event */
+  eventData: Record<string, unknown>;
+  /** Auth headers for the publish request (e.g. `{ "x-user-id": id }` or `{ cookie: "..." }`) */
+  authHeaders: Record<string, string>;
+  /** Timeout for both probe and wait (default: 10s) */
+  timeoutMs?: number;
+}
+
+/**
+ * Open an SSE probe, publish an event via the synthetic endpoint, and return the received result.
+ * The page must already be navigated to an authenticated route before calling this.
+ */
+export async function publishAndExpectSseEvent(
+  options: TPublishAndExpectSseEventOptions,
+): Promise<TSseProbeResult> {
+  const { request, page, eventType, eventData, authHeaders, timeoutMs } = options;
+  const sseUrl = apiUrl("/events/stream");
+
+  await openSseProbe(page, {
+    url: sseUrl,
+    targetEvent: eventType,
+    ...(timeoutMs !== undefined && { timeoutMs }),
+  });
+
+  const publishRes = await request.post(apiUrl("/__test/publish-event"), {
+    headers: { "content-type": "application/json", ...authHeaders },
+    data: { type: eventType, data: eventData },
+  });
+  if (!publishRes.ok()) {
+    throw new Error(`publish-event failed: ${publishRes.status()} ${await publishRes.text()}`);
+  }
+
+  return waitForSseProbeResult(page, timeoutMs);
 }
