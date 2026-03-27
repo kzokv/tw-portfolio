@@ -37,6 +37,12 @@ export default [
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
+  // Allow underscore-prefixed args (standard TS convention for intentionally unused params)
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
   // Node.js globals for .mjs scripts (process, Buffer, URLSearchParams, etc.)
   {
     files: ['**/*.mjs'],

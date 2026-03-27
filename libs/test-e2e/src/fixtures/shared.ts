@@ -136,11 +136,10 @@ export function buildUserFixtures(seedIdentity: boolean) {
 
   return {
     e2eUserId: async (
-      { request }: { request: APIRequestContext },
+      { request: _request }: { request: APIRequestContext },
       use: (id: string) => Promise<void>,
       testInfo: TestInfo,
     ) => {
-      void request;
       await use(buildE2EUserId(testInfo));
     },
 

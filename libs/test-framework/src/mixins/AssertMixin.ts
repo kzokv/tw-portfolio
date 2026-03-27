@@ -15,6 +15,12 @@ function timeoutOpt(timeout?: number) {
   return timeout === undefined ? undefined : { timeout };
 }
 
+async function assertUrl(page: Page, expected: RegExp | string, negate: boolean): Promise<void> {
+  const pattern = typeof expected === "string" ? new RegExp(escapeRegExp(expected)) : expected;
+  const assertion = negate ? expect(page).not : expect(page);
+  await assertion.toHaveURL(pattern);
+}
+
 export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
   return class extends CoreMixin(Base) {
 
@@ -143,22 +149,12 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
 
     @Step("Assert URL Matches")
     async mxAssertUrlMatches(expected: RegExp | string): Promise<void> {
-      if (typeof expected === "string") {
-        await expect(this.page).toHaveURL(new RegExp(escapeRegExp(expected)));
-        return;
-      }
-
-      await expect(this.page).toHaveURL(expected);
+      await assertUrl(this.page, expected, false);
     }
 
     @Step("Assert URL Does Not Match")
     async mxAssertUrlNotMatches(expected: RegExp | string): Promise<void> {
-      if (typeof expected === "string") {
-        await expect(this.page).not.toHaveURL(new RegExp(escapeRegExp(expected)));
-        return;
-      }
-
-      await expect(this.page).not.toHaveURL(expected);
+      await assertUrl(this.page, expected, true);
     }
 
   };
