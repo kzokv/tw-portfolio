@@ -344,7 +344,7 @@ These are empty shells. Either add a comment explaining they exist for framework
 
 Verify against React components and either add missing test IDs or update the POM design.
 
-- [ ] Done
+- [x] Done — GAP-2: `edit-confirm-button` confirmed absent by design (edit dialog is cancel-only hard-block for negative lots; safe edits auto-proceed). Removed phantom POM element, tautological assertion, and spec call. GAP-6: POM already used two-part `quickSearchItem(kind, id)` matching React source — removed stale comment.
 
 ---
 

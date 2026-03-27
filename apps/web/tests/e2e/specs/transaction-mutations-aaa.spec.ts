@@ -105,7 +105,6 @@ test.describe("transaction mutations", () => {
     await ticker.assert.editConfirmDialogIsVisible();
     await ticker.assert.editNegativeLotsWarningIsVisible();
     await ticker.assert.editNegativeLotsWarningContains(/negative position/i);
-    await ticker.assert.editConfirmButtonIsHidden();
     await ticker.assert.editCancelButtonIsVisible();
 
     await ticker.actions.cancelEditConfirmation();

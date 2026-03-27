@@ -11,8 +11,6 @@ export interface TEditFormElements {
   inlineCancelButton: Locator;
   confirmationDialog: Locator;
   negativeLotsWarning: Locator;
-  /** GAP-2: edit-confirm-button may not exist in React source; toBeHidden() still works if absent */
-  confirmButton: Locator;
   dialogCancelButton: Locator;
 }
 
@@ -45,7 +43,6 @@ export class EditFormComponent extends BasePage<TEditFormElements> {
       ),
       confirmationDialog: this.locate("edit-confirmation-dialog", "Edit Confirmation Dialog"),
       negativeLotsWarning: this.locate("edit-negative-lots-warning", "Edit Negative Lots Warning"),
-      confirmButton: this.locate("edit-confirm-button", "Edit Confirm Button"),
       dialogCancelButton: this.withDescription(
         this.locate("edit-confirmation-dialog", "Edit Confirmation Dialog")
           .getByTestId("edit-cancel-button"),
