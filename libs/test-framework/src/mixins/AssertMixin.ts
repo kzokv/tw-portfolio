@@ -11,21 +11,26 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function timeoutOpt(timeout?: number) {
+  return timeout === undefined ? undefined : { timeout };
+}
+
 export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
   return class extends CoreMixin(Base) {
+
     @Step("Assert Visible")
     async mxAssertVisible(locator: Locator, timeout?: number): Promise<void> {
-      await expect(locator).toBeVisible(timeout === undefined ? undefined : { timeout });
+      await expect(locator).toBeVisible(timeoutOpt(timeout));
     }
 
     @Step("Assert Hidden")
     async mxAssertHidden(locator: Locator, timeout?: number): Promise<void> {
-      await expect(locator).toBeHidden(timeout === undefined ? undefined : { timeout });
+      await expect(locator).toBeHidden(timeoutOpt(timeout));
     }
 
     @Step("Assert Attached")
     async mxAssertAttached(locator: Locator, timeout?: number): Promise<void> {
-      await expect(locator).toBeAttached(timeout === undefined ? undefined : { timeout });
+      await expect(locator).toBeAttached(timeoutOpt(timeout));
     }
 
     @Step("Assert Text Contains")
@@ -34,10 +39,7 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       expected: string | RegExp,
       timeout?: number,
     ): Promise<void> {
-      await expect(locator).toContainText(
-        expected,
-        timeout === undefined ? undefined : { timeout },
-      );
+      await expect(locator).toContainText(expected, timeoutOpt(timeout));
     }
 
     @Step("Assert Has Text")
@@ -46,10 +48,7 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       expected: string | RegExp,
       timeout?: number,
     ): Promise<void> {
-      await expect(locator).toHaveText(
-        expected,
-        timeout === undefined ? undefined : { timeout },
-      );
+      await expect(locator).toHaveText(expected, timeoutOpt(timeout));
     }
 
     @Step("Assert Has Attribute")
@@ -59,11 +58,7 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       expected: string | RegExp,
       timeout?: number,
     ): Promise<void> {
-      await expect(locator).toHaveAttribute(
-        name,
-        expected,
-        timeout === undefined ? undefined : { timeout },
-      );
+      await expect(locator).toHaveAttribute(name, expected, timeoutOpt(timeout));
     }
 
     @Step("Assert Has Value")
@@ -72,15 +67,12 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       expected: string | RegExp,
       timeout?: number,
     ): Promise<void> {
-      await expect(locator).toHaveValue(
-        expected,
-        timeout === undefined ? undefined : { timeout },
-      );
+      await expect(locator).toHaveValue(expected, timeoutOpt(timeout));
     }
 
     @Step("Assert Count")
     async mxAssertCount(locator: Locator, count: number, timeout?: number): Promise<void> {
-      await expect(locator).toHaveCount(count, timeout === undefined ? undefined : { timeout });
+      await expect(locator).toHaveCount(count, timeoutOpt(timeout));
     }
 
     @Step("Assert Truthy")

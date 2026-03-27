@@ -116,7 +116,7 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async cancelDelete(): Promise<void> {
-    await this.page.getByRole("button", { name: /cancel/i }).click();
+    await this.uiActions.click.perform(this.el.deleteDialog.elements.cancelButton);
   }
 
   @Step()

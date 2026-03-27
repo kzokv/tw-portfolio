@@ -1,4 +1,3 @@
-import { expect } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
@@ -44,6 +43,6 @@ export class TickerDetailArrange extends BaseArrange {
         },
       },
     );
-    expect(res.ok()).toBeTruthy();
+    if (!res.ok()) throw new Error(`seedTrade failed: ${res.status()} ${await res.text()}`);
   }
 }

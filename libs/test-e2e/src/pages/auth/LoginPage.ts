@@ -5,6 +5,7 @@ export interface TLoginElements {
   googleSignInButton: Locator;
   demoSignInButton: Locator;
   errorAlert: Locator;
+  demoExpiredMessage: Locator;
 }
 
 export class LoginPage extends BasePage<TLoginElements> {
@@ -15,6 +16,10 @@ export class LoginPage extends BasePage<TLoginElements> {
       errorAlert: this.withDescription(
         this.page.locator("main [role='alert']"),
         "Login Error Alert",
+      ),
+      demoExpiredMessage: this.withDescription(
+        this.page.getByText("Your demo session has ended"),
+        "Demo Expired Message",
       ),
     };
   }

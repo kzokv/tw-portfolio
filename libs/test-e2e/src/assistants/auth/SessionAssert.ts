@@ -7,7 +7,7 @@ export class SessionAssert extends BaseAssert {
   declare protected readonly _instance: BrowserSessionPage;
 
   @Step()
-  async responseStatusIs(response: import("@playwright/test").APIResponse, expectedStatus: number): Promise<void> {
+  async responseStatusIs(response: { status(): number }, expectedStatus: number): Promise<void> {
     await this.mxAssertEqual(response.status(), expectedStatus, "response status");
   }
 
