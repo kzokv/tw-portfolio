@@ -1,11 +1,10 @@
 import { expect } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { LoginPage } from "../../pages/auth/LoginPage.js";
 
-export class LoginActions extends BaseActions {
+export class LoginActions extends AppBaseActions {
   declare protected readonly _instance: LoginPage;
 
   private get el() {

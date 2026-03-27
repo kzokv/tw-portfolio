@@ -1,10 +1,9 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { DashboardPage } from "../../pages/dashboard/DashboardPage.js";
 
-export class DashboardActions extends BaseActions {
+export class DashboardActions extends AppBaseActions {
   declare protected readonly _instance: DashboardPage;
 
   private get el() {

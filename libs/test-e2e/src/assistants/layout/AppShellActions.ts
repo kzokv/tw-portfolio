@@ -1,12 +1,11 @@
 import { expect } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { AppShellPage } from "../../pages/layout/AppShellPage.js";
 import type { TSidebarDestination } from "../../pages/layout/SideNavigationComponent.js";
 
-export class AppShellActions extends BaseActions {
+export class AppShellActions extends AppBaseActions {
   declare protected readonly _instance: AppShellPage;
 
   private get el() {

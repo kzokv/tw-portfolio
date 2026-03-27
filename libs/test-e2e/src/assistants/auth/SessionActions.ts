@@ -1,7 +1,6 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import { extractCookieValue } from "../../utils/cookie.js";
 import { apiUrl, appUrl } from "../../utils/url.js";
 import type { BrowserSessionPage } from "../../pages/auth/BrowserSessionPage.js";
@@ -13,7 +12,7 @@ interface TOAuthCallbackOptions {
   state?: string;
 }
 
-export class SessionActions extends BaseActions {
+export class SessionActions extends AppBaseActions {
   declare protected readonly _instance: BrowserSessionPage;
 
   @Step()

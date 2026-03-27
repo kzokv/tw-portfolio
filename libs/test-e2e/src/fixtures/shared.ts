@@ -114,6 +114,75 @@ export async function withCreateTestUserFactory(
   }
 }
 
+/**
+ * Builds the three user-related fixtures (e2eUserId, testUser, createTestUser)
+ * parameterized by whether to seed identity (reset + assignIdentity).
+ *
+ * base.ts uses seedIdentity=true; oauthBase, demoBase, noAuthBase use false.
+ */
+export function buildUserFixtures(seedIdentity: boolean) {
+  const initCallback = seedIdentity
+    ? async (testUser: TestUser, opts: { hasPage: boolean }) => {
+        await testUser.reset(TestEnv.apiBaseUrl);
+        if (opts.hasPage) {
+          await testUser.assignIdentity(TestEnv.appBaseUrl);
+        }
+      }
+    : undefined;
+
+  return {
+    e2eUserId: async (
+      { request }: { request: APIRequestContext },
+      use: (id: string) => Promise<void>,
+      testInfo: TestInfo,
+    ) => {
+      void request;
+      await use(buildE2EUserId(testInfo));
+    },
+
+    testUser: async (
+      {
+        page,
+        request,
+        e2eUserId,
+      }: { page: Page; request: APIRequestContext; e2eUserId: string },
+      use: (user: TestUser) => Promise<void>,
+      testInfo: TestInfo,
+    ) => {
+      const testUser = createFixtureTestUser({
+        page,
+        request,
+        userId: e2eUserId,
+        displayName: buildDisplayName(testInfo),
+      });
+
+      if (seedIdentity) {
+        await testUser.reset(TestEnv.apiBaseUrl);
+        await testUser.assignIdentity(TestEnv.appBaseUrl);
+      }
+
+      await use(testUser);
+    },
+
+    createTestUser: async (
+      {
+        browser,
+        request,
+        e2eUserId,
+      }: { browser: Browser; request: APIRequestContext; e2eUserId: string },
+      use: (factory: TCreateTestUser) => Promise<void>,
+      testInfo: TestInfo,
+    ) => {
+      await withCreateTestUserFactory(
+        { browser, request, e2eUserId },
+        use,
+        testInfo,
+        initCallback,
+      );
+    },
+  };
+}
+
 export async function mintSessionCookieValue(
   request: APIRequestContext,
   endpointPath: string,
