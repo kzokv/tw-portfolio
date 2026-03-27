@@ -29,6 +29,16 @@ export class SettingsActions extends BaseActions {
   }
 
   @Step()
+  async focusLocaleTooltip(): Promise<void> {
+    await this.el.general.localeTooltipTrigger.focus();
+  }
+
+  @Step()
+  async focusCostBasisTooltip(): Promise<void> {
+    await this.el.general.costBasisTooltipTrigger.focus();
+  }
+
+  @Step()
   async save(): Promise<void> {
     const outcomeTimeoutMs = SettingsActions.saveOutcomeTimeoutMs;
     const saveResponsePredicate = (response: Response) =>
@@ -48,6 +58,50 @@ export class SettingsActions extends BaseActions {
   @Step()
   async addFeeProfile(): Promise<void> {
     await this.uiActions.click.perform(this.el.fees.addProfileButton);
+  }
+
+  @Step()
+  async openProfileTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabs.profile);
+  }
+
+  @Step()
+  async clearProfileEmail(): Promise<void> {
+    await this.el.profile.emailInput.clear();
+  }
+
+  @Step()
+  async fillProfileEmail(value: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.profile.emailInput, value);
+  }
+
+  @Step()
+  async saveProfileEmail(): Promise<Response> {
+    const patchPromise = this.page.waitForResponse(
+      (response) => response.url().includes("/api/profile") && response.request().method() === "PATCH",
+    );
+    await this.uiActions.click.perform(this.el.profile.saveEmailButton);
+    return await patchPromise;
+  }
+
+  @Step()
+  async closeWithEscape(): Promise<void> {
+    await this.page.keyboard.press("Escape");
+  }
+
+  @Step()
+  async cancel(): Promise<void> {
+    await this.page.getByRole("button", { name: /Cancel|取消/ }).click();
+  }
+
+  @Step()
+  async keepEditing(): Promise<void> {
+    await this.page.getByRole("button", { name: /Keep Editing|繼續編輯/ }).click();
+  }
+
+  @Step()
+  async discardChanges(): Promise<void> {
+    await this.uiActions.click.perform(this.el.footer.discardButton);
   }
 
   @Step()

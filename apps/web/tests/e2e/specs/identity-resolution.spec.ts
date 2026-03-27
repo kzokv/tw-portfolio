@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { apiUrl, extractCookieValue, TestEnv } from "../helpers/flows";
+import { TestEnv } from "@tw-portfolio/config/test";
+import { apiUrl, extractCookieValue } from "@tw-portfolio/test-e2e/utils";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

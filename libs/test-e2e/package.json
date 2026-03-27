@@ -31,6 +31,46 @@
       "types": "./dist/assistants/settings/index.d.ts",
       "default": "./dist/assistants/settings/index.js"
     },
+    "./assistants/auth": {
+      "types": "./dist/assistants/auth/index.d.ts",
+      "default": "./dist/assistants/auth/index.js"
+    },
+    "./assistants/dashboard": {
+      "types": "./dist/assistants/dashboard/index.d.ts",
+      "default": "./dist/assistants/dashboard/index.js"
+    },
+    "./assistants/portfolio": {
+      "types": "./dist/assistants/portfolio/index.d.ts",
+      "default": "./dist/assistants/portfolio/index.js"
+    },
+    "./assistants/transactions": {
+      "types": "./dist/assistants/transactions/index.d.ts",
+      "default": "./dist/assistants/transactions/index.js"
+    },
+    "./assistants/tickers": {
+      "types": "./dist/assistants/tickers/index.d.ts",
+      "default": "./dist/assistants/tickers/index.js"
+    },
+    "./pages/auth": {
+      "types": "./dist/pages/auth/index.d.ts",
+      "default": "./dist/pages/auth/index.js"
+    },
+    "./pages/dashboard": {
+      "types": "./dist/pages/dashboard/index.d.ts",
+      "default": "./dist/pages/dashboard/index.js"
+    },
+    "./pages/portfolio": {
+      "types": "./dist/pages/portfolio/index.d.ts",
+      "default": "./dist/pages/portfolio/index.js"
+    },
+    "./pages/transactions": {
+      "types": "./dist/pages/transactions/index.d.ts",
+      "default": "./dist/pages/transactions/index.js"
+    },
+    "./pages/tickers": {
+      "types": "./dist/pages/tickers/index.d.ts",
+      "default": "./dist/pages/tickers/index.js"
+    },
     "./fixtures": {
       "types": "./dist/fixtures/index.d.ts",
       "default": "./dist/fixtures/index.js"
@@ -47,9 +87,61 @@
       "types": "./dist/fixtures/settings.d.ts",
       "default": "./dist/fixtures/settings.js"
     },
+    "./fixtures/noAuthBase": {
+      "types": "./dist/fixtures/noAuthBase.d.ts",
+      "default": "./dist/fixtures/noAuthBase.js"
+    },
+    "./fixtures/oauthBase": {
+      "types": "./dist/fixtures/oauthBase.d.ts",
+      "default": "./dist/fixtures/oauthBase.js"
+    },
+    "./fixtures/demoBase": {
+      "types": "./dist/fixtures/demoBase.d.ts",
+      "default": "./dist/fixtures/demoBase.js"
+    },
+    "./fixtures/login": {
+      "types": "./dist/fixtures/login.d.ts",
+      "default": "./dist/fixtures/login.js"
+    },
+    "./fixtures/appPages": {
+      "types": "./dist/fixtures/appPages.d.ts",
+      "default": "./dist/fixtures/appPages.js"
+    },
+    "./fixtures/authPages": {
+      "types": "./dist/fixtures/authPages.d.ts",
+      "default": "./dist/fixtures/authPages.js"
+    },
+    "./fixtures/dashboard": {
+      "types": "./dist/fixtures/dashboard.d.ts",
+      "default": "./dist/fixtures/dashboard.js"
+    },
+    "./fixtures/oauthPages": {
+      "types": "./dist/fixtures/oauthPages.d.ts",
+      "default": "./dist/fixtures/oauthPages.js"
+    },
+    "./fixtures/demoPages": {
+      "types": "./dist/fixtures/demoPages.d.ts",
+      "default": "./dist/fixtures/demoPages.js"
+    },
+    "./fixtures/portfolio": {
+      "types": "./dist/fixtures/portfolio.d.ts",
+      "default": "./dist/fixtures/portfolio.js"
+    },
+    "./fixtures/transactions": {
+      "types": "./dist/fixtures/transactions.d.ts",
+      "default": "./dist/fixtures/transactions.js"
+    },
+    "./fixtures/tickers": {
+      "types": "./dist/fixtures/tickers.d.ts",
+      "default": "./dist/fixtures/tickers.js"
+    },
     "./config": {
       "types": "./dist/config/index.d.ts",
       "default": "./dist/config/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "default": "./dist/utils/index.js"
     }
   },
   "main": "dist/index.js",

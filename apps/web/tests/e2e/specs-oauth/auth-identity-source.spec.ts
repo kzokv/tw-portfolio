@@ -1,5 +1,6 @@
-import { test, expect } from "../fixtures/oauth-base";
-import { apiUrl, TestEnv } from "../helpers/flows";
+import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthBase";
+import { TestEnv } from "@tw-portfolio/config/test";
+import { apiUrl } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("session cookie as sole identity source (AUTH_MODE=oauth)", () => {
   test("x-authenticated-user-id header is ignored — session cookie determines identity", async ({

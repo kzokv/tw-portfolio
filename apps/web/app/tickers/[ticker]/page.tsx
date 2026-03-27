@@ -64,15 +64,16 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const statsBar = (
     <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" data-testid="symbol-stats-bar">
       <StatChip label={dict.symbolHistory.accountScopeLabel} value={scopedAccountId ?? dict.symbolHistory.allAccountsLabel} testId="symbol-history-account-scope" />
-      <StatChip label={dict.symbolHistory.entriesLabel} value={formatNumber(transactions.length, locale)} />
-      <StatChip label={dict.symbolHistory.quantityLabel} value={holding ? formatNumber(holding.quantity, locale) : noData} />
-      <StatChip label={dict.symbolHistory.avgCostLabel} value={holding ? formatCurrencyAmount(holding.averageCostPerShare, currency, locale) : noData} />
-      <StatChip label={dict.symbolHistory.marketValueLabel} value={holding?.marketValueAmount != null ? formatCurrencyAmount(holding.marketValueAmount, currency, locale) : noData} />
-      <StatChip label={dict.symbolHistory.totalCostLabel} value={holding ? formatCurrencyAmount(holding.costBasisAmount, currency, locale) : noData} />
+      <StatChip label={dict.symbolHistory.entriesLabel} value={formatNumber(transactions.length, locale)} testId="symbol-history-entries" />
+      <StatChip label={dict.symbolHistory.quantityLabel} value={holding ? formatNumber(holding.quantity, locale) : noData} testId="symbol-history-quantity" />
+      <StatChip label={dict.symbolHistory.avgCostLabel} value={holding ? formatCurrencyAmount(holding.averageCostPerShare, currency, locale) : noData} testId="symbol-history-avg-cost" />
+      <StatChip label={dict.symbolHistory.marketValueLabel} value={holding?.marketValueAmount != null ? formatCurrencyAmount(holding.marketValueAmount, currency, locale) : noData} testId="symbol-history-market-value" />
+      <StatChip label={dict.symbolHistory.totalCostLabel} value={holding ? formatCurrencyAmount(holding.costBasisAmount, currency, locale) : noData} testId="symbol-history-total-cost" />
       <StatChip
         label={dict.symbolHistory.realizedPnlLabel}
         value={formatCurrencyAmount(realizedPnlTotal, currency, locale)}
         detail={latestTrade?.tradeDate ? formatDateLabel(latestTrade.tradeDate, locale) : undefined}
+        testId="symbol-history-realized-pnl"
       />
     </div>
   );

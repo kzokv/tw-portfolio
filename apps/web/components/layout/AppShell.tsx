@@ -67,6 +67,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isClientReady, setIsClientReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [viewportMode, setViewportMode] = useState<ViewportMode>("wide");
   const [desktopNavPreference, setDesktopNavPreference] = useState<boolean | null>(null);
@@ -88,6 +89,10 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  useEffect(() => {
+    setIsClientReady(true);
+  }, []);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -158,7 +163,8 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
   });
 
   const isI18nReady = !!dashboard.settings;
-  const showPageSkeleton = dashboard.isBootstrapping || !isI18nReady;
+  const hasCustomChildren = children !== undefined;
+  const showPageSkeleton = !hasCustomChildren && (dashboard.isBootstrapping || !isI18nReady);
 
   const drawerOpen = searchParams.get("drawer") === "settings";
 
@@ -408,6 +414,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
             ) : (
               <>
                 <div data-testid="app-shell-ready" />
+                {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
                 {children ?? renderSection({
                   section,
                   dashboard,

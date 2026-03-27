@@ -47,6 +47,13 @@ export default [
     files: ['apps/web/tests/e2e/**/*.ts'],
     ...playwright.configs['flat/recommended'],
   },
+  // AAA specs assert through assistants and shared Step-annotated helpers instead of raw expect() calls.
+  {
+    files: ['apps/web/tests/e2e/**/*-aaa.spec.ts'],
+    rules: {
+      'playwright/expect-expect': 'off',
+    },
+  },
   // Setup files require conditional skip logic — relax Playwright test-purity rules
   {
     files: ['apps/web/tests/e2e/setup/**/*.ts'],

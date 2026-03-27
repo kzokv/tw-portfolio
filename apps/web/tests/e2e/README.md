@@ -8,12 +8,10 @@ E2E tests are owned by the web app and run against the full stack (web + API). C
 
 ## Structure
 
-- **`specs/`** – Dev-bypass mode specs: `shell-navigation`, `settings`, `portfolio-transactions`, `transaction-mutations`, `tooltips-a11y`, `sse-events`, `identity-resolution`, and `auth-oauth`.
-- **`specs-oauth/`** – OAuth mode specs (run with `AUTH_MODE=oauth`): `auth-demo`, `auth-session`, `auth-identity-source`, `demo-symbol-history`, `identity-resolution`, `profile-tab`, `routing`, and `sse-auth`.
-- **`setup/auth.setup.ts`** – OAuth project setup: seeds a real session cookie via `/__e2e/oauth-session`.
-- **`fixtures/test.ts`** – Shared Playwright fixture that resets a seeded user and assigns a deterministic dev-bypass identity per test. Used by `specs/` tests.
-- **`fixtures/demo-test.ts`** – Demo session fixture that seeds a demo user via `/__e2e/demo-session` (bypasses the rate limiter). Sets the session cookie on the browser context and yields a page on `/dashboard`. Used by `specs-oauth/` tests that need a signed-in demo user without exercising the sign-in UI.
-- **`helpers/flows.ts`** – Route helpers, shell-ready wait logic, and E2E reset/user-selection helpers.
+- **`specs/`** – Dev-bypass mode specs: AAA-migrated UI specs plus browser-mediated API checks (`sse-events`, `identity-resolution`).
+- **`specs-oauth/`** – OAuth mode specs: AAA-migrated UI specs plus browser/API auth checks (`auth-identity-source`, `identity-resolution`, `sse-auth`).
+- **`@tw-portfolio/test-e2e/fixtures/*`** – Shared package fixtures for dev-bypass, OAuth, demo, and composed page-assistant flows.
+- **`@tw-portfolio/test-e2e/utils`** – Shared URL and cookie helpers used by both UI and API-style E2E specs.
 - **`playwright.config.ts`** – Configures Playwright to start API and web via `webServer`, keep the per-test `45_000` ms timeout, and run parallel by default.
 
 ## Requirements
@@ -35,7 +33,6 @@ E2E covers **user-visible behavior** and full-stack flows. It does not re-test A
 From **repo root** (scripts live in root package.json):
 
 - `npm run test:e2e:bypass:mem` – Runs `specs/` (dev-bypass mode). `webServer` starts a fresh API and web stack automatically and fails fast on unrelated port conflicts. Generates an HTML report; opens automatically on failure.
-- `npm run test:e2e:settings:parity` – Runs the legacy `settings.spec.ts` and new `settings-aaa.spec.ts` side by side on `1` worker for the AAA POC parity check. This is intentionally single-worker because both specs hammer the same dev server routes and can exceed the 30-second budget when compiled concurrently.
 - `npm run test:e2e:oauth:mem` – Runs `specs-oauth/` (OAuth mode, `AUTH_MODE=oauth`) against a fresh mock OAuth, API, and web stack. Includes demo session, auth session, profile, routing, and SSE auth tests.
 - `npm run test:e2e:ci:bypass:mem` – Same as bypass, with `--reporter=junit` for CI integration.
 - `npm run test:e2e:show-report` – View the last generated HTML report (run from repo root or `apps/web`).
@@ -51,11 +48,11 @@ Selectors use `data-testid` for stability; avoid layout- or text-dependent selec
 
 ### Dev-bypass mode (`specs/`)
 - Each test gets its own deterministic `x-user-id` via the `tw_e2e_user` browser cookie.
-- The `fixtures/test.ts` fixture resets that seeded user through `POST /__e2e/reset` before the test starts.
+- The packaged dev-bypass fixtures reset that seeded user through `POST /__e2e/reset` before the test starts.
 - Because stateful tests no longer share one in-memory user, the suite can run in parallel by default.
 - Use `test.describe.configure({ mode: "serial" })` only when a spec intentionally chains dependent user actions.
 
 ### OAuth mode (`specs-oauth/`)
 - Tests use real session cookies signed by the API (via `/__e2e/oauth-session` or `/__e2e/demo-session`).
-- The `fixtures/demo-test.ts` fixture creates a fresh demo user per test, bypassing the rate limiter entirely. This avoids 429 errors when multiple specs hit `/auth/demo/start`.
-- Tests that verify the sign-in UI itself (e.g., `auth-demo.spec.ts`) use `@playwright/test` directly and go through the real `/auth/demo/start` endpoint with the rate limiter active.
+- The packaged demo fixtures create a fresh demo user per test, bypassing the rate limiter entirely. This avoids 429 errors when multiple specs hit `/auth/demo/start`.
+- AAA auth specs still exercise the real sign-in UI and only stub network responses when a case explicitly needs a controlled non-OK response.
