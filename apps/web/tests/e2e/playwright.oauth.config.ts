@@ -15,7 +15,8 @@ const apiPort = TestEnv.ports.api;
 const host = TestEnv.host;
 
 export default defineConfig({
-  fullyParallel: true,
+  // Keep the suite parallel at the worker level, but avoid same-file fan-out.
+  fullyParallel: false,
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,
@@ -46,7 +47,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node tests/e2e/helpers/mock-oauth-server.mjs",
+      command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node ../../libs/test-e2e/src/mock-oauth-server.mjs",
       port: TestEnv.ports.mockOAuth,
       cwd: path.resolve(repoRoot, "apps/web"),
       reuseExistingServer: false,

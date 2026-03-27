@@ -1,5 +1,6 @@
-import { test, expect } from "../fixtures/oauth-base";
-import { apiUrl, TestEnv } from "../helpers/flows";
+import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthBase";
+import { TestEnv } from "@tw-portfolio/config/test";
+import { apiUrl, openSseProbe, waitForSseProbeResult } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("SSE with OAuth session auth", () => {
   test("EventSource receives heartbeat with session cookie auth", async ({ page }) => {
@@ -9,44 +10,15 @@ test.describe("SSE with OAuth session auth", () => {
     await expect(page).not.toHaveURL(/\/login/);
 
     const sseUrl = apiUrl("/events/stream");
+    await openSseProbe(page, { url: sseUrl, targetEvent: "heartbeat", timeoutMs: 15_000 });
+    const result = await waitForSseProbeResult(page, 15_000);
 
-    // Open EventSource with withCredentials (sends session cookie)
-    const result = await page.evaluate(async (url) => {
-      return new Promise<{
-        connected: boolean;
-        heartbeatReceived: boolean;
-        eventId: string;
-      }>((resolve) => {
-        const es = new EventSource(url, { withCredentials: true });
-        const timeout = setTimeout(() => {
-          es.close();
-          resolve({ connected: false, heartbeatReceived: false, eventId: "" });
-        }, 15_000);
-
-        es.addEventListener("heartbeat", (e) => {
-          clearTimeout(timeout);
-          es.close();
-          resolve({
-            connected: true,
-            heartbeatReceived: true,
-            eventId: e.lastEventId,
-          });
-        });
-
-        es.onerror = () => {
-          clearTimeout(timeout);
-          es.close();
-          resolve({ connected: false, heartbeatReceived: false, eventId: "" });
-        };
-      });
-    }, sseUrl);
-
-    expect(result.connected).toBe(true);
-    expect(result.heartbeatReceived).toBe(true);
+    expect(result.received).toBe(true);
+    expect(result.event).toBe("heartbeat");
     // seq is per-user and shared across connections — the page's own useEventStream
     // connection (opened on page.goto) consumes at least seq=1, so this connection's
     // heartbeat will have seq >= 1 (not necessarily exactly 1)
-    expect(parseInt(result.eventId)).toBeGreaterThanOrEqual(1);
+    expect(parseInt(result.eventId ?? "0", 10)).toBeGreaterThanOrEqual(1);
   });
 
   test("synthetic endpoint delivers event via SSE with oauth session", async ({ page, request }) => {
@@ -54,30 +26,7 @@ test.describe("SSE with OAuth session auth", () => {
     await expect(page).not.toHaveURL(/\/login/);
 
     const sseUrl = apiUrl("/events/stream");
-
-    // Open EventSource listening for recompute_complete
-    const eventPromise = page.evaluate(async (url) => {
-      return new Promise<{ received: boolean; data: unknown; eventType: string }>((resolve) => {
-        const es = new EventSource(url, { withCredentials: true });
-        const timeout = setTimeout(() => {
-          es.close();
-          resolve({ received: false, data: null, eventType: "" });
-        }, 15_000);
-
-        es.addEventListener("recompute_complete", (e) => {
-          clearTimeout(timeout);
-          es.close();
-          resolve({
-            received: true,
-            data: JSON.parse(e.data),
-            eventType: "recompute_complete",
-          });
-        });
-      });
-    }, sseUrl);
-
-    // Give EventSource time to establish connection
-    await page.waitForTimeout(1000);
+    await openSseProbe(page, { url: sseUrl, targetEvent: "recompute_complete", timeoutMs: 15_000 });
 
     // Extract the session cookie from the page context to authenticate the publish request.
     // The request fixture has no cookie jar (per-test sessions are planted in page.context() only).
@@ -98,9 +47,9 @@ test.describe("SSE with OAuth session auth", () => {
     });
     expect(publishRes.ok()).toBeTruthy();
 
-    const result = await eventPromise;
+    const result = await waitForSseProbeResult(page, 15_000);
     expect(result.received).toBe(true);
     expect(result.data).toEqual({ portfolioId: "oauth-e2e-test" });
-    expect(result.eventType).toBe("recompute_complete");
+    expect(result.event).toBe("recompute_complete");
   });
 });

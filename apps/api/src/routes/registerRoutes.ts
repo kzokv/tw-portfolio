@@ -442,6 +442,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "reset", userId };
   });
 
+  app.post("/__e2e/reset-demo-rate-buckets", async () => {
+    assertE2EOauthSessionEnabled();
+    _resetDemoRateBuckets();
+    return { status: "reset" };
+  });
+
   app.post("/__e2e/oauth-session", async (req, reply) => {
     assertE2EOauthSessionEnabled();
 

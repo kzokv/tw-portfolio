@@ -1,6 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
 
+import { SearchComponent } from "./SearchComponent.js";
 import { SideNavigationComponent } from "./SideNavigationComponent.js";
 import { TopBarComponent } from "./TopBarComponent.js";
 
@@ -9,6 +10,11 @@ export interface TAppShellElements {
   globalError: Locator;
   topBar: TopBarComponent;
   sideNavigation: SideNavigationComponent;
+  search: SearchComponent;
+  mobileNavToggle: Locator;
+  mobileSidebar: Locator;
+  desktopSidebar: Locator;
+  desktopNavToggle: Locator;
   settings: {
     drawer: Locator;
     localeValue: Locator;
@@ -24,6 +30,11 @@ export class AppShellPage extends BasePage<TAppShellElements> {
       globalError: this.locate("global-error-banner", "Global Error Banner"),
       topBar: new TopBarComponent(this.page),
       sideNavigation: new SideNavigationComponent(this.page),
+      search: new SearchComponent(this.page),
+      mobileNavToggle: this.locate("mobile-nav-toggle", "Mobile Nav Toggle"),
+      mobileSidebar: this.locate("mobile-sidebar", "Mobile Sidebar"),
+      desktopSidebar: this.locate("desktop-sidebar", "Desktop Sidebar"),
+      desktopNavToggle: this.locate("desktop-nav-toggle", "Desktop Nav Toggle"),
       settings: {
         drawer: this.locate("settings-drawer", "Settings Drawer"),
         localeValue: this.locate("settings-locale-value", "Locale Summary Value"),

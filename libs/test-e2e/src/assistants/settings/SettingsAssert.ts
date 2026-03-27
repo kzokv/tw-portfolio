@@ -26,4 +26,56 @@ export class SettingsAssert extends BaseAssert {
   async drawerIsVisible(): Promise<void> {
     await expect(this.el.drawer).toBeVisible();
   }
+
+  @Step()
+  async localeTooltipContentIsVisible(): Promise<void> {
+    await expect(this.el.general.localeTooltipContent).toBeVisible();
+  }
+
+  @Step()
+  async costBasisTooltipContentIsVisible(): Promise<void> {
+    await expect(this.el.general.costBasisTooltipContent).toBeVisible();
+  }
+
+  @Step()
+  async closeWarningIsVisible(): Promise<void> {
+    await expect(this.el.footer.closeWarning).toBeVisible();
+  }
+
+  @Step()
+  async discardNoticeContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.footer.discardNotice).toContainText(text);
+  }
+
+  @Step()
+  async profileTabIsVisible(): Promise<void> {
+    await expect(this.el.tabs.profile).toBeVisible();
+  }
+
+  @Step()
+  async profileSectionIsVisible(): Promise<void> {
+    await expect(this.el.profile.section).toBeVisible();
+  }
+
+  @Step()
+  async profileDisplayNameIsReadonlyWithValue(expectedValue: string): Promise<void> {
+    await expect(this.el.profile.displayNameInput).toBeVisible();
+    await expect(this.el.profile.displayNameInput).toHaveAttribute("readonly", "");
+    await expect(this.el.profile.displayNameInput).toHaveValue(expectedValue);
+  }
+
+  @Step()
+  async profileSectionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.profile.section).toContainText(text);
+  }
+
+  @Step()
+  async profileEmailValueIs(expectedValue: string): Promise<void> {
+    await expect(this.el.profile.emailInput).toHaveValue(expectedValue);
+  }
+
+  @Step()
+  async profileEmailSavedIndicatorIsVisible(): Promise<void> {
+    await expect(this.el.profile.emailSavedIndicator).toBeVisible();
+  }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
@@ -41,8 +41,13 @@ export function TickerHistoryClient({
   statsBar,
 }: TickerHistoryClientProps) {
   const router = useRouter();
+  const [isClientReady, setIsClientReady] = useState(false);
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
+
+  useEffect(() => {
+    setIsClientReady(true);
+  }, []);
 
   const refresh = useCallback(async () => {
     router.refresh();
@@ -86,6 +91,7 @@ export function TickerHistoryClient({
 
   return (
     <>
+      {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
       <section
         className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8"
         data-testid="symbol-history-section"

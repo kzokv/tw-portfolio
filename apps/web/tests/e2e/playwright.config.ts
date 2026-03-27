@@ -15,7 +15,10 @@ const host = TestEnv.host;
 
 export default defineConfig({
   testDir: "./specs",
-  fullyParallel: true,
+  // Keep the suite parallel at the worker level, but avoid same-file fan-out.
+  // The Next dev server + ticker mutation routes become flaky when multiple tests
+  // from the same spec boot the same route concurrently.
+  fullyParallel: false,
   timeout: 30_000,
   expect: {
     timeout: 10_000,
@@ -36,7 +39,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node tests/e2e/helpers/mock-oauth-server.mjs",
+      command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node ../../libs/test-e2e/src/mock-oauth-server.mjs",
       port: mockOAuthPort,
       cwd: path.resolve(repoRoot, "apps/web"),
       reuseExistingServer: false,

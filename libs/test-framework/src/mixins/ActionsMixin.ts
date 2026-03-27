@@ -1,12 +1,22 @@
 import { Step } from "../decorators/Step.js";
-import type { Page } from "@playwright/test";
+import type { Cookie, Locator, Page } from "@playwright/test";
 
-import type { Constructor, TResponsePredicate } from "../core/types.js";
+import type { Constructor, TResponsePredicate, TUIActions } from "../core/types.js";
 
 import { CoreMixin } from "./CoreMixin.js";
 
-export function ActionsMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
+export function ActionsMixin<TBase extends Constructor<{ page: Page; uiActions: TUIActions }>>(Base: TBase) {
   return class extends CoreMixin(Base) {
+    @Step("Set Viewport Size")
+    async mxSetViewportSize(width: number, height: number): Promise<void> {
+      await this.page.setViewportSize({ width, height });
+    }
+
+    @Step("Go To Url")
+    async mxGotoUrl(url: string): Promise<void> {
+      await this.page.goto(url, { waitUntil: "domcontentloaded" });
+    }
+
     @Step("Navigate To Route")
     async mxNavigateToRoute(path: string, appBaseUrl?: string): Promise<void> {
       const destination = appBaseUrl ? new URL(path, appBaseUrl).href : path;
@@ -18,6 +28,42 @@ export function ActionsMixin<TBase extends Constructor<{ page: Page }>>(Base: TB
     async mxReloadPage(): Promise<void> {
       await this.page.reload({ waitUntil: "domcontentloaded" });
       await this.mxWaitForAppReady();
+    }
+
+    @Step("Click Locator")
+    async mxClick(locator: Locator): Promise<void> {
+      await this.uiActions.click.perform(locator);
+    }
+
+    @Step("Fill Locator")
+    async mxFill(locator: Locator, value: string): Promise<void> {
+      await this.uiActions.fill.perform(locator, value);
+    }
+
+    @Step("Clear And Fill Locator")
+    async mxClearAndFill(locator: Locator, value: string): Promise<void> {
+      await locator.clear();
+      await this.uiActions.fill.perform(locator, value);
+    }
+
+    @Step("Select Option")
+    async mxSelectOption(locator: Locator, value: Parameters<Locator["selectOption"]>[0]): Promise<void> {
+      await this.uiActions.select.perform(locator, value);
+    }
+
+    @Step("Press Key")
+    async mxPressKey(key: string): Promise<void> {
+      await this.page.keyboard.press(key);
+    }
+
+    @Step("Clear Cookies")
+    async mxClearCookies(): Promise<void> {
+      await this.page.context().clearCookies();
+    }
+
+    @Step("Add Cookies")
+    async mxAddCookies(cookies: Cookie[]): Promise<void> {
+      await this.page.context().addCookies(cookies);
     }
 
     @Step("Wait For Response")
