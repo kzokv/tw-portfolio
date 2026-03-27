@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import type { Locator, Page, Response } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { Step } from "../decorators/Step.js";
 
@@ -24,61 +24,9 @@ async function assertUrl(page: Page, expected: RegExp | string, negate: boolean)
 export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
   return class extends CoreMixin(Base) {
 
-    @Step("Assert Visible")
-    async mxAssertVisible(locator: Locator, timeout?: number): Promise<void> {
-      await expect(locator).toBeVisible(timeoutOpt(timeout));
-    }
-
     @Step("Assert Hidden")
     async mxAssertHidden(locator: Locator, timeout?: number): Promise<void> {
       await expect(locator).toBeHidden(timeoutOpt(timeout));
-    }
-
-    @Step("Assert Attached")
-    async mxAssertAttached(locator: Locator, timeout?: number): Promise<void> {
-      await expect(locator).toBeAttached(timeoutOpt(timeout));
-    }
-
-    @Step("Assert Text Contains")
-    async mxAssertContainsText(
-      locator: Locator,
-      expected: string | RegExp,
-      timeout?: number,
-    ): Promise<void> {
-      await expect(locator).toContainText(expected, timeoutOpt(timeout));
-    }
-
-    @Step("Assert Has Text")
-    async mxAssertHasText(
-      locator: Locator,
-      expected: string | RegExp,
-      timeout?: number,
-    ): Promise<void> {
-      await expect(locator).toHaveText(expected, timeoutOpt(timeout));
-    }
-
-    @Step("Assert Has Attribute")
-    async mxAssertHasAttribute(
-      locator: Locator,
-      name: string,
-      expected: string | RegExp,
-      timeout?: number,
-    ): Promise<void> {
-      await expect(locator).toHaveAttribute(name, expected, timeoutOpt(timeout));
-    }
-
-    @Step("Assert Has Value")
-    async mxAssertHasValue(
-      locator: Locator,
-      expected: string | RegExp,
-      timeout?: number,
-    ): Promise<void> {
-      await expect(locator).toHaveValue(expected, timeoutOpt(timeout));
-    }
-
-    @Step("Assert Count")
-    async mxAssertCount(locator: Locator, count: number, timeout?: number): Promise<void> {
-      await expect(locator).toHaveCount(count, timeoutOpt(timeout));
     }
 
     @Step("Assert Truthy")
@@ -135,16 +83,6 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       label = "value",
     ): Promise<void> {
       expect(actual, `${label} should be <= ${expectedMaximum}`).toBeLessThanOrEqual(expectedMaximum);
-    }
-
-    @Step("Assert Response Ok")
-    async mxAssertResponseOk(response: Response): Promise<void> {
-      expect(response.ok(), "response should be OK").toBeTruthy();
-    }
-
-    @Step("Assert Response Status")
-    async mxAssertResponseStatus(response: Response, expectedStatus: number): Promise<void> {
-      expect(response.status(), "response status should match").toBe(expectedStatus);
     }
 
     @Step("Assert URL Matches")

@@ -25,13 +25,18 @@ function formatSelection(values: Parameters<Locator["selectOption"]>[0]): string
 }
 
 export class NormalSelect implements TSelectAction {
-  constructor(private readonly logger: TActionLogger = console) {}
+  constructor(private readonly logger: TActionLogger) {}
 
   async perform(
     locator: Locator,
     values: Parameters<Locator["selectOption"]>[0],
   ): Promise<void> {
-    this.logger.info(`[select] ${describeLocator(locator)} <= ${formatSelection(values)}`);
-    await locator.selectOption(values);
+    const actionLabel = `[select] ${describeLocator(locator)} <= ${formatSelection(values)}`;
+    this.logger.info(actionLabel);
+    try {
+      await locator.selectOption(values);
+    } finally {
+      this.logger.logDrainedErrors(actionLabel);
+    }
   }
 }

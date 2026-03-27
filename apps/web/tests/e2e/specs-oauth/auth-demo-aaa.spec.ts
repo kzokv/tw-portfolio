@@ -1,3 +1,4 @@
+import { E2E_ENDPOINTS } from "@tw-portfolio/test-e2e/constants";
 import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
 import { apiUrl } from "@tw-portfolio/test-e2e/utils";
 
@@ -9,7 +10,7 @@ import { apiUrl } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("Demo user flow", () => {
   test.beforeEach(async ({ request }) => {
-    await request.post(apiUrl("/__e2e/reset-demo-rate-buckets"));
+    await request.post(apiUrl(E2E_ENDPOINTS.RESET_DEMO_RATE_BUCKETS));
   });
 
   test("click demo button creates session and lands on /dashboard", async ({ dashboard, login }) => {
