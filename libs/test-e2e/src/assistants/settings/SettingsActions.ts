@@ -1,10 +1,9 @@
 import type { Response } from "@playwright/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
 
-export class SettingsActions extends BaseActions {
+export class SettingsActions extends AppBaseActions {
   declare protected readonly _instance: SettingsDrawerPage;
 
   private static readonly saveOutcomeTimeoutMs = 10_000;

@@ -50,7 +50,7 @@ npm run test:e2e:oauth:mem --prefix apps/web
 
 **Validate:** `npm run typecheck && npx eslint .` then both E2E suites.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -70,7 +70,7 @@ Option (a) is simpler and matches the existing layering: `test-framework` = gene
 
 **Validate:** `npm run typecheck` — all consumers still compile. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -101,7 +101,9 @@ private get el() { return this._instance.elements; }
 
 **Validate:** `npm run typecheck` — all assistants compile without local `el`. Both E2E suites green.
 
-- [ ] Done
+- [x] Skipped — **by design (TypeScript constraint)**
+
+**Why this cannot be consolidated:** Each assistant narrows `_instance` via `declare protected readonly _instance: SpecificPage`. The per-assistant `get el()` is defined in the subclass where `this._instance` resolves to the narrowed type, so `el` returns the specific elements type (`AppShellElements`, `DashboardElements`, etc.). Moving the getter to a base class (`TestAAA`, `BaseActions`, etc.) where `_instance: BasePage<unknown>` makes it return `unknown` — all 13 assistants lose type safety on element access like `this.el.topBar.elements.avatarButton`. TypeScript resolves getter return types at definition site, not call site; `declare` in a subclass only narrows direct property access, not inherited getters. The 1-line getter is the correct TypeScript pattern for type-safe access with `declare`-narrowed instance types.
 
 ---
 

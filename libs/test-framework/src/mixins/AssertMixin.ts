@@ -169,9 +169,5 @@ export function AssertMixin<TBase extends Constructor<{ page: Page }>>(Base: TBa
       await expect(this.page).not.toHaveURL(expected);
     }
 
-    @Step("Assert No Global Error")
-    async mxAssertNoGlobalError(): Promise<void> {
-      await expect(this.page.getByTestId("global-error-banner")).not.toBeVisible();
-    }
   };
 }

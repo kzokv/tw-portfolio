@@ -1,10 +1,9 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { PortfolioPage } from "../../pages/portfolio/PortfolioPage.js";
 
-export class PortfolioActions extends BaseActions {
+export class PortfolioActions extends AppBaseActions {
   declare protected readonly _instance: PortfolioPage;
 
   private get el() {

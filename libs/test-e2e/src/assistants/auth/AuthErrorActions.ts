@@ -1,10 +1,9 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { AuthErrorPage } from "../../pages/auth/AuthErrorPage.js";
 
-export class AuthErrorActions extends BaseActions {
+export class AuthErrorActions extends AppBaseActions {
   declare protected readonly _instance: AuthErrorPage;
 
   @Step()

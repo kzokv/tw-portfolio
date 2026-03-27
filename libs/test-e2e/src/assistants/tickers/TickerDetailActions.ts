@@ -1,11 +1,10 @@
 import { expect } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseActions } from "@tw-portfolio/test-framework/mixins";
-
+import { AppBaseActions } from "../../bases/index.js";
 import type { TickerDetailPage } from "../../pages/tickers/TickerDetailPage.js";
 
-export class TickerDetailActions extends BaseActions {
+export class TickerDetailActions extends AppBaseActions {
   declare protected readonly _instance: TickerDetailPage;
 
   private get el() {
