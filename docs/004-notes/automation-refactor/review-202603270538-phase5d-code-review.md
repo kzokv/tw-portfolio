@@ -367,7 +367,7 @@ These items prepare reusable assets and reduce duplication ahead of the API test
 
 **Validate:** `npm run typecheck`. OAuth E2E suite green.
 
-- [ ] Done
+- [x] Done — `identity-resolution.spec.ts` now imports `makeDeterministicIdToken` from shared utils; local `makeFakeIdToken` removed.
 
 ---
 
@@ -385,7 +385,7 @@ These items prepare reusable assets and reduce duplication ahead of the API test
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done — Created `libs/test-e2e/src/utils/oauth.ts` with `parseOAuthState`, `tamperSignedValue`, `extractOAuthStateFromUrl`. SessionArrange delegates to shared utils.
 
 ---
 
@@ -401,7 +401,7 @@ These items prepare reusable assets and reduce duplication ahead of the API test
 
 **Validate:** Both E2E suites green.
 
-- [ ] Done
+- [x] Done — Added `publishAndExpectSseEvent` to `sse.ts`. Both SSE specs updated to use it.
 
 ---
 
@@ -418,7 +418,7 @@ These items prepare reusable assets and reduce duplication ahead of the API test
 
 **Validate:** Both E2E suites green.
 
-- [ ] Done
+- [x] Done — Added `parseSessionCookie` and `UUID_V4_PATTERN` to `cookie.ts`. All 3 specs updated to use shared utils.
 
 ---
 
@@ -432,7 +432,7 @@ These items prepare reusable assets and reduce duplication ahead of the API test
 
 **Fix:** No code change. Update the 5e design doc to classify these as "browser-mediated API tests" rather than "no page interaction." This affects whether they can be ported to pure `fetch()`-based tests (they can't — EventSource requires a browser context) or must remain Playwright-hosted with a lightweight fixture.
 
-- [ ] Done
+- [x] Done — The Phase 5e readiness table in this doc already classifies SSE specs as "Browser-mediated API". The frozen 5d design doc is not updatable; the correct classification carries forward to 5e.
 
 ---
 

@@ -1,6 +1,6 @@
 import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthBase";
 import { TestEnv } from "@tw-portfolio/config/test";
-import { apiUrl } from "@tw-portfolio/test-e2e/utils";
+import { apiUrl, parseSessionCookie } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("session cookie as sole identity source (AUTH_MODE=oauth)", () => {
   test("x-authenticated-user-id header is ignored — session cookie determines identity", async ({
@@ -12,10 +12,7 @@ test.describe("session cookie as sole identity source (AUTH_MODE=oauth)", () => 
     const sessionCookie = cookies.find((c) => c.name === TestEnv.sessionCookieName);
     expect(sessionCookie, "auth setup must have planted the session cookie").toBeDefined();
 
-    // Extract the userId from the cookie (format: <userId>.<hmac-sig>)
-    const lastDot = sessionCookie!.value.lastIndexOf(".");
-    expect(lastDot).toBeGreaterThan(0);
-    const sessionUserId = sessionCookie!.value.slice(0, lastDot);
+    const { userId: sessionUserId } = parseSessionCookie(sessionCookie!.value);
 
     // Call /settings with the valid session cookie AND a spoofed x-authenticated-user-id header.
     // Before the fix, the header would override the session cookie identity.

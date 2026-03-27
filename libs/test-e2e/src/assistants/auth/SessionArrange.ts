@@ -3,6 +3,7 @@ import { Step } from "@tw-portfolio/test-framework/decorators";
 import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
 
 import { extractCookieValue } from "../../utils/cookie.js";
+import { extractOAuthStateFromUrl, tamperSignedValue as tamperSignedValueUtil } from "../../utils/oauth.js";
 import type { BrowserSessionPage } from "../../pages/auth/BrowserSessionPage.js";
 
 export class SessionArrange extends BaseArrange {
@@ -32,17 +33,12 @@ export class SessionArrange extends BaseArrange {
   @Step()
   async oauthState(response: import("@playwright/test").APIResponse): Promise<string> {
     const location = await this.oauthRedirectLocation(response);
-    return new URL(location).searchParams.get("state") ?? "";
+    return extractOAuthStateFromUrl(location);
   }
 
   @Step()
   async tamperSignedValue(value: string): Promise<string> {
-    const lastDot = value.lastIndexOf(".");
-    if (lastDot <= 0) {
-      return value;
-    }
-
-    return `${value.slice(0, lastDot + 1)}badhmacsignature`;
+    return tamperSignedValueUtil(value);
   }
 
   @Step()
