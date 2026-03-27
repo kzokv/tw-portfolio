@@ -8,7 +8,6 @@ export interface TSearchElements {
   mobileSheet: Locator;
   mobileSheetInput: Locator;
   mobileResults: Locator;
-  /** GAP-6: use quickSearchItem(kind, id) helper for two-part structure */
   quickSearchItem: (kind: string, id: string) => Locator;
 }
 

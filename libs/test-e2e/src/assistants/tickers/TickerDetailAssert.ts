@@ -100,11 +100,6 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
-  async editConfirmButtonIsHidden(): Promise<void> {
-    await expect(this.el.editForm.elements.confirmButton).toBeHidden();
-  }
-
-  @Step()
   async editCancelButtonIsVisible(): Promise<void> {
     await expect(this.el.editForm.elements.dialogCancelButton).toBeVisible();
   }
