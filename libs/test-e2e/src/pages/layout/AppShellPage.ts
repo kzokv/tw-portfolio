@@ -1,6 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
 
+import { SHARED_TEST_IDS } from "../constants.js";
 import { SearchComponent } from "./SearchComponent.js";
 import { SideNavigationComponent } from "./SideNavigationComponent.js";
 import { TopBarComponent } from "./TopBarComponent.js";
@@ -27,7 +28,7 @@ export class AppShellPage extends BasePage<TAppShellElements> {
   protected initializeElements(): void {
     this._elements = {
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
-      globalError: this.locate("global-error-banner", "Global Error Banner"),
+      globalError: this.locate(SHARED_TEST_IDS.globalErrorBanner, "Global Error Banner"),
       topBar: new TopBarComponent(this.page),
       sideNavigation: new SideNavigationComponent(this.page),
       search: new SearchComponent(this.page),

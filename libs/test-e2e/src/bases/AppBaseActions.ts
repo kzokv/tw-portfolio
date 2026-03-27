@@ -2,6 +2,8 @@ import { expect } from "@playwright/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { BaseActions } from "@tw-portfolio/test-framework/mixins";
 
+import { SHARED_TEST_IDS } from "../pages/constants.js";
+
 const DEFAULT_APP_READY_TIMEOUT_MS = 20_000;
 
 /**
@@ -16,7 +18,7 @@ export class AppBaseActions extends BaseActions {
     await expect(this.page.getByTestId("app-shell-ready")).toBeAttached({ timeout: timeoutMs });
     await expect(this.page.getByTestId("app-shell-client-ready")).toBeAttached({ timeout: timeoutMs });
 
-    const globalError = this.page.getByTestId("global-error-banner");
+    const globalError = this.page.getByTestId(SHARED_TEST_IDS.globalErrorBanner);
     if (await globalError.isVisible().catch(() => false)) {
       throw new Error(`App failed to become ready: ${(await globalError.textContent())?.trim() ?? "unknown error"}`);
     }

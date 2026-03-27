@@ -1,6 +1,8 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
 
+import { SHARED_TEST_IDS } from "../constants.js";
+
 export interface TBrowserSessionElements {
   globalErrorBanner: Locator;
 }
@@ -8,7 +10,7 @@ export interface TBrowserSessionElements {
 export class BrowserSessionPage extends BasePage<TBrowserSessionElements> {
   protected initializeElements(): void {
     this._elements = {
-      globalErrorBanner: this.locate("global-error-banner", "Global Error Banner"),
+      globalErrorBanner: this.locate(SHARED_TEST_IDS.globalErrorBanner, "Global Error Banner"),
     };
   }
 }

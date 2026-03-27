@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/settings";
+import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
 
 const getNextQuotePoll = (current: string): string => (current === "12" ? "10" : "12");
 

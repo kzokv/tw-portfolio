@@ -222,7 +222,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -238,7 +238,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -252,7 +252,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -269,7 +269,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -283,7 +283,7 @@ Replace all 8 call sites.
 
 **Validate:** Both E2E suites green (registration still happens via fixture import chain).
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -297,7 +297,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`.
 
-- [ ] Done
+- [x] Done
 
 ---
 
