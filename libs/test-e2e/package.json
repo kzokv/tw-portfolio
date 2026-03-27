@@ -79,14 +79,6 @@
       "types": "./dist/fixtures/base.d.ts",
       "default": "./dist/fixtures/base.js"
     },
-    "./fixtures/appShell": {
-      "types": "./dist/fixtures/appShell.d.ts",
-      "default": "./dist/fixtures/appShell.js"
-    },
-    "./fixtures/settings": {
-      "types": "./dist/fixtures/settings.d.ts",
-      "default": "./dist/fixtures/settings.js"
-    },
     "./fixtures/noAuthBase": {
       "types": "./dist/fixtures/noAuthBase.d.ts",
       "default": "./dist/fixtures/noAuthBase.js"
@@ -111,10 +103,6 @@
       "types": "./dist/fixtures/authPages.d.ts",
       "default": "./dist/fixtures/authPages.js"
     },
-    "./fixtures/dashboard": {
-      "types": "./dist/fixtures/dashboard.d.ts",
-      "default": "./dist/fixtures/dashboard.js"
-    },
     "./fixtures/oauthPages": {
       "types": "./dist/fixtures/oauthPages.d.ts",
       "default": "./dist/fixtures/oauthPages.js"
@@ -122,18 +110,6 @@
     "./fixtures/demoPages": {
       "types": "./dist/fixtures/demoPages.d.ts",
       "default": "./dist/fixtures/demoPages.js"
-    },
-    "./fixtures/portfolio": {
-      "types": "./dist/fixtures/portfolio.d.ts",
-      "default": "./dist/fixtures/portfolio.js"
-    },
-    "./fixtures/transactions": {
-      "types": "./dist/fixtures/transactions.d.ts",
-      "default": "./dist/fixtures/transactions.js"
-    },
-    "./fixtures/tickers": {
-      "types": "./dist/fixtures/tickers.d.ts",
-      "default": "./dist/fixtures/tickers.js"
     },
     "./config": {
       "types": "./dist/config/index.d.ts",

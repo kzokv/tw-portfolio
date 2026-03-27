@@ -37,5 +37,3 @@ export function registerTestE2EAssistants(): void {
 
   registered = true;
 }
-
-registerTestE2EAssistants();

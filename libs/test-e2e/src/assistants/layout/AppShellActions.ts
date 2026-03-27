@@ -38,7 +38,7 @@ export class AppShellActions extends AppBaseActions {
 
   @Step()
   async navigateViaSidebar(destination: TSidebarDestination): Promise<void> {
-    await this.uiActions.click.perform(this.el.sideNavigation.elements.link(destination));
+    await this.uiActions.click.perform(this.el.sideNavigation.elements[destination]);
     await this.mxWaitForAppReady();
   }
 

@@ -12,6 +12,10 @@ registerTestE2EAssistants();
 
 const warmedAppRoutes = new Set<string>();
 
+export function _resetWarmedRoutes(): void {
+  warmedAppRoutes.clear();
+}
+
 export function emptyStorageState() {
   return [{ cookies: [], origins: [] }, { scope: "test" }] as [
     { cookies: []; origins: [] },
