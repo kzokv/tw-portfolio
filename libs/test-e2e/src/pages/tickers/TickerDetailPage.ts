@@ -1,7 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
 
-import { TransactionFormComponent } from "../transactions/TransactionFormComponent.js";
+import { TransactionFormComponent } from "../shared/TransactionFormComponent.js";
 import { DeleteDialogComponent } from "./DeleteDialogComponent.js";
 import { EditFormComponent } from "./EditFormComponent.js";
 

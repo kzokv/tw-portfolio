@@ -8,6 +8,7 @@ export interface TDeleteDialogElements {
   impactCounts: Locator;
   negativeLotsWarning: Locator;
   confirmButton: Locator;
+  cancelButton: Locator;
 }
 
 export class DeleteDialogComponent extends BasePage<TDeleteDialogElements> {
@@ -19,6 +20,10 @@ export class DeleteDialogComponent extends BasePage<TDeleteDialogElements> {
       impactCounts: this.locate("delete-impact-counts", "Delete Impact Counts"),
       negativeLotsWarning: this.locate("delete-negative-lots-warning", "Delete Negative Lots Warning"),
       confirmButton: this.locate("delete-confirm-button", "Delete Confirm Button"),
+      cancelButton: this.withDescription(
+        this.page.getByTestId("delete-confirmation-dialog").getByRole("button", { name: /cancel/i }),
+        "Delete Cancel Button",
+      ),
     };
   }
 }

@@ -122,7 +122,7 @@ if (!res.ok()) throw new Error(`seedTrade failed: ${res.status()} ${await res.te
 
 **Validate:** `npm run typecheck && npm run test:e2e:bypass:mem --prefix apps/web` (transaction-mutations-aaa.spec.ts exercises seedTrade).
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -145,7 +145,7 @@ if (!res.ok()) throw new Error(`seedTrade failed: ${res.status()} ${await res.te
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -162,7 +162,7 @@ if (!res.ok()) throw new Error(`seedTrade failed: ${res.status()} ${await res.te
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -182,7 +182,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`. Both E2E suites green.
 
-- [ ] Done
+- [x] Done
 
 ---
 
@@ -199,7 +199,7 @@ Replace all 8 call sites.
 
 **Validate:** `npm run typecheck`. OAuth E2E suite green.
 
-- [ ] Done
+- [x] Done
 
 ---
 

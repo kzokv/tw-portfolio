@@ -48,7 +48,7 @@ export class LoginAssert extends BaseAssert {
 
   @Step()
   async demoExpiredMessageIsVisible(): Promise<void> {
-    await expect(this.page.getByText("Your demo session has ended")).toBeVisible();
+    await expect(this.el.demoExpiredMessage).toBeVisible();
   }
 
   @Step()

@@ -1,23 +1,5 @@
 import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-
-function makeDeterministicIdToken(overrides: Record<string, unknown> = {}): string {
-  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: "profile-e2e-sub",
-      email: "profile-e2e@example.com",
-      email_verified: true,
-      name: "Profile E2E User",
-      picture: "https://lh3.googleusercontent.com/profile-e2e.jpg",
-      iss: "https://accounts.google.com",
-      aud: "e2e-test-client-id",
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-      ...overrides,
-    }),
-  ).toString("base64url");
-  return `${header}.${payload}.mock-sig`;
-}
+import { makeDeterministicIdToken } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("profile tab in settings drawer", () => {
   test("profile tab button is visible in settings drawer", async ({ appShell, settings }) => {
