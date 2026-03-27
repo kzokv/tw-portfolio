@@ -12,6 +12,9 @@ export type Constructor<T> = new (...args: any[]) => T;
 export interface TActionLogger {
   info(message: string): void;
   warn(message: string): void;
+  pushError(error: string): void;
+  drainErrors(): string[];
+  logDrainedErrors(duringAction: string): void;
 }
 
 export interface TClickAction {

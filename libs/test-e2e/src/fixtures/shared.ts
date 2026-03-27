@@ -1,6 +1,11 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 import { faker } from "@faker-js/faker";
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
+import { ActionLogger } from "@tw-portfolio/test-framework/logging";
+import { createUIActions } from "@tw-portfolio/test-framework/actions";
 import { TestUser } from "@tw-portfolio/test-framework/core";
 import type { TUIActions } from "@tw-portfolio/test-framework/core";
 
@@ -11,6 +16,27 @@ import { appUrl } from "../utils/url.js";
 registerTestE2EAssistants();
 
 const warmedAppRoutes = new Set<string>();
+
+function resolveJsonlPath(testInfo: TestInfo): string {
+  const reportDir = join(testInfo.config.rootDir, "playwright-report");
+  mkdirSync(reportDir, { recursive: true });
+  return join(reportDir, "actions.jsonl");
+}
+
+export function createTestActionLogger(testInfo: TestInfo): ActionLogger {
+  return new ActionLogger({
+    testName: testInfo.title,
+    jsonlPath: resolveJsonlPath(testInfo),
+  });
+}
+
+export function attachBrowserErrorListener(page: Page, logger: ActionLogger): void {
+  page.on("console", (msg) => {
+    if (msg.type() === "error") {
+      logger.pushError(msg.text());
+    }
+  });
+}
 
 export function _resetWarmedRoutes(): void {
   warmedAppRoutes.clear();
@@ -152,11 +178,16 @@ export function buildUserFixtures(seedIdentity: boolean) {
       use: (user: TestUser) => Promise<void>,
       testInfo: TestInfo,
     ) => {
+      const logger = createTestActionLogger(testInfo);
+      const uiActions = createUIActions({ logger });
+      attachBrowserErrorListener(page, logger);
+
       const testUser = createFixtureTestUser({
         page,
         request,
         userId: e2eUserId,
         displayName: buildDisplayName(testInfo),
+        uiActions,
       });
 
       if (seedIdentity) {

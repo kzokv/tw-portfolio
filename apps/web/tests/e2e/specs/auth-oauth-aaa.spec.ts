@@ -1,7 +1,7 @@
 import type { APIResponse } from "@playwright/test";
 import type { TSessionAssistant } from "@tw-portfolio/test-e2e/assistants";
 import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
-import { apiUrl } from "@tw-portfolio/test-e2e/utils";
+import { apiUrl, startOAuthAndGetState, startOAuthAndGetTamperedState } from "@tw-portfolio/test-e2e/utils";
 import { TestEnv } from "@tw-portfolio/config/test";
 
 const sessionCookieRequiresSecure = TestEnv.sessionCookieName.startsWith("__Host-");
@@ -83,7 +83,7 @@ test.describe("GET /auth/google/start", () => {
 
 test.describe("GET /auth/google/callback", () => {
   test(`signup flow sets ${TestEnv.sessionCookieName} cookie and redirects to app`, async ({ session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const state = await startOAuthAndGetState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state,
@@ -95,7 +95,7 @@ test.describe("GET /auth/google/callback", () => {
   });
 
   test(`login flow sets ${TestEnv.sessionCookieName} cookie and redirects (same as signup)`, async ({ session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const state = await startOAuthAndGetState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state,
@@ -112,11 +112,10 @@ test.describe("GET /auth/google/callback", () => {
   });
 
   test("tampered state redirects to /auth/error?reason=invalid_state", async ({ session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
-    const tamperedState = await session.arrange.tamperSignedValue(state);
+    const tampered = await startOAuthAndGetTamperedState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
-      state: tamperedState,
+      state: tampered,
     });
 
     await session.assert.responseStatusIs(response, 302);
@@ -190,7 +189,7 @@ test.describe("full browser OAuth flow", () => {
     dashboard,
     session,
   }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const state = await startOAuthAndGetState(session);
 
     await session.actions.navigateToOAuthCallback({
       code: "e2e-auth-code",
@@ -205,7 +204,7 @@ test.describe("full browser OAuth flow", () => {
 
 test.describe("cookie security attributes", () => {
   test(`${TestEnv.sessionCookieName} cookie has correct security attributes`, async ({ session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const state = await startOAuthAndGetState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state,
@@ -221,7 +220,7 @@ test.describe("cookie security attributes", () => {
 
 test.describe("authorization code replay", () => {
   test("replayed authorization code with new state", async ({ session }) => {
-    const firstState = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const firstState = await startOAuthAndGetState(session);
     const firstUse = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state: firstState,
@@ -230,7 +229,7 @@ test.describe("authorization code replay", () => {
     await session.assert.responseStatusIs(firstUse, 302);
     await session.assert.responseHeaderContains(firstUse, "set-cookie", `${TestEnv.sessionCookieName}=`);
 
-    const replayState = await session.arrange.oauthState(await session.actions.requestOAuthStart());
+    const replayState = await startOAuthAndGetState(session);
     const replay = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state: replayState,
@@ -248,12 +247,11 @@ test.describe("callback error page (browser)", () => {
   });
 
   test("tampered state lands on /auth/error with invalid_state reason", async ({ authError, session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart());
-    const tamperedState = await session.arrange.tamperSignedValue(state);
+    const tampered = await startOAuthAndGetTamperedState(session);
 
     await session.actions.navigateToOAuthCallback({
       code: "e2e-auth-code",
-      state: tamperedState,
+      state: tampered,
     });
     await authError.assert.isOnAuthErrorPage("invalid_state");
   });
@@ -281,7 +279,7 @@ test.describe("returnTo in OAuth state", () => {
   });
 
   test("callback with 3-part state redirects to returnTo destination", async ({ session }) => {
-    const state = await session.arrange.oauthState(await session.actions.requestOAuthStart("/transactions"));
+    const state = await startOAuthAndGetState(session, "/transactions");
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state,

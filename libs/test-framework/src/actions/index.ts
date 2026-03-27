@@ -2,25 +2,24 @@ import { NormalClick } from "./click.js";
 import { NormalFill } from "./fill.js";
 import { NormalSelect } from "./select.js";
 import { WaitForVisible } from "./wait.js";
+import { ActionLogger } from "../logging/ActionLogger.js";
 
 import type { TActionLogger, TUIActions } from "../core/types.js";
 
 export interface TCreateUIActionsOptions {
-  logger?: TActionLogger;
+  logger: TActionLogger;
 }
 
-export function createUIActions(options: TCreateUIActionsOptions = {}): TUIActions {
-  const logger = options.logger ?? console;
-
+export function createUIActions(options: TCreateUIActionsOptions): TUIActions {
   return {
-    click: new NormalClick(logger),
-    fill: new NormalFill(logger),
-    select: new NormalSelect(logger),
-    wait: new WaitForVisible(logger),
+    click: new NormalClick(options.logger),
+    fill: new NormalFill(options.logger),
+    select: new NormalSelect(options.logger),
+    wait: new WaitForVisible(options.logger),
   };
 }
 
-export const defaultUIActions = createUIActions();
+export const defaultUIActions = createUIActions({ logger: new ActionLogger({}) });
 
 export * from "./click.js";
 export * from "./fill.js";

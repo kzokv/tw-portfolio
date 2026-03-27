@@ -1,6 +1,7 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
+import { E2E_ENDPOINTS } from "../../constants/index.js";
 import { extractCookieValue } from "../../utils/cookie.js";
 import { apiUrl, appUrl } from "../../utils/url.js";
 import type { BrowserSessionPage } from "../../pages/auth/BrowserSessionPage.js";
@@ -75,7 +76,7 @@ export class SessionActions extends AppBaseActions {
 
   @Step()
   async requestOAuthSession(idToken?: string): Promise<import("@playwright/test").APIResponse> {
-    return await this.request.post(apiUrl("/__e2e/oauth-session"), {
+    return await this.request.post(apiUrl(E2E_ENDPOINTS.OAUTH_SESSION), {
       ...(idToken ? { data: { id_token: idToken } } : {}),
     });
   }

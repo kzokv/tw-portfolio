@@ -118,13 +118,17 @@
     "./utils": {
       "types": "./dist/utils/index.d.ts",
       "default": "./dist/utils/index.js"
+    },
+    "./constants": {
+      "types": "./dist/constants/index.d.ts",
+      "default": "./dist/constants/index.js"
     }
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "npx tsc -p tsconfig.json",
-    "test": "echo \"no tests\""
+    "test": "vitest run"
   },
   "dependencies": {
     "@playwright/test": "^1.51.1",
@@ -133,6 +137,7 @@
   },
   "devDependencies": {
     "@faker-js/faker": "^10.4.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.18"
   }
 }

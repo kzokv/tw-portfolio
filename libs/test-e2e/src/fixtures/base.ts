@@ -1,4 +1,5 @@
 import { test as base } from "@playwright/test";
+import { ROUTES, TEST_DATA } from "../constants/index.js";
 import {
   buildUserFixtures,
   prewarmAppRoute,
@@ -8,11 +9,11 @@ import {
 export const test = base.extend<TBaseFixtures>({
   page: async ({ page, request }, use) => {
     await Promise.all([
-      prewarmAppRoute(request, "/dashboard"),
-      prewarmAppRoute(request, "/dashboard?drawer=settings"),
-      prewarmAppRoute(request, "/portfolio"),
-      prewarmAppRoute(request, "/transactions"),
-      prewarmAppRoute(request, "/tickers/2330"),
+      prewarmAppRoute(request, ROUTES.DASHBOARD),
+      prewarmAppRoute(request, ROUTES.SETTINGS_DRAWER),
+      prewarmAppRoute(request, ROUTES.PORTFOLIO),
+      prewarmAppRoute(request, ROUTES.TRANSACTIONS),
+      prewarmAppRoute(request, `/tickers/${TEST_DATA.TICKER_SYMBOL}`),
     ]);
     await use(page);
   },
