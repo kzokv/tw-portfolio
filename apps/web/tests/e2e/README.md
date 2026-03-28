@@ -9,7 +9,8 @@ E2E tests are owned by the web app and run against the full stack (web + API). C
 ## Structure
 
 - **`specs/`** – Dev-bypass mode specs: AAA-migrated UI specs plus browser-mediated API checks (`sse-events`, `identity-resolution`).
-- **`specs-oauth/`** – OAuth mode specs: AAA-migrated UI specs plus browser/API auth checks (`auth-identity-source`, `identity-resolution`, `sse-auth`).
+- **`specs-oauth/`** – OAuth mode specs: AAA-migrated UI/auth specs (`auth-demo-aaa`, `auth-session-aaa`, `profile-tab-aaa`, `routing-aaa`, `demo-symbol-history-aaa`) plus the browser-mediated SSE auth check (`sse-auth`).
+- **`apps/api/test/http/`** – Browser-free API HTTP contract specs that used to live in E2E or vitest integration when they only needed HTTP requests plus AAA assistants.
 - **`@tw-portfolio/test-e2e/fixtures/*`** – Shared package fixtures for dev-bypass, OAuth, demo, and composed page-assistant flows.
 - **`@tw-portfolio/test-e2e/utils`** – Shared URL and cookie helpers used by both UI and API-style E2E specs.
 - **`playwright.config.ts`** – Configures Playwright to start API and web via `webServer`, keep the per-test `45_000` ms timeout, and run parallel by default.
@@ -26,7 +27,7 @@ E2E tests are owned by the web app and run against the full stack (web + API). C
 
 ## Coverage (vs integration)
 
-E2E covers **user-visible behavior** and full-stack flows. It does not re-test API contracts (those live in `apps/api/test/integration/`). See `docs/002-operations/acceptance-test-mapping.md` for which acceptance criteria are covered by E2E vs integration.
+E2E covers **user-visible behavior** and full-stack flows. Browser-free API contracts now live primarily in `apps/api/test/http/`, while `apps/api/test/integration/` is reserved for in-process, mocked, or persistence-heavy cases that need more than plain HTTP. See `docs/002-operations/acceptance-test-mapping.md` for the current split.
 
 ## Running
 
@@ -34,6 +35,7 @@ From **repo root** (scripts live in root package.json):
 
 - `npm run test:e2e:bypass:mem` – Runs `specs/` (dev-bypass mode). `webServer` starts a fresh API and web stack automatically and fails fast on unrelated port conflicts. Generates an HTML report; opens automatically on failure.
 - `npm run test:e2e:oauth:mem` – Runs `specs-oauth/` (OAuth mode, `AUTH_MODE=oauth`) against a fresh mock OAuth, API, and web stack. Includes demo session, auth session, profile, routing, and SSE auth tests.
+- `npm run test:http:api` – Runs the browser-free API HTTP suite in `apps/api/test/http/` against an API-only Playwright stack.
 - `npm run test:e2e:ci:bypass:mem` – Same as bypass, with `--reporter=junit` for CI integration.
 - `npm run test:e2e:show-report` – View the last generated HTML report (run from repo root or `apps/web`).
 - `npm run install:full` – Install npm deps + Playwright browsers + system deps (Linux; prompts for sudo if needed).

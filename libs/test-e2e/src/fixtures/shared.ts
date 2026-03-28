@@ -1,16 +1,19 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { faker } from "@faker-js/faker";
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { ActionLogger } from "@tw-portfolio/test-framework/logging";
 import { createUIActions } from "@tw-portfolio/test-framework/actions";
 import { TestUser } from "@tw-portfolio/test-framework/core";
 import type { TUIActions } from "@tw-portfolio/test-framework/core";
+import {
+  buildDisplayName,
+  buildE2EUserId,
+  extractCookieValue,
+} from "@tw-portfolio/test-framework/shared";
 
 import { registerTestE2EAssistants } from "../config/mapper.js";
-import { extractCookieValue } from "../utils/cookie.js";
 import { appUrl } from "../utils/url.js";
 
 registerTestE2EAssistants();
@@ -64,29 +67,6 @@ export interface TBaseFixtures {
   e2eUserId: string;
   testUser: TestUser;
   createTestUser: TCreateTestUser;
-}
-
-function buildAcronym(filename: string): string {
-  const stem = (filename.split("/").pop() ?? "spec")
-    .replace(/\.spec\.[jt]s$/, "")
-    .replace(/\.[jt]s$/, "");
-  return stem.split("-").map((segment) => segment[0] ?? "").join("").toLowerCase();
-}
-
-export function buildDisplayName(testInfo: TestInfo): string {
-  const acronym = buildAcronym(testInfo.file);
-  return `${acronym}:${testInfo.workerIndex}:${faker.person.firstName()}`;
-}
-
-export function buildE2EUserId(testInfo: TestInfo): string {
-  const fileName = testInfo.file.split("/").pop() ?? "spec";
-  const slug = `${fileName}-${testInfo.title}-${testInfo.workerIndex}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 72);
-
-  return `qa-${slug || "e2e"}`;
 }
 
 export function createFixtureTestUser(options: {

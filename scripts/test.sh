@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-UNIT=0; INTEGRATION=0; E2E=0; E2E_OAUTH=0; FULL=0
+UNIT=0; INTEGRATION=0; E2E=0; E2E_OAUTH=0; HTTP_API=0; FULL=0
 
 if [[ $# -eq 0 ]]; then
   bash scripts/help.sh test
@@ -18,6 +18,7 @@ while [[ $# -gt 0 ]]; do
     --integration) INTEGRATION=1 ;;
     --e2e) E2E=1 ;;
     --e2e-oauth) E2E_OAUTH=1 ;;
+    --http-api) HTTP_API=1 ;;
     --full) FULL=1 ;;
     -h|--help) bash scripts/help.sh test; exit 0 ;;
     *) echo "ERROR: Unknown flag: $1" >&2; bash scripts/help.sh test; exit 1 ;;
@@ -63,4 +64,9 @@ fi
 if [[ $E2E_OAUTH -eq 1 ]]; then
   echo "── Running E2E tests (OAuth) ──"
   npm run test:e2e:oauth:mem
+fi
+
+if [[ $HTTP_API -eq 1 ]]; then
+  echo "── Running API HTTP tests ──"
+  npm run test:http:api
 fi

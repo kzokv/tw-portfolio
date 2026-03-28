@@ -4,6 +4,7 @@ export { CoreMixin } from "./CoreMixin.js";
 export { ArrangeMixin } from "./ArrangeMixin.js";
 export { ActionsMixin } from "./ActionsMixin.js";
 export { AssertMixin } from "./AssertMixin.js";
+export { GenericAssertMixin } from "./GenericAssertMixin.js";
 
 import { ArrangeMixin } from "./ArrangeMixin.js";
 import { ActionsMixin } from "./ActionsMixin.js";

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { APIRequestContext, Page } from "@playwright/test";
 
-import { appInjectAssistantRegistry, webAssistantRegistry } from "../config/mapper.js";
+import { apiAssistantRegistry, appInjectAssistantRegistry, webAssistantRegistry } from "../config/mapper.js";
+import type { BaseEndpoint } from "./BaseEndpoint.js";
 import type { BasePage } from "./BasePage.js";
 
 import type { Constructor, TAssistantFactoryOptions, TUIActions } from "./types.js";
@@ -28,6 +29,7 @@ export class TestUser {
   private readonly assistantCache = new Map<Constructor<unknown>, unknown>();
   private readonly notes = new Map<string, unknown>();
   private readonly uiActions: TUIActions | undefined;
+  private _sessionCookie: string | undefined;
 
   constructor(options: TTestUserOptions) {
     this.userId = options.userId;
@@ -103,6 +105,31 @@ export class TestUser {
       this.createFactoryOptions(instance, { app }),
     );
     this.assistantCache.set(ServiceClass, assistant);
+    return assistant as TAssistant;
+  }
+
+  get sessionCookie(): string | undefined {
+    return this._sessionCookie;
+  }
+
+  setSessionCookie(cookie: string): void {
+    this._sessionCookie = cookie;
+  }
+
+  async useApiAssistant<TEndpoint extends BaseEndpoint, TAssistant>(
+    EndpointClass: Constructor<TEndpoint>,
+  ): Promise<TAssistant> {
+    const cached = this.assistantCache.get(EndpointClass) as TAssistant | undefined;
+    if (cached) {
+      return cached;
+    }
+
+    const instance = new EndpointClass(this.request);
+    const assistant = await apiAssistantRegistry.create(
+      EndpointClass,
+      this.createFactoryOptions(instance),
+    );
+    this.assistantCache.set(EndpointClass, assistant);
     return assistant as TAssistant;
   }
 
