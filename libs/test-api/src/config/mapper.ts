@@ -1,0 +1,29 @@
+import { apiAssistantRegistry } from "@tw-portfolio/test-framework/config";
+import { accountsApiAssistantFactory } from "../assistants/accounts/index.js";
+import { feeProfilesApiAssistantFactory } from "../assistants/feeProfiles/index.js";
+import { profileApiAssistantFactory } from "../assistants/profile/index.js";
+import { sessionApiAssistantFactory } from "../assistants/session/index.js";
+import { settingsApiAssistantFactory } from "../assistants/settings/index.js";
+import { transactionsApiAssistantFactory } from "../assistants/transactions/index.js";
+import { AccountsEndpoint } from "../endpoints/AccountsEndpoint.js";
+import { FeeProfilesEndpoint } from "../endpoints/FeeProfilesEndpoint.js";
+import { ProfileEndpoint } from "../endpoints/ProfileEndpoint.js";
+import { SessionEndpoint } from "../endpoints/SessionEndpoint.js";
+import { SettingsEndpoint } from "../endpoints/SettingsEndpoint.js";
+import { TransactionsEndpoint } from "../endpoints/TransactionsEndpoint.js";
+
+let registered = false;
+
+export function registerTestApiAssistants(): void {
+  if (registered) {
+    return;
+  }
+
+  apiAssistantRegistry.register(AccountsEndpoint, accountsApiAssistantFactory);
+  apiAssistantRegistry.register(FeeProfilesEndpoint, feeProfilesApiAssistantFactory);
+  apiAssistantRegistry.register(ProfileEndpoint, profileApiAssistantFactory);
+  apiAssistantRegistry.register(SessionEndpoint, sessionApiAssistantFactory);
+  apiAssistantRegistry.register(SettingsEndpoint, settingsApiAssistantFactory);
+  apiAssistantRegistry.register(TransactionsEndpoint, transactionsApiAssistantFactory);
+  registered = true;
+}

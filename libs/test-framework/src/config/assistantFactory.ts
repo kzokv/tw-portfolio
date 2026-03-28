@@ -1,6 +1,8 @@
 import type { TAssistantFactoryOptions, TTestAAAOptions } from "../core/types.js";
 
-type TAssistantConstructor<TAssistant> = new (options: TTestAAAOptions<unknown>) => TAssistant;
+// Assistant subclasses can narrow the instance type from the generic factory input.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TAssistantConstructor<TAssistant> = new (options: TTestAAAOptions<any>) => TAssistant;
 
 interface TCreateAssistantFactoryOptions<TArrange, TActions, TAssert> {
   Arrange: TAssistantConstructor<TArrange>;

@@ -40,3 +40,4 @@ export class AssistantFactoryRegistry {
 
 export const webAssistantRegistry = new AssistantFactoryRegistry();
 export const appInjectAssistantRegistry = new AssistantFactoryRegistry();
+export const apiAssistantRegistry = new AssistantFactoryRegistry();

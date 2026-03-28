@@ -65,6 +65,8 @@ export interface TAssistantFactoryOptions<TInstance = unknown> extends TTestAAAO
   app?: unknown;
 }
 
+export type TApiBaseOptions<TInstance = unknown> = TTestAAAOptions<TInstance>;
+
 export type TAssistantFactory<TInstance, TAssistant> = (
   options: TAssistantFactoryOptions<TInstance>,
 ) => TAssistant | Promise<TAssistant>;

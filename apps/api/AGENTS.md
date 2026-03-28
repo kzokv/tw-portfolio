@@ -9,6 +9,7 @@
 - Dev server: `npm run dev -w apps/api`.
 - Build package: `npm run build -w @tw-portfolio/api`.
 - Run API tests: `npm run test -w apps/api`.
+- Run API HTTP tests: `npm run test:http -w apps/api`.
 - Run integration tests: `npm run test:integration -w apps/api`.
 - Run managed Postgres integration variants from repo root:
   - `npm run test:integration:full:host` on the macOS host or lume VM shell
@@ -23,6 +24,7 @@
 
 ## Testing instructions
 - Add or update integration tests for route, payload, or behavior changes.
+- Use `test/http/` for API contract coverage that only needs HTTP requests and Playwright fixtures; keep `test/integration/` for in-process, mocked, streaming, or persistence-heavy cases.
 - Cover success, validation failure, and persistence failure paths.
 - Rebuild shared libs before API verification when shared packages change.
 - Coordinate with web tests when API contract changes affect UI flows.

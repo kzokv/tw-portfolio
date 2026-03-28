@@ -1,9 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
-import { verifySessionCookie } from "../../src/auth/googleOAuth.js";
 import { assertE2EOauthSessionEnabled } from "../../src/routes/registerRoutes.js";
-import { Env } from "@tw-portfolio/config";
 
 const testOAuthConfig: GoogleOAuthConfig = {
   clientId: "test-client-id",
@@ -11,99 +9,6 @@ const testOAuthConfig: GoogleOAuthConfig = {
   redirectUri: "http://localhost:4000/auth/google/callback",
   sessionSecret: "test-session-secret-that-is-long-enough-32chars!!",
 };
-
-function makeBase64UrlPayload(claims: object): string {
-  return Buffer.from(JSON.stringify(claims)).toString("base64url");
-}
-
-function makeMockIdToken(claims: object): string {
-  return `eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.${makeBase64UrlPayload(claims)}.mock-signature`;
-}
-
-describe("POST /__e2e/oauth-session", () => {
-  let app: Awaited<ReturnType<typeof buildApp>>;
-
-  beforeEach(async () => {
-    app = await buildApp({
-      persistenceBackend: "memory",
-      oauthConfig: testOAuthConfig,
-      appBaseUrl: "http://localhost:3000",
-    });
-  });
-
-  afterEach(async () => {
-    if (app) await app.close();
-  });
-
-  it("returns signed session cookie with hardcoded sub when no id_token provided", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/__e2e/oauth-session",
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.status).toBe("ok");
-    expect(body.sub).toBe("e2e-ci-google-sub-001");
-
-    const setCookie = res.headers["set-cookie"] as string;
-    expect(setCookie).toContain(`${Env.SESSION_COOKIE_NAME}=`);
-    expect(setCookie).toContain("HttpOnly");
-
-    // Verify the cookie value is HMAC-signed and verifies correctly
-    // Cookie is signed with userId (UUID), not the Google sub
-    const cookieValue = setCookie.split(`${Env.SESSION_COOKIE_NAME}=`)[1].split(";")[0];
-    const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
-    expect(verifiedIdentity?.userId).toBe(body.userId);
-    expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-  });
-
-  it("returns signed session cookie from decoded id_token when provided", async () => {
-    const idToken = makeMockIdToken({
-      sub: "google-custom-sub-456",
-      email: "test@example.com",
-      email_verified: true,
-      iss: "https://accounts.google.com",
-      aud: "test-client-id",
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/__e2e/oauth-session",
-      payload: { id_token: idToken },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.status).toBe("ok");
-    expect(body.sub).toBe("google-custom-sub-456");
-
-    const setCookie = res.headers["set-cookie"] as string;
-    const cookieValue = setCookie.split(`${Env.SESSION_COOKIE_NAME}=`)[1].split(";")[0];
-    // Cookie is signed with userId (UUID), not the Google sub
-    const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
-    expect(verifiedIdentity?.userId).toBe(body.userId);
-    expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-  });
-
-  it("uses buildCookieAttrs for cookie attributes (same as real callback)", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/__e2e/oauth-session",
-    });
-
-    const setCookie = res.headers["set-cookie"] as string;
-    expect(setCookie).toContain("Path=/");
-    expect(setCookie).toContain("HttpOnly");
-    expect(setCookie).toContain("SameSite=Lax");
-    // SESSION_COOKIE_NAME defaults to "__Host-g_auth_session" which triggers Secure in buildCookieAttrs.
-    if (Env.SESSION_COOKIE_NAME.startsWith("__Host-")) {
-      expect(setCookie).toContain("Secure");
-    }
-  });
-});
 
 describe("assertE2EOauthSessionEnabled guard", () => {
   it("does not throw when NODE_ENV is 'test'", () => {

@@ -42,18 +42,20 @@ Available test commands:
 
   Local:
     test:all                       Unit + integration + E2E bypass
-    test:all:full                  Unit + full integration (managed DB) + E2E bypass + OAuth
+    test:all:full                  Unit + full integration (managed DB) + E2E bypass + OAuth + API HTTP
     test:unit                      Unit tests (all workspaces)
     test:integration               Integration tests (no DB migrations)
     test:integration:full:host     Full integration with managed DB (local)
     test:integration:full:container  Full integration (from inside container)
     test:e2e:bypass:mem            E2E dev_bypass suite
     test:e2e:oauth:mem             E2E OAuth suite (requires refresh token)
+    test:http:api                  API HTTP suite (Playwright)
 
   Flags for test.sh:
     --all                          Run unit + integration + e2e:bypass
     --full                         Upgrade integration to include DB migrations
     --e2e-oauth                    Include OAuth E2E suite
+    --http-api                     Include API HTTP suite
 
 Run: npm run <command>  or  bash scripts/test.sh <flags>
 EOF
