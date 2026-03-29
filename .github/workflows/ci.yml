@@ -31,6 +31,8 @@ jobs:
       - run: npm run build -w @tw-portfolio/domain
       - run: npm run build -w @tw-portfolio/shared-types
       - run: npm run build -w @tw-portfolio/api
+      - run: npm run build -w @tw-portfolio/test-framework
+      - run: npm run build -w @tw-portfolio/test-e2e
       - run: npx tsc --noEmit -p apps/api/tsconfig.json
       - run: npx tsc --noEmit -p apps/web/tsconfig.json
 
@@ -43,6 +45,8 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - run: npm run build -w @tw-portfolio/config
+      - run: npm run build -w @tw-portfolio/test-framework
       - run: npm run test:unit
 
   integration-tests:
