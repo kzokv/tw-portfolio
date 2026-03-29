@@ -12,7 +12,11 @@ export class WebAAABase<
 
   constructor(options: TTestAAAOptions<TInstance>) {
     super(options);
-    this.page = options.page ?? (this._instance as BasePage<unknown>).page;
+    const page = options.page ?? (this._instance as BasePage<unknown>)?.page;
+    if (!page) {
+      throw new Error("WebAAABase requires a Playwright Page — provide options.page or a BasePage instance");
+    }
+    this.page = page;
     this.uiActions = options.uiActions ?? defaultUIActions;
   }
 }

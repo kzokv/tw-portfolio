@@ -123,13 +123,32 @@ Curated domain terms, project conventions, and system concepts used throughout t
 
 | Term | Definition |
 |------|-----------|
-| Full test suite | The five required test suites: lint, web unit, API integration, E2E bypass, E2E oauth. All must pass before declaring "tests pass." |
+| Full test suite | The seven required test suites: (1) lint, (2) typecheck, (3) web unit, (4) API integration, (5) E2E bypass, (6) E2E OAuth, (7) API HTTP. All must pass before declaring "tests pass." |
 | E2E bypass | Playwright E2E tests running with `AUTH_MODE=dev_bypass` and `PERSISTENCE_BACKEND=memory`. Tests in `specs/`. |
-| E2E oauth | Playwright E2E tests running with `AUTH_MODE=oauth`. Tests in `specs-oauth/`. Uses `/__e2e/oauth-session` for session seeding. |
+| E2E OAuth | Playwright E2E tests running with `AUTH_MODE=oauth`. Tests in `specs-oauth/`. Uses `/__e2e/oauth-session` for session seeding. |
+| API HTTP tests | Playwright-based API contract tests running with `AUTH_MODE=oauth`, API-only (no web server). Tests in `apps/api/test/http/specs/`. Uses `libs/test-api` assistants. |
 | Auth mode override | A `vi.mock("@tw-portfolio/config")` pattern used in API tests to switch `AUTH_MODE` to `oauth` for tests that need session enforcement. |
 | Route protection test | A test that clears cookies, visits a protected page, and asserts redirect to `/login`. Must be placed in `specs-oauth/`, not `specs/`. |
 | Mock OAuth | The E2E test pattern where `/__e2e/oauth-session` creates a real session cookie without contacting Google, simulating an authenticated user. |
 | Integration test (host mode) | API integration tests run with `test:integration:full:host` against an isolated Postgres/Redis Docker stack, using host-network port routing. |
+
+## AAA Test Framework
+
+| Term | Definition |
+|------|-----------|
+| AAA pattern | Arrange-Act-Assert — the three-phase test structure used across all E2E and API HTTP specs. Each phase has a dedicated class per feature. |
+| Triplet | The three assistant classes (Arrange, Actions, Assert) for a feature. Created via a factory function registered in the assistant registry. |
+| Assistant | A triplet instance (e.g., `DashboardArrange`, `DashboardActions`, `DashboardAssert`) that encapsulates test behavior for one feature. |
+| Page Object Model (POM) | A `BasePage<TElements>` subclass in `libs/test-e2e` that defines locators with human-readable descriptions. POMs are vocabulary-only — no behavior logic. |
+| Endpoint descriptor | A `BaseEndpoint` subclass in `libs/test-api` that defines HTTP methods (GET, POST, PATCH, DELETE). Returns raw `APIResponse` — no response parsing. |
+| Fixture chain | The Playwright `test.extend()` chain: `base.ts` (TestUser) → domain fixture (assistant) → spec file. Typed dependency flow from base through domain. |
+| TestUser | The shared orchestrator holding identity, page/request references, and the assistant cache. Creates assistants via `useWebAssistant()` / `useApiAssistant()`. `reset()` clears all client-side state. |
+| `@Step()` decorator | Applied to all public assistant methods. Wraps with `test.step()` in test context, falls back to console logger in global-setup. Produces human-readable Playwright trace labels. |
+| Mixin | A composable behavior unit (`CoreMixin`, `ArrangeMixin`, `ActionsMixin`, `AssertMixin`) mixed into AAA base classes. Diamond composition is intentional. |
+| `libs/test-framework` | Generic, app-agnostic AAA core — base classes, mixins, actions, logging, decorators, assistant registry. Shared by both `test-e2e` and `test-api`. |
+| `libs/test-e2e` | App-specific web E2E layer — page objects, web assistants, Playwright fixtures. Consumes `test-framework`. |
+| `libs/test-api` | App-specific API HTTP layer — endpoint descriptors, API assistants, Playwright fixtures. Consumes `test-framework`. Sibling of `test-e2e` (never imports from it). |
+| Assistant factory registry | Module-level singleton Maps (`webAssistantRegistry`, `apiAssistantRegistry`) that map Page/Endpoint constructors to triplet factory functions. Idempotent registration, `_reset()` for test isolation. |
 
 ## Project Conventions
 
@@ -140,7 +159,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Frozen snapshot | A document in `docs/004-notes/` that records what was true at a specific point in time. Never updated after merge. |
 | Evergreen doc | A document in `docs/001-architecture/` or `docs/002-operations/` that is updated in place to reflect the current system state. |
 | Route error | The `routeError(statusCode, code, message)` pattern from `apps/api/src/lib/routeError.ts`. Always used instead of plain `throw new Error()` in service files. |
-| Workspace library | An npm workspace package under `libs/` (`@tw-portfolio/config`, `@tw-portfolio/domain`, `@tw-portfolio/shared-types`). Must be built before consuming apps. |
+| Workspace library | An npm workspace package under `libs/` (`@tw-portfolio/config`, `@tw-portfolio/domain`, `@tw-portfolio/shared-types`, `@tw-portfolio/test-framework`, `@tw-portfolio/test-e2e`, `@tw-portfolio/test-api`). Must be built before consuming apps/tests. |
 | Tenancy root | The `users.id` column — the top-level key that scopes all user-owned data. Every query filters by user ID. |
 | ADR | Architecture Decision Record — a numbered document in `docs/003-adr/` that records a specific architectural decision and its rationale. Append-only. |
 | Transition guide | A document written at the end of a change arc that describes behavioral changes, migrations, or removals. Placed as the final numbered doc in a `docs/004-notes/` series. |

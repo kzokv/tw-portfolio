@@ -18,6 +18,12 @@ import { appUrl } from "../utils/url.js";
 
 registerTestE2EAssistants();
 
+/**
+ * Per-worker cache of prewarmed app routes. Intentionally never reset during
+ * fixture teardown — prewarming is shared across tests in the same worker to
+ * avoid redundant HTTP requests. Use `_resetWarmedRoutes()` only in test
+ * isolation scenarios where re-prewarming is needed.
+ */
 const warmedAppRoutes = new Set<string>();
 
 function resolveJsonlPath(testInfo: TestInfo): string {

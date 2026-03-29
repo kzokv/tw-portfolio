@@ -65,6 +65,25 @@ describe("ActionLogger", () => {
     });
   });
 
+  describe("resetStartTime", () => {
+    it("resets elapsed time baseline for console timestamps", async () => {
+      const logger = new ActionLogger({ testName: "reset-time" });
+
+      // Wait to accumulate elapsed time
+      await new Promise((r) => setTimeout(r, 100));
+      logger.resetStartTime();
+
+      // Log immediately after reset — elapsed should be near 0
+      logger.info("[click] Button[submit]");
+
+      const output = consoleSpy.mock.calls[0]![0] as string;
+      const match = output.match(/^\[\+(\d+\.\d{2})s\]/);
+      expect(match).not.toBeNull();
+      const seconds = parseFloat(match![1]!);
+      expect(seconds).toBeLessThan(0.05);
+    });
+  });
+
   describe("JSONL file output", () => {
     let tmpDir: string;
 

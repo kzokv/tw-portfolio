@@ -10,10 +10,12 @@ const LOAD_STATE_TIMEOUT_MS = 5_000;
  */
 export function CoreMixin<TBase extends Constructor<{ page: Page }>>(Base: TBase) {
   return class extends Base {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for override signature compatibility
     async mxWaitForShellClientReady(timeoutMs?: number): Promise<void> {
+      const timeout = timeoutMs ?? LOAD_STATE_TIMEOUT_MS;
       await this.page.waitForLoadState("domcontentloaded");
-      await this.page.waitForLoadState("load", { timeout: LOAD_STATE_TIMEOUT_MS }).catch(() => undefined);
+      await this.page.waitForLoadState("load", { timeout }).catch(() => {
+        console.warn(`[CoreMixin] load-state wait timed out after ${timeout}ms (soft-wait, continuing)`);
+      });
     }
 
     async mxWaitForAppReady(timeoutMs?: number): Promise<void> {

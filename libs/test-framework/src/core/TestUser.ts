@@ -49,8 +49,20 @@ export class TestUser {
     if (!response.ok()) {
       throw new Error(`Failed to reset E2E user ${this.userId}: ${response.status()} ${response.statusText()}`);
     }
+
+    this.assistantCache.clear();
+    this.notes.clear();
+    this._sessionCookie = undefined;
   }
 
+  /**
+   * Sets the E2E identity cookie on the browser context.
+   *
+   * **Side effect:** Clears ALL cookies on the browser context before setting
+   * the identity cookie. Any cookies set during Arrange (OAuth session, feature
+   * flags, etc.) will be wiped. Call this before other cookie-dependent setup,
+   * or re-set those cookies after this call.
+   */
   async assignIdentity(appBaseUrl: string): Promise<void> {
     if (!this.page) {
       throw new Error("assignIdentity requires a Playwright page");
