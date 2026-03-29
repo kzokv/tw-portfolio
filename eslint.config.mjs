@@ -54,10 +54,19 @@ export default [
     ...playwright.configs['flat/recommended'],
   },
   // AAA specs assert through assistants and shared Step-annotated helpers instead of raw expect() calls.
+  // Two rules: (1) suppress expect-expect (assertions are in assistant classes, not spec body),
+  // (2) ban raw expect() in AAA spec bodies — all assertions must route through Assert helpers.
   {
-    files: ['apps/web/tests/e2e/**/*-aaa.spec.ts'],
+    files: [
+      'apps/web/tests/e2e/**/*-aaa.spec.ts',
+      'apps/api/test/http/**/*-aaa.http.spec.ts',
+    ],
     rules: {
       'playwright/expect-expect': 'off',
+      'no-restricted-syntax': ['error', {
+        selector: 'CallExpression[callee.name="expect"]',
+        message: 'Raw expect() is not allowed in AAA spec files. Route assertions through Assert helpers (e.g., assistant.assert.someCheck()).',
+      }],
     },
   },
   // Setup files require conditional skip logic — relax Playwright test-purity rules

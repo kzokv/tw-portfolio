@@ -30,6 +30,13 @@
 - [project_db_schema.md](project_db_schema.md) — PostgreSQL table catalog with columns, constraints, indexes, and read/write paths
 - [project_api_surface.md](project_api_surface.md) — HTTP API endpoints, auth model, persistence write paths, and web-consumed surface
 
+## Migration process knowledge
+- [feedback_phased_migration_dual_pair.md](feedback_phased_migration_dual_pair.md) — Only safe test migration: keep old+new in parallel, validate parity, then delete old
+- [feedback_code_review_as_formal_phase.md](feedback_code_review_as_formal_phase.md) — Run structured CR before PR creation; catches architectural drift early
+- [feedback_test_framework_is_architecture.md](feedback_test_framework_is_architecture.md) — Test framework migration is 3-5x scope; surfaces readiness, hydration, auth, parallel issues
+- [feedback_structured_debate_resolves_forks.md](feedback_structured_debate_resolves_forks.md) — /debate for decisions with >1 viable option and downstream lock-in
+- [feedback_category_abc_classification.md](feedback_category_abc_classification.md) — Classify tests A/B/C before migration to prevent mid-implementation scope surprises
+
 ## Agent team workflow
 - [feedback_agent_team_workflow.md](feedback_agent_team_workflow.md) — /team skill: 3 tiers, convergence loop, Architect-as-lead, validator gating, state file tracking
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
