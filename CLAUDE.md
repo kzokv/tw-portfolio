@@ -20,10 +20,3 @@ New rule routing: agent-agnostic → `AGENTS.md` (nearest subtree), Claude-speci
 
 `.claude/memory/` is Claude-specific durable knowledge. Do not duplicate `.worklog/` content into memory — they serve different lifecycles.
 
-## Test File Placement
-
-Test files for `scripts/env-setup/` must live in `libs/config/test/` (prefixed `env-setup-*`), NOT in `scripts/env-setup/`. `scripts/` is not an npm workspace — `npm run test --workspaces` and vitest never discover tests placed there. When writing tests for any module under `scripts/`, place the test file in `libs/config/test/` with a descriptive prefix (e.g., `env-setup-generator.test.ts`). The import path is `../../scripts/env-setup/module.js`.
-
-## E2E AAA Guardrails
-
-For Playwright E2E in this repo, keep Phase 5d-style parallel execution at 2 workers but avoid same-file `fullyParallel` fan-out. Prefer deterministic route-ready markers, route prewarming, and probe-based waits over fixed sleeps, especially for client-hydrated ticker and auth flows.

@@ -1,4 +1,37 @@
-# Session Cookie `__Host-` Prefix Trap
+# Playwright OAuth & Cookie Patterns
+
+Two tightly coupled pitfalls around OAuth session cookies in E2E tests.
+
+---
+
+## Cookie Domain Scoping
+
+OAuth session cookies are set on `localhost`, not `127.0.0.1`. These are different hostnames for cookie purposes in the browser.
+
+**The problem:**
+`apiUrl()` in test flows resolves to `http://127.0.0.1:{port}/...` (intentional for IPv4 mock server binding). But OAuth session cookies are set on `localhost` because `GOOGLE_REDIRECT_URI` points to `localhost:4000/auth/google/callback`. Clearing a cookie via `127.0.0.1` does NOT clear the same-named cookie on `localhost`.
+
+```ts
+// ❌ Wrong — clears cookie on 127.0.0.1, not localhost
+await page.goto(apiUrl("/auth/logout"));
+
+// ✅ Correct — clears cookie on localhost where it actually lives
+await page.goto(
+  `http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`,
+  { waitUntil: "domcontentloaded" }
+);
+```
+
+**When to use which:**
+- OAuth session cookie operations (login, logout) → use `TestEnv.host`
+- Other API calls (non-session) → `apiUrl()` is fine
+- `TestEnv.host` is the source of truth for OAuth cookie scope
+
+Discovered in KZO-114 when OAuth logout tests failed silently.
+
+---
+
+## `__Host-` Prefix Trap
 
 `SESSION_COOKIE_NAME` and `COOKIE_DOMAIN` are tightly coupled. The `__Host-` cookie prefix (RFC 6265bis) prohibits the `Domain` attribute. Combining `SESSION_COOKIE_NAME=__Host-g_auth_session` with any `COOKIE_DOMAIN` value causes browsers to **silently drop the cookie** — users are permanently redirected to `/login` with no error.
 

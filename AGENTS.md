@@ -9,12 +9,37 @@
 
 - Read `.worklog/latest-handoff.md`, `.worklog/current-focus.md`, and `.worklog/open-questions.md` only for resumed work or when prior-session context materially affects the task.
 
+## Workspace Structure
+
+- `apps/api` — Fastify API server (`@tw-portfolio/api`)
+- `apps/web` — Next.js web app (`@tw-portfolio/web`)
+- `libs/config` — shared env, config, validation (`@tw-portfolio/config`)
+- `libs/domain` — domain logic (`@tw-portfolio/domain`)
+- `libs/shared-types` — shared TypeScript types (`@tw-portfolio/shared-types`)
+- `libs/test-framework` — generic, app-agnostic AAA test framework (`@tw-portfolio/test-framework`)
+- `libs/test-e2e` — app-specific web E2E assistants, pages, fixtures (`@tw-portfolio/test-e2e`)
+- `libs/test-api` — app-specific API HTTP endpoints, assistants, fixtures (`@tw-portfolio/test-api`)
+
 ## Repo-Specific Rules
 
 - Keep `compilerOptions.strict` enabled across the TypeScript config chain.
 - Keep scripts, commands, and docs synchronized when workflows change.
 - Run the smallest relevant test scope first, then broader regression checks.
 - Use `npm run test:integration:full:host` on Darwin or the lume VM shell, and `npm run test:integration:full:container` in Linux containers, for managed API Postgres integration coverage.
+
+## Test Suites
+
+"Full tests pass" requires ALL seven suites clean:
+
+1. `npx eslint .` — full project lint (run from repo root)
+2. `npm run typecheck` — typecheck (builds libs, then `tsc --noEmit` on both apps)
+3. `npm run test --prefix apps/web` — web unit tests (vitest)
+4. `npm run test:integration:full:host` — API integration tests (CI/host mode)
+5. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, dev_bypass)
+6. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, AUTH_MODE=oauth)
+7. `npm run test:http --prefix apps/api` — API HTTP tests (Playwright, AUTH_MODE=oauth)
+
+Never declare "all tests pass" with a subset.
 
 ## Git And PR Gate
 
@@ -33,6 +58,31 @@
   - `## Testing` — must include `Evidence:` or `Waiver:` block
   - `## Risk/Rollback`
 - CI enforces all of the above via `.github/workflows/pr-gate.yml`.
+
+## AAA Project-Specific Conventions
+
+**Fixture base decision tree:**
+
+| Base | Auth | Prewarming | Use for |
+|---|---|---|---|
+| `base.ts` | Authenticated + identity | 5 routes prewarmed | Standard app feature tests |
+| `noAuthBase.ts` | None | None | Login flows, auth errors, unauthenticated behavior |
+| `sessionBase("oauth")` | OAuth session cookie | None | OAuth-specific flows, session management |
+| `sessionBase("demo")` | Demo session cookie | None | Demo account flows, rate-limited tests |
+
+**Playwright config files:**
+
+| Config | Auth mode | Servers | Test dir |
+|---|---|---|---|
+| `apps/web/tests/e2e/playwright.config.ts` | `dev_bypass` | web+api | `specs/` |
+| `apps/web/tests/e2e/playwright.oauth.config.ts` | `oauth` | web+api | `specs-oauth/` |
+| `apps/api/test/http/playwright.config.ts` | `oauth` | api-only | `specs/` |
+
+**Test naming convention:** `"[context]: [action] → [result]"` with arrow (`→`) separators for multi-step flows. Name should reveal what's being verified without reading the test body.
+
+**Cookie mode divergence:** OAuth fixtures use `cookieMode: "domain"` (global), demo uses `cookieMode: "url"` (scoped). Switching fixture bases changes cookie behavior silently.
+
+**Fixture barrel exports (`test-e2e/src/fixtures/index.ts`) are unused.** Specs import directly from specific fixture files (e.g., `@tw-portfolio/test-e2e/fixtures/appPages`).
 
 ## Context7 Sources
 
