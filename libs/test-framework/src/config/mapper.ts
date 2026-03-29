@@ -25,6 +25,11 @@ export class AssistantFactoryRegistry {
       | undefined;
   }
 
+  /** Clear all registrations. Intended for test isolation when overriding factories. */
+  _reset(): void {
+    this.registry.clear();
+  }
+
   async create<TInstance, TAssistant>(
     target: Constructor<TInstance>,
     options: TAssistantFactoryOptions<TInstance>,

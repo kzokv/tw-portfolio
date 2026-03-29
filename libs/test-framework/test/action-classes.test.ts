@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { ActionLogger } from "../src/logging/ActionLogger.js";
 import { NormalClick } from "../src/actions/click.js";
 import { NormalFill } from "../src/actions/fill.js";
@@ -86,6 +89,39 @@ describe("Action classes with ActionLogger", () => {
       expect(errorSpy).toHaveBeenCalledOnce();
       const errorOutput = errorSpy.mock.calls[0]![0] as string;
       expect(errorOutput).toContain("validation error in browser");
+    });
+
+    it("masks sensitive values in JSONL logs", async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), "fill-sensitive-"));
+      const logPath = join(tmpDir, "actions.jsonl");
+      const logger = new ActionLogger({ testName: "sensitive-fill", jsonlPath: logPath });
+      const fill = new NormalFill(logger);
+      const locator = createMockLocator("Input[password]");
+
+      await fill.perform(locator, "s3cret-p@ssw0rd!", { sensitive: true });
+
+      const line = readFileSync(logPath, "utf-8").trim();
+      const entry = JSON.parse(line);
+      expect(entry.action).toContain("********");
+      expect(entry.action).not.toContain("s3cret-p@ssw0rd!");
+
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("does not mask non-sensitive values in JSONL logs", async () => {
+      const tmpDir = mkdtempSync(join(tmpdir(), "fill-normal-"));
+      const logPath = join(tmpDir, "actions.jsonl");
+      const logger = new ActionLogger({ testName: "normal-fill", jsonlPath: logPath });
+      const fill = new NormalFill(logger);
+      const locator = createMockLocator("Input[email]");
+
+      await fill.perform(locator, "user@test.com");
+
+      const line = readFileSync(logPath, "utf-8").trim();
+      const entry = JSON.parse(line);
+      expect(entry.action).toContain("user@test.com");
+
+      rmSync(tmpDir, { recursive: true, force: true });
     });
   });
 

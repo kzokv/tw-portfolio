@@ -9,7 +9,7 @@ export interface TActionLoggerOptions {
 type TJsonlLevel = "info" | "warn" | "browser-error";
 
 export class ActionLogger implements TActionLogger {
-  private readonly startTime: number;
+  private startTime: number;
   private readonly testName: string | undefined;
   private readonly jsonlPath: string | undefined;
   private readonly errorBuffer: string[] = [];
@@ -28,6 +28,11 @@ export class ActionLogger implements TActionLogger {
   warn(message: string): void {
     console.warn(this.formatConsoleMessage(message));
     this.writeJsonl(message, "warn");
+  }
+
+  /** Reset the elapsed-time baseline (e.g., at test start when reusing a shared logger). */
+  resetStartTime(): void {
+    this.startTime = performance.now();
   }
 
   pushError(error: string): void {

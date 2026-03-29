@@ -24,7 +24,7 @@
 - [Environment Variables](002-operations/environment-variables.md) — all env vars, schemas, validation, generation
 - [CI/CD](002-operations/ci-cd.md) — GitHub Actions, deploy workflows, PR gate
 - [macOS VM Docker Setup](002-operations/macos-vm-docker-setup.md) — Mac-specific Docker config
-- [Acceptance Test Mapping](002-operations/acceptance-test-mapping.md) — test coverage mapping
+- [Acceptance Test Mapping](002-operations/acceptance-test-mapping.md) — test coverage mapping, AAA spec inventory, 7-suite definition
 
 ## ADRs (`003-adr/`)
 
@@ -35,3 +35,4 @@
 - `001-planning/` — ticket specs and implementation contracts (KZO-11, KZO-14, KZO-33)
 - `002-accounting/` — accounting patterns, migration compatibility, correction rules
 - `003-oauth-env-refactor/` — OAuth & env refactor arc (plans, reviews, implementation TODOs, debates)
+- `automation-refactor/` — AAA test framework arc (design, migration, code reviews, audits, architecture snapshot)
