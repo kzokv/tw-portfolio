@@ -13,10 +13,18 @@ import type {
   DividendEvent,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+
+interface MemoryInstrument {
+  ticker: string;
+  name: string | null;
+  instrumentType: string;
+  marketCode: string;
+  barsBackfillStatus: string;
+}
 
 interface MemoryUser {
   id: string;
@@ -35,6 +43,10 @@ export class MemoryPersistence implements Persistence {
   private readonly quoteCache = new Map<string, Quote>();
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
+  /** userId → Set<ticker> (manual monitoring selections) */
+  private readonly monitoredSymbols = new Map<string, Map<string, string>>();
+  /** ticker → MemoryInstrument (instrument catalog for monitored symbols) */
+  private readonly instruments = new Map<string, MemoryInstrument>();
 
   async init(): Promise<void> {}
 
@@ -393,5 +405,107 @@ export class MemoryPersistence implements Persistence {
     trades.forEach((t, i) => {
       t.bookingSequence = i + 1;
     });
+  }
+
+  // --- Monitored Symbols ---
+
+  async getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]> {
+    const manualTickers = this.monitoredSymbols.get(userId) ?? new Map<string, string>();
+    const store = this.stores.get(userId);
+
+    // Collect position-derived tickers (lots with open_quantity > 0)
+    const positionTickers = new Set<string>();
+    if (store) {
+      for (const lot of store.accounting.projections.lots) {
+        if (lot.openQuantity > 0) {
+          positionTickers.add(lot.ticker);
+        }
+      }
+    }
+
+    // Build union: manual selections take precedence
+    const result: MonitoredSymbolDto[] = [];
+    const seen = new Set<string>();
+
+    for (const ticker of manualTickers.keys()) {
+      seen.add(ticker);
+      const instrument = this.instruments.get(ticker);
+      result.push({
+        ticker,
+        source: "manual",
+        name: instrument?.name ?? null,
+        instrumentType: (instrument?.instrumentType as MonitoredSymbolDto["instrumentType"]) ?? null,
+        barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
+      });
+    }
+
+    for (const ticker of positionTickers) {
+      if (seen.has(ticker)) continue;
+      seen.add(ticker);
+      const instrument = this.instruments.get(ticker);
+      result.push({
+        ticker,
+        source: "position",
+        name: instrument?.name ?? null,
+        instrumentType: (instrument?.instrumentType as MonitoredSymbolDto["instrumentType"]) ?? null,
+        barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
+      });
+    }
+
+    return result;
+  }
+
+  async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
+    const selections = this.monitoredSymbols.get(userId);
+    if (!selections) return [];
+    return [...selections.entries()].map(([ticker, addedAt]) => ({ ticker, addedAt }));
+  }
+
+  async replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }> {
+    // Get current full monitored set before replacing
+    const currentSet = await this.getMonitoredSet(userId);
+    const currentTickers = new Set(currentSet.map((s) => s.ticker));
+
+    // Replace manual selections
+    const now = new Date().toISOString();
+    const newSelections = new Map<string, string>();
+    for (const ticker of tickers) {
+      newSelections.set(ticker, now);
+    }
+    this.monitoredSymbols.set(userId, newSelections);
+
+    // Compute genuinely new tickers (not in current full monitored set)
+    const newTickers = tickers.filter((t) => !currentTickers.has(t));
+    return { newTickers };
+  }
+
+  async listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]> {
+    let results = [...this.instruments.values()];
+
+    if (search) {
+      const q = search.toLowerCase();
+      results = results.filter(
+        (i) => i.ticker.toLowerCase().includes(q) || (i.name?.toLowerCase().includes(q) ?? false),
+      );
+    }
+
+    if (type) {
+      results = results.filter((i) => i.instrumentType === type);
+    }
+
+    return results.map((i) => ({
+      ticker: i.ticker,
+      name: i.name,
+      instrumentType: i.instrumentType as InstrumentCatalogItemDto["instrumentType"],
+      marketCode: i.marketCode,
+      barsBackfillStatus: i.barsBackfillStatus,
+    }));
+  }
+
+  // --- Test helpers ---
+
+  /** @internal Test-only: seed an instrument into the in-memory catalog. */
+  _seedInstrument(instrument: MemoryInstrument): void {
+    this.instruments.set(instrument.ticker, instrument);
   }
 }

@@ -201,6 +201,26 @@ export interface AppDictionary {
     profileSavingEmail: string;
     profileEmailSaved: string;
     profileEmailError: string;
+    tabSymbols: string;
+    symbolsSectionTitle: string;
+    symbolsSectionDescription: string;
+    symbolsSearchPlaceholder: string;
+    symbolsAutoIncludedTitle: string;
+    symbolsAutoIncludedDescription: string;
+    symbolsYourSelectionsTitle: string;
+    symbolsYourSelectionsEmpty: string;
+    symbolsBrowseCatalog: string;
+    symbolsCatalogTitle: string;
+    symbolsCatalogBack: string;
+    symbolsFilterAll: string;
+    symbolsFilterStock: string;
+    symbolsFilterEtf: string;
+    symbolsFilterBondEtf: string;
+    symbolsSaveSelections: string;
+    symbolsSaving: string;
+    symbolsSaved: string;
+    symbolsSaveError: string;
+    symbolsPositionLocked: string;
   };
   recompute: {
     title: string;

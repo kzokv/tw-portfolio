@@ -1,0 +1,148 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildApp } from "../../src/app.js";
+import { MemoryPersistence } from "../../src/persistence/memory.js";
+
+let app: Awaited<ReturnType<typeof buildApp>>;
+
+describe("monitored symbols routes", () => {
+  beforeEach(async () => {
+    app = await buildApp({ persistenceBackend: "memory" });
+  });
+
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  function seedInstrument(instrument: { ticker: string; name: string; instrumentType: string; marketCode: string; barsBackfillStatus: string }): void {
+    (app.persistence as MemoryPersistence)._seedInstrument(instrument);
+  }
+
+  describe("GET /instruments", () => {
+    it("returns empty catalog when no instruments exist", async () => {
+      const res = await app.inject({ method: "GET", url: "/instruments" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ instruments: [] });
+    });
+
+    it("returns all instruments", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({ ticker: "0050", name: "TW Top 50 ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "ready" });
+
+      const res = await app.inject({ method: "GET", url: "/instruments" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().instruments).toHaveLength(2);
+    });
+
+    it("filters by search query", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
+
+      const res = await app.inject({ method: "GET", url: "/instruments?search=tsmc" });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.instruments).toHaveLength(1);
+      expect(body.instruments[0].ticker).toBe("2330");
+    });
+
+    it("filters by type", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({ ticker: "0050", name: "TW Top 50 ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "ready" });
+
+      const res = await app.inject({ method: "GET", url: "/instruments?type=ETF" });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.instruments).toHaveLength(1);
+      expect(body.instruments[0].ticker).toBe("0050");
+    });
+  });
+
+  describe("GET /monitored-symbols", () => {
+    it("returns empty set for new user", async () => {
+      const res = await app.inject({ method: "GET", url: "/monitored-symbols" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ symbols: [] });
+    });
+
+    it("returns manual selections after PUT", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+
+      await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: ["2330"] },
+      });
+
+      const res = await app.inject({ method: "GET", url: "/monitored-symbols" });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.symbols).toHaveLength(1);
+      expect(body.symbols[0]).toMatchObject({
+        ticker: "2330",
+        source: "manual",
+        name: "TSMC",
+      });
+    });
+  });
+
+  describe("PUT /monitored-symbols", () => {
+    it("replaces manual selections and returns updated set", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
+
+      const res = await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: ["2330", "2317"] },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.symbols).toHaveLength(2);
+      expect(body.newTickers.sort()).toEqual(["2317", "2330"]);
+    });
+
+    it("returns only genuinely new tickers on subsequent replace", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
+
+      // First: add 2330
+      await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: ["2330"] },
+      });
+
+      // Second: replace with 2330 + 2317 — only 2317 is new
+      const res = await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: ["2330", "2317"] },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().newTickers).toEqual(["2317"]);
+    });
+
+    it("validates tickers array", async () => {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: "not-an-array" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("normalizes tickers to uppercase", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+
+      const res = await app.inject({
+        method: "PUT",
+        url: "/monitored-symbols",
+        payload: { tickers: ["2330"] },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().symbols[0].ticker).toBe("2330");
+    });
+  });
+});

@@ -1,7 +1,16 @@
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { apiUrl } from "../../utils/url.js";
 
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
+
+interface SeedInstrument {
+  ticker: string;
+  name: string | null;
+  instrumentType: string;
+  marketCode: string;
+  barsBackfillStatus: string;
+}
 
 export class SettingsArrange extends BaseArrange {
   declare protected readonly _instance: SettingsDrawerPage;
@@ -13,5 +22,18 @@ export class SettingsArrange extends BaseArrange {
   @Step()
   async openFeesTab(): Promise<void> {
     await this.uiActions.click.perform(this.el.tabs.fees);
+  }
+
+  @Step()
+  async openSymbolsTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabs.symbols);
+  }
+
+  @Step()
+  async seedInstruments(instruments: SeedInstrument[]): Promise<void> {
+    await this.request.post(apiUrl("/__e2e/seed-instruments"), {
+      data: { instruments },
+      headers: { "x-user-id": this.userId ?? "user-1" },
+    });
   }
 }

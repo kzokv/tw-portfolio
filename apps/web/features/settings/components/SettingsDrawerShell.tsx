@@ -9,17 +9,18 @@ import { Button } from "../../../components/ui/Button";
 interface SettingsDrawerShellProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  expanded?: boolean;
   dict: AppDictionary;
   children: ReactNode;
 }
 
-export function SettingsDrawerShell({ open, onOpenChange, dict, children }: SettingsDrawerShellProps) {
+export function SettingsDrawerShell({ open, onOpenChange, expanded, dict, children }: SettingsDrawerShellProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/28 backdrop-blur-sm data-[state=open]:animate-fade-in-up" />
         <Dialog.Content
-          className="glass-panel !fixed inset-y-0 right-0 z-50 flex w-full max-w-3xl flex-col rounded-none border-l border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,248,255,0.96))] p-4 shadow-[0_28px_80px_rgba(15,23,42,0.18)] focus:outline-none md:max-w-[46rem] md:p-5 lg:max-w-[52rem] xl:max-w-[54rem] xl:p-6"
+          className={`glass-panel !fixed inset-y-0 right-0 z-50 flex w-full flex-col rounded-none border-l border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,248,255,0.96))] p-4 shadow-[0_28px_80px_rgba(15,23,42,0.18)] transition-[max-width] duration-300 ease-in-out focus:outline-none md:p-5 xl:p-6 ${expanded ? "max-w-full" : "max-w-3xl md:max-w-[46rem] lg:max-w-[52rem] xl:max-w-[54rem]"}`}
           data-testid="settings-drawer"
         >
           <div className="mb-4 flex min-w-0 items-start justify-between gap-2 md:mb-5">

@@ -35,7 +35,7 @@ import type {
   SymbolDef,
   Transaction,
 } from "../types/store.js";
-import type { ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
@@ -2268,6 +2268,129 @@ export class PostgresPersistence implements Persistence {
          AND te.booking_sequence <> ordered.new_seq`,
       [accountId, tradeDate, userId],
     );
+  }
+
+  // --- Monitored Symbols ---
+
+  async getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]> {
+    const result = await this.pool.query<{
+      ticker: string;
+      source: "manual" | "position";
+      name: string | null;
+      instrument_type: string | null;
+      bars_backfill_status: string | null;
+    }>(
+      `WITH manual AS (
+         SELECT ums.ticker, 'manual'::text AS source
+         FROM user_monitored_symbols ums
+         WHERE ums.user_id = $1
+       ),
+       positions AS (
+         SELECT DISTINCT l.ticker, 'position'::text AS source
+         FROM lots l
+         JOIN accounts a ON l.account_id = a.id
+         WHERE a.user_id = $1 AND l.open_quantity > 0
+       ),
+       combined AS (
+         SELECT ticker, source FROM manual
+         UNION ALL
+         SELECT ticker, source FROM positions
+         WHERE ticker NOT IN (SELECT ticker FROM manual)
+       )
+       SELECT c.ticker, c.source,
+              i.name, i.instrument_type, i.bars_backfill_status
+       FROM combined c
+       LEFT JOIN market_data.instruments i ON i.ticker = c.ticker`,
+      [userId],
+    );
+
+    return result.rows.map((row) => ({
+      ticker: row.ticker,
+      source: row.source as MonitoredSymbolDto["source"],
+      name: row.name,
+      instrumentType: (row.instrument_type as MonitoredSymbolDto["instrumentType"]) ?? null,
+      barsBackfillStatus: row.bars_backfill_status,
+    }));
+  }
+
+  async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
+    const result = await this.pool.query<{ ticker: string; added_at: string }>(
+      `SELECT ticker, added_at FROM user_monitored_symbols WHERE user_id = $1 ORDER BY added_at`,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      ticker: row.ticker,
+      addedAt: new Date(row.added_at).toISOString(),
+    }));
+  }
+
+  async replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }> {
+    // Get current full monitored set before replacing
+    const currentSet = await this.getMonitoredSet(userId);
+    const currentTickers = new Set(currentSet.map((s) => s.ticker));
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM user_monitored_symbols WHERE user_id = $1", [userId]);
+      for (const ticker of tickers) {
+        await client.query(
+          "INSERT INTO user_monitored_symbols (user_id, ticker) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [userId, ticker],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Compute genuinely new tickers (not in current full monitored set)
+    const newTickers = tickers.filter((t) => !currentTickers.has(t));
+    // KZO-126: enqueue backfill for newTickers. Must check users.is_demo before enqueuing — demo users get no FinMind calls.
+    return { newTickers };
+  }
+
+  async listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIndex = 1;
+
+    if (search) {
+      conditions.push(`(i.ticker ILIKE $${paramIndex} OR i.name ILIKE $${paramIndex})`);
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (type) {
+      conditions.push(`i.instrument_type = $${paramIndex}`);
+      params.push(type);
+      paramIndex++;
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const result = await this.pool.query<{
+      ticker: string;
+      name: string | null;
+      instrument_type: string;
+      market_code: string;
+      bars_backfill_status: string;
+    }>(
+      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status
+       FROM market_data.instruments i ${where}
+       ORDER BY ticker`,
+      params,
+    );
+
+    return result.rows.map((row) => ({
+      ticker: row.ticker,
+      name: row.name,
+      instrumentType: row.instrument_type as InstrumentCatalogItemDto["instrumentType"],
+      marketCode: row.market_code,
+      barsBackfillStatus: row.bars_backfill_status,
+    }));
   }
 
   getPool(): Pool {

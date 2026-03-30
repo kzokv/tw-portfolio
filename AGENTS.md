@@ -41,6 +41,8 @@
 
 Never declare "all tests pass" with a subset.
 
+**Common mistake — `vitest run` from `apps/api/` is NOT suite 4.** Running bare `npx vitest run` in `apps/api/` only executes memory-backed unit and integration tests. Suite 4 (`test:integration:full:host`) spins up a managed Postgres + Redis stack and runs the full Postgres-backed integration suite. These are different test populations — migrations, identity resolution, and persistence tests only run against real Postgres. Always use the exact commands listed above.
+
 ## Git And PR Gate
 
 - This repository is Linear-driven: commit subjects and PR titles must use `type(scope): LINEAR-TICKET: subject`.

@@ -225,3 +225,21 @@ export interface ProfileDto {
   linkedAt: string | null;
   lastSeenAt: string | null;
 }
+
+export type MonitoredSymbolSource = "manual" | "position";
+
+export interface MonitoredSymbolDto {
+  ticker: string;
+  source: MonitoredSymbolSource;
+  name: string | null;
+  instrumentType: InstrumentType | null;
+  barsBackfillStatus: string | null;
+}
+
+export interface InstrumentCatalogItemDto {
+  ticker: string;
+  name: string | null;
+  instrumentType: InstrumentType;
+  marketCode: string;
+  barsBackfillStatus: string;
+}

@@ -10,7 +10,7 @@ import type {
   SymbolDef,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -105,4 +105,10 @@ export interface Persistence {
   bulkInsertLotAllocations(userId: string, allocations: LotAllocationProjection[]): Promise<void>;
   bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;
   compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void>;
+
+  // Monitored symbols
+  getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]>;
+  getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
+  replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
+  listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]>;
 }

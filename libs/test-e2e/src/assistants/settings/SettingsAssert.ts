@@ -78,4 +78,56 @@ export class SettingsAssert extends BaseAssert {
   async profileEmailSavedIndicatorIsVisible(): Promise<void> {
     await expect(this.el.profile.emailSavedIndicator).toBeVisible();
   }
+
+  // --- Monitored Symbols ---
+
+  @Step()
+  async symbolsSectionIsVisible(): Promise<void> {
+    await expect(this.el.symbols.section).toBeVisible();
+  }
+
+  @Step()
+  async symbolsEmptyStateIsVisible(): Promise<void> {
+    await expect(this.el.symbols.emptyState).toBeVisible();
+  }
+
+  @Step()
+  async catalogIsVisible(): Promise<void> {
+    await expect(this.el.catalog.sheet).toBeVisible();
+  }
+
+  @Step()
+  async catalogIsHidden(): Promise<void> {
+    await expect(this.el.catalog.sheet).not.toBeVisible();
+  }
+
+  @Step()
+  async catalogItemIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.catalog.item(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async catalogItemIsHidden(ticker: string): Promise<void> {
+    await expect(this.el.catalog.item(ticker)).not.toBeVisible();
+  }
+
+  @Step()
+  async catalogItemIsChecked(ticker: string): Promise<void> {
+    await expect(this.el.catalog.item(ticker).locator("input[type=checkbox]")).toBeChecked();
+  }
+
+  @Step()
+  async manualSymbolIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.symbols.manualSymbol(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async symbolsSavedMessageIsVisible(): Promise<void> {
+    await expect(this.el.symbols.savedMessage).toBeVisible();
+  }
+
+  @Step()
+  async symbolsSaveButtonIsDisabled(): Promise<void> {
+    await expect(this.el.symbols.saveButton).toBeDisabled();
+  }
 }
