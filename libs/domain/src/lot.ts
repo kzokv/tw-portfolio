@@ -1,4 +1,5 @@
 import type { BuyApplicationResult, Lot, SellAllocationResult } from "./types.js";
+import { roundToDecimal } from "./money.js";
 
 export function applyBuyToLots(lots: Lot[], buyLot: Lot): BuyApplicationResult {
   assertWholePositiveQuantity(buyLot.openQuantity, "Buy quantity must be a positive integer");
@@ -20,7 +21,7 @@ export function allocateSellLots(lots: Lot[], quantityToSell: number): SellAlloc
     throw new Error("Insufficient quantity to sell");
   }
 
-  const allocatedCostAmount = Math.round(averageCostAmount * quantityToSell);
+  const allocatedCostAmount = roundToDecimal(averageCostAmount * quantityToSell, 2);
   const remainingOpenCostAmount = Math.max(0, totalOpenCostAmount - allocatedCostAmount);
 
   let remainingQty = quantityToSell;
@@ -85,9 +86,9 @@ function normalizeLotsForWeightedAverage(lots: Lot[], forcedTotalCostAmount?: nu
     const isLast = index === orderedOpenLots.length - 1;
     const nextCost = isLast
       ? costLeftToAssign
-      : Math.round((costLeftToAssign * lot.openQuantity) / quantityLeftToAssign);
+      : roundToDecimal((costLeftToAssign * lot.openQuantity) / quantityLeftToAssign, 2);
     normalizedCosts.set(lot.id, nextCost);
-    costLeftToAssign -= nextCost;
+    costLeftToAssign = roundToDecimal(costLeftToAssign - nextCost, 2);
     quantityLeftToAssign -= lot.openQuantity;
   }
 
@@ -124,8 +125,8 @@ function allocateMatchedLotCosts(
 
   return matches.map(({ lot, quantity }, index) => {
     const isLast = index === matches.length - 1;
-    const nextCost = isLast ? costLeftToAssign : Math.round((costLeftToAssign * quantity) / quantityLeftToAssign);
-    costLeftToAssign -= nextCost;
+    const nextCost = isLast ? costLeftToAssign : roundToDecimal((costLeftToAssign * quantity) / quantityLeftToAssign, 2);
+    costLeftToAssign = roundToDecimal(costLeftToAssign - nextCost, 2);
     quantityLeftToAssign -= quantity;
 
     return {
@@ -147,7 +148,7 @@ function summarizeOpenLots(lots: Lot[]): {
   const totalOpenQuantity = lots.reduce((sum, lot) => sum + Math.max(0, lot.openQuantity), 0);
   const totalOpenCostAmount = lots.reduce((sum, lot) => sum + Math.max(0, lot.totalCostAmount), 0);
   return {
-    averageCostAmount: totalOpenQuantity === 0 ? 0 : totalOpenCostAmount / totalOpenQuantity,
+    averageCostAmount: totalOpenQuantity === 0 ? 0 : roundToDecimal(totalOpenCostAmount / totalOpenQuantity, 2),
     totalOpenCostAmount,
     totalOpenQuantity,
   };
@@ -160,7 +161,7 @@ function assertWholePositiveQuantity(quantity: number, message: string): void {
 }
 
 function assertNonNegativeCost(totalCostAmount: number): void {
-  if (!Number.isInteger(totalCostAmount) || totalCostAmount < 0) {
-    throw new Error("Lot cost must be a non-negative integer");
+  if (totalCostAmount < 0) {
+    throw new Error("Lot cost must be non-negative");
   }
 }

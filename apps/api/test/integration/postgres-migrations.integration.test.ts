@@ -1849,7 +1849,7 @@ describePostgres("postgres migrations", () => {
       total_cost_amount: number;
       opened_sequence: number;
     }>(
-      `SELECT ticker, open_quantity, total_cost_amount, opened_sequence
+      `SELECT ticker, open_quantity, total_cost_amount::float AS total_cost_amount, opened_sequence
        FROM lots
        WHERE account_id = 'user-1-acc-1'
        ORDER BY id`,
@@ -1933,7 +1933,7 @@ describePostgres("postgres migrations", () => {
       allocated_cost_amount: number;
       lot_opened_sequence: number;
     }>(
-      `SELECT trade_event_id, allocated_quantity, allocated_cost_amount, lot_opened_sequence
+      `SELECT trade_event_id, allocated_quantity, allocated_cost_amount::float AS allocated_cost_amount, lot_opened_sequence
        FROM lot_allocations
        WHERE user_id = 'user-1'
        ORDER BY id`,

@@ -37,6 +37,7 @@ import type {
 } from "../types/store.js";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
+import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
 import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
@@ -398,7 +399,7 @@ export class PostgresPersistence implements Persistence {
       lotOpenedAt: normalizeDate(row.lot_opened_at),
       lotOpenedSequence: row.lot_opened_sequence,
       allocatedQuantity: row.allocated_quantity,
-      allocatedCostAmount: row.allocated_cost_amount,
+      allocatedCostAmount: Number(row.allocated_cost_amount),
       costCurrency: row.cost_currency,
       createdAt: normalizeDateTime(row.created_at),
     }));
@@ -412,7 +413,7 @@ export class PostgresPersistence implements Persistence {
       instrumentType: row.instrument_type,
       type: row.trade_type,
       quantity: row.quantity,
-      unitPrice: row.unit_price,
+      unitPrice: Number(row.unit_price),
       priceCurrency: row.price_currency,
       tradeDate: normalizeDate(row.trade_date),
       tradeTimestamp: normalizeDateTime(row.trade_timestamp),
@@ -592,7 +593,7 @@ export class PostgresPersistence implements Persistence {
             accountId: row.account_id,
             ticker: row.ticker,
             openQuantity: row.open_quantity,
-            totalCostAmount: row.total_cost_amount,
+            totalCostAmount: Number(row.total_cost_amount),
             costCurrency: row.cost_currency,
             openedAt: normalizeDate(row.opened_at),
             openedSequence: row.opened_sequence,
@@ -2737,7 +2738,7 @@ async function insertTradeFeePolicySnapshot(
   }
 
   const calculatedTaxComponents = calculateAppliedTaxComponents(feeSnapshot, {
-    tradeValueAmount: trade.quantity * trade.unitPrice,
+    tradeValueAmount: roundToDecimal(trade.quantity * trade.unitPrice, 2),
     instrumentType: trade.instrumentType,
     isDayTrade: trade.isDayTrade,
     marketCode: trade.marketCode ?? "TW",

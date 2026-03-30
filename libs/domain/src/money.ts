@@ -13,3 +13,7 @@ export function bpsAmount(baseAmount: number, bps: number): number {
 export function permilleAmount(baseAmount: number, permilleRate: number): number {
   return (baseAmount * permilleRate) / 1_000;
 }
+
+export function roundToDecimal(value: number, places: number): number {
+  return parseFloat(value.toFixed(places));
+}

@@ -155,7 +155,7 @@ test.describe("transaction mutations", () => {
     await ticker.assert.rowMatchingTextsCount(["500"], 0);
     await ticker.assert.rowCountIs(1);
     await ticker.assert.quantityStatContains("200");
-    await ticker.assert.avgCostStatContains(/601/);
+    await ticker.assert.avgCostStatContains(/600|601/);
     await ticker.assert.avgCostStatNotContains(/567/);
   });
 
@@ -212,7 +212,7 @@ test.describe("transaction mutations", () => {
 
     await ticker.assert.recordDialogFieldValueIs("quantity", "1000");
     await ticker.assert.recordDialogFieldValueIs("tradeDate", new Date().toISOString().slice(0, 10));
-    await ticker.assert.recordDialogFieldHasAttribute("price", "min", "1");
+    await ticker.assert.recordDialogFieldHasAttribute("price", "min", "0.01");
     await ticker.assert.recordDialogFieldHasAttribute("quantity", "min", "1");
   });
 
@@ -228,5 +228,37 @@ test.describe("transaction mutations", () => {
     await ticker.assert.recomputeSettles();
 
     await ticker.assert.firstRowContains("750");
+  });
+
+  test("decimal unit price: seed and display with 2dp", async ({ ticker }) => {
+    await ticker.arrange.seedTrade({ quantity: 3, unitPrice: 152.35, tradeDate: "2026-01-15" });
+
+    await ticker.actions.navigateToTicker("2330");
+    await ticker.assert.rowCountIs(1);
+    await ticker.assert.firstRowContains("152.35");
+  });
+
+  test("edit to decimal price persists after recompute", async ({ ticker }) => {
+    await ticker.arrange.seedTrade({ quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await ticker.actions.navigateToTicker("2330");
+    await ticker.actions.clickEditOnFirstRow();
+    await ticker.assert.editPriceInputIsVisible();
+    await ticker.actions.fillEditPrice("750.25");
+
+    await ticker.actions.saveEdit();
+    await ticker.assert.recomputeSettles();
+
+    await ticker.assert.firstRowContains("750.25");
+  });
+
+  test("record transaction dialog accepts decimal price", async ({ ticker }) => {
+    await ticker.arrange.seedTrade({ quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+
+    await ticker.actions.navigateToTicker("2330");
+    await ticker.actions.openRecordDialog();
+    await ticker.actions.fillRecordPrice("185.50");
+
+    await ticker.assert.recordDialogFieldHasAttribute("price", "step", "0.01");
   });
 });

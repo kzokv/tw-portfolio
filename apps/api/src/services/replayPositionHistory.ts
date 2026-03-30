@@ -1,4 +1,4 @@
-import { applyBuyToLots, allocateSellLots } from "@tw-portfolio/domain";
+import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
@@ -67,7 +67,7 @@ export async function replayPositionHistory(
         accountId: trade.accountId,
         ticker: trade.ticker,
         openQuantity: trade.quantity,
-        totalCostAmount: trade.unitPrice * trade.quantity + trade.commissionAmount + trade.taxAmount,
+        totalCostAmount: roundToDecimal(trade.unitPrice * trade.quantity, 2) + trade.commissionAmount + trade.taxAmount,
         costCurrency: trade.priceCurrency,
         openedAt: trade.tradeDate,
         openedSequence: trade.bookingSequence ?? 1,
@@ -102,8 +102,8 @@ export async function replayPositionHistory(
 
         // Derive realized PnL for this sell
         const allocatedCost = allocProjections.reduce((sum, a) => sum + a.allocatedCostAmount, 0);
-        const netProceeds = trade.quantity * trade.unitPrice - trade.commissionAmount - trade.taxAmount;
-        const pnl = netProceeds - allocatedCost;
+        const netProceeds = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
+        const pnl = roundToDecimal(netProceeds - allocatedCost, 2);
         totalRealizedPnl += pnl;
       } catch (error) {
         // "Insufficient quantity to sell" — wrap with trade context
@@ -116,7 +116,7 @@ export async function replayPositionHistory(
     }
 
     // Generate cash ledger entry (settlement)
-    const grossTradeValue = trade.quantity * trade.unitPrice;
+    const grossTradeValue = roundToDecimal(trade.quantity * trade.unitPrice, 2);
     const settlementAmount =
       trade.type === "BUY"
         ? -(grossTradeValue + trade.commissionAmount + trade.taxAmount)

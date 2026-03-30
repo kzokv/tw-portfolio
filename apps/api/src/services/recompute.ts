@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
 import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
@@ -36,7 +36,7 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
     const profile = symbolBinding ? mustGetProfile(store, symbolBinding.feeProfileId) : mustGetProfile(store, fallbackProfileId);
     const tradeCurrency = tx.priceCurrency ?? profile.commissionCurrency ?? "TWD";
 
-    const tradeValue = tx.unitPrice * tx.quantity;
+    const tradeValue = roundToDecimal(tx.unitPrice * tx.quantity, 2);
     const next =
       tx.type === "BUY"
         ? calculateBuyFees(profile, tradeValue, tradeCurrency)
@@ -103,7 +103,7 @@ function mustGetProfile(store: Store, profileId: string): FeeProfile {
 }
 
 function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueAmount = tx.quantity * tx.unitPrice;
+  const grossTradeValueAmount = roundToDecimal(tx.quantity * tx.unitPrice, 2);
   const settlementAmount =
     tx.type === "BUY"
       ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)

@@ -8,10 +8,12 @@ export function cn(...inputs: ClassValue[]): string {
 
 export function formatCurrencyAmount(value: number, currency: CurrencyCode, locale: LocaleCode): string {
   const intlLocale = locale === "zh-TW" ? "zh-TW" : "en-US";
+  const hasDecimals = value % 1 !== 0;
   return new Intl.NumberFormat(intlLocale, {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0,
   }).format(value);
 }
 
