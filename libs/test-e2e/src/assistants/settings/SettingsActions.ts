@@ -112,4 +112,56 @@ export class SettingsActions extends AppBaseActions {
   async setProfileName(index: number, value: string): Promise<void> {
     await this.uiActions.fill.perform(this.el.fees.profileName(index), value);
   }
+
+  // --- Monitored Symbols ---
+
+  @Step()
+  async openSymbolsTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabs.symbols);
+  }
+
+  @Step()
+  async openCatalog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.symbols.browseCatalogButton);
+  }
+
+  @Step()
+  async closeCatalog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.catalog.backButton);
+  }
+
+  @Step()
+  async toggleCatalogItem(ticker: string): Promise<void> {
+    await this.el.catalog.item(ticker).locator("input[type=checkbox]").click();
+  }
+
+  @Step()
+  async filterCatalogByType(type: "all" | "stock" | "etf" | "bond_etf"): Promise<void> {
+    const filterMap = {
+      all: this.el.catalog.filterAll,
+      stock: this.el.catalog.filterStock,
+      etf: this.el.catalog.filterEtf,
+      bond_etf: this.el.catalog.filterBondEtf,
+    };
+    await this.uiActions.click.perform(filterMap[type]);
+  }
+
+  @Step()
+  async searchCatalog(query: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.catalog.search, query);
+  }
+
+  @Step()
+  async saveSymbols(): Promise<void> {
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT"
+        && response.url().includes("/monitored-symbols")
+        && response.ok(),
+      { timeout: 10_000 },
+    );
+
+    await this.uiActions.click.perform(this.el.symbols.saveButton);
+    await responsePromise;
+  }
 }

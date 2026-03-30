@@ -442,6 +442,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "reset", userId };
   });
 
+  app.post("/__e2e/seed-instruments", async (req) => {
+    assertE2EResetEnabled();
+    const body = z
+      .object({
+        instruments: z.array(
+          z.object({
+            ticker: z.string(),
+            name: z.string().nullable(),
+            instrumentType: z.string(),
+            marketCode: z.string(),
+            barsBackfillStatus: z.string(),
+          }),
+        ),
+      })
+      .parse(req.body);
+
+    const mem = app.persistence as import("../persistence/memory.js").MemoryPersistence;
+    for (const instrument of body.instruments) {
+      mem._seedInstrument(instrument);
+    }
+    return { status: "seeded", count: body.instruments.length };
+  });
+
   app.post("/__e2e/reset-demo-rate-buckets", async () => {
     assertE2EOauthSessionEnabled();
     _resetDemoRateBuckets();
@@ -1445,6 +1468,38 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     await app.persistence.saveAccountingStore(userId, draftStore.accounting);
     return { created };
+  });
+
+  // --- Monitored Symbols ---
+
+  app.get("/instruments", async (req) => {
+    resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const query = z
+      .object({
+        search: z.string().trim().min(1).max(100).optional(),
+        type: z.enum(["STOCK", "ETF", "BOND_ETF"]).optional(),
+      })
+      .parse(req.query);
+
+    return { instruments: await app.persistence.listInstrumentsCatalog(query.search, query.type) };
+  });
+
+  app.get("/monitored-symbols", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return { symbols: await app.persistence.getMonitoredSet(userId) };
+  });
+
+  app.put("/monitored-symbols", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z
+      .object({
+        tickers: z.array(symbolSchema).max(500),
+      })
+      .parse(req.body);
+
+    const result = await app.persistence.replaceManualSelections(userId, body.tickers);
+    const symbols = await app.persistence.getMonitoredSet(userId);
+    return { symbols, newTickers: result.newTickers };
   });
 
   registerSSERoute(app, resolveUserId);

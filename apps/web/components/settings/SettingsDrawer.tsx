@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, ProfileDto, UserSettings } from "@tw-portfolio/shared-types";
 import type { FormEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n";
@@ -9,9 +10,12 @@ import { FeeProfilesSection } from "../../features/settings/components/FeeProfil
 import { AccountFallbackSection } from "../../features/settings/components/AccountFallbackSection";
 import { SecurityBindingsSection } from "../../features/settings/components/SecurityBindingsSection";
 import { ProfileSection } from "../../features/settings/components/ProfileSection";
+import { MonitoredSymbolsSection } from "../../features/settings/components/MonitoredSymbolsSection";
+import { InstrumentCatalogSheet } from "../../features/settings/components/InstrumentCatalogSheet";
 import { SettingsDrawerShell } from "../../features/settings/components/SettingsDrawerShell";
 import { UnsavedChangesFooter } from "../../features/settings/components/UnsavedChangesFooter";
 import { useSettingsForm } from "../../features/settings/hooks/useSettingsForm";
+import { useMonitoredSymbols } from "../../features/settings/hooks/useMonitoredSymbols";
 import type { SettingsFormModel } from "../../features/settings/types/settingsUi";
 
 export type SettingsDraft = SettingsFormModel;
@@ -56,13 +60,20 @@ export function SettingsDrawer({
     onSave,
   });
 
+  const symbols = useMonitoredSymbols(open && form.tab === "symbols");
+
+  const positionTickers = useMemo(
+    () => new Set(symbols.monitoredSymbols.filter((s) => s.source === "position").map((s) => s.ticker)),
+    [symbols.monitoredSymbols],
+  );
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void form.handleSubmit();
   }
 
   return (
-    <SettingsDrawerShell open={open} onOpenChange={form.handleOpenChange} dict={dict}>
+    <SettingsDrawerShell open={open} onOpenChange={form.handleOpenChange} expanded={form.tab === "symbols" && symbols.showCatalog} dict={dict}>
       {!form.draft ? (
         <p className="text-sm text-slate-300">{dict.feedback.loadingSettings}</p>
       ) : (
@@ -98,12 +109,54 @@ export function SettingsDrawer({
             >
               {dict.settings.tabFeeProfiles}
             </Button>
+            <Button
+              type="button"
+              variant={form.tab === "symbols" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "symbols" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
+              onClick={() => form.setTab("symbols")}
+              data-testid="settings-tab-symbols"
+            >
+              {dict.settings.tabSymbols}
+            </Button>
           </div>
 
           {form.tab === "profile" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
                 <ProfileSection profile={profile} onProfileUpdate={onProfileUpdate} dict={dict} />
+              </div>
+            </div>
+          )}
+
+          {form.tab === "symbols" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto pr-1" data-testid="settings-content-scroll">
+                {symbols.showCatalog ? (
+                  <InstrumentCatalogSheet
+                    instruments={symbols.instruments}
+                    selectedTickers={symbols.selectedTickers}
+                    positionTickers={positionTickers}
+                    onToggleTicker={symbols.toggleTicker}
+                    onBack={() => symbols.setShowCatalog(false)}
+                    dict={dict}
+                  />
+                ) : (
+                  <MonitoredSymbolsSection
+                    monitoredSymbols={symbols.monitoredSymbols}
+                    instruments={symbols.instruments}
+                    selectedTickers={symbols.selectedTickers}
+                    onToggleTicker={symbols.toggleTicker}
+                    onBrowseCatalog={() => symbols.setShowCatalog(true)}
+                    isDirty={symbols.isDirty}
+                    isSaving={symbols.isSaving}
+                    saveError={symbols.saveError}
+                    saveSuccess={symbols.saveSuccess}
+                    onSave={symbols.save}
+                    isLoading={symbols.isLoading}
+                    dict={dict}
+                  />
+                )}
               </div>
             </div>
           )}

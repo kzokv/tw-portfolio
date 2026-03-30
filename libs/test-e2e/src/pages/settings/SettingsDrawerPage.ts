@@ -7,6 +7,7 @@ export interface TSettingsDrawerElements {
     profile: Locator;
     general: Locator;
     fees: Locator;
+    symbols: Locator;
   };
   general: {
     localeSelect: Locator;
@@ -30,6 +31,27 @@ export interface TSettingsDrawerElements {
     saveEmailButton: Locator;
     emailSavedIndicator: Locator;
   };
+  symbols: {
+    section: Locator;
+    search: Locator;
+    emptyState: Locator;
+    browseCatalogButton: Locator;
+    saveButton: Locator;
+    savedMessage: Locator;
+    positionSymbol: (ticker: string) => Locator;
+    manualSymbol: (ticker: string) => Locator;
+  };
+  catalog: {
+    sheet: Locator;
+    backButton: Locator;
+    search: Locator;
+    list: Locator;
+    filterAll: Locator;
+    filterStock: Locator;
+    filterEtf: Locator;
+    filterBondEtf: Locator;
+    item: (ticker: string) => Locator;
+  };
   footer: {
     saveButton: Locator;
     discardButton: Locator;
@@ -47,6 +69,7 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         profile: this.locate("settings-tab-profile", "Profile Tab"),
         general: this.locate("settings-tab-general", "General Tab"),
         fees: this.locate("settings-tab-fees", "Fees Tab"),
+        symbols: this.locate("settings-tab-symbols", "Symbols Tab"),
       },
       general: {
         localeSelect: this.locate("settings-locale-select", "Locale Select"),
@@ -74,6 +97,36 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         emailInput: this.locate("profile-email-input", "Profile Email Input"),
         saveEmailButton: this.locate("profile-save-email", "Profile Save Email Button"),
         emailSavedIndicator: this.locate("profile-email-saved", "Profile Email Saved Indicator"),
+      },
+      symbols: {
+        section: this.locate("monitored-symbols-section", "Monitored Symbols Section"),
+        search: this.locate("symbols-search", "Symbols Search Input"),
+        emptyState: this.withDescription(
+          this.page.getByText("No symbols selected"),
+          "Symbols Empty State",
+        ),
+        browseCatalogButton: this.locate("browse-catalog-btn", "Browse Full Catalog Button"),
+        saveButton: this.locate("symbols-save-btn", "Symbols Save Button"),
+        savedMessage: this.withDescription(
+          this.page.getByText("Selections saved"),
+          "Symbols Saved Message",
+        ),
+        positionSymbol: (ticker: string) =>
+          this.locate(`position-symbol-${ticker}`, `Position Symbol ${ticker}`),
+        manualSymbol: (ticker: string) =>
+          this.locate(`manual-symbol-${ticker}`, `Manual Symbol ${ticker}`),
+      },
+      catalog: {
+        sheet: this.locate("instrument-catalog-sheet", "Instrument Catalog Sheet"),
+        backButton: this.locate("catalog-back-btn", "Catalog Back Button"),
+        search: this.locate("catalog-search", "Catalog Search Input"),
+        list: this.locate("catalog-list", "Catalog List"),
+        filterAll: this.locate("catalog-filter-all", "Catalog Filter All"),
+        filterStock: this.locate("catalog-filter-stock", "Catalog Filter Stock"),
+        filterEtf: this.locate("catalog-filter-etf", "Catalog Filter ETF"),
+        filterBondEtf: this.locate("catalog-filter-bond_etf", "Catalog Filter Bond ETF"),
+        item: (ticker: string) =>
+          this.locate(`catalog-item-${ticker}`, `Catalog Item ${ticker}`),
       },
       footer: {
         saveButton: this.locate("settings-save-button", "Save Settings Button"),
