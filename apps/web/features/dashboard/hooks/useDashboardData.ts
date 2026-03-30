@@ -44,7 +44,7 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
     integrityIssue: null,
     recomputeAvailable: true,
   },
-  symbols: [],
+  instruments: [],
   accounts: [],
   feeProfiles: [],
   feeProfileBindings: [],

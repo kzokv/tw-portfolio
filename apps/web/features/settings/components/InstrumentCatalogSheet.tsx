@@ -43,10 +43,10 @@ export function InstrumentCatalogSheet({
   }, [instruments, search, typeFilter]);
 
   const filters: { value: TypeFilter; label: string }[] = [
-    { value: "ALL", label: dict.settings.symbolsFilterAll },
-    { value: "STOCK", label: dict.settings.symbolsFilterStock },
-    { value: "ETF", label: dict.settings.symbolsFilterEtf },
-    { value: "BOND_ETF", label: dict.settings.symbolsFilterBondEtf },
+    { value: "ALL", label: dict.settings.tickersFilterAll },
+    { value: "STOCK", label: dict.settings.tickersFilterStock },
+    { value: "ETF", label: dict.settings.tickersFilterEtf },
+    { value: "BOND_ETF", label: dict.settings.tickersFilterBondEtf },
   ];
 
   return (
@@ -61,7 +61,7 @@ export function InstrumentCatalogSheet({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h3 className="text-sm font-semibold text-slate-800">{dict.settings.symbolsCatalogTitle}</h3>
+        <h3 className="text-sm font-semibold text-slate-800">{dict.settings.tickersCatalogTitle}</h3>
       </div>
 
       {/* Search + filter bar */}
@@ -72,7 +72,7 @@ export function InstrumentCatalogSheet({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={dict.settings.symbolsSearchPlaceholder}
+            placeholder={dict.settings.tickersSearchPlaceholder}
             className={`${fieldClassName} !pl-12`}
             data-testid="catalog-search"
             autoFocus
@@ -155,7 +155,7 @@ export function InstrumentCatalogSheet({
                   </span>
                   {isPosition && (
                     <span className="shrink-0 text-[10px] text-slate-400">
-                      {dict.settings.symbolsPositionLocked}
+                      {dict.settings.tickersPositionLocked}
                     </span>
                   )}
                 </label>

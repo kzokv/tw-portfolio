@@ -47,12 +47,12 @@ export function RecentTransactionsCard({
             <table className="min-w-full border-collapse text-sm text-slate-700" data-testid="recent-transactions-table">
               <thead>
                 <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-4 py-3 text-left font-medium">{dict.transactions.symbolTerm}</th>
+                  <th className="px-4 py-3 text-left font-medium">{dict.transactions.tickerTerm}</th>
                   <th className="px-4 py-3 text-left font-medium">{dict.transactions.typeTerm}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.symbolHistory.tradeDateLabel}</th>
+                  <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.tradeDateLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.transactions.quantityTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.symbolHistory.realizedPnlLabel}</th>
+                  <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -74,7 +74,7 @@ export function RecentTransactionsCard({
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)}</td>
                     <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(item.realizedPnlAmount))}>
                       {item.realizedPnlAmount === null
-                        ? dict.symbolHistory.noRealizedPnl
+                        ? dict.tickerHistory.noRealizedPnl
                         : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
                     </td>
                   </tr>
@@ -103,9 +103,9 @@ export function RecentTransactionsCard({
                   <HistoryDetail label={dict.transactions.unitPriceTerm} value={formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)} />
                   <HistoryDetail label={dict.holdings.accountTerm} value={item.accountId} />
                   <HistoryDetail
-                    label={dict.symbolHistory.realizedPnlLabel}
+                    label={dict.tickerHistory.realizedPnlLabel}
                     value={item.realizedPnlAmount === null
-                      ? dict.symbolHistory.noRealizedPnl
+                      ? dict.tickerHistory.noRealizedPnl
                       : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
                     valueClassName={getRealizedPnlTone(item.realizedPnlAmount)}
                   />

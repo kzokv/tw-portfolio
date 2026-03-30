@@ -179,7 +179,7 @@ test.describe("transaction mutations", () => {
     await ticker.assert.rowCountIs(1);
     await ticker.actions.openRecordDialog();
 
-    await ticker.assert.recordDialogFieldValueIs("symbol", "2330");
+    await ticker.assert.recordDialogFieldValueIs("ticker", "2330");
     await ticker.assert.recordDialogFieldValueIs("account", "acc-1");
     await ticker.assert.recordDialogFieldValueIs("quantity", "1000");
 
@@ -197,7 +197,7 @@ test.describe("transaction mutations", () => {
     await portfolio.actions.navigateToPortfolio();
     await portfolio.assert.holdingsTableIsVisible();
     await portfolio.assert.holdingLinkIsVisible("2330");
-    await portfolio.actions.openHoldingBySymbol("2330");
+    await portfolio.actions.openHoldingByTicker("2330");
 
     await ticker.assert.sectionIsVisible();
     await ticker.assert.titleContains("2330");

@@ -1,4 +1,4 @@
-import type { SymbolOptionDto } from "@tw-portfolio/shared-types";
+import type { InstrumentOptionDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Button } from "../ui/Button";
@@ -9,7 +9,7 @@ import type { TransactionInput } from "./types";
 interface AddTransactionCardProps {
   value: TransactionInput;
   accountOptions: Array<{ id: string; name: string }>;
-  symbolOptions: SymbolOptionDto[];
+  symbolOptions: InstrumentOptionDto[];
   pending: boolean;
   onChange: (next: TransactionInput) => void;
   onSubmit: () => Promise<void>;
@@ -94,10 +94,10 @@ export function AddTransactionCard({
 
         <label className="min-w-0 space-y-2 text-sm">
           <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            <span className="min-w-0">{dict.transactions.symbolTerm}</span>
+            <span className="min-w-0">{dict.transactions.tickerTerm}</span>
             <TooltipInfo
-              label={dict.transactions.symbolTerm}
-              content={dict.tooltips.txSymbol}
+              label={dict.transactions.tickerTerm}
+              content={dict.tooltips.txTicker}
               triggerTestId="tooltip-tx-symbol-trigger"
               contentTestId="tooltip-tx-symbol-content"
             />
@@ -107,7 +107,7 @@ export function AddTransactionCard({
             onChange={(event) => setField("ticker", event.target.value)}
             title={symbolSelectTitle}
             className={fieldClassName}
-            data-testid="tx-symbol-select"
+            data-testid="tx-ticker-select"
           >
             {symbolOptions.map((symbol) => (
               <option key={`${symbol.marketCode ?? "na"}:${symbol.ticker}`} value={symbol.ticker}>
@@ -115,7 +115,7 @@ export function AddTransactionCard({
               </option>
             ))}
           </select>
-          <p className="text-[11px] text-slate-500">{dict.transactions.symbolHint}</p>
+          <p className="text-[11px] text-slate-500">{dict.transactions.tickerHint}</p>
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
@@ -238,7 +238,7 @@ export function AddTransactionCard({
   return <Card>{content}</Card>;
 }
 
-function formatInstrumentTypeLabel(instrumentType: SymbolOptionDto["instrumentType"]): string {
+function formatInstrumentTypeLabel(instrumentType: InstrumentOptionDto["instrumentType"]): string {
   if (instrumentType === "STOCK") {
     return "Stock";
   }

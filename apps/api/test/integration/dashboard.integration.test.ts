@@ -39,7 +39,7 @@ describe("dashboard overview", () => {
           integrityIssue: null,
           recomputeAvailable: true,
         },
-        symbols: expect.arrayContaining([
+        instruments: expect.arrayContaining([
           expect.objectContaining({
             ticker: "2330",
             instrumentType: "STOCK",
@@ -182,7 +182,7 @@ describe("dashboard overview", () => {
     );
   });
 
-  it("keeps quote-derived dashboard fields empty for provisional symbols until sync data exists", async () => {
+  it("keeps quote-derived dashboard fields empty for provisional instruments until sync data exists", async () => {
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
@@ -206,7 +206,7 @@ describe("dashboard overview", () => {
           marketValueAmount: null,
           unrealizedPnlAmount: null,
         }),
-        symbols: expect.arrayContaining([
+        instruments: expect.arrayContaining([
           expect.objectContaining({ ticker: "2330", instrumentType: "STOCK" }),
           expect.objectContaining({ ticker: "0050", instrumentType: "ETF" }),
           expect.objectContaining({ ticker: "00919", instrumentType: "ETF" }),

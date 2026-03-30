@@ -32,14 +32,14 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     | "recomputeQuotePoll"
     | "txAccount"
     | "txType"
-    | "txSymbol"
+    | "txTicker"
     | "txQuantity"
     | "txPrice"
     | "txCurrency"
     | "txTradeDate"
     | "txDayTrade"
     | "holdingsAccount"
-    | "holdingsSymbol"
+    | "holdingsTicker"
     | "holdingsQuantity"
     | "holdingsTotalCost"
     | "feeProfileId"
@@ -56,15 +56,15 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       costBasisTerm: "Cost Basis",
       quotePollTerm: "Quote Poll",
       fallbackConfirm:
-        "Recompute now using per-security overrides first, then each account fallback profile for unmatched symbols?",
+        "Recompute now using per-security overrides first, then each account fallback profile for unmatched tickers?",
     },
     transactions: {
       title: "Record Transaction",
       description: "Enter trade details and append to your historical ledger.",
       accountTerm: "Account",
       typeTerm: "Type",
-      symbolTerm: "Symbol",
-      symbolHint: "Choose one of the supported Taiwan symbols.",
+      tickerTerm: "Ticker",
+      tickerHint: "Choose one of the supported Taiwan tickers.",
       quantityTerm: "Quantity",
       unitPriceTerm: "Unit Price",
       currencyTerm: "Currency",
@@ -82,10 +82,10 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
     },
     holdings: {
       title: "Holdings",
-      description: "Aggregated quantity and total cost by account and symbol.",
+      description: "Aggregated quantity and total cost by account and ticker.",
       entries: "{count} entries",
       accountTerm: "Account",
-      symbolTerm: "Symbol",
+      tickerTerm: "Ticker",
       quantityTerm: "Quantity",
       currencyTerm: "Currency",
       totalCostTerm: "Total Cost",
@@ -105,14 +105,14 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       recomputeQuotePoll: "Current quote polling frequency in seconds.",
       txAccount: "Broker account where this transaction should be recorded.",
       txType: "BUY increases lots; SELL reduces lots and realizes PnL.",
-      txSymbol: "Taiwan stock or ETF ticker, for example 2330 or 0050.",
+      txTicker: "Taiwan stock or ETF ticker, for example 2330 or 0050.",
       txQuantity: "Share count for the trade; must be a positive integer.",
       txPrice: "Execution price per share in the selected trade currency.",
       txCurrency: "Derived from the active fee profile. Change it in Settings under Fee Profiles, not in this transaction form.",
       txTradeDate: "Trade settlement date used in portfolio history ordering.",
       txDayTrade: "Enable if buy and sell happen within the same day for tax rules.",
       holdingsAccount: "Broker account identifier where holdings are tracked.",
-      holdingsSymbol: "Instrument ticker currently held in the account.",
+      holdingsTicker: "Instrument ticker currently held in the account.",
       holdingsQuantity: "Open position size after historical transactions.",
       holdingsTotalCost: "Accumulated cost basis for remaining open quantity.",
       feeProfileId: "Stable profile ID referenced by accounts.",
@@ -135,8 +135,8 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       description: "輸入交易資訊並寫入歷史帳本。",
       accountTerm: "帳戶",
       typeTerm: "交易類型",
-      symbolTerm: "代號",
-      symbolHint: "請從支援的台灣標的清單中選擇。",
+      tickerTerm: "代號",
+      tickerHint: "請從支援的台灣標的清單中選擇。",
       quantityTerm: "股數",
       unitPriceTerm: "成交單價",
       currencyTerm: "幣別",
@@ -157,7 +157,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       description: "依帳戶與代號彙整持股數量與總成本。",
       entries: "{count} 筆",
       accountTerm: "帳戶",
-      symbolTerm: "代號",
+      tickerTerm: "代號",
       quantityTerm: "股數",
       currencyTerm: "幣別",
       totalCostTerm: "總成本",
@@ -177,14 +177,14 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       recomputeQuotePoll: "目前報價更新頻率（秒）。",
       txAccount: "本筆交易將寫入的券商帳戶。",
       txType: "買進會增加庫存，賣出會減少庫存並計算已實現損益。",
-      txSymbol: "台股或 ETF 代號，例如 2330、0050。",
+      txTicker: "台股或 ETF 代號，例如 2330、0050。",
       txQuantity: "本次交易的股數，需為正整數。",
       txPrice: "每股成交價格，依所選交易幣別填寫。",
       txCurrency: "此幣別由目前套用的費率設定檔決定。請到「設定 > 費率設定」修改，不能在交易表單直接編輯。",
       txTradeDate: "用於排序歷史與重算的交易日期。",
       txDayTrade: "若同日買賣請開啟，會套用當沖相關稅率。",
       holdingsAccount: "持倉所屬的券商帳戶識別碼。",
-      holdingsSymbol: "目前仍持有部位的商品代號。",
+      holdingsTicker: "目前仍持有部位的商品代號。",
       holdingsQuantity: "歷史交易後尚未平倉的數量。",
       holdingsTotalCost: "未平倉數量對應的總成本基礎。",
       feeProfileId: "供帳戶引用的固定費率設定檔編號。",

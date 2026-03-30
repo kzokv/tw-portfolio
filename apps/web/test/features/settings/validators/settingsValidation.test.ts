@@ -83,6 +83,6 @@ describe("validateSettingsForm", () => {
     const model = createValidModel();
     model.feeProfileBindings[0].ticker = "bad-symbol";
 
-    expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationBindingSymbol);
+    expect(validateSettingsForm(model, dict)).toBe(dict.settings.validationBindingTicker);
   });
 });

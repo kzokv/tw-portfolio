@@ -5,7 +5,7 @@ import type {
   DashboardPerformanceDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewSummaryDto,
-  SymbolOptionDto,
+  InstrumentOptionDto,
   TransactionHistoryItemDto,
 } from "@tw-portfolio/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
@@ -93,7 +93,7 @@ const performance: DashboardPerformanceDto = {
   ],
 };
 
-const symbolOptions: SymbolOptionDto[] = [
+const symbolOptions: InstrumentOptionDto[] = [
   {
     ticker: "2330",
     instrumentType: "STOCK",
@@ -212,11 +212,11 @@ describe("dashboard components", () => {
       />,
     );
 
-    expect(html).toContain("data-testid=\"tx-symbol-select\"");
+    expect(html).toContain("data-testid=\"tx-ticker-select\"");
     expect(html).toContain("2330 (Stock)");
     expect(html).toContain("0050 (ETF)");
     expect(html).toContain("00919 (ETF)");
     expect(html).toContain("0056 (ETF)");
-    expect(html).toContain("Choose one of the supported Taiwan symbols.");
+    expect(html).toContain("Choose one of the supported Taiwan tickers.");
   });
 });

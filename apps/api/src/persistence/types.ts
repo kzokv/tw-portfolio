@@ -7,10 +7,10 @@ import type {
   LotAllocationProjection,
   MarketDataFacts,
   Store,
-  SymbolDef,
+  InstrumentDef,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -73,7 +73,7 @@ export interface Persistence {
   ensureDefaultPortfolioData(userId: string): Promise<void>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
-  upsertSymbols(userId: string, symbols: SymbolDef[]): Promise<void>;
+  upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
@@ -88,7 +88,7 @@ export interface Persistence {
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;
   updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
-  getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>>;
+  getCachedQuotes(tickers: string[]): Promise<Record<string, Quote>>;
   cacheQuotes(quotes: Quote[]): Promise<void>;
   readiness(): Promise<ReadinessStatus>;
   markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
@@ -106,8 +106,8 @@ export interface Persistence {
   bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;
   compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void>;
 
-  // Monitored symbols
-  getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]>;
+  // Monitored tickers
+  getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
   replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
   listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]>;

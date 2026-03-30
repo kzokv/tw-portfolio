@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@tw-portfolio/domain";
-import { createStore, setStoreSymbols, syncLegacySymbols } from "../services/store.js";
-import { upsertSymbolDefinitions } from "../services/symbolRegistry.js";
+import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
+import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { upsertDividendEvent } from "../services/marketDataStore.js";
 import type {
   AccountingStore,
@@ -13,7 +13,7 @@ import type {
   DividendEvent,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
@@ -44,8 +44,8 @@ export class MemoryPersistence implements Persistence {
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
   /** userId → Set<ticker> (manual monitoring selections) */
-  private readonly monitoredSymbols = new Map<string, Map<string, string>>();
-  /** ticker → MemoryInstrument (instrument catalog for monitored symbols) */
+  private readonly monitoredTickers = new Map<string, Map<string, string>>();
+  /** ticker → MemoryInstrument (instrument catalog for monitored tickers) */
   private readonly instruments = new Map<string, MemoryInstrument>();
 
   async init(): Promise<void> {}
@@ -112,14 +112,14 @@ export class MemoryPersistence implements Persistence {
   }
 
   async saveStore(store: Store): Promise<void> {
-    syncLegacySymbols(store);
+    syncInstruments(store);
     this.stores.set(store.userId, store);
   }
 
-  async upsertSymbols(userId: string, symbols: Store["symbols"]): Promise<void> {
-    if (symbols.length === 0) return;
+  async upsertInstruments(userId: string, instruments: Store["instruments"]): Promise<void> {
+    if (instruments.length === 0) return;
     const store = await this.loadStore(userId);
-    setStoreSymbols(store, upsertSymbolDefinitions(store.symbols, symbols));
+    setStoreInstruments(store, upsertInstrumentDefinitions(store.instruments, instruments));
     this.stores.set(userId, store);
   }
 
@@ -162,7 +162,7 @@ export class MemoryPersistence implements Persistence {
 
     store.accounting = accounting;
     store.marketData = marketData;
-    syncLegacySymbols(store);
+    syncInstruments(store);
     this.stores.set(userId, store);
   }
 
@@ -407,10 +407,10 @@ export class MemoryPersistence implements Persistence {
     });
   }
 
-  // --- Monitored Symbols ---
+  // --- Monitored Tickers ---
 
-  async getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]> {
-    const manualTickers = this.monitoredSymbols.get(userId) ?? new Map<string, string>();
+  async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
+    const manualTickers = this.monitoredTickers.get(userId) ?? new Map<string, string>();
     const store = this.stores.get(userId);
 
     // Collect position-derived tickers (lots with open_quantity > 0)
@@ -424,7 +424,7 @@ export class MemoryPersistence implements Persistence {
     }
 
     // Build union: manual selections take precedence
-    const result: MonitoredSymbolDto[] = [];
+    const result: MonitoredTickerDto[] = [];
     const seen = new Set<string>();
 
     for (const ticker of manualTickers.keys()) {
@@ -434,7 +434,7 @@ export class MemoryPersistence implements Persistence {
         ticker,
         source: "manual",
         name: instrument?.name ?? null,
-        instrumentType: (instrument?.instrumentType as MonitoredSymbolDto["instrumentType"]) ?? null,
+        instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
         barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
       });
     }
@@ -447,7 +447,7 @@ export class MemoryPersistence implements Persistence {
         ticker,
         source: "position",
         name: instrument?.name ?? null,
-        instrumentType: (instrument?.instrumentType as MonitoredSymbolDto["instrumentType"]) ?? null,
+        instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
         barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
       });
     }
@@ -456,7 +456,7 @@ export class MemoryPersistence implements Persistence {
   }
 
   async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
-    const selections = this.monitoredSymbols.get(userId);
+    const selections = this.monitoredTickers.get(userId);
     if (!selections) return [];
     return [...selections.entries()].map(([ticker, addedAt]) => ({ ticker, addedAt }));
   }
@@ -472,7 +472,7 @@ export class MemoryPersistence implements Persistence {
     for (const ticker of tickers) {
       newSelections.set(ticker, now);
     }
-    this.monitoredSymbols.set(userId, newSelections);
+    this.monitoredTickers.set(userId, newSelections);
 
     // Compute genuinely new tickers (not in current full monitored set)
     const newTickers = tickers.filter((t) => !currentTickers.has(t));

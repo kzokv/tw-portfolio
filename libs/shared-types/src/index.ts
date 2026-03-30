@@ -97,7 +97,7 @@ export interface DashboardOverviewRecentDividendDto {
   status: "posted" | "unreconciled";
 }
 
-export interface SymbolOptionDto {
+export interface InstrumentOptionDto {
   ticker: string;
   instrumentType: InstrumentType;
   marketCode: string | null;
@@ -116,7 +116,7 @@ export interface DashboardOverviewDto {
     integrityIssue: IntegrityIssueDto | null;
     recomputeAvailable: boolean;
   };
-  symbols: SymbolOptionDto[];
+  instruments: InstrumentOptionDto[];
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
@@ -226,11 +226,11 @@ export interface ProfileDto {
   lastSeenAt: string | null;
 }
 
-export type MonitoredSymbolSource = "manual" | "position";
+export type MonitoredTickerSource = "manual" | "position";
 
-export interface MonitoredSymbolDto {
+export interface MonitoredTickerDto {
   ticker: string;
-  source: MonitoredSymbolSource;
+  source: MonitoredTickerSource;
   name: string | null;
   instrumentType: InstrumentType | null;
   barsBackfillStatus: string | null;

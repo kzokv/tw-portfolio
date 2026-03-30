@@ -59,8 +59,8 @@ export function createTransaction(
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) throw routeError(404, "account_not_found", "Account not found");
 
-  const instrument = store.symbols.find((item) => item.ticker === input.ticker);
-  if (!instrument) throw routeError(400, "unsupported_symbol", "Unsupported symbol");
+  const instrument = store.instruments.find((item) => item.ticker === input.ticker);
+  if (!instrument) throw routeError(400, "unsupported_ticker", "Unsupported ticker");
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,

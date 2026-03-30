@@ -25,8 +25,8 @@ export class SettingsArrange extends BaseArrange {
   }
 
   @Step()
-  async openSymbolsTab(): Promise<void> {
-    await this.uiActions.click.perform(this.el.tabs.symbols);
+  async openTickersTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabs.tickers);
   }
 
   @Step()

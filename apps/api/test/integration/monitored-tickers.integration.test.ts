@@ -4,7 +4,7 @@ import { MemoryPersistence } from "../../src/persistence/memory.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
-describe("monitored symbols routes", () => {
+describe("monitored tickers routes", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory" });
   });
@@ -56,11 +56,11 @@ describe("monitored symbols routes", () => {
     });
   });
 
-  describe("GET /monitored-symbols", () => {
+  describe("GET /monitored-tickers", () => {
     it("returns empty set for new user", async () => {
-      const res = await app.inject({ method: "GET", url: "/monitored-symbols" });
+      const res = await app.inject({ method: "GET", url: "/monitored-tickers" });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ symbols: [] });
+      expect(res.json()).toEqual({ tickers: [] });
     });
 
     it("returns manual selections after PUT", async () => {
@@ -68,15 +68,15 @@ describe("monitored symbols routes", () => {
 
       await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: ["2330"] },
       });
 
-      const res = await app.inject({ method: "GET", url: "/monitored-symbols" });
+      const res = await app.inject({ method: "GET", url: "/monitored-tickers" });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.symbols).toHaveLength(1);
-      expect(body.symbols[0]).toMatchObject({
+      expect(body.tickers).toHaveLength(1);
+      expect(body.tickers[0]).toMatchObject({
         ticker: "2330",
         source: "manual",
         name: "TSMC",
@@ -84,20 +84,20 @@ describe("monitored symbols routes", () => {
     });
   });
 
-  describe("PUT /monitored-symbols", () => {
+  describe("PUT /monitored-tickers", () => {
     it("replaces manual selections and returns updated set", async () => {
       seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
       seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
 
       const res = await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: ["2330", "2317"] },
       });
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.symbols).toHaveLength(2);
+      expect(body.tickers).toHaveLength(2);
       expect(body.newTickers.sort()).toEqual(["2317", "2330"]);
     });
 
@@ -108,14 +108,14 @@ describe("monitored symbols routes", () => {
       // First: add 2330
       await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: ["2330"] },
       });
 
       // Second: replace with 2330 + 2317 — only 2317 is new
       const res = await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: ["2330", "2317"] },
       });
 
@@ -126,7 +126,7 @@ describe("monitored symbols routes", () => {
     it("validates tickers array", async () => {
       const res = await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: "not-an-array" },
       });
       expect(res.statusCode).toBe(400);
@@ -137,12 +137,12 @@ describe("monitored symbols routes", () => {
 
       const res = await app.inject({
         method: "PUT",
-        url: "/monitored-symbols",
+        url: "/monitored-tickers",
         payload: { tickers: ["2330"] },
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().symbols[0].ticker).toBe("2330");
+      expect(res.json().tickers[0].ticker).toBe("2330");
     });
   });
 });

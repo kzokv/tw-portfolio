@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   DashboardPerformanceRange,
   LocaleCode,
-  SymbolOptionDto,
+  InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -222,16 +222,16 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         href: item.href,
         keywords: [item.id, item.label, item.description],
       })),
-      ...dashboard.symbols.map((symbol) => ({
+      ...dashboard.instruments.map((symbol) => ({
         id: `${symbol.marketCode ?? "na"}-${symbol.ticker.toLowerCase()}`,
         kind: "symbol" as const,
         label: symbol.ticker,
-        description: buildSymbolSearchDescription(symbol),
+        description: buildInstrumentSearchDescription(symbol),
         href: `/tickers/${encodeURIComponent(symbol.ticker)}`,
         keywords: [symbol.instrumentType, symbol.marketCode ?? "", symbol.ticker],
       })),
     ],
-    [dashboard.symbols, navigationItems],
+    [dashboard.instruments, navigationItems],
   );
 
   const shellTitle = section === "dashboard"
@@ -283,7 +283,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         searchLabel={dict.topBar.searchLabel}
         searchEmptyLabel={dict.topBar.searchEmptyLabel}
         searchRoutesLabel={dict.topBar.searchRoutesLabel}
-        searchSymbolsLabel={dict.topBar.searchSymbolsLabel}
+        searchTickersLabel={dict.topBar.searchTickersLabel}
         openSearchLabel={dict.topBar.openSearchLabel}
         closeSearchLabel={dict.topBar.closeSearchLabel}
         openNavigationLabel={dict.topBar.openNavigationLabel}
@@ -575,7 +575,7 @@ function renderSection({
             <AddTransactionCard
               value={transactionSubmission.draftTransaction}
               accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
-              symbolOptions={dashboard.symbols}
+              symbolOptions={dashboard.instruments}
               pending={transactionSubmission.isSubmitting}
               onChange={(next) => {
                 transactionSubmission.setMessage("");
@@ -788,7 +788,7 @@ function StatusStripCard({
   );
 }
 
-function buildSymbolSearchDescription(symbol: SymbolOptionDto): string {
+function buildInstrumentSearchDescription(symbol: InstrumentOptionDto): string {
   const instrument = symbol.instrumentType === "BOND_ETF"
     ? "Bond ETF"
     : symbol.instrumentType === "ETF"

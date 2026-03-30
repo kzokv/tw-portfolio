@@ -89,7 +89,7 @@ export class AppShellActions extends AppBaseActions {
   }
 
   @Step()
-  async clickQuickSearchSymbol(symbol: string): Promise<void> {
+  async clickQuickSearchTicker(symbol: string): Promise<void> {
     await this.uiActions.click.perform(this.el.search.elements.desktopResults.getByRole("button", { name: new RegExp(symbol) }));
   }
 

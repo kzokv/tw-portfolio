@@ -23,7 +23,7 @@ export class TickerDetailActions extends AppBaseActions {
     );
     await this.mxWaitForShellClientReady();
     await this.waitForClientReady();
-    await expect(this.el.symbolHistorySection).toBeVisible({ timeout: 20_000 });
+    await expect(this.el.tickerHistorySection).toBeVisible({ timeout: 20_000 });
   }
 
   @Step()

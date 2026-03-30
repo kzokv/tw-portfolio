@@ -47,7 +47,7 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
 
   for (const binding of model.feeProfileBindings) {
     if (!/^[A-Z0-9]{1,16}$/.test(binding.ticker)) {
-      return dict.settings.validationBindingSymbol;
+      return dict.settings.validationBindingTicker;
     }
 
     if (!model.accounts.some((account) => account.id === binding.accountId)) {

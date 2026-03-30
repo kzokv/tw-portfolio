@@ -116,13 +116,13 @@ export class SettingsActions extends AppBaseActions {
   // --- Monitored Symbols ---
 
   @Step()
-  async openSymbolsTab(): Promise<void> {
-    await this.uiActions.click.perform(this.el.tabs.symbols);
+  async openTickersTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabs.tickers);
   }
 
   @Step()
   async openCatalog(): Promise<void> {
-    await this.uiActions.click.perform(this.el.symbols.browseCatalogButton);
+    await this.uiActions.click.perform(this.el.tickers.browseCatalogButton);
   }
 
   @Step()
@@ -152,16 +152,16 @@ export class SettingsActions extends AppBaseActions {
   }
 
   @Step()
-  async saveSymbols(): Promise<void> {
+  async saveTickers(): Promise<void> {
     const responsePromise = this.page.waitForResponse(
       (response) =>
         response.request().method() === "PUT"
-        && response.url().includes("/monitored-symbols")
+        && response.url().includes("/monitored-tickers")
         && response.ok(),
       { timeout: 10_000 },
     );
 
-    await this.uiActions.click.perform(this.el.symbols.saveButton);
+    await this.uiActions.click.perform(this.el.tickers.saveButton);
     await responsePromise;
   }
 }

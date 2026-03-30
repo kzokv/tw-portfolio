@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 
-describe("monitored symbols", () => {
+describe("monitored tickers", () => {
   let persistence: MemoryPersistence;
   const userId = "user-1";
 
@@ -35,7 +35,7 @@ describe("monitored symbols", () => {
       ]);
     });
 
-    it("returns position-derived symbols with source 'position'", async () => {
+    it("returns position-derived tickers with source 'position'", async () => {
       // Seed an instrument and a lot with open quantity
       persistence._seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
       const store = await persistence.loadStore(userId);
@@ -86,7 +86,7 @@ describe("monitored symbols", () => {
       });
     });
 
-    it("returns null metadata for position-derived symbol without instrument data", async () => {
+    it("returns null metadata for position-derived ticker without instrument data", async () => {
       const store = await persistence.loadStore(userId);
       const accountId = store.accounts[0].id;
       store.accounting.projections.lots.push({
@@ -167,7 +167,7 @@ describe("monitored symbols", () => {
       expect(result.newTickers).toEqual(["2330"]);
     });
 
-    it("returns empty newTickers when adding symbols already in monitored set", async () => {
+    it("returns empty newTickers when adding tickers already in monitored set", async () => {
       persistence._seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
       await persistence.replaceManualSelections(userId, ["2330"]);
 

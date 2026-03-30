@@ -16,7 +16,7 @@ test("transaction submission updates the verification panel and recent ledger", 
   await transactions.assert.transactionStatusContains(/Transaction recorded successfully|交易已成功寫入/);
   await transactions.assert.verificationPanelIsVisible();
   await transactions.assert.recentTransactionsTableIsVisible();
-  await transactions.assert.recentTransactionSymbolIsVisible("2330");
+  await transactions.assert.recentTransactionTickerIsVisible("2330");
 });
 
 test("recompute flow completes within the dashboard route", async ({ dashboard }) => {

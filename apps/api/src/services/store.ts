@@ -1,7 +1,7 @@
 import type { FeeProfile, InstrumentRef } from "@tw-portfolio/domain";
 import { buildAccountingPolicy } from "./accountingStore.js";
-import { createDefaultSymbols } from "./symbolRegistry.js";
-import type { Store, SymbolDef } from "../types/store.js";
+import { createDefaultInstruments } from "./instrumentRegistry.js";
+import type { Store, InstrumentDef } from "../types/store.js";
 
 const defaultFeeProfile: FeeProfile = {
   id: "fp-default",
@@ -23,17 +23,17 @@ function createDefaultFeeProfile(): FeeProfile {
   return { ...defaultFeeProfile };
 }
 
-export function symbolDefToInstrumentRef(symbol: SymbolDef): InstrumentRef {
+export function instrumentDefToRef(def: InstrumentDef): InstrumentRef {
   return {
-    ticker: symbol.ticker,
-    instrumentType: symbol.type,
-    marketCode: symbol.marketCode ?? "TW",
-    isProvisional: symbol.isProvisional ?? false,
-    lastSyncedAt: symbol.lastSyncedAt ?? null,
+    ticker: def.ticker,
+    instrumentType: def.type,
+    marketCode: def.marketCode ?? "TW",
+    isProvisional: def.isProvisional ?? false,
+    lastSyncedAt: def.lastSyncedAt ?? null,
   };
 }
 
-export function instrumentRefToSymbolDef(instrument: InstrumentRef): SymbolDef {
+export function instrumentRefToDef(instrument: InstrumentRef): InstrumentDef {
   return {
     ticker: instrument.ticker,
     type: instrument.instrumentType,
@@ -43,18 +43,18 @@ export function instrumentRefToSymbolDef(instrument: InstrumentRef): SymbolDef {
   };
 }
 
-export function setStoreSymbols(store: Pick<Store, "marketData" | "symbols">, symbols: SymbolDef[]): void {
-  store.symbols = symbols;
-  store.marketData.instruments = symbols.map(symbolDefToInstrumentRef);
+export function setStoreInstruments(store: Pick<Store, "marketData" | "instruments">, instruments: InstrumentDef[]): void {
+  store.instruments = instruments;
+  store.marketData.instruments = instruments.map(instrumentDefToRef);
 }
 
-export function syncLegacySymbols(store: Pick<Store, "marketData" | "symbols">): void {
-  store.symbols = store.marketData.instruments.map(instrumentRefToSymbolDef);
+export function syncInstruments(store: Pick<Store, "marketData" | "instruments">): void {
+  store.instruments = store.marketData.instruments.map(instrumentRefToDef);
 }
 
 export function createStore(): Store {
   const seededFeeProfile = createDefaultFeeProfile();
-  const seededSymbols = createDefaultSymbols();
+  const seededInstruments = createDefaultInstruments();
 
   return {
     userId: "user-1",
@@ -92,9 +92,9 @@ export function createStore(): Store {
     },
     marketData: {
       dividendEvents: [],
-      instruments: seededSymbols.map(symbolDefToInstrumentRef),
+      instruments: seededInstruments.map(instrumentDefToRef),
     },
-    symbols: seededSymbols,
+    instruments: seededInstruments,
     recomputeJobs: [],
     idempotencyKeys: new Set<string>(),
   };

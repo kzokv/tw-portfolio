@@ -7,10 +7,10 @@ import type {
   DashboardOverviewRecentDividendDto,
   DashboardOverviewUpcomingDividendDto,
   IntegrityIssueDto,
-  SymbolOptionDto,
+  InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
 import type { Quote } from "../providers/marketData.js";
-import { listTransactionSymbols } from "./symbolRegistry.js";
+import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
 
 interface BuildDashboardOverviewOptions {
@@ -27,13 +27,13 @@ export function buildDashboardOverview(
   store: Store,
   { integrityIssue, quotes = [] }: BuildDashboardOverviewOptions,
 ): DashboardOverviewDto {
-  const quoteBySymbol = new Map(quotes.map((quote) => [quote.ticker, quote]));
+  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const dividends = {
     upcoming: buildUpcomingDividends(store),
     recent: buildRecentDividends(store),
   };
   const totalCostAmount = store.accounting.projections.holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
-  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteBySymbol, dividends);
+  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteByTicker, dividends);
   const hasCompleteQuotes = holdings.length > 0 && holdings.every((holding) => holding.currentUnitPrice !== null);
   const marketValueAmount = hasCompleteQuotes
     ? holdings.reduce((sum, holding) => sum + (holding.marketValueAmount ?? 0), 0)
@@ -62,7 +62,7 @@ export function buildDashboardOverview(
       integrityIssue,
       recomputeAvailable: true,
     },
-    symbols: listTransactionSymbols(store.symbols).map(mapSymbolOption),
+    instruments: listTransactionInstruments(store.instruments).map(mapInstrumentOption),
     accounts: store.accounts,
     feeProfiles: store.feeProfiles,
     feeProfileBindings: store.feeProfileBindings,
@@ -92,19 +92,19 @@ export function buildDashboardPerformance(
   };
 }
 
-function mapSymbolOption(symbol: Store["symbols"][number]): SymbolOptionDto {
+function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptionDto {
   return {
-    ticker: symbol.ticker,
-    instrumentType: symbol.type,
-    marketCode: symbol.marketCode ?? null,
-    isProvisional: symbol.isProvisional === true,
+    ticker: def.ticker,
+    instrumentType: def.type,
+    marketCode: def.marketCode ?? null,
+    isProvisional: def.isProvisional === true,
   };
 }
 
 function buildOverviewHoldings(
   store: Store,
   totalCostAmount: number,
-  quoteBySymbol: Map<string, Quote>,
+  quoteByTicker: Map<string, Quote>,
   dividends: DashboardOverviewDividends,
 ): DashboardOverviewHoldingDto[] {
   const recentPostedDividends = new Map(
@@ -116,7 +116,7 @@ function buildOverviewHoldings(
 
   return [...store.accounting.projections.holdings]
     .map((holding) => {
-      const quote = quoteBySymbol.get(holding.ticker);
+      const quote = quoteByTicker.get(holding.ticker);
       const marketValueAmount = quote ? quote.unitPrice * holding.quantity : null;
       return {
         accountId: holding.accountId,
@@ -276,7 +276,7 @@ function buildSyntheticPerformance(
   const { startDate, endDate } = resolveRangeBounds(range, asOf);
   const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
   const positions = new Map<string, { quantity: number; costBasisAmount: number }>();
-  const quoteBySymbol = new Map(quotes.map((quote) => [quote.ticker, quote]));
+  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const points: DashboardPerformancePointDto[] = [];
   let tradeIndex = 0;
 
@@ -293,7 +293,7 @@ function buildSyntheticPerformance(
       tradeIndex += 1;
     }
 
-    const point = summarizePerformancePoint(currentDate, positions, quoteBySymbol);
+    const point = summarizePerformancePoint(currentDate, positions, quoteByTicker);
     if (point.totalCostAmount > 0 || point.marketValueAmount !== null) {
       points.push(point);
     }
@@ -305,7 +305,7 @@ function buildSyntheticPerformance(
 function summarizePerformancePoint(
   date: string,
   positions: Map<string, { quantity: number; costBasisAmount: number }>,
-  quoteBySymbol: Map<string, Quote>,
+  quoteByTicker: Map<string, Quote>,
 ): DashboardPerformancePointDto {
   let totalCostAmount = 0;
   let marketValueAmount = 0;
@@ -320,7 +320,7 @@ function summarizePerformancePoint(
     const symbol = positionKey.includes(":")
       ? positionKey.slice(positionKey.lastIndexOf(":") + 1)
       : positionKey;
-    const quote = quoteBySymbol.get(symbol);
+    const quote = quoteByTicker.get(symbol);
     if (!quote) {
       hasCompleteQuotes = false;
       continue;

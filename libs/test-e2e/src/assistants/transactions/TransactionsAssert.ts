@@ -29,7 +29,7 @@ export class TransactionsAssert extends BaseAssert {
   }
 
   @Step()
-  async recentTransactionSymbolIsVisible(symbol: string): Promise<void> {
+  async recentTransactionTickerIsVisible(symbol: string): Promise<void> {
     await expect(
       this.el.recentTransactionsTable.getByRole("link", { name: symbol }),
     ).toBeVisible();
