@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { InstrumentCatalogItemDto, MonitoredSymbolDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { Lock, Search, X } from "lucide-react";
 
-interface MonitoredSymbolsSectionProps {
-  monitoredSymbols: MonitoredSymbolDto[];
+interface MonitoredTickersSectionProps {
+  monitoredTickers: MonitoredTickerDto[];
   instruments: InstrumentCatalogItemDto[];
   selectedTickers: Set<string>;
   onToggleTicker: (ticker: string) => void;
@@ -22,8 +22,8 @@ interface MonitoredSymbolsSectionProps {
   dict: AppDictionary;
 }
 
-export function MonitoredSymbolsSection({
-  monitoredSymbols,
+export function MonitoredTickersSection({
+  monitoredTickers,
   instruments,
   selectedTickers,
   onToggleTicker,
@@ -35,16 +35,16 @@ export function MonitoredSymbolsSection({
   onSave,
   isLoading,
   dict,
-}: MonitoredSymbolsSectionProps) {
+}: MonitoredTickersSectionProps) {
   const [search, setSearch] = useState("");
 
-  const positionSymbols = useMemo(
-    () => monitoredSymbols.filter((s) => s.source === "position"),
-    [monitoredSymbols],
+  const positionTickers = useMemo(
+    () => monitoredTickers.filter((s) => s.source === "position"),
+    [monitoredTickers],
   );
 
   // Build manual selections with instrument metadata
-  const manualSymbols = useMemo(() => {
+  const manualTickers = useMemo(() => {
     const instrumentMap = new Map(instruments.map((i) => [i.ticker, i]));
     return [...selectedTickers]
       .map((ticker) => {
@@ -59,42 +59,42 @@ export function MonitoredSymbolsSection({
       .sort((a, b) => a.ticker.localeCompare(b.ticker));
   }, [selectedTickers, instruments]);
 
-  // Filter manual symbols by search
+  // Filter manual tickers by search
   const filteredManual = useMemo(() => {
-    if (!search) return manualSymbols;
+    if (!search) return manualTickers;
     const q = search.toLowerCase();
-    return manualSymbols.filter(
+    return manualTickers.filter(
       (s) => s.ticker.toLowerCase().includes(q) || (s.name?.toLowerCase().includes(q) ?? false),
     );
-  }, [manualSymbols, search]);
+  }, [manualTickers, search]);
 
   if (isLoading) {
     return <p className="text-sm text-slate-400">Loading...</p>;
   }
 
   return (
-    <div className="space-y-4" data-testid="monitored-symbols-section">
+    <div className="space-y-4" data-testid="monitored-tickers-section">
       <div>
-        <h3 className="text-sm font-semibold text-slate-800">{dict.settings.symbolsSectionTitle}</h3>
-        <p className="mt-0.5 text-xs text-slate-500">{dict.settings.symbolsSectionDescription}</p>
+        <h3 className="text-sm font-semibold text-slate-800">{dict.settings.tickersSectionTitle}</h3>
+        <p className="mt-0.5 text-xs text-slate-500">{dict.settings.tickersSectionDescription}</p>
       </div>
 
       {/* Auto-included from positions */}
-      {positionSymbols.length > 0 && (
+      {positionTickers.length > 0 && (
         <div className="space-y-2">
-          <h4 className="text-xs font-medium text-slate-600">{dict.settings.symbolsAutoIncludedTitle}</h4>
-          <p className="text-xs text-slate-400">{dict.settings.symbolsAutoIncludedDescription}</p>
+          <h4 className="text-xs font-medium text-slate-600">{dict.settings.tickersAutoIncludedTitle}</h4>
+          <p className="text-xs text-slate-400">{dict.settings.tickersAutoIncludedDescription}</p>
           <div className="space-y-1">
-            {positionSymbols.map((s) => (
+            {positionTickers.map((s) => (
               <div
                 key={s.ticker}
                 className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm"
-                data-testid={`position-symbol-${s.ticker}`}
+                data-testid={`position-ticker-${s.ticker}`}
               >
                 <Lock className="h-3.5 w-3.5 text-slate-400" />
                 <span className="font-mono font-medium text-slate-700">{s.ticker}</span>
                 {s.name && <span className="text-slate-500">— {s.name}</span>}
-                <span className="ml-auto text-xs text-slate-400">{dict.settings.symbolsPositionLocked}</span>
+                <span className="ml-auto text-xs text-slate-400">{dict.settings.tickersPositionLocked}</span>
               </div>
             ))}
           </div>
@@ -103,7 +103,7 @@ export function MonitoredSymbolsSection({
 
       {/* Your selections */}
       <div className="space-y-2">
-        <h4 className="text-xs font-medium text-slate-600">{dict.settings.symbolsYourSelectionsTitle}</h4>
+        <h4 className="text-xs font-medium text-slate-600">{dict.settings.tickersYourSelectionsTitle}</h4>
 
         {/* Search filter */}
         <div className="relative">
@@ -112,9 +112,9 @@ export function MonitoredSymbolsSection({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={dict.settings.symbolsSearchPlaceholder}
+            placeholder={dict.settings.tickersSearchPlaceholder}
             className={`${fieldClassName} !pl-12`}
-            data-testid="symbols-search"
+            data-testid="tickers-search"
           />
           {search && (
             <button
@@ -128,14 +128,14 @@ export function MonitoredSymbolsSection({
         </div>
 
         {filteredManual.length === 0 && !search ? (
-          <p className="py-3 text-center text-xs text-slate-400">{dict.settings.symbolsYourSelectionsEmpty}</p>
+          <p className="py-3 text-center text-xs text-slate-400">{dict.settings.tickersYourSelectionsEmpty}</p>
         ) : (
           <div className="max-h-48 space-y-1 overflow-y-auto">
             {filteredManual.map((s) => (
               <label
                 key={s.ticker}
                 className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-slate-50"
-                data-testid={`manual-symbol-${s.ticker}`}
+                data-testid={`manual-ticker-${s.ticker}`}
               >
                 <input
                   type="checkbox"
@@ -170,7 +170,7 @@ export function MonitoredSymbolsSection({
         onClick={onBrowseCatalog}
         data-testid="browse-catalog-btn"
       >
-        {dict.settings.symbolsBrowseCatalog}
+        {dict.settings.tickersBrowseCatalog}
       </Button>
 
       {/* Save footer */}
@@ -180,12 +180,12 @@ export function MonitoredSymbolsSection({
           size="sm"
           disabled={!isDirty || isSaving}
           onClick={onSave}
-          data-testid="symbols-save-btn"
+          data-testid="tickers-save-btn"
         >
-          {isSaving ? dict.settings.symbolsSaving : dict.settings.symbolsSaveSelections}
+          {isSaving ? dict.settings.tickersSaving : dict.settings.tickersSaveSelections}
         </Button>
-        {saveSuccess && <span className="text-xs text-green-600">{dict.settings.symbolsSaved}</span>}
-        {saveError && <span className="text-xs text-red-600">{dict.settings.symbolsSaveError}</span>}
+        {saveSuccess && <span className="text-xs text-green-600">{dict.settings.tickersSaved}</span>}
+        {saveError && <span className="text-xs text-red-600">{dict.settings.tickersSaveError}</span>}
       </div>
     </div>
   );

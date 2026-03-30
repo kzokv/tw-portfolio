@@ -82,7 +82,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
             <table className="min-w-[1120px] border-collapse text-sm text-slate-700" data-testid="holdings-table">
               <thead>
                 <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-4 py-3 text-left font-medium">{dict.holdings.symbolTerm}</th>
+                  <th className="px-4 py-3 text-left font-medium">{dict.holdings.tickerTerm}</th>
                   <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>

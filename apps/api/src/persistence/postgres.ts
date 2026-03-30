@@ -18,8 +18,8 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
-import { instrumentRefToSymbolDef } from "../services/store.js";
-import { createDefaultSymbols, upsertSymbolDefinitions } from "../services/symbolRegistry.js";
+import { instrumentRefToDef } from "../services/store.js";
+import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
   CashLedgerEntry,
@@ -32,10 +32,10 @@ import type {
   RecomputeJob,
   RecomputePreviewItem,
   Store,
-  SymbolDef,
+  InstrumentDef,
   Transaction,
 } from "../types/store.js";
-import type { InstrumentCatalogItemDto, MonitoredSymbolDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
@@ -607,7 +607,7 @@ export class PostgresPersistence implements Persistence {
         dividendEvents,
         instruments,
       },
-      symbols: instruments.map(instrumentRefToSymbolDef),
+      instruments: instruments.map(instrumentRefToDef),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
     };
@@ -795,9 +795,9 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
-  async upsertSymbols(_userId: string, symbols: SymbolDef[]): Promise<void> {
-    if (symbols.length === 0) return;
-    await this.upsertSymbolDefinitions(symbols);
+  async upsertInstruments(_userId: string, instruments: InstrumentDef[]): Promise<void> {
+    if (instruments.length === 0) return;
+    await this.upsertInstrumentDefinitions(instruments);
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
@@ -1568,18 +1568,18 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async seedDefaults(): Promise<void> {
-    await this.seedSymbols();
+    await this.seedInstruments();
     await this.ensureDefaultPortfolioData("user-1");
   }
 
-  private async seedSymbols(): Promise<void> {
-    await this.upsertSymbolDefinitions(createDefaultSymbols());
+  private async seedInstruments(): Promise<void> {
+    await this.upsertInstrumentDefinitions(createDefaultInstruments());
   }
 
-  private async upsertSymbolDefinitions(symbols: SymbolDef[]): Promise<void> {
-    const mergedSymbols = upsertSymbolDefinitions([], symbols);
+  private async upsertInstrumentDefinitions(defs: InstrumentDef[]): Promise<void> {
+    const merged = upsertInstrumentDefinitions([], defs);
 
-    for (const symbol of mergedSymbols) {
+    for (const instrument of merged) {
       await this.pool.query(
         `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, NOW())
@@ -1599,11 +1599,11 @@ export class PostgresPersistence implements Persistence {
            last_synced_at = COALESCE(EXCLUDED.last_synced_at, instruments.last_synced_at),
            updated_at = NOW()`,
         [
-          symbol.ticker,
-          symbol.type,
-          symbol.marketCode ?? "TW",
-          symbol.isProvisional ?? false,
-          symbol.lastSyncedAt ?? null,
+          instrument.ticker,
+          instrument.type,
+          instrument.marketCode ?? "TW",
+          instrument.isProvisional ?? false,
+          instrument.lastSyncedAt ?? null,
         ],
       );
     }
@@ -2272,7 +2272,7 @@ export class PostgresPersistence implements Persistence {
 
   // --- Monitored Symbols ---
 
-  async getMonitoredSet(userId: string): Promise<MonitoredSymbolDto[]> {
+  async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
     const result = await this.pool.query<{
       ticker: string;
       source: "manual" | "position";
@@ -2282,7 +2282,7 @@ export class PostgresPersistence implements Persistence {
     }>(
       `WITH manual AS (
          SELECT ums.ticker, 'manual'::text AS source
-         FROM user_monitored_symbols ums
+         FROM user_monitored_tickers ums
          WHERE ums.user_id = $1
        ),
        positions AS (
@@ -2306,16 +2306,16 @@ export class PostgresPersistence implements Persistence {
 
     return result.rows.map((row) => ({
       ticker: row.ticker,
-      source: row.source as MonitoredSymbolDto["source"],
+      source: row.source as MonitoredTickerDto["source"],
       name: row.name,
-      instrumentType: (row.instrument_type as MonitoredSymbolDto["instrumentType"]) ?? null,
+      instrumentType: (row.instrument_type as MonitoredTickerDto["instrumentType"]) ?? null,
       barsBackfillStatus: row.bars_backfill_status,
     }));
   }
 
   async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
     const result = await this.pool.query<{ ticker: string; added_at: string }>(
-      `SELECT ticker, added_at FROM user_monitored_symbols WHERE user_id = $1 ORDER BY added_at`,
+      `SELECT ticker, added_at FROM user_monitored_tickers WHERE user_id = $1 ORDER BY added_at`,
       [userId],
     );
     return result.rows.map((row) => ({
@@ -2332,10 +2332,10 @@ export class PostgresPersistence implements Persistence {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("DELETE FROM user_monitored_symbols WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
       for (const ticker of tickers) {
         await client.query(
-          "INSERT INTO user_monitored_symbols (user_id, ticker) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          "INSERT INTO user_monitored_tickers (user_id, ticker) VALUES ($1, $2) ON CONFLICT DO NOTHING",
           [userId, ticker],
         );
       }
@@ -2443,7 +2443,7 @@ function validateStoreInvariants(store: Store): void {
       throw new Error(`fee profile binding references unknown profile ${binding.feeProfileId}`);
     }
     if (!/^[A-Za-z0-9]{1,16}$/.test(binding.ticker)) {
-      throw new Error(`fee profile binding has invalid symbol ${binding.ticker}`);
+      throw new Error(`fee profile binding has invalid ticker ${binding.ticker}`);
     }
     if (binding.marketCode && !/^[A-Z]{2,8}$/.test(binding.marketCode)) {
       throw new Error(`fee profile binding has invalid market code ${binding.marketCode}`);

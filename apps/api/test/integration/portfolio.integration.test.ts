@@ -87,7 +87,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
 
     const store = await app.persistence.loadStore("user-1");
-    expect(store.symbols).toContainEqual(
+    expect(store.instruments).toContainEqual(
       expect.objectContaining({
         ticker: "QA-TEST",
         type: "STOCK",

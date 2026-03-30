@@ -15,7 +15,7 @@ export interface FeeProfileBinding {
   feeProfileId: string;
 }
 
-export interface SymbolDef {
+export interface InstrumentDef {
   ticker: string;
   type: InstrumentType;
   marketCode?: MarketCode;
@@ -242,8 +242,7 @@ export interface Store {
   feeProfiles: FeeProfile[];
   accounting: AccountingStore;
   marketData: MarketDataFacts;
-  /** @deprecated Phase-1 bridge. Prefer store.marketData.instruments. */
-  symbols: SymbolDef[];
+  instruments: InstrumentDef[];
   recomputeJobs: RecomputeJob[];
   idempotencyKeys: Set<string>;
 }

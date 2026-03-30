@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Persistence } from "../persistence/types.js";
 import { rebuildHoldingProjection } from "./accountingStore.js";
 import { createTransaction } from "./portfolio.js";
-import { ensureSymbolDefinition } from "./symbolRegistry.js";
+import { ensureInstrumentDefinition } from "./instrumentRegistry.js";
 
 interface DemoTransaction {
   accountId: string;
@@ -43,7 +43,7 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
   // cash ledger entries, and holding projections are populated — not just
   // raw trade events. Without this, the portfolio page shows empty holdings.
   for (const tx of transactions) {
-    ensureSymbolDefinition(store, tx.ticker);
+    ensureInstrumentDefinition(store, tx.ticker);
     createTransaction(store, userId, {
       id: `demo-tx-${randomUUID()}`,
       accountId: tx.accountId,

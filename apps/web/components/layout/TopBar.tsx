@@ -37,7 +37,7 @@ interface TopBarProps {
   searchLabel: string;
   searchEmptyLabel: string;
   searchRoutesLabel: string;
-  searchSymbolsLabel: string;
+  searchTickersLabel: string;
   openSearchLabel: string;
   closeSearchLabel: string;
   openNavigationLabel: string;
@@ -68,7 +68,7 @@ export function TopBar({
   searchLabel,
   searchEmptyLabel,
   searchRoutesLabel,
-  searchSymbolsLabel,
+  searchTickersLabel,
   openSearchLabel,
   closeSearchLabel,
   openNavigationLabel,
@@ -163,7 +163,7 @@ export function TopBar({
       onActiveIndexChange={setActiveIndex}
       onSelect={selectItem}
       searchRoutesLabel={searchRoutesLabel}
-      searchSymbolsLabel={searchSymbolsLabel}
+      searchTickersLabel={searchTickersLabel}
       searchEmptyLabel={searchEmptyLabel}
       dataTestId="topbar-search-results"
     />
@@ -317,7 +317,7 @@ export function TopBar({
               onActiveIndexChange={setActiveIndex}
               onSelect={selectItem}
               searchRoutesLabel={searchRoutesLabel}
-              searchSymbolsLabel={searchSymbolsLabel}
+              searchTickersLabel={searchTickersLabel}
               searchEmptyLabel={searchEmptyLabel}
               dataTestId="topbar-search-sheet-results"
             />
@@ -334,7 +334,7 @@ function QuickSearchPanel({
   onActiveIndexChange,
   onSelect,
   searchRoutesLabel,
-  searchSymbolsLabel,
+  searchTickersLabel,
   searchEmptyLabel,
   dataTestId,
 }: {
@@ -343,7 +343,7 @@ function QuickSearchPanel({
   onActiveIndexChange: (index: number) => void;
   onSelect: (item: QuickSearchItem) => void;
   searchRoutesLabel: string;
-  searchSymbolsLabel: string;
+  searchTickersLabel: string;
   searchEmptyLabel: string;
   dataTestId: string;
 }) {
@@ -381,7 +381,7 @@ function QuickSearchPanel({
       {routes.length > 0 && symbols.length > 0 ? <div className="my-2 border-t border-slate-200" aria-hidden="true" /> : null}
       {symbols.length > 0 ? (
         <SearchGroup
-          label={searchSymbolsLabel}
+          label={searchTickersLabel}
           items={symbols}
           activeIndex={activeIndex}
           itemOffset={routes.length}

@@ -5,7 +5,7 @@ import { BasePage } from "@tw-portfolio/test-framework/core";
 export interface TTransactionFormElements {
   recordTransactionButton: Locator;
   recordTransactionDialog: Locator;
-  symbolSelect: Locator;
+  tickerSelect: Locator;
   accountSelect: Locator;
   quantityInput: Locator;
   priceInput: Locator;
@@ -18,7 +18,7 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
     this._elements = {
       recordTransactionButton: this.locate("record-transaction-button", "Record Transaction Button"),
       recordTransactionDialog: this.locate("record-transaction-dialog", "Record Transaction Dialog"),
-      symbolSelect: this.locate("tx-symbol-select", "Symbol Select"),
+      tickerSelect: this.locate("tx-ticker-select", "Ticker Select"),
       accountSelect: this.locate("tx-account-select", "Account Select"),
       quantityInput: this.locate("tx-quantity-input", "Quantity Input"),
       priceInput: this.locate("tx-price-input", "Price Input"),

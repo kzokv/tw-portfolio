@@ -82,13 +82,13 @@ export class SettingsAssert extends BaseAssert {
   // --- Monitored Symbols ---
 
   @Step()
-  async symbolsSectionIsVisible(): Promise<void> {
-    await expect(this.el.symbols.section).toBeVisible();
+  async tickersSectionIsVisible(): Promise<void> {
+    await expect(this.el.tickers.section).toBeVisible();
   }
 
   @Step()
-  async symbolsEmptyStateIsVisible(): Promise<void> {
-    await expect(this.el.symbols.emptyState).toBeVisible();
+  async tickersEmptyStateIsVisible(): Promise<void> {
+    await expect(this.el.tickers.emptyState).toBeVisible();
   }
 
   @Step()
@@ -117,17 +117,17 @@ export class SettingsAssert extends BaseAssert {
   }
 
   @Step()
-  async manualSymbolIsVisible(ticker: string): Promise<void> {
-    await expect(this.el.symbols.manualSymbol(ticker)).toBeVisible();
+  async manualTickerIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.tickers.manualTicker(ticker)).toBeVisible();
   }
 
   @Step()
-  async symbolsSavedMessageIsVisible(): Promise<void> {
-    await expect(this.el.symbols.savedMessage).toBeVisible();
+  async tickersSavedMessageIsVisible(): Promise<void> {
+    await expect(this.el.tickers.savedMessage).toBeVisible();
   }
 
   @Step()
-  async symbolsSaveButtonIsDisabled(): Promise<void> {
-    await expect(this.el.symbols.saveButton).toBeDisabled();
+  async tickersSaveButtonIsDisabled(): Promise<void> {
+    await expect(this.el.tickers.saveButton).toBeDisabled();
   }
 }

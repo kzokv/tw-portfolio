@@ -18,7 +18,7 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async emptyStateIsVisible(): Promise<void> {
-    await expect(this.el.symbolHistoryEmpty).toBeVisible({ timeout: 10_000 });
+    await expect(this.el.tickerHistoryEmpty).toBeVisible({ timeout: 10_000 });
   }
 
   @Step()
@@ -106,13 +106,13 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async titleContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolHistoryTitle).toContainText(text, { timeout: 15_000 });
+    await expect(this.el.tickerHistoryTitle).toContainText(text, { timeout: 15_000 });
   }
 
   @Step()
   async sectionIsVisible(): Promise<void> {
     await expect(this.el.clientReady).toBeAttached({ timeout: 20_000 });
-    await expect(this.el.symbolHistorySection).toBeVisible({ timeout: 20_000 });
+    await expect(this.el.tickerHistorySection).toBeVisible({ timeout: 20_000 });
   }
 
   @Step()
@@ -136,32 +136,32 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async sectionContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolHistorySection).toContainText(text);
+    await expect(this.el.tickerHistorySection).toContainText(text);
   }
 
   @Step()
   async statsBarContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolStatsBar).toContainText(text);
+    await expect(this.el.tickerStatsBar).toContainText(text);
   }
 
   @Step()
   async statsBarNotContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolStatsBar).not.toContainText(text);
+    await expect(this.el.tickerStatsBar).not.toContainText(text);
   }
 
   @Step()
   async quantityStatContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolQuantityStat).toContainText(text);
+    await expect(this.el.tickerQuantityStat).toContainText(text);
   }
 
   @Step()
   async avgCostStatContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolAvgCostStat).toContainText(text);
+    await expect(this.el.tickerAvgCostStat).toContainText(text);
   }
 
   @Step()
   async avgCostStatNotContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.symbolAvgCostStat).not.toContainText(text);
+    await expect(this.el.tickerAvgCostStat).not.toContainText(text);
   }
 
   @Step()
@@ -180,9 +180,9 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
-  async recordDialogFieldValueIs(field: "symbol" | "account" | "quantity" | "tradeDate", expected: string): Promise<void> {
+  async recordDialogFieldValueIs(field: "ticker" | "account" | "quantity" | "tradeDate", expected: string): Promise<void> {
     const fields = {
-      symbol: this.el.recordDialog.elements.symbolSelect,
+      ticker: this.el.recordDialog.elements.tickerSelect,
       account: this.el.recordDialog.elements.accountSelect,
       quantity: this.el.recordDialog.elements.quantityInput,
       tradeDate: this.el.recordDialog.elements.tradeDateInput,

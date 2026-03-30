@@ -34,7 +34,7 @@ import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
-import { ensureSymbolDefinition, isSymbolQuoteable } from "../services/symbolRegistry.js";
+import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import type { Store, Transaction } from "../types/store.js";
 
 const userScopedIdSchema = z
@@ -44,7 +44,7 @@ const userScopedIdSchema = z
   .max(80)
   .regex(/^[A-Za-z0-9._:-]+$/);
 
-const symbolSchema = z
+const tickerSchema = z
   .string()
   .trim()
   .toUpperCase()
@@ -60,7 +60,7 @@ const currencyCodeSchema = z
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
-  ticker: symbolSchema,
+  ticker: tickerSchema,
   quantity: z.number().int().positive(),
   unitPrice: z.number().int().positive(),
   priceCurrency: currencyCodeSchema.default("TWD"),
@@ -99,13 +99,13 @@ const feeProfileDraftSchema = feeProfilePayloadSchema
 
 const feeBindingSchema = z.object({
   accountId: userScopedIdSchema,
-  ticker: symbolSchema,
+  ticker: tickerSchema,
   feeProfileId: userScopedIdSchema,
 });
 
 const corporateActionSchema = z.object({
   accountId: userScopedIdSchema,
-  ticker: symbolSchema,
+  ticker: tickerSchema,
   actionType: z.enum(["DIVIDEND", "SPLIT", "REVERSE_SPLIT"]),
   numerator: z.number().int().positive().default(1),
   denominator: z.number().int().positive().default(1),
@@ -113,7 +113,7 @@ const corporateActionSchema = z.object({
 });
 
 const dividendEventSchema = z.object({
-  ticker: symbolSchema,
+  ticker: tickerSchema,
   eventType: z.enum(["CASH", "STOCK", "CASH_AND_STOCK"]),
   exDividendDate: isoDateSchema,
   paymentDate: isoDateSchema,
@@ -508,7 +508,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   /**
    * E2E-only: create a demo session without going through the rate limiter.
    *
-   * Tests that verify data visibility (e.g. demo-symbol-history.spec.ts) need
+   * Tests that verify data visibility (e.g. demo-ticker-history-aaa.spec.ts) need
    * a demo session but don't test sign-in UI mechanics. auth-demo.spec.ts
    * exhausts the 5/60s demoRateBuckets limit, so subsequent specs would get 429.
    * This endpoint bypasses that coupling entirely.
@@ -705,7 +705,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .array(
             z.object({
               accountId: userScopedIdSchema,
-              ticker: symbolSchema,
+              ticker: tickerSchema,
               feeProfileRef: userScopedIdSchema,
             }),
           )
@@ -972,7 +972,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
-    const ensuredSymbol = ensureSymbolDefinition(draftStore, body.ticker);
+    const ensured = ensureInstrumentDefinition(draftStore, body.ticker);
 
     const tx = createTransaction(draftStore, userId, {
       ...body,
@@ -985,8 +985,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      if (ensuredSymbol.created) {
-        await app.persistence.upsertSymbols(userId, [ensuredSymbol.symbol]);
+      if (ensured.created) {
+        await app.persistence.upsertInstruments(userId, [ensured.instrument]);
       }
       await app.persistence.savePostedTrade(userId, draftStore.accounting, tx.id);
     } catch (error) {
@@ -1191,7 +1191,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/transactions", async (req) => {
     const query = z.object({
-      ticker: symbolSchema.optional(),
+      ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
@@ -1216,7 +1216,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const symbols = [...new Set(
       holdings
         .map((holding) => holding.ticker)
-        .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
+        .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
     const quotes = await resolveLatestQuotes(app, symbols);
 
@@ -1234,7 +1234,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const symbols = [...new Set(
       store.accounting.facts.tradeEvents
         .map((trade) => trade.ticker)
-        .filter((symbol) => isSymbolQuoteable(store.symbols.find((item) => item.ticker === symbol))),
+        .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
     const quotes = await resolveLatestQuotes(app, symbols);
 
@@ -1390,10 +1390,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
-      .map((symbol) => symbolSchema.parse(symbol));
+      .map((symbol) => tickerSchema.parse(symbol));
 
     if (symbols.length === 0) {
-      throw routeError(400, "symbols_required", "At least one symbol is required.");
+      throw routeError(400, "tickers_required", "At least one ticker is required.");
     }
     if (symbols.length > 20) {
       throw routeError(400, "too_many_symbols", "No more than 20 symbols are allowed per request.");
@@ -1416,7 +1416,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return {
           id: `proposal-${idx + 1}`,
           type: proposalType,
-          ticker: symbolSchema.parse(symbol),
+          ticker: tickerSchema.parse(symbol),
           quantity: z.coerce.number().int().positive().parse(qty),
           unitPrice: z.coerce.number().int().positive().parse(price),
           priceCurrency: "TWD",
@@ -1435,7 +1435,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .array(
             z.object({
               type: z.enum(["BUY", "SELL"]),
-              ticker: symbolSchema,
+              ticker: tickerSchema,
               quantity: z.number().int().positive(),
               unitPrice: z.number().int().positive(),
               priceCurrency: currencyCodeSchema.default("TWD"),
@@ -1484,22 +1484,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { instruments: await app.persistence.listInstrumentsCatalog(query.search, query.type) };
   });
 
-  app.get("/monitored-symbols", async (req) => {
+  app.get("/monitored-tickers", async (req) => {
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    return { symbols: await app.persistence.getMonitoredSet(userId) };
+    return { tickers: await app.persistence.getMonitoredSet(userId) };
   });
 
-  app.put("/monitored-symbols", async (req) => {
+  app.put("/monitored-tickers", async (req) => {
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const body = z
       .object({
-        tickers: z.array(symbolSchema).max(500),
+        tickers: z.array(tickerSchema).max(500),
       })
       .parse(req.body);
 
     const result = await app.persistence.replaceManualSelections(userId, body.tickers);
-    const symbols = await app.persistence.getMonitoredSet(userId);
-    return { symbols, newTickers: result.newTickers };
+    const monitored = await app.persistence.getMonitoredSet(userId);
+    return { tickers: monitored, newTickers: result.newTickers };
   });
 
   registerSSERoute(app, resolveUserId);

@@ -59,21 +59,21 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     (holdingItem) => holdingItem.ticker === ticker && (!scopedAccountId || holdingItem.accountId === scopedAccountId),
   );
   const currency = holding?.currency ?? latestTrade?.priceCurrency ?? "TWD";
-  const noData = dict.symbolHistory.noHoldingData;
+  const noData = dict.tickerHistory.noHoldingData;
 
   const statsBar = (
-    <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" data-testid="symbol-stats-bar">
-      <StatChip label={dict.symbolHistory.accountScopeLabel} value={scopedAccountId ?? dict.symbolHistory.allAccountsLabel} testId="symbol-history-account-scope" />
-      <StatChip label={dict.symbolHistory.entriesLabel} value={formatNumber(transactions.length, locale)} testId="symbol-history-entries" />
-      <StatChip label={dict.symbolHistory.quantityLabel} value={holding ? formatNumber(holding.quantity, locale) : noData} testId="symbol-history-quantity" />
-      <StatChip label={dict.symbolHistory.avgCostLabel} value={holding ? formatCurrencyAmount(holding.averageCostPerShare, currency, locale) : noData} testId="symbol-history-avg-cost" />
-      <StatChip label={dict.symbolHistory.marketValueLabel} value={holding?.marketValueAmount != null ? formatCurrencyAmount(holding.marketValueAmount, currency, locale) : noData} testId="symbol-history-market-value" />
-      <StatChip label={dict.symbolHistory.totalCostLabel} value={holding ? formatCurrencyAmount(holding.costBasisAmount, currency, locale) : noData} testId="symbol-history-total-cost" />
+    <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" data-testid="ticker-stats-bar">
+      <StatChip label={dict.tickerHistory.accountScopeLabel} value={scopedAccountId ?? dict.tickerHistory.allAccountsLabel} testId="ticker-history-account-scope" />
+      <StatChip label={dict.tickerHistory.entriesLabel} value={formatNumber(transactions.length, locale)} testId="ticker-history-entries" />
+      <StatChip label={dict.tickerHistory.quantityLabel} value={holding ? formatNumber(holding.quantity, locale) : noData} testId="ticker-history-quantity" />
+      <StatChip label={dict.tickerHistory.avgCostLabel} value={holding ? formatCurrencyAmount(holding.averageCostPerShare, currency, locale) : noData} testId="ticker-history-avg-cost" />
+      <StatChip label={dict.tickerHistory.marketValueLabel} value={holding?.marketValueAmount != null ? formatCurrencyAmount(holding.marketValueAmount, currency, locale) : noData} testId="ticker-history-market-value" />
+      <StatChip label={dict.tickerHistory.totalCostLabel} value={holding ? formatCurrencyAmount(holding.costBasisAmount, currency, locale) : noData} testId="ticker-history-total-cost" />
       <StatChip
-        label={dict.symbolHistory.realizedPnlLabel}
+        label={dict.tickerHistory.realizedPnlLabel}
         value={formatCurrencyAmount(realizedPnlTotal, currency, locale)}
         detail={latestTrade?.tradeDate ? formatDateLabel(latestTrade.tradeDate, locale) : undefined}
-        testId="symbol-history-realized-pnl"
+        testId="ticker-history-realized-pnl"
       />
     </div>
   );
@@ -88,7 +88,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           ticker={ticker}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
-          symbolOptions={dashboard.symbols}
+          symbolOptions={dashboard.instruments}
           statsBar={statsBar}
         />
       </AppShell>

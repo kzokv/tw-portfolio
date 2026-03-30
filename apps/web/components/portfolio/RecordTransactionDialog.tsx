@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import type { SymbolOptionDto } from "@tw-portfolio/shared-types";
+import type { InstrumentOptionDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionInput } from "./types";
 import { AddTransactionCard } from "./AddTransactionCard";
@@ -14,7 +14,7 @@ interface RecordTransactionDialogProps {
   onSubmit: () => Promise<void>;
   pending: boolean;
   accountOptions: Array<{ id: string; name: string }>;
-  symbolOptions: SymbolOptionDto[];
+  symbolOptions: InstrumentOptionDto[];
   message: string;
   errorMessage: string;
   title: string;

@@ -36,28 +36,28 @@ export function TransactionHistoryTable({
 
   if (transactions.length === 0) {
     return (
-      <Card data-testid="symbol-history-empty">
-        <p className="text-sm leading-6 text-slate-300">{dict.symbolHistory.emptyState}</p>
+      <Card data-testid="ticker-history-empty">
+        <p className="text-sm leading-6 text-slate-300">{dict.tickerHistory.emptyState}</p>
       </Card>
     );
   }
 
   return (
-    <Card data-testid="symbol-history-table-section">
+    <Card data-testid="ticker-history-table-section">
       <div className="hidden overflow-x-auto overflow-y-hidden rounded-[22px] border border-slate-200 bg-white/92 lg:block">
-        <table className="min-w-[1080px] border-collapse text-sm text-slate-700" data-testid="symbol-history-table">
+        <table className="min-w-[1080px] border-collapse text-sm text-slate-700" data-testid="ticker-history-table">
           <thead>
             <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="px-4 py-3 text-left font-medium">{dict.symbolHistory.tradeDateLabel}</th>
+              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.tradeDateLabel}</th>
               <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
               <th className="px-4 py-3 text-left font-medium">{dict.transactions.typeTerm}</th>
               <th className="px-4 py-3 text-right font-medium">{dict.transactions.quantityTerm}</th>
               <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.symbolHistory.commissionLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.symbolHistory.taxLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.symbolHistory.realizedPnlLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.symbolHistory.feeProfileLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.symbolHistory.bookedAtLabel}</th>
+              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.commissionLabel}</th>
+              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.taxLabel}</th>
+              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
+              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.feeProfileLabel}</th>
+              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.bookedAtLabel}</th>
               {hasMutationActions && (
                 <th className="px-4 py-3 text-center font-medium">{dict.mutations.actionsColumnLabel}</th>
               )}
@@ -102,12 +102,12 @@ export function TransactionHistoryTable({
                   <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}</td>
                   <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(transaction.realizedPnlAmount))}>
                     {transaction.realizedPnlAmount === null
-                      ? dict.symbolHistory.noRealizedPnl
+                      ? dict.tickerHistory.noRealizedPnl
                       : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
                   </td>
                   <td className="px-4 py-4 text-slate-600">{transaction.feeProfileName}</td>
                   <td className="px-4 py-4 text-slate-600">
-                    {transaction.bookedAt ? formatDateLabel(transaction.bookedAt, locale) : dict.symbolHistory.noRealizedPnl}
+                    {transaction.bookedAt ? formatDateLabel(transaction.bookedAt, locale) : dict.tickerHistory.noRealizedPnl}
                   </td>
                   {hasMutationActions && (
                     <td className="px-4 py-4 text-center">
@@ -158,7 +158,7 @@ export function TransactionHistoryTable({
                 "rounded-[22px] border border-slate-200 bg-white/92 p-4",
                 isRecomputing && "opacity-40",
               )}
-              data-testid="symbol-history-card"
+              data-testid="ticker-history-card"
             >
               {isEditing && onEditSave && onEditCancel ? (
                 <EditableTransactionRow
@@ -187,21 +187,21 @@ export function TransactionHistoryTable({
                       value={formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}
                     />
                     <HistoryDetail
-                      label={dict.symbolHistory.commissionLabel}
+                      label={dict.tickerHistory.commissionLabel}
                       value={formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}
                     />
                     <HistoryDetail
-                      label={dict.symbolHistory.taxLabel}
+                      label={dict.tickerHistory.taxLabel}
                       value={formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}
                     />
                     <HistoryDetail
-                      label={dict.symbolHistory.realizedPnlLabel}
+                      label={dict.tickerHistory.realizedPnlLabel}
                       value={transaction.realizedPnlAmount === null
-                        ? dict.symbolHistory.noRealizedPnl
+                        ? dict.tickerHistory.noRealizedPnl
                         : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
                       valueClassName={getRealizedPnlTone(transaction.realizedPnlAmount)}
                     />
-                    <HistoryDetail label={dict.symbolHistory.feeProfileLabel} value={transaction.feeProfileName} />
+                    <HistoryDetail label={dict.tickerHistory.feeProfileLabel} value={transaction.feeProfileName} />
                   </dl>
 
                   {hasMutationActions && (

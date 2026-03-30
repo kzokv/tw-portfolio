@@ -35,7 +35,7 @@ test("desktop shell supports collapse persistence and route navigation", async (
   await appShell.assert.sidebarLinkIsCurrent("transactions");
 });
 
-test("desktop quick search navigates to routes and symbol detail without icon overlap", async ({
+test("desktop quick search navigates to routes and ticker detail without icon overlap", async ({
   appShell,
   ticker,
 }) => {
@@ -52,8 +52,8 @@ test("desktop quick search navigates to routes and symbol detail without icon ov
 
   await appShell.actions.fillDesktopSearch("2330");
   await appShell.assert.searchResultsAreVisible();
-  await appShell.assert.quickSearchSymbolIsVisible("2330");
-  await appShell.actions.clickQuickSearchSymbol("2330");
+  await appShell.assert.quickSearchTickerIsVisible("2330");
+  await appShell.actions.clickQuickSearchTicker("2330");
   await appShell.assert.isOnRoute(/\/tickers\/2330$/);
   await ticker.assert.titleContains("2330");
 });

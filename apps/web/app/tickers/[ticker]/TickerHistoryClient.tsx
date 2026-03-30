@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import type { LocaleCode, TransactionHistoryItemDto, SymbolOptionDto, AccountDto } from "@tw-portfolio/shared-types";
+import type { LocaleCode, TransactionHistoryItemDto, InstrumentOptionDto, AccountDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
@@ -26,7 +26,7 @@ interface TickerHistoryClientProps {
   ticker: string;
   accountId: string;
   accounts: AccountDto[];
-  symbolOptions: SymbolOptionDto[];
+  symbolOptions: InstrumentOptionDto[];
   statsBar: React.ReactNode;
 }
 
@@ -94,12 +94,12 @@ export function TickerHistoryClient({
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
       <section
         className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8"
-        data-testid="symbol-history-section"
+        data-testid="ticker-history-section"
       >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.symbolHistory.eyebrow}</p>
-            <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="symbol-history-title">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.tickerHistory.eyebrow}</p>
+            <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="ticker-history-title">
               {ticker}
             </h1>
           </div>
@@ -108,7 +108,7 @@ export function TickerHistoryClient({
               href="/portfolio"
               className="inline-flex items-center justify-center rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50"
             >
-              {dict.symbolHistory.backToDashboard}
+              {dict.tickerHistory.backToDashboard}
             </Link>
             <Button
               onClick={() => setIsRecordDialogOpen(true)}
@@ -116,7 +116,7 @@ export function TickerHistoryClient({
               className="gap-1.5"
             >
               <Plus className="h-4 w-4" />
-              {dict.symbolHistory.recordTransaction}
+              {dict.tickerHistory.recordTransaction}
             </Button>
           </div>
         </div>
@@ -141,7 +141,7 @@ export function TickerHistoryClient({
         symbolOptions={lockedTickerOptions.length > 0 ? lockedTickerOptions : symbolOptions}
         message={submission.message}
         errorMessage={submission.errorMessage}
-        title={dict.symbolHistory.recordTransaction}
+        title={dict.tickerHistory.recordTransaction}
         dict={dict}
       />
 

@@ -96,7 +96,7 @@ export function EditableTransactionRow({
             />
           </div>
         </div>
-        <p className="text-xs italic text-slate-400">{dict.mutations.editSymbolAccountHint}</p>
+        <p className="text-xs italic text-slate-400">{dict.mutations.editTickerAccountHint}</p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" size="sm" onClick={onCancel} disabled={isSubmitting}>
             {dict.mutations.editCancelButton}
@@ -156,7 +156,7 @@ export function EditableTransactionRow({
         />
       </td>
       <td colSpan={4} className="px-4 py-2">
-        <p className="text-xs italic text-slate-400">{dict.mutations.editSymbolAccountHint}</p>
+        <p className="text-xs italic text-slate-400">{dict.mutations.editTickerAccountHint}</p>
       </td>
       <td className="px-4 py-2">
         <div className="flex items-center gap-1">

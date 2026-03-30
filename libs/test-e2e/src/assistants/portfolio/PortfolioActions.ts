@@ -16,7 +16,7 @@ export class PortfolioActions extends AppBaseActions {
   }
 
   @Step()
-  async openHoldingBySymbol(symbol: string): Promise<void> {
+  async openHoldingByTicker(symbol: string): Promise<void> {
     await Promise.all([
       this.page.waitForURL(new RegExp(`/tickers/${symbol}(?:\\?|$)`)),
       this.mxClick(this.el.holdingsTable.getByRole("link", { name: symbol })),

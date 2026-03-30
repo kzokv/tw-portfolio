@@ -66,7 +66,7 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
-  async quickSearchSymbolIsVisible(symbol: string): Promise<void> {
+  async quickSearchTickerIsVisible(symbol: string): Promise<void> {
     await expect(this.el.search.elements.desktopResults.getByRole("button", { name: new RegExp(symbol) })).toBeVisible();
   }
 

@@ -4,7 +4,7 @@ import { test } from "@tw-portfolio/test-e2e/fixtures/demoPages";
 // Sign-in UI flow is tested in auth-demo-aaa.spec.ts.
 
 test.describe("Demo user — data visibility across pages", () => {
-  test("demo user can see seeded transactions on the symbol detail page", async ({ ticker }) => {
+  test("demo user can see seeded transactions on the ticker detail page", async ({ ticker }) => {
     await ticker.actions.navigateToTicker("2330");
     await ticker.assert.rowCountIs(3);
     await ticker.assert.rowMatchingTextsCount(["Jan 15, 2026", "BUY"], 1);
@@ -20,7 +20,7 @@ test.describe("Demo user — data visibility across pages", () => {
     await portfolio.assert.holdingsTableContains("2330");
   });
 
-  test("demo user sees empty state on symbol page without trades", async ({ ticker }) => {
+  test("demo user sees empty state on ticker page without trades", async ({ ticker }) => {
     await ticker.actions.navigateToTicker("00919");
     await ticker.assert.sectionContains("0");
   });

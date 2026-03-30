@@ -1,16 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InstrumentCatalogItemDto, MonitoredSymbolDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
 import {
   fetchInstrumentsCatalog,
-  fetchMonitoredSymbols,
-  saveMonitoredSymbols,
-} from "../services/monitoredSymbolsService";
+  fetchMonitoredTickers,
+  saveMonitoredTickers,
+} from "../services/monitoredTickersService";
 
-export interface UseMonitoredSymbolsReturn {
+export interface UseMonitoredTickersReturn {
   /** Full monitored set (manual + position-derived) */
-  monitoredSymbols: MonitoredSymbolDto[];
+  monitoredTickers: MonitoredTickerDto[];
   /** Full instrument catalog */
   instruments: InstrumentCatalogItemDto[];
   /** Current manual selection tickers (mutable set) */
@@ -30,8 +30,8 @@ export interface UseMonitoredSymbolsReturn {
   isLoading: boolean;
 }
 
-export function useMonitoredSymbols(open: boolean): UseMonitoredSymbolsReturn {
-  const [monitoredSymbols, setMonitoredSymbols] = useState<MonitoredSymbolDto[]>([]);
+export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
+  const [monitoredTickers, setMonitoredTickers] = useState<MonitoredTickerDto[]>([]);
   const [instruments, setInstruments] = useState<InstrumentCatalogItemDto[]>([]);
   const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
   const [savedTickers, setSavedTickers] = useState<Set<string>>(new Set());
@@ -47,7 +47,7 @@ export function useMonitoredSymbols(open: boolean): UseMonitoredSymbolsReturn {
     return () => { mounted.current = false; };
   }, []);
 
-  // Fetch data when drawer opens on the symbols tab
+  // Fetch data when drawer opens on the tickers tab
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -55,17 +55,17 @@ export function useMonitoredSymbols(open: boolean): UseMonitoredSymbolsReturn {
     async function load() {
       setIsLoading(true);
       try {
-        const [symbolsRes, catalogRes] = await Promise.all([
-          fetchMonitoredSymbols(),
+        const [tickersRes, catalogRes] = await Promise.all([
+          fetchMonitoredTickers(),
           fetchInstrumentsCatalog(),
         ]);
         if (cancelled) return;
-        setMonitoredSymbols(symbolsRes.symbols);
+        setMonitoredTickers(tickersRes.tickers);
         setInstruments(catalogRes.instruments);
 
         // Initialize selected tickers from current manual selections
         const manual = new Set(
-          symbolsRes.symbols
+          tickersRes.tickers
             .filter((s) => s.source === "manual")
             .map((s) => s.ticker),
         );
@@ -102,9 +102,9 @@ export function useMonitoredSymbols(open: boolean): UseMonitoredSymbolsReturn {
     setSaveError("");
     setSaveSuccess("");
     try {
-      const result = await saveMonitoredSymbols([...selectedTickers]);
+      const result = await saveMonitoredTickers([...selectedTickers]);
       if (!mounted.current) return;
-      setMonitoredSymbols(result.symbols);
+      setMonitoredTickers(result.tickers);
       setSavedTickers(new Set(selectedTickers));
       setSaveSuccess("saved");
     } catch (err) {
@@ -116,7 +116,7 @@ export function useMonitoredSymbols(open: boolean): UseMonitoredSymbolsReturn {
   }, [selectedTickers]);
 
   return {
-    monitoredSymbols,
+    monitoredTickers,
     instruments,
     selectedTickers,
     showCatalog,

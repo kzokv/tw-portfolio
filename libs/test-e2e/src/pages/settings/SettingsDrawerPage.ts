@@ -7,7 +7,7 @@ export interface TSettingsDrawerElements {
     profile: Locator;
     general: Locator;
     fees: Locator;
-    symbols: Locator;
+    tickers: Locator;
   };
   general: {
     localeSelect: Locator;
@@ -31,15 +31,15 @@ export interface TSettingsDrawerElements {
     saveEmailButton: Locator;
     emailSavedIndicator: Locator;
   };
-  symbols: {
+  tickers: {
     section: Locator;
     search: Locator;
     emptyState: Locator;
     browseCatalogButton: Locator;
     saveButton: Locator;
     savedMessage: Locator;
-    positionSymbol: (ticker: string) => Locator;
-    manualSymbol: (ticker: string) => Locator;
+    positionTicker: (ticker: string) => Locator;
+    manualTicker: (ticker: string) => Locator;
   };
   catalog: {
     sheet: Locator;
@@ -69,7 +69,7 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         profile: this.locate("settings-tab-profile", "Profile Tab"),
         general: this.locate("settings-tab-general", "General Tab"),
         fees: this.locate("settings-tab-fees", "Fees Tab"),
-        symbols: this.locate("settings-tab-symbols", "Symbols Tab"),
+        tickers: this.locate("settings-tab-tickers", "Tickers Tab"),
       },
       general: {
         localeSelect: this.locate("settings-locale-select", "Locale Select"),
@@ -98,23 +98,23 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         saveEmailButton: this.locate("profile-save-email", "Profile Save Email Button"),
         emailSavedIndicator: this.locate("profile-email-saved", "Profile Email Saved Indicator"),
       },
-      symbols: {
-        section: this.locate("monitored-symbols-section", "Monitored Symbols Section"),
-        search: this.locate("symbols-search", "Symbols Search Input"),
+      tickers: {
+        section: this.locate("monitored-tickers-section", "Monitored Tickers Section"),
+        search: this.locate("tickers-search", "Tickers Search Input"),
         emptyState: this.withDescription(
-          this.page.getByText("No symbols selected"),
-          "Symbols Empty State",
+          this.page.getByText("No tickers selected"),
+          "Tickers Empty State",
         ),
         browseCatalogButton: this.locate("browse-catalog-btn", "Browse Full Catalog Button"),
-        saveButton: this.locate("symbols-save-btn", "Symbols Save Button"),
+        saveButton: this.locate("tickers-save-btn", "Tickers Save Button"),
         savedMessage: this.withDescription(
           this.page.getByText("Selections saved"),
-          "Symbols Saved Message",
+          "Tickers Saved Message",
         ),
-        positionSymbol: (ticker: string) =>
-          this.locate(`position-symbol-${ticker}`, `Position Symbol ${ticker}`),
-        manualSymbol: (ticker: string) =>
-          this.locate(`manual-symbol-${ticker}`, `Manual Symbol ${ticker}`),
+        positionTicker: (ticker: string) =>
+          this.locate(`position-ticker-${ticker}`, `Position Ticker ${ticker}`),
+        manualTicker: (ticker: string) =>
+          this.locate(`manual-ticker-${ticker}`, `Manual Ticker ${ticker}`),
       },
       catalog: {
         sheet: this.locate("instrument-catalog-sheet", "Instrument Catalog Sheet"),
