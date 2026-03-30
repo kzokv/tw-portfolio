@@ -3,6 +3,7 @@ import {
   allocateSellLots,
   calculateBuyFees,
   calculateSellFees,
+  roundToDecimal,
   type FeeProfile,
   type Lot,
 } from "@tw-portfolio/domain";
@@ -72,7 +73,7 @@ export function createTransaction(
     throw routeError(400, "currency_mismatch", "Trade currency must match fee profile commission currency");
   }
 
-  const tradeValueAmount = input.quantity * input.unitPrice;
+  const tradeValueAmount = roundToDecimal(input.quantity * input.unitPrice, 2);
   assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
   assertBookedCharge(input.commissionAmount, "Commission must be a non-negative integer");
   assertBookedCharge(input.taxAmount, "Tax must be a non-negative integer");
@@ -128,7 +129,7 @@ function applyToLots(store: Store, tx: Transaction): void {
       accountId: tx.accountId,
       ticker: tx.ticker,
       openQuantity: tx.quantity,
-      totalCostAmount: tx.unitPrice * tx.quantity + tx.commissionAmount + tx.taxAmount,
+      totalCostAmount: roundToDecimal(tx.unitPrice * tx.quantity, 2) + tx.commissionAmount + tx.taxAmount,
       costCurrency: tx.priceCurrency,
       openedAt: tx.tradeDate,
       openedSequence: tx.bookingSequence,
@@ -278,7 +279,7 @@ function assertBookedCharge(value: number | undefined, message: string): void {
 }
 
 function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueAmount = tx.quantity * tx.unitPrice;
+  const grossTradeValueAmount = roundToDecimal(tx.quantity * tx.unitPrice, 2);
   const settlementAmount =
     tx.type === "BUY"
       ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)

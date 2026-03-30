@@ -9,6 +9,7 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
+import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Quote } from "../providers/marketData.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
@@ -117,14 +118,14 @@ function buildOverviewHoldings(
   return [...store.accounting.projections.holdings]
     .map((holding) => {
       const quote = quoteByTicker.get(holding.ticker);
-      const marketValueAmount = quote ? quote.unitPrice * holding.quantity : null;
+      const marketValueAmount = quote ? roundToDecimal(quote.unitPrice * holding.quantity, 2) : null;
       return {
         accountId: holding.accountId,
         ticker: holding.ticker,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
         currency: holding.currency,
-        averageCostPerShare: holding.quantity > 0 ? holding.costBasisAmount / holding.quantity : 0,
+        averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
         currentUnitPrice: quote?.unitPrice ?? null,
         marketValueAmount,
         unrealizedPnlAmount: marketValueAmount === null ? null : marketValueAmount - holding.costBasisAmount,
@@ -326,7 +327,7 @@ function summarizePerformancePoint(
       continue;
     }
 
-    marketValueAmount += quote.unitPrice * position.quantity;
+    marketValueAmount += roundToDecimal(quote.unitPrice * position.quantity, 2);
   }
 
   const resolvedMarketValue = hasPositions && hasCompleteQuotes ? marketValueAmount : null;
@@ -349,13 +350,13 @@ function applyTradeToPerformancePosition(
   if (trade.type === "BUY") {
     positions.set(key, {
       quantity: previous.quantity + trade.quantity,
-      costBasisAmount: previous.costBasisAmount + trade.quantity * trade.unitPrice + trade.commissionAmount + trade.taxAmount,
+      costBasisAmount: previous.costBasisAmount + roundToDecimal(trade.quantity * trade.unitPrice, 2) + trade.commissionAmount + trade.taxAmount,
     });
     return;
   }
 
   const realizedPnlAmount = trade.realizedPnlAmount ?? 0;
-  const proceedsNet = trade.quantity * trade.unitPrice - trade.commissionAmount - trade.taxAmount;
+  const proceedsNet = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
   const allocatedCostAmount = Math.max(0, proceedsNet - realizedPnlAmount);
   const nextQuantity = Math.max(0, previous.quantity - trade.quantity);
   const nextCostBasisAmount = Math.max(0, previous.costBasisAmount - allocatedCostAmount);

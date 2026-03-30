@@ -1,3 +1,4 @@
+import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type {
   AccountingPolicy,
@@ -125,8 +126,8 @@ export function deriveRealizedPnlForTrade(
   }
 
   const allocatedCostAmount = allocations.reduce((sum, allocation) => sum + allocation.allocatedCostAmount, 0);
-  const netProceeds = trade.quantity * trade.unitPrice - trade.commissionAmount - trade.taxAmount;
-  return netProceeds - allocatedCostAmount;
+  const netProceeds = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
+  return roundToDecimal(netProceeds - allocatedCostAmount, 2);
 }
 
 export function syncTradeEventRealizedPnl(accounting: AccountingStore): void {
@@ -188,6 +189,9 @@ export function rebuildHoldingProjection(store: Store): HoldingProjection[] {
     keyMap.set(key, current);
   }
 
-  store.accounting.projections.holdings = [...keyMap.values()];
+  store.accounting.projections.holdings = [...keyMap.values()].map((holding) => ({
+    ...holding,
+    costBasisAmount: roundToDecimal(holding.costBasisAmount, 2),
+  }));
   return store.accounting.projections.holdings;
 }

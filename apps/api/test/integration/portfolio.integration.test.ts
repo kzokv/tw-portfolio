@@ -824,6 +824,97 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(tx.feeSnapshot.id).toBe(createdProfile.id);
   });
 
+  it("accepts decimal unit prices for ETF trades and computes correct cost basis", async () => {
+    const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
+    const feeConfigBody = feeConfig.json();
+    const zeroFeeProfileResponse = await app.inject({
+      method: "POST",
+      url: "/fee-profiles",
+      payload: feeProfilePayload({ name: "Zero Fee Decimal" }),
+    });
+    const zeroFeeProfile = zeroFeeProfileResponse.json();
+
+    const settings = await app.inject({ method: "GET", url: "/settings" });
+    const settingsBody = settings.json();
+    await app.inject({
+      method: "PUT",
+      url: "/settings/full",
+      payload: {
+        settings: {
+          locale: settingsBody.locale,
+          costBasisMethod: settingsBody.costBasisMethod,
+          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
+        },
+        feeProfiles: [
+          ...feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
+          { id: zeroFeeProfile.id, ...zeroFeeProfile },
+        ],
+        accounts: feeConfigBody.accounts.map((account: { id: string }) => ({
+          id: account.id,
+          feeProfileRef: zeroFeeProfile.id,
+        })),
+        feeProfileBindings: [],
+      },
+    });
+
+    const buy1 = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-decimal-buy-1" },
+      payload: transactionPayload({ ticker: "0050", quantity: 3, unitPrice: 152.35, tradeDate: "2026-01-01" }),
+    });
+    expect(buy1.statusCode).toBe(200);
+    expect(buy1.json().unitPrice).toBe(152.35);
+
+    const buy2 = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-decimal-buy-2" },
+      payload: transactionPayload({ ticker: "0050", quantity: 2, unitPrice: 153.80, tradeDate: "2026-01-02" }),
+    });
+    expect(buy2.statusCode).toBe(200);
+
+    const holdings = await app.inject({ method: "GET", url: "/portfolio/holdings" });
+    expect(holdings.statusCode).toBe(200);
+    // Cost = 3 * 152.35 + 2 * 153.80 = 457.05 + 307.60 = 764.65
+    expect(holdings.json()).toEqual([
+      expect.objectContaining({
+        ticker: "0050",
+        quantity: 5,
+        costBasisAmount: 764.65,
+      }),
+    ]);
+
+    const sell = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-decimal-sell" },
+      payload: transactionPayload({
+        ticker: "0050",
+        quantity: 2,
+        unitPrice: 155.50,
+        tradeDate: "2026-01-03",
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(sell.statusCode).toBe(200);
+    expect(sell.json().unitPrice).toBe(155.50);
+    expect(sell.json().realizedPnlAmount).toBeDefined();
+  });
+
+  it("rejects unit prices with more than 2 decimal places", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-too-precise" },
+      payload: transactionPayload({ unitPrice: 152.355 }),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "validation_error",
+    });
+  });
+
   it("rejects negative booked commission or tax overrides", async () => {
     const response = await app.inject({
       method: "POST",

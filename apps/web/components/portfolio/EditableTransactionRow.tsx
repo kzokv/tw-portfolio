@@ -88,7 +88,7 @@ export function EditableTransactionRow({
             <input
               type="number"
               min="0"
-              step="1"
+              step="0.01"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               className={`mt-1 block w-full ${inputBase}`}
@@ -148,7 +148,7 @@ export function EditableTransactionRow({
         <input
           type="number"
           min="0"
-          step="1"
+          step="0.01"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
           className={`w-[100px] text-right ${inputBase}`}

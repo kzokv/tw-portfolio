@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateSellLots, applyBuyToLots, type Lot } from "../src/index.js";
+import { allocateSellLots, applyBuyToLots, roundToDecimal, type Lot } from "../src/index.js";
 
 const existingLot: Lot = {
   id: "lot-1",
@@ -159,6 +159,70 @@ describe("weighted-average lot accounting", () => {
       { ...sameDayLots[0], totalCostAmount: 50_000, openQuantity: 50 },
       { ...sameDayLots[1], totalCostAmount: 0, openQuantity: 0 },
     ]);
+  });
+
+  it("accepts decimal cost amounts for ETF odd-lot trades", () => {
+    const decimalLot: Lot = {
+      ...existingLot,
+      id: "lot-decimal-1",
+      openQuantity: 1,
+      totalCostAmount: 152.35,
+    };
+    const decimalLot2: Lot = {
+      ...nextBuyLot,
+      id: "lot-decimal-2",
+      openQuantity: 1,
+      totalCostAmount: 153.80,
+    };
+
+    const result = applyBuyToLots([decimalLot], decimalLot2);
+
+    // Total: 306.15, qty: 2, avg: 153.075 → toFixed(2) = "153.07" (IEEE 754: 153.075 stored as 153.07499...)
+    expect(result.averageCostAmount).toBe(153.07);
+    // Lot 1 (first): roundToDecimal(306.15 * 1/2, 2) = 153.07
+    expect(result.updatedLots[0].totalCostAmount).toBe(153.07);
+    // Lot 2 (last): remainder = 306.15 - 153.07 = 153.08
+    expect(result.updatedLots[1].totalCostAmount).toBe(153.08);
+    // Verify total cost is preserved to 2dp
+    const totalCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    expect(roundToDecimal(totalCost, 2)).toBe(306.15);
+  });
+
+  it("distributes decimal costs across multiple lots with zero-residual", () => {
+    const lots: Lot[] = [
+      { ...existingLot, id: "lot-d1", openQuantity: 3, totalCostAmount: 457.05 },
+      { ...existingLot, id: "lot-d2", openQuantity: 2, totalCostAmount: 304.70, openedAt: "2026-01-02" },
+    ];
+    const newLot: Lot = {
+      ...existingLot,
+      id: "lot-d3",
+      openQuantity: 5,
+      totalCostAmount: 761.75,
+      openedAt: "2026-01-03",
+    };
+
+    const result = applyBuyToLots(lots, newLot);
+    const totalCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+
+    // Total must be preserved: 457.05 + 304.70 + 761.75 = 1523.50
+    expect(roundToDecimal(totalCost, 2)).toBe(1523.50);
+    expect(result.averageCostAmount).toBe(152.35);
+  });
+
+  it("handles decimal costs in sell allocation", () => {
+    const decimalLot: Lot = {
+      ...existingLot,
+      id: "lot-sell-d1",
+      openQuantity: 10,
+      totalCostAmount: 1523.50,
+    };
+
+    const result = allocateSellLots([decimalLot], 3);
+
+    // avg = 152.35, allocated = roundToDecimal(152.35 * 3, 2) = 457.05
+    expect(result.allocatedCostAmount).toBe(457.05);
+    const remainingCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    expect(roundToDecimal(remainingCost, 2)).toBe(1066.45);
   });
 
   it("orders same-day matched lots by opened sequence before lot id", () => {

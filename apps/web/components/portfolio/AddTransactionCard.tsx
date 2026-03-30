@@ -151,8 +151,8 @@ export function AddTransactionCard({
           </span>
           <input
             type="number"
-            min="1"
-            step="1"
+            min="0.01"
+            step="0.01"
             value={value.unitPrice}
             onChange={(event) => setField("unitPrice", Number(event.target.value))}
             className={fieldClassName}

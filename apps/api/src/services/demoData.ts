@@ -21,12 +21,12 @@ function buildDemoTransactions(accountId: string): DemoTransaction[] {
     { accountId, ticker: "2454", type: "BUY", quantity: 1, unitPrice: 126000, tradeDate: "2026-01-17" },
     { accountId, ticker: "2454", type: "BUY", quantity: 1, unitPrice: 128500, tradeDate: "2026-02-05" },
     { accountId, ticker: "2881", type: "BUY", quantity: 10, unitPrice: 7850, tradeDate: "2026-01-20" },
-    { accountId, ticker: "0050", type: "BUY", quantity: 3, unitPrice: 18500, tradeDate: "2026-01-21" },
-    { accountId, ticker: "0050", type: "BUY", quantity: 2, unitPrice: 18900, tradeDate: "2026-02-10" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 3, unitPrice: 185.50, tradeDate: "2026-01-21" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 2, unitPrice: 189.25, tradeDate: "2026-02-10" },
     { accountId, ticker: "2330", type: "SELL", quantity: 1, unitPrice: 101000, tradeDate: "2026-02-15" },
     { accountId, ticker: "2317", type: "SELL", quantity: 2, unitPrice: 19100, tradeDate: "2026-02-20" },
     { accountId, ticker: "2881", type: "BUY", quantity: 5, unitPrice: 8050, tradeDate: "2026-02-25" },
-    { accountId, ticker: "0050", type: "BUY", quantity: 1, unitPrice: 19200, tradeDate: "2026-03-01" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 1, unitPrice: 192.10, tradeDate: "2026-03-01" },
   ];
 }
 
