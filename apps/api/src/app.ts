@@ -165,6 +165,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
 
   app.boss = null;
   await registerRoutes(app);
-  await registerPgBoss(app);
+  await registerPgBoss(app, options.persistenceBackend);
   return app;
 }
