@@ -36,6 +36,19 @@
 - Keep query paths parameterized and avoid unsafe dynamic SQL.
 - Keep mutation safeguards active for write endpoints.
 
+## Cached FinMind API Responses
+
+Raw FinMind API snapshots are version-controlled at `data/finmind/` (repo root):
+
+| File | Dataset | Rows | Purpose |
+|---|---|---|---|
+| `TaiwanStockInfo.json` | Full TWSE instrument catalog | ~4,077 | Dedup/classification development, mock fixture source |
+| `TaiwanStockDelisting.json` | Delisted instruments | ~277 | Delisting cross-reference development |
+
+Use these for local development instead of calling the FinMind API. The mock in `finmindClient.mock.ts` uses small subsets; the full files are for debugging dedup logic, verifying classification counts, and regenerating mocks.
+
+Re-fetch when the catalog needs updating (quarterly or after FinMind schema changes).
+
 ## Context7 standards sources
 - `/microsoft/typescript`
 - `/typescript-eslint/typescript-eslint`
