@@ -2266,7 +2266,7 @@ describePostgres("postgres migrations", () => {
        FROM cash_ledger_entries
        WHERE id = 'dividend-ledger-kzo51:receipt'`,
     );
-    expect(persistedCashEntries.rows).toEqual([{ amount: 108 }]);
+    expect(persistedCashEntries.rows).toEqual([{ amount: "108.00" }]);
   });
 
   it("persists mirrored realized pnl from canonical allocations instead of stale trade state", async () => {
