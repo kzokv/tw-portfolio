@@ -63,7 +63,7 @@ export function buildDashboardOverview(
       integrityIssue,
       recomputeAvailable: true,
     },
-    instruments: listTransactionInstruments(store.instruments).map(mapInstrumentOption),
+    instruments: listTransactionInstruments(store.instruments).map(mapInstrumentOption).filter((i): i is InstrumentOptionDto => i !== null),
     accounts: store.accounts,
     feeProfiles: store.feeProfiles,
     feeProfileBindings: store.feeProfileBindings,
@@ -93,7 +93,8 @@ export function buildDashboardPerformance(
   };
 }
 
-function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptionDto {
+function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptionDto | null {
+  if (def.type === null) return null;
   return {
     ticker: def.ticker,
     instrumentType: def.type,

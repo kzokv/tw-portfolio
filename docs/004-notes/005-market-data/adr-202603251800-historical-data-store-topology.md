@@ -1,7 +1,7 @@
 # ADR: Historical Market Data Store Topology and Environment Policy
 
-**Date:** 2026-03-25
-**Status:** Locked (frozen reference snapshot)
+**Date:** 2026-03-25 (created), 2026-03-31 (updated: environment policy, data flow diagram)
+**Status:** Living document (updated with KZO-83 implementation learnings)
 **Ticket:** [KZO-122](https://linear.app/kzokv/issue/KZO-122/define-historical-market-data-store-topology-and-environment-policy)
 **Related:** [KZO-82](https://linear.app/kzokv/issue/KZO-82/define-normalized-market-data-contract-and-persistence-schema)
 
@@ -122,16 +122,26 @@ Value-over-time and valuation-by-date queries read from **materialized `daily_po
 
 ## 5. Environment Policy
 
+> **Updated 2026-03-31:** Dev is the active FinMind caller while the project is pre-production. Production environment is not yet deployed. When the project goes live, the sole-writer role transfers from dev to prod, and dev reverts to dump-restore.
+
 ### Network topology
 
 ```
 QNAP (192.168.2.xxx)     <- LAN ->  Mac Host (192.168.2.yyy)  <- VM bridge ->  Lume VM (192.168.64.x)
-  [prod + dev postgres]                                                          [local dev postgres]
+  [dev postgres]                                                                [local dev postgres]
 ```
 
 Lume VM can reach QNAP directly (confirmed: VM pings QNAP). VM software: Lume.
 
-### Environment matrix
+### Environment matrix (pre-production)
+
+| Environment | Postgres location | Market data source | Calls FinMind? |
+|---|---|---|---|
+| **Dev** | `twp-dev-postgres` on QNAP | Daily ingest job (runs after 17:30 TST FinMind update) | **Yes** — sole writer (pre-prod) |
+| **Local** | `twp-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
+| **Production** | Not yet deployed | — | — |
+
+### Environment matrix (post-launch)
 
 | Environment | Postgres location | Market data source | Calls FinMind? |
 |---|---|---|---|
@@ -139,7 +149,95 @@ Lume VM can reach QNAP directly (confirmed: VM pings QNAP). VM software: Lume.
 | **Dev** | `twp-dev-postgres` on QNAP | Auto-restore from prod dump (QNAP shared filesystem, runs after ingest) | No |
 | **Local** | `twp-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
 
-### Snapshot distribution
+### Data flow diagram (pre-production)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          DEV (QNAP)                                 │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────┐       │
+│  │            Fastify API  (twp-dev-api)                    │       │
+│  │                                                          │       │
+│  │  pg-boss scheduler (daily, after 17:30 TST)              │       │
+│  │  ┌────────────────────────────────────────────┐          │       │
+│  │  │ Job 1: Catalog Sync (KZO-83)               │          │       │
+│  │  │   FinMind TaiwanStockInfo    → 4,077 rows  │          │       │
+│  │  │   FinMind TaiwanStockDelisting → 277 rows  │          │       │
+│  │  │   dedup (3,071) → classify → bulk upsert   │          │       │
+│  │  └──────────────────┬─────────────────────────┘          │       │
+│  │                     │                                    │       │
+│  │  ┌──────────────────▼─────────────────────────┐          │       │
+│  │  │ Job 2: Daily Refresh (KZO-130)             │          │       │
+│  │  │   For each monitored symbol (all users):   │          │       │
+│  │  │   FinMind TaiwanStockPrice → daily bars    │          │       │
+│  │  │   Priority over backfill in 600 req/hr     │          │       │
+│  │  └──────────────────┬─────────────────────────┘          │       │
+│  │                     │                                    │       │
+│  │  ┌──────────────────▼─────────────────────────┐          │       │
+│  │  │ Job 3: Snapshot Materialization             │          │       │
+│  │  │   For each user/account:                   │          │       │
+│  │  │   positions × close price → snapshot row   │          │       │
+│  │  └──────────────────┬─────────────────────────┘          │       │
+│  │                     │                                    │       │
+│  │  ┌──────────────────▼─────────────────────────┐          │       │
+│  │  │ Job 4: Post-Ingest Backup                  │          │       │
+│  │  │   pg_dump -n market_data → latest.dump     │          │       │
+│  │  │   pg_dump -n public → ledger_YYYYMMDD.dump │          │       │
+│  │  └──────────────────┬─────────────────────────┘          │       │
+│  │                     │                                    │       │
+│  └─────────────────────┼────────────────────────────────────┘       │
+│                        ▼                                            │
+│  ┌─────────────────────────────────────┐                            │
+│  │  twp-dev-postgres                   │                            │
+│  │                                     │                            │
+│  │  public schema (ledger)             │                            │
+│  │  ├── trade_events                   │                            │
+│  │  ├── lots                           │                            │
+│  │  ├── cash_ledger_entries            │                            │
+│  │  ├── dividend_ledger_entries        │                            │
+│  │  └── daily_portfolio_snapshots      │                            │
+│  │                                     │                            │
+│  │  market_data schema                 │                            │
+│  │  ├── instruments  (3,071 tickers)   │                            │
+│  │  ├── daily_bars   (OHLCV)          │                            │
+│  │  └── dividend_events               │                            │
+│  └──────────────┬──────────────────────┘                            │
+│                 │                                                    │
+│     /share/backups/market_data/market_data_latest.dump              │
+│     /share/backups/ledger/ledger_YYYYMMDD_HHMM.dump (30-day rot.)  │
+│                 │                                                    │
+└─────────────────┼────────────────────────────────────────────────────┘
+                  │
+                  │  manual scp over LAN
+                  ▼
+┌────────────────────────────────────────┐
+│  ┌──────────────────────┐              │
+│  │  twp-local-postgres  │              │
+│  │  market_data schema  │  ← restored  │
+│  │  (read-only copy)    │    manually  │
+│  └──────────────────────┘              │
+│       LOCAL (Lume VM)                  │
+└────────────────────────────────────────┘
+
+Data flows:
+  FinMind API → Dev only (sole writer, 600 req/hr budget)
+  Dev dump    → Local (manual scp)
+  Local never calls FinMind
+```
+
+### Snapshot distribution (pre-production)
+
+**Dev -> Local (manual, over LAN):**
+```bash
+scp user@192.168.2.xxx:/share/backups/market_data/market_data_latest.dump ./
+pg_restore -h localhost -p 5732 -n market_data --clean --if-exists -d $DB market_data_latest.dump
+```
+
+Only the `market_data` schema is restored to local. The ledger (`public` schema) is not distributed.
+
+### Snapshot distribution (post-launch)
+
+When production is deployed, the dump flow becomes:
 
 **Prod -> Dev (automatic, same QNAP host):**
 ```bash
@@ -157,17 +255,16 @@ scp user@192.168.2.xxx:/share/backups/market_data/market_data_latest.dump ./
 pg_restore -h localhost -p 5732 -n market_data --clean --if-exists -d $DB market_data_latest.dump
 ```
 
-Only the `market_data` schema is restored to dev/local. The ledger (`public` schema) is not distributed.
+### Bootstrapping (first-time setup, pre-production)
 
-### Bootstrapping (first-time setup)
+1. Deploy `market_data` schema migration to dev
+2. Run KZO-83 catalog sync → populate full instrument catalog
+3. Run initial backfill for monitored symbols (KZO-126 infra)
+4. First `pg_dump -n market_data` → dump now has catalog + bars
+5. Local restore from that dump
+6. KZO-130 daily refresh → re-dump cycle begins
 
-1. Deploy `market_data` schema migration to prod
-2. Run initial backfill job against FinMind (prod only, demand-driven for monitored symbols)
-3. `pg_dump -n market_data` from prod -> `/share/backups/`
-4. Dev and local restore from that dump
-5. Daily: ingest new bars -> re-dump -> auto-restore to dev
-
-Scripted as `npm run market-data:backfill` (prod) and `npm run market-data:restore` (dev/local).
+Scripted as `npm run market-data:backfill` (dev) and `npm run market-data:restore` (local).
 
 ---
 
@@ -182,18 +279,19 @@ Scripted as `npm run market-data:backfill` (prod) and `npm run market-data:resto
 
 ### Schedule
 
-Both backups run after the daily bar ingest completes (post-17:30 TST).
+Both backups run after the daily bar ingest completes (post-17:30 TST). Pre-production, the source is `twp-dev-postgres`; post-launch, swap to `twp-prod-postgres`.
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M)
+PG_CONTAINER=twp-dev-postgres  # Change to twp-prod-postgres post-launch
 
 # Ledger (critical, timestamped, 30-day rotation)
-docker exec twp-prod-postgres pg_dump -U $USER -n public --format=custom $DB \
+docker exec $PG_CONTAINER pg_dump -U $USER -n public --format=custom $DB \
   > /share/backups/ledger/ledger_${TIMESTAMP}.dump
 find /share/backups/ledger/ -name "*.dump" -mtime +30 -delete
 
 # Market data (latest-only, also serves as restore source)
-docker exec twp-prod-postgres pg_dump -U $USER -n market_data --format=custom $DB \
+docker exec $PG_CONTAINER pg_dump -U $USER -n market_data --format=custom $DB \
   > /share/backups/market_data/market_data_latest.dump
 ```
 

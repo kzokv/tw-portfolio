@@ -47,7 +47,9 @@ export interface DeleteTradeEventResult {
 }
 
 export interface InstrumentRow extends InstrumentRef {
-  listedDate?: string;
+  typeRaw?: string;
+  industryCategoryRaw?: string;
+  finmindDate?: string;
   delistedAt?: string;
   statusReason?: string;
   barsBackfillStatus: BackfillStatus;
@@ -55,6 +57,26 @@ export interface InstrumentRow extends InstrumentRef {
   verificationNote?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CatalogInstrument {
+  ticker: string;
+  name: string;
+  typeRaw: string;
+  industryCategoryRaw: string;
+  finmindDate: string;
+  instrumentType: import("@tw-portfolio/domain").InstrumentType | null;
+}
+
+export interface DelistingRecord {
+  ticker: string;
+  name: string;
+  date: string;
+}
+
+export interface CatalogSyncResult {
+  upserted: number;
+  delisted: number;
 }
 
 export interface Persistence {
@@ -115,4 +137,7 @@ export interface Persistence {
   getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
   replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
   listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]>;
+
+  // Catalog sync
+  upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
 }

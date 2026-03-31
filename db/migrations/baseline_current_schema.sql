@@ -540,11 +540,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_daily_portfolio_snapshots_user_date_run
 
 CREATE TABLE IF NOT EXISTS market_data.instruments (
   ticker TEXT PRIMARY KEY,
-  instrument_type TEXT NOT NULL CHECK (instrument_type IN ('STOCK', 'ETF', 'BOND_ETF')),
+  instrument_type TEXT CHECK (instrument_type IS NULL OR instrument_type IN ('STOCK', 'ETF', 'BOND_ETF')),
   market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
   name TEXT,
   is_provisional BOOLEAN NOT NULL DEFAULT FALSE,
-  listed_date DATE,
+  type_raw TEXT,
+  industry_category_raw TEXT,
+  finmind_date TEXT,
   delisted_at TIMESTAMP,
   status_reason TEXT,
   bars_backfill_status TEXT NOT NULL DEFAULT 'pending'

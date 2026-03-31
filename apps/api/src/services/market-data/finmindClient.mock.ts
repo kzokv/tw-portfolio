@@ -1,4 +1,4 @@
-import type { RawDailyBar, DividendRecord, FinMindProvider } from "./types.js";
+import type { RawDailyBar, DividendRecord, RawInstrumentInfo, RawDelistingRecord, FinMindProvider } from "./types.js";
 
 /** Generates deterministic fixture bars for testing. */
 function generateMockBars(ticker: string, count: number = 30): RawDailyBar[] {
@@ -41,8 +41,34 @@ function generateMockDividends(ticker: string): DividendRecord[] {
   ];
 }
 
+const MOCK_INSTRUMENT_CATALOG: RawInstrumentInfo[] = [
+  // STOCK — standard sector
+  { ticker: "2330", name: "台積電", typeRaw: "twse", industryCategory: "半導體業", date: "2026-03-31" },
+  // STOCK with umbrella duplicate (dedup test)
+  { ticker: "2330", name: "台積電", typeRaw: "twse", industryCategory: "電子工業", date: "2026-03-31" },
+  // STOCK — different date (dedup test: pick latest)
+  { ticker: "2317", name: "鴻海", typeRaw: "twse", industryCategory: "其他電子業", date: "2026-03-31" },
+  { ticker: "2317", name: "鴻海", typeRaw: "twse", industryCategory: "電子工業", date: "2026-03-30" },
+  // ETF
+  { ticker: "0050", name: "元大台灣50", typeRaw: "twse", industryCategory: "ETF", date: "2026-03-31" },
+  // BOND_ETF (ticker ends with B)
+  { ticker: "00679B", name: "元大美債20年", typeRaw: "twse", industryCategory: "ETF", date: "2026-03-31" },
+  // Unmappable — ETN
+  { ticker: "020000", name: "富邦臺灣加權ETN", typeRaw: "twse", industryCategory: "指數投資證券(ETN)", date: "2026-03-31" },
+  // INDEX/META — should be filtered entirely
+  { ticker: "IX0001", name: "加權指數", typeRaw: "twse", industryCategory: "大盤", date: "2026-03-31" },
+  { ticker: "IX0099", name: "所有證券", typeRaw: "twse", industryCategory: "所有證券", date: "2026-03-31" },
+  // TPEx ETF
+  { ticker: "006201", name: "元大富櫃50", typeRaw: "tpex", industryCategory: "上櫃ETF", date: "2026-03-31" },
+];
+
+const MOCK_DELISTING_HISTORY: RawDelistingRecord[] = [
+  { ticker: "3029", name: "零壹科技", date: "2025-12-01" },
+  { ticker: "6245", name: "立端科技", date: "2026-01-15" },
+];
+
 export class MockFinMindClient implements FinMindProvider {
-  readonly calls: Array<{ method: string; ticker: string }> = [];
+  readonly calls: Array<{ method: string; ticker?: string }> = [];
 
   async fetchDailyBars(ticker: string): Promise<RawDailyBar[]> {
     this.calls.push({ method: "fetchDailyBars", ticker });
@@ -52,5 +78,15 @@ export class MockFinMindClient implements FinMindProvider {
   async fetchDividendEvents(ticker: string): Promise<DividendRecord[]> {
     this.calls.push({ method: "fetchDividendEvents", ticker });
     return generateMockDividends(ticker);
+  }
+
+  async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {
+    this.calls.push({ method: "fetchInstrumentCatalog" });
+    return MOCK_INSTRUMENT_CATALOG;
+  }
+
+  async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {
+    this.calls.push({ method: "fetchDelistingHistory" });
+    return MOCK_DELISTING_HISTORY;
   }
 }

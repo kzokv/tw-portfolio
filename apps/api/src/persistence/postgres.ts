@@ -40,7 +40,7 @@ import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
-import type { DeleteTradeEventResult, InstrumentRow, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTradeEventResult, InstrumentRow, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -1582,8 +1582,8 @@ export class PostgresPersistence implements Persistence {
 
     for (const instrument of merged) {
       await this.pool.query(
-        `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
+        `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, type_raw, industry_category_raw, finmind_date, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
          ON CONFLICT (ticker) DO UPDATE SET
            instrument_type = CASE
              WHEN EXCLUDED.is_provisional THEN instruments.instrument_type
@@ -1598,6 +1598,9 @@ export class PostgresPersistence implements Persistence {
              ELSE EXCLUDED.is_provisional
            END,
            last_synced_at = COALESCE(EXCLUDED.last_synced_at, instruments.last_synced_at),
+           type_raw = COALESCE(instruments.type_raw, EXCLUDED.type_raw),
+           industry_category_raw = COALESCE(instruments.industry_category_raw, EXCLUDED.industry_category_raw),
+           finmind_date = COALESCE(instruments.finmind_date, EXCLUDED.finmind_date),
            updated_at = NOW()`,
         [
           instrument.ticker,
@@ -1605,6 +1608,9 @@ export class PostgresPersistence implements Persistence {
           instrument.marketCode ?? "TW",
           instrument.isProvisional ?? false,
           instrument.lastSyncedAt ?? null,
+          instrument.typeRaw ?? null,
+          instrument.industryCategoryRaw ?? null,
+          instrument.finmindDate ?? null,
         ],
       );
     }
@@ -2276,11 +2282,13 @@ export class PostgresPersistence implements Persistence {
   async getInstrument(ticker: string): Promise<InstrumentRow | null> {
     const result = await this.pool.query<{
       ticker: string;
-      instrument_type: string;
+      instrument_type: string | null;
       market_code: string;
       name: string | null;
       is_provisional: boolean;
-      listed_date: string | null;
+      type_raw: string | null;
+      industry_category_raw: string | null;
+      finmind_date: string | null;
       delisted_at: string | null;
       status_reason: string | null;
       bars_backfill_status: string;
@@ -2291,7 +2299,8 @@ export class PostgresPersistence implements Persistence {
       updated_at: string;
     }>(
       `SELECT ticker, instrument_type, market_code, name, is_provisional,
-              listed_date::text, delisted_at::text, status_reason,
+              type_raw, industry_category_raw, finmind_date,
+              delisted_at::text, status_reason,
               bars_backfill_status, last_synced_at::text,
               verification_status, verification_note,
               created_at::text, updated_at::text
@@ -2302,12 +2311,14 @@ export class PostgresPersistence implements Persistence {
     const r = result.rows[0]!;
     return {
       ticker: r.ticker,
-      instrumentType: r.instrument_type as "STOCK" | "ETF" | "BOND_ETF",
+      instrumentType: r.instrument_type as import("@tw-portfolio/domain").InstrumentType | null,
       marketCode: r.market_code,
       name: r.name ?? undefined,
       isProvisional: r.is_provisional,
       lastSyncedAt: r.last_synced_at ?? undefined,
-      listedDate: r.listed_date ?? undefined,
+      typeRaw: r.type_raw ?? undefined,
+      industryCategoryRaw: r.industry_category_raw ?? undefined,
+      finmindDate: r.finmind_date ?? undefined,
       delistedAt: r.delisted_at ?? undefined,
       statusReason: r.status_reason ?? undefined,
       barsBackfillStatus: r.bars_backfill_status as import("@tw-portfolio/domain").BackfillStatus,
@@ -2324,6 +2335,71 @@ export class PostgresPersistence implements Persistence {
       `UPDATE market_data.instruments SET bars_backfill_status = $1, updated_at = CURRENT_TIMESTAMP${extra} WHERE ticker = $2`,
       [status, ticker],
     );
+  }
+
+  async upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      let upserted = 0;
+      if (instruments.length > 0) {
+        const tickers: string[] = [];
+        const names: string[] = [];
+        const typeRaws: string[] = [];
+        const industryCategoryRaws: string[] = [];
+        const finmindDates: string[] = [];
+        const instrumentTypes: (string | null)[] = [];
+
+        for (const inst of instruments) {
+          tickers.push(inst.ticker);
+          names.push(inst.name);
+          typeRaws.push(inst.typeRaw);
+          industryCategoryRaws.push(inst.industryCategoryRaw);
+          finmindDates.push(inst.finmindDate);
+          instrumentTypes.push(inst.instrumentType);
+        }
+
+        const result = await client.query(
+          `INSERT INTO market_data.instruments
+            (ticker, name, type_raw, industry_category_raw, finmind_date, instrument_type, market_code, is_provisional, updated_at)
+          SELECT * FROM unnest(
+            $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+            array_fill('TW'::text, ARRAY[$7::int]),
+            array_fill(FALSE::boolean, ARRAY[$7::int]),
+            array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$7::int])
+          )
+          ON CONFLICT (ticker) DO UPDATE SET
+            name = EXCLUDED.name,
+            type_raw = EXCLUDED.type_raw,
+            industry_category_raw = EXCLUDED.industry_category_raw,
+            finmind_date = EXCLUDED.finmind_date,
+            instrument_type = EXCLUDED.instrument_type,
+            is_provisional = FALSE,
+            updated_at = CURRENT_TIMESTAMP`,
+          [tickers, names, typeRaws, industryCategoryRaws, finmindDates, instrumentTypes, instruments.length],
+        );
+        upserted = result.rowCount ?? 0;
+      }
+
+      let delisted = 0;
+      for (const d of delistings) {
+        const result = await client.query(
+          `UPDATE market_data.instruments SET delisted_at = $2::timestamp, updated_at = CURRENT_TIMESTAMP
+           WHERE ticker = $1 AND delisted_at IS NULL`,
+          [d.ticker, d.date],
+        );
+        delisted += result.rowCount ?? 0;
+      }
+
+      await client.query("COMMIT");
+      return { upserted, delisted };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   // --- Monitored Symbols ---
@@ -2429,7 +2505,7 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query<{
       ticker: string;
       name: string | null;
-      instrument_type: string;
+      instrument_type: string | null;
       market_code: string;
       bars_backfill_status: string;
     }>(
@@ -2442,7 +2518,7 @@ export class PostgresPersistence implements Persistence {
     return result.rows.map((row) => ({
       ticker: row.ticker,
       name: row.name,
-      instrumentType: row.instrument_type as InstrumentCatalogItemDto["instrumentType"],
+      instrumentType: (row.instrument_type as InstrumentCatalogItemDto["instrumentType"]) ?? null,
       marketCode: row.market_code,
       barsBackfillStatus: row.bars_backfill_status,
     }));
