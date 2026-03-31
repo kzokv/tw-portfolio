@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,10 @@ import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTrade
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
   redisUrl: string;
+}
+
+function computeChecksum(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 export class PostgresPersistence implements Persistence {
@@ -1282,10 +1286,18 @@ export class PostgresPersistence implements Persistence {
       await this.ensureMigrationLedger(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["tw_portfolio_schema_migrations"]);
 
-      const appliedResult = await client.query<{ name: string }>(
-        "SELECT name FROM schema_migrations",
+      const appliedResult = await client.query<{ name: string; checksum: string | null }>(
+        "SELECT name, checksum FROM schema_migrations",
       );
       const applied = new Set(appliedResult.rows.map((row) => row.name));
+      const appliedChecksums = new Map(
+        appliedResult.rows
+          .filter((row) => row.checksum !== null)
+          .map((row) => [row.name, row.checksum!]),
+      );
+
+      // Verify checksums of already-applied migrations against files on disk
+      await this.verifyMigrationChecksums(migrationsDir, appliedChecksums);
 
       if (await this.shouldBootstrapFromBaseline(client, applied, manifest.baselineMigration)) {
         const baselineSql = await fs.readFile(
@@ -1293,16 +1305,18 @@ export class PostgresPersistence implements Persistence {
           "utf8",
         );
         await client.query(baselineSql);
+        // Baseline and superseded migrations get null checksums — they represent
+        // logical bookkeeping entries, not files that were individually executed.
         await this.recordAppliedMigrations(client, [
-          manifest.baselineMigration!,
-          ...manifest.baselineSupersedes,
+          { name: manifest.baselineMigration!, checksum: computeChecksum(baselineSql) },
+          ...manifest.baselineSupersedes.map((name) => ({ name, checksum: null })),
         ]);
         applied.add(manifest.baselineMigration!);
         for (const file of manifest.baselineSupersedes) applied.add(file);
       } else if (await this.shouldReconcileCurrentSchemaToBaseline(client, applied, manifest)) {
         await this.recordAppliedMigrations(client, [
-          manifest.baselineMigration!,
-          ...manifest.baselineSupersedes,
+          { name: manifest.baselineMigration!, checksum: null },
+          ...manifest.baselineSupersedes.map((name) => ({ name, checksum: null })),
         ]);
         applied.add(manifest.baselineMigration!);
         for (const file of manifest.baselineSupersedes) applied.add(file);
@@ -1311,13 +1325,18 @@ export class PostgresPersistence implements Persistence {
       for (const file of manifest.numberedMigrations) {
         if (applied.has(file)) continue;
         if (await this.isMigrationAlreadyReflected(client, file)) {
-          await this.recordAppliedMigrations(client, [file]);
+          const reflectedSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+          await this.recordAppliedMigrations(client, [
+            { name: file, checksum: computeChecksum(reflectedSql) },
+          ]);
           applied.add(file);
           continue;
         }
         const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
         await client.query(migrationSql);
-        await this.recordAppliedMigrations(client, [file]);
+        await this.recordAppliedMigrations(client, [
+          { name: file, checksum: computeChecksum(migrationSql) },
+        ]);
         applied.add(file);
       }
 
@@ -1330,12 +1349,52 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
+  /**
+   * Verify that applied migration files have not been modified since they were applied.
+   * Skips migrations with null checksums (pre-checksum era or logical bookkeeping entries).
+   * Skips migrations whose files no longer exist on disk (superseded by baseline).
+   */
+  private async verifyMigrationChecksums(
+    migrationsDir: string,
+    appliedChecksums: Map<string, string>,
+  ): Promise<void> {
+    const mismatches: string[] = [];
+
+    for (const [name, expectedChecksum] of appliedChecksums) {
+      let fileSql: string;
+      try {
+        fileSql = await fs.readFile(path.join(migrationsDir, name), "utf8");
+      } catch {
+        // File no longer exists (e.g., superseded by baseline) — skip
+        continue;
+      }
+
+      const currentChecksum = computeChecksum(fileSql);
+      if (currentChecksum !== expectedChecksum) {
+        mismatches.push(
+          `  ${name}\n    applied:  ${expectedChecksum}\n    current:  ${currentChecksum}`,
+        );
+      }
+    }
+
+    if (mismatches.length > 0) {
+      throw new Error(
+        `Migration checksum verification failed. The following migrations have been modified after being applied:\n\n${mismatches.join("\n\n")}\n\n` +
+        `Applied migrations are immutable. Create a new migration file for additional changes.`,
+      );
+    }
+  }
+
   private async ensureMigrationLedger(client: PoolClient): Promise<void> {
     await client.query(
       `CREATE TABLE IF NOT EXISTS schema_migrations (
          name TEXT PRIMARY KEY,
          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        )`,
+    );
+    // Add checksum column for migration immutability enforcement
+    await client.query(
+      `ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT`,
     );
   }
 
@@ -1556,15 +1615,21 @@ export class PostgresPersistence implements Persistence {
     return Boolean(columnResult.rows[0]?.exists);
   }
 
-  private async recordAppliedMigrations(client: PoolClient, migrationNames: string[]): Promise<void> {
-    if (!migrationNames.length) return;
+  private async recordAppliedMigrations(
+    client: PoolClient,
+    migrations: Array<{ name: string; checksum: string | null }>,
+  ): Promise<void> {
+    if (!migrations.length) return;
+
+    const names = migrations.map((m) => m.name);
+    const checksums = migrations.map((m) => m.checksum);
 
     await client.query(
-      `INSERT INTO schema_migrations (name)
-       SELECT migration_name
-       FROM unnest($1::text[]) AS migration_name
+      `INSERT INTO schema_migrations (name, checksum)
+       SELECT n, c
+       FROM unnest($1::text[], $2::text[]) AS t(n, c)
        ON CONFLICT (name) DO NOTHING`,
-      [migrationNames],
+      [names, checksums],
     );
   }
 
