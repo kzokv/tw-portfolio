@@ -12,27 +12,26 @@
 BEGIN;
 
 -- === Fix 1: instruments catalog columns ===
+-- Only applies when market_data schema exists (migration 018 creates it).
+-- On fresh databases where 018 hasn't run yet, this entire block is a no-op.
 
--- Add columns that KZO-83 introduced (IF NOT EXISTS for idempotency)
-ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS type_raw TEXT;
-ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS industry_category_raw TEXT;
-ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS finmind_date TEXT;
-
--- Drop the old listed_date column if it still exists (replaced by finmind_date)
-ALTER TABLE market_data.instruments DROP COLUMN IF EXISTS listed_date;
-
--- Relax instrument_type NOT NULL → nullable (catalog sync inserts with NULL type
--- for unmappable instruments). Only alter if the column is currently NOT NULL.
 DO $$
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'market_data'
-      AND table_name = 'instruments'
-      AND column_name = 'instrument_type'
-      AND is_nullable = 'NO'
-  ) THEN
-    ALTER TABLE market_data.instruments ALTER COLUMN instrument_type DROP NOT NULL;
+  IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'market_data') THEN
+    ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS type_raw TEXT;
+    ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS industry_category_raw TEXT;
+    ALTER TABLE market_data.instruments ADD COLUMN IF NOT EXISTS finmind_date TEXT;
+    ALTER TABLE market_data.instruments DROP COLUMN IF EXISTS listed_date;
+
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'market_data'
+        AND table_name = 'instruments'
+        AND column_name = 'instrument_type'
+        AND is_nullable = 'NO'
+    ) THEN
+      ALTER TABLE market_data.instruments ALTER COLUMN instrument_type DROP NOT NULL;
+    END IF;
   END IF;
 END $$;
 

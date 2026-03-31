@@ -1289,7 +1289,7 @@ describePostgres("postgres migrations", () => {
     ]);
 
     const cashEntries = await pool.query<{ id: string; amount: number; related_trade_event_id: string | null }>(
-      `SELECT id, amount, related_trade_event_id
+      `SELECT id, amount::float AS amount, related_trade_event_id
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -1545,7 +1545,7 @@ describePostgres("postgres migrations", () => {
       entry_type: string;
       amount: number;
     }>(
-      `SELECT id, related_dividend_ledger_entry_id, entry_type, amount
+      `SELECT id, related_dividend_ledger_entry_id, entry_type, amount::float AS amount
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -1829,7 +1829,7 @@ describePostgres("postgres migrations", () => {
       amount: number;
       source: string;
     }>(
-      `SELECT related_trade_event_id, entry_type, amount, source
+      `SELECT related_trade_event_id, entry_type, amount::float AS amount, source
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY id`,
@@ -1952,7 +1952,7 @@ describePostgres("postgres migrations", () => {
       entry_type: string;
       amount: number;
     }>(
-      `SELECT related_trade_event_id, entry_type, amount
+      `SELECT related_trade_event_id, entry_type, amount::float AS amount
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY entry_date, id`,
@@ -2113,7 +2113,7 @@ describePostgres("postgres migrations", () => {
       amount: number;
       currency_code: string;
     }>(
-      `SELECT deduction_type, amount, currency_code
+      `SELECT deduction_type, amount::float AS amount, currency_code
        FROM dividend_deduction_entries
        WHERE dividend_ledger_entry_id = 'dividend-ledger-kzo36'`,
     );
@@ -2130,7 +2130,7 @@ describePostgres("postgres migrations", () => {
       amount: number;
       related_dividend_ledger_entry_id: string | null;
     }>(
-      `SELECT entry_type, amount, related_dividend_ledger_entry_id
+      `SELECT entry_type, amount::float AS amount, related_dividend_ledger_entry_id
        FROM cash_ledger_entries
        WHERE related_dividend_ledger_entry_id = 'dividend-ledger-kzo36'
        ORDER BY amount DESC`,
@@ -2262,11 +2262,11 @@ describePostgres("postgres migrations", () => {
     expect(persistedDividendLedgerEntries.rows).toEqual([{ received_stock_quantity: 0, posting_status: "posted" }]);
 
     const persistedCashEntries = await pool.query<{ amount: number }>(
-      `SELECT amount
+      `SELECT amount::float AS amount
        FROM cash_ledger_entries
        WHERE id = 'dividend-ledger-kzo51:receipt'`,
     );
-    expect(persistedCashEntries.rows).toEqual([{ amount: "108.00" }]);
+    expect(persistedCashEntries.rows).toEqual([{ amount: 108 }]);
   });
 
   it("persists mirrored realized pnl from canonical allocations instead of stale trade state", async () => {
