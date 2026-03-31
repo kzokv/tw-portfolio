@@ -22,7 +22,7 @@ Nearest local `AGENTS.md` wins for touched files. Root at `/AGENTS.md`, plus per
 - Integration tests use `describePostgres` gating with `RUN_POSTGRES_INTEGRATION=1` and `TWP_MANAGED_CI_STACK=1`
 
 ## Migration Conventions
-- Numbered: `NNN_short_description.sql` (next: 015)
+- Numbered: `NNN_short_description.sql` (next: 021)
 - `IF NOT EXISTS` / `IF EXISTS` guards for idempotency
 - PL/pgSQL `DO $$` blocks for conditional changes
 - Backfill with `UPDATE ... WHERE ... IS NULL`
