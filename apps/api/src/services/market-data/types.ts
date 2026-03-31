@@ -18,8 +18,26 @@ export interface DividendRecord {
   stockDividendPerShare: number;
 }
 
+/** Raw instrument info from FinMind TaiwanStockInfo dataset. */
+export interface RawInstrumentInfo {
+  ticker: string;
+  name: string;
+  typeRaw: string;
+  industryCategory: string;
+  date: string;
+}
+
+/** Raw delisting record from FinMind TaiwanStockDelisting dataset. */
+export interface RawDelistingRecord {
+  ticker: string;
+  name: string;
+  date: string;
+}
+
 /** Swappable FinMind data provider interface. */
 export interface FinMindProvider {
   fetchDailyBars(ticker: string): Promise<RawDailyBar[]>;
   fetchDividendEvents(ticker: string): Promise<DividendRecord[]>;
+  fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]>;
+  fetchDelistingHistory(): Promise<RawDelistingRecord[]>;
 }

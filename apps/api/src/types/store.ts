@@ -17,10 +17,13 @@ export interface FeeProfileBinding {
 
 export interface InstrumentDef {
   ticker: string;
-  type: InstrumentType;
+  type: InstrumentType | null;
   marketCode?: MarketCode;
   isProvisional?: boolean;
   lastSyncedAt?: string | null;
+  typeRaw?: string | null;
+  industryCategoryRaw?: string | null;
+  finmindDate?: string | null;
 }
 
 export type TransactionType = "BUY" | "SELL";

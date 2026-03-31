@@ -62,6 +62,7 @@ export function createTransaction(
 
   const instrument = store.instruments.find((item) => item.ticker === input.ticker);
   if (!instrument) throw routeError(400, "unsupported_ticker", "Unsupported ticker");
+  if (instrument.type === null) throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,

@@ -1,5 +1,5 @@
 import { Env } from "@tw-portfolio/config";
-import type { RawDailyBar, DividendRecord, FinMindProvider } from "./types.js";
+import type { RawDailyBar, DividendRecord, RawInstrumentInfo, RawDelistingRecord, FinMindProvider } from "./types.js";
 
 const FINMIND_BASE = "https://api.finmindtrade.com/api/v4/data";
 // Earliest date for TaiwanStockPrice dataset
@@ -19,6 +19,20 @@ interface FinMindPriceRow {
   max: number;
   min: number;
   close: number;
+}
+
+interface FinMindInstrumentRow {
+  stock_id: string;
+  stock_name: string;
+  type: string;
+  industry_category: string;
+  date: string;
+}
+
+interface FinMindDelistingRow {
+  stock_id: string;
+  stock_name: string;
+  date: string;
 }
 
 interface FinMindDividendRow {
@@ -43,6 +57,27 @@ async function fetchDataset<T>(dataset: string, ticker: string): Promise<T[]> {
     start_date: HISTORY_START,
     token,
   });
+
+  const res = await fetch(`${FINMIND_BASE}?${params.toString()}`);
+  if (res.status === 402) {
+    throw new Error("FinMind rate limit exceeded (402)");
+  }
+  if (!res.ok) {
+    throw new Error(`FinMind API error: ${res.status} ${res.statusText}`);
+  }
+
+  const body = (await res.json()) as FinMindResponse<T>;
+  if (body.status !== 200) {
+    throw new Error(`FinMind API returned status ${body.status}: ${body.msg}`);
+  }
+  return body.data;
+}
+
+async function fetchCatalogDataset<T>(dataset: string): Promise<T[]> {
+  const token = Env.FINMIND_API_TOKEN;
+  if (!token) throw new Error("FINMIND_API_TOKEN is not configured");
+
+  const params = new URLSearchParams({ dataset, token });
 
   const res = await fetch(`${FINMIND_BASE}?${params.toString()}`);
   if (res.status === 402) {
@@ -95,5 +130,25 @@ export class FinMindClient implements FinMindProvider {
           stockDividendPerShare: stockTotal,
         };
       });
+  }
+
+  async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {
+    const rows = await fetchCatalogDataset<FinMindInstrumentRow>("TaiwanStockInfo");
+    return rows.map((r) => ({
+      ticker: r.stock_id,
+      name: r.stock_name,
+      typeRaw: r.type,
+      industryCategory: r.industry_category,
+      date: r.date,
+    }));
+  }
+
+  async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {
+    const rows = await fetchCatalogDataset<FinMindDelistingRow>("TaiwanStockDelisting");
+    return rows.map((r) => ({
+      ticker: r.stock_id,
+      name: r.stock_name,
+      date: r.date,
+    }));
   }
 }

@@ -12,7 +12,7 @@ export type VerificationStatus = "unverified" | "verified" | "mismatch";
 
 export interface InstrumentRef {
   ticker: string;
-  instrumentType: InstrumentType;
+  instrumentType: InstrumentType | null;
   marketCode: MarketCode;
   name?: string;
   isProvisional: boolean;

@@ -239,7 +239,7 @@ export interface MonitoredTickerDto {
 export interface InstrumentCatalogItemDto {
   ticker: string;
   name: string | null;
-  instrumentType: InstrumentType;
+  instrumentType: InstrumentType | null;
   marketCode: string;
   barsBackfillStatus: string;
 }

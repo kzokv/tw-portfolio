@@ -16,12 +16,12 @@ import type { Quote } from "../providers/marketData.js";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
-import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
 
 interface MemoryInstrument {
   ticker: string;
   name: string | null;
-  instrumentType: string;
+  instrumentType: string | null;
   marketCode: string;
   barsBackfillStatus: string;
 }
@@ -510,6 +510,10 @@ export class MemoryPersistence implements Persistence {
       marketCode: i.marketCode,
       barsBackfillStatus: i.barsBackfillStatus,
     }));
+  }
+
+  async upsertInstrumentCatalog(_instruments: CatalogInstrument[], _delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
+    return { upserted: 0, delisted: 0 };
   }
 
   // --- Test helpers ---

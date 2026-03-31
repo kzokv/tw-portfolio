@@ -6,10 +6,10 @@ const DEFAULT_MARKET_CODE = "TW";
 const DEFAULT_PROVISIONAL_TYPE: InstrumentType = "STOCK";
 
 const DEFAULT_INSTRUMENTS: InstrumentDef[] = [
-  { ticker: "2330", type: "STOCK", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null },
-  { ticker: "0050", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null },
-  { ticker: "00919", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null },
-  { ticker: "0056", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null },
+  { ticker: "2330", type: "STOCK", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null, typeRaw: null, industryCategoryRaw: null, finmindDate: null },
+  { ticker: "0050", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null, typeRaw: null, industryCategoryRaw: null, finmindDate: null },
+  { ticker: "00919", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null, typeRaw: null, industryCategoryRaw: null, finmindDate: null },
+  { ticker: "0056", type: "ETF", marketCode: DEFAULT_MARKET_CODE, isProvisional: false, lastSyncedAt: null, typeRaw: null, industryCategoryRaw: null, finmindDate: null },
 ];
 
 export function createDefaultInstruments(): InstrumentDef[] {
@@ -27,6 +27,9 @@ export function buildProvisionalInstrument(ticker: string): InstrumentDef {
     marketCode: DEFAULT_MARKET_CODE,
     isProvisional: true,
     lastSyncedAt: null,
+    typeRaw: null,
+    industryCategoryRaw: null,
+    finmindDate: null,
   };
 }
 

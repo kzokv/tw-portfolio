@@ -975,6 +975,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertStoreIntegrity(draftStore);
     const ensured = ensureInstrumentDefinition(draftStore, body.ticker);
 
+    if (ensured.instrument.type === null) {
+      throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
+    }
+
     const tx = createTransaction(draftStore, userId, {
       ...body,
       id: randomUUID(),
