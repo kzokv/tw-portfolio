@@ -164,4 +164,9 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.tickers.saveButton);
     await responsePromise;
   }
+
+  @Step()
+  async retryBackfill(ticker: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.tickers.retryBackfillButton(ticker));
+  }
 }

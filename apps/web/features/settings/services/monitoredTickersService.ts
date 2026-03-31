@@ -1,7 +1,7 @@
 "use client";
 
 import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
-import { getJson, putJson } from "../../../lib/api";
+import { getJson, postJson, putJson } from "../../../lib/api";
 
 export interface MonitoredTickersResponse {
   tickers: MonitoredTickerDto[];
@@ -33,4 +33,13 @@ export async function fetchInstrumentsCatalog(
 
 export async function saveMonitoredTickers(tickers: string[]): Promise<SaveMonitoredTickersResponse> {
   return putJson<SaveMonitoredTickersResponse>("/monitored-tickers", { tickers });
+}
+
+export interface RetryBackfillResponse {
+  ticker: string;
+  barsBackfillStatus: string;
+}
+
+export async function retryBackfill(ticker: string): Promise<RetryBackfillResponse> {
+  return postJson<RetryBackfillResponse>("/backfill/retry", { ticker });
 }

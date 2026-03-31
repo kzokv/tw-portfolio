@@ -148,6 +148,7 @@ export function SettingsDrawer({
                     selectedTickers={tickers.selectedTickers}
                     onToggleTicker={tickers.toggleTicker}
                     onBrowseCatalog={() => tickers.setShowCatalog(true)}
+                    onRetryBackfill={tickers.retryTicker}
                     isDirty={tickers.isDirty}
                     isSaving={tickers.isSaving}
                     saveError={tickers.saveError}

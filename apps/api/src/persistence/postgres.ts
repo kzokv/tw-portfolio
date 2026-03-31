@@ -40,7 +40,7 @@ import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
-import type { DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+import type { DeleteTradeEventResult, InstrumentRow, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -2271,6 +2271,61 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  // --- Instruments ---
+
+  async getInstrument(ticker: string): Promise<InstrumentRow | null> {
+    const result = await this.pool.query<{
+      ticker: string;
+      instrument_type: string;
+      market_code: string;
+      name: string | null;
+      is_provisional: boolean;
+      listed_date: string | null;
+      delisted_at: string | null;
+      status_reason: string | null;
+      bars_backfill_status: string;
+      last_synced_at: string | null;
+      verification_status: string;
+      verification_note: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT ticker, instrument_type, market_code, name, is_provisional,
+              listed_date::text, delisted_at::text, status_reason,
+              bars_backfill_status, last_synced_at::text,
+              verification_status, verification_note,
+              created_at::text, updated_at::text
+       FROM market_data.instruments WHERE ticker = $1`,
+      [ticker],
+    );
+    if (result.rows.length === 0) return null;
+    const r = result.rows[0]!;
+    return {
+      ticker: r.ticker,
+      instrumentType: r.instrument_type as "STOCK" | "ETF" | "BOND_ETF",
+      marketCode: r.market_code,
+      name: r.name ?? undefined,
+      isProvisional: r.is_provisional,
+      lastSyncedAt: r.last_synced_at ?? undefined,
+      listedDate: r.listed_date ?? undefined,
+      delistedAt: r.delisted_at ?? undefined,
+      statusReason: r.status_reason ?? undefined,
+      barsBackfillStatus: r.bars_backfill_status as import("@tw-portfolio/domain").BackfillStatus,
+      verificationStatus: r.verification_status as import("@tw-portfolio/domain").VerificationStatus,
+      verificationNote: r.verification_note ?? undefined,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  async updateBackfillStatus(ticker: string, status: import("@tw-portfolio/domain").BackfillStatus): Promise<void> {
+    const extra = status === "ready" ? ", last_synced_at = CURRENT_TIMESTAMP" : "";
+    await this.pool.query(
+      `UPDATE market_data.instruments SET bars_backfill_status = $1, updated_at = CURRENT_TIMESTAMP${extra} WHERE ticker = $2`,
+      [status, ticker],
+    );
+  }
+
   // --- Monitored Symbols ---
 
   async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
@@ -2350,7 +2405,6 @@ export class PostgresPersistence implements Persistence {
 
     // Compute genuinely new tickers (not in current full monitored set)
     const newTickers = tickers.filter((t) => !currentTickers.has(t));
-    // KZO-126: enqueue backfill for newTickers. Must check users.is_demo before enqueuing — demo users get no FinMind calls.
     return { newTickers };
   }
 

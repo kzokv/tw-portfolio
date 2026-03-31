@@ -34,10 +34,42 @@ export interface RecomputeFailedEvent {
   retriesExhausted: boolean;
 }
 
+// Backfill event types (KZO-126)
+export interface BackfillStartedEvent {
+  type: "backfill_started";
+  ticker: string;
+}
+
+export interface BackfillCompleteEvent {
+  type: "backfill_complete";
+  ticker: string;
+  barsCount: number;
+  dividendsCount: number;
+}
+
+export interface BackfillFailedEvent {
+  type: "backfill_failed";
+  ticker: string;
+  reason: string;
+  retriesExhausted: boolean;
+}
+
 // Discriminated union
-export type SSEEvent = HeartbeatEvent | SSEErrorEvent | RecomputeCompleteEvent | RecomputeFailedEvent;
+export type SSEEvent =
+  | HeartbeatEvent
+  | SSEErrorEvent
+  | RecomputeCompleteEvent
+  | RecomputeFailedEvent
+  | BackfillStartedEvent
+  | BackfillCompleteEvent
+  | BackfillFailedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
-export type SSEDomainEventType = "recompute_complete" | "recompute_failed";
+export type SSEDomainEventType =
+  | "recompute_complete"
+  | "recompute_failed"
+  | "backfill_started"
+  | "backfill_complete"
+  | "backfill_failed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

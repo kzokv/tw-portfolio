@@ -36,6 +36,9 @@ export const envSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   DEMO_MODE_ENABLED: z.enum(["true", "false"]).default("false"),
   DEMO_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
+  // FinMind API token — required for market data backfill (KZO-126).
+  // Free tier: 600 requests/hour. Obtain from https://finmindtrade.com/
+  FINMIND_API_TOKEN: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

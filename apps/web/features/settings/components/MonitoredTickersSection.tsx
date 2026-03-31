@@ -5,7 +5,7 @@ import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
-import { Lock, Search, X } from "lucide-react";
+import { Lock, RefreshCw, Search, X } from "lucide-react";
 
 interface MonitoredTickersSectionProps {
   monitoredTickers: MonitoredTickerDto[];
@@ -13,6 +13,7 @@ interface MonitoredTickersSectionProps {
   selectedTickers: Set<string>;
   onToggleTicker: (ticker: string) => void;
   onBrowseCatalog: () => void;
+  onRetryBackfill: (ticker: string) => void;
   isDirty: boolean;
   isSaving: boolean;
   saveError: string;
@@ -28,6 +29,7 @@ export function MonitoredTickersSection({
   selectedTickers,
   onToggleTicker,
   onBrowseCatalog,
+  onRetryBackfill,
   isDirty,
   isSaving,
   saveError,
@@ -146,14 +148,35 @@ export function MonitoredTickersSection({
                 <span className="font-mono font-medium text-slate-700">{s.ticker}</span>
                 {s.name && <span className="text-slate-500">— {s.name}</span>}
                 {s.barsBackfillStatus && (
-                  <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                    s.barsBackfillStatus === "ready"
-                      ? "bg-green-50 text-green-700"
-                      : s.barsBackfillStatus === "failed"
-                        ? "bg-red-50 text-red-700"
-                        : "bg-slate-100 text-slate-500"
-                  }`}>
-                    {s.barsBackfillStatus}
+                  <span className="ml-auto flex items-center gap-1">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      s.barsBackfillStatus === "ready"
+                        ? "bg-green-50 text-green-700"
+                        : s.barsBackfillStatus === "failed"
+                          ? "bg-red-50 text-red-700"
+                          : s.barsBackfillStatus === "backfilling"
+                            ? "bg-blue-50 text-blue-700"
+                            : "bg-slate-100 text-slate-500"
+                    }`}
+                      data-testid={`backfill-badge-${s.ticker}`}
+                    >
+                      {s.barsBackfillStatus}
+                    </span>
+                    {s.barsBackfillStatus === "failed" && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onRetryBackfill(s.ticker);
+                        }}
+                        className="rounded p-0.5 text-red-500 hover:bg-red-50 hover:text-red-700"
+                        title="Retry backfill"
+                        data-testid={`retry-backfill-${s.ticker}`}
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                      </button>
+                    )}
                   </span>
                 )}
               </label>

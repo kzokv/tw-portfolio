@@ -407,6 +407,16 @@ export class MemoryPersistence implements Persistence {
     });
   }
 
+  // --- Instruments ---
+
+  async getInstrument(_ticker: string): Promise<import("./types.js").InstrumentRow | null> {
+    return null; // Memory persistence has no instruments table
+  }
+
+  async updateBackfillStatus(_ticker: string, _status: import("@tw-portfolio/domain").BackfillStatus): Promise<void> {
+    // No-op in memory mode
+  }
+
   // --- Monitored Tickers ---
 
   async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
