@@ -338,7 +338,7 @@ CREATE TABLE IF NOT EXISTS cash_ledger_entries (
       'REVERSAL'
     )
   ),
-  amount INTEGER NOT NULL CHECK (amount <> 0),
+  amount NUMERIC(20, 2) NOT NULL CHECK (amount <> 0),
   currency TEXT NOT NULL,
   related_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
   related_dividend_ledger_entry_id TEXT REFERENCES dividend_ledger_entries(id),
