@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
+import { useEventStream } from "../../../hooks/useEventStream";
 import {
   fetchInstrumentsCatalog,
   fetchMonitoredTickers,
+  retryBackfill,
   saveMonitoredTickers,
 } from "../services/monitoredTickersService";
 
@@ -28,6 +30,8 @@ export interface UseMonitoredTickersReturn {
   saveError: string;
   saveSuccess: string;
   isLoading: boolean;
+  /** Retry backfill for a failed ticker */
+  retryTicker: (ticker: string) => Promise<void>;
 }
 
 export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
@@ -80,6 +84,39 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     return () => { cancelled = true; };
   }, [open]);
 
+  // SSE: listen for backfill events and update badge status (pre-connect pattern)
+  const handleBackfillEvent = useCallback((data: unknown) => {
+    const event = data as { type: string; ticker: string; barsCount?: number; dividendsCount?: number };
+    if (!event.ticker) return;
+
+    const updateStatus = (ticker: string, status: string) => {
+      setMonitoredTickers((prev) =>
+        prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: status } : t)),
+      );
+      setInstruments((prev) =>
+        prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: status } : i)),
+      );
+    };
+
+    switch (event.type) {
+      case "backfill_started":
+        updateStatus(event.ticker, "backfilling");
+        break;
+      case "backfill_complete":
+        updateStatus(event.ticker, "ready");
+        break;
+      case "backfill_failed":
+        updateStatus(event.ticker, "failed");
+        break;
+    }
+  }, []);
+
+  useEventStream({
+    eventTypes: ["backfill_started", "backfill_complete", "backfill_failed"],
+    onEvent: handleBackfillEvent,
+    enabled: true,
+  });
+
   const toggleTicker = useCallback((ticker: string) => {
     setSaveError("");
     setSaveSuccess("");
@@ -115,6 +152,27 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     }
   }, [selectedTickers]);
 
+  const retryTicker = useCallback(async (ticker: string) => {
+    // Optimistic update: set badge to pending
+    setMonitoredTickers((prev) =>
+      prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: "pending" } : t)),
+    );
+    setInstruments((prev) =>
+      prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: "pending" } : i)),
+    );
+    try {
+      await retryBackfill(ticker);
+    } catch {
+      // Revert on failure
+      setMonitoredTickers((prev) =>
+        prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: "failed" } : t)),
+      );
+      setInstruments((prev) =>
+        prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: "failed" } : i)),
+      );
+    }
+  }, []);
+
   return {
     monitoredTickers,
     instruments,
@@ -128,5 +186,6 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     saveError,
     saveSuccess,
     isLoading,
+    retryTicker,
   };
 }

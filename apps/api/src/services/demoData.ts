@@ -59,4 +59,10 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
 
   rebuildHoldingProjection(store);
   await persistence.saveStore(store);
+
+  // KZO-126: Demo instruments should show as 'ready' — no FinMind calls for demo users
+  const demoTickers = [...new Set(transactions.map((tx) => tx.ticker))];
+  for (const ticker of demoTickers) {
+    await persistence.updateBackfillStatus(ticker, "ready");
+  }
 }

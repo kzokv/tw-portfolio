@@ -130,4 +130,19 @@ export class SettingsAssert extends BaseAssert {
   async tickersSaveButtonIsDisabled(): Promise<void> {
     await expect(this.el.tickers.saveButton).toBeDisabled();
   }
+
+  @Step()
+  async backfillBadgeIs(ticker: string, status: string | RegExp): Promise<void> {
+    await expect(this.el.tickers.backfillBadge(ticker)).toContainText(status);
+  }
+
+  @Step()
+  async retryBackfillButtonIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.tickers.retryBackfillButton(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async retryBackfillButtonIsHidden(ticker: string): Promise<void> {
+    await expect(this.el.tickers.retryBackfillButton(ticker)).not.toBeVisible();
+  }
 }

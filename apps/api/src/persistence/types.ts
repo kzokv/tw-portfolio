@@ -106,6 +106,10 @@ export interface Persistence {
   bulkInsertCashLedgerEntries(userId: string, entries: CashLedgerEntry[]): Promise<void>;
   compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void>;
 
+  // Instruments
+  getInstrument(ticker: string): Promise<InstrumentRow | null>;
+  updateBackfillStatus(ticker: string, status: BackfillStatus): Promise<void>;
+
   // Monitored tickers
   getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;

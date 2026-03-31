@@ -35,6 +35,7 @@ import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
+import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import type { Store, Transaction } from "../types/store.js";
 
 const userScopedIdSchema = z
@@ -968,7 +969,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "idempotency_key_required", "idempotency-key header required");
     }
 
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
@@ -992,6 +993,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;
+    }
+
+    // KZO-126: First-trade backfill trigger
+    if (app.boss && !isDemo) {
+      const instrument = await app.persistence.getInstrument(body.ticker);
+      // Skip if ticker not in catalog, or already ready
+      if (instrument && instrument.barsBackfillStatus !== "ready") {
+        await app.boss.send(
+          BACKFILL_QUEUE,
+          { ticker: body.ticker, userId, trigger: "first_trade" } satisfies BackfillJobData,
+          { singletonKey: body.ticker, priority: 0 },
+        );
+      }
     }
 
     return tx;
@@ -1490,7 +1504,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.put("/monitored-tickers", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const body = z
       .object({
         tickers: z.array(tickerSchema).max(500),
@@ -1498,8 +1512,53 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .parse(req.body);
 
     const result = await app.persistence.replaceManualSelections(userId, body.tickers);
+
+    // KZO-126: Enqueue backfill for genuinely new tickers (demo users skip FinMind)
+    if (app.boss && !isDemo && result.newTickers.length > 0) {
+      for (const ticker of result.newTickers) {
+        await app.boss.send(
+          BACKFILL_QUEUE,
+          { ticker, userId, trigger: "user_selection" } satisfies BackfillJobData,
+          { singletonKey: ticker, priority: 0 },
+        );
+      }
+    }
+
     const monitored = await app.persistence.getMonitoredSet(userId);
     return { tickers: monitored, newTickers: result.newTickers };
+  });
+
+  // --- Backfill Retry (KZO-126) ---
+
+  app.post("/backfill/retry", async (req) => {
+    const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z.object({ ticker: tickerSchema }).parse(req.body);
+
+    if (isDemo) {
+      throw routeError(403, "demo_restricted", "Backfill is not available for demo users");
+    }
+    if (!app.boss) {
+      throw routeError(503, "queue_unavailable", "Job queue is not available");
+    }
+
+    const instrument = await app.persistence.getInstrument(body.ticker);
+    if (!instrument) {
+      throw routeError(404, "instrument_not_found", "Instrument not found in catalog");
+    }
+    if (instrument.barsBackfillStatus !== "failed") {
+      throw routeError(400, "not_failed", "Backfill can only be retried for failed instruments");
+    }
+
+    // Reset status to pending before enqueuing
+    await app.persistence.updateBackfillStatus(body.ticker, "pending");
+
+    await app.boss.send(
+      BACKFILL_QUEUE,
+      { ticker: body.ticker, userId, trigger: "retry" } satisfies BackfillJobData,
+      { singletonKey: body.ticker, priority: 0 },
+    );
+
+    return { ticker: body.ticker, barsBackfillStatus: "pending" };
   });
 
   registerSSERoute(app, resolveUserId);

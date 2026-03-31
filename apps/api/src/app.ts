@@ -6,6 +6,7 @@ import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
 import { createEventBus, type BufferedEventBus } from "./events/index.js";
 import { registerRoutes } from "./routes/registerRoutes.js";
+import { registerPgBoss } from "./plugins/pgBoss.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
 // If fields ever drift, this line fails to compile and surfaces the problem immediately.
@@ -162,6 +163,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     return reply.code(500).send({ error: "internal_error" });
   });
 
+  app.boss = null;
   await registerRoutes(app);
+  await registerPgBoss(app);
   return app;
 }

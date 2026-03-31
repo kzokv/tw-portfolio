@@ -40,6 +40,8 @@ export interface TSettingsDrawerElements {
     savedMessage: Locator;
     positionTicker: (ticker: string) => Locator;
     manualTicker: (ticker: string) => Locator;
+    backfillBadge: (ticker: string) => Locator;
+    retryBackfillButton: (ticker: string) => Locator;
   };
   catalog: {
     sheet: Locator;
@@ -115,6 +117,10 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.locate(`position-ticker-${ticker}`, `Position Ticker ${ticker}`),
         manualTicker: (ticker: string) =>
           this.locate(`manual-ticker-${ticker}`, `Manual Ticker ${ticker}`),
+        backfillBadge: (ticker: string) =>
+          this.locate(`backfill-badge-${ticker}`, `Backfill Badge ${ticker}`),
+        retryBackfillButton: (ticker: string) =>
+          this.locate(`retry-backfill-${ticker}`, `Retry Backfill Button ${ticker}`),
       },
       catalog: {
         sheet: this.locate("instrument-catalog-sheet", "Instrument Catalog Sheet"),
