@@ -9,10 +9,11 @@ import type { AppInstance } from "../app.js";
 
 /**
  * Initialize pg-boss job queue and register the backfill worker.
- * Skipped entirely when PERSISTENCE_BACKEND=memory (no Postgres available).
+ * Skipped entirely when persistence backend is memory (no Postgres available).
  */
-export async function registerPgBoss(app: AppInstance): Promise<void> {
-  if (Env.PERSISTENCE_BACKEND === "memory") {
+export async function registerPgBoss(app: AppInstance, persistenceOverride?: string): Promise<void> {
+  const backend = persistenceOverride ?? Env.PERSISTENCE_BACKEND;
+  if (backend === "memory") {
     app.boss = null;
     return;
   }
