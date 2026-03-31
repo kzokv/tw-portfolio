@@ -43,6 +43,10 @@
 - [feedback_qa_test_infra_check.md](feedback_qa_test_infra_check.md) — QA must verify test infrastructure exists before writing infra-dependent tests
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
+## Market data platform
+- [project_market_data_progress.md](project_market_data_progress.md) — 6 tickets done, KZO-83 next (before KZO-130), backup/restore gap identified
+- [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill implemented, environment policy (ADR 2026-03-25)
+
 ## Persistence layer
 - ~~project_memory_persistence_gaps.md~~ — **PROMOTED** to `.claude/rules/test-placement-persistence-backend.md`
 - ~~project_fk_cascade_alter_pattern.md~~ — **PROMOTED** to `docs/004-notes/005-market-data/note-202603261200-fk-cascade-alter-pattern.md`
