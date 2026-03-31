@@ -73,8 +73,22 @@ type: reference
 ### `reconciliation_records`
 - Schema exists but dormant in current runtime.
 
+## market_data Schema Tables (added KZO-82/KZO-126/KZO-83)
+
+All tables live in the `market_data` schema (not `public`). Write-owned by market data ingest services.
+
+### `market_data.instruments`
+- `ticker TEXT PK`, `exchange TEXT`, `name TEXT`, `isin TEXT`, `sector_raw TEXT`, `industry_raw TEXT`, `listed_date DATE`, `is_active BOOLEAN`, `instrument_type TEXT`
+- Operational columns: `bars_backfill_status TEXT`, `last_synced_at TIMESTAMP`, `verification_status TEXT`
+- Populated by catalog sync (`catalogSync.ts`). ON CONFLICT preserves operational columns.
+
+### `market_data.daily_bars`
+- `ticker TEXT`, `date DATE`, `open NUMERIC`, `high NUMERIC`, `low NUMERIC`, `close NUMERIC`, `volume BIGINT`, `trading_money NUMERIC`
+- PK: `(ticker, date)`. FK → `market_data.instruments(ticker)`.
+- Populated by backfill worker (`backfillWorker.ts`) via pg-boss queue.
+
 ## Migration History
-Migrations 001-014. Baseline absorbs through 014. Key milestones:
+Migrations 001-020. Baseline absorbs through 014. Key milestones:
 - 003: canonical accounting tables
 - 004-005: booking/lot ordering
 - 006: dividend alignment
@@ -84,3 +98,9 @@ Migrations 001-014. Baseline absorbs through 014. Key milestones:
 - 012: market code support
 - 013: symbol sync metadata
 - 014: user identity + external identity mapping
+- 015: demo user columns
+- 016: transaction mutations
+- 017: rename symbol→ticker + source field
+- 018: market_data schema (instruments, daily_bars)
+- 019: user_monitored_tickers join table
+- 020: NUMERIC(20,2) decimal prices

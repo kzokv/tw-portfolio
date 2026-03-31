@@ -17,7 +17,7 @@ npm workspaces monorepo with three workspace roots: `apps/*`, `libs/*`.
 - **`libs/shared-types`** — TypeScript interfaces shared between API and Web (`UserSettings`, `AccountDto`, `FeeProfileDto`, DTOs).
 
 ### Database
-- **`db/migrations/`** — 14 numbered migrations (001-014) + `baseline_current_schema.sql` + `manifest.env`.
+- **`db/migrations/`** — 20 numbered migrations (001-020) + `baseline_current_schema.sql` + `manifest.env`.
 - PostgreSQL 15+ with Redis for caching/idempotency.
 
 ### Infrastructure

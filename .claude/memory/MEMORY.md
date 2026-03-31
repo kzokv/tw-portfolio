@@ -27,25 +27,25 @@
 - [project_web_app.md](project_web_app.md) — Next.js App Router pages, frontend feature modules, component organization, and service-layer patterns
 
 ## Database / API reference
-- [project_db_schema.md](project_db_schema.md) — PostgreSQL table catalog with columns, constraints, indexes, and read/write paths
+- [project_db_schema.md](project_db_schema.md) — PostgreSQL table catalog with columns, constraints, indexes, and read/write paths (includes market_data schema)
 - [project_api_surface.md](project_api_surface.md) — HTTP API endpoints, auth model, persistence write paths, and web-consumed surface
 
 ## Migration process knowledge
-- [feedback_phased_migration_dual_pair.md](feedback_phased_migration_dual_pair.md) — Only safe test migration: keep old+new in parallel, validate parity, then delete old
+- [feedback_aaa_migration_methodology.md](feedback_aaa_migration_methodology.md) — AAA migration: dual-pair validation + A/B/C upfront classification
 - [feedback_code_review_as_formal_phase.md](feedback_code_review_as_formal_phase.md) — Run structured CR before PR creation; catches architectural drift early
 - [feedback_test_framework_is_architecture.md](feedback_test_framework_is_architecture.md) — Test framework migration is 3-5x scope; surfaces readiness, hydration, auth, parallel issues
 - [feedback_structured_debate_resolves_forks.md](feedback_structured_debate_resolves_forks.md) — /debate for decisions with >1 viable option and downstream lock-in
-- [feedback_category_abc_classification.md](feedback_category_abc_classification.md) — Classify tests A/B/C before migration to prevent mid-implementation scope surprises
 
 ## Agent team workflow
 - [feedback_agent_team_workflow.md](feedback_agent_team_workflow.md) — /team skill: 3 tiers, convergence loop, Architect-as-lead, validator gating, state file tracking
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
-- [feedback_qa_test_infra_check.md](feedback_qa_test_infra_check.md) — QA must verify test infrastructure exists before writing infra-dependent tests
+- ~~feedback_qa_test_infra_check.md~~ — **PROMOTED** to `.claude/rules/qa-test-infra-check.md`
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
 ## Market data platform
-- [project_market_data_progress.md](project_market_data_progress.md) — 6 tickets done, KZO-83 next (before KZO-130), backup/restore gap identified
-- [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill implemented, environment policy (ADR 2026-03-25)
+- [project_market_data_progress.md](project_market_data_progress.md) — KZO-83 complete (pending merge), KZO-130 next; backup/restore gap identified
+- [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
+- [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
 ## Persistence layer
 - ~~project_memory_persistence_gaps.md~~ — **PROMOTED** to `.claude/rules/test-placement-persistence-backend.md`
@@ -61,10 +61,11 @@
 - [project_buffered_eventbus_scaling.md](project_buffered_eventbus_scaling.md) — BufferedEventBus uses local EventEmitter; extend inner bus for horizontal scaling (KZO-121)
 
 ## Accounting / replay (KZO-114)
-- [project_replay_invariants.md](project_replay_invariants.md) — 4 replay invariants: scoped methods (not saveStore), ORDER BY trade_date+booking_sequence, catch allocateSellLots, filter zero-amount cash entries
+- ~~project_replay_invariants.md~~ — **PROMOTED** to `.claude/rules/replay-position-history-invariants.md`
 - ~~feedback_interface_dead_code.md~~ — **PROMOTED** to `.claude/rules/interface-caller-verification.md`
 
 ## Feedback & preferences
+- [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - ~~feedback_rename_caller_grep.md~~ — **PROMOTED** to `.claude/rules/process-refactor-rename-verification.md`
 - ~~feedback_npm_script_wrapping.md~~ — **PROMOTED** to `.claude/rules/npm-script-wrapping.md`
 - ~~feedback_cli_prompt_ux.md~~ — **PROMOTED** to `.claude/rules/cli-inquirer-preferences.md`
