@@ -27,8 +27,8 @@ export async function upsertDailyBars(
     `INSERT INTO market_data.daily_bars (ticker, bar_date, open, high, low, close, volume, source, ingested_at)
      SELECT * FROM unnest(
        $1::text[], $2::date[], $3::numeric[], $4::numeric[], $5::numeric[], $6::numeric[], $7::bigint[],
-       array_fill('finmind'::text, ARRAY[$8]),
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8])
+       array_fill('finmind'::text, ARRAY[$8::int]),
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int])
      )
      ON CONFLICT (ticker, bar_date) DO UPDATE SET
        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
@@ -84,9 +84,9 @@ export async function upsertDividendEvents(
        (id, ticker, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share, cash_dividend_currency, source, ingested_at)
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::date[], $5::date[], $6::numeric[], $7::numeric[],
-       array_fill('TWD'::text, ARRAY[$8]),
-       array_fill('finmind'::text, ARRAY[$8]),
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8])
+       array_fill('TWD'::text, ARRAY[$8::int]),
+       array_fill('finmind'::text, ARRAY[$8::int]),
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int])
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
