@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   DashboardPerformanceRange,
-  LocaleCode,
   InstrumentOptionDto,
+  LocaleCode,
 } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -54,7 +54,7 @@ interface NavigationItem {
 const DESKTOP_NAV_STORAGE_KEY = "tw-shell-nav-collapsed";
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
-  ticker: "2330",
+  ticker: "",
   quantity: 1000,
   unitPrice: 100,
   priceCurrency: "TWD",
@@ -132,6 +132,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
   const transactionSubmission = useTransactionSubmission({
     initialValue: DEFAULT_TRANSACTION,
     noAccountsMessage: dict.feedback.noAccounts,
+    tickerRequiredMessage: dict.transactions.tickerRequired,
     successMessage: dict.feedback.transactionSubmitted,
     refresh: refreshAfterTransaction,
   });
@@ -575,7 +576,6 @@ function renderSection({
             <AddTransactionCard
               value={transactionSubmission.draftTransaction}
               accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
-              symbolOptions={dashboard.instruments}
               pending={transactionSubmission.isSubmitting}
               onChange={(next) => {
                 transactionSubmission.setMessage("");

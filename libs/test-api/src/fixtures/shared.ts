@@ -46,8 +46,9 @@ export type TApiSessionMode = "oauth" | "demo";
 export async function mintApiSessionCookie(
   request: APIRequestContext,
   endpointPath: string,
+  body?: unknown,
 ): Promise<string> {
-  const response = await request.post(new URL(endpointPath, TestEnv.apiBaseUrl).href);
+  const response = await request.post(new URL(endpointPath, TestEnv.apiBaseUrl).href, body ? { data: body } : undefined);
   if (!response.ok()) {
     throw new Error(`${endpointPath} failed: ${response.status()} ${await response.text()}`);
   }

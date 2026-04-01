@@ -213,9 +213,40 @@ describe("monitored tickers", () => {
       expect(result[0].ticker).toBe("0050");
     });
 
+    it("excludes delisted instruments even when they match search filters", async () => {
+      persistence._seedInstrument({
+        ticker: "2303",
+        name: "UMC",
+        instrumentType: "STOCK",
+        marketCode: "TW",
+        barsBackfillStatus: "ready",
+        delistedAt: "2026-03-01T00:00:00Z",
+      });
+
+      expect(await persistence.listInstrumentsCatalog()).toHaveLength(3);
+
+      const searchResult = await persistence.listInstrumentsCatalog("umc");
+      expect(searchResult).toEqual([]);
+    });
+
     it("returns empty for non-matching search", async () => {
       const result = await persistence.listInstrumentsCatalog("nonexistent");
       expect(result).toEqual([]);
+    });
+
+    it("uses user-scoped seeded catalogs without leaking across users", async () => {
+      persistence._replaceInstruments([
+        { ticker: "0050", name: "Scoped ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending" },
+      ], userId);
+
+      const otherUserId = "user-2";
+      persistence._replaceInstruments([
+        { ticker: "2330", name: "Scoped Stock", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+      ], otherUserId);
+
+      expect((await persistence.listInstrumentsCatalog(undefined, undefined, userId)).map((item) => item.ticker)).toEqual(["0050"]);
+      expect((await persistence.listInstrumentsCatalog(undefined, undefined, otherUserId)).map((item) => item.ticker)).toEqual(["2330"]);
+      expect((await persistence.listInstrumentsCatalog()).map((item) => item.ticker)).toEqual(["2330", "2317", "0050"]);
     });
   });
 });

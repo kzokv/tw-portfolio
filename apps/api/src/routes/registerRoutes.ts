@@ -451,18 +451,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           z.object({
             ticker: z.string(),
             name: z.string().nullable(),
-            instrumentType: z.string(),
+            instrumentType: z.string().nullable(),
             marketCode: z.string(),
             barsBackfillStatus: z.string(),
+            delistedAt: z.string().optional(),
           }),
         ),
       })
       .parse(req.body);
 
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const mem = app.persistence as import("../persistence/memory.js").MemoryPersistence;
-    for (const instrument of body.instruments) {
-      mem._seedInstrument(instrument);
-    }
+    mem._replaceInstruments(body.instruments, userId);
     return { status: "seeded", count: body.instruments.length };
   });
 
@@ -1491,7 +1491,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // --- Monitored Symbols ---
 
   app.get("/instruments", async (req) => {
-    resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const query = z
       .object({
         search: z.string().trim().min(1).max(100).optional(),
@@ -1499,7 +1499,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse(req.query);
 
-    return { instruments: await app.persistence.listInstrumentsCatalog(query.search, query.type) };
+    return { instruments: await app.persistence.listInstrumentsCatalog(query.search, query.type, userId) };
   });
 
   app.get("/monitored-tickers", async (req) => {

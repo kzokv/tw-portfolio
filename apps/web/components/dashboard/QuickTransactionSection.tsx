@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import type { InstrumentOptionDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
@@ -11,7 +10,6 @@ import type { TransactionInput } from "../portfolio/types";
 interface QuickTransactionSectionProps {
   value: TransactionInput;
   accountOptions: Array<{ id: string; name: string }>;
-  symbolOptions: InstrumentOptionDto[];
   pending: boolean;
   onChange: (next: TransactionInput) => void;
   onSubmit: () => Promise<void>;
@@ -21,7 +19,6 @@ interface QuickTransactionSectionProps {
 export function QuickTransactionSection({
   value,
   accountOptions,
-  symbolOptions,
   pending,
   onChange,
   onSubmit,
@@ -58,7 +55,6 @@ export function QuickTransactionSection({
             <AddTransactionCard
               value={value}
               accountOptions={accountOptions}
-              symbolOptions={symbolOptions}
               pending={pending}
               onChange={onChange}
               onSubmit={onSubmit}

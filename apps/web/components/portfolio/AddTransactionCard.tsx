@@ -1,31 +1,33 @@
-import type { InstrumentOptionDto } from "@tw-portfolio/shared-types";
+"use client";
+
 import type { AppDictionary } from "../../lib/i18n";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { fieldClassName } from "../ui/fieldStyles";
 import type { TransactionInput } from "./types";
+import { InstrumentCombobox } from "./InstrumentCombobox";
 
 interface AddTransactionCardProps {
   value: TransactionInput;
   accountOptions: Array<{ id: string; name: string }>;
-  symbolOptions: InstrumentOptionDto[];
   pending: boolean;
   onChange: (next: TransactionInput) => void;
   onSubmit: () => Promise<void>;
   dict: AppDictionary;
   framed?: boolean;
+  tickerReadOnly?: boolean;
 }
 
 export function AddTransactionCard({
   value,
   accountOptions,
-  symbolOptions,
   pending,
   onChange,
   onSubmit,
   dict,
   framed = true,
+  tickerReadOnly = false,
 }: AddTransactionCardProps) {
   function setField<K extends keyof TransactionInput>(key: K, nextValue: TransactionInput[K]) {
     onChange({ ...value, [key]: nextValue });
@@ -33,11 +35,6 @@ export function AddTransactionCard({
 
   const selectedAccount = accountOptions.find((a) => a.id === value.accountId);
   const accountSelectTitle = selectedAccount ? `${selectedAccount.name} (${selectedAccount.id})` : "";
-  const normalizedTicker = value.ticker.trim().toUpperCase();
-  const selectedTicker = symbolOptions.find((symbol) => symbol.ticker === normalizedTicker) ?? symbolOptions[0];
-  const symbolSelectTitle = selectedTicker
-    ? `${selectedTicker.ticker} (${selectedTicker.instrumentType}${selectedTicker.marketCode ? ` / ${selectedTicker.marketCode}` : ""})`
-    : "";
   const content = (
     <>
       <div className="mb-5 min-w-0">
@@ -102,20 +99,12 @@ export function AddTransactionCard({
               contentTestId="tooltip-tx-symbol-content"
             />
           </span>
-          <select
-            value={selectedTicker?.ticker ?? value.ticker}
-            onChange={(event) => setField("ticker", event.target.value)}
-            title={symbolSelectTitle}
-            className={fieldClassName}
-            data-testid="tx-ticker-select"
-          >
-            {symbolOptions.map((symbol) => (
-              <option key={`${symbol.marketCode ?? "na"}:${symbol.ticker}`} value={symbol.ticker}>
-                {symbol.ticker} ({formatInstrumentTypeLabel(symbol.instrumentType)})
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-slate-500">{dict.transactions.tickerHint}</p>
+          <InstrumentCombobox
+            value={value.ticker}
+            onSelect={(ticker) => setField("ticker", ticker)}
+            dict={dict}
+            readOnly={tickerReadOnly}
+          />
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
@@ -236,16 +225,4 @@ export function AddTransactionCard({
   }
 
   return <Card>{content}</Card>;
-}
-
-function formatInstrumentTypeLabel(instrumentType: InstrumentOptionDto["instrumentType"]): string {
-  if (instrumentType === "STOCK") {
-    return "Stock";
-  }
-
-  if (instrumentType === "BOND_ETF") {
-    return "Bond ETF";
-  }
-
-  return "ETF";
 }

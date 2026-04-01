@@ -180,6 +180,7 @@ test.describe("transaction mutations", () => {
     await ticker.actions.openRecordDialog();
 
     await ticker.assert.recordDialogFieldValueIs("ticker", "2330");
+    await ticker.assert.recordDialogTickerIsReadOnly();
     await ticker.assert.recordDialogFieldValueIs("account", "acc-1");
     await ticker.assert.recordDialogFieldValueIs("quantity", "1000");
 

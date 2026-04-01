@@ -108,6 +108,30 @@ describePostgres("catalog sync persistence", () => {
     expect(tsmc!.delistedAt).toBeTruthy();
   });
 
+  it("excludes delisted instruments from listInstrumentsCatalog", async () => {
+    await persistence!.upsertInstrumentCatalog(sampleCatalog, [
+      { ticker: "2330", name: "台積電", date: "2026-01-01" },
+    ]);
+
+    const instruments = await persistence!.listInstrumentsCatalog();
+    const tickers = instruments.map((instrument) => instrument.ticker);
+    expect(tickers).not.toContain("2330");
+    // sampleCatalog non-delisted + default seed instruments (0056, 00919)
+    expect(tickers).toEqual(["0050", "0056", "00679B", "00919", "020000"]);
+  });
+
+  it("keeps search behavior intact after delisted filtering", async () => {
+    await persistence!.upsertInstrumentCatalog(sampleCatalog, [
+      { ticker: "2330", name: "台積電", date: "2026-01-01" },
+    ]);
+
+    const searchResult = await persistence!.listInstrumentsCatalog("元大");
+    expect(searchResult.map((instrument) => instrument.ticker)).toEqual(["0050", "00679B"]);
+
+    const delistedSearch = await persistence!.listInstrumentsCatalog("台積");
+    expect(delistedSearch).toEqual([]);
+  });
+
   it("upsert is idempotent — no duplicates on repeated sync", async () => {
     await persistence!.upsertInstrumentCatalog(sampleCatalog, []);
     const result2 = await persistence!.upsertInstrumentCatalog(sampleCatalog, []);

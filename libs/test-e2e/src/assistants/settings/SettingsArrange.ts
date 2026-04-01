@@ -7,7 +7,7 @@ import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage
 interface SeedInstrument {
   ticker: string;
   name: string | null;
-  instrumentType: string;
+  instrumentType: string | null;
   marketCode: string;
   barsBackfillStatus: string;
 }

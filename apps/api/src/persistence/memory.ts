@@ -24,7 +24,20 @@ interface MemoryInstrument {
   instrumentType: string | null;
   marketCode: string;
   barsBackfillStatus: string;
+  delistedAt?: string;
 }
+
+interface MemoryPersistenceOptions {
+  seedCatalog?: boolean;
+}
+
+const DEFAULT_MEMORY_CATALOG: MemoryInstrument[] = [
+  { ticker: "2330", name: "台積電", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
+  { ticker: "2317", name: "鴻海", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+  { ticker: "0050", name: "元大台灣50", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending" },
+  { ticker: "00679B", name: "元大美債20年", instrumentType: "BOND_ETF", marketCode: "TW", barsBackfillStatus: "pending" },
+  { ticker: "020000", name: "富邦臺灣加權ETN", instrumentType: null, marketCode: "TW", barsBackfillStatus: "pending" },
+];
 
 interface MemoryUser {
   id: string;
@@ -47,8 +60,16 @@ export class MemoryPersistence implements Persistence {
   private readonly monitoredTickers = new Map<string, Map<string, string>>();
   /** ticker → MemoryInstrument (instrument catalog for monitored tickers) */
   private readonly instruments = new Map<string, MemoryInstrument>();
+  /** userId → (ticker → MemoryInstrument) test-only catalog overrides */
+  private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
 
-  async init(): Promise<void> {}
+  constructor(private readonly options: MemoryPersistenceOptions = {}) {}
+
+  async init(): Promise<void> {
+    if (this.options.seedCatalog === true && this.instruments.size === 0) {
+      this._replaceInstruments(DEFAULT_MEMORY_CATALOG);
+    }
+  }
 
   async close(): Promise<void> {}
 
@@ -422,6 +443,7 @@ export class MemoryPersistence implements Persistence {
   async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
     const manualTickers = this.monitoredTickers.get(userId) ?? new Map<string, string>();
     const store = this.stores.get(userId);
+    const catalog = this._catalogForUser(userId);
 
     // Collect position-derived tickers (lots with open_quantity > 0)
     const positionTickers = new Set<string>();
@@ -439,7 +461,7 @@ export class MemoryPersistence implements Persistence {
 
     for (const ticker of manualTickers.keys()) {
       seen.add(ticker);
-      const instrument = this.instruments.get(ticker);
+      const instrument = catalog.get(ticker);
       result.push({
         ticker,
         source: "manual",
@@ -452,7 +474,7 @@ export class MemoryPersistence implements Persistence {
     for (const ticker of positionTickers) {
       if (seen.has(ticker)) continue;
       seen.add(ticker);
-      const instrument = this.instruments.get(ticker);
+      const instrument = catalog.get(ticker);
       result.push({
         ticker,
         source: "position",
@@ -497,8 +519,8 @@ export class MemoryPersistence implements Persistence {
     return { newTickers };
   }
 
-  async listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]> {
-    let results = [...this.instruments.values()];
+  async listInstrumentsCatalog(search?: string, type?: string, userId?: string): Promise<InstrumentCatalogItemDto[]> {
+    let results = [...this._catalogForUser(userId).values()].filter((instrument) => !instrument.delistedAt);
 
     if (search) {
       const q = search.toLowerCase();
@@ -527,7 +549,33 @@ export class MemoryPersistence implements Persistence {
   // --- Test helpers ---
 
   /** @internal Test-only: seed an instrument into the in-memory catalog. */
-  _seedInstrument(instrument: MemoryInstrument): void {
-    this.instruments.set(instrument.ticker, instrument);
+  _seedInstrument(instrument: MemoryInstrument, userId?: string): void {
+    this._catalogForWrite(userId).set(instrument.ticker, instrument);
+  }
+
+  /** @internal Test-only: replace the in-memory catalog with the provided instruments. */
+  _replaceInstruments(instruments: MemoryInstrument[], userId?: string): void {
+    const catalog = this._catalogForWrite(userId);
+    catalog.clear();
+    for (const instrument of instruments) {
+      this._seedInstrument(instrument, userId);
+    }
+  }
+
+  private _catalogForUser(userId?: string): Map<string, MemoryInstrument> {
+    return (userId ? this.instrumentsByUser.get(userId) : undefined) ?? this.instruments;
+  }
+
+  private _catalogForWrite(userId?: string): Map<string, MemoryInstrument> {
+    if (!userId) {
+      return this.instruments;
+    }
+
+    let catalog = this.instrumentsByUser.get(userId);
+    if (!catalog) {
+      catalog = new Map<string, MemoryInstrument>();
+      this.instrumentsByUser.set(userId, catalog);
+    }
+    return catalog;
   }
 }

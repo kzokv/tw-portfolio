@@ -24,6 +24,22 @@ export class TransactionsActions extends AppBaseActions {
   }
 
   @Step()
+  async openTickerCombobox(): Promise<void> {
+    await this.el.transactionForm.elements.tickerCombobox.focus();
+  }
+
+  @Step()
+  async typeInTickerSearch(query: string): Promise<void> {
+    await this.openTickerCombobox();
+    await this.mxFill(this.el.transactionForm.elements.tickerCombobox, query);
+  }
+
+  @Step()
+  async selectTickerOption(ticker: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.transactionForm.elements.tickerOption(ticker));
+  }
+
+  @Step()
   async submitTransaction(): Promise<void> {
     await this.uiActions.click.perform(this.el.transactionForm.elements.submitButton);
   }
