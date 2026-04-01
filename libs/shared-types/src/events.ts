@@ -54,6 +54,19 @@ export interface BackfillFailedEvent {
   retriesExhausted: boolean;
 }
 
+export interface DailyRefreshCompleteEvent {
+  type: "daily_refresh_complete";
+  ticker: string;
+  barsCount: number;
+  dividendsCount: number;
+}
+
+export interface DailyRefreshFailedEvent {
+  type: "daily_refresh_failed";
+  ticker: string;
+  reason: string;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -62,7 +75,9 @@ export type SSEEvent =
   | RecomputeFailedEvent
   | BackfillStartedEvent
   | BackfillCompleteEvent
-  | BackfillFailedEvent;
+  | BackfillFailedEvent
+  | DailyRefreshCompleteEvent
+  | DailyRefreshFailedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -71,5 +86,7 @@ export type SSEDomainEventType =
   | "recompute_failed"
   | "backfill_started"
   | "backfill_complete"
-  | "backfill_failed";
+  | "backfill_failed"
+  | "daily_refresh_complete"
+  | "daily_refresh_failed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

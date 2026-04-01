@@ -465,6 +465,14 @@ export class MemoryPersistence implements Persistence {
     return result;
   }
 
+  async getAllMonitoredTickers(): Promise<string[]> {
+    return [];
+  }
+
+  async getUsersMonitoringTicker(_ticker: string): Promise<string[]> {
+    return [];
+  }
+
   async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
     const selections = this.monitoredTickers.get(userId);
     if (!selections) return [];

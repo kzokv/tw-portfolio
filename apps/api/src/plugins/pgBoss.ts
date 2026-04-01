@@ -1,10 +1,11 @@
 import { PgBoss } from "pg-boss";
 import pg from "pg";
 import { Env } from "@tw-portfolio/config";
-import { BACKFILL_QUEUE, createBackfillHandler } from "../services/market-data/backfillWorker.js";
 import { RateLimiter } from "../services/market-data/rateLimiter.js";
 import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js";
 import { FinMindClient } from "../services/market-data/finmindClient.js";
+import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
+import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
 import type { AppInstance } from "../app.js";
 
 /**
@@ -25,14 +26,6 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
 
   await boss.start();
 
-  await boss.createQueue(BACKFILL_QUEUE, {
-    policy: "stately",
-    retryLimit: 3,
-    retryDelay: 60,
-    retryBackoff: true,
-    expireInSeconds: 600, // 10 min max per job
-  });
-
   // Data pool for backfill worker SQL operations
   const pool = new pg.Pool({ connectionString, max: 2, application_name: "tw-portfolio-backfill" });
 
@@ -41,17 +34,22 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   // Use real client if token is configured, mock otherwise
   const finmind = Env.FINMIND_API_TOKEN ? new FinMindClient() : new MockFinMindClient();
 
-  const handler = createBackfillHandler({
+  const workerDeps = {
     pool,
     finmind,
     rateLimiter,
     eventBus: app.eventBus,
     boss,
-    updateBackfillStatus: (ticker, status) => app.persistence.updateBackfillStatus(ticker, status),
+    updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>
+      app.persistence.updateBackfillStatus(ticker, status),
+    getUsersMonitoringTicker: (ticker: string) => app.persistence.getUsersMonitoringTicker(ticker),
+    persistence: app.persistence,
     log: app.log,
-  });
+  };
 
-  await boss.work(BACKFILL_QUEUE, { batchSize: 1, includeMetadata: true }, handler);
+  await registerBackfillWorker(app, boss, workerDeps);
+  await registerCatalogSyncWorker(app, boss, workerDeps);
+  await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
 
   app.boss = boss;
 
@@ -60,5 +58,5 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     await pool.end();
   });
 
-  app.log.info("pg-boss started, backfill worker registered");
+  app.log.info("pg-boss started, market-data workers registered");
 }
