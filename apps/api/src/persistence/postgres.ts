@@ -35,7 +35,7 @@ import type {
   InstrumentDef,
   Transaction,
 } from "../types/store.js";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
@@ -2634,9 +2634,251 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
+  // --- Notifications (KZO-132) ---
+
+  async createNotification(notification: {
+    userId: string;
+    severity: "info" | "warning" | "error";
+    source: string;
+    sourceRef?: string;
+    title: string;
+    body?: string;
+    detail?: unknown;
+  }): Promise<string> {
+    const result = await this.pool.query<{ id: string }>(
+      `INSERT INTO notifications (user_id, severity, source, source_ref, title, body, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        notification.userId,
+        notification.severity,
+        notification.source,
+        notification.sourceRef ?? null,
+        notification.title,
+        notification.body ?? null,
+        notification.detail ? JSON.stringify(notification.detail) : null,
+      ],
+    );
+    return result.rows[0].id;
+  }
+
+  async getNotificationsForUser(
+    userId: string,
+    opts: { page: number; limit: number },
+  ): Promise<{ notifications: NotificationDto[]; total: number }> {
+    const offset = (opts.page - 1) * opts.limit;
+    const [dataResult, countResult] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        user_id: string;
+        severity: string;
+        source: string;
+        source_ref: string | null;
+        title: string;
+        body: string | null;
+        detail: unknown;
+        read_at: string | null;
+        escalated_at: string | null;
+        dismissed_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>(
+        `SELECT id, user_id, severity, source, source_ref, title, body, detail,
+                read_at, escalated_at, dismissed_at, created_at, updated_at
+         FROM notifications
+         WHERE user_id = $1 AND dismissed_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, opts.limit, offset],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM notifications WHERE user_id = $1 AND dismissed_at IS NULL`,
+        [userId],
+      ),
+    ]);
+
+    return {
+      notifications: dataResult.rows.map(mapNotificationRow),
+      total: parseInt(countResult.rows[0].count, 10),
+    };
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM notifications
+       WHERE user_id = $1 AND read_at IS NULL AND dismissed_at IS NULL`,
+      [userId],
+    );
+    return parseInt(result.rows[0].count, 10);
+  }
+
+  async markNotificationRead(userId: string, notificationId: string): Promise<void> {
+    const result = await this.pool.query(
+      `UPDATE notifications SET read_at = now(), updated_at = now()
+       WHERE id = $1 AND user_id = $2 AND dismissed_at IS NULL`,
+      [notificationId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw routeError(404, "notification_not_found", "Notification not found");
+    }
+  }
+
+  async markAllRead(userId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE notifications SET read_at = now(), updated_at = now()
+       WHERE user_id = $1 AND read_at IS NULL AND dismissed_at IS NULL`,
+      [userId],
+    );
+  }
+
+  async dismissNotification(userId: string, notificationId: string): Promise<void> {
+    const result = await this.pool.query(
+      `UPDATE notifications SET dismissed_at = now(), updated_at = now()
+       WHERE id = $1 AND user_id = $2 AND dismissed_at IS NULL`,
+      [notificationId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw routeError(404, "notification_not_found", "Notification not found");
+    }
+  }
+
+  async markNotificationEscalated(userId: string, notificationId: string): Promise<void> {
+    const result = await this.pool.query(
+      `UPDATE notifications SET escalated_at = now(), updated_at = now()
+       WHERE id = $1 AND user_id = $2 AND dismissed_at IS NULL`,
+      [notificationId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw routeError(404, "notification_not_found", "Notification not found");
+    }
+  }
+
+  // --- Refresh Batches (KZO-132) ---
+
+  async createRefreshBatch(userId: string | null, jobsTotal: number): Promise<string> {
+    const result = await this.pool.query<{ id: string }>(
+      `INSERT INTO refresh_batches (user_id, jobs_total, status, started_at)
+       VALUES ($1, $2, 'running', now())
+       RETURNING id`,
+      [userId, jobsTotal],
+    );
+    return result.rows[0].id;
+  }
+
+  async updateBatchTickerResult(
+    batchId: string,
+    ticker: string,
+    result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+  ): Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null> {
+    const isSuccess = result.status === "success";
+    const tickerResult = JSON.stringify({
+      [ticker]: {
+        status: result.status,
+        ...(result.barsCount !== undefined && { barsCount: result.barsCount }),
+        ...(result.dividendsCount !== undefined && { dividendsCount: result.dividendsCount }),
+        ...(result.reason !== undefined && { reason: result.reason }),
+      },
+    });
+
+    const qr = await this.pool.query<{
+      jobs_succeeded: number;
+      jobs_failed: number;
+      jobs_total: number;
+    }>(
+      `UPDATE refresh_batches
+       SET ${isSuccess ? "jobs_succeeded = jobs_succeeded + 1" : "jobs_failed = jobs_failed + 1"},
+           ticker_results = ticker_results || $2::jsonb
+       WHERE id = $1
+       RETURNING jobs_succeeded, jobs_failed, jobs_total`,
+      [batchId, tickerResult],
+    );
+
+    if (qr.rowCount === 0) return null;
+
+    const row = qr.rows[0];
+    return {
+      jobsSucceeded: row.jobs_succeeded,
+      jobsFailed: row.jobs_failed,
+      jobsTotal: row.jobs_total,
+    };
+  }
+
+  async getRefreshBatch(batchId: string): Promise<{
+    id: string;
+    status: string;
+    jobsTotal: number;
+    jobsSucceeded: number;
+    jobsFailed: number;
+    tickerResults: Record<string, { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string }>;
+  } | null> {
+    const result = await this.pool.query<{
+      id: string;
+      status: string;
+      jobs_total: number;
+      jobs_succeeded: number;
+      jobs_failed: number;
+      ticker_results: Record<string, unknown>;
+    }>(
+      `SELECT id, status, jobs_total, jobs_succeeded, jobs_failed, ticker_results
+       FROM refresh_batches WHERE id = $1`,
+      [batchId],
+    );
+
+    if (result.rowCount === 0) return null;
+
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      status: row.status,
+      jobsTotal: row.jobs_total,
+      jobsSucceeded: row.jobs_succeeded,
+      jobsFailed: row.jobs_failed,
+      tickerResults: row.ticker_results as Record<string, { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string }>,
+    };
+  }
+
+  async completeRefreshBatch(batchId: string, status: "completed" | "failed"): Promise<void> {
+    await this.pool.query(
+      `UPDATE refresh_batches SET status = $2, completed_at = now() WHERE id = $1`,
+      [batchId, status],
+    );
+  }
+
   getPool(): Pool {
     return this.pool;
   }
+}
+
+function mapNotificationRow(row: {
+  id: string;
+  user_id: string;
+  severity: string;
+  source: string;
+  source_ref: string | null;
+  title: string;
+  body: string | null;
+  detail: unknown;
+  read_at: string | null;
+  escalated_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}): NotificationDto {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    severity: row.severity as NotificationDto["severity"],
+    source: row.source,
+    sourceRef: row.source_ref,
+    title: row.title,
+    body: row.body,
+    detail: row.detail,
+    readAt: row.read_at ? new Date(row.read_at).toISOString() : null,
+    escalatedAt: row.escalated_at ? new Date(row.escalated_at).toISOString() : null,
+    dismissedAt: row.dismissed_at ? new Date(row.dismissed_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
 }
 
 function validateStoreInvariants(store: Store): void {

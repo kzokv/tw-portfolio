@@ -108,11 +108,17 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
       case "backfill_failed":
         updateStatus(event.ticker, "failed");
         break;
+      case "daily_refresh_complete":
+        updateStatus(event.ticker, "ready");
+        break;
+      case "daily_refresh_failed":
+        updateStatus(event.ticker, "failed");
+        break;
     }
   }, []);
 
   useEventStream({
-    eventTypes: ["backfill_started", "backfill_complete", "backfill_failed"],
+    eventTypes: ["backfill_started", "backfill_complete", "backfill_failed", "daily_refresh_complete", "daily_refresh_failed"],
     onEvent: handleBackfillEvent,
     enabled: true,
   });

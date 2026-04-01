@@ -13,10 +13,26 @@ import type {
   DividendEvent,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+
+interface MemoryNotification {
+  id: string;
+  userId: string;
+  severity: "info" | "warning" | "error";
+  source: string;
+  sourceRef: string | null;
+  title: string;
+  body: string | null;
+  detail: unknown;
+  readAt: string | null;
+  escalatedAt: string | null;
+  dismissedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface MemoryInstrument {
   ticker: string;
@@ -58,6 +74,8 @@ export class MemoryPersistence implements Persistence {
   private readonly usersByEmail = new Map<string, MemoryUser>();
   /** userId → Set<ticker> (manual monitoring selections) */
   private readonly monitoredTickers = new Map<string, Map<string, string>>();
+  /** userId → NotificationDto[] (in-memory notification store for E2E) */
+  private readonly notifications = new Map<string, MemoryNotification[]>();
   /** ticker → MemoryInstrument (instrument catalog for monitored tickers) */
   private readonly instruments = new Map<string, MemoryInstrument>();
   /** userId → (ticker → MemoryInstrument) test-only catalog overrides */
@@ -546,6 +564,116 @@ export class MemoryPersistence implements Persistence {
     return { upserted: 0, delisted: 0 };
   }
 
+  // --- Notifications (KZO-132) — functional in-memory impl for E2E ---
+
+  async createNotification(notification: {
+    userId: string;
+    severity: "info" | "warning" | "error";
+    source: string;
+    sourceRef?: string;
+    title: string;
+    body?: string;
+    detail?: unknown;
+  }): Promise<string> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const entry: MemoryNotification = {
+      id,
+      userId: notification.userId,
+      severity: notification.severity,
+      source: notification.source,
+      sourceRef: notification.sourceRef ?? null,
+      title: notification.title,
+      body: notification.body ?? null,
+      detail: notification.detail ?? null,
+      readAt: null,
+      escalatedAt: null,
+      dismissedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const list = this.notifications.get(notification.userId) ?? [];
+    list.push(entry);
+    this.notifications.set(notification.userId, list);
+    return id;
+  }
+
+  async getNotificationsForUser(userId: string, opts: { page: number; limit: number }): Promise<{ notifications: NotificationDto[]; total: number }> {
+    const all = (this.notifications.get(userId) ?? [])
+      .filter((n) => n.dismissedAt === null)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const offset = (opts.page - 1) * opts.limit;
+    const page = all.slice(offset, offset + opts.limit);
+    return { notifications: page.map(toNotificationDto), total: all.length };
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    return (this.notifications.get(userId) ?? [])
+      .filter((n) => n.readAt === null && n.dismissedAt === null)
+      .length;
+  }
+
+  async markNotificationRead(userId: string, notificationId: string): Promise<void> {
+    const list = this.notifications.get(userId) ?? [];
+    const n = list.find((x) => x.id === notificationId && x.dismissedAt === null);
+    if (!n) throw routeError(404, "notification_not_found", "Notification not found");
+    n.readAt = new Date().toISOString();
+    n.updatedAt = n.readAt;
+  }
+
+  async markAllRead(userId: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const n of this.notifications.get(userId) ?? []) {
+      if (n.readAt === null && n.dismissedAt === null) {
+        n.readAt = now;
+        n.updatedAt = now;
+      }
+    }
+  }
+
+  async dismissNotification(userId: string, notificationId: string): Promise<void> {
+    const list = this.notifications.get(userId) ?? [];
+    const n = list.find((x) => x.id === notificationId && x.dismissedAt === null);
+    if (!n) throw routeError(404, "notification_not_found", "Notification not found");
+    n.dismissedAt = new Date().toISOString();
+    n.updatedAt = n.dismissedAt;
+  }
+
+  async markNotificationEscalated(userId: string, notificationId: string): Promise<void> {
+    const list = this.notifications.get(userId) ?? [];
+    const n = list.find((x) => x.id === notificationId && x.dismissedAt === null);
+    if (!n) throw routeError(404, "notification_not_found", "Notification not found");
+    n.escalatedAt = new Date().toISOString();
+    n.updatedAt = n.escalatedAt;
+  }
+
+  // --- Refresh Batches (KZO-132) — no-op stubs ---
+
+  async createRefreshBatch(_userId: string | null, _jobsTotal: number): Promise<string> {
+    return "";
+  }
+
+  async updateBatchTickerResult(
+    _batchId: string,
+    _ticker: string,
+    _result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+  ): Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null> {
+    return null;
+  }
+
+  async getRefreshBatch(_batchId: string): Promise<{
+    id: string;
+    status: string;
+    jobsTotal: number;
+    jobsSucceeded: number;
+    jobsFailed: number;
+    tickerResults: Record<string, { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string }>;
+  } | null> {
+    return null;
+  }
+
+  async completeRefreshBatch(_batchId: string, _status: "completed" | "failed"): Promise<void> {}
+
   // --- Test helpers ---
 
   /** @internal Test-only: seed an instrument into the in-memory catalog. */
@@ -578,4 +706,22 @@ export class MemoryPersistence implements Persistence {
     }
     return catalog;
   }
+}
+
+function toNotificationDto(n: MemoryNotification): NotificationDto {
+  return {
+    id: n.id,
+    userId: n.userId,
+    severity: n.severity,
+    source: n.source,
+    sourceRef: n.sourceRef,
+    title: n.title,
+    body: n.body,
+    detail: n.detail,
+    readAt: n.readAt,
+    escalatedAt: n.escalatedAt,
+    dismissedAt: n.dismissedAt,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  };
 }

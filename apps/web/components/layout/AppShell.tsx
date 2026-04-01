@@ -29,6 +29,7 @@ import { useTransactionSubmission } from "../../features/portfolio/hooks/useTran
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
 import { useProfile } from "../../features/profile/hooks/useProfile";
+import { useNotifications } from "../../hooks/useNotifications";
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { ActionCenterSection } from "../dashboard/ActionCenterSection";
 import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
@@ -157,6 +158,8 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
   });
 
   const profileData = useProfile();
+  const notificationData = useNotifications();
+  const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
 
   const settingsSave = useSettingsSave({
     refresh: dashboard.refresh,
@@ -292,6 +295,15 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         expandSidebarLabel={dict.topBar.expandSidebarLabel}
         collapseSidebarLabel={dict.topBar.collapseSidebarLabel}
         searchItems={quickSearchItems}
+        unreadCount={notificationData.unreadCount}
+        notifications={notificationData.notifications}
+        notificationDropdownOpen={notificationDropdownOpen}
+        onNotificationBellClick={() => setNotificationDropdownOpen((prev) => !prev)}
+        onNotificationMarkRead={(id) => { void notificationData.markRead(id); }}
+        onNotificationMarkAllRead={() => { void notificationData.markAllRead(); }}
+        onNotificationDismiss={(id) => { void notificationData.dismiss(id); }}
+        onNotificationDropdownClose={() => setNotificationDropdownOpen(false)}
+        notificationDict={dict}
       />
 
       <div

@@ -3,9 +3,14 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
+import type { NotificationDto } from "@tw-portfolio/shared-types";
+import type { AppDictionary } from "../../lib/i18n/types";
 import { Button } from "../ui/Button";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { UserAvatarButton } from "../profile/UserAvatarButton";
+import { NotificationBell } from "./NotificationBell";
+import { NotificationDropdown } from "./NotificationDropdown";
+import { EscalationTooltip } from "./EscalationTooltip";
 import { cn } from "../../lib/utils";
 
 export interface QuickSearchItem {
@@ -46,6 +51,15 @@ interface TopBarProps {
   collapseSidebarLabel: string;
   searchItems: QuickSearchItem[];
   skeleton?: boolean;
+  unreadCount?: number;
+  notifications?: NotificationDto[];
+  notificationDropdownOpen?: boolean;
+  onNotificationBellClick?: () => void;
+  onNotificationMarkRead?: (id: string) => void;
+  onNotificationMarkAllRead?: () => void;
+  onNotificationDismiss?: (id: string) => void;
+  onNotificationDropdownClose?: () => void;
+  notificationDict?: AppDictionary;
 }
 
 export function TopBar({
@@ -77,6 +91,15 @@ export function TopBar({
   collapseSidebarLabel,
   searchItems,
   skeleton = false,
+  unreadCount = 0,
+  notifications = [],
+  notificationDropdownOpen = false,
+  onNotificationBellClick,
+  onNotificationMarkRead,
+  onNotificationMarkAllRead,
+  onNotificationDismiss,
+  onNotificationDropdownClose,
+  notificationDict,
 }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -268,6 +291,33 @@ export function TopBar({
           >
             {mobileSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
           </Button>
+
+          {onNotificationBellClick && (
+            <div className="relative shrink-0">
+              <NotificationBell
+                unreadCount={unreadCount}
+                onClick={onNotificationBellClick}
+                label={notificationDict?.notifications.bellLabel ?? "Notifications"}
+              />
+              {notificationDropdownOpen && notificationDict && onNotificationMarkRead && onNotificationMarkAllRead && onNotificationDismiss && onNotificationDropdownClose && (
+                <NotificationDropdown
+                  notifications={notifications}
+                  onMarkRead={onNotificationMarkRead}
+                  onMarkAllRead={onNotificationMarkAllRead}
+                  onDismiss={onNotificationDismiss}
+                  onClose={onNotificationDropdownClose}
+                  dict={notificationDict}
+                />
+              )}
+              {!notificationDropdownOpen && notificationDict && (
+                <EscalationTooltip
+                  notifications={notifications}
+                  onDismissed={() => { /* tooltip auto-hides */ }}
+                  dict={notificationDict}
+                />
+              )}
+            </div>
+          )}
 
           <div className="shrink-0">
             <UserAvatarButton userId={userId} displayName={displayName} pictureUrl={pictureUrl} email={email} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />

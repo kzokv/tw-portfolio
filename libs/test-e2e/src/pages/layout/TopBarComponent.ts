@@ -7,6 +7,11 @@ export interface TTopBarElements {
   avatarMenuSettings: Locator;
   avatarMenuIdentity: Locator;
   avatarMenuSignOut: Locator;
+  notificationBell: Locator;
+  notificationBadge: Locator;
+  notificationDropdown: Locator;
+  notificationEmpty: Locator;
+  notificationMarkAllRead: Locator;
 }
 
 export class TopBarComponent extends BasePage<TTopBarElements> {
@@ -17,6 +22,11 @@ export class TopBarComponent extends BasePage<TTopBarElements> {
       avatarMenuSettings: this.locate("avatar-menu-settings", "Open Settings Menu Item"),
       avatarMenuIdentity: this.locate("avatar-menu-identity", "Avatar Menu Identity Header"),
       avatarMenuSignOut: this.locate("avatar-menu-sign-out", "Avatar Menu Sign Out"),
+      notificationBell: this.locate("notification-bell", "Notification Bell"),
+      notificationBadge: this.locate("notification-badge", "Notification Badge"),
+      notificationDropdown: this.locate("notification-dropdown", "Notification Dropdown"),
+      notificationEmpty: this.locate("notification-empty", "Notification Empty State"),
+      notificationMarkAllRead: this.locate("notification-mark-all-read", "Mark All Read Button"),
     };
   }
 }

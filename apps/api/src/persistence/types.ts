@@ -10,7 +10,7 @@ import type {
   InstrumentDef,
 } from "../types/store.js";
 import type { Quote } from "../providers/marketData.js";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -142,4 +142,38 @@ export interface Persistence {
 
   // Catalog sync
   upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
+
+  // Notifications (KZO-132)
+  createNotification(notification: {
+    userId: string;
+    severity: "info" | "warning" | "error";
+    source: string;
+    sourceRef?: string;
+    title: string;
+    body?: string;
+    detail?: unknown;
+  }): Promise<string>;
+  getNotificationsForUser(userId: string, opts: { page: number; limit: number }): Promise<{ notifications: NotificationDto[]; total: number }>;
+  getUnreadCount(userId: string): Promise<number>;
+  markNotificationRead(userId: string, notificationId: string): Promise<void>;
+  markAllRead(userId: string): Promise<void>;
+  dismissNotification(userId: string, notificationId: string): Promise<void>;
+  markNotificationEscalated(userId: string, notificationId: string): Promise<void>;
+
+  // Refresh batches (KZO-132)
+  createRefreshBatch(userId: string | null, jobsTotal: number): Promise<string>;
+  updateBatchTickerResult(
+    batchId: string,
+    ticker: string,
+    result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+  ): Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
+  getRefreshBatch(batchId: string): Promise<{
+    id: string;
+    status: string;
+    jobsTotal: number;
+    jobsSucceeded: number;
+    jobsFailed: number;
+    tickerResults: Record<string, { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string }>;
+  } | null>;
+  completeRefreshBatch(batchId: string, status: "completed" | "failed"): Promise<void>;
 }

@@ -302,6 +302,25 @@ export interface AppDictionary {
     editTooltip: string;
     deleteTooltip: string;
   };
+  notifications: {
+    bellLabel: string;
+    dropdownTitle: string;
+    markAllRead: string;
+    emptyState: string;
+    severityInfo: string;
+    severityWarning: string;
+    severityError: string;
+    titleDailyRefreshSuccess: string;
+    titleDailyRefreshWarning: string;
+    titleDailyRefreshError: string;
+    bodyTemplate: string;
+    escalationTooltip: string;
+    dismissEscalation: string;
+    timeJustNow: string;
+    timeMinutesAgo: string;
+    timeHoursAgo: string;
+    timeDaysAgo: string;
+  };
   dialogs: {
     integrityTitle: string;
     integrityDescription: string;

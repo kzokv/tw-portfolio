@@ -6,6 +6,7 @@ import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js
 import { FinMindClient } from "../services/market-data/finmindClient.js";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
+import { handleBatchComplete } from "../services/notificationService.js";
 import type { AppInstance } from "../app.js";
 
 /**
@@ -43,6 +44,24 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>
       app.persistence.updateBackfillStatus(ticker, status),
     getUsersMonitoringTicker: (ticker: string) => app.persistence.getUsersMonitoringTicker(ticker),
+    updateBatchTickerResult: (
+      batchId: string,
+      ticker: string,
+      result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+    ) => app.persistence.updateBatchTickerResult(batchId, ticker, result),
+    onBatchComplete: async (batchId: string) => {
+      const batch = await app.persistence.getRefreshBatch(batchId);
+      if (!batch) return;
+      const finalStatus = batch.jobsFailed > 0 ? "failed" as const : "completed" as const;
+      await app.persistence.completeRefreshBatch(batchId, finalStatus);
+      await handleBatchComplete({
+        persistence: app.persistence,
+        eventBus: app.eventBus,
+        batchId,
+        tickerResults: batch.tickerResults,
+        log: app.log,
+      });
+    },
     persistence: app.persistence,
     log: app.log,
   };

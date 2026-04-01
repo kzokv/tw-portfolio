@@ -14,7 +14,7 @@ export function getDailyRefreshStartDate(now: Date = new Date()): string {
 
 export async function enqueueDailyRefresh(
   boss: Pick<PgBoss, "send">,
-  persistence: Pick<Persistence, "getAllMonitoredTickers">,
+  persistence: Pick<Persistence, "getAllMonitoredTickers" | "createRefreshBatch">,
   log: { info: (...args: unknown[]) => void },
 ): Promise<number> {
   const tickers = await persistence.getAllMonitoredTickers();
@@ -23,17 +23,19 @@ export async function enqueueDailyRefresh(
     return 0;
   }
 
+  const batchId = await persistence.createRefreshBatch(null, tickers.length);
+
   const startDate = getDailyRefreshStartDate();
   await Promise.all(
     tickers.map((ticker) =>
       boss.send(
         BACKFILL_QUEUE,
-        { ticker, trigger: "daily_refresh", startDate } satisfies BackfillJobData,
+        { ticker, trigger: "daily_refresh", startDate, batchId } satisfies BackfillJobData,
         { priority: DAILY_REFRESH_PRIORITY, singletonKey: ticker },
       ),
     ),
   );
 
-  log.info({ tickers: tickers.length, startDate }, "daily_refresh_enqueued");
+  log.info({ tickers: tickers.length, startDate, batchId }, "daily_refresh_enqueued");
   return tickers.length;
 }

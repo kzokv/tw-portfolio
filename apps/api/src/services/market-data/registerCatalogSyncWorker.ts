@@ -18,7 +18,7 @@ const CATALOG_SYNC_QUEUE_OPTIONS = {
 export interface CatalogSyncWorkerDeps extends CatalogSyncDeps {
   boss: Pick<PgBoss, "send">;
   rateLimiter: RateLimiter;
-  persistence: Pick<Persistence, "upsertInstrumentCatalog" | "getAllMonitoredTickers">;
+  persistence: Pick<Persistence, "upsertInstrumentCatalog" | "getAllMonitoredTickers" | "createRefreshBatch">;
   enqueueDailyRefreshFn?: typeof enqueueDailyRefresh;
   runCatalogSyncFn?: typeof runCatalogSync;
 }

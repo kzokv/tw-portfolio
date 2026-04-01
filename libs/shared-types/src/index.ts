@@ -243,3 +243,34 @@ export interface InstrumentCatalogItemDto {
   marketCode: string;
   barsBackfillStatus: string;
 }
+
+// ── Notification types (KZO-132) ────────────────────────────────────────────
+
+export type NotificationSeverity = "info" | "warning" | "error";
+
+export interface NotificationDto {
+  id: string;
+  userId: string;
+  severity: NotificationSeverity;
+  source: string;
+  sourceRef: string | null;
+  title: string;
+  body: string | null;
+  detail: unknown;
+  readAt: string | null;
+  escalatedAt: string | null;
+  dismissedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationListResponse {
+  notifications: NotificationDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface UnreadCountResponse {
+  count: number;
+}

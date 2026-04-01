@@ -225,6 +225,13 @@ function assertE2EResetEnabled(): void {
 }
 
 /** Guard for `/__e2e/oauth-session` — allowed in development and test, blocked in production. */
+/** Guard for test-only seed endpoints — allowed in dev/test with memory backend, any auth mode. */
+function assertE2ESeedEnabled(): void {
+  if ((Env.NODE_ENV !== "development" && Env.NODE_ENV !== "test") || Env.PERSISTENCE_BACKEND !== "memory") {
+    throw routeError(404, "not_found", "not found");
+  }
+}
+
 export function assertE2EOauthSessionEnabled(nodeEnv: string = Env.NODE_ENV): void {
   if (nodeEnv !== "development" && nodeEnv !== "test") {
     throw routeError(404, "not_found", "not found");
@@ -464,6 +471,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const mem = app.persistence as import("../persistence/memory.js").MemoryPersistence;
     mem._replaceInstruments(body.instruments, userId);
     return { status: "seeded", count: body.instruments.length };
+  });
+
+  app.post("/__e2e/seed-notification", async (req) => {
+    assertE2ESeedEnabled();
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z
+      .object({
+        severity: z.enum(["info", "warning", "error"]),
+        source: z.string().default("daily_refresh"),
+        title: z.string(),
+        body: z.string().optional(),
+        detail: z.unknown().optional(),
+      })
+      .parse(req.body);
+
+    const id = await app.persistence.createNotification({
+      userId,
+      severity: body.severity,
+      source: body.source,
+      title: body.title,
+      body: body.body,
+      detail: body.detail,
+    });
+    return { status: "seeded", id };
   });
 
   app.post("/__e2e/reset-demo-rate-buckets", async () => {
@@ -1563,6 +1594,53 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
 
     return { ticker: body.ticker, barsBackfillStatus: "pending" };
+  });
+
+  // --- Notifications (KZO-132) ---
+
+  app.get("/notifications", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const query = z
+      .object({
+        page: z.coerce.number().int().positive().default(1),
+        limit: z.coerce.number().int().positive().max(100).default(20),
+      })
+      .parse(req.query);
+    const { notifications, total } = await app.persistence.getNotificationsForUser(userId, query);
+    return { notifications, total, page: query.page, limit: query.limit };
+  });
+
+  app.get("/notifications/unread-count", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const count = await app.persistence.getUnreadCount(userId);
+    return { count };
+  });
+
+  app.patch("/notifications/:id/read", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    await app.persistence.markNotificationRead(userId, id);
+    return { status: "ok" };
+  });
+
+  app.patch("/notifications/read-all", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    await app.persistence.markAllRead(userId);
+    return { status: "ok" };
+  });
+
+  app.delete("/notifications/:id", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    await app.persistence.dismissNotification(userId, id);
+    return { status: "ok" };
+  });
+
+  app.patch("/notifications/:id/escalate", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    await app.persistence.markNotificationEscalated(userId, id);
+    return { status: "ok" };
   });
 
   registerSSERoute(app, resolveUserId);
