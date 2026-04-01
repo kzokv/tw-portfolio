@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-03-31)
+## Completed tickets (as of 2026-04-01)
 
 | Ticket | Title | Completed |
 |---|---|---|
@@ -14,11 +14,18 @@ type: project
 | KZO-124 | Migrate unit_price to NUMERIC(20,2) | 2026-03-30 |
 | KZO-126 | Backfill job queue + pg-boss + FinMind client | 2026-03-31 |
 | KZO-127 | Glossary rename symbol→ticker | 2026-03-30 |
-| KZO-83 | Instrument catalog sync from FinMind | 2026-03-31 (pending merge) |
+| KZO-83 | Instrument catalog sync from FinMind | 2026-03-31 |
+| KZO-129 | Searchable instrument combobox | 2026-04-01 |
+| KZO-130 | Daily refresh worker for monitored symbols | 2026-04-01 |
+| KZO-132 | Notification center + daily refresh SSE handling | 2026-04-01 |
 
 ## Next up
 
-**KZO-130** (daily refresh worker) — KZO-83 is complete (pending merge as of 2026-03-31).
+Follow-up tickets from KZO-132 (out of scope):
+1. Wire backfill failures into notification center as `source: 'backfill'`
+2. Wire recompute failures into notification center as `source: 'recompute'`
+3. Notification preferences UI (mute by source, snooze escalation)
+4. Email digest of unread failure notifications
 
 ## Backup/restore script gap
 

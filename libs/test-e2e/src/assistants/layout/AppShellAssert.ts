@@ -133,4 +133,55 @@ export class AppShellAssert extends BaseAssert {
       this.el.topBar.elements.avatarButton.locator("span[aria-hidden='true']"),
     ).toHaveText(expected);
   }
+
+  @Step()
+  async notificationBellIsVisible(): Promise<void> {
+    await expect(this.el.topBar.elements.notificationBell).toBeVisible();
+  }
+
+  @Step()
+  async notificationBadgeIsHidden(): Promise<void> {
+    await expect(this.el.topBar.elements.notificationBadge).toBeHidden();
+  }
+
+  @Step()
+  async notificationBadgeCountIs(expected: number): Promise<void> {
+    await expect(this.el.topBar.elements.notificationBadge).toBeVisible();
+    await expect(this.el.topBar.elements.notificationBadge).toHaveText(String(expected));
+  }
+
+  @Step()
+  async notificationDropdownIsVisible(): Promise<void> {
+    await expect(this.el.topBar.elements.notificationDropdown).toBeVisible();
+  }
+
+  @Step()
+  async notificationDropdownIsHidden(): Promise<void> {
+    await expect(this.el.topBar.elements.notificationDropdown).toBeHidden();
+  }
+
+  @Step()
+  async notificationEmptyStateIsVisible(): Promise<void> {
+    await expect(this.el.topBar.elements.notificationEmpty).toBeVisible();
+  }
+
+  @Step()
+  async notificationItemIsVisible(notificationId: string): Promise<void> {
+    await expect(this.page.getByTestId(`notification-item-${notificationId}`)).toBeVisible();
+  }
+
+  @Step()
+  async notificationItemIsHidden(notificationId: string): Promise<void> {
+    await expect(this.page.getByTestId(`notification-item-${notificationId}`)).toBeHidden();
+  }
+
+  @Step()
+  async notificationUnreadDotIsVisible(notificationId: string): Promise<void> {
+    await expect(this.page.getByTestId(`notification-unread-${notificationId}`)).toBeVisible();
+  }
+
+  @Step()
+  async notificationUnreadDotIsHidden(notificationId: string): Promise<void> {
+    await expect(this.page.getByTestId(`notification-unread-${notificationId}`)).toBeHidden();
+  }
 }

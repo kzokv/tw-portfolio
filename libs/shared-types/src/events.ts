@@ -67,6 +67,15 @@ export interface DailyRefreshFailedEvent {
   reason: string;
 }
 
+export interface DailyRefreshSummaryEvent {
+  type: "daily_refresh_summary";
+  batchId: string;
+  totalTickers: number;
+  succeeded: number;
+  failed: number;
+  severity: "info" | "warning" | "error";
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -77,7 +86,8 @@ export type SSEEvent =
   | BackfillCompleteEvent
   | BackfillFailedEvent
   | DailyRefreshCompleteEvent
-  | DailyRefreshFailedEvent;
+  | DailyRefreshFailedEvent
+  | DailyRefreshSummaryEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -88,5 +98,6 @@ export type SSEDomainEventType =
   | "backfill_complete"
   | "backfill_failed"
   | "daily_refresh_complete"
-  | "daily_refresh_failed";
+  | "daily_refresh_failed"
+  | "daily_refresh_summary";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

@@ -38,6 +38,8 @@
 
 ## Agent team workflow
 - [feedback_agent_team_workflow.md](feedback_agent_team_workflow.md) — /team skill: 3 tiers, convergence loop, Architect-as-lead, validator gating, state file tracking
+- [feedback_e2e_seed_guard_selection.md](feedback_e2e_seed_guard_selection.md) — assertE2ESeedEnabled (NODE_ENV only) vs assertE2EResetEnabled (dev_bypass) for test endpoints
+- [feedback_test_api_mapper_registration.md](feedback_test_api_mapper_registration.md) — New AAA endpoint+assistant must be registered in mapper.ts or tests fail at runtime
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
 - ~~feedback_qa_test_infra_check.md~~ — **PROMOTED** to `.claude/rules/qa-test-infra-check.md`
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`

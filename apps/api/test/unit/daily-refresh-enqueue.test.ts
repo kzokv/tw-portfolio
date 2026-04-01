@@ -20,28 +20,36 @@ describe("daily refresh enqueue", () => {
   it("enqueues one high-priority backfill job per monitored ticker", async () => {
     vi.setSystemTime(new Date("2026-03-31T09:30:00Z"));
     const boss = { send: vi.fn().mockResolvedValue(undefined) };
-    const persistence = { getAllMonitoredTickers: vi.fn().mockResolvedValue(["0050", "2330"]) };
+    const batchId = "batch-001";
+    const persistence = {
+      getAllMonitoredTickers: vi.fn().mockResolvedValue(["0050", "2330"]),
+      createRefreshBatch: vi.fn().mockResolvedValue(batchId),
+    };
     const log = { info: vi.fn() };
 
     const count = await enqueueDailyRefresh(boss, persistence, log);
 
     expect(count).toBe(2);
+    expect(persistence.createRefreshBatch).toHaveBeenCalledWith(null, 2);
     expect(boss.send).toHaveBeenCalledTimes(2);
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
-      { ticker: "0050", trigger: "daily_refresh", startDate: "2026-03-24" },
+      { ticker: "0050", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
       { priority: DAILY_REFRESH_PRIORITY, singletonKey: "0050" },
     );
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
-      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24", batchId },
       { priority: DAILY_REFRESH_PRIORITY, singletonKey: "2330" },
     );
   });
 
   it("skips enqueueing when no monitored tickers are eligible", async () => {
     const boss = { send: vi.fn().mockResolvedValue(undefined) };
-    const persistence = { getAllMonitoredTickers: vi.fn().mockResolvedValue([]) };
+    const persistence = {
+      getAllMonitoredTickers: vi.fn().mockResolvedValue([]),
+      createRefreshBatch: vi.fn(),
+    };
     const log = { info: vi.fn() };
 
     const count = await enqueueDailyRefresh(boss, persistence, log);

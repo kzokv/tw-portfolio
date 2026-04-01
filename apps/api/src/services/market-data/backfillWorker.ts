@@ -14,6 +14,7 @@ export interface BackfillJobData {
   userId?: string;
   trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh";
   startDate?: string;
+  batchId?: string;
 }
 
 export interface BackfillWorkerDeps {
@@ -24,6 +25,12 @@ export interface BackfillWorkerDeps {
   boss: PgBoss;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
   getUsersMonitoringTicker: (ticker: string) => Promise<string[]>;
+  updateBatchTickerResult?: (
+    batchId: string,
+    ticker: string,
+    result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+  ) => Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
+  onBatchComplete?: (batchId: string) => Promise<void>;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }
 
@@ -31,10 +38,10 @@ export interface BackfillWorkerDeps {
 const CALLS_PER_TICKER = 2;
 
 export function createBackfillHandler(deps: BackfillWorkerDeps) {
-  const { pool, finmind, rateLimiter, eventBus, boss, updateBackfillStatus, getUsersMonitoringTicker, log } = deps;
+  const { pool, finmind, rateLimiter, eventBus, boss, updateBackfillStatus, getUsersMonitoringTicker, updateBatchTickerResult, onBatchComplete, log } = deps;
 
   return async ([job]: JobWithMetadata<BackfillJobData>[]): Promise<void> => {
-    const { ticker, userId, trigger, startDate } = job.data;
+    const { ticker, userId, trigger, startDate, batchId } = job.data;
     const effectiveStartDate = startDate ?? HISTORY_START;
     const isDailyRefresh = trigger === "daily_refresh";
 
@@ -95,6 +102,11 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             }),
           ),
         );
+
+        // Batch tracking: record success and check fan-in completion
+        if (batchId && updateBatchTickerResult) {
+          await trackBatchResult(batchId, ticker, { status: "success", barsCount, dividendsCount }, log);
+        }
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_complete", {
           ticker,
@@ -121,6 +133,11 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
               }),
             ),
           );
+
+          // Batch tracking: record failure and check fan-in completion
+          if (batchId && updateBatchTickerResult) {
+            await trackBatchResult(batchId, ticker, { status: "failed", reason }, log);
+          }
         }
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_failed", {
@@ -133,4 +150,27 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       throw err; // Re-throw so pg-boss handles retry
     }
   };
+
+  async function trackBatchResult(
+    batchId: string,
+    ticker: string,
+    result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
+    logger: BackfillWorkerDeps["log"],
+  ): Promise<void> {
+    try {
+      const counters = await updateBatchTickerResult!(batchId, ticker, result);
+      if (!counters) {
+        logger.warn({ batchId, ticker }, "batch_ticker_result_update_failed: batch not found");
+        return;
+      }
+
+      // Fan-in complete: all jobs reported back
+      if (counters.jobsSucceeded + counters.jobsFailed >= counters.jobsTotal && onBatchComplete) {
+        logger.info({ batchId, ...counters }, "batch_fan_in_complete");
+        await onBatchComplete(batchId);
+      }
+    } catch (err) {
+      logger.warn({ batchId, ticker, err }, "batch_result_tracking_failed");
+    }
+  }
 }

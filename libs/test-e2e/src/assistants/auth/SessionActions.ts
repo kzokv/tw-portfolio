@@ -111,6 +111,42 @@ export class SessionActions extends AppBaseActions {
   }
 
   @Step()
+  async requestNotifications(): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.get(apiUrl("/notifications"));
+  }
+
+  @Step()
+  async requestNotificationUnreadCount(): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.get(apiUrl("/notifications/unread-count"));
+  }
+
+  @Step()
+  async requestNotificationMarkRead(notificationId: string): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.patch(apiUrl(`/notifications/${notificationId}/read`), {
+      data: {},
+    });
+  }
+
+  @Step()
+  async requestNotificationsMarkAllRead(): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.patch(apiUrl("/notifications/read-all"), {
+      data: {},
+    });
+  }
+
+  @Step()
+  async requestNotificationDelete(notificationId: string): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.delete(apiUrl(`/notifications/${notificationId}`));
+  }
+
+  @Step()
+  async requestNotificationEscalate(notificationId: string): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.patch(apiUrl(`/notifications/${notificationId}/escalate`), {
+      data: {},
+    });
+  }
+
+  @Step()
   async logoutViaApi(): Promise<void> {
     await this.page.goto(
       `http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`,

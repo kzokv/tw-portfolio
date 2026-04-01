@@ -108,4 +108,36 @@ export class AppShellActions extends AppBaseActions {
   async clickAvatarMenuSignOut(): Promise<void> {
     await this.uiActions.click.perform(this.el.topBar.elements.avatarMenuSignOut);
   }
+
+  @Step()
+  async clickNotificationBell(): Promise<void> {
+    await this.uiActions.click.perform(this.el.topBar.elements.notificationBell);
+  }
+
+  @Step()
+  async clickNotificationMarkAllRead(): Promise<void> {
+    await this.uiActions.click.perform(this.el.topBar.elements.notificationMarkAllRead);
+  }
+
+  @Step()
+  async clickNotificationItem(notificationId: string): Promise<void> {
+    await this.uiActions.click.perform(
+      this.page.getByTestId(`notification-item-${notificationId}`),
+    );
+  }
+
+  @Step()
+  async clickNotificationDismiss(notificationId: string): Promise<void> {
+    // Hover to make dismiss button visible, then click
+    await this.page.getByTestId(`notification-item-${notificationId}`).hover();
+    await this.uiActions.click.perform(
+      this.page.getByTestId(`notification-dismiss-${notificationId}`),
+    );
+  }
+
+  @Step()
+  async clickOutsideDropdown(): Promise<void> {
+    // Click on the page body outside the dropdown to close it
+    await this.page.locator("body").click({ position: { x: 10, y: 10 } });
+  }
 }

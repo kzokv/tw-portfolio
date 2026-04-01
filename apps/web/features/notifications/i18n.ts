@@ -1,0 +1,46 @@
+import type { AppDictionary } from "../../lib/i18n/types";
+
+export const notificationsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "notifications">> = {
+  en: {
+    notifications: {
+      bellLabel: "Notifications",
+      dropdownTitle: "Notifications",
+      markAllRead: "Mark all as read",
+      emptyState: "No notifications",
+      severityInfo: "Info",
+      severityWarning: "Warning",
+      severityError: "Error",
+      titleDailyRefreshSuccess: "Daily refresh completed",
+      titleDailyRefreshWarning: "Daily refresh completed with errors",
+      titleDailyRefreshError: "Daily refresh failed",
+      bodyTemplate: "{succeeded} of {total} tickers refreshed",
+      escalationTooltip: "You have unread notifications that may need attention",
+      dismissEscalation: "Dismiss",
+      timeJustNow: "Just now",
+      timeMinutesAgo: "{count}m ago",
+      timeHoursAgo: "{count}h ago",
+      timeDaysAgo: "{count}d ago",
+    },
+  },
+  "zh-TW": {
+    notifications: {
+      bellLabel: "通知",
+      dropdownTitle: "通知",
+      markAllRead: "全部標為已讀",
+      emptyState: "沒有通知",
+      severityInfo: "資訊",
+      severityWarning: "警告",
+      severityError: "錯誤",
+      titleDailyRefreshSuccess: "每日更新完成",
+      titleDailyRefreshWarning: "每日更新完成，但有錯誤",
+      titleDailyRefreshError: "每日更新失敗",
+      bodyTemplate: "已更新 {succeeded} / {total} 檔標的",
+      escalationTooltip: "你有未讀通知可能需要注意",
+      dismissEscalation: "關閉",
+      timeJustNow: "剛剛",
+      timeMinutesAgo: "{count} 分鐘前",
+      timeHoursAgo: "{count} 小時前",
+      timeDaysAgo: "{count} 天前",
+    },
+  },
+};
