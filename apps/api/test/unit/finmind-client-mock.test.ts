@@ -30,11 +30,11 @@ describe("MockFinMindClient", () => {
 
   it("tracks method calls", async () => {
     const client = new MockFinMindClient();
-    await client.fetchDailyBars("2330");
+    await client.fetchDailyBars("2330", "2026-03-24");
     await client.fetchDividendEvents("0050");
 
     expect(client.calls).toEqual([
-      { method: "fetchDailyBars", ticker: "2330" },
+      { method: "fetchDailyBars", ticker: "2330", startDate: "2026-03-24" },
       { method: "fetchDividendEvents", ticker: "0050" },
     ]);
   });

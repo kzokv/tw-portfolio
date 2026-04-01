@@ -68,15 +68,15 @@ const MOCK_DELISTING_HISTORY: RawDelistingRecord[] = [
 ];
 
 export class MockFinMindClient implements FinMindProvider {
-  readonly calls: Array<{ method: string; ticker?: string }> = [];
+  readonly calls: Array<{ method: string; ticker?: string; startDate?: string }> = [];
 
-  async fetchDailyBars(ticker: string): Promise<RawDailyBar[]> {
-    this.calls.push({ method: "fetchDailyBars", ticker });
+  async fetchDailyBars(ticker: string, startDate?: string): Promise<RawDailyBar[]> {
+    this.calls.push({ method: "fetchDailyBars", ticker, ...(startDate ? { startDate } : {}) });
     return generateMockBars(ticker);
   }
 
-  async fetchDividendEvents(ticker: string): Promise<DividendRecord[]> {
-    this.calls.push({ method: "fetchDividendEvents", ticker });
+  async fetchDividendEvents(ticker: string, startDate?: string): Promise<DividendRecord[]> {
+    this.calls.push({ method: "fetchDividendEvents", ticker, ...(startDate ? { startDate } : {}) });
     return generateMockDividends(ticker);
   }
 

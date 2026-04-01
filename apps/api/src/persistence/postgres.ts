@@ -2510,6 +2510,51 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
+  async getAllMonitoredTickers(): Promise<string[]> {
+    const result = await this.pool.query<{ ticker: string }>(
+      `WITH monitored AS (
+         SELECT ums.user_id, ums.ticker
+         FROM user_monitored_tickers ums
+         UNION
+         SELECT DISTINCT a.user_id, l.ticker
+         FROM lots l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE l.open_quantity > 0
+       )
+       SELECT DISTINCT i.ticker
+       FROM monitored m
+       JOIN users u ON u.id = m.user_id
+       JOIN market_data.instruments i ON i.ticker = m.ticker
+       WHERE u.is_demo = FALSE
+         AND i.bars_backfill_status = 'ready'
+         AND i.delisted_at IS NULL
+       ORDER BY i.ticker`,
+    );
+    return result.rows.map((row) => row.ticker);
+  }
+
+  async getUsersMonitoringTicker(ticker: string): Promise<string[]> {
+    const result = await this.pool.query<{ user_id: string }>(
+      `WITH monitored_users AS (
+         SELECT ums.user_id
+         FROM user_monitored_tickers ums
+         WHERE ums.ticker = $1
+         UNION
+         SELECT a.user_id
+         FROM lots l
+         JOIN accounts a ON a.id = l.account_id
+         WHERE l.ticker = $1 AND l.open_quantity > 0
+       )
+       SELECT DISTINCT mu.user_id
+       FROM monitored_users mu
+       JOIN users u ON u.id = mu.user_id
+       WHERE u.is_demo = FALSE
+       ORDER BY mu.user_id`,
+      [ticker],
+    );
+    return result.rows.map((row) => row.user_id);
+  }
+
   async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
     const result = await this.pool.query<{ ticker: string; added_at: string }>(
       `SELECT ticker, added_at FROM user_monitored_tickers WHERE user_id = $1 ORDER BY added_at`,

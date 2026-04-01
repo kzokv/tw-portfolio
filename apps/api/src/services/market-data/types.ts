@@ -1,3 +1,6 @@
+/** Earliest date for TaiwanStockPrice dataset — used as default startDate for full backfill. */
+export const HISTORY_START = "1994-10-01";
+
 /** Raw daily OHLCV bar from FinMind TaiwanStockPrice dataset (pre-ingestion shape). */
 export interface RawDailyBar {
   ticker: string;
@@ -36,8 +39,8 @@ export interface RawDelistingRecord {
 
 /** Swappable FinMind data provider interface. */
 export interface FinMindProvider {
-  fetchDailyBars(ticker: string): Promise<RawDailyBar[]>;
-  fetchDividendEvents(ticker: string): Promise<DividendRecord[]>;
+  fetchDailyBars(ticker: string, startDate?: string): Promise<RawDailyBar[]>;
+  fetchDividendEvents(ticker: string, startDate?: string): Promise<DividendRecord[]>;
   fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]>;
   fetchDelistingHistory(): Promise<RawDelistingRecord[]>;
 }
