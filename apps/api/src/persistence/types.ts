@@ -138,7 +138,7 @@ export interface Persistence {
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
   replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
-  listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]>;
+  listInstrumentsCatalog(search?: string, type?: string, userId?: string): Promise<InstrumentCatalogItemDto[]>;
 
   // Catalog sync
   upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;

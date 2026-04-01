@@ -44,4 +44,19 @@ export class TransactionsAssert extends BaseAssert {
   async tooltipAccountContentIsVisible(): Promise<void> {
     await expect(this.el.tooltipAccountContent).toBeVisible();
   }
+
+  @Step()
+  async comboboxShowsOptions(count: number): Promise<void> {
+    await expect(this.el.transactionForm.elements.tickerListbox.getByRole("option")).toHaveCount(count);
+  }
+
+  @Step()
+  async selectedTickerContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.tickerCombobox).toHaveValue(text);
+  }
+
+  @Step()
+  async comboboxIsEmpty(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.tickerEmptyState).toContainText(text);
+  }
 }

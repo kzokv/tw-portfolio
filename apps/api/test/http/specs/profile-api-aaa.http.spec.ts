@@ -10,14 +10,14 @@ test.describe("GET /profile and PATCH /profile", () => {
     await profileApi.assert.fieldMatches(body, "userId", UUID_V4_PATTERN);
   });
 
-  test("GET /profile field values match seeded user", async ({ profileApi }) => {
+  test("GET /profile field values match seeded user", async ({ profileApi, testUser }) => {
     const response = await profileApi.actions.getProfile();
     await profileApi.assert.statusIs(response, 200);
     const body = await profileApi.arrange.profileBody(response);
 
-    await profileApi.assert.fieldEquals(body, "email", "e2e-ci@e2e.local");
-    await profileApi.assert.fieldEquals(body, "displayName", "E2E CI User");
-    await profileApi.assert.fieldEquals(body, "providerDisplayName", "E2E CI User");
+    await profileApi.assert.fieldEquals(body, "email", `${testUser.userId}@e2e.local`);
+    await profileApi.assert.fieldEquals(body, "displayName", testUser.displayName);
+    await profileApi.assert.fieldEquals(body, "providerDisplayName", testUser.displayName);
     await profileApi.assert.fieldIsNull(body, "providerPictureUrl");
   });
 
@@ -78,7 +78,7 @@ test.describe("GET /profile and PATCH /profile", () => {
     await profileApi.assert.statusIs(response, 401);
   });
 
-  test("PATCH /profile does NOT update provider fields", async ({ profileApi }) => {
+  test("PATCH /profile does NOT update provider fields", async ({ profileApi, testUser }) => {
     await profileApi.actions.patchProfile({ email: "changed@example.com" });
 
     const response = await profileApi.actions.getProfile();
@@ -86,18 +86,18 @@ test.describe("GET /profile and PATCH /profile", () => {
     const body = await profileApi.arrange.profileBody(response);
 
     await profileApi.assert.fieldEquals(body, "email", "changed@example.com");
-    await profileApi.assert.fieldEquals(body, "providerDisplayName", "E2E CI User");
+    await profileApi.assert.fieldEquals(body, "providerDisplayName", testUser.displayName);
     await profileApi.assert.fieldIsNull(body, "providerPictureUrl");
   });
 
-  test("GET /profile for user without provider picture returns null providerPictureUrl", async ({ profileApi }) => {
+  test("GET /profile for user without provider picture returns null providerPictureUrl", async ({ profileApi, testUser }) => {
     const response = await profileApi.actions.getProfile();
     await profileApi.assert.statusIs(response, 200);
     const body = await profileApi.arrange.profileBody(response);
 
     await profileApi.assert.fieldMatches(body, "userId", UUID_V4_PATTERN);
-    await profileApi.assert.fieldEquals(body, "email", "e2e-ci@e2e.local");
-    await profileApi.assert.fieldEquals(body, "displayName", "E2E CI User");
+    await profileApi.assert.fieldEquals(body, "email", `${testUser.userId}@e2e.local`);
+    await profileApi.assert.fieldEquals(body, "displayName", testUser.displayName);
     await profileApi.assert.fieldIsNull(body, "providerPictureUrl");
   });
 });

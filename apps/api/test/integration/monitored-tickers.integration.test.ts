@@ -13,7 +13,14 @@ describe("monitored tickers routes", () => {
     if (app) await app.close();
   });
 
-  function seedInstrument(instrument: { ticker: string; name: string; instrumentType: string; marketCode: string; barsBackfillStatus: string }): void {
+  function seedInstrument(instrument: {
+    ticker: string;
+    name: string;
+    instrumentType: string | null;
+    marketCode: string;
+    barsBackfillStatus: string;
+    delistedAt?: string;
+  }): void {
     (app.persistence as MemoryPersistence)._seedInstrument(instrument);
   }
 
@@ -53,6 +60,22 @@ describe("monitored tickers routes", () => {
       const body = res.json();
       expect(body.instruments).toHaveLength(1);
       expect(body.instruments[0].ticker).toBe("0050");
+    });
+
+    it("excludes delisted instruments from the catalog response", async () => {
+      seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
+      seedInstrument({
+        ticker: "2303",
+        name: "UMC",
+        instrumentType: "STOCK",
+        marketCode: "TW",
+        barsBackfillStatus: "ready",
+        delistedAt: "2026-03-01T00:00:00Z",
+      });
+
+      const res = await app.inject({ method: "GET", url: "/instruments?search=2" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().instruments.map((instrument: { ticker: string }) => instrument.ticker)).toEqual(["2330"]);
     });
   });
 

@@ -15,6 +15,7 @@ type _AssertAssignable = GoogleOAuthEnvConfig extends GoogleOAuthConfig ? true :
 
 interface BuildAppOptions {
   persistenceBackend?: "postgres" | "memory";
+  seedMemoryCatalog?: boolean;
   eventBusBackend?: "postgres" | "memory";
   /** Inject OAuth config directly (used in tests). Pass null to explicitly disable OAuth.
    *  When omitted, reads from environment variables via getGoogleOAuthEnvConfig(). */
@@ -64,7 +65,9 @@ function isLocalDevOrigin(origin: string): boolean {
 export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
   const app = Fastify({ logger: true }) as AppInstance;
   app.decorateRequest("__sessionType", undefined);
-  app.persistence = createPersistence(options.persistenceBackend);
+  const persistenceBackend = options.persistenceBackend ?? Env.PERSISTENCE_BACKEND;
+  const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");
+  app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog });
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
   // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.

@@ -1,7 +1,6 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import type { InstrumentOptionDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionInput } from "./types";
 import { AddTransactionCard } from "./AddTransactionCard";
@@ -14,11 +13,11 @@ interface RecordTransactionDialogProps {
   onSubmit: () => Promise<void>;
   pending: boolean;
   accountOptions: Array<{ id: string; name: string }>;
-  symbolOptions: InstrumentOptionDto[];
   message: string;
   errorMessage: string;
   title: string;
   dict: AppDictionary;
+  tickerReadOnly?: boolean;
 }
 
 export function RecordTransactionDialog({
@@ -29,11 +28,11 @@ export function RecordTransactionDialog({
   onSubmit,
   pending,
   accountOptions,
-  symbolOptions,
   message,
   errorMessage,
   title,
   dict,
+  tickerReadOnly = false,
 }: RecordTransactionDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -47,12 +46,12 @@ export function RecordTransactionDialog({
           <AddTransactionCard
             value={value}
             accountOptions={accountOptions}
-            symbolOptions={symbolOptions}
             pending={pending}
             onChange={onChange}
             onSubmit={onSubmit}
             dict={dict}
             framed={false}
+            tickerReadOnly={tickerReadOnly}
           />
           {message && (
             <p role="status" aria-live="polite" className="mt-3 text-sm text-emerald-700">{message}</p>

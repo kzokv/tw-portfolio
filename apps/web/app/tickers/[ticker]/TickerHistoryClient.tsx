@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import type { LocaleCode, TransactionHistoryItemDto, InstrumentOptionDto, AccountDto } from "@tw-portfolio/shared-types";
+import type { LocaleCode, TransactionHistoryItemDto, AccountDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
@@ -26,7 +26,6 @@ interface TickerHistoryClientProps {
   ticker: string;
   accountId: string;
   accounts: AccountDto[];
-  symbolOptions: InstrumentOptionDto[];
   statsBar: React.ReactNode;
 }
 
@@ -37,7 +36,6 @@ export function TickerHistoryClient({
   ticker,
   accountId,
   accounts,
-  symbolOptions,
   statsBar,
 }: TickerHistoryClientProps) {
   const router = useRouter();
@@ -70,6 +68,7 @@ export function TickerHistoryClient({
   const submission = useTransactionSubmission({
     initialValue: initialTransaction,
     noAccountsMessage: dict.feedback.noAccounts,
+    tickerRequiredMessage: dict.transactions.tickerRequired,
     successMessage: dict.feedback.transactionSubmitted,
     refresh: async () => {
       await refresh();
@@ -84,7 +83,6 @@ export function TickerHistoryClient({
     [ticker, accountId, submission],
   );
 
-  const lockedTickerOptions = symbolOptions.filter((option) => option.ticker === ticker);
   const lockedAccountOptions = accounts
     .filter((account) => account.id === accountId)
     .map((account) => ({ id: account.id, name: account.name }));
@@ -138,11 +136,11 @@ export function TickerHistoryClient({
         onSubmit={submission.submit}
         pending={submission.isSubmitting}
         accountOptions={lockedAccountOptions}
-        symbolOptions={lockedTickerOptions.length > 0 ? lockedTickerOptions : symbolOptions}
         message={submission.message}
         errorMessage={submission.errorMessage}
         title={dict.tickerHistory.recordTransaction}
         dict={dict}
+        tickerReadOnly
       />
 
       <div className="mt-6">

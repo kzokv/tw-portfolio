@@ -2594,8 +2594,8 @@ export class PostgresPersistence implements Persistence {
     return { newTickers };
   }
 
-  async listInstrumentsCatalog(search?: string, type?: string): Promise<InstrumentCatalogItemDto[]> {
-    const conditions: string[] = [];
+  async listInstrumentsCatalog(search?: string, type?: string, _userId?: string): Promise<InstrumentCatalogItemDto[]> {
+    const conditions: string[] = ["i.delisted_at IS NULL"];
     const params: unknown[] = [];
     let paramIndex = 1;
 
@@ -2611,7 +2611,7 @@ export class PostgresPersistence implements Persistence {
       paramIndex++;
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = `WHERE ${conditions.join(" AND ")}`;
     const result = await this.pool.query<{
       ticker: string;
       name: string | null;

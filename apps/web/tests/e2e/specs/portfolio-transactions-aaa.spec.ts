@@ -1,6 +1,9 @@
 import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
 
-test("transaction submission updates the verification panel and recent ledger", async ({ transactions }) => {
+test("transaction combobox: search by ticker → submit updates the verification panel and recent ledger", async ({ settings, transactions }) => {
+  await settings.arrange.seedInstruments([
+    { ticker: "2330", name: "台積電", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
+  ]);
   await transactions.actions.navigateToTransactions();
 
   const transactionPosted = transactions.actions.waitForTransactionPost();
@@ -8,6 +11,10 @@ test("transaction submission updates the verification panel and recent ledger", 
   const ledgerRefreshed = transactions.actions.waitForLedgerRefresh();
 
   await transactions.actions.selectFirstAccount();
+  await transactions.actions.typeInTickerSearch("233");
+  await transactions.assert.comboboxShowsOptions(1);
+  await transactions.actions.selectTickerOption("2330");
+  await transactions.assert.selectedTickerContains(/2330/);
   await transactions.actions.submitTransaction();
   await transactionPosted;
   await dashboardRefreshed;
@@ -17,6 +24,26 @@ test("transaction submission updates the verification panel and recent ledger", 
   await transactions.assert.verificationPanelIsVisible();
   await transactions.assert.recentTransactionsTableIsVisible();
   await transactions.assert.recentTransactionTickerIsVisible("2330");
+});
+
+test("transaction combobox: empty catalog shows guidance", async ({ settings, transactions }) => {
+  await settings.arrange.seedInstruments([]);
+  await transactions.actions.navigateToTransactions();
+  await transactions.actions.openTickerCombobox();
+  await transactions.assert.comboboxIsEmpty(/No instruments available|目前沒有可用標的/);
+});
+
+test("transaction combobox: search by name → selection fills the field", async ({ settings, transactions }) => {
+  await settings.arrange.seedInstruments([
+    { ticker: "2330", name: "台積電", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
+    { ticker: "2317", name: "鴻海", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+  ]);
+
+  await transactions.actions.navigateToTransactions();
+  await transactions.actions.typeInTickerSearch("台積");
+  await transactions.assert.comboboxShowsOptions(1);
+  await transactions.actions.selectTickerOption("2330");
+  await transactions.assert.selectedTickerContains(/2330/);
 });
 
 test("recompute flow completes within the dashboard route", async ({ dashboard }) => {

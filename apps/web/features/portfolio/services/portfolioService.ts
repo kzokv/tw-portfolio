@@ -1,5 +1,5 @@
 import { getJson, postJson } from "../../../lib/api";
-import type { TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import type { TransactionInput } from "../../../components/portfolio/types";
 
 export interface RecomputePreviewResponse {
@@ -9,6 +9,10 @@ export interface RecomputePreviewResponse {
 
 export interface RecomputeConfirmResponse {
   status: string;
+}
+
+export interface TransactionInstrumentCatalogResponse {
+  instruments: InstrumentCatalogItemDto[];
 }
 
 export async function submitTransaction(input: TransactionInput): Promise<void> {
@@ -41,6 +45,10 @@ export async function fetchTransactionHistory(filters: {
 
   const query = params.toString();
   return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
+}
+
+export async function fetchTransactionInstrumentCatalog(): Promise<TransactionInstrumentCatalogResponse> {
+  return getJson<TransactionInstrumentCatalogResponse>("/instruments");
 }
 
 export async function previewRecompute(): Promise<RecomputePreviewResponse> {

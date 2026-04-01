@@ -8,6 +8,7 @@ import { submitTransaction } from "../services/portfolioService";
 interface UseTransactionSubmissionOptions {
   initialValue: TransactionInput;
   noAccountsMessage: string;
+  tickerRequiredMessage: string;
   successMessage: string;
   refresh: () => Promise<void>;
 }
@@ -15,6 +16,7 @@ interface UseTransactionSubmissionOptions {
 export function useTransactionSubmission({
   initialValue,
   noAccountsMessage,
+  tickerRequiredMessage,
   successMessage,
   refresh,
 }: UseTransactionSubmissionOptions) {
@@ -27,6 +29,12 @@ export function useTransactionSubmission({
     if (!draftTransaction.accountId) {
       setMessage("");
       setErrorMessage(noAccountsMessage);
+      return;
+    }
+
+    if (!draftTransaction.ticker.trim()) {
+      setMessage("");
+      setErrorMessage(tickerRequiredMessage);
       return;
     }
 
@@ -43,7 +51,7 @@ export function useTransactionSubmission({
     } finally {
       setIsSubmitting(false);
     }
-  }, [draftTransaction, noAccountsMessage, refresh, successMessage]);
+  }, [draftTransaction, noAccountsMessage, refresh, successMessage, tickerRequiredMessage]);
 
   return {
     draftTransaction,

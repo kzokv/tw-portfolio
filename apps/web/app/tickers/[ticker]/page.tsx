@@ -88,7 +88,6 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           ticker={ticker}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
-          symbolOptions={dashboard.instruments}
           statsBar={statsBar}
         />
       </AppShell>

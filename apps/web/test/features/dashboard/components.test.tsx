@@ -5,7 +5,6 @@ import type {
   DashboardPerformanceDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewSummaryDto,
-  InstrumentOptionDto,
   TransactionHistoryItemDto,
 } from "@tw-portfolio/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
@@ -93,33 +92,6 @@ const performance: DashboardPerformanceDto = {
   ],
 };
 
-const symbolOptions: InstrumentOptionDto[] = [
-  {
-    ticker: "2330",
-    instrumentType: "STOCK",
-    marketCode: "TW",
-    isProvisional: false,
-  },
-  {
-    ticker: "0050",
-    instrumentType: "ETF",
-    marketCode: "TW",
-    isProvisional: false,
-  },
-  {
-    ticker: "00919",
-    instrumentType: "ETF",
-    marketCode: "TW",
-    isProvisional: false,
-  },
-  {
-    ticker: "0056",
-    instrumentType: "ETF",
-    marketCode: "TW",
-    isProvisional: false,
-  },
-];
-
 describe("dashboard components", () => {
   it("renders summary cards in the requested order", () => {
     const html = renderToStaticMarkup(<SummarySection summary={summary} dict={dict} locale="en" />);
@@ -189,7 +161,7 @@ describe("dashboard components", () => {
     expect(populatedHtml).toContain("SELL");
   });
 
-  it("renders the predefined symbol select in the transaction form", () => {
+  it("renders the instrument combobox in the transaction form", () => {
     const html = renderToStaticMarkup(
       <AddTransactionCard
         value={{
@@ -203,7 +175,6 @@ describe("dashboard components", () => {
           isDayTrade: false,
         }}
         accountOptions={[{ id: "acc-1", name: "Primary" }]}
-        symbolOptions={symbolOptions}
         pending={false}
         onChange={() => undefined}
         onSubmit={async () => undefined}
@@ -212,11 +183,9 @@ describe("dashboard components", () => {
       />,
     );
 
-    expect(html).toContain("data-testid=\"tx-ticker-select\"");
-    expect(html).toContain("2330 (Stock)");
-    expect(html).toContain("0050 (ETF)");
-    expect(html).toContain("00919 (ETF)");
-    expect(html).toContain("0056 (ETF)");
-    expect(html).toContain("Choose one of the supported Taiwan tickers.");
+    expect(html).toContain("data-testid=\"tx-ticker-combobox\"");
+    expect(html).toContain("placeholder=\"Search by ticker or name...\"");
+    expect(html).toContain("value=\"0050\"");
+    expect(html).not.toContain("data-testid=\"tx-ticker-select\"");
   });
 });

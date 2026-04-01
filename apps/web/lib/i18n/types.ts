@@ -236,6 +236,11 @@ export interface AppDictionary {
     accountTerm: string;
     typeTerm: string;
     tickerTerm: string;
+    tickerPlaceholder: string;
+    tickerEmptyCatalog: string;
+    tickerNoMatches: string;
+    tickerMatchCount: string;
+    tickerRequired: string;
     tickerHint: string;
     quantityTerm: string;
     unitPriceTerm: string;

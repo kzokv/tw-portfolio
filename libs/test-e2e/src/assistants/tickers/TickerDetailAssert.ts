@@ -182,11 +182,15 @@ export class TickerDetailAssert extends BaseAssert {
   @Step()
   async recordDialogFieldValueIs(field: "ticker" | "account" | "quantity" | "tradeDate", expected: string): Promise<void> {
     const fields = {
-      ticker: this.el.recordDialog.elements.tickerSelect,
+      ticker: this.el.recordDialog.elements.tickerCombobox,
       account: this.el.recordDialog.elements.accountSelect,
       quantity: this.el.recordDialog.elements.quantityInput,
       tradeDate: this.el.recordDialog.elements.tradeDateInput,
     };
+    if (field === "ticker") {
+      await expect(fields[field]).toHaveValue(new RegExp(expected));
+      return;
+    }
     await expect(fields[field]).toHaveValue(expected);
   }
 
@@ -206,5 +210,10 @@ export class TickerDetailAssert extends BaseAssert {
   @Step()
   async editPriceInputIsVisible(): Promise<void> {
     await expect(this.el.editForm.elements.priceInput).toBeVisible();
+  }
+
+  @Step()
+  async recordDialogTickerIsReadOnly(): Promise<void> {
+    await expect(this.el.recordDialog.elements.tickerCombobox).toHaveAttribute("readonly", "");
   }
 }
