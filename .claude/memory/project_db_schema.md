@@ -83,9 +83,10 @@ All tables live in the `market_data` schema (not `public`). Write-owned by marke
 - Populated by catalog sync (`catalogSync.ts`). ON CONFLICT preserves operational columns.
 
 ### `market_data.daily_bars`
-- `ticker TEXT`, `date DATE`, `open NUMERIC`, `high NUMERIC`, `low NUMERIC`, `close NUMERIC`, `volume BIGINT`, `trading_money NUMERIC`
-- PK: `(ticker, date)`. FK → `market_data.instruments(ticker)`.
+- `ticker TEXT`, `bar_date DATE`, `open NUMERIC`, `high NUMERIC`, `low NUMERIC`, `close NUMERIC`, `volume BIGINT`, `source TEXT`, `ingested_at TIMESTAMP`
+- PK: `(ticker, bar_date)`. FK → `market_data.instruments(ticker)`.
 - Populated by backfill worker (`backfillWorker.ts`) via pg-boss queue.
+- Read path: `getLatestBars(tickers, limit)` — windowed query used by `resolveQuoteSnapshots` (KZO-87).
 
 ## Migration History
 Migrations 001-020. Baseline absorbs through 014. Key milestones:

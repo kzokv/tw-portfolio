@@ -11,7 +11,7 @@ import {
   type FeeProfile,
   type FeeProfileTaxRule,
 } from "@tw-portfolio/domain";
-import type { Quote } from "../providers/marketData.js";
+import type { DailyBar } from "@tw-portfolio/domain";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
   buildAccountingPolicy,
@@ -815,27 +815,34 @@ export class PostgresPersistence implements Persistence {
     await this.redis.del(`idempotency:${userId}:${key}`);
   }
 
-  async getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>> {
-    if (symbols.length === 0) return {};
-    const keys = symbols.map((symbol) => `quote:${symbol}`);
-    const values = await this.redis.mGet(keys);
-    const found: Record<string, Quote> = {};
-
-    values.forEach((raw: string | null, index: number) => {
-      if (!raw) return;
-      found[symbols[index]] = JSON.parse(raw) as Quote;
-    });
-
-    return found;
-  }
-
-  async cacheQuotes(quotes: Quote[]): Promise<void> {
-    if (quotes.length === 0) return;
-    const pipeline = this.redis.multi();
-    for (const quote of quotes) {
-      pipeline.set(`quote:${quote.ticker}`, JSON.stringify(quote), { EX: 30 });
-    }
-    await pipeline.exec();
+  async getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]> {
+    if (tickers.length === 0) return [];
+    const result = await this.pool.query<{
+      ticker: string; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `WITH ranked AS (
+         SELECT ticker, bar_date, open, high, low, close, volume, source, ingested_at,
+                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY bar_date DESC) AS rn
+         FROM market_data.daily_bars
+         WHERE ticker = ANY($1)
+       )
+       SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       FROM ranked WHERE rn <= $2
+       ORDER BY ticker, bar_date DESC`,
+      [tickers, limit],
+    );
+    return result.rows.map(row => ({
+      ticker: row.ticker,
+      barDate: row.bar_date,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+      source: row.source,
+      ingestedAt: row.ingested_at,
+    }));
   }
 
   async getProfile(userId: string): Promise<ProfileDto> {

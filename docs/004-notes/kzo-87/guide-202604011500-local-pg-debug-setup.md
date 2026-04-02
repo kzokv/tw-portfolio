@@ -260,6 +260,69 @@ To test with real FinMind data, set `FINMIND_API_TOKEN` in the environment. Rate
 
 ---
 
+## Accessing Docker Web Containers from the Lume VM
+
+When running the full Docker stack (API + Web containers) inside the Lume VM, Docker ports bind to the Mac host (`192.168.64.1`), not the VM's `localhost`. Chrome inside the VM can reach `192.168.64.1:3300`, but OAuth callbacks redirect to `localhost:4300` — which fails because nothing listens on the VM's localhost.
+
+**Solution: SSH local port forwarding from VM → Mac host.**
+
+### Prerequisites
+
+Add Mac host credentials to `.env.local` (root):
+
+```env
+## Host
+MAC_USER=<your-mac-username>
+MAC_PASSWORD=<your-mac-password>
+```
+
+These are managed by `npm run env:setup` and masked in console output.
+
+### Setup
+
+```bash
+# Read credentials from .env.local
+MAC_USER=$(grep '^MAC_USER=' .env.local | cut -d= -f2)
+MAC_PASSWORD=$(grep '^MAC_PASSWORD=' .env.local | cut -d= -f2)
+
+# Forward VM localhost → Mac host Docker ports
+sshpass -p "$MAC_PASSWORD" ssh \
+  -o StrictHostKeyChecking=no \
+  -o PreferredAuthentications=password \
+  -N \
+  -L 3300:localhost:3300 \
+  -L 4300:localhost:4300 \
+  "$MAC_USER@192.168.64.1" &
+SSH_PID=$!
+
+# Verify
+curl -s http://localhost:4300/health/live  # Should return {"status":"ok"}
+curl -s -o /dev/null -w '%{http_code}' http://localhost:3300/  # Should return 307
+```
+
+### Why this works
+
+- SSH binds `localhost:3300` and `localhost:4300` inside the VM
+- Traffic tunnels to the same ports on `192.168.64.1` (Mac host) where Docker exposes them
+- Chrome accesses `localhost:3300` — the OAuth callback to `localhost:4300` resolves natively
+- The full Google OAuth flow completes without redirect URI mismatches
+
+### When to use
+
+| Scenario | Approach |
+|---|---|
+| Need OAuth flow in browser with Docker containers | SSH tunnel (this section) |
+| Debugging API with breakpoints / live reload | Host-level API (section above) |
+| Just testing API endpoints via curl | Use `192.168.64.1:4300` directly |
+
+### Cleanup
+
+```bash
+kill $SSH_PID 2>/dev/null
+```
+
+---
+
 ## Alternative: Full Docker Stack
 
 If you don't need host-level debugging (breakpoints, live code changes), use the all-in-one Docker approach:

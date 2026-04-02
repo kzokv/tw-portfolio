@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-01)
+## Completed tickets (as of 2026-04-02)
 
 | Ticket | Title | Completed |
 |---|---|---|
@@ -18,14 +18,15 @@ type: project
 | KZO-129 | Searchable instrument combobox | 2026-04-01 |
 | KZO-130 | Daily refresh worker for monitored symbols | 2026-04-01 |
 | KZO-132 | Notification center + daily refresh SSE handling | 2026-04-01 |
+| KZO-87 | EOD quote snapshot resolution | 2026-04-02 |
 
 ## Next up
 
-Follow-up tickets from KZO-132 (out of scope):
-1. Wire backfill failures into notification center as `source: 'backfill'`
-2. Wire recompute failures into notification center as `source: 'recompute'`
-3. Notification preferences UI (mute by source, snooze escalation)
-4. Email digest of unread failure notifications
+- Snapshot materialization (Job 3) — follow-up from KZO-87
+- Wire backfill failures into notification center as `source: 'backfill'`
+- Wire recompute failures into notification center as `source: 'recompute'`
+- Notification preferences UI (mute by source, snooze escalation)
+- Email digest of unread failure notifications
 
 ## Backup/restore script gap
 

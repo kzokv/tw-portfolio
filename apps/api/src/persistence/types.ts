@@ -9,7 +9,7 @@ import type {
   Store,
   InstrumentDef,
 } from "../types/store.js";
-import type { Quote } from "../providers/marketData.js";
+import type { DailyBar } from "@tw-portfolio/domain";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
@@ -110,8 +110,7 @@ export interface Persistence {
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;
   updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
-  getCachedQuotes(tickers: string[]): Promise<Record<string, Quote>>;
-  cacheQuotes(quotes: Quote[]): Promise<void>;
+  getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]>;
   readiness(): Promise<ReadinessStatus>;
   markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
 

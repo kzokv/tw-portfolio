@@ -10,13 +10,13 @@ import type {
   InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
 import { roundToDecimal } from "@tw-portfolio/domain";
-import type { Quote } from "../providers/marketData.js";
+import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
 
 interface BuildDashboardOverviewOptions {
   integrityIssue: IntegrityIssueDto | null;
-  quotes?: Quote[];
+  quotes?: QuoteSnapshot[];
 }
 
 interface DashboardOverviewDividends {
@@ -78,7 +78,7 @@ export function buildDashboardPerformance(
     asOf = quotes[0]?.asOf ?? new Date().toISOString(),
   }: {
     range: DashboardPerformanceRange;
-    quotes?: Quote[];
+    quotes?: QuoteSnapshot[];
     asOf?: string;
   },
 ): DashboardPerformanceDto {
@@ -106,7 +106,7 @@ function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptio
 function buildOverviewHoldings(
   store: Store,
   totalCostAmount: number,
-  quoteByTicker: Map<string, Quote>,
+  quoteByTicker: Map<string, QuoteSnapshot>,
   dividends: DashboardOverviewDividends,
 ): DashboardOverviewHoldingDto[] {
   const recentPostedDividends = new Map(
@@ -119,7 +119,7 @@ function buildOverviewHoldings(
   return [...store.accounting.projections.holdings]
     .map((holding) => {
       const quote = quoteByTicker.get(holding.ticker);
-      const marketValueAmount = quote ? roundToDecimal(quote.unitPrice * holding.quantity, 2) : null;
+      const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
       return {
         accountId: holding.accountId,
         ticker: holding.ticker,
@@ -127,7 +127,7 @@ function buildOverviewHoldings(
         costBasisAmount: holding.costBasisAmount,
         currency: holding.currency,
         averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
-        currentUnitPrice: quote?.unitPrice ?? null,
+        currentUnitPrice: quote?.close ?? null,
         marketValueAmount,
         unrealizedPnlAmount: marketValueAmount === null ? null : marketValueAmount - holding.costBasisAmount,
         allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
@@ -273,7 +273,7 @@ function buildSyntheticPerformance(
   store: Store,
   range: DashboardPerformanceRange,
   asOf: string,
-  quotes: Quote[],
+  quotes: QuoteSnapshot[],
 ): DashboardPerformancePointDto[] {
   const { startDate, endDate } = resolveRangeBounds(range, asOf);
   const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
@@ -307,7 +307,7 @@ function buildSyntheticPerformance(
 function summarizePerformancePoint(
   date: string,
   positions: Map<string, { quantity: number; costBasisAmount: number }>,
-  quoteByTicker: Map<string, Quote>,
+  quoteByTicker: Map<string, QuoteSnapshot>,
 ): DashboardPerformancePointDto {
   let totalCostAmount = 0;
   let marketValueAmount = 0;
@@ -328,7 +328,7 @@ function summarizePerformancePoint(
       continue;
     }
 
-    marketValueAmount += roundToDecimal(quote.unitPrice * position.quantity, 2);
+    marketValueAmount += roundToDecimal(quote.close * position.quantity, 2);
   }
 
   const resolvedMarketValue = hasPositions && hasCompleteQuotes ? marketValueAmount : null;
