@@ -79,10 +79,11 @@ describe("rootLocalSchema", () => {
     }
   });
 
-  it("has exactly envSchema keys + 2 NEXT_PUBLIC keys", () => {
+  it("has envSchema keys + NEXT_PUBLIC + host credential keys", () => {
     const baseCount = Object.keys(envSchema.shape).length;
     const rootCount = Object.keys(rootLocalSchema.shape).length;
-    expect(rootCount).toBe(baseCount + 2);
+    // +2 NEXT_PUBLIC_* + 2 MAC_USER/MAC_PASSWORD
+    expect(rootCount).toBe(baseCount + 4);
   });
 
   it("contains NEXT_PUBLIC_AUTH_MODE", () => {
