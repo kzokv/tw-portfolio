@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
+import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
+
+const testOAuthConfig: GoogleOAuthConfig = {
+  clientId: "test-client-id",
+  clientSecret: "test-client-secret",
+  redirectUri: "http://localhost:4000/auth/google/callback",
+  sessionSecret: "test-session-secret-that-is-long-enough-32chars!!",
+};
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
-async function createOauthCookieHeader(): Promise<string> {
+async function createSessionCookieHeader(): Promise<string> {
   const sessionResponse = await app.inject({
     method: "POST",
     url: "/__e2e/oauth-session",
@@ -30,7 +38,7 @@ function seedInstrument(instrument: {
 
 describe("POST /backfill/repair (integration, memory mode)", () => {
   beforeEach(async () => {
-    app = await buildApp({ persistenceBackend: "memory" });
+    app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
   });
 
   afterEach(async () => {
@@ -38,7 +46,7 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
   });
 
   it("returns partial success payload when some tickers are rejected by status gate", async () => {
-    const cookie = await createOauthCookieHeader();
+    const cookie = await createSessionCookieHeader();
     seedInstrument({
       ticker: "2330",
       name: "TSMC",
@@ -77,7 +85,7 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
   });
 
   it("enqueue payload includes trigger=repair with per-ticker options", async () => {
-    const cookie = await createOauthCookieHeader();
+    const cookie = await createSessionCookieHeader();
     seedInstrument({
       ticker: "2330",
       name: "TSMC",
@@ -119,7 +127,7 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
   });
 
   it("rejects a ticker within cooldown window using last_repair_at", async () => {
-    const cookie = await createOauthCookieHeader();
+    const cookie = await createSessionCookieHeader();
     seedInstrument({
       ticker: "2330",
       name: "TSMC",
