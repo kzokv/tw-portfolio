@@ -245,6 +245,7 @@ export interface MonitoredTickerDto {
   name: string | null;
   instrumentType: InstrumentType | null;
   barsBackfillStatus: string | null;
+  lastRepairAt: string | null;
 }
 
 export interface InstrumentCatalogItemDto {
@@ -253,6 +254,7 @@ export interface InstrumentCatalogItemDto {
   instrumentType: InstrumentType | null;
   marketCode: string;
   barsBackfillStatus: string;
+  lastRepairAt: string | null;
 }
 
 // ── Notification types (KZO-132) ────────────────────────────────────────────

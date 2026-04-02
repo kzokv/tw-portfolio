@@ -46,7 +46,7 @@ interface FinMindDividendRow {
   StockExDividendTradingDate: string;
 }
 
-async function fetchDataset<T>(dataset: string, ticker: string, startDate: string = HISTORY_START): Promise<T[]> {
+async function fetchDataset<T>(dataset: string, ticker: string, startDate: string = HISTORY_START, endDate?: string): Promise<T[]> {
   const token = Env.FINMIND_API_TOKEN;
   if (!token) throw new Error("FINMIND_API_TOKEN is not configured");
 
@@ -56,6 +56,9 @@ async function fetchDataset<T>(dataset: string, ticker: string, startDate: strin
     start_date: startDate,
     token,
   });
+  if (endDate) {
+    params.set("end_date", endDate);
+  }
 
   const res = await fetch(`${FINMIND_BASE}?${params.toString()}`);
   if (res.status === 402) {
@@ -94,8 +97,8 @@ async function fetchCatalogDataset<T>(dataset: string): Promise<T[]> {
 }
 
 export class FinMindClient implements FinMindProvider {
-  async fetchDailyBars(ticker: string, startDate?: string): Promise<RawDailyBar[]> {
-    const rows = await fetchDataset<FinMindPriceRow>("TaiwanStockPrice", ticker, startDate);
+  async fetchDailyBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+    const rows = await fetchDataset<FinMindPriceRow>("TaiwanStockPrice", ticker, startDate, endDate);
     return rows.map((r) => ({
       ticker: r.stock_id,
       barDate: r.date,
@@ -107,8 +110,8 @@ export class FinMindClient implements FinMindProvider {
     }));
   }
 
-  async fetchDividendEvents(ticker: string, startDate?: string): Promise<DividendRecord[]> {
-    const rows = await fetchDataset<FinMindDividendRow>("TaiwanStockDividend", ticker, startDate);
+  async fetchDividendEvents(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+    const rows = await fetchDataset<FinMindDividendRow>("TaiwanStockDividend", ticker, startDate, endDate);
     return rows
       .filter((r) => {
         const cashTotal = r.CashEarningsDistribution + r.CashStatutorySurplus;

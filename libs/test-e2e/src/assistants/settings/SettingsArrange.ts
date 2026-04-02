@@ -10,6 +10,7 @@ interface SeedInstrument {
   instrumentType: string | null;
   marketCode: string;
   barsBackfillStatus: string;
+  lastRepairAt?: string;
 }
 
 export class SettingsArrange extends BaseArrange {
@@ -34,6 +35,25 @@ export class SettingsArrange extends BaseArrange {
     await this.request.post(apiUrl("/__e2e/seed-instruments"), {
       data: { instruments },
       headers: { "x-user-id": this.userId ?? "user-1" },
+    });
+  }
+
+  @Step()
+  async setManualMonitoredTickers(tickers: string[]): Promise<void> {
+    await this.request.put(apiUrl("/monitored-tickers"), {
+      data: { tickers },
+      headers: { "x-user-id": this.userId ?? "user-1" },
+    });
+  }
+
+  @Step()
+  async publishRepairEvent(eventType: "repair_started" | "repair_complete" | "repair_failed", data: Record<string, unknown>): Promise<void> {
+    await this.request.post(apiUrl("/__test/publish-event"), {
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": this.userId ?? "user-1",
+      },
+      data: { type: eventType, data },
     });
   }
 }

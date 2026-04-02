@@ -42,6 +42,21 @@ export interface TSettingsDrawerElements {
     manualTicker: (ticker: string) => Locator;
     backfillBadge: (ticker: string) => Locator;
     retryBackfillButton: (ticker: string) => Locator;
+    repairModeButton: Locator;
+    repairCancelButton: Locator;
+    repairContinueButton: Locator;
+    repairCheckboxRow: (ticker: string) => Locator;
+    repairCooldownHint: (ticker: string) => Locator;
+  };
+  repairModal: {
+    dialog: Locator;
+    startDateInput: Locator;
+    endDateInput: Locator;
+    includeBarsCheckbox: Locator;
+    includeDividendsCheckbox: Locator;
+    applyAllToggle: Locator;
+    perTickerToggle: Locator;
+    submitButton: Locator;
   };
   catalog: {
     sheet: Locator;
@@ -121,6 +136,62 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.locate(`backfill-badge-${ticker}`, `Backfill Badge ${ticker}`),
         retryBackfillButton: (ticker: string) =>
           this.locate(`retry-backfill-${ticker}`, `Retry Backfill Button ${ticker}`),
+        repairModeButton: this.withDescription(
+          this.page.getByTestId("repair-mode-toggle-btn"),
+          "Repair Mode Button",
+        ),
+        repairCancelButton: this.withDescription(
+          this.page.getByTestId("repair-cancel-btn"),
+          "Repair Cancel Button",
+        ),
+        repairContinueButton: this.withDescription(
+          this.page.getByTestId("repair-continue-btn"),
+          "Repair Continue Button",
+        ),
+        repairCheckboxRow: (ticker: string) =>
+          this.withDescription(
+            this.page.getByTestId(`repair-row-${ticker}`),
+            `Repair Checkbox Row ${ticker}`,
+          ),
+        repairCooldownHint: (ticker: string) =>
+          this.withDescription(
+            this.page.getByTestId(`repair-cooldown-hint-${ticker}`),
+            `Repair Cooldown Hint ${ticker}`,
+          ),
+      },
+      repairModal: {
+        dialog: this.withDescription(
+          this.page.getByTestId("repair-modal"),
+          "Repair Modal",
+        ),
+        startDateInput: this.withDescription(
+          this.page.getByTestId("repair-start-date"),
+          "Repair Start Date Input",
+        ),
+        endDateInput: this.withDescription(
+          this.page.getByTestId("repair-end-date"),
+          "Repair End Date Input",
+        ),
+        includeBarsCheckbox: this.withDescription(
+          this.page.getByTestId("repair-include-bars"),
+          "Repair Include Bars Checkbox",
+        ),
+        includeDividendsCheckbox: this.withDescription(
+          this.page.getByTestId("repair-include-dividends"),
+          "Repair Include Dividends Checkbox",
+        ),
+        applyAllToggle: this.withDescription(
+          this.page.getByTestId("repair-apply-all"),
+          "Repair Apply-All Toggle",
+        ),
+        perTickerToggle: this.withDescription(
+          this.page.getByTestId("repair-per-ticker"),
+          "Repair Per-Ticker Toggle",
+        ),
+        submitButton: this.withDescription(
+          this.page.getByTestId("repair-submit"),
+          "Repair Submit Button",
+        ),
       },
       catalog: {
         sheet: this.locate("instrument-catalog-sheet", "Instrument Catalog Sheet"),

@@ -43,6 +43,9 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
   const host = TestEnv.host;
   const webPort = TestEnv.ports.web;
   const apiPort = TestEnv.ports.api;
+  const useExistingServers = ["1", "true"].includes(
+    process.env.PLAYWRIGHT_USE_EXISTING_SERVERS?.toLowerCase() ?? "",
+  );
 
   const mockOAuthServer = {
     command: "bash ../../scripts/reclaim-e2e-server.sh mock-oauth && node ../../libs/test-e2e/src/mock-oauth-server.mjs",
@@ -114,6 +117,11 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
       },
     },
     ...(projects ? { projects } : {}),
-    webServer: webServers === "full" ? [mockOAuthServer, apiServer, webServer] : [mockOAuthServer, apiServer],
+    ...(useExistingServers
+      ? {}
+      : {
+          webServer:
+            webServers === "full" ? [mockOAuthServer, apiServer, webServer] : [mockOAuthServer, apiServer],
+        }),
   });
 }

@@ -54,6 +54,25 @@ export interface BackfillFailedEvent {
   retriesExhausted: boolean;
 }
 
+export interface RepairStartedEvent {
+  type: "repair_started";
+  ticker: string;
+}
+
+export interface RepairCompleteEvent {
+  type: "repair_complete";
+  ticker: string;
+  barsCount: number;
+  dividendsCount: number;
+}
+
+export interface RepairFailedEvent {
+  type: "repair_failed";
+  ticker: string;
+  reason: string;
+  retriesExhausted: boolean;
+}
+
 export interface DailyRefreshCompleteEvent {
   type: "daily_refresh_complete";
   ticker: string;
@@ -85,6 +104,9 @@ export type SSEEvent =
   | BackfillStartedEvent
   | BackfillCompleteEvent
   | BackfillFailedEvent
+  | RepairStartedEvent
+  | RepairCompleteEvent
+  | RepairFailedEvent
   | DailyRefreshCompleteEvent
   | DailyRefreshFailedEvent
   | DailyRefreshSummaryEvent;
@@ -97,6 +119,9 @@ export type SSEDomainEventType =
   | "backfill_started"
   | "backfill_complete"
   | "backfill_failed"
+  | "repair_started"
+  | "repair_complete"
+  | "repair_failed"
   | "daily_refresh_complete"
   | "daily_refresh_failed"
   | "daily_refresh_summary";

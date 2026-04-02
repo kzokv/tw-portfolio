@@ -155,6 +155,15 @@ export function SettingsDrawer({
                     saveSuccess={tickers.saveSuccess}
                     onSave={tickers.save}
                     isLoading={tickers.isLoading}
+                    repairMode={tickers.repairMode}
+                    onRepairModeChange={tickers.setRepairMode}
+                    repairSelection={tickers.repairSelection}
+                    onToggleRepairSelection={tickers.toggleRepairSelection}
+                    onClearRepairSelection={tickers.clearRepairSelection}
+                    onSubmitRepairRequests={tickers.submitRepairRequests}
+                    isRepairSubmitting={tickers.isRepairSubmitting}
+                    repairMessage={tickers.repairMessage}
+                    repairError={tickers.repairError}
                     dict={dict}
                   />
                 )}

@@ -162,6 +162,14 @@ function routeError(statusCode: number, code: string, message: string): RouteErr
   return error;
 }
 
+function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
+  const repairedAtMs = new Date(lastRepairAt).getTime();
+  if (Number.isNaN(repairedAtMs)) return 0;
+  const cooldownUntilMs = repairedAtMs + cooldownMinutes * 60_000;
+  if (nowMs >= cooldownUntilMs) return 0;
+  return Math.ceil((cooldownUntilMs - nowMs) / 60_000);
+}
+
 function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomain?: string): string {
   const secure = isProduction || cookieName.startsWith("__Host-");
   // __Host- prefix prohibits Domain attribute per RFC 6265bis; skip it for prefixed names.
@@ -435,6 +443,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             instrumentType: z.string().nullable(),
             marketCode: z.string(),
             barsBackfillStatus: z.string(),
+            lastRepairAt: z.string().nullable().optional(),
             delistedAt: z.string().optional(),
           }),
         ),
@@ -1599,6 +1608,86 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
 
     return { ticker: body.ticker, barsBackfillStatus: "pending" };
+  });
+
+  // --- Backfill Repair (KZO-86) ---
+
+  app.post("/backfill/repair", async (req) => {
+    const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z
+      .object({
+        tickers: z.array(tickerSchema).min(1).max(20),
+        startDate: isoDateSchema.optional(),
+        endDate: isoDateSchema.optional(),
+        includeBars: z.boolean().default(true),
+        includeDividends: z.boolean().default(true),
+      })
+      .superRefine((value, ctx) => {
+        if (!value.includeBars && !value.includeDividends) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "includeBars and includeDividends cannot both be false",
+            path: ["includeBars"],
+          });
+        }
+        if (value.startDate && value.endDate && value.startDate > value.endDate) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "startDate must be before or equal to endDate",
+            path: ["startDate"],
+          });
+        }
+      })
+      .parse(req.body);
+
+    if (isDemo) {
+      throw routeError(403, "demo_restricted", "Repair is not available for demo users");
+    }
+    if (!app.boss) {
+      throw routeError(503, "queue_unavailable", "Job queue is not available");
+    }
+
+    const nowMs = Date.now();
+    const queued: string[] = [];
+    const rejected: Array<{ ticker: string; reason: string }> = [];
+
+    for (const ticker of body.tickers) {
+      const instrument = await app.persistence.getInstrument(ticker);
+      if (!instrument) {
+        rejected.push({ ticker, reason: "instrument_not_found" });
+        continue;
+      }
+
+      if (instrument.barsBackfillStatus === "pending" || instrument.barsBackfillStatus === "backfilling") {
+        rejected.push({ ticker, reason: `status_${instrument.barsBackfillStatus}` });
+        continue;
+      }
+
+      if (instrument.lastRepairAt) {
+        const minutes = remainingCooldownMinutes(instrument.lastRepairAt, Env.REPAIR_COOLDOWN_MINUTES, nowMs);
+        if (minutes > 0) {
+          rejected.push({ ticker, reason: `cooldown_active:${minutes}` });
+          continue;
+        }
+      }
+
+      await app.boss.send(
+        BACKFILL_QUEUE,
+        {
+          ticker,
+          userId,
+          trigger: "repair",
+          startDate: body.startDate,
+          endDate: body.endDate,
+          includeBars: body.includeBars,
+          includeDividends: body.includeDividends,
+        } satisfies BackfillJobData,
+        { singletonKey: ticker, priority: 5 },
+      );
+      queued.push(ticker);
+    }
+
+    return { queued, rejected };
   });
 
   // --- Notifications (KZO-132) ---

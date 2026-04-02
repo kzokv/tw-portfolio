@@ -12,8 +12,11 @@ export const BACKFILL_QUEUE = "finmind-backfill";
 export interface BackfillJobData {
   ticker: string;
   userId?: string;
-  trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh";
+  trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh" | "repair";
   startDate?: string;
+  endDate?: string;
+  includeBars?: boolean;
+  includeDividends?: boolean;
   batchId?: string;
 }
 
@@ -24,6 +27,7 @@ export interface BackfillWorkerDeps {
   eventBus: BufferedEventBus;
   boss: PgBoss;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
+  updateLastRepairAt?: (ticker: string) => Promise<void>;
   getUsersMonitoringTicker: (ticker: string) => Promise<string[]>;
   updateBatchTickerResult?: (
     batchId: string,
@@ -34,22 +38,47 @@ export interface BackfillWorkerDeps {
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }
 
-/** Number of FinMind API calls per ticker (bars + dividends). */
-const CALLS_PER_TICKER = 2;
+const MAX_CALLS_PER_TICKER = 2;
+
+function computeCallCost(includeBars: boolean, includeDividends: boolean): number {
+  const requestedCalls = (includeBars ? 1 : 0) + (includeDividends ? 1 : 0);
+  return Math.min(MAX_CALLS_PER_TICKER, Math.max(0, requestedCalls));
+}
 
 export function createBackfillHandler(deps: BackfillWorkerDeps) {
-  const { pool, finmind, rateLimiter, eventBus, boss, updateBackfillStatus, getUsersMonitoringTicker, updateBatchTickerResult, onBatchComplete, log } = deps;
+  const {
+    pool,
+    finmind,
+    rateLimiter,
+    eventBus,
+    boss,
+    updateBackfillStatus,
+    updateLastRepairAt,
+    getUsersMonitoringTicker,
+    updateBatchTickerResult,
+    onBatchComplete,
+    log,
+  } = deps;
 
   return async ([job]: JobWithMetadata<BackfillJobData>[]): Promise<void> => {
-    const { ticker, userId, trigger, startDate, batchId } = job.data;
+    const { ticker, userId, trigger, startDate, endDate, includeBars = true, includeDividends = true, batchId } = job.data;
     const effectiveStartDate = startDate ?? HISTORY_START;
     const isDailyRefresh = trigger === "daily_refresh";
+    const isRepair = trigger === "repair";
+    const shouldSetBackfillingStatus = !isDailyRefresh && !isRepair;
+    const shouldSetReadyStatus = !isRepair;
+    const shouldSetFailedStatus = !isDailyRefresh && !isRepair;
+    const callCost = computeCallCost(includeBars, includeDividends);
+
+    if (callCost <= 0) {
+      throw new Error("Backfill job must request at least one dataset");
+    }
 
     // 1. Check rate limiter — if budget exhausted, reschedule (not a retry)
-    if (!rateLimiter.canConsume(CALLS_PER_TICKER)) {
-      const delayMs = rateLimiter.msUntilAvailable(CALLS_PER_TICKER);
+    if (!rateLimiter.canConsume(callCost)) {
+      const delayMs = rateLimiter.msUntilAvailable(callCost);
       const delaySec = Math.ceil(delayMs / 1000);
-      log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
+      log.info({ ticker, trigger, callCost, delaySec }, "backfill_rate_limited: rescheduling");
       await boss.send(BACKFILL_QUEUE, job.data, {
         startAfter: delaySec,
         singletonKey: ticker,
@@ -58,38 +87,46 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       return; // Complete current job successfully — this is NOT a retry
     }
 
-    rateLimiter.consume(CALLS_PER_TICKER);
+    rateLimiter.consume(callCost);
 
     try {
-      if (!isDailyRefresh) {
+      if (shouldSetBackfillingStatus) {
         await updateBackfillStatus(ticker, "backfilling");
       }
 
-      if (!isDailyRefresh && userId) {
+      if (isRepair && userId) {
+        await eventBus.publishEvent(userId, "repair_started", { ticker });
+      } else if (!isDailyRefresh && userId) {
         await eventBus.publishEvent(userId, "backfill_started", { ticker });
       }
 
-      // 4. Fetch daily bars from FinMind
-      log.info({ ticker, trigger, startDate: effectiveStartDate }, "backfill_fetching_bars");
-      const bars = await finmind.fetchDailyBars(ticker, effectiveStartDate);
+      let barsCount = 0;
+      if (includeBars) {
+        log.info({ ticker, trigger, startDate: effectiveStartDate, endDate }, "backfill_fetching_bars");
+        const bars = await finmind.fetchDailyBars(ticker, effectiveStartDate, endDate);
 
-      // 5. Write bars to market_data.daily_bars (upsert)
-      const barsCount = await upsertDailyBars(pool, bars);
-      log.info({ ticker, barsCount }, "backfill_bars_upserted");
+        // 5. Write bars to market_data.daily_bars (upsert)
+        barsCount = await upsertDailyBars(pool, bars);
+        log.info({ ticker, barsCount }, "backfill_bars_upserted");
+      }
 
       // 6. Fetch dividend events from FinMind
       let dividendsCount = 0;
-      try {
-        const dividends = await finmind.fetchDividendEvents(ticker, effectiveStartDate);
-        // 7. Write dividend events (dividend failure → log warning, don't fail job)
-        dividendsCount = await upsertDividendEvents(pool, dividends);
-        log.info({ ticker, dividendsCount }, "backfill_dividends_upserted");
-      } catch (divErr) {
-        log.warn({ ticker, error: divErr }, "backfill_dividend_fetch_failed: continuing without dividends");
+      if (includeDividends) {
+        try {
+          const dividends = await finmind.fetchDividendEvents(ticker, effectiveStartDate, endDate);
+          // 7. Write dividend events (dividend failure → log warning, don't fail job)
+          dividendsCount = await upsertDividendEvents(pool, dividends);
+          log.info({ ticker, dividendsCount }, "backfill_dividends_upserted");
+        } catch (divErr) {
+          log.warn({ ticker, error: divErr }, "backfill_dividend_fetch_failed: continuing without dividends");
+        }
       }
 
-      // 8. Update status → ready, update last_synced_at
-      await updateBackfillStatus(ticker, "ready");
+      // 8. Update status for non-repair/non-daily-refresh jobs.
+      if (shouldSetReadyStatus) {
+        await updateBackfillStatus(ticker, "ready");
+      }
 
       if (isDailyRefresh) {
         const userIds = await getUsersMonitoringTicker(ticker);
@@ -107,6 +144,15 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         if (batchId && updateBatchTickerResult) {
           await trackBatchResult(batchId, ticker, { status: "success", barsCount, dividendsCount }, log);
         }
+      } else if (isRepair && userId) {
+        if (updateLastRepairAt) {
+          await updateLastRepairAt(ticker);
+        }
+        await eventBus.publishEvent(userId, "repair_complete", {
+          ticker,
+          barsCount,
+          dividendsCount,
+        });
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_complete", {
           ticker,
@@ -118,7 +164,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       const isLastRetry = job.retryCount >= job.retryLimit;
       const reason = err instanceof Error ? err.message : String(err);
 
-      if (isLastRetry && !isDailyRefresh) {
+      if (isLastRetry && shouldSetFailedStatus) {
         await updateBackfillStatus(ticker, "failed");
       }
 
@@ -139,6 +185,12 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             await trackBatchResult(batchId, ticker, { status: "failed", reason }, log);
           }
         }
+      } else if (isRepair && userId) {
+        await eventBus.publishEvent(userId, "repair_failed", {
+          ticker,
+          reason,
+          retriesExhausted: isLastRetry,
+        });
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_failed", {
           ticker,

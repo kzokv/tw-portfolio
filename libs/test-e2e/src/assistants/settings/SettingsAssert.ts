@@ -11,6 +11,10 @@ export class SettingsAssert extends BaseAssert {
     return this._instance.elements;
   }
 
+  private repairCheckboxForTicker(ticker: string) {
+    return this.page.getByTestId(`repair-selection-${ticker}`);
+  }
+
   @Step()
   async drawerIsClosed(): Promise<void> {
     await this.mxAssertUrlNotMatches("drawer=settings");
@@ -144,5 +148,42 @@ export class SettingsAssert extends BaseAssert {
   @Step()
   async retryBackfillButtonIsHidden(ticker: string): Promise<void> {
     await expect(this.el.tickers.retryBackfillButton(ticker)).not.toBeVisible();
+  }
+
+  @Step()
+  async repairModeControlsAreVisible(): Promise<void> {
+    await expect(this.el.tickers.repairCancelButton).toBeVisible();
+    await expect(this.el.tickers.repairContinueButton).toBeVisible();
+  }
+
+  @Step()
+  async repairModeControlsAreHidden(): Promise<void> {
+    await expect(this.el.tickers.repairCancelButton).not.toBeVisible();
+    await expect(this.el.tickers.repairContinueButton).not.toBeVisible();
+  }
+
+  @Step()
+  async repairModalIsVisible(): Promise<void> {
+    await expect(this.el.repairModal.dialog).toBeVisible();
+  }
+
+  @Step()
+  async repairModalIsHidden(): Promise<void> {
+    await expect(this.el.repairModal.dialog).not.toBeVisible();
+  }
+
+  @Step()
+  async repairCooldownHintIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.tickers.repairCooldownHint(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async repairSelectionCheckboxIsDisabled(ticker: string): Promise<void> {
+    await expect(this.repairCheckboxForTicker(ticker)).toBeDisabled();
+  }
+
+  @Step()
+  async repairSelectionCheckboxIsEnabled(ticker: string): Promise<void> {
+    await expect(this.repairCheckboxForTicker(ticker)).toBeEnabled();
   }
 }

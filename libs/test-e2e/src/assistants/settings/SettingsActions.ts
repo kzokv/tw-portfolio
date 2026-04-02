@@ -12,6 +12,10 @@ export class SettingsActions extends AppBaseActions {
     return this._instance.elements;
   }
 
+  private repairCheckboxForTicker(ticker: string) {
+    return this.page.getByTestId(`repair-selection-${ticker}`);
+  }
+
   @Step()
   async getQuotePollValue(): Promise<string> {
     return await this.el.general.quotePollInput.inputValue();
@@ -168,5 +172,71 @@ export class SettingsActions extends AppBaseActions {
   @Step()
   async retryBackfill(ticker: string): Promise<void> {
     await this.uiActions.click.perform(this.el.tickers.retryBackfillButton(ticker));
+  }
+
+  @Step()
+  async enterRepairMode(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tickers.repairModeButton);
+  }
+
+  @Step()
+  async cancelRepairMode(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tickers.repairCancelButton);
+  }
+
+  @Step()
+  async selectTickerForRepair(ticker: string): Promise<void> {
+    await this.uiActions.click.perform(this.repairCheckboxForTicker(ticker));
+  }
+
+  @Step()
+  async continueToRepairModal(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tickers.repairContinueButton);
+  }
+
+  @Step()
+  async setRepairDateRange(startDate: string, endDate: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.repairModal.startDateInput, startDate);
+    await this.uiActions.fill.perform(this.el.repairModal.endDateInput, endDate);
+  }
+
+  @Step()
+  async setRepairIncludeBars(enabled: boolean): Promise<void> {
+    const checkbox = this.el.repairModal.includeBarsCheckbox;
+    const checked = await checkbox.isChecked();
+    if (checked !== enabled) {
+      await this.uiActions.click.perform(checkbox);
+    }
+  }
+
+  @Step()
+  async setRepairIncludeDividends(enabled: boolean): Promise<void> {
+    const checkbox = this.el.repairModal.includeDividendsCheckbox;
+    const checked = await checkbox.isChecked();
+    if (checked !== enabled) {
+      await this.uiActions.click.perform(checkbox);
+    }
+  }
+
+  @Step()
+  async setRepairMode(mode: "apply-all" | "per-ticker"): Promise<void> {
+    if (mode === "apply-all") {
+      await this.uiActions.click.perform(this.el.repairModal.applyAllToggle);
+      return;
+    }
+    await this.uiActions.click.perform(this.el.repairModal.perTickerToggle);
+  }
+
+  @Step()
+  async submitRepair(): Promise<void> {
+    const responsePromise = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST"
+        && response.url().includes("/backfill/repair"),
+      { timeout: 10_000 },
+    );
+
+    await this.uiActions.click.perform(this.el.repairModal.submitButton);
+    await responsePromise;
   }
 }

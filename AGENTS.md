@@ -29,19 +29,20 @@
 
 ## Test Suites
 
-"Full tests pass" requires ALL seven suites clean:
+"Full tests pass" requires ALL eight suites clean:
 
 1. `npx eslint .` — full project lint (run from repo root)
 2. `npm run typecheck` — typecheck (builds libs, then `tsc --noEmit` on both apps)
 3. `npm run test --prefix apps/web` — web unit tests (vitest)
-4. `npm run test:integration:full:host` — API integration tests (CI/host mode)
-5. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, dev_bypass)
-6. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, AUTH_MODE=oauth)
-7. `npm run test:http --prefix apps/api` — API HTTP tests (Playwright, AUTH_MODE=oauth)
+4. `npm run test --prefix apps/api` — API package tests (unit + memory-backed integration)
+5. `npm run test:integration:full:host` — API integration tests (CI/host mode)
+6. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, dev_bypass)
+7. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, AUTH_MODE=oauth)
+8. `npm run test:http --prefix apps/api` — API HTTP tests (Playwright, AUTH_MODE=oauth)
 
 Never declare "all tests pass" with a subset.
 
-**Common mistake — `vitest run` from `apps/api/` is NOT suite 4.** Running bare `npx vitest run` in `apps/api/` only executes memory-backed unit and integration tests. Suite 4 (`test:integration:full:host`) spins up a managed Postgres + Redis stack and runs the full Postgres-backed integration suite. These are different test populations — migrations, identity resolution, and persistence tests only run against real Postgres. Always use the exact commands listed above.
+**Common mistake — suite 4 does not replace suite 5.** Running `npm run test --prefix apps/api` (or bare `npx vitest run` in `apps/api/`) executes API unit tests plus memory-backed integration tests. Suite 5 (`test:integration:full:host`) spins up a managed Postgres + Redis stack and runs the full Postgres-backed integration suite. These are different test populations — migrations, identity resolution, and persistence tests only run against real Postgres. Always use the exact commands listed above.
 
 ## Git And PR Gate
 

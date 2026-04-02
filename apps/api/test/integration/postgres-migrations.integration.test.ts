@@ -95,6 +95,15 @@ describePostgres("postgres migrations", () => {
     }
   }
 
+  async function getNumberedMigrationsBefore(targetMigration: string): Promise<string[]> {
+    const manifest = await migrationManifestPromise;
+    const targetIndex = manifest.numberedMigrations.indexOf(targetMigration);
+    if (targetIndex === -1) {
+      throw new Error(`Expected migration ${targetMigration} in manifest`);
+    }
+    return manifest.numberedMigrations.slice(0, targetIndex);
+  }
+
   async function seedAppliedMigrationLedger(appliedMigrations: string[]): Promise<void> {
     await pool.query(
       `CREATE TABLE schema_migrations (
@@ -452,8 +461,8 @@ describePostgres("postgres migrations", () => {
 
   it("drops orphaned recompute preview rows before adding the trade event foreign key", async () => {
     const manifest = await migrationManifestPromise;
-    const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => !/^(01[0-8])_/.test(name),
+    const pre010Migrations = await getNumberedMigrationsBefore(
+      "010_trade_snapshot_recompute_normalization.sql",
     );
     await resetDatabase();
     await applyMigrationFiles(pre010Migrations);
@@ -487,8 +496,8 @@ describePostgres("postgres migrations", () => {
 
   it("recovers from a partially failed 010 retry with orphaned recompute rows", async () => {
     const manifest = await migrationManifestPromise;
-    const pre010Migrations = manifest.numberedMigrations.filter(
-      (name) => !/^(01[0-8])_/.test(name),
+    const pre010Migrations = await getNumberedMigrationsBefore(
+      "010_trade_snapshot_recompute_normalization.sql",
     );
     await resetDatabase();
     await applyMigrationFiles(pre010Migrations);

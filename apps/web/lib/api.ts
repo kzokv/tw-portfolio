@@ -1,7 +1,8 @@
 /**
  * Resolves the API base URL.
  *
- * Server-side (SSR/RSC): use NEXT_PUBLIC_API_BASE_URL (baked at build time).
+ * Server-side (SSR/RSC): prefer SERVER_API_BASE_URL when provided (Docker
+ * container-network routing), then fall back to NEXT_PUBLIC_API_BASE_URL.
  *
  * Client-side (browser): if the baked URL targets localhost or 127.0.0.1,
  * replace the hostname with window.location.hostname instead. This ensures the
@@ -16,7 +17,9 @@
 export function getApiBaseUrl(): string {
   // Use || (not ??) so an accidentally-baked empty string falls back to the default.
   const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.API_PORT || 4000}`;
-  if (typeof window === "undefined") return baked;
+  if (typeof window === "undefined") {
+    return process.env.SERVER_API_BASE_URL || baked;
+  }
 
   // Client-side: if the baked URL is a local loopback alias, use the browser's
   // actual hostname so the session cookie is included in API requests.

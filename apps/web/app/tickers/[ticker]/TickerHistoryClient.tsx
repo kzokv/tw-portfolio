@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Wrench } from "lucide-react";
 import type { LocaleCode, TransactionHistoryItemDto, AccountDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
@@ -18,6 +18,9 @@ import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble"
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
+import { useEventStream } from "../../../hooks/useEventStream";
+import { RepairModal, type RepairModalValue } from "../../../features/settings/components/RepairModal";
+import { requestRepair, type RepairInstrumentDto } from "../../../features/settings/services/repairService";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -27,6 +30,41 @@ interface TickerHistoryClientProps {
   accountId: string;
   accounts: AccountDto[];
   statsBar: React.ReactNode;
+  instrument: RepairInstrumentDto | null;
+  isDemo: boolean;
+}
+
+const DEFAULT_COOLDOWN_MINUTES = 60;
+const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
+
+function resolveCooldownMinutes(_instrument: RepairInstrumentDto | null): number {
+  return DEFAULT_COOLDOWN_MINUTES;
+}
+
+function resolveLastRepairAt(instrument: RepairInstrumentDto | null): Date | null {
+  const raw = instrument?.lastRepairAt ?? null;
+  if (!raw) return null;
+  const value = new Date(raw);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function getCooldownRemainingMinutes(instrument: RepairInstrumentDto | null, now = new Date()): number {
+  const lastRepairAt = resolveLastRepairAt(instrument);
+  if (!lastRepairAt) return 0;
+  const cooldownMs = resolveCooldownMinutes(instrument) * 60 * 1000;
+  const elapsed = now.getTime() - lastRepairAt.getTime();
+  if (elapsed >= cooldownMs) return 0;
+  return Math.max(1, Math.ceil((cooldownMs - elapsed) / (60 * 1000)));
+}
+
+function formatLastRepairTime(locale: LocaleCode, value: Date): string {
+  return new Intl.DateTimeFormat(locale === "zh-TW" ? "zh-TW" : "en", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
 }
 
 export function TickerHistoryClient({
@@ -37,15 +75,33 @@ export function TickerHistoryClient({
   accountId,
   accounts,
   statsBar,
+  instrument,
+  isDemo,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const [isClientReady, setIsClientReady] = useState(false);
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
+  const [isRepairDialogOpen, setIsRepairDialogOpen] = useState(false);
+  const [isRepairSubmitting, setIsRepairSubmitting] = useState(false);
+  const [repairMessage, setRepairMessage] = useState("");
+  const [repairError, setRepairError] = useState("");
+  const [repairInProgress, setRepairInProgress] = useState(false);
+  const [instrumentState, setInstrumentState] = useState<RepairInstrumentDto | null>(instrument);
+  const [repairValue, setRepairValue] = useState<RepairModalValue>({
+    startDate: "",
+    endDate: "",
+    includeBars: true,
+    includeDividends: true,
+  });
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
 
   useEffect(() => {
     setIsClientReady(true);
   }, []);
+
+  useEffect(() => {
+    setInstrumentState(instrument);
+  }, [instrument]);
 
   const refresh = useCallback(async () => {
     router.refresh();
@@ -83,25 +139,101 @@ export function TickerHistoryClient({
     [ticker, accountId, submission],
   );
 
-  const lockedAccountOptions = accounts
-    .filter((account) => account.id === accountId)
-    .map((account) => ({ id: account.id, name: account.name }));
+  const lockedAccountOptions = accounts.filter((account) => account.id === accountId).map((account) => ({ id: account.id, name: account.name }));
+
+  const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState), [instrumentState]);
+  const isBackfillBusy = instrumentState?.barsBackfillStatus === "pending" || instrumentState?.barsBackfillStatus === "backfilling";
+  const repairDisabled = isDemo || isBackfillBusy || cooldownRemaining > 0 || isRepairSubmitting;
+  const lastRepairAt = resolveLastRepairAt(instrumentState);
+  const statusText = repairInProgress
+    ? dict.tickerHistory.repairStatusRunning
+    : lastRepairAt
+      ? `${dict.tickerHistory.repairStatusLastRun}: ${formatLastRepairTime(locale, lastRepairAt)}`
+      : dict.tickerHistory.repairStatusIdle;
+  const repairDisabledReason = isDemo
+    ? "Demo mode"
+    : isBackfillBusy
+      ? dict.settings.repairModeUnavailableBackfill
+      : cooldownRemaining > 0
+        ? dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(cooldownRemaining))
+        : "";
+
+  async function handleRepairSubmit(): Promise<void> {
+    setIsRepairSubmitting(true);
+    setRepairMessage("");
+    setRepairError("");
+    try {
+      const response = await requestRepair({
+        tickers: [ticker],
+        startDate: repairValue.startDate || undefined,
+        endDate: repairValue.endDate || undefined,
+        includeBars: repairValue.includeBars,
+        includeDividends: repairValue.includeDividends,
+      });
+
+      if (response.queued.includes(ticker)) {
+        setRepairInProgress(true);
+        setRepairMessage(dict.tickerHistory.repairToastQueued);
+      }
+      if (response.rejected.length > 0) {
+        setRepairError(response.rejected.map((item) => `${item.ticker}: ${item.reason}`).join(" | "));
+      } else {
+        setIsRepairDialogOpen(false);
+      }
+    } catch (err) {
+      setRepairError(err instanceof Error ? err.message : dict.settings.repairRequestError);
+    } finally {
+      setIsRepairSubmitting(false);
+    }
+  }
+
+  const handleRepairEvent = useCallback(
+    (eventData: unknown) => {
+      const event = eventData as { type: string; ticker?: string; reason?: string };
+      if (event.ticker !== ticker) return;
+
+      if (event.type === "repair_started") {
+        setRepairInProgress(true);
+        setRepairMessage(dict.tickerHistory.repairStatusRunning);
+      }
+
+      if (event.type === "repair_complete") {
+        setRepairInProgress(false);
+        setRepairMessage(dict.tickerHistory.repairToastCompleted);
+        setInstrumentState((prev) =>
+          prev ? { ...prev, lastRepairAt: new Date().toISOString() } : prev,
+        );
+      }
+
+      if (event.type === "repair_failed") {
+        setRepairInProgress(false);
+        setRepairError(event.reason ? `${dict.tickerHistory.repairToastFailed} ${event.reason}` : dict.tickerHistory.repairToastFailed);
+      }
+    },
+    [ticker, dict],
+  );
+
+  useEventStream({
+    eventTypes: REPAIR_EVENT_TYPES,
+    enabled: true,
+    onEvent: handleRepairEvent,
+  });
 
   return (
     <>
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
-      <section
-        className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8"
-        data-testid="ticker-history-section"
-      >
+      <section className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8" data-testid="ticker-history-section">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.tickerHistory.eyebrow}</p>
             <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="ticker-history-title">
               {ticker}
             </h1>
+            <p className="mt-2 text-xs text-slate-500" data-testid="repair-status-badge">
+              {statusText}
+            </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Link
               href="/portfolio"
               className="inline-flex items-center justify-center rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50"
@@ -109,10 +241,17 @@ export function TickerHistoryClient({
               {dict.tickerHistory.backToDashboard}
             </Link>
             <Button
-              onClick={() => setIsRecordDialogOpen(true)}
-              data-testid="record-transaction-button"
+              variant="secondary"
+              onClick={() => setIsRepairDialogOpen(true)}
+              disabled={repairDisabled}
               className="gap-1.5"
+              title={repairDisabledReason || dict.tickerHistory.repairButtonCooldownTooltip}
+              data-testid="repair-button"
             >
+              <Wrench className="h-4 w-4" />
+              {dict.tickerHistory.repairAction}
+            </Button>
+            <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
               <Plus className="h-4 w-4" />
               {dict.tickerHistory.recordTransaction}
             </Button>
@@ -124,9 +263,7 @@ export function TickerHistoryClient({
         </div>
       </section>
 
-      <FloatingStatsBubble visible={!statsVisible}>
-        {statsBar}
-      </FloatingStatsBubble>
+      <FloatingStatsBubble visible={!statsVisible}>{statsBar}</FloatingStatsBubble>
 
       <RecordTransactionDialog
         open={isRecordDialogOpen}
@@ -141,6 +278,18 @@ export function TickerHistoryClient({
         title={dict.tickerHistory.recordTransaction}
         dict={dict}
         tickerReadOnly
+      />
+
+      <RepairModal
+        open={isRepairDialogOpen}
+        pending={isRepairSubmitting}
+        title={`${dict.tickerHistory.repairAction} ${ticker}`}
+        subtitle={statusText}
+        value={repairValue}
+        onOpenChange={setIsRepairDialogOpen}
+        onChange={setRepairValue}
+        onSubmit={handleRepairSubmit}
+        dict={dict}
       />
 
       <div className="mt-6">
@@ -159,7 +308,9 @@ export function TickerHistoryClient({
 
       <DeleteConfirmationDialog
         open={mutations.isDeleteDialogOpen}
-        onOpenChange={(open) => { if (!open) mutations.cancelDelete(); }}
+        onOpenChange={(open) => {
+          if (!open) mutations.cancelDelete();
+        }}
         transaction={mutations.deleteTarget}
         preview={mutations.deletePreview}
         isLoading={mutations.isDeletePreviewLoading}
@@ -169,7 +320,9 @@ export function TickerHistoryClient({
       />
       <EditConfirmationDialog
         open={mutations.isEditPreviewOpen}
-        onOpenChange={(open) => { if (!open) mutations.cancelEditPreview(); }}
+        onOpenChange={(open) => {
+          if (!open) mutations.cancelEditPreview();
+        }}
         preview={mutations.editPreview}
         isLoading={mutations.isEditPreviewLoading}
         dict={dict}
@@ -177,7 +330,9 @@ export function TickerHistoryClient({
       />
       <FeeRecalcConfirmDialog
         open={mutations.isFeeConfirmOpen}
-        onOpenChange={(open) => { if (!open) mutations.cancelEdit(); }}
+        onOpenChange={(open) => {
+          if (!open) mutations.cancelEdit();
+        }}
         onRecalculate={mutations.confirmFeeRecalc}
         onKeepManual={mutations.keepManualFees}
         dict={dict}
@@ -185,6 +340,8 @@ export function TickerHistoryClient({
 
       <StatusToast message={mutations.message} variant="success" testId="mutation-status" />
       <StatusToast message={mutations.errorMessage} variant="error" testId="mutation-error" />
+      <StatusToast message={repairMessage} variant="success" testId="repair-status" />
+      <StatusToast message={repairError} variant="error" testId="repair-error" />
     </>
   );
 }

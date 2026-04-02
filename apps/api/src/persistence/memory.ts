@@ -40,6 +40,7 @@ interface MemoryInstrument {
   instrumentType: string | null;
   marketCode: string;
   barsBackfillStatus: string;
+  lastRepairAt?: string | null;
   delistedAt?: string;
 }
 
@@ -453,12 +454,40 @@ export class MemoryPersistence implements Persistence {
 
   // --- Instruments ---
 
-  async getInstrument(_ticker: string): Promise<import("./types.js").InstrumentRow | null> {
-    return null; // Memory persistence has no instruments table
+  async getInstrument(ticker: string): Promise<import("./types.js").InstrumentRow | null> {
+    const instrument =
+      this.instruments.get(ticker)
+      ?? [...this.instrumentsByUser.values()]
+        .map((catalog) => catalog.get(ticker))
+        .find((item): item is MemoryInstrument => Boolean(item));
+    if (!instrument) return null;
+    const now = new Date().toISOString();
+    return {
+      ticker: instrument.ticker,
+      instrumentType: (instrument.instrumentType as import("@tw-portfolio/domain").InstrumentType) ?? null,
+      marketCode: instrument.marketCode,
+      name: instrument.name ?? undefined,
+      isProvisional: false,
+      barsBackfillStatus: instrument.barsBackfillStatus as import("@tw-portfolio/domain").BackfillStatus,
+      lastRepairAt: instrument.lastRepairAt ?? undefined,
+      verificationStatus: "unverified",
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   async updateBackfillStatus(_ticker: string, _status: import("@tw-portfolio/domain").BackfillStatus): Promise<void> {
     // No-op in memory mode
+  }
+
+  async updateLastRepairAt(ticker: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const catalog of [this.instruments, ...this.instrumentsByUser.values()]) {
+      const current = catalog.get(ticker);
+      if (current) {
+        catalog.set(ticker, { ...current, lastRepairAt: now });
+      }
+    }
   }
 
   // --- Monitored Tickers ---
@@ -491,6 +520,7 @@ export class MemoryPersistence implements Persistence {
         name: instrument?.name ?? null,
         instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
         barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
+        lastRepairAt: instrument?.lastRepairAt ?? null,
       });
     }
 
@@ -504,6 +534,7 @@ export class MemoryPersistence implements Persistence {
         name: instrument?.name ?? null,
         instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
         barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
+        lastRepairAt: instrument?.lastRepairAt ?? null,
       });
     }
 
@@ -562,6 +593,7 @@ export class MemoryPersistence implements Persistence {
       instrumentType: i.instrumentType as InstrumentCatalogItemDto["instrumentType"],
       marketCode: i.marketCode,
       barsBackfillStatus: i.barsBackfillStatus,
+      lastRepairAt: i.lastRepairAt ?? null,
     }));
   }
 
