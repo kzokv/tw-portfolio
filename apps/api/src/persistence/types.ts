@@ -51,6 +51,7 @@ export interface InstrumentRow extends InstrumentRef {
   industryCategoryRaw?: string;
   finmindDate?: string;
   delistedAt?: string;
+  lastRepairAt?: string;
   statusReason?: string;
   barsBackfillStatus: BackfillStatus;
   verificationStatus: VerificationStatus;
@@ -130,6 +131,7 @@ export interface Persistence {
   // Instruments
   getInstrument(ticker: string): Promise<InstrumentRow | null>;
   updateBackfillStatus(ticker: string, status: BackfillStatus): Promise<void>;
+  updateLastRepairAt(ticker: string): Promise<void>;
 
   // Monitored tickers
   getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]>;

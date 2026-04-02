@@ -13,6 +13,16 @@ export interface TTickerDetailElements {
   tickerStatsBar: Locator;
   tickerQuantityStat: Locator;
   tickerAvgCostStat: Locator;
+  repairButton: Locator;
+  repairStatusBadge: Locator;
+  repairDialog: Locator;
+  repairStartDateInput: Locator;
+  repairEndDateInput: Locator;
+  repairIncludeBarsCheckbox: Locator;
+  repairIncludeDividendsCheckbox: Locator;
+  repairSubmitButton: Locator;
+  repairSuccessToast: Locator;
+  repairErrorToast: Locator;
   transactionRows: Locator;
   mutationStatus: Locator;
   deleteDialog: DeleteDialogComponent;
@@ -30,6 +40,46 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
       tickerStatsBar: this.locate("ticker-stats-bar", "Ticker Stats Bar"),
       tickerQuantityStat: this.locate("ticker-history-quantity", "Ticker Quantity Stat"),
       tickerAvgCostStat: this.locate("ticker-history-avg-cost", "Ticker Average Cost Stat"),
+      repairButton: this.withDescription(
+        this.page.getByTestId("repair-button"),
+        "Ticker Repair Button",
+      ),
+      repairStatusBadge: this.withDescription(
+        this.page.getByTestId("repair-status-badge"),
+        "Ticker Repair Status Badge",
+      ),
+      repairDialog: this.withDescription(
+        this.page.getByTestId("repair-modal"),
+        "Ticker Repair Dialog",
+      ),
+      repairStartDateInput: this.withDescription(
+        this.page.getByTestId("repair-start-date"),
+        "Ticker Repair Start Date Input",
+      ),
+      repairEndDateInput: this.withDescription(
+        this.page.getByTestId("repair-end-date"),
+        "Ticker Repair End Date Input",
+      ),
+      repairIncludeBarsCheckbox: this.withDescription(
+        this.page.getByTestId("repair-include-bars"),
+        "Ticker Repair Include Bars Checkbox",
+      ),
+      repairIncludeDividendsCheckbox: this.withDescription(
+        this.page.getByTestId("repair-include-dividends"),
+        "Ticker Repair Include Dividends Checkbox",
+      ),
+      repairSubmitButton: this.withDescription(
+        this.page.getByTestId("repair-submit"),
+        "Ticker Repair Submit Button",
+      ),
+      repairSuccessToast: this.withDescription(
+        this.page.locator('[data-testid="repair-status"], [data-testid="mutation-status"]').first(),
+        "Ticker Repair Success Toast",
+      ),
+      repairErrorToast: this.withDescription(
+        this.page.locator('[data-testid="repair-error"], [data-testid="mutation-error"]').first(),
+        "Ticker Repair Error Toast",
+      ),
       transactionRows: this.withDescription(
         this.page.getByTestId("transaction-row"),
         "Transaction Rows",

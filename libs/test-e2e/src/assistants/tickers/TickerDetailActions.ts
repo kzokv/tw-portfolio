@@ -123,4 +123,42 @@ export class TickerDetailActions extends AppBaseActions {
   async cancelEditConfirmation(): Promise<void> {
     await this.uiActions.click.perform(this.el.editForm.elements.dialogCancelButton);
   }
+
+  @Step()
+  async openRepairDialog(): Promise<void> {
+    await this.waitForClientReady();
+    await this.uiActions.click.perform(this.el.repairButton);
+    await expect(this.el.repairDialog).toBeVisible();
+  }
+
+  @Step()
+  async setRepairDateRange(startDate: string, endDate: string): Promise<void> {
+    await this.mxFill(this.el.repairStartDateInput, startDate);
+    await this.mxFill(this.el.repairEndDateInput, endDate);
+  }
+
+  @Step()
+  async setRepairIncludeBars(enabled: boolean): Promise<void> {
+    const checked = await this.el.repairIncludeBarsCheckbox.isChecked();
+    if (checked !== enabled) {
+      await this.uiActions.click.perform(this.el.repairIncludeBarsCheckbox);
+    }
+  }
+
+  @Step()
+  async setRepairIncludeDividends(enabled: boolean): Promise<void> {
+    const checked = await this.el.repairIncludeDividendsCheckbox.isChecked();
+    if (checked !== enabled) {
+      await this.uiActions.click.perform(this.el.repairIncludeDividendsCheckbox);
+    }
+  }
+
+  @Step()
+  async submitRepair(): Promise<import("@playwright/test").Response> {
+    const responsePromise = this.page.waitForResponse(
+      (r) => r.url().includes("/backfill/repair") && r.request().method() === "POST",
+    );
+    await this.uiActions.click.perform(this.el.repairSubmitButton);
+    return responsePromise;
+  }
 }

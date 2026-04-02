@@ -1,6 +1,7 @@
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { apiUrl } from "../../utils/url.js";
 
 import type { TickerDetailPage } from "../../pages/tickers/TickerDetailPage.js";
 
@@ -13,6 +14,15 @@ interface TSeedTradeOptions {
   tradeDate?: string;
   type?: "BUY" | "SELL";
   isDayTrade?: boolean;
+}
+
+interface TSeedInstrumentOptions {
+  ticker: string;
+  name: string | null;
+  instrumentType: string | null;
+  marketCode: string;
+  barsBackfillStatus: string;
+  lastRepairAt?: string;
 }
 
 export class TickerDetailArrange extends BaseArrange {
@@ -44,5 +54,41 @@ export class TickerDetailArrange extends BaseArrange {
       },
     );
     if (!res.ok()) throw new Error(`seedTrade failed: ${res.status()} ${await res.text()}`);
+  }
+
+  @Step()
+  async seedInstruments(instruments: TSeedInstrumentOptions[]): Promise<void> {
+    if (!this.userId) throw new Error("seedInstruments requires userId");
+
+    const response = await this.request.post(apiUrl("/__e2e/seed-instruments"), {
+      headers: { "x-user-id": this.userId },
+      data: { instruments },
+    });
+    if (!response.ok()) throw new Error(`seedInstruments failed: ${response.status()} ${await response.text()}`);
+  }
+
+  @Step()
+  async setManualMonitoredTickers(tickers: string[]): Promise<void> {
+    if (!this.userId) throw new Error("setManualMonitoredTickers requires userId");
+
+    const response = await this.request.put(apiUrl("/monitored-tickers"), {
+      headers: { "x-user-id": this.userId },
+      data: { tickers },
+    });
+    if (!response.ok()) throw new Error(`setManualMonitoredTickers failed: ${response.status()} ${await response.text()}`);
+  }
+
+  @Step()
+  async publishRepairEvent(eventType: "repair_started" | "repair_complete" | "repair_failed", data: Record<string, unknown>): Promise<void> {
+    if (!this.userId) throw new Error("publishRepairEvent requires userId");
+
+    const response = await this.request.post(apiUrl("/__test/publish-event"), {
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": this.userId,
+      },
+      data: { type: eventType, data },
+    });
+    if (!response.ok()) throw new Error(`publishRepairEvent failed: ${response.status()} ${await response.text()}`);
   }
 }

@@ -14,6 +14,7 @@ export const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX_MUTATIONS: z.coerce.number().int().positive().default(120),
+  REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
   // Google OAuth — required when AUTH_MODE=oauth.
   // GOOGLE_CLIENT_ID: OAuth 2.0 client ID from Google Cloud Console credentials.
   // GOOGLE_CLIENT_SECRET: paired secret; never expose to clients.

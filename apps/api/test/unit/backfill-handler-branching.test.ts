@@ -78,8 +78,12 @@ describe("backfill handler trigger branching", () => {
 
     expect(deps.updateBackfillStatus).toHaveBeenCalledTimes(1);
     expect(deps.updateBackfillStatus).toHaveBeenCalledWith("2330", "ready");
-    expect(deps.finmind.fetchDailyBars).toHaveBeenCalledWith("2330", "2026-03-24");
-    expect(deps.finmind.fetchDividendEvents).toHaveBeenCalledWith("2330", "2026-03-24");
+    const barsCall = deps.finmind.fetchDailyBars.mock.calls[0] ?? [];
+    const dividendsCall = deps.finmind.fetchDividendEvents.mock.calls[0] ?? [];
+    expect(barsCall[0]).toBe("2330");
+    expect(barsCall[1]).toBe("2026-03-24");
+    expect(dividendsCall[0]).toBe("2330");
+    expect(dividendsCall[1]).toBe("2026-03-24");
     expect(deps.getUsersMonitoringTicker).toHaveBeenCalledWith("2330");
     expect(deps.eventBus.publishEvent).toHaveBeenCalledTimes(2);
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-1", "daily_refresh_complete", {
@@ -181,5 +185,131 @@ describe("backfill handler trigger branching", () => {
     );
     expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
     expect(deps.finmind.fetchDailyBars).not.toHaveBeenCalled();
+  });
+
+  it("repair flow: emits repair lifecycle events and skips backfill status mutations", async () => {
+    const deps = createDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        userId: "user-repair",
+        trigger: "repair",
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+      }) as never,
+    ]);
+
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
+    expect(deps.finmind.fetchDailyBars).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
+    expect(deps.finmind.fetchDividendEvents).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-repair", "repair_started", { ticker: "2330" });
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
+      ticker: "2330",
+      barsCount: 1,
+      dividendsCount: 1,
+    });
+    expect(deps.getUsersMonitoringTicker).not.toHaveBeenCalled();
+  });
+
+  it("repair flow: includeBars=false skips bars fetch and counts only dividends", async () => {
+    const deps = createDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        userId: "user-repair",
+        trigger: "repair",
+        includeBars: false,
+        includeDividends: true,
+      }) as never,
+    ]);
+
+    expect(deps.finmind.fetchDailyBars).not.toHaveBeenCalled();
+    expect(deps.finmind.fetchDividendEvents).toHaveBeenCalledTimes(1);
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
+      ticker: "2330",
+      barsCount: 0,
+      dividendsCount: 1,
+    });
+  });
+
+  it("repair flow: includeDividends=false skips dividends fetch and counts only bars", async () => {
+    const deps = createDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        userId: "user-repair",
+        trigger: "repair",
+        includeBars: true,
+        includeDividends: false,
+      }) as never,
+    ]);
+
+    expect(deps.finmind.fetchDailyBars).toHaveBeenCalledTimes(1);
+    expect(deps.finmind.fetchDividendEvents).not.toHaveBeenCalled();
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
+      ticker: "2330",
+      barsCount: 1,
+      dividendsCount: 0,
+    });
+  });
+
+  it("repair flow: on final retry emits repair_failed and never updates backfill status", async () => {
+    const deps = createDeps();
+    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("repair bars failed"));
+    const handler = createBackfillHandler(deps as never);
+
+    await expect(
+      handler([
+        createJob(
+          {
+            ticker: "2330",
+            userId: "user-repair",
+            trigger: "repair",
+          },
+          3,
+          3,
+        ) as never,
+      ]),
+    ).rejects.toThrow("repair bars failed");
+
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-repair", "repair_started", { ticker: "2330" });
+    expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_failed", {
+      ticker: "2330",
+      reason: "repair bars failed",
+      retriesExhausted: true,
+    });
+  });
+
+  it("rate-limiter cost: repair with single dataset consumes one call and preserves job priority on reschedule", async () => {
+    const deps = createDeps();
+    deps.rateLimiter.canConsume.mockImplementation((cost: number) => cost < 2);
+    deps.rateLimiter.msUntilAvailable.mockReturnValue(20_000);
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob(
+        {
+          ticker: "2330",
+          userId: "user-repair",
+          trigger: "repair",
+          includeBars: false,
+          includeDividends: true,
+        },
+        0,
+        3,
+        5,
+      ) as never,
+    ]);
+
+    expect(deps.rateLimiter.canConsume).toHaveBeenCalledWith(1);
+    expect(deps.boss.send).not.toHaveBeenCalled();
+    expect(deps.rateLimiter.consume).toHaveBeenCalledWith(1);
   });
 });

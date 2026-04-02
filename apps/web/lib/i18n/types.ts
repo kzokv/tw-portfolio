@@ -117,6 +117,15 @@ export interface AppDictionary {
     marketValueLabel: string;
     totalCostLabel: string;
     recordTransaction: string;
+    repairAction: string;
+    repairStatusIdle: string;
+    repairStatusRunning: string;
+    repairStatusCooldown: string;
+    repairStatusLastRun: string;
+    repairToastQueued: string;
+    repairToastCompleted: string;
+    repairToastFailed: string;
+    repairButtonCooldownTooltip: string;
     noHoldingData: string;
   };
   feedback: {
@@ -221,6 +230,29 @@ export interface AppDictionary {
     tickersSaved: string;
     tickersSaveError: string;
     tickersPositionLocked: string;
+    repairModeEnter: string;
+    repairModeExit: string;
+    repairModeTitle: string;
+    repairModeDescription: string;
+    repairModeContinue: string;
+    repairModeSelectedCount: string;
+    repairModeSelectionLimit: string;
+    repairModeUnavailableBackfill: string;
+    repairModeUnavailableCooldown: string;
+    repairPerTickerMode: string;
+    repairApplyAllMode: string;
+    repairStartDate: string;
+    repairEndDate: string;
+    repairIncludeTitle: string;
+    repairIncludeBars: string;
+    repairIncludeDividends: string;
+    repairValidationSelectOne: string;
+    repairSubmit: string;
+    repairSubmitting: string;
+    repairModalClose: string;
+    repairRequestPartial: string;
+    repairRequestSuccess: string;
+    repairRequestError: string;
   };
   recompute: {
     title: string;

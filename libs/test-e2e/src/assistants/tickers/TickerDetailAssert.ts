@@ -216,4 +216,34 @@ export class TickerDetailAssert extends BaseAssert {
   async recordDialogTickerIsReadOnly(): Promise<void> {
     await expect(this.el.recordDialog.elements.tickerCombobox).toHaveAttribute("readonly", "");
   }
+
+  @Step()
+  async repairButtonIsVisible(): Promise<void> {
+    await expect(this.el.repairButton).toBeVisible();
+  }
+
+  @Step()
+  async repairDialogIsVisible(): Promise<void> {
+    await expect(this.el.repairDialog).toBeVisible();
+  }
+
+  @Step()
+  async repairDialogIsHidden(): Promise<void> {
+    await expect(this.el.repairDialog).not.toBeVisible();
+  }
+
+  @Step()
+  async repairStatusBadgeContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.repairStatusBadge).toContainText(text);
+  }
+
+  @Step()
+  async repairSuccessToastContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.repairSuccessToast).toContainText(text);
+  }
+
+  @Step()
+  async repairErrorToastContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.repairErrorToast).toContainText(text);
+  }
 }

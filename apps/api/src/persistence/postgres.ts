@@ -2365,6 +2365,7 @@ export class PostgresPersistence implements Persistence {
       status_reason: string | null;
       bars_backfill_status: string;
       last_synced_at: string | null;
+      last_repair_at: string | null;
       verification_status: string;
       verification_note: string | null;
       created_at: string;
@@ -2373,7 +2374,7 @@ export class PostgresPersistence implements Persistence {
       `SELECT ticker, instrument_type, market_code, name, is_provisional,
               type_raw, industry_category_raw, finmind_date,
               delisted_at::text, status_reason,
-              bars_backfill_status, last_synced_at::text,
+              bars_backfill_status, last_synced_at::text, last_repair_at::text,
               verification_status, verification_note,
               created_at::text, updated_at::text
        FROM market_data.instruments WHERE ticker = $1`,
@@ -2394,6 +2395,7 @@ export class PostgresPersistence implements Persistence {
       delistedAt: r.delisted_at ?? undefined,
       statusReason: r.status_reason ?? undefined,
       barsBackfillStatus: r.bars_backfill_status as import("@tw-portfolio/domain").BackfillStatus,
+      lastRepairAt: r.last_repair_at ?? undefined,
       verificationStatus: r.verification_status as import("@tw-portfolio/domain").VerificationStatus,
       verificationNote: r.verification_note ?? undefined,
       createdAt: r.created_at,
@@ -2406,6 +2408,15 @@ export class PostgresPersistence implements Persistence {
     await this.pool.query(
       `UPDATE market_data.instruments SET bars_backfill_status = $1, updated_at = CURRENT_TIMESTAMP${extra} WHERE ticker = $2`,
       [status, ticker],
+    );
+  }
+
+  async updateLastRepairAt(ticker: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE market_data.instruments
+       SET last_repair_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE ticker = $1`,
+      [ticker],
     );
   }
 
@@ -2483,6 +2494,7 @@ export class PostgresPersistence implements Persistence {
       name: string | null;
       instrument_type: string | null;
       bars_backfill_status: string | null;
+      last_repair_at: string | null;
     }>(
       `WITH manual AS (
          SELECT ums.ticker, 'manual'::text AS source
@@ -2502,7 +2514,7 @@ export class PostgresPersistence implements Persistence {
          WHERE ticker NOT IN (SELECT ticker FROM manual)
        )
        SELECT c.ticker, c.source,
-              i.name, i.instrument_type, i.bars_backfill_status
+              i.name, i.instrument_type, i.bars_backfill_status, i.last_repair_at::text
        FROM combined c
        LEFT JOIN market_data.instruments i ON i.ticker = c.ticker`,
       [userId],
@@ -2514,6 +2526,7 @@ export class PostgresPersistence implements Persistence {
       name: row.name,
       instrumentType: (row.instrument_type as MonitoredTickerDto["instrumentType"]) ?? null,
       barsBackfillStatus: row.bars_backfill_status,
+      lastRepairAt: row.last_repair_at,
     }));
   }
 
@@ -2625,8 +2638,9 @@ export class PostgresPersistence implements Persistence {
       instrument_type: string | null;
       market_code: string;
       bars_backfill_status: string;
+      last_repair_at: string | null;
     }>(
-      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status
+      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status, last_repair_at::text
        FROM market_data.instruments i ${where}
        ORDER BY ticker`,
       params,
@@ -2638,6 +2652,7 @@ export class PostgresPersistence implements Persistence {
       instrumentType: (row.instrument_type as InstrumentCatalogItemDto["instrumentType"]) ?? null,
       marketCode: row.market_code,
       barsBackfillStatus: row.bars_backfill_status,
+      lastRepairAt: row.last_repair_at,
     }));
   }
 

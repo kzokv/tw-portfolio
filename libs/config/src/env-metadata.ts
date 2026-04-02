@@ -9,7 +9,7 @@ export const envGroups: EnvGroup[] = [
   { label: "Application ports", keys: ["API_PORT", "WEB_PORT", "DB_PORT", "REDIS_PORT"] },
   { label: "Database/Redis URLs", keys: ["DB_URL", "REDIS_URL"] },
   { label: "Market data providers", keys: ["DATA_PROVIDER_TIMEOUT_MS", "PRIMARY_PROVIDER", "FALLBACK_PROVIDER"] },
-  { label: "Security/Tuning", keys: ["ALLOWED_ORIGINS", "RATE_LIMIT_WINDOW_MS", "RATE_LIMIT_MAX_MUTATIONS"] },
+  { label: "Security/Tuning", keys: ["ALLOWED_ORIGINS", "RATE_LIMIT_WINDOW_MS", "RATE_LIMIT_MAX_MUTATIONS", "REPAIR_COOLDOWN_MINUTES"] },
   {
     label: "Google OAuth",
     keys: [
@@ -54,6 +54,7 @@ export const dockerCloudGroups: EnvGroup[] = [
       "FALLBACK_PROVIDER",
       "RATE_LIMIT_WINDOW_MS",
       "RATE_LIMIT_MAX_MUTATIONS",
+      "REPAIR_COOLDOWN_MINUTES",
     ],
   },
   { label: "State paths", keys: ["TWP_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
@@ -77,6 +78,7 @@ export const dockerLocalGroups: EnvGroup[] = [
       "FALLBACK_PROVIDER",
       "RATE_LIMIT_WINDOW_MS",
       "RATE_LIMIT_MAX_MUTATIONS",
+      "REPAIR_COOLDOWN_MINUTES",
     ],
   },
   { label: "Docker", keys: ["IMAGE_TAG"] },

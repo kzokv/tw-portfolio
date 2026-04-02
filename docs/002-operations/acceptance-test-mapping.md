@@ -2,17 +2,20 @@
 
 ## Test Suite Overview
 
-Seven required suites. All must pass before declaring "tests pass."
+Eight required suites. All must pass before declaring "tests pass."
 
 | # | Suite | Command | Runner | Auth Mode |
 |---|-------|---------|--------|-----------|
 | 1 | Lint | `npx eslint .` | ESLint | n/a |
 | 2 | Typecheck | `npm run typecheck` | tsc | n/a |
 | 3 | Web unit | `npm run test --prefix apps/web` | Vitest | n/a |
-| 4 | API integration | `npm run test:integration:full:host` | Vitest | Postgres |
-| 5 | E2E bypass | `npm run test:e2e:bypass:mem --prefix apps/web` | Playwright | dev_bypass |
-| 6 | E2E OAuth | `npm run test:e2e:oauth:mem --prefix apps/web` | Playwright | oauth |
-| 7 | API HTTP | `npm run test:http --prefix apps/api` | Playwright | oauth |
+| 4 | API package | `npm run test --prefix apps/api` | Vitest | Memory |
+| 5 | API integration | `npm run test:integration:full:host` | Vitest | Postgres |
+| 6 | E2E bypass | `npm run test:e2e:bypass:mem --prefix apps/web` | Playwright | dev_bypass |
+| 7 | E2E OAuth | `npm run test:e2e:oauth:mem --prefix apps/web` | Playwright | oauth |
+| 8 | API HTTP | `npm run test:http --prefix apps/api` | Playwright | oauth |
+
+`npm run test --prefix apps/api` covers API unit tests plus memory-backed integration tests. It does not replace suite 5, which runs the Postgres-backed integration matrix.
 
 ---
 
@@ -100,7 +103,7 @@ Routes covered only by E2E or out of scope for API-only contract suites:
 
 ## E2E Spec File Inventory
 
-### `specs/` (dev_bypass mode, suite 5)
+### `specs/` (dev_bypass mode, suite 6)
 
 | Spec file | Coverage area |
 |-----------|---------------|
@@ -113,7 +116,7 @@ Routes covered only by E2E or out of scope for API-only contract suites:
 | `sse-events.spec.ts` | SSE event delivery (non-AAA, browser-mediated) |
 | `identity-resolution.spec.ts` | Cookie persistence across navigation (non-AAA) |
 
-### `specs-oauth/` (OAuth mode, suite 6)
+### `specs-oauth/` (OAuth mode, suite 7)
 
 | Spec file | Coverage area |
 |-----------|---------------|
@@ -124,7 +127,7 @@ Routes covered only by E2E or out of scope for API-only contract suites:
 | `routing-aaa.spec.ts` | Protected route redirects, returnTo |
 | `sse-auth.spec.ts` | SSE with OAuth session (non-AAA, browser-mediated) |
 
-### `apps/api/test/http/specs/` (API HTTP, suite 7)
+### `apps/api/test/http/specs/` (API HTTP, suite 8)
 
 | Spec file | Coverage area |
 |-----------|---------------|
@@ -161,8 +164,8 @@ graph TD
     end
 
     subgraph "Test Suites"
-        E2E["E2E bypass + OAuth<br/>(suites 5 & 6)"]
-        HTTP["API HTTP<br/>(suite 7)"]
+        E2E["E2E bypass + OAuth<br/>(suites 6 & 7)"]
+        HTTP["API HTTP<br/>(suite 8)"]
         UNIT["test-framework unit<br/>(39 tests via vitest)"]
     end
 
@@ -182,8 +185,8 @@ graph TD
 Plain-text:
 
 libs/test-framework (generic AAA core)
-├──► libs/test-e2e (web E2E)  ──► E2E bypass + OAuth specs (suites 5 & 6)
-├──► libs/test-api (API HTTP)  ──► API HTTP specs (suite 7)
+├──► libs/test-e2e (web E2E)  ──► E2E bypass + OAuth specs (suites 6 & 7)
+├──► libs/test-api (API HTTP)  ──► API HTTP specs (suite 8)
 └──► test-framework unit tests (39 vitest tests)
 
 test-e2e ──╳── test-api  (siblings, never import each other)

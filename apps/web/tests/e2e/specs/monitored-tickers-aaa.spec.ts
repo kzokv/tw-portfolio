@@ -206,4 +206,59 @@ test.describe("monitored tickers", () => {
     await settings.assert.catalogItemIsVisible("00679B");
     await settings.assert.catalogItemIsHidden("0050");
   });
+
+  test("repair mode: select tickers → continue opens repair modal", async ({
+    appShell,
+    settings,
+  }) => {
+    // ARRANGE
+    await settings.arrange.seedInstruments([
+      { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+      { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "failed" },
+    ]);
+    await settings.arrange.setManualMonitoredTickers(["2330", "2317"]);
+    await appShell.actions.navigateToRoute("/dashboard");
+    await appShell.actions.openSettingsDrawer();
+    await settings.actions.openTickersTab();
+
+    // ACT
+    await settings.actions.enterRepairMode();
+    await settings.assert.repairModeControlsAreVisible();
+    await settings.actions.selectTickerForRepair("2330");
+    await settings.actions.selectTickerForRepair("2317");
+    await settings.actions.continueToRepairModal();
+
+    // ASSERT
+    await settings.assert.repairModalIsVisible();
+  });
+
+  test("repair mode: cooldown ticker is non-selectable and shows cooldown hint", async ({
+    appShell,
+    settings,
+  }) => {
+    // ARRANGE
+    await settings.arrange.seedInstruments([
+      {
+        ticker: "2330",
+        name: "TSMC",
+        instrumentType: "STOCK",
+        marketCode: "TW",
+        barsBackfillStatus: "ready",
+        lastRepairAt: new Date().toISOString(),
+      },
+      { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+    ]);
+    await settings.arrange.setManualMonitoredTickers(["2330", "2317"]);
+    await appShell.actions.navigateToRoute("/dashboard");
+    await appShell.actions.openSettingsDrawer();
+    await settings.actions.openTickersTab();
+
+    // ACT
+    await settings.actions.enterRepairMode();
+
+    // ASSERT
+    await settings.assert.repairSelectionCheckboxIsDisabled("2330");
+    await settings.assert.repairCooldownHintIsVisible("2330");
+    await settings.assert.repairSelectionCheckboxIsEnabled("2317");
+  });
 });

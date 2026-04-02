@@ -10,6 +10,7 @@ import { StatChip } from "../../../components/ui/StatChip";
 import { requireSession } from "../../../lib/auth";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import type { DashboardOverviewHoldingDto } from "@tw-portfolio/shared-types";
+import { fetchRepairInstrument, type RepairInstrumentDto } from "../../../features/settings/services/repairService";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
@@ -27,11 +28,13 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
+  let instrument: RepairInstrumentDto | null = null;
 
   try {
-    [dashboard, transactions] = await Promise.all([
+    [dashboard, transactions, instrument] = await Promise.all([
       fetchDashboardSnapshot(),
       fetchTransactionHistory({ ticker, accountId: scopedAccountId }),
+      fetchRepairInstrument(ticker),
     ]);
   } catch {
     // render error fallback below
@@ -86,6 +89,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           dict={dict}
           locale={locale}
           ticker={ticker}
+          instrument={instrument}
+          isDemo={session.isDemo}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           statsBar={statsBar}

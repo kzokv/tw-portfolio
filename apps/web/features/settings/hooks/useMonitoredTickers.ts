@@ -9,29 +9,31 @@ import {
   retryBackfill,
   saveMonitoredTickers,
 } from "../services/monitoredTickersService";
+import { requestRepair, type RepairTargetRequest } from "../services/repairService";
 
 export interface UseMonitoredTickersReturn {
-  /** Full monitored set (manual + position-derived) */
   monitoredTickers: MonitoredTickerDto[];
-  /** Full instrument catalog */
   instruments: InstrumentCatalogItemDto[];
-  /** Current manual selection tickers (mutable set) */
   selectedTickers: Set<string>;
-  /** Whether the catalog is showing (full-screen mode) */
   showCatalog: boolean;
   setShowCatalog: (show: boolean) => void;
-  /** Toggle a ticker in the manual selection */
   toggleTicker: (ticker: string) => void;
-  /** Whether selections have changed from the saved state */
   isDirty: boolean;
-  /** Save current selections */
   save: () => Promise<void>;
   isSaving: boolean;
   saveError: string;
   saveSuccess: string;
   isLoading: boolean;
-  /** Retry backfill for a failed ticker */
   retryTicker: (ticker: string) => Promise<void>;
+  repairMode: boolean;
+  setRepairMode: (enabled: boolean) => void;
+  repairSelection: Set<string>;
+  toggleRepairSelection: (ticker: string) => void;
+  clearRepairSelection: () => void;
+  submitRepairRequests: (requests: RepairTargetRequest[]) => Promise<void>;
+  isRepairSubmitting: boolean;
+  repairMessage: string;
+  repairError: string;
 }
 
 export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
@@ -44,14 +46,20 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [repairMode, setRepairMode] = useState(false);
+  const [repairSelection, setRepairSelection] = useState<Set<string>>(new Set());
+  const [isRepairSubmitting, setIsRepairSubmitting] = useState(false);
+  const [repairMessage, setRepairMessage] = useState("");
+  const [repairError, setRepairError] = useState("");
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
-  // Fetch data when drawer opens on the tickers tab
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -59,20 +67,12 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     async function load() {
       setIsLoading(true);
       try {
-        const [tickersRes, catalogRes] = await Promise.all([
-          fetchMonitoredTickers(),
-          fetchInstrumentsCatalog(),
-        ]);
+        const [tickersRes, catalogRes] = await Promise.all([fetchMonitoredTickers(), fetchInstrumentsCatalog()]);
         if (cancelled) return;
         setMonitoredTickers(tickersRes.tickers);
         setInstruments(catalogRes.instruments);
 
-        // Initialize selected tickers from current manual selections
-        const manual = new Set(
-          tickersRes.tickers
-            .filter((s) => s.source === "manual")
-            .map((s) => s.ticker),
-        );
+        const manual = new Set(tickersRes.tickers.filter((s) => s.source === "manual").map((s) => s.ticker));
         setSelectedTickers(manual);
         setSavedTickers(manual);
       } finally {
@@ -81,44 +81,65 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     }
 
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
-  // SSE: listen for backfill events and update badge status (pre-connect pattern)
-  const handleBackfillEvent = useCallback((data: unknown) => {
-    const event = data as { type: string; ticker: string; barsCount?: number; dividendsCount?: number };
-    if (!event.ticker) return;
-
-    const updateStatus = (ticker: string, status: string) => {
-      setMonitoredTickers((prev) =>
-        prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: status } : t)),
-      );
-      setInstruments((prev) =>
-        prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: status } : i)),
-      );
-    };
-
-    switch (event.type) {
-      case "backfill_started":
-        updateStatus(event.ticker, "backfilling");
-        break;
-      case "backfill_complete":
-        updateStatus(event.ticker, "ready");
-        break;
-      case "backfill_failed":
-        updateStatus(event.ticker, "failed");
-        break;
-      case "daily_refresh_complete":
-        updateStatus(event.ticker, "ready");
-        break;
-      case "daily_refresh_failed":
-        updateStatus(event.ticker, "failed");
-        break;
-    }
+  const updateStatus = useCallback((ticker: string, status: string) => {
+    setMonitoredTickers((prev) => prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: status } : t)));
+    setInstruments((prev) => prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: status } : i)));
   }, []);
 
+  const handleBackfillEvent = useCallback(
+    (data: unknown) => {
+      const event = data as { type: string; ticker: string };
+      if (!event.ticker) return;
+
+      switch (event.type) {
+        case "backfill_started":
+          updateStatus(event.ticker, "backfilling");
+          break;
+        case "backfill_complete":
+          updateStatus(event.ticker, "ready");
+          break;
+        case "backfill_failed":
+          updateStatus(event.ticker, "failed");
+          break;
+        case "daily_refresh_complete":
+          updateStatus(event.ticker, "ready");
+          break;
+        case "daily_refresh_failed":
+          updateStatus(event.ticker, "failed");
+          break;
+        case "repair_started":
+          break;
+        case "repair_complete":
+          setMonitoredTickers((prev) =>
+            prev.map((t) => (t.ticker === event.ticker ? { ...t, lastRepairAt: new Date().toISOString() } : t)),
+          );
+          setInstruments((prev) =>
+            prev.map((i) => (i.ticker === event.ticker ? { ...i, lastRepairAt: new Date().toISOString() } : i)),
+          );
+          break;
+        case "repair_failed":
+          break;
+      }
+    },
+    [updateStatus],
+  );
+
   useEventStream({
-    eventTypes: ["backfill_started", "backfill_complete", "backfill_failed", "daily_refresh_complete", "daily_refresh_failed"],
+    eventTypes: [
+      "backfill_started",
+      "backfill_complete",
+      "backfill_failed",
+      "daily_refresh_complete",
+      "daily_refresh_failed",
+      "repair_started",
+      "repair_complete",
+      "repair_failed",
+    ],
     onEvent: handleBackfillEvent,
     enabled: true,
   });
@@ -137,8 +158,7 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     });
   }, []);
 
-  const isDirty = selectedTickers.size !== savedTickers.size ||
-    [...selectedTickers].some((t) => !savedTickers.has(t));
+  const isDirty = selectedTickers.size !== savedTickers.size || [...selectedTickers].some((t) => !savedTickers.has(t));
 
   const save = useCallback(async () => {
     setIsSaving(true);
@@ -158,26 +178,72 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     }
   }, [selectedTickers]);
 
-  const retryTicker = useCallback(async (ticker: string) => {
-    // Optimistic update: set badge to pending
-    setMonitoredTickers((prev) =>
-      prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: "pending" } : t)),
-    );
-    setInstruments((prev) =>
-      prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: "pending" } : i)),
-    );
+  const retryTicker = useCallback(
+    async (ticker: string) => {
+      updateStatus(ticker, "pending");
+      try {
+        await retryBackfill(ticker);
+      } catch {
+        updateStatus(ticker, "failed");
+      }
+    },
+    [updateStatus],
+  );
+
+  const toggleRepairSelection = useCallback((ticker: string) => {
+    setRepairSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticker)) {
+        next.delete(ticker);
+      } else {
+        next.add(ticker);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearRepairSelection = useCallback(() => setRepairSelection(new Set()), []);
+
+  const submitRepairRequests = useCallback(async (requests: RepairTargetRequest[]) => {
+    setIsRepairSubmitting(true);
+    setRepairMessage("");
+    setRepairError("");
+
     try {
-      await retryBackfill(ticker);
-    } catch {
-      // Revert on failure
-      setMonitoredTickers((prev) =>
-        prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: "failed" } : t)),
-      );
-      setInstruments((prev) =>
-        prev.map((i) => (i.ticker === ticker ? { ...i, barsBackfillStatus: "failed" } : i)),
-      );
+      const queued = new Set<string>();
+      const rejected: string[] = [];
+
+      for (const request of requests) {
+        const response = await requestRepair(request);
+        response.queued.forEach((ticker) => queued.add(ticker));
+        response.rejected.forEach((item) => rejected.push(`${item.ticker}: ${item.reason}`));
+      }
+
+      if (!mounted.current) return;
+
+      if (rejected.length > 0 && queued.size > 0) {
+        setRepairMessage("partial");
+        setRepairError(rejected.join(" | "));
+      } else if (rejected.length > 0) {
+        setRepairError(rejected.join(" | "));
+      } else {
+        setRepairMessage("queued");
+      }
+
+      setRepairMode(false);
+      setRepairSelection(new Set());
+    } catch (err) {
+      if (!mounted.current) return;
+      setRepairError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      if (mounted.current) setIsRepairSubmitting(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (repairMode) return;
+    setRepairSelection(new Set());
+  }, [repairMode]);
 
   return {
     monitoredTickers,
@@ -193,5 +259,14 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     saveSuccess,
     isLoading,
     retryTicker,
+    repairMode,
+    setRepairMode,
+    repairSelection,
+    toggleRepairSelection,
+    clearRepairSelection,
+    submitRepairRequests,
+    isRepairSubmitting,
+    repairMessage,
+    repairError,
   };
 }

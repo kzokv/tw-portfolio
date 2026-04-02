@@ -41,9 +41,9 @@ EOF
 Available test commands:
 
   Local:
-    test:all                       Unit + integration + E2E bypass
-    test:all:full                  Unit + full integration (managed DB) + E2E bypass + OAuth + API HTTP
-    test:unit                      Unit tests (all workspaces)
+    test:all                       All workspace unit tests + integration + E2E bypass
+    test:all:full                  All workspace unit tests + full integration (managed DB) + E2E bypass + OAuth + API HTTP
+    test:unit                      All workspace unit tests
     test:integration               Integration tests (no DB migrations)
     test:integration:full:host     Full integration with managed DB (local)
     test:integration:full:container  Full integration (from inside container)

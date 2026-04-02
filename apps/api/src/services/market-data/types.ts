@@ -39,8 +39,8 @@ export interface RawDelistingRecord {
 
 /** Swappable FinMind data provider interface. */
 export interface FinMindProvider {
-  fetchDailyBars(ticker: string, startDate?: string): Promise<RawDailyBar[]>;
-  fetchDividendEvents(ticker: string, startDate?: string): Promise<DividendRecord[]>;
+  fetchDailyBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]>;
+  fetchDividendEvents(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]>;
   fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]>;
   fetchDelistingHistory(): Promise<RawDelistingRecord[]>;
 }

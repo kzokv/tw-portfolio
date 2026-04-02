@@ -31,6 +31,7 @@ describe("monitored tickers", () => {
           name: "TSMC",
           instrumentType: "STOCK",
           barsBackfillStatus: "pending",
+          lastRepairAt: null,
         },
       ]);
     });
@@ -58,6 +59,7 @@ describe("monitored tickers", () => {
           name: "Hon Hai",
           instrumentType: "STOCK",
           barsBackfillStatus: "ready",
+          lastRepairAt: null,
         },
       ]);
     });
@@ -107,6 +109,7 @@ describe("monitored tickers", () => {
           name: null,
           instrumentType: null,
           barsBackfillStatus: null,
+          lastRepairAt: null,
         },
       ]);
     });
