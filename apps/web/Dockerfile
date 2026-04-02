@@ -19,9 +19,14 @@ ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 ARG NEXT_PUBLIC_AUTH_MODE
 ENV NEXT_PUBLIC_AUTH_MODE=${NEXT_PUBLIC_AUTH_MODE}
 
-RUN npm run build -w @tw-portfolio/config \
+# Mitigate intermittent @vercel/nft mkdir failures on Docker overlay2:
+# - UV_THREADPOOL_SIZE=1 serialises filesystem operations during trace
+# - Increased heap avoids GC pressure that amplifies the race
+RUN UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
+    npm run build -w @tw-portfolio/config \
  && npm run build -w @tw-portfolio/shared-types \
- && npm run build -w @tw-portfolio/web
+ && UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
+    npm run build -w @tw-portfolio/web
 
 FROM node:24-alpine
 
