@@ -2,7 +2,7 @@ import { Card } from "../../components/ui/Card";
 import { buttonVariants } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import { isValidReturnTo } from "../../lib/auth";
-import { API_BASE } from "../../lib/api";
+import { API_PUBLIC } from "../../lib/api";
 import { SignInButton } from "../../components/SignInButton";
 import { DemoButton } from "../../components/DemoButton";
 import { WebEnv } from "@tw-portfolio/config/web";
@@ -15,8 +15,8 @@ export default async function LoginPage({ searchParams }: Props) {
   const { returnTo, demoExpired } = await searchParams;
   const validReturnTo = returnTo && isValidReturnTo(returnTo) ? returnTo : null;
   const signInHref = validReturnTo
-    ? `${API_BASE}/auth/google/start?returnTo=${encodeURIComponent(validReturnTo)}`
-    : `${API_BASE}/auth/google/start`;
+    ? `${API_PUBLIC}/auth/google/start?returnTo=${encodeURIComponent(validReturnTo)}`
+    : `${API_PUBLIC}/auth/google/start`;
   const showDemo = WebEnv.DEMO_MODE_ENABLED === "true";
 
   return (

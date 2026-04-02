@@ -14,12 +14,14 @@
  * In production (API on a remote domain) NEXT_PUBLIC_API_BASE_URL is returned
  * unchanged on both server and client.
  */
+/**
+ * The public API URL — reachable by the browser. Used for links rendered into
+ * HTML that the user clicks (OAuth login, logout redirects).
+ * Never returns SERVER_API_BASE_URL (Docker-internal hostname).
+ */
 export function getApiBaseUrl(): string {
-  // Use || (not ??) so an accidentally-baked empty string falls back to the default.
   const baked = process.env.NEXT_PUBLIC_API_BASE_URL || `http://localhost:${process.env.API_PORT || 4000}`;
-  if (typeof window === "undefined") {
-    return process.env.SERVER_API_BASE_URL || baked;
-  }
+  if (typeof window === "undefined") return baked;
 
   // Client-side: if the baked URL is a local loopback alias, use the browser's
   // actual hostname so the session cookie is included in API requests.
@@ -30,7 +32,23 @@ export function getApiBaseUrl(): string {
   return baked;
 }
 
-export const API_BASE = getApiBaseUrl();
+/**
+ * The API URL for fetch() calls. On the server, prefers SERVER_API_BASE_URL
+ * (Docker-internal routing) for faster server-to-server requests.
+ * On the client, returns the public URL.
+ */
+function getFetchApiBaseUrl(): string {
+  if (typeof window === "undefined") {
+    return process.env.SERVER_API_BASE_URL || getApiBaseUrl();
+  }
+  return getApiBaseUrl();
+}
+
+/** Public API URL — safe to render into HTML for browser navigation. */
+export const API_PUBLIC = getApiBaseUrl();
+
+/** Fetch API URL — may be Docker-internal on the server. Use for fetch() only. */
+export const API_BASE = getFetchApiBaseUrl();
 const E2E_USER_COOKIE = "tw_e2e_user";
 
 /**
@@ -120,7 +138,7 @@ async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T>
       window.location.href = "/login?demoExpired=true";
       return new Promise<T>(() => {});
     }
-    window.location.href = `${API_BASE}/auth/logout`;
+    window.location.href = `${API_PUBLIC}/auth/logout`;
     return new Promise<T>(() => {});
   }
   throw await parseError(res, path);

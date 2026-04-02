@@ -17,7 +17,7 @@ import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { API_BASE } from "../../lib/api";
+import { API_PUBLIC } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
@@ -282,7 +282,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         titleTooltip={shellDescription}
         openSettingsLabel={dict.topBar.openSettingsLabel}
         signOutLabel="Sign out"
-        signOutHref={`${API_BASE}/auth/logout`}
+        signOutHref={`${API_PUBLIC}/auth/logout`}
         searchPlaceholder={dict.topBar.searchPlaceholder}
         searchLabel={dict.topBar.searchLabel}
         searchEmptyLabel={dict.topBar.searchEmptyLabel}
