@@ -47,6 +47,10 @@ export type EnvConfig = z.infer<typeof envSchema>;
 export const rootLocalSchema = envSchema.extend({
   NEXT_PUBLIC_AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
   NEXT_PUBLIC_API_BASE_URL: z.string().default("http://localhost:4000"),
+  // Host credentials — used for SSH tunnel from Lume VM to Mac host.
+  // Required when running Docker full stack inside the VM and accessing web via localhost.
+  MAC_USER: z.string().optional(),
+  MAC_PASSWORD: z.string().optional(),
 });
 
 /**

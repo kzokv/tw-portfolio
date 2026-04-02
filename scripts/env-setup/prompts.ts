@@ -209,6 +209,112 @@ export async function promptKeySelection(
   return selected;
 }
 
+/**
+ * Detect whether we're running inside a VM with Docker on a remote host.
+ * Returns the Docker host IP if remote, or null if Docker is local.
+ */
+function detectDockerHostIp(): string | null {
+  const dockerHost = process.env.DOCKER_HOST;
+  if (!dockerHost) return null;
+  try {
+    const url = new URL(dockerHost);
+    const ip = url.hostname;
+    // If Docker host is a non-localhost IP, we're in a VM
+    if (ip && ip !== "localhost" && ip !== "127.0.0.1") return ip;
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * Prompt for a host value with auto-detected options.
+ * If running inside a VM, offers both localhost and the Docker host IP.
+ */
+async function promptHost(
+  label: string,
+  parsedHost?: string,
+): Promise<string> {
+  const { select, input } = await loadPrompts();
+  const dockerHostIp = detectDockerHostIp();
+
+  if (dockerHostIp) {
+    // Inside a VM — offer choices
+    const choices = [
+      {
+        name: `${dockerHostIp}  (Docker host — recommended for VM)`,
+        value: dockerHostIp,
+      },
+      { name: "localhost", value: "localhost" },
+      { name: "Custom...", value: "__custom__" },
+    ];
+
+    // If existing URL had a different host, add it as an option
+    if (parsedHost && parsedHost !== dockerHostIp && parsedHost !== "localhost") {
+      choices.splice(2, 0, { name: `${parsedHost}  (current)`, value: parsedHost });
+    }
+
+    const selected = await select({
+      message: `  ${label} host:`,
+      choices,
+      default: parsedHost ?? dockerHostIp,
+      loop: false,
+    });
+
+    if (selected === "__custom__") {
+      return input({ message: `  ${label} host:`, default: parsedHost ?? dockerHostIp });
+    }
+    return selected;
+  }
+
+  // Not in a VM — simple input with localhost default
+  return input({ message: `  ${label} host:`, default: parsedHost ?? "localhost" });
+}
+
+/**
+ * Compose a URL by prompting for individual components.
+ * Each component has a default; passwords use masked input.
+ * Host auto-detects VM environment and offers Docker host IP.
+ */
+async function promptUrlComponents(
+  key: "DB_URL" | "REDIS_URL",
+  currentUrl?: string,
+): Promise<string | undefined> {
+  const { input, password: passwordPrompt } = await loadPrompts();
+
+  // Parse existing URL into components (if available)
+  let parsed: URL | null = null;
+  if (currentUrl) {
+    try {
+      parsed = new URL(currentUrl);
+    } catch { /* ignore malformed URLs */ }
+  }
+
+  if (key === "DB_URL") {
+    console.log("  Compose DB_URL from components:\n");
+    const host = await promptHost("DB", parsed?.hostname);
+    const port = await input({ message: "  DB port:", default: parsed?.port ?? "5432" });
+    const user = await input({ message: "  DB user:", default: decodeURIComponent(parsed?.username ?? "") || "twp" });
+    const pw = await passwordPrompt({ message: "  DB password:" });
+    if (!pw) return undefined;
+    const dbName = await input({ message: "  DB name:", default: parsed?.pathname?.slice(1) ?? "tw_portfolio" });
+    const url = `postgres://${user}:${pw}@${host}:${port}/${dbName}`;
+    console.log(`  → DB_URL composed (password masked)\n`);
+    return url;
+  }
+
+  // REDIS_URL
+  console.log("  Compose REDIS_URL from components:\n");
+  const host = await promptHost("Redis", parsed?.hostname);
+  const port = await input({ message: "  Redis port:", default: parsed?.port ?? "6379" });
+  const pw = await passwordPrompt({ message: "  Redis password (empty for no auth):" });
+  const auth = pw ? `:${pw}@` : "";
+  const url = `redis://${auth}${host}:${port}`;
+  console.log(`  → REDIS_URL composed${pw ? " (password masked)" : ""}\n`);
+  return url;
+}
+
+/** Keys that use the component-prompt flow instead of raw string input. */
+const composedUrlKeys = new Set(["DB_URL", "REDIS_URL"]);
+
 /** Prompt for a single key's value, using select/password/confirm/input as appropriate. */
 export async function promptKeyValue(
   key: string,
@@ -216,6 +322,12 @@ export async function promptKeyValue(
   info?: SchemaKeyInfo,
 ): Promise<string | undefined> {
   const { confirm, password, input, select } = await loadPrompts();
+
+  // Composed URL keys — prompt for components and build the URL
+  if (composedUrlKeys.has(key)) {
+    return promptUrlComponents(key as "DB_URL" | "REDIS_URL", defaultValue);
+  }
+
   if (autoGenerateKeys.has(key)) {
     const autoGen = await confirm({
       message: `Auto-generate ${key}?`,

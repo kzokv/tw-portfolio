@@ -22,6 +22,9 @@ export interface InstrumentRef {
 export interface QuoteSnapshot {
   ticker: string;
   close: number;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
   asOf: string;
   source: string;
   isProvisional: boolean;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { dividendEventPayload, dividendPostingPayload, transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -73,6 +74,10 @@ describe("dashboard overview", () => {
   });
 
   it("returns holdings and dividend overview details when accounting facts exist", async () => {
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+      { ticker: "2330", barDate: "2026-03-27", open: 98, high: 100, low: 97, close: 99, volume: 40000, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
+    ]);
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",
@@ -225,6 +230,10 @@ describe("dashboard overview", () => {
   });
 
   it("returns ordered performance points for the requested range", async () => {
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+      { ticker: "0050", barDate: "2026-03-28", open: 100, high: 102, low: 99, close: 101, volume: 30000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+    ]);
     await app.inject({
       method: "POST",
       url: "/portfolio/transactions",

@@ -4,6 +4,7 @@ import type {
   TFeeProfilesApiAssistant,
   TNotificationsApiAssistant,
   TProfileApiAssistant,
+  TQuotesApiAssistant,
   TSessionApiAssistant,
   TSettingsApiAssistant,
   TTransactionsApiAssistant,
@@ -14,6 +15,7 @@ import {
   FeeProfilesEndpoint,
   NotificationsEndpoint,
   ProfileEndpoint,
+  QuotesEndpoint,
   SessionEndpoint,
   SettingsEndpoint,
   TransactionsEndpoint,
@@ -26,6 +28,7 @@ export const test = base.extend<{
   feeProfilesApi: TFeeProfilesApiAssistant;
   notificationsApi: TNotificationsApiAssistant;
   profileApi: TProfileApiAssistant;
+  quotesApi: TQuotesApiAssistant;
   sessionApi: TSessionApiAssistant;
   settingsApi: TSettingsApiAssistant;
   transactionsApi: TTransactionsApiAssistant;
@@ -36,5 +39,6 @@ export const test = base.extend<{
   accountsApi: createApiFixture<TAccountsApiAssistant>(AccountsEndpoint),
   feeProfilesApi: createApiFixture<TFeeProfilesApiAssistant>(FeeProfilesEndpoint),
   notificationsApi: createApiFixture<TNotificationsApiAssistant>(NotificationsEndpoint),
+  quotesApi: createApiFixture<TQuotesApiAssistant>(QuotesEndpoint),
   transactionsApi: createApiFixture<TTransactionsApiAssistant>(TransactionsEndpoint),
 });

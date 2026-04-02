@@ -29,6 +29,8 @@ export const envGroups: EnvGroup[] = [
 export const rootLocalGroups: EnvGroup[] = [
   ...envGroups,
   { label: "Web app (Next.js)", keys: ["NEXT_PUBLIC_AUTH_MODE", "NEXT_PUBLIC_API_BASE_URL"] },
+  { label: "Other", keys: ["DEMO_MODE_ENABLED", "DEMO_SESSION_TTL_SECONDS", "FINMIND_API_TOKEN"] },
+  { label: "Host", keys: ["MAC_USER", "MAC_PASSWORD"] },
 ];
 
 // Docker cloud groups (dev + prod — unified)
@@ -80,13 +82,17 @@ export const dockerLocalGroups: EnvGroup[] = [
   { label: "Docker", keys: ["IMAGE_TAG"] },
 ];
 
-// Sensitive keys — masked input in prompts
+// Sensitive keys — masked input in prompts and summary display.
+// DB_URL and REDIS_URL are included because they embed passwords.
 export const sensitiveKeys = new Set([
   "POSTGRES_PASSWORD",
   "REDIS_PASSWORD",
   "SESSION_SECRET",
   "GOOGLE_CLIENT_SECRET",
   "CLOUDFLARE_TUNNEL_TOKEN",
+  "MAC_PASSWORD",
+  "DB_URL",
+  "REDIS_URL",
 ]);
 
 // Auto-generatable keys — offer crypto.randomBytes(32).toString('hex')

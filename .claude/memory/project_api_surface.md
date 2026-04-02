@@ -44,7 +44,7 @@ type: reference
 ### Recompute & Quotes
 - `POST /portfolio/recompute/preview` (web-consumed)
 - `POST /portfolio/recompute/confirm` (web-consumed)
-- `GET /quotes/latest` — Redis-cached, mock providers currently
+- `GET /quotes?tickers=...` — auth-required, returns `Record<string, QuoteSnapshotDto | null>` resolved from `daily_bars` (KZO-87)
 
 ### AI
 - `POST /ai/transactions/parse` — local text parser

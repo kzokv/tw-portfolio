@@ -19,7 +19,8 @@ import {
 import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
-import { getQuotesWithFallback } from "../providers/marketData.js";
+import type { QuoteSnapshot } from "@tw-portfolio/domain";
+import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
 import {
   listCorporateActions,
   listDividendLedgerEntries,
@@ -283,33 +284,6 @@ function createSeededStoreForUser(userId: string): Store {
   return store;
 }
 
-async function resolveLatestQuotes(app: FastifyInstance, symbols: string[]) {
-  if (symbols.length === 0) {
-    return [];
-  }
-
-  let cached: Record<string, Awaited<ReturnType<typeof getQuotesWithFallback>>[number]> = {};
-  try {
-    cached = await app.persistence.getCachedQuotes(symbols);
-  } catch {
-    // Redis/cache unavailable — fall through to fetch all symbols
-  }
-  const missing = symbols.filter((symbol) => !cached[symbol]);
-
-  let fetched = [] as Awaited<ReturnType<typeof getQuotesWithFallback>>;
-  if (missing.length > 0) {
-    fetched = await getQuotesWithFallback(missing);
-    try {
-      await app.persistence.cacheQuotes(fetched);
-    } catch {
-      // Cache write failure is non-fatal — quotes still returned
-    }
-  }
-
-  const fetchedMap = Object.fromEntries(fetched.map((quote) => [quote.ticker, quote]));
-  return symbols.map((symbol) => cached[symbol] ?? fetchedMap[symbol]).filter(Boolean);
-}
-
 function getStoreIntegrityIssue(store: Store): IntegrityIssueDto | null {
   if (store.feeProfiles.length === 0) {
     return {
@@ -495,6 +469,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       detail: body.detail,
     });
     return { status: "seeded", id };
+  });
+
+  app.post("/__e2e/seed-daily-bars", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z
+      .object({
+        bars: z.array(
+          z.object({
+            ticker: z.string(),
+            barDate: z.string(),
+            open: z.number(),
+            high: z.number(),
+            low: z.number(),
+            close: z.number(),
+            volume: z.number(),
+            source: z.string().default("e2e-seed"),
+            ingestedAt: z.string().default(new Date().toISOString()),
+          }),
+        ),
+      })
+      .parse(req.body);
+
+    const { MemoryPersistence } = await import("../persistence/memory.js");
+    if (!(app.persistence instanceof MemoryPersistence)) {
+      throw routeError(400, "memory_only", "seed-daily-bars is only available with memory persistence");
+    }
+    app.persistence._seedDailyBars(body.bars);
+    return { status: "seeded", count: body.bars.length };
   });
 
   app.post("/__e2e/reset-demo-rate-buckets", async () => {
@@ -1267,7 +1269,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .map((holding) => holding.ticker)
         .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
-    const quotes = await resolveLatestQuotes(app, symbols);
+    const snapshotMap = await resolveQuoteSnapshots(symbols, app.persistence);
+    const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
     return buildDashboardOverview(store, {
       integrityIssue: getStoreIntegrityIssue(store),
@@ -1285,7 +1288,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .map((trade) => trade.ticker)
         .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
-    const quotes = await resolveLatestQuotes(app, symbols);
+    const snapshotMap = await resolveQuoteSnapshots(symbols, app.persistence);
+    const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
     return buildDashboardPerformance(store, {
       range: query.range as DashboardPerformanceRange,
@@ -1433,22 +1437,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return job;
   });
 
-  app.get("/quotes/latest", async (req) => {
-    const query = z.object({ symbols: z.string().max(200) }).parse(req.query);
-    const symbols = query.symbols
+  app.get("/quotes", async (req) => {
+    resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const query = z.object({ tickers: z.string().max(200) }).parse(req.query);
+    const tickers = query.tickers
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
       .map((symbol) => tickerSchema.parse(symbol));
 
-    if (symbols.length === 0) {
+    if (tickers.length === 0) {
       throw routeError(400, "tickers_required", "At least one ticker is required.");
     }
-    if (symbols.length > 20) {
+    if (tickers.length > 20) {
       throw routeError(400, "too_many_symbols", "No more than 20 symbols are allowed per request.");
     }
 
-    return resolveLatestQuotes(app, symbols);
+    return resolveQuoteSnapshots(tickers, app.persistence);
   });
 
   app.post("/ai/transactions/parse", async (req) => {

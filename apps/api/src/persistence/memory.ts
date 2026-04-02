@@ -12,7 +12,7 @@ import type {
   Store,
   DividendEvent,
 } from "../types/store.js";
-import type { Quote } from "../providers/marketData.js";
+import type { DailyBar } from "@tw-portfolio/domain";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
@@ -69,7 +69,7 @@ interface MemoryUser {
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
-  private readonly quoteCache = new Map<string, Quote>();
+  private readonly dailyBars: DailyBar[] = [];
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
   /** userId → Set<ticker> (manual monitoring selections) */
@@ -254,20 +254,25 @@ export class MemoryPersistence implements Persistence {
     return this.getProfile(userId);
   }
 
-  async getCachedQuotes(symbols: string[]): Promise<Record<string, Quote>> {
-    const found: Record<string, Quote> = {};
-    for (const symbol of symbols) {
-      const quote = this.quoteCache.get(symbol);
-      if (quote) found[symbol] = quote;
+  async getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]> {
+    const tickerSet = new Set(tickers);
+    const grouped = new Map<string, DailyBar[]>();
+    for (const bar of this.dailyBars) {
+      if (!tickerSet.has(bar.ticker)) continue;
+      const list = grouped.get(bar.ticker) ?? [];
+      list.push(bar);
+      grouped.set(bar.ticker, list);
     }
-    return found;
+    const result: DailyBar[] = [];
+    for (const bars of grouped.values()) {
+      bars.sort((a, b) => b.barDate.localeCompare(a.barDate));
+      result.push(...bars.slice(0, limit));
+    }
+    return result;
   }
 
-  async cacheQuotes(quotes: Quote[]): Promise<void> {
-    for (const quote of quotes) {
-      this.quoteCache.set(quote.ticker, quote);
-    }
-  }
+  _seedDailyBars(bars: DailyBar[]): void { this.dailyBars.push(...bars); }
+  _clearDailyBars(): void { this.dailyBars.length = 0; }
 
   async readiness(): Promise<ReadinessStatus> {
     return { backend: "memory", postgres: true, redis: true };

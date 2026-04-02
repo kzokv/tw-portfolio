@@ -226,6 +226,17 @@ export interface ProfileDto {
   lastSeenAt: string | null;
 }
 
+export interface QuoteSnapshotDto {
+  ticker: string;
+  close: number;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
+  asOf: string;
+  source: string;
+  isProvisional: boolean;
+}
+
 export type MonitoredTickerSource = "manual" | "position";
 
 export interface MonitoredTickerDto {
