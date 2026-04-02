@@ -21,6 +21,7 @@ DEPLOY_TS="$(date +%Y%m%d_%H%M%S)"
 DEPLOY_START_EPOCH=""
 PHASE_START_EPOCH=""
 IMAGE_TAG=""
+BUILD_FLAGS=""
 ENABLE_EXIT_DOCKER_CLEANUP=false
 
 COMPOSE_FILE=""
@@ -426,8 +427,6 @@ validate_preflight() {
     exit 1
   fi
 
-  bash "$SCRIPT_DIR/check-buildx.sh" || true
-
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
@@ -540,8 +539,14 @@ rollback() {
   fi
   git reset --hard "$PREVIOUS_SHA"
 
-  dc --profile migrate build
+  dc --profile migrate build $BUILD_FLAGS
   dc down --remove-orphans --timeout 10 || true
+  for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
+      log "Removing stale container: $stale_container"
+      docker rm -f "$stale_container" 2>/dev/null || true
+    fi
+  done
   dc up -d --remove-orphans
 
   # Wait for postgres health before attempting DB restore
@@ -625,12 +630,19 @@ else
   log "Deploy SHA: $(git rev-parse HEAD) (tag: $IMAGE_TAG)"
 fi
 export IMAGE_TAG ENV_FILE ENVIRONMENT
+# CACHE_BUST invalidates Docker layers after npm ci so source code is
+# never served from a stale build cache.  The value changes on every
+# deploy because the SHA (or explicit tag) differs.
+export CACHE_BUST="$(git rev-parse HEAD)"
 phase_done
 
 phase_start "Build images (tag: $IMAGE_TAG)"
+# Ensure buildx is usable. check-buildx.sh auto-installs or removes bad binaries.
+# If it still fails, fall back to --no-cache with the legacy builder.
+bash "$SCRIPT_DIR/check-buildx.sh" || true
 BUILD_FLAGS=""
 if ! docker buildx version >/dev/null 2>&1; then
-  log "WARNING: buildx not installed — using --no-cache to prevent stale layers"
+  log "WARNING: buildx not available — using --no-cache to prevent stale layers"
   BUILD_FLAGS="--no-cache"
 fi
 dc --profile migrate build $BUILD_FLAGS
@@ -645,6 +657,29 @@ fi
 phase_done
 
 phase_start "Database migrations"
+# Remove stale containers from previous deploys. dc down only removes containers
+# it recognises as part of the current compose project — orphaned containers from
+# prior failed deploys (different project label or missing label) survive and
+# cause "container name already in use" on the next dc up / dc run.
+# Force-remove every known container name so compose can recreate them cleanly.
+dc down --remove-orphans --timeout 10 || true
+for stale_container in $CONTAINER_NAMES $MIGRATE_SERVICE; do
+  if docker ps -a --format '{{.Names}}' | grep -q "^${stale_container}$"; then
+    log "Removing stale container: $stale_container"
+    if ! docker rm -f "$stale_container"; then
+      log "WARNING: docker rm -f failed for $stale_container — restarting Docker daemon"
+      sudo systemctl restart docker 2>/dev/null \
+        || sudo service docker restart 2>/dev/null \
+        || { log "ERROR: Cannot restart Docker daemon. Remove container manually: docker rm -f $stale_container"; on_failure; }
+      # Wait for Docker daemon to be ready
+      for _w in $(seq 1 30); do
+        docker info >/dev/null 2>&1 && break
+        sleep 1
+      done
+    fi
+  fi
+done
+
 # --build forces a fresh image so new migration files are never missed due to
 # Docker layer cache (the full service build ran earlier, so this only rebuilds
 # the lightweight migrate image — typically < 2s).

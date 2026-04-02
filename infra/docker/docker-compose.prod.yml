@@ -82,6 +82,8 @@ services:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
+      args:
+        CACHE_BUST: ${CACHE_BUST:-0}
     image: twp-prod-api:${IMAGE_TAG:-latest}
     container_name: twp-prod-api
     restart: unless-stopped
@@ -125,6 +127,7 @@ services:
       context: ../..
       dockerfile: apps/web/Dockerfile
       args:
+        CACHE_BUST: ${CACHE_BUST:-0}
         NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-twp-api.kzokvdevs.dpdns.org}
         NEXT_PUBLIC_AUTH_MODE: oauth
     image: twp-prod-web:${IMAGE_TAG:-latest}

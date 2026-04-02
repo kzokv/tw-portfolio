@@ -10,6 +10,11 @@ COPY libs/shared-types/package.json libs/shared-types/
 
 RUN npm ci
 
+# Cache-bust: any layer after this ARG is invalidated when the deploy SHA
+# changes, ensuring source code is never stale. The npm ci layer above
+# remains cached as long as package*.json files are unchanged.
+ARG CACHE_BUST
+
 COPY tsconfig.base.json ./
 COPY libs/ libs/
 COPY apps/api/ apps/api/
