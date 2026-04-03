@@ -99,7 +99,8 @@ Phases:
   4. Database migrate   Run database migrations
   5. Start apps         Start api and web services
   6. Health checks      Verify api and web respond to health probes
-  7. Summary            Report pass/fail and show service status
+  7. Demo session       Validate demo sign-in flow (skipped if DEMO_MODE_ENABLED!=true)
+  8. Summary            Report pass/fail and show service status
 
 Exit codes:
   0  All phases passed
@@ -276,9 +277,80 @@ fi
 
 phase_done
 
-# ── Phase 7: Summary ─────────────────────────────────────────────────
+# ── Phase 7: Demo session validation ────────────────────────────────
+FAILED_PHASE="Demo session"
+phase_start "Phase 7: Demo session validation"
+
+# Check if demo mode is enabled in the API container's environment.
+# The env var comes from .env.local via env_file in compose.
+DEMO_ENABLED="$(docker exec twp-local-api sh -c 'echo ${DEMO_MODE_ENABLED:-false}' 2>/dev/null || true)"
+
+if [ "$DEMO_ENABLED" != "true" ]; then
+  log "DEMO_MODE_ENABLED is not 'true' (got: ${DEMO_ENABLED:-<unset>}). Skipping demo validation."
+  log "To enable: set DEMO_MODE_ENABLED=true in .env.local"
+else
+  # 1. Start demo session via the API
+  DEMO_RESPONSE="$(docker exec twp-local-api \
+    wget -qO- --post-data='' http://127.0.0.1:4000/auth/demo/start 2>/dev/null || true)"
+
+  if [ -z "$DEMO_RESPONSE" ]; then
+    log "ERROR: POST /auth/demo/start returned empty response"
+    dc logs --tail 20 twp-local-api || true
+    on_failure
+  fi
+
+  # 2. Verify response contains expected fields
+  DEMO_USER_ID=""
+  DEMO_SESSION_TYPE=""
+  if command -v jq >/dev/null 2>&1; then
+    DEMO_USER_ID="$(echo "$DEMO_RESPONSE" | jq -r '.userId // empty')"
+    DEMO_SESSION_TYPE="$(echo "$DEMO_RESPONSE" | jq -r '.sessionType // empty')"
+  else
+    # Fallback: grep for key fields in JSON
+    DEMO_USER_ID="$(echo "$DEMO_RESPONSE" | grep -oE '"userId":"[^"]+"' | head -1 | cut -d'"' -f4)"
+    DEMO_SESSION_TYPE="$(echo "$DEMO_RESPONSE" | grep -oE '"sessionType":"[^"]+"' | head -1 | cut -d'"' -f4)"
+  fi
+
+  if [ -z "$DEMO_USER_ID" ]; then
+    log "ERROR: Demo session response missing userId"
+    log "Response: $DEMO_RESPONSE"
+    on_failure
+  fi
+
+  if [ "$DEMO_SESSION_TYPE" != "demo" ]; then
+    log "ERROR: Demo session type is '${DEMO_SESSION_TYPE}', expected 'demo'"
+    log "Response: $DEMO_RESPONSE"
+    on_failure
+  fi
+
+  log "Demo session created: userId=$DEMO_USER_ID sessionType=$DEMO_SESSION_TYPE"
+
+  # 3. Verify the session cookie grants access to a protected endpoint
+  DEMO_COOKIE="$(docker exec twp-local-api \
+    wget -qS --post-data='' http://127.0.0.1:4000/auth/demo/start 2>&1 \
+    | grep -i 'set-cookie' | head -1 | sed 's/.*set-cookie: *//i' | cut -d';' -f1 || true)"
+
+  if [ -n "$DEMO_COOKIE" ]; then
+    SETTINGS_STATUS="$(docker exec twp-local-api \
+      wget -qO- --header "Cookie: ${DEMO_COOKIE}" \
+      http://127.0.0.1:4000/settings 2>/dev/null \
+      | grep -c '"userId"' || true)"
+
+    if [ "$SETTINGS_STATUS" -ge 1 ]; then
+      log "Demo session cookie grants access to /settings"
+    else
+      log "WARNING: Demo session cookie did not authenticate /settings (non-blocking)"
+    fi
+  else
+    log "WARNING: Could not extract demo session cookie (non-blocking)"
+  fi
+fi
+
+phase_done
+
+# ── Phase 8: Summary ─────────────────────────────────────────────────
 FAILED_PHASE=""
-phase_start "Phase 7: Summary"
+phase_start "Phase 8: Summary"
 
 log "All health checks passed"
 echo ""
