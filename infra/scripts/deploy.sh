@@ -131,7 +131,10 @@ finalize_deploy() {
   local exit_code=$?
   trap - EXIT
 
-  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ]; then
+  # Only clean up unused images on successful deploy — on failure the
+  # freshly built images aren't referenced by running containers yet
+  # and would be incorrectly removed.
+  if [ "$ENABLE_EXIT_DOCKER_CLEANUP" = true ] && [ "$exit_code" -eq 0 ]; then
     cleanup_unused_images
   fi
 
@@ -423,6 +426,8 @@ validate_preflight() {
     exit 1
   fi
 
+  bash "$SCRIPT_DIR/check-buildx.sh" || true
+
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
@@ -536,8 +541,25 @@ rollback() {
   git reset --hard "$PREVIOUS_SHA"
 
   dc --profile migrate build
-  restore_database_if_possible
+  dc down --remove-orphans --timeout 10 || true
   dc up -d --remove-orphans
+
+  # Wait for postgres health before attempting DB restore
+  log "Waiting for postgres health (up to 30s)..."
+  local pg_ok=false
+  for _i in $(seq 1 30); do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "${POSTGRES_USER:-twp}" -q 2>/dev/null; then
+      pg_ok=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$pg_ok" = true ]; then
+    restore_database_if_possible
+  else
+    log "WARNING: Postgres not healthy after rollback; skipping DB restore"
+  fi
 
   set -e
 }
@@ -606,7 +628,12 @@ export IMAGE_TAG ENV_FILE ENVIRONMENT
 phase_done
 
 phase_start "Build images (tag: $IMAGE_TAG)"
-dc --profile migrate build
+BUILD_FLAGS=""
+if ! docker buildx version >/dev/null 2>&1; then
+  log "WARNING: buildx not installed — using --no-cache to prevent stale layers"
+  BUILD_FLAGS="--no-cache"
+fi
+dc --profile migrate build $BUILD_FLAGS
 phase_done
 
 phase_start "Pre-migration database backup"

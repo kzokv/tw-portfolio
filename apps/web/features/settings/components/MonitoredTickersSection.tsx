@@ -8,12 +8,12 @@ import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { Lock, RefreshCw, Search, Settings2, Wrench, X } from "lucide-react";
 import { RepairModal, type RepairModalValue } from "./RepairModal";
 import type { RepairTargetRequest } from "../services/repairService";
+import { getCooldownRemainingMinutes } from "../utils/cooldown";
 
 interface RepairCapableItem {
   ticker: string;
   barsBackfillStatus: string | null;
   lastRepairAt?: string | null;
-  repairCooldownMinutes?: number | null;
   name?: string | null;
   source?: "manual" | "position";
 }
@@ -45,28 +45,6 @@ interface MonitoredTickersSectionProps {
   repairMessage: string;
   repairError: string;
   dict: AppDictionary;
-}
-
-const DEFAULT_COOLDOWN_MINUTES = 60;
-
-function parseLastRepairAt(item: RepairCapableItem): Date | null {
-  const value = item.lastRepairAt ?? null;
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function resolveCooldownMinutes(item: RepairCapableItem): number {
-  return item.repairCooldownMinutes ?? DEFAULT_COOLDOWN_MINUTES;
-}
-
-function getCooldownRemainingMinutes(item: RepairCapableItem, now: Date = new Date()): number {
-  const lastRepairAt = parseLastRepairAt(item);
-  if (!lastRepairAt) return 0;
-  const cooldownMs = resolveCooldownMinutes(item) * 60 * 1000;
-  const elapsed = now.getTime() - lastRepairAt.getTime();
-  if (elapsed >= cooldownMs) return 0;
-  return Math.max(1, Math.ceil((cooldownMs - elapsed) / (60 * 1000)));
 }
 
 function buildCooldownLabel(dict: AppDictionary, minutes: number): string {
@@ -142,7 +120,6 @@ export function MonitoredTickersSection({
           instrumentType: instrument?.instrumentType ?? null,
           barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
           lastRepairAt: instrument?.lastRepairAt ?? null,
-          repairCooldownMinutes: null as number | null,
         };
       })
       .sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -210,7 +187,7 @@ export function MonitoredTickersSection({
   function handleToggleRepairTicker(item: RepairCapableItem): void {
     const isSelected = repairSelection.has(item.ticker);
     const isBackfilling = item.barsBackfillStatus === "pending" || item.barsBackfillStatus === "backfilling";
-    const remaining = getCooldownRemainingMinutes(item);
+    const remaining = getCooldownRemainingMinutes(item.lastRepairAt);
     if (!isSelected && (isBackfilling || remaining > 0)) return;
 
     if (!isSelected && repairSelection.size >= 20) {
@@ -389,7 +366,7 @@ export function MonitoredTickersSection({
         ) : (
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50/35 p-2">
             {filteredRepairCandidates.map((item) => {
-              const remaining = getCooldownRemainingMinutes(item);
+              const remaining = getCooldownRemainingMinutes(item.lastRepairAt);
               const disabledReason =
                 item.barsBackfillStatus === "pending" || item.barsBackfillStatus === "backfilling"
                   ? dict.settings.repairModeUnavailableBackfill

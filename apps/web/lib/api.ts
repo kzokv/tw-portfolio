@@ -39,7 +39,13 @@ export function getApiBaseUrl(): string {
  */
 function getFetchApiBaseUrl(): string {
   if (typeof window === "undefined") {
-    return process.env.SERVER_API_BASE_URL || getApiBaseUrl();
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { WebEnv } = require("@tw-portfolio/config/web") as typeof import("@tw-portfolio/config/web");
+      return WebEnv.SERVER_API_BASE_URL || getApiBaseUrl();
+    } catch {
+      return getApiBaseUrl();
+    }
   }
   return getApiBaseUrl();
 }

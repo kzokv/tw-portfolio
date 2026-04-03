@@ -10,7 +10,8 @@ import { StatChip } from "../../../components/ui/StatChip";
 import { requireSession } from "../../../lib/auth";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import type { DashboardOverviewHoldingDto } from "@tw-portfolio/shared-types";
-import { fetchRepairInstrument, type RepairInstrumentDto } from "../../../features/settings/services/repairService";
+import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
+import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
@@ -28,7 +29,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
-  let instrument: RepairInstrumentDto | null = null;
+  let instrument: InstrumentCatalogItemDto | null = null;
 
   try {
     [dashboard, transactions, instrument] = await Promise.all([

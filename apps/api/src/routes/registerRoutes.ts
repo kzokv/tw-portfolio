@@ -37,6 +37,7 @@ import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
+import { routeError } from "../lib/routeError.js";
 import type { Store, Transaction } from "../types/store.js";
 
 const userScopedIdSchema = z
@@ -152,15 +153,6 @@ const dividendPostingSchema = z.object({
   receivedStockQuantity: z.number().int().nonnegative().default(0),
   deductions: z.array(dividendDeductionSchema).max(20).default([]),
 });
-
-type RouteError = Error & { statusCode: number; code: string };
-
-function routeError(statusCode: number, code: string, message: string): RouteError {
-  const error = new Error(message) as RouteError;
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-}
 
 function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
   const repairedAtMs = new Date(lastRepairAt).getTime();
