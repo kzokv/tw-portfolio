@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
+import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
 import { dividendEventPayload, dividendPostingPayload, transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -91,18 +93,18 @@ describe("dashboard overview", () => {
       }),
     });
 
-    const cashEventResponse = await app.inject({
-      method: "POST",
-      url: "/dividend-events",
-      payload: dividendEventPayload({
+    const store = await app.persistence.loadStore("user-1");
+    const cashEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
         ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-02-01",
         paymentDate: "2026-02-20",
         cashDividendPerShare: 12,
       }),
-    });
-    const cashEvent = cashEventResponse.json();
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(store);
 
     await app.inject({
       method: "POST",
@@ -123,10 +125,10 @@ describe("dashboard overview", () => {
       }),
     });
 
-    await app.inject({
-      method: "POST",
-      url: "/dividend-events",
-      payload: dividendEventPayload({
+    const store2 = await app.persistence.loadStore("user-1");
+    createDividendEvent(store2, {
+      id: randomUUID(),
+      ...dividendEventPayload({
         ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-03-01",
@@ -134,7 +136,8 @@ describe("dashboard overview", () => {
         cashDividendPerShare: 8,
         sourceReference: "manual-upcoming-event",
       }),
-    });
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(store2);
 
     const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
 

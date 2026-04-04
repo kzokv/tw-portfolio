@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { Lot } from "@tw-portfolio/domain";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
-import { upsertDividendEvent } from "../services/marketDataStore.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -10,7 +9,6 @@ import type {
   LotAllocationProjection,
   MarketDataFacts,
   Store,
-  DividendEvent,
 } from "../types/store.js";
 import type { DailyBar } from "@tw-portfolio/domain";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
@@ -176,12 +174,6 @@ export class MemoryPersistence implements Persistence {
 
   async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
     await this.saveAccountingStore(userId, accounting);
-  }
-
-  async saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void> {
-    const store = await this.loadStore(userId);
-    upsertDividendEvent(store, dividendEvent);
-    this.stores.set(userId, store);
   }
 
   async savePostedDividend(

@@ -249,7 +249,8 @@ export class PostgresPersistence implements Persistence {
       this.pool.query(
         `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-                source, source_reference, ingested_at AS created_at
+                source, source_reference, ingested_at AS created_at,
+                fiscal_year_period, announcement_date, total_distribution_shares
          FROM market_data.dividend_events
          ORDER BY ex_dividend_date, id`,
       ),
@@ -465,6 +466,9 @@ export class PostgresPersistence implements Persistence {
       source: row.source,
       sourceReference: row.source_reference ?? undefined,
       createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
     }));
 
     const dividendDeductionEntries: DividendDeductionEntry[] = dividendDeductionsResult.rows.map((row) => ({
@@ -1074,25 +1078,6 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void> {
-    validateMarketDataInvariants({
-      dividendEvents: [dividendEvent],
-      instruments: [],
-    });
-    await this.ensureDefaultPortfolioData(userId);
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      await this.saveDividendEventTx(client, dividendEvent);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -2241,11 +2226,13 @@ export class PostgresPersistence implements Persistence {
       `INSERT INTO market_data.dividend_events (
          id, ticker, event_type, ex_dividend_date, payment_date,
          cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-         source, source_reference, ingested_at
+         source, source_reference, ingested_at,
+         fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data
        ) VALUES (
          $1, $2, $3, $4, $5,
          $6, $7, $8,
-         $9, $10, $11
+         $9, $10, $11,
+         NULL, NULL, NULL, NULL
        )
        ON CONFLICT (id)
        DO UPDATE SET
@@ -2257,7 +2244,11 @@ export class PostgresPersistence implements Persistence {
          cash_dividend_currency = EXCLUDED.cash_dividend_currency,
          stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
          source = EXCLUDED.source,
-         source_reference = EXCLUDED.source_reference`,
+         source_reference = EXCLUDED.source_reference,
+         fiscal_year_period = EXCLUDED.fiscal_year_period,
+         announcement_date = EXCLUDED.announcement_date,
+         total_distribution_shares = EXCLUDED.total_distribution_shares,
+         raw_provider_data = EXCLUDED.raw_provider_data`,
       [
         dividendEvent.id,
         dividendEvent.ticker,

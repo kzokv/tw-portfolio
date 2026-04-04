@@ -96,6 +96,9 @@ export interface DividendEvent {
   source: string;
   sourceReference?: string;
   createdAt?: string;
+  fiscalYearPeriod?: string;
+  announcementDate?: string;
+  totalDistributionShares?: number;
 }
 
 export type DividendPostingStatus = "expected" | "posted" | "adjusted";

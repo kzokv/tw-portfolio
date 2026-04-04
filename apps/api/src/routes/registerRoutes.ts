@@ -28,7 +28,7 @@ import {
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildDashboardPerformance } from "../services/dashboard.js";
-import { createDividendEvent, postDividend } from "../services/dividends.js";
+import { postDividend } from "../services/dividends.js";
 import { listDividendEvents } from "../services/marketDataStore.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
@@ -113,18 +113,6 @@ const corporateActionSchema = z.object({
   numerator: z.number().int().positive().default(1),
   denominator: z.number().int().positive().default(1),
   actionDate: isoDateSchema,
-});
-
-const dividendEventSchema = z.object({
-  ticker: tickerSchema,
-  eventType: z.enum(["CASH", "STOCK", "CASH_AND_STOCK"]),
-  exDividendDate: isoDateSchema,
-  paymentDate: isoDateSchema,
-  cashDividendPerShare: z.number().nonnegative(),
-  cashDividendCurrency: currencyCodeSchema.default("TWD"),
-  stockDividendPerShare: z.number().nonnegative(),
-  source: userScopedIdSchema.default("manual_dividend_event"),
-  sourceReference: userScopedIdSchema.optional(),
 });
 
 const dividendDeductionSchema = z.object({
@@ -1301,19 +1289,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/dividend-events", async (req) => {
     const { store } = await loadUserStore(app, req);
     return listDividendEvents(store);
-  });
-
-  app.post("/dividend-events", async (req) => {
-    const body = dividendEventSchema.parse(req.body);
-    const { store } = await loadUserStore(app, req);
-
-    const dividendEvent = createDividendEvent(store, {
-      id: randomUUID(),
-      ...body,
-    });
-
-    await app.persistence.saveDividendEvent(store.userId, dividendEvent);
-    return dividendEvent;
   });
 
   app.get("/portfolio/dividends/ledger", async (req) => {
