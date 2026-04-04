@@ -44,6 +44,9 @@ interface FinMindDividendRow {
   CashExDividendTradingDate: string;
   CashDividendPaymentDate: string;
   StockExDividendTradingDate: string;
+  year: string;
+  AnnouncementDate: string;
+  ParticipateDistributionOfTotalShares: number;
 }
 
 async function fetchDataset<T>(dataset: string, ticker: string, startDate: string = HISTORY_START, endDate?: string): Promise<T[]> {
@@ -130,6 +133,10 @@ export class FinMindClient implements FinMindProvider {
           paymentDate: payDate,
           cashDividendPerShare: cashTotal,
           stockDividendPerShare: stockTotal,
+          fiscalYearPeriod: r.year || undefined,
+          announcementDate: r.AnnouncementDate || undefined,
+          totalDistributionShares: r.ParticipateDistributionOfTotalShares || undefined,
+          rawProviderData: { ...r } as Record<string, unknown>,
         };
       });
   }

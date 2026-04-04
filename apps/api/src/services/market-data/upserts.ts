@@ -56,7 +56,17 @@ export function deriveDividendKey(ev: {
 
 export async function upsertDividendEvents(
   pool: Pool,
-  events: Array<{ ticker: string; exDividendDate: string; paymentDate: string; cashDividendPerShare: number; stockDividendPerShare: number }>,
+  events: Array<{
+    ticker: string;
+    exDividendDate: string;
+    paymentDate: string;
+    cashDividendPerShare: number;
+    stockDividendPerShare: number;
+    fiscalYearPeriod?: string;
+    announcementDate?: string;
+    totalDistributionShares?: number;
+    rawProviderData?: Record<string, unknown>;
+  }>,
 ): Promise<number> {
   if (events.length === 0) return 0;
 
@@ -67,6 +77,10 @@ export async function upsertDividendEvents(
   const payDates: string[] = [];
   const cashAmounts: number[] = [];
   const stockAmounts: number[] = [];
+  const fiscalYearPeriods: (string | null)[] = [];
+  const announcementDates: (string | null)[] = [];
+  const totalDistShares: (number | null)[] = [];
+  const rawProviderDataArr: (string | null)[] = [];
 
   for (const ev of events) {
     const { eventType, id } = deriveDividendKey(ev);
@@ -77,23 +91,35 @@ export async function upsertDividendEvents(
     payDates.push(ev.paymentDate);
     cashAmounts.push(ev.cashDividendPerShare);
     stockAmounts.push(ev.stockDividendPerShare);
+    fiscalYearPeriods.push(ev.fiscalYearPeriod ?? null);
+    announcementDates.push(ev.announcementDate ?? null);
+    totalDistShares.push(ev.totalDistributionShares ?? null);
+    rawProviderDataArr.push(ev.rawProviderData ? JSON.stringify(ev.rawProviderData) : null);
   }
 
   const result = await pool.query(
     `INSERT INTO market_data.dividend_events
-       (id, ticker, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share, cash_dividend_currency, source, ingested_at)
+       (id, ticker, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
+        cash_dividend_currency, source, ingested_at,
+        fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data)
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::date[], $5::date[], $6::numeric[], $7::numeric[],
        array_fill('TWD'::text, ARRAY[$8::int]),
        array_fill('finmind'::text, ARRAY[$8::int]),
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int])
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int]),
+       $9::text[], $10::date[], $11::numeric[], $12::jsonb[]
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
        stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
        payment_date = EXCLUDED.payment_date,
-       ingested_at = EXCLUDED.ingested_at`,
-    [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, events.length],
+       ingested_at = EXCLUDED.ingested_at,
+       fiscal_year_period = EXCLUDED.fiscal_year_period,
+       announcement_date = EXCLUDED.announcement_date,
+       total_distribution_shares = EXCLUDED.total_distribution_shares,
+       raw_provider_data = EXCLUDED.raw_provider_data`,
+    [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, events.length,
+     fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
   );
   return result.rowCount ?? 0;
 }

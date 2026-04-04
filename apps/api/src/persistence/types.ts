@@ -3,7 +3,6 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
-  DividendEvent,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -100,7 +99,6 @@ export interface Persistence {
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
-  saveDividendEvent(userId: string, dividendEvent: DividendEvent): Promise<void>;
   savePostedDividend(
     userId: string,
     accounting: AccountingStore,

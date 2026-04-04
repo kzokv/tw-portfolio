@@ -19,6 +19,10 @@ export interface DividendRecord {
   paymentDate: string; // YYYY-MM-DD
   cashDividendPerShare: number;
   stockDividendPerShare: number;
+  fiscalYearPeriod?: string;
+  announcementDate?: string; // YYYY-MM-DD
+  totalDistributionShares?: number;
+  rawProviderData?: Record<string, unknown>;
 }
 
 /** Raw instrument info from FinMind TaiwanStockInfo dataset. */

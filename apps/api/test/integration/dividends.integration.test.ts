@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
 import { dividendEventPayload, dividendPostingPayload, transactionPayload } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -27,20 +29,18 @@ describe("dividends", () => {
       }),
     });
 
-    const eventResponse = await app.inject({
-      method: "POST",
-      url: "/dividend-events",
-      payload: dividendEventPayload({
+    const seedStore = await app.persistence.loadStore("user-1");
+    const dividendEvent = createDividendEvent(seedStore, {
+      id: randomUUID(),
+      ...dividendEventPayload({
         ticker: "2330",
         eventType: "CASH",
         exDividendDate: "2026-02-01",
         paymentDate: "2026-02-20",
         cashDividendPerShare: 12,
       }),
-    });
-
-    expect(eventResponse.statusCode).toBe(200);
-    const dividendEvent = eventResponse.json();
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(seedStore);
 
     const postingResponse = await app.inject({
       method: "POST",
@@ -130,10 +130,10 @@ describe("dividends", () => {
       }),
     });
 
-    const eventResponse = await app.inject({
-      method: "POST",
-      url: "/dividend-events",
-      payload: dividendEventPayload({
+    const store = await app.persistence.loadStore("user-1");
+    const dividendEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
         ticker: "2330",
         eventType: "STOCK",
         exDividendDate: "2026-02-01",
@@ -141,8 +141,8 @@ describe("dividends", () => {
         cashDividendPerShare: 0,
         stockDividendPerShare: 0.1,
       }),
-    });
-    const dividendEvent = eventResponse.json();
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(store);
 
     const postingResponse = await app.inject({
       method: "POST",

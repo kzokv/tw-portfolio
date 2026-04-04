@@ -1,8 +1,9 @@
 # KZO-90: Dividend Event Ingestion Enrichment — Scope TODO
 
 **Date:** 2026-04-02
-**Status:** Scope locked
+**Status:** Superseded
 **Ticket:** [KZO-90](https://linear.app/kzokv/issue/KZO-90)
+**Superseded by:** [scope-todo-202604031200-dividend-ingestion.md](scope-todo-202604031200-dividend-ingestion.md)
 
 ## Context
 
