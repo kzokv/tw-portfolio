@@ -320,4 +320,166 @@ describe("dashboard overview", () => {
       }),
     );
   });
+
+  it("dashboard overview: with 2 daily bars → populates change fields and summary daily change", async () => {
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+      { ticker: "2330", barDate: "2026-03-27", open: 98, high: 100, low: 97, close: 99, volume: 40000, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
+    ]);
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-kzo20-t1-buy" },
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-15", commissionAmount: 0, taxAmount: 0 }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.holdings[0]).toEqual(
+      expect.objectContaining({
+        ticker: "2330",
+        currentUnitPrice: 100,
+        change: 1,
+        // changePercent is a raw float — use closeTo to avoid float representation issues
+        changePercent: expect.closeTo((1 / 99) * 100, 5),
+        previousClose: 99,
+        // quoteStatus depends on wall-clock day-of-week via computeIsProvisional — accept either
+        quoteStatus: expect.stringMatching(/^(current|provisional)$/),
+      }),
+    );
+    expect(body.summary).toEqual(
+      expect.objectContaining({
+        // dailyChangeAmount = roundToDecimal(10 × 1, 2) = 10
+        dailyChangeAmount: 10,
+        // dailyChangePercent = roundToDecimal((10 / 990) × 100, 4) = 1.0101
+        dailyChangePercent: 1.0101,
+      }),
+    );
+  });
+
+  it("dashboard overview: with single daily bar → currentUnitPrice set but change fields null", async () => {
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+    ]);
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-kzo20-t2-buy" },
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-15", commissionAmount: 0, taxAmount: 0 }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.holdings[0]).toEqual(
+      expect.objectContaining({
+        ticker: "2330",
+        currentUnitPrice: 100,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: expect.stringMatching(/^(current|provisional)$/),
+      }),
+    );
+    expect(body.summary).toEqual(
+      expect.objectContaining({
+        dailyChangeAmount: null,
+        dailyChangePercent: null,
+      }),
+    );
+  });
+
+  it("dashboard overview: with no daily bars → all valuation fields null and quoteStatus missing", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-kzo20-t3-buy" },
+      payload: transactionPayload({
+        ticker: "qa-no-bars",
+        quantity: 5,
+        unitPrice: 80,
+        tradeDate: "2026-01-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.holdings[0]).toEqual(
+      expect.objectContaining({
+        ticker: "QA-NO-BARS",
+        currentUnitPrice: null,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "missing",
+      }),
+    );
+    expect(body.summary).toEqual(
+      expect.objectContaining({
+        marketValueAmount: null,
+        dailyChangeAmount: null,
+        dailyChangePercent: null,
+      }),
+    );
+  });
+
+  it("dashboard overview: with mixed quote coverage → summary daily change null propagates", async () => {
+    (app.persistence as MemoryPersistence)._seedDailyBars([
+      { ticker: "2330", barDate: "2026-03-28", open: 99, high: 101, low: 98, close: 100, volume: 50000, source: "test", ingestedAt: "2026-03-28T18:00:00Z" },
+      { ticker: "2330", barDate: "2026-03-27", open: 98, high: 100, low: 97, close: 99, volume: 40000, source: "test", ingestedAt: "2026-03-27T18:00:00Z" },
+    ]);
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-kzo20-t4-buy-2330" },
+      payload: transactionPayload({ quantity: 10, unitPrice: 100, tradeDate: "2026-01-15", commissionAmount: 0, taxAmount: 0 }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-kzo20-t4-buy-qa" },
+      payload: transactionPayload({
+        ticker: "qa-no-bars",
+        quantity: 5,
+        unitPrice: 80,
+        tradeDate: "2026-01-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Holdings sorted by costBasisAmount desc: 2330 (1000) then QA-NO-BARS (400)
+    expect(body.holdings[0]).toEqual(
+      expect.objectContaining({
+        ticker: "2330",
+        change: 1,
+        quoteStatus: expect.stringMatching(/^(current|provisional)$/),
+      }),
+    );
+    expect(body.holdings[1]).toEqual(
+      expect.objectContaining({
+        ticker: "QA-NO-BARS",
+        change: null,
+        quoteStatus: "missing",
+      }),
+    );
+    // null propagates to summary when any holding has quoteStatus "missing"
+    expect(body.summary).toEqual(
+      expect.objectContaining({
+        dailyChangeAmount: null,
+        dailyChangePercent: null,
+      }),
+    );
+  });
 });

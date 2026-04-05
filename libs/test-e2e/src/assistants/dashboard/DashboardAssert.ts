@@ -35,4 +35,45 @@ export class DashboardAssert extends BaseAssert {
   async isOnDashboard(): Promise<void> {
     await this.mxAssertUrlMatches(/\/dashboard/);
   }
+
+  @Step()
+  async summaryDailyChangeContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.summarySection).toContainText(text);
+  }
+
+  @Step()
+  async summaryDailyChangeIsSubdued(): Promise<void> {
+    const dailyChangeCard = this.el.summarySection
+      .locator(".glass-inset")
+      .filter({ hasText: /daily change/i });
+    await expect(dailyChangeCard.locator("p.text-slate-400")).toBeVisible();
+  }
+
+  @Step()
+  async holdingsTableHasDailyChangeColumn(): Promise<void> {
+    await expect(this.el.holdingsTable.locator("thead th")).toContainText([/daily change/i]);
+  }
+
+  @Step()
+  async holdingRowContainsText(ticker: string, text: string | RegExp): Promise<void> {
+    const row = this.el.holdingsTable.locator("tbody tr").filter({ hasText: ticker });
+    await expect(row).toContainText(text);
+  }
+
+  @Step()
+  async holdingRowHasColorClass(ticker: string, colorClass: string): Promise<void> {
+    const row = this.el.holdingsTable.locator("tbody tr").filter({ hasText: ticker });
+    const dailyChangeCell = row.locator("td").nth(5);
+    await expect(dailyChangeCell).toHaveClass(new RegExp(colorClass));
+  }
+
+  @Step()
+  async heroPanelContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.heroPanel).toContainText(text);
+  }
+
+  @Step()
+  async holdingsTableContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.holdingsTable).toContainText(text);
+  }
 }

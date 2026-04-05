@@ -55,6 +55,8 @@ export interface DashboardOverviewSummaryDto {
   totalCostCurrency: CurrencyCode;
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
+  dailyChangeAmount: number | null;
+  dailyChangePercent: number | null;
   upcomingDividendCount: number;
   upcomingDividendAmount: number | null;
   openIssueCount: number;
@@ -71,6 +73,10 @@ export interface DashboardOverviewHoldingDto {
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
   allocationPct: number | null;
+  change: number | null;
+  changePercent: number | null;
+  previousClose: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
   nextDividendDate: string | null;
   lastDividendPostedDate: string | null;
 }

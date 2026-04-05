@@ -43,6 +43,25 @@ export function buildDashboardOverview(
     ? holdings.reduce((sum, holding) => sum + (holding.unrealizedPnlAmount ?? 0), 0)
     : null;
 
+  const hasMissingQuote = holdings.some((h) => h.quoteStatus === "missing");
+  let dailyChangeAmount: number | null = null;
+  let dailyChangePercent: number | null = null;
+
+  if (!hasMissingQuote && holdings.length > 0) {
+    const allHaveChange = holdings.every((h) => h.change !== null && h.previousClose !== null);
+    if (allHaveChange) {
+      dailyChangeAmount = roundToDecimal(
+        holdings.reduce((sum, h) => sum + h.quantity * (h.change!), 0), 2,
+      );
+      const previousMarketValue = holdings.reduce(
+        (sum, h) => sum + h.quantity * (h.previousClose!), 0,
+      );
+      dailyChangePercent = previousMarketValue > 0
+        ? roundToDecimal((dailyChangeAmount / previousMarketValue) * 100, 4)
+        : null;
+    }
+  }
+
   return {
     settings: store.settings,
     summary: {
@@ -53,6 +72,8 @@ export function buildDashboardOverview(
       totalCostCurrency: holdings[0]?.currency ?? "TWD",
       marketValueAmount,
       unrealizedPnlAmount,
+      dailyChangeAmount,
+      dailyChangePercent,
       upcomingDividendCount: dividends.upcoming.length,
       upcomingDividendAmount: dividends.upcoming.reduce((sum, dividend) => sum + (dividend.expectedAmount ?? 0), 0) || null,
       openIssueCount: integrityIssue ? 1 : 0,
@@ -131,6 +152,10 @@ function buildOverviewHoldings(
         marketValueAmount,
         unrealizedPnlAmount: marketValueAmount === null ? null : marketValueAmount - holding.costBasisAmount,
         allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
+        change: quote?.change ?? null,
+        changePercent: quote?.changePercent ?? null,
+        previousClose: quote?.previousClose ?? null,
+        quoteStatus: !quote ? "missing" as const : quote.isProvisional ? "provisional" as const : "current" as const,
         nextDividendDate: upcomingDividendDates.get(`${holding.accountId}:${holding.ticker}`) || null,
         lastDividendPostedDate: recentPostedDividends.get(`${holding.accountId}:${holding.ticker}`) ?? null,
       };

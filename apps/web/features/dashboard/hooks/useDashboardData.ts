@@ -31,6 +31,8 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
     totalCostCurrency: "TWD",
     marketValueAmount: null,
     unrealizedPnlAmount: null,
+    dailyChangeAmount: null,
+    dailyChangePercent: null,
     upcomingDividendCount: 0,
     upcomingDividendAmount: null,
     openIssueCount: 0,

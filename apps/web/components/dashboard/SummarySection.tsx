@@ -1,7 +1,7 @@
 import React from "react";
 import type { DashboardOverviewSummaryDto, LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
+import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 
 interface SummarySectionProps {
   summary: DashboardOverviewSummaryDto;
@@ -16,6 +16,19 @@ export function SummarySection({ summary, dict, locale }: SummarySectionProps) {
   const unrealizedPnl = summary.unrealizedPnlAmount !== null
     ? formatCurrencyAmount(summary.unrealizedPnlAmount, summary.totalCostCurrency, locale)
     : dict.dashboardHome.noMarketValue;
+  const dailyChangeValue = summary.dailyChangeAmount !== null
+    ? formatCurrencyAmount(summary.dailyChangeAmount, summary.totalCostCurrency, locale)
+    : dict.dashboardHome.noMarketValue;
+  const dailyChangeDetail = summary.dailyChangePercent !== null
+    ? formatPercent(summary.dailyChangePercent, locale)
+    : undefined;
+  const dailyChangeTone = summary.dailyChangeAmount === null
+    ? ""
+    : summary.dailyChangeAmount > 0
+      ? "text-emerald-600"
+      : summary.dailyChangeAmount < 0
+        ? "text-rose-600"
+        : "text-slate-950";
 
   return (
     <section
@@ -40,6 +53,13 @@ export function SummarySection({ summary, dict, locale }: SummarySectionProps) {
         <MetricCard label={dict.dashboardHome.marketValueLabel} value={marketValue} subdued={summary.marketValueAmount === null} />
         <MetricCard label={dict.dashboardHome.unrealizedPnlLabel} value={unrealizedPnl} subdued={summary.unrealizedPnlAmount === null} />
         <MetricCard
+          label={dict.dashboardHome.dailyChangeLabel}
+          value={dailyChangeValue}
+          detail={dailyChangeDetail}
+          subdued={summary.dailyChangeAmount === null}
+          valueClassName={dailyChangeTone}
+        />
+        <MetricCard
           label={dict.dashboardHome.upcomingDividendLabel}
           value={summary.upcomingDividendAmount !== null
             ? formatCurrencyAmount(summary.upcomingDividendAmount, summary.totalCostCurrency, locale)
@@ -61,16 +81,18 @@ function MetricCard({
   value,
   detail,
   subdued = false,
+  valueClassName,
 }: {
   label: string;
   value: string;
   detail?: string;
   subdued?: boolean;
+  valueClassName?: string;
 }) {
   return (
     <div className="glass-inset rounded-[22px] p-4">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className={`mt-2 text-xl font-semibold ${subdued ? "text-slate-400" : "text-slate-950"}`}>{value}</p>
+      <p className={`mt-2 text-xl font-semibold ${valueClassName || (subdued ? "text-slate-400" : "text-slate-950")}`}>{value}</p>
       {detail ? <p className="mt-2 text-sm text-slate-500">{detail}</p> : null}
     </div>
   );
