@@ -45,6 +45,8 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
       app.persistence.updateBackfillStatus(ticker, status),
     updateLastRepairAt: (ticker: string) => app.persistence.updateLastRepairAt(ticker),
     getUsersMonitoringTicker: (ticker: string) => app.persistence.getUsersMonitoringTicker(ticker),
+    createNotification: (notification: Parameters<typeof app.persistence.createNotification>[0]) =>
+      app.persistence.createNotification(notification),
     updateBatchTickerResult: (
       batchId: string,
       ticker: string,
