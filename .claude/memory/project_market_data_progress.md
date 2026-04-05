@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-02)
+## Completed tickets (as of 2026-04-05)
 
 | Ticket | Title | Completed |
 |---|---|---|
@@ -19,6 +19,7 @@ type: project
 | KZO-130 | Daily refresh worker for monitored symbols | 2026-04-01 |
 | KZO-132 | Notification center + daily refresh SSE handling | 2026-04-01 |
 | KZO-87 | EOD quote snapshot resolution | 2026-04-02 |
+| KZO-20 | EOD market data valuation enrichment | 2026-04-05 |
 
 ## Next up
 
