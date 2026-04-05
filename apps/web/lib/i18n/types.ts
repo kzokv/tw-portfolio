@@ -91,6 +91,9 @@ export interface AppDictionary {
     expandQuickTransaction: string;
     collapseQuickTransaction: string;
     noMarketValue: string;
+    dailyChangeLabel: string;
+    quoteStatusMissing: string;
+    quoteStatusProvisional: string;
     statusDeclared: string;
     statusExpected: string;
     statusPayingSoon: string;

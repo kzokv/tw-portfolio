@@ -664,6 +664,15 @@ function renderSection({
             detail: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.totalCostCurrency, locale),
           },
           {
+            label: dict.dashboardHome.dailyChangeLabel,
+            value: dashboard.summary.dailyChangeAmount !== null
+              ? formatCurrencyAmount(dashboard.summary.dailyChangeAmount, dashboard.summary.totalCostCurrency, locale)
+              : dict.dashboardHome.noMarketValue,
+            detail: dashboard.summary.dailyChangePercent !== null
+              ? formatPercent(dashboard.summary.dailyChangePercent, locale)
+              : "-",
+          },
+          {
             label: dict.dashboardHome.issueCountLabel,
             value: formatNumber(dashboard.summary.openIssueCount, locale),
             detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,

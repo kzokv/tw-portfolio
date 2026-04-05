@@ -87,6 +87,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
                   <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.currentPriceLabel}</th>
+                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.dailyChangeLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.marketValueLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.unrealizedPnlLabel}</th>
                   <th className="px-4 py-3 text-right font-medium">{dict.holdings.totalCostTerm}</th>
@@ -108,6 +109,19 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
                       {holding.currentUnitPrice === null
                         ? "-"
                         : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
+                    </td>
+                    <td className={cn("px-4 py-4 text-right font-medium", getDailyChangeTone(holding.change))}>
+                      {holding.quoteStatus === "missing" ? (
+                        <span className="text-amber-600">{dict.dashboardHome.quoteStatusMissing}</span>
+                      ) : holding.change !== null ? (
+                        <span>
+                          {formatCurrencyAmount(holding.change, holding.currency, locale)}
+                          {holding.changePercent !== null && (
+                            <span className="ml-1 text-xs">({formatPercent(holding.changePercent, locale)})</span>
+                          )}
+                          {holding.quoteStatus === "provisional" && <span className="ml-1 text-slate-400" title={dict.dashboardHome.quoteStatusProvisional}>⏱</span>}
+                        </span>
+                      ) : "-"}
                     </td>
                     <td className="px-4 py-4 text-right">
                       {holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
@@ -154,6 +168,15 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
                     label={dict.dashboardHome.currentPriceLabel}
                     value={holding.currentUnitPrice === null ? "-" : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
                     valueClassName={getCurrentPriceTone(holding)}
+                  />
+                  <HoldingDetail
+                    label={dict.dashboardHome.dailyChangeLabel}
+                    value={holding.quoteStatus === "missing"
+                      ? dict.dashboardHome.quoteStatusMissing
+                      : holding.change !== null
+                        ? `${formatCurrencyAmount(holding.change, holding.currency, locale)}${holding.changePercent !== null ? ` (${formatPercent(holding.changePercent, locale)})` : ""}${holding.quoteStatus === "provisional" ? " ⏱" : ""}`
+                        : "-"}
+                    valueClassName={holding.quoteStatus === "missing" ? "text-amber-600" : getDailyChangeTone(holding.change)}
                   />
                   <HoldingDetail
                     label={dict.holdings.totalCostTerm}
@@ -210,6 +233,13 @@ function getCurrentPriceTone(holding: DashboardOverviewHoldingDto): string {
   if (holding.currentUnitPrice < holding.averageCostPerShare) {
     return "text-rose-600";
   }
+  return "text-slate-950";
+}
+
+function getDailyChangeTone(value: number | null): string {
+  if (value === null) return "text-slate-500";
+  if (value > 0) return "text-emerald-600";
+  if (value < 0) return "text-rose-600";
   return "text-slate-950";
 }
 
