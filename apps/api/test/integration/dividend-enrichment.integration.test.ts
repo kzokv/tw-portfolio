@@ -129,6 +129,41 @@ describePostgres("dividend enrichment columns", () => {
     expect(rows[0].raw_provider_data).toEqual({ version: 2, newField: true });
   });
 
+  it("upsertDividendEvents deduplicates batch entries with the same derived key", async () => {
+    // FinMind returns multiple rows for the same ticker+exDate+eventType for ETFs
+    // like 00878. Without deduplication, PostgreSQL rejects the batch with error 21000
+    // ("duplicate constrained values within the same INSERT").
+    const count = await upsertDividendEvents(pool, [
+      {
+        ticker: "00878",
+        exDividendDate: "2025-01-20",
+        paymentDate: "2025-02-25",
+        cashDividendPerShare: 0.235,
+        stockDividendPerShare: 0,
+        fiscalYearPeriod: "2024Q4",
+        rawProviderData: { row: 1 },
+      },
+      {
+        ticker: "00878",
+        exDividendDate: "2025-01-20",
+        paymentDate: "2025-02-25",
+        cashDividendPerShare: 0.235,
+        stockDividendPerShare: 0,
+        fiscalYearPeriod: "2024Q4",
+        rawProviderData: { row: 2 },
+      },
+    ]);
+    // Both map to id "finmind:00878:2025-01-20:CASH" — last-write-wins dedup
+    expect(count).toBe(1);
+
+    const { rows } = await pool.query(
+      `SELECT raw_provider_data FROM market_data.dividend_events
+       WHERE ticker = '00878' AND ex_dividend_date = '2025-01-20'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].raw_provider_data).toEqual({ row: 2 });
+  });
+
   it("loadStore returns 3 new optional fields on DividendEvent", async () => {
     await upsertDividendEvents(pool, [
       {

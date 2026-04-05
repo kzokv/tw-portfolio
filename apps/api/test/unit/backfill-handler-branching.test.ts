@@ -287,6 +287,82 @@ describe("backfill handler trigger branching", () => {
     });
   });
 
+  it("repair flow: creates persistent notification on success with bar and dividend counts", async () => {
+    const deps = createDeps();
+    const createNotification = vi.fn().mockResolvedValue("notif-1");
+    const handler = createBackfillHandler({ ...deps, createNotification } as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        userId: "user-repair",
+        trigger: "repair",
+      }) as never,
+    ]);
+
+    expect(createNotification).toHaveBeenCalledWith({
+      userId: "user-repair",
+      severity: "info",
+      source: "repair",
+      title: "Repair completed — 2330",
+      body: "1 daily bars, 1 dividend events",
+      detail: { ticker: "2330", barsCount: 1, dividendsCount: 1 },
+    });
+  });
+
+  it("repair flow: creates persistent error notification on final retry failure", async () => {
+    const deps = createDeps();
+    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("FinMind timeout"));
+    const createNotification = vi.fn().mockResolvedValue("notif-2");
+    const handler = createBackfillHandler({ ...deps, createNotification } as never);
+
+    await expect(
+      handler([
+        createJob(
+          {
+            ticker: "2330",
+            userId: "user-repair",
+            trigger: "repair",
+          },
+          3,
+          3,
+        ) as never,
+      ]),
+    ).rejects.toThrow("FinMind timeout");
+
+    expect(createNotification).toHaveBeenCalledWith({
+      userId: "user-repair",
+      severity: "error",
+      source: "repair",
+      title: "Repair failed — 2330",
+      body: "FinMind timeout",
+      detail: { ticker: "2330", reason: "FinMind timeout" },
+    });
+  });
+
+  it("repair flow: skips error notification on non-final retry", async () => {
+    const deps = createDeps();
+    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("transient"));
+    const createNotification = vi.fn().mockResolvedValue("notif-3");
+    const handler = createBackfillHandler({ ...deps, createNotification } as never);
+
+    await expect(
+      handler([
+        createJob(
+          {
+            ticker: "2330",
+            userId: "user-repair",
+            trigger: "repair",
+          },
+          1,
+          3,
+        ) as never,
+      ]),
+    ).rejects.toThrow("transient");
+
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
   it("rate-limiter cost: repair with single dataset consumes one call and preserves job priority on reschedule", async () => {
     const deps = createDeps();
     deps.rateLimiter.canConsume.mockImplementation((cost: number) => cost < 2);

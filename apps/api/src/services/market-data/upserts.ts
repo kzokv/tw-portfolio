@@ -70,6 +70,16 @@ export async function upsertDividendEvents(
 ): Promise<number> {
   if (events.length === 0) return 0;
 
+  // Deduplicate by derived ID — FinMind can return multiple rows for the same
+  // ticker+exDate+eventType (e.g. ETF 00878). PostgreSQL ON CONFLICT rejects
+  // duplicate keys within a single INSERT batch (error 21000). Last-write-wins.
+  const deduped = new Map<string, (typeof events)[number]>();
+  for (const ev of events) {
+    const { id } = deriveDividendKey(ev);
+    deduped.set(id, ev);
+  }
+  const uniqueEvents = [...deduped.values()];
+
   const ids: string[] = [];
   const tickers: string[] = [];
   const eventTypes: string[] = [];
@@ -82,7 +92,7 @@ export async function upsertDividendEvents(
   const totalDistShares: (number | null)[] = [];
   const rawProviderDataArr: (string | null)[] = [];
 
-  for (const ev of events) {
+  for (const ev of uniqueEvents) {
     const { eventType, id } = deriveDividendKey(ev);
     ids.push(id);
     tickers.push(ev.ticker);
@@ -118,7 +128,7 @@ export async function upsertDividendEvents(
        announcement_date = EXCLUDED.announcement_date,
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data`,
-    [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, events.length,
+    [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
      fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
   );
   return result.rowCount ?? 0;

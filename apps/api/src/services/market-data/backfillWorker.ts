@@ -29,6 +29,15 @@ export interface BackfillWorkerDeps {
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
   updateLastRepairAt?: (ticker: string) => Promise<void>;
   getUsersMonitoringTicker: (ticker: string) => Promise<string[]>;
+  createNotification?: (notification: {
+    userId: string;
+    severity: "info" | "warning" | "error";
+    source: string;
+    sourceRef?: string;
+    title: string;
+    body?: string;
+    detail?: unknown;
+  }) => Promise<string>;
   updateBatchTickerResult?: (
     batchId: string,
     ticker: string,
@@ -55,6 +64,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     updateBackfillStatus,
     updateLastRepairAt,
     getUsersMonitoringTicker,
+    createNotification,
     updateBatchTickerResult,
     onBatchComplete,
     log,
@@ -153,6 +163,20 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           barsCount,
           dividendsCount,
         });
+        if (createNotification) {
+          try {
+            await createNotification({
+              userId,
+              severity: "info",
+              source: "repair",
+              title: `Repair completed — ${ticker}`,
+              body: `${barsCount} daily bars, ${dividendsCount} dividend events`,
+              detail: { ticker, barsCount, dividendsCount },
+            });
+          } catch (err) {
+            log.warn({ ticker, err }, "repair_notification_create_failed");
+          }
+        }
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_complete", {
           ticker,
@@ -191,6 +215,20 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           reason,
           retriesExhausted: isLastRetry,
         });
+        if (isLastRetry && createNotification) {
+          try {
+            await createNotification({
+              userId,
+              severity: "error",
+              source: "repair",
+              title: `Repair failed — ${ticker}`,
+              body: reason,
+              detail: { ticker, reason },
+            });
+          } catch (notifErr) {
+            log.warn({ ticker, notifErr }, "repair_failure_notification_create_failed");
+          }
+        }
       } else if (userId) {
         await eventBus.publishEvent(userId, "backfill_failed", {
           ticker,

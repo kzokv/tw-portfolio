@@ -54,7 +54,7 @@ export function useNotifications(): UseNotificationsReturn {
   }, [refetch]);
 
   useEventStream({
-    eventTypes: ["daily_refresh_summary"],
+    eventTypes: ["daily_refresh_summary", "repair_complete", "repair_failed"],
     onEvent: handleSSEEvent,
     enabled: true,
   });
