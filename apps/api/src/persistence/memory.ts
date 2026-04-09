@@ -44,6 +44,7 @@ interface MemoryInstrument {
 
 interface MemoryPersistenceOptions {
   seedCatalog?: boolean;
+  seedDevBypassUser?: boolean;
 }
 
 const DEFAULT_MEMORY_CATALOG: MemoryInstrument[] = [
@@ -85,6 +86,16 @@ export class MemoryPersistence implements Persistence {
   async init(): Promise<void> {
     if (this.options.seedCatalog === true && this.instruments.size === 0) {
       this._replaceInstruments(DEFAULT_MEMORY_CATALOG);
+    }
+    if (this.options.seedDevBypassUser === true && this.usersByEmail.size === 0) {
+      this.usersByEmail.set("user-1@placeholder.local", {
+        id: "user-1",
+        email: "user-1@placeholder.local",
+        displayName: null,
+        providerSubject: "dev-bypass",
+        providerDisplayName: null,
+        providerPictureUrl: null,
+      });
     }
   }
 

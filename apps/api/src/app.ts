@@ -67,7 +67,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.decorateRequest("__sessionType", undefined);
   const persistenceBackend = options.persistenceBackend ?? Env.PERSISTENCE_BACKEND;
   const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");
-  app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog });
+  const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
+  app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
   // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.

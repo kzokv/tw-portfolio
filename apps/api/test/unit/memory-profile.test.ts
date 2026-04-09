@@ -87,4 +87,17 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
     expect(profile.providerPictureUrl).toBeNull();
     expect(profile.providerDisplayName).toBeNull();
   });
+
+  it("getProfile returns seeded user-1 when seedDevBypassUser is enabled", async () => {
+    const seeded = new MemoryPersistence({ seedDevBypassUser: true });
+    await seeded.init();
+    const profile = await seeded.getProfile("user-1");
+    expect(profile.userId).toBe("user-1");
+    expect(profile.email).toBe("user-1@placeholder.local");
+    expect(profile.displayName).toBeNull();
+    expect(profile.providerPictureUrl).toBeNull();
+    expect(profile.providerDisplayName).toBeNull();
+    expect(profile.linkedAt).toBeNull();
+    expect(profile.lastSeenAt).toBeNull();
+  });
 });

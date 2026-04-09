@@ -5,6 +5,7 @@ import type { Persistence } from "./types.js";
 
 interface PersistenceFactoryOptions {
   seedMemoryCatalog?: boolean;
+  seedDevBypassUser?: boolean;
 }
 
 export function createPersistence(
@@ -12,7 +13,10 @@ export function createPersistence(
   options: PersistenceFactoryOptions = {},
 ): Persistence {
   if (backend === "memory") {
-    return new MemoryPersistence({ seedCatalog: options.seedMemoryCatalog });
+    return new MemoryPersistence({
+      seedCatalog: options.seedMemoryCatalog,
+      seedDevBypassUser: options.seedDevBypassUser,
+    });
   }
 
   return new PostgresPersistence({
