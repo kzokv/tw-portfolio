@@ -24,6 +24,8 @@ export interface AppDictionary {
     portfolioDescription: string;
     transactionsLabel: string;
     transactionsDescription: string;
+    dividendsLabel: string;
+    dividendsDescription: string;
   };
   hero: {
     eyebrow: string;
@@ -256,6 +258,102 @@ export interface AppDictionary {
     repairRequestPartial: string;
     repairRequestSuccess: string;
     repairRequestError: string;
+  };
+  dividends: {
+    pageTitle: string;
+    pageDescription: string;
+    monthPickerLabel: string;
+    previousMonth: string;
+    nextMonth: string;
+    currentMonth: string;
+    emptyState: string;
+    paymentDateTbdSection: string;
+    viewAllLink: string;
+    eligibleSharesLabel: string;
+    badge: {
+      unposted: string;
+      pendingReview: string;
+      posted: string;
+      postedVariance: string;
+      resolved: string;
+    };
+    action: {
+      postDividend: string;
+      markMatched: string;
+      edit: string;
+      cancel: string;
+      save: string;
+      stockEditDisabled: string;
+    };
+    form: {
+      receivedCash: string;
+      receivedCashHint: string;
+      receivedStockQty: string;
+      receivedStockHint: string;
+      premiumBase: string;
+      note: string;
+      unsavedChangesConfirm: string;
+      nhi: {
+        title: string;
+        premiumBase: string;
+        premiumAmount: string;
+        remove: string;
+      };
+      deductions: {
+        title: string;
+        addRow: string;
+        type: string;
+        amount: string;
+        source: string;
+        sourceReference: string;
+        note: string;
+        atSource: string;
+        removeRow: string;
+      };
+      deductionType: {
+        withholdingTax: string;
+        nhiSupplementalPremium: string;
+        brokerFee: string;
+        bankFee: string;
+        transferFee: string;
+        cashInLieuAdjustment: string;
+        roundingAdjustment: string;
+        other: string;
+      };
+      sourceLines: {
+        title: string;
+        helper: string;
+        unknownToggle: string;
+        addRow: string;
+        bucket: string;
+        amount: string;
+        varianceLabel: string;
+      };
+      sourceBucket: {
+        dividendIncome: string;
+        interestIncome: string;
+        securitiesGainIncome: string;
+        revenueEqualization: string;
+        capitalEqualization: string;
+        capitalReturn: string;
+        other: string;
+      };
+      reconciliation: {
+        title: string;
+        statusOpen: string;
+        statusMatched: string;
+        statusExplained: string;
+        statusResolved: string;
+        noteRequired: string;
+        noteLabel: string;
+      };
+      error: {
+        versionConflict: string;
+        sourceLineMismatch: string;
+        noteRequiredForExplained: string;
+        stockEditNotAllowed: string;
+      };
+    };
   };
   recompute: {
     title: string;

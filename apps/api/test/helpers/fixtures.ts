@@ -96,12 +96,31 @@ export function dividendEventPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+export function seededDividendEventPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    accountId: "acc-1",
+    eligibleQuantity: 1_000,
+    ...dividendEventPayload(),
+    ...overrides,
+  };
+}
+
 export function dividendPostingPayload(overrides: Record<string, unknown> = {}) {
   return {
     accountId: "acc-1",
     dividendEventId: "replace-me",
     receivedCashAmount: 108,
     receivedStockQuantity: 0,
+    sourceCompositionStatus: "provided",
+    sourceLines: [
+      {
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 120,
+        currencyCode: "TWD",
+        source: "issuer_statement",
+        sourceReference: "stmt-2026-02",
+      },
+    ],
     deductions: [
       {
         deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
@@ -111,6 +130,39 @@ export function dividendPostingPayload(overrides: Record<string, unknown> = {}) 
         source: "dividend_posting",
       },
     ],
+    ...overrides,
+  };
+}
+
+export function dividendPostingUpdatePayload(overrides: Record<string, unknown> = {}) {
+  return dividendPostingPayload({
+    dividendLedgerEntryId: "replace-ledger-entry",
+    expectedVersion: 1,
+    receivedCashAmount: 96,
+    deductions: [
+      {
+        deductionType: "WITHHOLDING_TAX",
+        amount: 24,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        source: "broker_statement",
+      },
+    ],
+    sourceLines: [
+      {
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 120,
+        currencyCode: "TWD",
+        source: "broker_statement",
+      },
+    ],
+    ...overrides,
+  });
+}
+
+export function dividendReconciliationPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "matched",
     ...overrides,
   };
 }

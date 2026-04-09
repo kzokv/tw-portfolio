@@ -82,6 +82,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
   await app.persistence.init();
 
+  // KZO-37: Fire-and-forget dividend ledger backfill on boot. Brings stored
+  // expected_cash_amount / eligible_quantity / expected_stock_quantity into
+  // sync with current trades for any entries that were posted before Rule B
+  // recompute went live. Does NOT reset reconciliation_status (4b).
+  // Deferred to setImmediate so the ready-check is never blocked.
+  setImmediate(async () => {
+    try {
+      const { runDividendLedgerBackfill } = await import("./services/dividends.js");
+      const applied = await runDividendLedgerBackfill(app.persistence);
+      if (applied > 0) {
+        app.log.info({ msg: "dividend_ledger_backfill_applied", count: applied });
+      }
+    } catch (error) {
+      app.log.warn({
+        msg: "dividend_ledger_backfill_failed",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.addHook("onClose", async () => {
     await app.eventBus.close();
     await app.persistence.close();

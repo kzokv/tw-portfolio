@@ -1,4 +1,5 @@
 export * from "./accounts/index.js";
+export * from "./dividends/index.js";
 export * from "./feeProfiles/index.js";
 export * from "./notifications/index.js";
 export * from "./profile/index.js";

@@ -12,6 +12,7 @@ import type {
   LotAllocationProjection,
   Store,
 } from "../types/store.js";
+import type { DividendSourceLine } from "@tw-portfolio/shared-types";
 
 export function syncAccountingPolicy(store: Store): void {
   store.accounting.policy = buildAccountingPolicy();
@@ -54,6 +55,21 @@ export function listDividendDeductionEntries(store: Store): DividendDeductionEnt
 
 export function appendDividendDeductionEntry(store: Store, dividendDeductionEntry: DividendDeductionEntry): void {
   store.accounting.facts.dividendDeductionEntries.push(dividendDeductionEntry);
+}
+
+export function listDividendSourceLines(store: Store): DividendSourceLine[] {
+  return store.accounting.facts.dividendSourceLines;
+}
+
+export function replaceDividendSourceLinesForLedger(
+  store: Store,
+  dividendLedgerEntryId: string,
+  nextDividendSourceLines: DividendSourceLine[],
+): void {
+  store.accounting.facts.dividendSourceLines = [
+    ...store.accounting.facts.dividendSourceLines.filter((entry) => entry.dividendLedgerEntryId !== dividendLedgerEntryId),
+    ...nextDividendSourceLines,
+  ];
 }
 
 export function replaceCashLedgerEntriesForDividend(

@@ -1,6 +1,7 @@
 import { createApiFixture } from "@tw-portfolio/test-api/config";
 import type {
   TAccountsApiAssistant,
+  TDividendsApiAssistant,
   TFeeProfilesApiAssistant,
   TNotificationsApiAssistant,
   TProfileApiAssistant,
@@ -12,6 +13,7 @@ import type {
 import { createApiSessionTest } from "@tw-portfolio/test-api/fixtures/sessionBase";
 import {
   AccountsEndpoint,
+  DividendsEndpoint,
   FeeProfilesEndpoint,
   NotificationsEndpoint,
   ProfileEndpoint,
@@ -25,6 +27,7 @@ const base = createApiSessionTest("oauth");
 
 export const test = base.extend<{
   accountsApi: TAccountsApiAssistant;
+  dividendsApi: TDividendsApiAssistant;
   feeProfilesApi: TFeeProfilesApiAssistant;
   notificationsApi: TNotificationsApiAssistant;
   profileApi: TProfileApiAssistant;
@@ -37,6 +40,7 @@ export const test = base.extend<{
   settingsApi: createApiFixture<TSettingsApiAssistant>(SettingsEndpoint),
   profileApi: createApiFixture<TProfileApiAssistant>(ProfileEndpoint),
   accountsApi: createApiFixture<TAccountsApiAssistant>(AccountsEndpoint),
+  dividendsApi: createApiFixture<TDividendsApiAssistant>(DividendsEndpoint),
   feeProfilesApi: createApiFixture<TFeeProfilesApiAssistant>(FeeProfilesEndpoint),
   notificationsApi: createApiFixture<TNotificationsApiAssistant>(NotificationsEndpoint),
   quotesApi: createApiFixture<TQuotesApiAssistant>(QuotesEndpoint),

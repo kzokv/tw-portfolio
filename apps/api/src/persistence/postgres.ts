@@ -35,12 +35,30 @@ import type {
   InstrumentDef,
   Transaction,
 } from "../types/store.js";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type {
+  DividendSourceLine,
+  InstrumentCatalogItemDto,
+  MonitoredTickerDto,
+  NotificationDto,
+  ProfileDto,
+} from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
-import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTradeEventResult, InstrumentRow, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+import type {
+  CatalogInstrument,
+  CatalogSyncResult,
+  DelistingRecord,
+  DeleteTradeEventResult,
+  InstrumentRow,
+  OAuthClaims,
+  Persistence,
+  ReadinessStatus,
+  TradeEventPatch,
+  UpdatePostedCashDividendInput,
+} from "./types.js";
+import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -354,7 +372,8 @@ export class PostgresPersistence implements Persistence {
             `SELECT id, account_id, dividend_event_id, eligible_quantity,
                     expected_cash_amount, expected_stock_quantity,
                     received_stock_quantity,
-                    posting_status, reconciliation_status, booked_at,
+                    posting_status, reconciliation_status, version,
+                    source_composition_status, reconciliation_note, booked_at,
                     reversal_of_dividend_ledger_entry_id, superseded_at
              FROM dividend_ledger_entries
              WHERE account_id = ANY($1)
@@ -376,16 +395,26 @@ export class PostgresPersistence implements Persistence {
 
     // Batch 3: queries that depend on IDs from Batch 2
     const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
-    const dividendDeductionsResult = dividendLedgerEntryIds.length
-      ? await this.pool.query(
-          `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-                  withheld_at_source, source, source_reference, note, booked_at
-           FROM dividend_deduction_entries
-           WHERE dividend_ledger_entry_id = ANY($1)
-           ORDER BY dividend_ledger_entry_id, booked_at, id`,
-          [dividendLedgerEntryIds],
-        )
-      : { rows: [] };
+    const [dividendDeductionsResult, dividendSourceLinesResult] = dividendLedgerEntryIds.length
+      ? await Promise.all([
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [dividendLedgerEntryIds],
+          ),
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                    source, source_reference, note, booked_at
+             FROM dividend_source_lines
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [dividendLedgerEntryIds],
+          ),
+        ])
+      : [{ rows: [] }, { rows: [] }];
 
     const feeProfileTaxRulesByProfileId = groupRowsByKey(feeProfileTaxRulesResult.rows, "fee_profile_id");
     const snapshotTaxComponentsBySnapshotId = groupRowsByKey(snapshotTaxComponentsResult.rows, "snapshot_id");
@@ -484,6 +513,18 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
     }));
 
+    const dividendSourceLines: DividendSourceLine[] = dividendSourceLinesResult.rows.map((row) => ({
+      id: row.id,
+      dividendLedgerEntryId: row.dividend_ledger_entry_id,
+      sourceBucket: row.source_bucket,
+      amount: Number(row.amount),
+      currencyCode: row.currency_code,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      bookedAt: normalizeDateTime(row.booked_at),
+    }));
+
     const receivedCashAmountByDividendLedgerId = new Map<string, number>();
     for (const entry of cashLedgerEntries) {
       if (entry.entryType !== "DIVIDEND_RECEIPT" || !entry.relatedDividendLedgerEntryId) {
@@ -500,13 +541,16 @@ export class PostgresPersistence implements Persistence {
       id: row.id,
       accountId: row.account_id,
       dividendEventId: row.dividend_event_id,
-      eligibleQuantity: row.eligible_quantity,
-      expectedCashAmount: row.expected_cash_amount,
-      expectedStockQuantity: row.expected_stock_quantity,
+      eligibleQuantity: Number(row.eligible_quantity),
+      expectedCashAmount: Number(row.expected_cash_amount),
+      expectedStockQuantity: Number(row.expected_stock_quantity),
       receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
-      receivedStockQuantity: row.received_stock_quantity,
+      receivedStockQuantity: Number(row.received_stock_quantity),
       postingStatus: row.posting_status,
       reconciliationStatus: row.reconciliation_status,
+      version: Number(row.version ?? 1),
+      sourceCompositionStatus: row.source_composition_status ?? "unknown_pending_disclosure",
+      reconciliationNote: row.reconciliation_note ?? undefined,
       reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ?? undefined,
       supersededAt: row.superseded_at ? normalizeDateTime(row.superseded_at) : undefined,
       bookedAt: normalizeDateTime(row.booked_at),
@@ -585,6 +629,7 @@ export class PostgresPersistence implements Persistence {
           cashLedgerEntries,
           dividendLedgerEntries,
           dividendDeductionEntries,
+          dividendSourceLines,
           corporateActions: actionsResult.rows.map((row) => ({
             id: row.id,
             accountId: row.account_id,
@@ -1114,6 +1159,9 @@ export class PostgresPersistence implements Persistence {
     const dividendDeductions = accounting.facts.dividendDeductionEntries.filter(
       (entry) => entry.dividendLedgerEntryId === dividendLedgerEntryId,
     );
+    const dividendSourceLines = accounting.facts.dividendSourceLines.filter(
+      (entry) => entry.dividendLedgerEntryId === dividendLedgerEntryId,
+    );
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === dividendLedgerEntry.accountId && lot.ticker === dividendEvent.ticker,
     );
@@ -1139,20 +1187,25 @@ export class PostgresPersistence implements Persistence {
       }
 
       await this.saveDividendEventTx(client, dividendEvent);
+      const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
+      const dividendSourceCompositionStatus =
+        dividendLedgerEntry.sourceCompositionStatus ?? "unknown_pending_disclosure";
 
       await client.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
            expected_cash_amount, expected_stock_quantity,
            received_stock_quantity,
-           posting_status, reconciliation_status, booked_at,
+           posting_status, reconciliation_status, version,
+           source_composition_status, reconciliation_note, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
            $5, $6,
            $7,
            $8, $9, $10,
-           $11, $12
+           $11, $12, $13,
+           $14, $15
          )
          ON CONFLICT (id)
          DO UPDATE SET
@@ -1164,6 +1217,9 @@ export class PostgresPersistence implements Persistence {
            received_stock_quantity = EXCLUDED.received_stock_quantity,
            posting_status = EXCLUDED.posting_status,
            reconciliation_status = EXCLUDED.reconciliation_status,
+           version = EXCLUDED.version,
+           source_composition_status = EXCLUDED.source_composition_status,
+           reconciliation_note = EXCLUDED.reconciliation_note,
            booked_at = EXCLUDED.booked_at,
            reversal_of_dividend_ledger_entry_id = EXCLUDED.reversal_of_dividend_ledger_entry_id,
            superseded_at = EXCLUDED.superseded_at`,
@@ -1177,6 +1233,9 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
+          dividendLedgerVersion,
+          dividendSourceCompositionStatus,
+          dividendLedgerEntry.reconciliationNote ?? null,
           dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
           dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
           dividendLedgerEntry.supersededAt ?? null,
@@ -1204,6 +1263,30 @@ export class PostgresPersistence implements Persistence {
             deduction.sourceReference ?? null,
             deduction.note ?? null,
             deduction.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+
+      await client.query(`DELETE FROM dividend_source_lines WHERE dividend_ledger_entry_id = $1`, [dividendLedgerEntry.id]);
+      for (const sourceLine of dividendSourceLines) {
+        await client.query(
+          `INSERT INTO dividend_source_lines (
+             id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+             source, source_reference, note, booked_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9
+           )`,
+          [
+            sourceLine.id,
+            sourceLine.dividendLedgerEntryId,
+            sourceLine.sourceBucket,
+            sourceLine.amount,
+            sourceLine.currencyCode,
+            sourceLine.source,
+            sourceLine.sourceReference ?? null,
+            sourceLine.note ?? null,
+            sourceLine.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
           ],
         );
       }
@@ -1265,6 +1348,634 @@ export class PostgresPersistence implements Persistence {
     } finally {
       client.release();
     }
+  }
+
+  async replaceDividendSourceLinesForLedger(
+    userId: string,
+    ledgerEntryId: string,
+    sourceLines: DividendSourceLine[],
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const ownershipResult = await client.query(
+        `SELECT 1
+         FROM dividend_ledger_entries AS dle
+         JOIN accounts AS account
+           ON account.id = dle.account_id
+         WHERE dle.id = $1
+           AND account.user_id = $2
+         FOR UPDATE OF dle`,
+        [ledgerEntryId, userId],
+      );
+      if (!ownershipResult.rowCount) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+
+      await client.query(`DELETE FROM dividend_source_lines WHERE dividend_ledger_entry_id = $1`, [ledgerEntryId]);
+      for (const sourceLine of sourceLines) {
+        await client.query(
+          `INSERT INTO dividend_source_lines (
+             id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+             source, source_reference, note, booked_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9
+           )`,
+          [
+            sourceLine.id,
+            ledgerEntryId,
+            sourceLine.sourceBucket,
+            sourceLine.amount,
+            sourceLine.currencyCode,
+            sourceLine.source,
+            sourceLine.sourceReference ?? null,
+            sourceLine.note ?? null,
+            sourceLine.bookedAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async findDividendLedgerEntryById(userId: string, dividendLedgerEntryId: string): Promise<DividendLedgerEntry | null> {
+    const result = await this.pool.query(
+      `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.posting_status, dle.reconciliation_status, dle.version,
+              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+              COALESCE((
+                SELECT SUM(entry.amount)
+                FROM cash_ledger_entries AS entry
+                WHERE entry.user_id = $2
+                  AND entry.related_dividend_ledger_entry_id = dle.id
+                  AND entry.entry_type = 'DIVIDEND_RECEIPT'
+              ), 0) AS received_cash_amount
+       FROM dividend_ledger_entries AS dle
+       JOIN accounts AS account
+         ON account.id = dle.account_id
+       WHERE dle.id = $1
+         AND account.user_id = $2`,
+      [dividendLedgerEntryId, userId],
+    );
+
+    if (!result.rowCount) {
+      return null;
+    }
+
+    return mapDividendLedgerEntryRow(result.rows[0]);
+  }
+
+  async getDividendLedgerEntryWithDetails(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<
+    | (DividendLedgerEntry & {
+        deductions: DividendDeductionEntry[];
+        sourceLines: DividendSourceLine[];
+      })
+    | null
+  > {
+    const entry = await this.findDividendLedgerEntryById(userId, dividendLedgerEntryId);
+    if (!entry) return null;
+
+    const [deductionsResult, sourceLinesResult] = await Promise.all([
+      this.pool.query(
+        `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                withheld_at_source, source, source_reference, note, booked_at
+         FROM dividend_deduction_entries
+         WHERE dividend_ledger_entry_id = $1
+         ORDER BY booked_at, id`,
+        [dividendLedgerEntryId],
+      ),
+      this.pool.query(
+        `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                source, source_reference, note, booked_at
+         FROM dividend_source_lines
+         WHERE dividend_ledger_entry_id = $1
+         ORDER BY booked_at, id`,
+        [dividendLedgerEntryId],
+      ),
+    ]);
+
+    return {
+      ...entry,
+      deductions: deductionsResult.rows.map((deduction) => ({
+        id: String(deduction.id),
+        dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount),
+        currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source),
+        source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      })),
+      sourceLines: sourceLinesResult.rows.map((sourceLine) => ({
+        id: String(sourceLine.id),
+        dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount),
+        currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      })),
+    };
+  }
+
+  async updateDividendReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: DividendLedgerEntry["reconciliationStatus"],
+    note?: string,
+  ): Promise<DividendLedgerEntry> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query(
+        `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+                dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+                dle.posting_status, dle.reconciliation_status, dle.version,
+                dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+                dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+                COALESCE((
+                  SELECT SUM(entry.amount)
+                  FROM cash_ledger_entries AS entry
+                  WHERE entry.user_id = $2
+                    AND entry.related_dividend_ledger_entry_id = dle.id
+                    AND entry.entry_type = 'DIVIDEND_RECEIPT'
+                ), 0) AS received_cash_amount
+         FROM dividend_ledger_entries AS dle
+         JOIN accounts AS account
+           ON account.id = dle.account_id
+         WHERE dle.id = $1
+           AND account.user_id = $2
+         FOR UPDATE OF dle`,
+        [dividendLedgerEntryId, userId],
+      );
+
+      if (!currentResult.rowCount) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+
+      const current = currentResult.rows[0];
+      if (!["posted", "adjusted"].includes(String(current.posting_status))) {
+        throw routeError(409, "reconciliation_requires_posted_status", "Dividend must be posted before reconciliation changes");
+      }
+
+      const normalizedNote = note?.trim();
+      if (status === "explained" && !normalizedNote) {
+        throw routeError(400, "reconciliation_note_required", "A note is required when reconciliation stays explained");
+      }
+
+      const nextVersion = Number(current.version) + 1;
+      const nextNote = normalizedNote || current.reconciliation_note || null;
+      await client.query(
+        `UPDATE dividend_ledger_entries
+         SET reconciliation_status = $2,
+             reconciliation_note = $3,
+             version = $4
+         WHERE id = $1`,
+        [dividendLedgerEntryId, status, nextNote, nextVersion],
+      );
+
+      await client.query("COMMIT");
+      return {
+        ...mapDividendLedgerEntryRow(current),
+        reconciliationStatus: status,
+        reconciliationNote: nextNote ?? undefined,
+        version: nextVersion,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query(
+        `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+                dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+                dle.posting_status, dle.reconciliation_status, dle.version,
+                dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+                dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+                event.event_type, event.ticker
+         FROM dividend_ledger_entries AS dle
+         JOIN accounts AS account
+           ON account.id = dle.account_id
+         JOIN market_data.dividend_events AS event
+           ON event.id = dle.dividend_event_id
+         WHERE dle.id = $1
+           AND account.user_id = $2
+         FOR UPDATE OF dle`,
+        [input.dividendLedgerEntry.id, userId],
+      );
+
+      if (!currentResult.rowCount) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+
+      const current = currentResult.rows[0];
+      if (String(current.event_type) !== "CASH") {
+        throw routeError(422, "stock_dividend_in_place_edit_unsupported", "Only pure cash dividends can be edited in place");
+      }
+      if (String(current.posting_status) !== "posted") {
+        throw routeError(409, "dividend_update_requires_posted_status", "Only posted dividends can be edited in place");
+      }
+      if (Number(current.version) !== input.expectedVersion) {
+        throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
+      }
+
+      const nextVersion = input.expectedVersion + 1;
+      await client.query(
+        `UPDATE dividend_ledger_entries
+         SET account_id = $2,
+             dividend_event_id = $3,
+             eligible_quantity = $4,
+             expected_cash_amount = $5,
+             expected_stock_quantity = $6,
+             received_stock_quantity = $7,
+             posting_status = $8,
+             reconciliation_status = $9,
+             version = $10,
+             source_composition_status = $11,
+             reconciliation_note = $12,
+             booked_at = $13,
+             reversal_of_dividend_ledger_entry_id = $14,
+             superseded_at = $15
+         WHERE id = $1`,
+        [
+          input.dividendLedgerEntry.id,
+          input.dividendLedgerEntry.accountId,
+          input.dividendLedgerEntry.dividendEventId,
+          input.dividendLedgerEntry.eligibleQuantity,
+          input.dividendLedgerEntry.expectedCashAmount,
+          input.dividendLedgerEntry.expectedStockQuantity,
+          input.dividendLedgerEntry.receivedStockQuantity,
+          input.dividendLedgerEntry.postingStatus,
+          "open",
+          nextVersion,
+          input.dividendLedgerEntry.sourceCompositionStatus,
+          null,
+          input.dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          input.dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
+          input.dividendLedgerEntry.supersededAt ?? null,
+        ],
+      );
+
+      await client.query(`DELETE FROM dividend_deduction_entries WHERE dividend_ledger_entry_id = $1`, [input.dividendLedgerEntry.id]);
+      for (const deduction of input.dividendDeductions) {
+        await client.query(
+          `INSERT INTO dividend_deduction_entries (
+             id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+             withheld_at_source, source, source_reference, note, booked_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9, $10
+           )`,
+          [
+            deduction.id,
+            deduction.dividendLedgerEntryId,
+            deduction.deductionType,
+            deduction.amount,
+            deduction.currencyCode,
+            deduction.withheldAtSource,
+            deduction.source,
+            deduction.sourceReference ?? null,
+            deduction.note ?? null,
+            deduction.bookedAt ?? input.dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+
+      await client.query(`DELETE FROM dividend_source_lines WHERE dividend_ledger_entry_id = $1`, [input.dividendLedgerEntry.id]);
+      for (const sourceLine of input.dividendSourceLines) {
+        await client.query(
+          `INSERT INTO dividend_source_lines (
+             id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+             source, source_reference, note, booked_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9
+           )`,
+          [
+            sourceLine.id,
+            sourceLine.dividendLedgerEntryId,
+            sourceLine.sourceBucket,
+            sourceLine.amount,
+            sourceLine.currencyCode,
+            sourceLine.source,
+            sourceLine.sourceReference ?? null,
+            sourceLine.note ?? null,
+            sourceLine.bookedAt ?? input.dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+
+      await client.query(
+        `DELETE FROM cash_ledger_entries
+         WHERE user_id = $1
+           AND related_dividend_ledger_entry_id = $2`,
+        [userId, input.dividendLedgerEntry.id],
+      );
+      for (const cashEntry of input.linkedCashEntries) {
+        await client.query(
+          `INSERT INTO cash_ledger_entries (
+             id, user_id, account_id, entry_date, entry_type, amount, currency,
+             related_trade_event_id, related_dividend_ledger_entry_id, source,
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10,
+             $11, $12, $13, $14
+           )`,
+          [
+            cashEntry.id,
+            cashEntry.userId,
+            cashEntry.accountId,
+            cashEntry.entryDate,
+            cashEntry.entryType,
+            cashEntry.amount,
+            cashEntry.currency,
+            cashEntry.relatedTradeEventId ?? null,
+            cashEntry.relatedDividendLedgerEntryId ?? null,
+            cashEntry.source,
+            cashEntry.sourceReference ?? null,
+            cashEntry.note ?? null,
+            cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
+            cashEntry.reversalOfCashLedgerEntryId ?? null,
+          ],
+        );
+      }
+
+      await client.query(
+        `DELETE FROM lots
+         WHERE account_id = $1
+           AND ticker = $2`,
+        [input.dividendLedgerEntry.accountId, current.ticker],
+      );
+      for (const lot of input.lots) {
+        await client.query(
+          `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+        );
+      }
+
+      await client.query("COMMIT");
+      return {
+        ...input.dividendLedgerEntry,
+        reconciliationStatus: "open",
+        reconciliationNote: undefined,
+        version: nextVersion,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listDividendLedgerScopes(): Promise<Array<{ userId: string; accountId: string; ticker: string }>> {
+    const result = await this.pool.query<{ user_id: string; account_id: string; ticker: string }>(
+      `SELECT DISTINCT a.user_id, dle.account_id, event.ticker
+         FROM dividend_ledger_entries AS dle
+         JOIN accounts AS a
+           ON a.id = dle.account_id
+         JOIN market_data.dividend_events AS event
+           ON event.id = dle.dividend_event_id
+        WHERE dle.superseded_at IS NULL
+          AND dle.reversal_of_dividend_ledger_entry_id IS NULL`,
+    );
+    return result.rows.map((row) => ({
+      userId: String(row.user_id),
+      accountId: String(row.account_id),
+      ticker: String(row.ticker),
+    }));
+  }
+
+  async applyDividendLedgerRecompute(
+    userId: string,
+    changes: DividendLedgerRecomputeChange[],
+  ): Promise<DividendLedgerRecomputeChange[]> {
+    if (changes.length === 0) return [];
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const applied: DividendLedgerRecomputeChange[] = [];
+
+      for (const change of changes) {
+        // SELECT FOR UPDATE verifies ownership (via account join) and locks
+        // the row against concurrent writers. Idempotency: if the current
+        // stored version no longer matches change.previousVersion, another
+        // writer won the race — skip this change and let the next replay
+        // catch up.
+        const currentResult = await client.query<{ version: number }>(
+          `SELECT dle.version
+             FROM dividend_ledger_entries AS dle
+             JOIN accounts AS account
+               ON account.id = dle.account_id
+            WHERE dle.id = $1
+              AND account.user_id = $2
+              AND dle.account_id = $3
+            FOR UPDATE OF dle`,
+          [change.ledgerEntryId, userId, change.accountId],
+        );
+        if (!currentResult.rowCount) continue;
+        if (Number(currentResult.rows[0]!.version) !== change.previousVersion) continue;
+
+        await client.query(
+          `UPDATE dividend_ledger_entries
+              SET eligible_quantity = $2,
+                  expected_cash_amount = $3,
+                  expected_stock_quantity = $4,
+                  reconciliation_status = $5,
+                  version = $6
+            WHERE id = $1`,
+          [
+            change.ledgerEntryId,
+            change.nextEligibleQuantity,
+            change.nextExpectedCashAmount,
+            change.nextExpectedStockQuantity,
+            change.nextReconciliationStatus,
+            change.nextVersion,
+          ],
+        );
+
+        applied.push(change);
+      }
+
+      await client.query("COMMIT");
+      return applied;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listDividendEventsByPaymentDate(
+    userId: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit: number = 500,
+  ): Promise<Store["marketData"]["dividendEvents"]> {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query(
+      `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
+              cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+              source, source_reference, ingested_at AS created_at,
+              fiscal_year_period, announcement_date, total_distribution_shares
+       FROM market_data.dividend_events
+       WHERE payment_date IS NULL
+          OR (
+            ($1::date IS NULL OR payment_date >= $1::date)
+            AND ($2::date IS NULL OR payment_date <= $2::date)
+          )
+       ORDER BY payment_date NULLS FIRST, ex_dividend_date, id
+       LIMIT $3`,
+      [fromPaymentDate ?? null, toPaymentDate ?? null, limit],
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(row.ex_dividend_date),
+      paymentDate: row.payment_date ? normalizeDate(row.payment_date) : null,
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
+    }));
+  }
+
+  async listDividendLedgerEntriesByPaymentDate(
+    userId: string,
+    accountId?: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit: number = 500,
+  ): Promise<Array<DividendLedgerEntry & {
+    deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
+    sourceLines: DividendSourceLine[];
+  }>> {
+    await this.ensureDefaultPortfolioData(userId);
+    const ledgerResult = await this.pool.query(
+      `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.posting_status, dle.reconciliation_status, dle.version,
+              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
+       FROM dividend_ledger_entries AS dle
+       JOIN accounts AS account
+         ON account.id = dle.account_id
+       JOIN market_data.dividend_events AS event
+         ON event.id = dle.dividend_event_id
+       LEFT JOIN (
+         SELECT related_dividend_ledger_entry_id,
+                SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+         GROUP BY related_dividend_ledger_entry_id
+       ) AS receipts
+         ON receipts.related_dividend_ledger_entry_id = dle.id
+       WHERE account.user_id = $1
+         AND ($2::text IS NULL OR dle.account_id = $2)
+         AND dle.superseded_at IS NULL
+         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries AS reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
+         AND (
+           event.payment_date IS NULL
+           OR (
+             ($3::date IS NULL OR event.payment_date >= $3::date)
+             AND ($4::date IS NULL OR event.payment_date <= $4::date)
+           )
+         )
+       ORDER BY event.payment_date NULLS FIRST, dle.booked_at, dle.id
+       LIMIT $5`,
+      [userId, accountId ?? null, fromPaymentDate ?? null, toPaymentDate ?? null, limit],
+    );
+
+    const ledgerIds = ledgerResult.rows.map((row) => row.id);
+    const [deductionsResult, sourceLinesResult] = ledgerIds.length
+      ? await Promise.all([
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                    source, source_reference, note, booked_at
+             FROM dividend_source_lines
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+        ])
+      : [{ rows: [] }, { rows: [] }];
+
+    const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
+    const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
+
+    return ledgerResult.rows.map((row) => ({
+      ...mapDividendLedgerEntryRow(row),
+      deductions: (deductionsByLedgerId.get(String(row.id)) ?? []).map((deduction) => ({
+        id: String(deduction.id),
+        dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount),
+        currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source),
+        source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      })),
+      sourceLines: (sourceLinesByLedgerId.get(String(row.id)) ?? []).map((sourceLine) => ({
+        id: String(sourceLine.id),
+        dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount),
+        currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      })),
+    }));
   }
 
   private async runMigrations(): Promise<void> {
@@ -1715,19 +2426,24 @@ export class PostgresPersistence implements Persistence {
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
 
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
+      const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
+      const dividendSourceCompositionStatus =
+        dividendLedgerEntry.sourceCompositionStatus ?? "unknown_pending_disclosure";
       await client.query(
         `INSERT INTO dividend_ledger_entries (
            id, account_id, dividend_event_id, eligible_quantity,
            expected_cash_amount, expected_stock_quantity,
            received_stock_quantity,
-           posting_status, reconciliation_status, booked_at,
+           posting_status, reconciliation_status, version,
+           source_composition_status, reconciliation_note, booked_at,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
            $5, $6,
            $7,
            $8, $9, $10,
-           $11, $12
+           $11, $12, $13,
+           $14, $15
          )`,
         [
           dividendLedgerEntry.id,
@@ -1739,6 +2455,9 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntry.receivedStockQuantity,
           dividendLedgerEntry.postingStatus,
           dividendLedgerEntry.reconciliationStatus,
+          dividendLedgerVersion,
+          dividendSourceCompositionStatus,
+          dividendLedgerEntry.reconciliationNote ?? null,
           dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
           dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
           dividendLedgerEntry.supersededAt ?? null,
@@ -1767,6 +2486,31 @@ export class PostgresPersistence implements Persistence {
             deduction.sourceReference ?? null,
             deduction.note ?? null,
             deduction.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          ],
+        );
+      }
+
+      for (const sourceLine of accounting.facts.dividendSourceLines.filter(
+        (entry) => entry.dividendLedgerEntryId === dividendLedgerEntry.id,
+      )) {
+        await client.query(
+          `INSERT INTO dividend_source_lines (
+             id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+             source, source_reference, note, booked_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9
+           )`,
+          [
+            sourceLine.id,
+            sourceLine.dividendLedgerEntryId,
+            sourceLine.sourceBucket,
+            sourceLine.amount,
+            sourceLine.currencyCode,
+            sourceLine.source,
+            sourceLine.sourceReference ?? null,
+            sourceLine.note ?? null,
+            sourceLine.bookedAt ?? dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
           ],
         );
       }
@@ -3018,6 +3762,10 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
         `dividend ledger entry ${dividendLedgerEntry.id} references unknown account ${dividendLedgerEntry.accountId}`,
       );
     }
+    const version = dividendLedgerEntry.version ?? 1;
+    if (!Number.isInteger(version) || version <= 0) {
+      throw new Error(`dividend ledger entry ${dividendLedgerEntry.id} has invalid version ${dividendLedgerEntry.version}`);
+    }
     if (dividendLedgerEntry.postingStatus === "expected" && dividendLedgerEntry.reconciliationStatus !== "open") {
       throw new Error(`expected dividend ledger entry ${dividendLedgerEntry.id} must remain reconciliation open`);
     }
@@ -3026,6 +3774,9 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
       !["posted", "adjusted"].includes(dividendLedgerEntry.postingStatus)
     ) {
       throw new Error(`dividend ledger entry ${dividendLedgerEntry.id} has invalid posting/reconciliation status pair`);
+    }
+    if (dividendLedgerEntry.reconciliationStatus === "explained" && !dividendLedgerEntry.reconciliationNote?.trim()) {
+      throw new Error(`dividend ledger entry ${dividendLedgerEntry.id} requires reconciliation note when explained`);
     }
     if (
       !dividendLedgerEntry.reversalOfDividendLedgerEntryId &&
@@ -3075,6 +3826,17 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
     if (!isCurrencyCode(deduction.currencyCode)) {
       throw new Error(`dividend deduction ${deduction.id} has invalid currency ${deduction.currencyCode}`);
+    }
+  }
+
+  for (const sourceLine of accounting.facts.dividendSourceLines) {
+    if (!dividendLedgerIds.has(sourceLine.dividendLedgerEntryId)) {
+      throw new Error(
+        `dividend source line ${sourceLine.id} references unknown dividend ledger ${sourceLine.dividendLedgerEntryId}`,
+      );
+    }
+    if (sourceLine.currencyCode !== "TWD") {
+      throw new Error(`dividend source line ${sourceLine.id} has invalid currency ${sourceLine.currencyCode}`);
     }
   }
 
@@ -3180,6 +3942,27 @@ function normalizeDate(value: string | Date): string {
 function normalizeDateTime(value: string | Date): string {
   if (typeof value === "string") return new Date(value).toISOString();
   return value.toISOString();
+}
+
+function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedgerEntry {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    dividendEventId: String(row.dividend_event_id),
+    eligibleQuantity: Number(row.eligible_quantity),
+    expectedCashAmount: Number(row.expected_cash_amount),
+    expectedStockQuantity: Number(row.expected_stock_quantity),
+    receivedCashAmount: Number(row.received_cash_amount ?? 0),
+    receivedStockQuantity: Number(row.received_stock_quantity),
+    postingStatus: String(row.posting_status) as DividendLedgerEntry["postingStatus"],
+    reconciliationStatus: String(row.reconciliation_status) as DividendLedgerEntry["reconciliationStatus"],
+    version: Number(row.version ?? 1),
+    sourceCompositionStatus: String(row.source_composition_status ?? "unknown_pending_disclosure") as DividendLedgerEntry["sourceCompositionStatus"],
+    reconciliationNote: row.reconciliation_note ? String(row.reconciliation_note) : undefined,
+    reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ? String(row.reversal_of_dividend_ledger_entry_id) : undefined,
+    supersededAt: row.superseded_at ? normalizeDateTime(String(row.superseded_at)) : undefined,
+    bookedAt: row.booked_at ? normalizeDateTime(String(row.booked_at)) : undefined,
+  };
 }
 
 function feePolicySnapshotIdForTrade(tradeEventId: string): string {

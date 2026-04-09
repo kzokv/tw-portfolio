@@ -1,8 +1,11 @@
 import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
+import type { DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  DividendLedgerEntry,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -43,6 +46,15 @@ export interface DeleteTradeEventResult {
     cashLedgerEntries: number;
     lotAllocations: number;
   };
+}
+
+export interface UpdatePostedCashDividendInput {
+  expectedVersion: number;
+  dividendLedgerEntry: DividendLedgerEntry;
+  linkedCashEntries: CashLedgerEntry[];
+  dividendDeductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
+  dividendSourceLines: DividendSourceLine[];
+  lots: Lot[];
 }
 
 export interface InstrumentRow extends InstrumentRef {
@@ -105,6 +117,67 @@ export interface Persistence {
     marketData: MarketDataFacts,
     dividendLedgerEntryId: string,
   ): Promise<void>;
+  replaceDividendSourceLinesForLedger(userId: string, ledgerEntryId: string, sourceLines: DividendSourceLine[]): Promise<void>;
+  findDividendLedgerEntryById(userId: string, dividendLedgerEntryId: string): Promise<DividendLedgerEntry | null>;
+  /**
+   * Fetch a single dividend ledger entry with its deductions + source lines
+   * eagerly attached, keyed by its primary id and scoped to the owning user.
+   *
+   * Used by the PATCH reconciliation route handler so it can return the
+   * nested entry shape without scanning a paginated list — safe regardless
+   * of how many historical rows the account has accumulated.
+   */
+  getDividendLedgerEntryWithDetails(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<
+    | (DividendLedgerEntry & {
+        deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
+        sourceLines: DividendSourceLine[];
+      })
+    | null
+  >;
+  updateDividendReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: DividendLedgerEntry["reconciliationStatus"],
+    note?: string,
+  ): Promise<DividendLedgerEntry>;
+  updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry>;
+  /**
+   * Apply a pre-computed set of dividend ledger recompute changes atomically.
+   * Caller computes the change plan via planDividendLedgerRecompute; this
+   * method persists it under a row lock. Returns the set of entries that
+   * were actually updated (input minus rows that drifted due to concurrent
+   * writes — currently best-effort, version mismatches are ignored since
+   * recompute is idempotent against itself).
+   */
+  applyDividendLedgerRecompute(
+    userId: string,
+    changes: DividendLedgerRecomputeChange[],
+  ): Promise<DividendLedgerRecomputeChange[]>;
+  /**
+   * Enumerate the distinct (userId, accountId, ticker) scopes with at least
+   * one non-superseded, non-reversed dividend ledger entry. Used by the
+   * startup backfill to iterate exactly the scopes that need a recompute.
+   */
+  listDividendLedgerScopes(): Promise<Array<{ userId: string; accountId: string; ticker: string }>>;
+  listDividendEventsByPaymentDate(
+    userId: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit?: number,
+  ): Promise<Store["marketData"]["dividendEvents"]>;
+  listDividendLedgerEntriesByPaymentDate(
+    userId: string,
+    accountId?: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit?: number,
+  ): Promise<Array<DividendLedgerEntry & {
+    deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
+    sourceLines: DividendSourceLine[];
+  }>>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;
