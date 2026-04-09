@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type {
   DashboardOverviewRecentDividendDto,
   DashboardOverviewUpcomingDividendDto,
@@ -113,6 +114,15 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
             ))}
         </div>
       )}
+
+      <div className="mt-6 flex justify-end">
+        <Link
+          href="/dividends"
+          className="text-sm font-medium text-indigo-700 transition hover:text-indigo-900"
+        >
+          {dict.dividends.viewAllLink}
+        </Link>
+      </div>
     </Card>
   );
 }

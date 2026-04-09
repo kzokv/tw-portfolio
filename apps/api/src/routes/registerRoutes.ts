@@ -23,13 +23,17 @@ import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
 import {
   listCorporateActions,
-  listDividendLedgerEntries,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
 import { buildDashboardOverview, buildDashboardPerformance } from "../services/dashboard.js";
-import { postDividend } from "../services/dividends.js";
-import { listDividendEvents } from "../services/marketDataStore.js";
+import {
+  buildDividendEventListItems,
+  buildDividendLedgerEntryDetails,
+  createDividendEvent,
+  postDividend,
+  preparePostedCashDividendUpdate,
+} from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
@@ -134,12 +138,66 @@ const dividendDeductionSchema = z.object({
   note: z.string().trim().min(1).max(200).optional(),
 });
 
-const dividendPostingSchema = z.object({
-  accountId: userScopedIdSchema,
-  dividendEventId: userScopedIdSchema,
-  receivedCashAmount: z.number().int().nonnegative().default(0),
-  receivedStockQuantity: z.number().int().nonnegative().default(0),
-  deductions: z.array(dividendDeductionSchema).max(20).default([]),
+const dividendSourceLineSchema = z.object({
+  id: userScopedIdSchema.optional(),
+  sourceBucket: z.enum([
+    "DIVIDEND_INCOME",
+    "INTEREST_INCOME",
+    "SECURITIES_GAIN_INCOME",
+    "REVENUE_EQUALIZATION",
+    "CAPITAL_EQUALIZATION",
+    "CAPITAL_RETURN",
+    "OTHER",
+  ]),
+  amount: z.number().positive(),
+  currencyCode: z.literal("TWD").default("TWD"),
+  source: userScopedIdSchema.default("dividend_posting"),
+  sourceReference: userScopedIdSchema.optional(),
+  note: z.string().trim().min(1).max(200).optional(),
+});
+
+const dividendPostingSchema = z
+  .object({
+    accountId: userScopedIdSchema,
+    dividendEventId: userScopedIdSchema,
+    receivedCashAmount: z.number().int().nonnegative().default(0),
+    receivedStockQuantity: z.number().int().nonnegative().default(0),
+    deductions: z.array(dividendDeductionSchema).max(20).default([]),
+    sourceLines: z.array(dividendSourceLineSchema).max(20).default([]),
+    sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).default("unknown_pending_disclosure"),
+    dividendLedgerEntryId: userScopedIdSchema.optional(),
+    expectedVersion: z.number().int().positive().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.dividendLedgerEntryId && value.expectedVersion === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expectedVersion"],
+        message: "expectedVersion is required when dividendLedgerEntryId is present",
+      });
+    }
+    if (!value.dividendLedgerEntryId && value.expectedVersion !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expectedVersion"],
+        message: "expectedVersion is only allowed when editing an existing dividend posting",
+      });
+    }
+  });
+
+const dividendDateRangeQuerySchema = z.object({
+  fromPaymentDate: isoDateSchema.optional(),
+  toPaymentDate: isoDateSchema.optional(),
+  limit: z.coerce.number().int().positive().max(500).default(500),
+});
+
+const dividendLedgerQuerySchema = dividendDateRangeQuerySchema.extend({
+  accountId: userScopedIdSchema.optional(),
+});
+
+const dividendReconciliationSchema = z.object({
+  status: z.enum(["open", "matched", "explained", "resolved"]),
+  note: z.string().trim().max(500).optional(),
 });
 
 function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
@@ -486,6 +544,69 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     app.persistence._seedDailyBars(body.bars);
     return { status: "seeded", count: body.bars.length };
+  });
+
+  app.post("/__e2e/seed-dividend-event", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z
+      .object({
+        accountId: userScopedIdSchema.default("acc-1"),
+        ticker: tickerSchema.default("2330"),
+        eventType: z.enum(["CASH", "STOCK", "CASH_AND_STOCK"]).default("CASH"),
+        exDividendDate: isoDateSchema,
+        paymentDate: isoDateSchema.nullable().optional(),
+        cashDividendPerShare: z.number().nonnegative().default(0),
+        cashDividendCurrency: currencyCodeSchema.default("TWD"),
+        stockDividendPerShare: z.number().nonnegative().default(0),
+        source: z.string().default("e2e_seed_dividend_event"),
+        eligibleQuantity: z.number().int().nonnegative().default(1000),
+        tradeDate: isoDateSchema.optional(),
+      })
+      .parse(req.body);
+
+    const { userId, store } = await loadUserStore(app, req);
+    const account = requireAccount(store, body.accountId);
+    if (account.userId !== userId) {
+      throw routeError(403, "account_forbidden", `Account ${account.id} does not belong to the authenticated user`);
+    }
+
+    if (body.eligibleQuantity > 0) {
+      const tradeDate = body.tradeDate ?? new Date(Date.parse(`${body.exDividendDate}T00:00:00.000Z`) - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+
+      createTransaction(store, userId, {
+        id: randomUUID(),
+        accountId: body.accountId,
+        ticker: body.ticker,
+        quantity: body.eligibleQuantity,
+        unitPrice: 100,
+        priceCurrency: body.cashDividendCurrency,
+        tradeDate,
+        type: "BUY",
+        isDayTrade: false,
+      });
+    }
+
+    const dividendEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ticker: body.ticker,
+      eventType: body.eventType,
+      exDividendDate: body.exDividendDate,
+      paymentDate: body.paymentDate ?? null,
+      cashDividendPerShare: body.cashDividendPerShare,
+      cashDividendCurrency: body.cashDividendCurrency,
+      stockDividendPerShare: body.stockDividendPerShare,
+      source: body.source,
+    });
+
+    await app.persistence.saveStore(store);
+    return {
+      status: "seeded",
+      accountId: body.accountId,
+      eligibleQuantity: body.eligibleQuantity,
+      dividendEvent,
+    };
   });
 
   app.post("/__e2e/reset-demo-rate-buckets", async () => {
@@ -1021,6 +1142,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw error;
     }
 
+    // KZO-37 Invariant 5: a new trade may make a historical dividend
+    // retroactively eligible. Fire the replay (which includes dividend
+    // ledger recompute) after savePostedTrade commits. Fire-and-forget —
+    // POST remains 200 and the client refetches on SSE.
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker);
+
     // KZO-126: First-trade backfill trigger
     if (app.boss && !isDemo) {
       const instrument = await app.persistence.getInstrument(body.ticker);
@@ -1287,13 +1414,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/dividend-events", async (req) => {
-    const { store } = await loadUserStore(app, req);
-    return listDividendEvents(store);
+    const query = dividendDateRangeQuerySchema.parse(req.query);
+    const { userId, store } = await loadUserStore(app, req);
+    const dividendEvents = await app.persistence.listDividendEventsByPaymentDate(
+      userId,
+      query.fromPaymentDate,
+      query.toPaymentDate,
+      query.limit,
+    );
+
+    return {
+      dividendEvents: buildDividendEventListItems(store, dividendEvents),
+    };
   });
 
   app.get("/portfolio/dividends/ledger", async (req) => {
-    const { store } = await loadUserStore(app, req);
-    return listDividendLedgerEntries(store);
+    const query = dividendLedgerQuerySchema.parse(req.query);
+    const { userId, store } = await loadUserStore(app, req);
+    const ledgerEntries = await app.persistence.listDividendLedgerEntriesByPaymentDate(
+      userId,
+      query.accountId,
+      query.fromPaymentDate,
+      query.toPaymentDate,
+      query.limit,
+    );
+
+    return {
+      ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerEntries),
+    };
   });
 
   app.post("/portfolio/dividends/postings", async (req) => {
@@ -1309,42 +1457,139 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertStoreIntegrity(draftStore);
     requireAccount(draftStore, body.accountId);
 
-    const result = postDividend(draftStore, userId, {
-      id: randomUUID(),
-      accountId: body.accountId,
-      dividendEventId: body.dividendEventId,
-      receivedCashAmount: body.receivedCashAmount,
-      receivedStockQuantity: body.receivedStockQuantity,
-      deductions: body.deductions.map((entry) => ({
-        id: randomUUID(),
-        deductionType: entry.deductionType,
-        amount: entry.amount,
-        currencyCode: entry.currencyCode,
-        withheldAtSource: entry.withheldAtSource,
-        source: entry.source,
-        sourceReference: entry.sourceReference,
-        note: entry.note,
-      })),
-    });
-
     const claimed = await app.persistence.claimIdempotencyKey(userId, idempotencyKey);
     if (!claimed) {
       throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
     }
 
     try {
+      if (body.dividendLedgerEntryId) {
+        const prepared = preparePostedCashDividendUpdate(draftStore, userId, {
+          accountId: body.accountId,
+          dividendEventId: body.dividendEventId,
+          dividendLedgerEntryId: body.dividendLedgerEntryId,
+          expectedVersion: body.expectedVersion!,
+          receivedCashAmount: body.receivedCashAmount,
+          deductions: body.deductions.map((entry) => ({
+            id: randomUUID(),
+            deductionType: entry.deductionType,
+            amount: entry.amount,
+            currencyCode: entry.currencyCode,
+            withheldAtSource: entry.withheldAtSource,
+            source: entry.source,
+            sourceReference: entry.sourceReference,
+            note: entry.note,
+          })),
+          sourceLines: body.sourceLines.map((entry) => ({
+            id: entry.id ?? randomUUID(),
+            sourceBucket: entry.sourceBucket,
+            amount: entry.amount,
+            currencyCode: entry.currencyCode,
+            source: entry.source,
+            sourceReference: entry.sourceReference,
+            note: entry.note,
+          })),
+          sourceCompositionStatus: body.sourceCompositionStatus,
+        });
+
+        await app.persistence.updatePostedCashDividend(userId, prepared.persistenceInput);
+        await app.eventBus.publishEvent(userId, "dividend_updated", {
+          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+          dividendEventId: prepared.response.dividendEvent.id,
+          accountId: prepared.response.dividendLedgerEntry.accountId,
+          version: prepared.response.dividendLedgerEntry.version,
+        });
+        return prepared.response;
+      }
+
+      const result = postDividend(draftStore, userId, {
+        id: randomUUID(),
+        accountId: body.accountId,
+        dividendEventId: body.dividendEventId,
+        receivedCashAmount: body.receivedCashAmount,
+        receivedStockQuantity: body.receivedStockQuantity,
+        deductions: body.deductions.map((entry) => ({
+          id: randomUUID(),
+          deductionType: entry.deductionType,
+          amount: entry.amount,
+          currencyCode: entry.currencyCode,
+          withheldAtSource: entry.withheldAtSource,
+          source: entry.source,
+          sourceReference: entry.sourceReference,
+          note: entry.note,
+        })),
+        sourceLines: body.sourceLines.map((entry) => ({
+          id: entry.id ?? randomUUID(),
+          sourceBucket: entry.sourceBucket,
+          amount: entry.amount,
+          currencyCode: entry.currencyCode,
+          source: entry.source,
+          sourceReference: entry.sourceReference,
+          note: entry.note,
+        })),
+        sourceCompositionStatus: body.sourceCompositionStatus,
+      });
+
       await app.persistence.savePostedDividend(
         userId,
         draftStore.accounting,
         draftStore.marketData,
         result.dividendLedgerEntry.id,
       );
+      await app.eventBus.publishEvent(userId, "dividend_posted", {
+        dividendLedgerEntryId: result.dividendLedgerEntry.id,
+        dividendEventId: result.dividendEvent.id,
+        accountId: result.dividendLedgerEntry.accountId,
+        version: result.dividendLedgerEntry.version,
+      });
+      return result;
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;
     }
+  });
 
-    return result;
+  app.patch("/portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation", async (req) => {
+    const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
+    const body = dividendReconciliationSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const ownedEntry = await app.persistence.findDividendLedgerEntryById(userId, params.dividendLedgerEntryId);
+    if (!ownedEntry) {
+      throw routeError(403, "forbidden", "Dividend ledger entry does not belong to the authenticated user");
+    }
+
+    await app.persistence.updateDividendReconciliationStatus(
+      userId,
+      params.dividendLedgerEntryId,
+      body.status,
+      body.note?.trim() || undefined,
+    );
+
+    // Direct primary-key lookup — safe regardless of how many historical
+    // rows the account has accumulated. Replaces a former scan-and-filter
+    // over a 500-entry page which could falsely 404 on large accounts.
+    const detailedEntry = await app.persistence.getDividendLedgerEntryWithDetails(
+      userId,
+      params.dividendLedgerEntryId,
+    );
+    if (!detailedEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    const store = await app.persistence.loadStore(userId);
+    const ledgerEntry = buildDividendLedgerEntryDetails(store, [detailedEntry])[0];
+    if (!ledgerEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    await app.eventBus.publishEvent(userId, "dividend_reconciliation_changed", {
+      dividendLedgerEntryId: ledgerEntry.id,
+      dividendEventId: ledgerEntry.dividendEventId,
+      accountId: ledgerEntry.accountId,
+      reconciliationStatus: ledgerEntry.reconciliationStatus,
+      version: ledgerEntry.version,
+    });
+
+    return { ledgerEntry };
   });
 
   app.get("/corporate-actions", async (req) => {
@@ -1497,6 +1742,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
 
     await app.persistence.saveAccountingStore(userId, draftStore.accounting);
+
+    // KZO-37 Invariant 5: each new trade may retroactively change the
+    // eligibility of existing dividend ledger entries. Schedule a replay
+    // per unique (accountId, ticker) affected by this batch.
+    const touchedTickers = new Set(body.proposals.map((proposal) => proposal.ticker));
+    for (const ticker of touchedTickers) {
+      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, ticker);
+    }
+
     return { created };
   });
 

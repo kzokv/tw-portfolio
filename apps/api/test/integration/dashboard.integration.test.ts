@@ -126,13 +126,21 @@ describe("dashboard overview", () => {
     });
 
     const store2 = await app.persistence.loadStore("user-1");
+    // Seed an upcoming dividend event. We normalize the payment date to
+    // "tomorrow" relative to now so the buildUpcomingDividends() date filter
+    // keeps including it as the clock advances over time.
+    const tomorrow = new Date();
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const upcomingPaymentDate = tomorrow.toISOString().slice(0, 10);
+    const upcomingExDate = new Date();
+    upcomingExDate.setUTCDate(upcomingExDate.getUTCDate() - 5);
     createDividendEvent(store2, {
       id: randomUUID(),
       ...dividendEventPayload({
         ticker: "2330",
         eventType: "CASH",
-        exDividendDate: "2026-03-01",
-        paymentDate: "2026-03-20",
+        exDividendDate: upcomingExDate.toISOString().slice(0, 10),
+        paymentDate: upcomingPaymentDate,
         cashDividendPerShare: 8,
         sourceReference: "manual-upcoming-event",
       }),
@@ -162,7 +170,7 @@ describe("dashboard overview", () => {
             currentUnitPrice: 100,
             marketValueAmount: 1000,
             unrealizedPnlAmount: 0,
-            nextDividendDate: "2026-03-20",
+            nextDividendDate: upcomingPaymentDate,
           }),
         ],
         dividends: {
@@ -170,7 +178,7 @@ describe("dashboard overview", () => {
             expect.objectContaining({
               accountId: "acc-1",
               ticker: "2330",
-              paymentDate: "2026-03-20",
+              paymentDate: upcomingPaymentDate,
               expectedAmount: 80,
               currency: "TWD",
             }),
@@ -188,6 +196,160 @@ describe("dashboard overview", () => {
         },
       }),
     );
+  });
+
+  it("rebuilds upcoming dividend expectations from current trades when late buys land after posting", async () => {
+    // Buy 1 share initially.
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-upcoming-retro-initial" },
+      payload: transactionPayload({
+        quantity: 1,
+        unitPrice: 100,
+        tradeDate: "2026-01-10",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    // Seed an upcoming dividend event within the horizon.
+    const store = await app.persistence.loadStore("user-1");
+    const upcomingPayment = new Date();
+    upcomingPayment.setUTCDate(upcomingPayment.getUTCDate() + 20);
+    const upcomingExDiv = new Date();
+    upcomingExDiv.setUTCDate(upcomingExDiv.getUTCDate() + 10);
+    const eventId = randomUUID();
+    createDividendEvent(store, {
+      id: eventId,
+      ...dividendEventPayload({
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: upcomingExDiv.toISOString().slice(0, 10),
+        paymentDate: upcomingPayment.toISOString().slice(0, 10),
+        cashDividendPerShare: 10,
+        sourceReference: "retro-upcoming",
+      }),
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(store);
+
+    // Sanity — widget initially sees 1 × 10 = 10.
+    const before = await app.inject({ method: "GET", url: "/dashboard/overview" });
+    const beforeEntry = before.json().dividends.upcoming.find(
+      (entry: { ticker: string; expectedAmount: number | null }) => entry.ticker === "2330",
+    );
+    expect(beforeEntry.expectedAmount).toBe(10);
+
+    // Add a late BUY of 9 more shares before the (still-future) ex-div date.
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-upcoming-retro-late" },
+      payload: transactionPayload({
+        quantity: 9,
+        unitPrice: 100,
+        tradeDate: "2026-02-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    // Widget must recompute from the updated trade set: 10 × 10 = 100.
+    const after = await app.inject({ method: "GET", url: "/dashboard/overview" });
+    const afterEntry = after.json().dividends.upcoming.find(
+      (entry: { ticker: string; expectedAmount: number | null }) => entry.ticker === "2330",
+    );
+    expect(afterEntry.expectedAmount).toBe(100);
+  });
+
+  it("filters out past-dated and beyond-horizon dividend events from the upcoming widget", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-upcoming-filter-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2020-01-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+
+    // Past event (2013) — must be excluded even though user holds the stock.
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: "2013-06-15",
+        paymentDate: "2013-07-03",
+        cashDividendPerShare: 3,
+        sourceReference: "past-dividend",
+      }),
+    } as CreateDividendEventInput);
+
+    // Declared but unscheduled event (no payment date) — should be included.
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: "2099-01-01",
+        paymentDate: null,
+        cashDividendPerShare: 5,
+        sourceReference: "declared-only",
+      }),
+    } as CreateDividendEventInput);
+
+    // Event inside the 60-day horizon — should be included.
+    const nearFuture = new Date();
+    nearFuture.setUTCDate(nearFuture.getUTCDate() + 30);
+    const nearFutureDate = nearFuture.toISOString().slice(0, 10);
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: nearFutureDate,
+        paymentDate: nearFutureDate,
+        cashDividendPerShare: 7,
+        sourceReference: "within-horizon",
+      }),
+    } as CreateDividendEventInput);
+
+    // Event beyond the 60-day horizon — should be excluded.
+    const farFuture = new Date();
+    farFuture.setUTCDate(farFuture.getUTCDate() + 180);
+    const farFutureDate = farFuture.toISOString().slice(0, 10);
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "2330",
+        eventType: "CASH",
+        exDividendDate: farFutureDate,
+        paymentDate: farFutureDate,
+        cashDividendPerShare: 9,
+        sourceReference: "beyond-horizon",
+      }),
+    } as CreateDividendEventInput);
+
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/overview" });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+
+    const upcomingPaymentDates = body.dividends.upcoming.map(
+      (entry: { paymentDate: string | null }) => entry.paymentDate,
+    );
+    expect(upcomingPaymentDates).toEqual(
+      expect.arrayContaining([null, nearFutureDate]),
+    );
+    expect(upcomingPaymentDates).not.toContain("2013-07-03");
+    expect(upcomingPaymentDates).not.toContain(farFutureDate);
   });
 
   it("keeps quote-derived dashboard fields empty for provisional instruments until sync data exists", async () => {

@@ -31,6 +31,20 @@ This ticket does not define:
 - final API shape
 - final read-model or UI behavior
 
+## Phase 1 Implementation Note (2026-04-09)
+
+This contract describes the **intended end state** for dividend lifecycle handling. **Phase 1 of the codebase has adopted a deliberate simplification:** in-place edits are allowed on posted dividend rows (cash component only), per `KZO-114` (transaction mutability) and `KZO-37` (dividend posting UI). The reversal-plus-replacement model defined in §4 below is **deferred** until a future ticket restores the canonical lifecycle.
+
+Practical consequences for current Phase 1 implementation:
+
+- `postingStatus = posted` rows can be updated in place when the dividend is `eventType = CASH`
+- `postingStatus = posted` rows for `STOCK` and `CASH_AND_STOCK` events remain immutable in Phase 1 (the in-place edit path would corrupt downstream lot allocation history if subsequent SELL trades have consumed the dividend lot)
+- `postingStatus = adjusted` is **not produced** by Phase 1 code paths and only appears in legacy data
+- The `reversalOfDividendLedgerEntryId` field is preserved in the schema for the future end state but is not written by Phase 1 services
+- Phase 1 uses an `OptimisticLockError` (via a new `version` column on `dividend_ledger_entries`) to detect concurrent edits — this is not a substitute for the audit trail that the end-state reversal model would provide
+
+When the reversal-replacement model is restored, the in-place edit path will be removed in favor of the §4 design described below. See `docs/004-notes/kzo-37/scope-todo-202604091700-initial.md` for the Phase 1 implementation checklist that introduced this carve-out.
+
 ## Canonical Boundary
 
 ### `DividendEvent`
@@ -145,6 +159,8 @@ Current implementation bridge:
 If both cash and stock exist, both components live on the same `DividendLedgerEntry`.
 
 ### 4. Adjust Or Correct The Posting
+
+> **Phase 1 carve-out:** see the "Phase 1 Implementation Note" near the top of this document. The rules below describe the intended end state. Phase 1 currently allows in-place edits to `posted` rows for `eventType = CASH` only.
 
 Corrections must preserve history.
 

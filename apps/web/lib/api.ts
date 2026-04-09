@@ -57,6 +57,17 @@ export const API_PUBLIC = getApiBaseUrl();
 export const API_BASE = getFetchApiBaseUrl();
 const E2E_USER_COOKIE = "tw_e2e_user";
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 /**
  * Headers sent with every API request for auth.
  * - When AUTH_MODE=dev_bypass the API accepts optional x-user-id; default is "user-1".
@@ -118,14 +129,16 @@ async function getRuntimeDevUserId(): Promise<string> {
   return "";
 }
 
-async function parseError(res: Response, path: string): Promise<Error> {
+async function parseError(res: Response, path: string): Promise<ApiError> {
   let message = `Request failed: ${path}`;
+  let code: string | undefined;
   try {
     const text = await res.text();
     if (text) {
       try {
         const payload = JSON.parse(text) as { message?: string; error?: string };
         message = payload.message?.trim() || payload.error?.trim() || text;
+        code = payload.error?.trim() || undefined;
       } catch {
         message = text;
       }
@@ -133,7 +146,7 @@ async function parseError(res: Response, path: string): Promise<Error> {
   } catch {
     message = `Request failed: ${path}`;
   }
-  return new Error(message);
+  return new ApiError(message, res.status, code);
 }
 
 async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {

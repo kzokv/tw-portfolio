@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@tw-portfolio/domain";
+import type { DividendSourceLine } from "@tw-portfolio/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
@@ -14,7 +15,18 @@ import type { DailyBar } from "@tw-portfolio/domain";
 import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
-import type { CatalogInstrument, CatalogSyncResult, DelistingRecord, DeleteTradeEventResult, OAuthClaims, Persistence, ReadinessStatus, TradeEventPatch } from "./types.js";
+import type {
+  CatalogInstrument,
+  CatalogSyncResult,
+  DelistingRecord,
+  DeleteTradeEventResult,
+  OAuthClaims,
+  Persistence,
+  ReadinessStatus,
+  TradeEventPatch,
+  UpdatePostedCashDividendInput,
+} from "./types.js";
+import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 interface MemoryNotification {
   id: string;
@@ -198,15 +210,228 @@ export class MemoryPersistence implements Persistence {
       (entry) => entry.id === dividendLedgerEntryId,
     );
     if (existingDividendLedgerEntry && existingDividendLedgerEntry.postingStatus !== "expected") {
-      throw new Error(
-        `posted dividend ledger entry ${dividendLedgerEntryId} already exists and cannot be overwritten in place`,
-      );
+      throw routeError(409, "dividend_conflict", "Dividend posting requires an active expected entry");
     }
 
     store.accounting = accounting;
     store.marketData = marketData;
     syncInstruments(store);
     this.stores.set(userId, store);
+  }
+
+  async replaceDividendSourceLinesForLedger(userId: string, ledgerEntryId: string, sourceLines: DividendSourceLine[]): Promise<void> {
+    const store = await this.loadStore(userId);
+    store.accounting.facts.dividendSourceLines = [
+      ...store.accounting.facts.dividendSourceLines.filter((entry) => entry.dividendLedgerEntryId !== ledgerEntryId),
+      ...sourceLines,
+    ];
+  }
+
+  async findDividendLedgerEntryById(userId: string, dividendLedgerEntryId: string) {
+    const store = await this.loadStore(userId);
+    const accountIds = new Set(store.accounts.filter((account) => account.userId === userId).map((account) => account.id));
+    return store.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === dividendLedgerEntryId && accountIds.has(entry.accountId),
+    ) ?? null;
+  }
+
+  async getDividendLedgerEntryWithDetails(userId: string, dividendLedgerEntryId: string) {
+    const store = await this.loadStore(userId);
+    const accountIds = new Set(store.accounts.filter((account) => account.userId === userId).map((account) => account.id));
+    const entry = store.accounting.facts.dividendLedgerEntries.find(
+      (candidate) => candidate.id === dividendLedgerEntryId && accountIds.has(candidate.accountId),
+    );
+    if (!entry) return null;
+    return {
+      ...entry,
+      deductions: store.accounting.facts.dividendDeductionEntries.filter(
+        (deduction) => deduction.dividendLedgerEntryId === entry.id,
+      ),
+      sourceLines: store.accounting.facts.dividendSourceLines.filter(
+        (line) => line.dividendLedgerEntryId === entry.id,
+      ),
+    };
+  }
+
+  async updateDividendReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: Store["accounting"]["facts"]["dividendLedgerEntries"][number]["reconciliationStatus"],
+    note?: string,
+  ) {
+    const entry = await this.findDividendLedgerEntryById(userId, dividendLedgerEntryId);
+    if (!entry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+
+    if (!["posted", "adjusted"].includes(entry.postingStatus)) {
+      throw routeError(409, "reconciliation_requires_posted_status", "Dividend must be posted before reconciliation changes");
+    }
+
+    const normalizedNote = note?.trim();
+    if (status === "explained" && !normalizedNote) {
+      throw routeError(400, "reconciliation_note_required", "A note is required when reconciliation stays explained");
+    }
+
+    entry.reconciliationStatus = status;
+    entry.version += 1;
+    entry.reconciliationNote = normalizedNote || entry.reconciliationNote;
+
+    return entry;
+  }
+
+  async updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput) {
+    const store = await this.loadStore(userId);
+    const entryIndex = store.accounting.facts.dividendLedgerEntries.findIndex((entry) => entry.id === input.dividendLedgerEntry.id);
+    if (entryIndex === -1) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    const currentEntry = store.accounting.facts.dividendLedgerEntries[entryIndex]!;
+    if (currentEntry.version !== input.expectedVersion) {
+      throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
+    }
+    if (currentEntry.postingStatus !== "posted") {
+      throw routeError(409, "dividend_update_requires_posted_status", "Only posted dividends can be edited in place");
+    }
+
+    const dividendEvent = store.marketData.dividendEvents.find((event) => event.id === currentEntry.dividendEventId);
+    if (!dividendEvent) {
+      throw routeError(404, "dividend_event_not_found", "Dividend event not found");
+    }
+    if (dividendEvent.eventType !== "CASH") {
+      throw routeError(422, "stock_dividend_in_place_edit_unsupported", "Only pure cash dividends can be edited in place");
+    }
+
+    const nextEntry = {
+      ...input.dividendLedgerEntry,
+      version: input.expectedVersion + 1,
+      reconciliationStatus: "open" as const,
+      reconciliationNote: undefined,
+    };
+
+    store.accounting.facts.dividendLedgerEntries[entryIndex] = nextEntry;
+    store.accounting.facts.dividendDeductionEntries = [
+      ...store.accounting.facts.dividendDeductionEntries.filter((entry) => entry.dividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...input.dividendDeductions,
+    ];
+    store.accounting.facts.dividendSourceLines = [
+      ...store.accounting.facts.dividendSourceLines.filter((entry) => entry.dividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...input.dividendSourceLines,
+    ];
+    store.accounting.facts.cashLedgerEntries = [
+      ...store.accounting.facts.cashLedgerEntries.filter((entry) => entry.relatedDividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...input.linkedCashEntries,
+    ];
+    if (dividendEvent) {
+      store.accounting.projections.lots = [
+        ...store.accounting.projections.lots.filter(
+          (lot) => lot.accountId !== input.dividendLedgerEntry.accountId || lot.ticker !== dividendEvent.ticker,
+        ),
+        ...input.lots,
+      ];
+      rebuildHoldingProjection(store);
+    }
+    return nextEntry;
+  }
+
+  async listDividendLedgerScopes(): Promise<Array<{ userId: string; accountId: string; ticker: string }>> {
+    const out: Array<{ userId: string; accountId: string; ticker: string }> = [];
+    const seen = new Set<string>();
+    for (const [userId, store] of this.stores.entries()) {
+      const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event.ticker]));
+      const supersededIds = new Set(
+        store.accounting.facts.dividendLedgerEntries
+          .map((entry) => entry.reversalOfDividendLedgerEntryId)
+          .filter((id): id is string => Boolean(id)),
+      );
+      for (const entry of store.accounting.facts.dividendLedgerEntries) {
+        if (entry.reversalOfDividendLedgerEntryId) continue;
+        if (entry.supersededAt) continue;
+        if (supersededIds.has(entry.id)) continue;
+        const ticker = eventById.get(entry.dividendEventId);
+        if (!ticker) continue;
+        const key = `${userId}:${entry.accountId}:${ticker}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ userId, accountId: entry.accountId, ticker });
+      }
+    }
+    return out;
+  }
+
+  async applyDividendLedgerRecompute(
+    userId: string,
+    changes: DividendLedgerRecomputeChange[],
+  ): Promise<DividendLedgerRecomputeChange[]> {
+    if (changes.length === 0) return [];
+    const store = await this.loadStore(userId);
+    const applied: DividendLedgerRecomputeChange[] = [];
+
+    for (const change of changes) {
+      const entry = store.accounting.facts.dividendLedgerEntries.find(
+        (candidate) => candidate.id === change.ledgerEntryId && candidate.accountId === change.accountId,
+      );
+      if (!entry) continue;
+      // Idempotency guard: if a concurrent write already moved the entry
+      // forward past our previousVersion, skip — the next replay will
+      // resynchronize.
+      if (entry.version !== change.previousVersion) continue;
+
+      entry.eligibleQuantity = change.nextEligibleQuantity;
+      entry.expectedCashAmount = change.nextExpectedCashAmount;
+      entry.expectedStockQuantity = change.nextExpectedStockQuantity;
+      entry.version = change.nextVersion;
+      entry.reconciliationStatus = change.nextReconciliationStatus;
+      // Preserve the existing note (1a) — plan already carried it forward.
+      applied.push(change);
+    }
+
+    return applied;
+  }
+
+  async listDividendEventsByPaymentDate(
+    userId: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit: number = 500,
+  ) {
+    const store = await this.loadStore(userId);
+    void userId;
+    return store.marketData.dividendEvents
+      .filter((event) => matchesNullableDateRange(event.paymentDate, fromPaymentDate, toPaymentDate))
+      .sort(compareNullablePaymentDates)
+      .slice(0, limit);
+  }
+
+  async listDividendLedgerEntriesByPaymentDate(
+    userId: string,
+    accountId?: string,
+    fromPaymentDate?: string,
+    toPaymentDate?: string,
+    limit: number = 500,
+  ) {
+    const store = await this.loadStore(userId);
+    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+    // Collect ids that have been reversed by a later entry — those must be
+    // treated as inactive even if their own supersededAt is still null.
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    return store.accounting.facts.dividendLedgerEntries
+      .filter((entry) => !entry.reversalOfDividendLedgerEntryId)
+      .filter((entry) => !entry.supersededAt)
+      .filter((entry) => !reversedIds.has(entry.id))
+      .filter((entry) => !accountId || entry.accountId === accountId)
+      .filter((entry) => matchesNullableDateRange(eventById.get(entry.dividendEventId)?.paymentDate ?? null, fromPaymentDate, toPaymentDate))
+      .sort((left, right) => compareNullablePaymentDates(eventById.get(left.dividendEventId), eventById.get(right.dividendEventId)))
+      .slice(0, limit)
+      .map((entry) => ({
+        ...entry,
+        deductions: store.accounting.facts.dividendDeductionEntries.filter((deduction) => deduction.dividendLedgerEntryId === entry.id),
+        sourceLines: store.accounting.facts.dividendSourceLines.filter((line) => line.dividendLedgerEntryId === entry.id),
+      }));
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
@@ -746,6 +971,22 @@ export class MemoryPersistence implements Persistence {
     }
     return catalog;
   }
+}
+
+function matchesNullableDateRange(value: string | null | undefined, fromDate?: string, toDate?: string): boolean {
+  if (value == null) return true;
+  if (fromDate && value < fromDate) return false;
+  if (toDate && value > toDate) return false;
+  return true;
+}
+
+function compareNullablePaymentDates(
+  left: { paymentDate?: string | null } | undefined,
+  right: { paymentDate?: string | null } | undefined,
+): number {
+  const leftDate = left?.paymentDate ?? "";
+  const rightDate = right?.paymentDate ?? "";
+  return leftDate.localeCompare(rightDate);
 }
 
 function toNotificationDto(n: MemoryNotification): NotificationDto {

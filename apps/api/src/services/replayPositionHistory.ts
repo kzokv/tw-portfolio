@@ -3,6 +3,7 @@ import type { Lot } from "@tw-portfolio/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
+import { planDividendLedgerRecompute, type DividendLedgerRecomputeChange } from "./dividends.js";
 
 export interface ReplaySummary {
   accountId: string;
@@ -17,6 +18,13 @@ export interface ReplaySummary {
   cashBalanceChange: number;
   lotsRecalculated: number;
   affectedTradeCount: number;
+  /**
+   * Dividend ledger entries whose eligible quantity / expected amounts
+   * changed as part of this replay pass (Rule B recompute). Callers use
+   * this list to emit dividend_reconciliation_changed / dividend_updated
+   * SSE events per entry.
+   */
+  dividendLedgerChanges: DividendLedgerRecomputeChange[];
 }
 
 export class ReplayError extends Error {
@@ -152,7 +160,21 @@ export async function replayPositionHistory(
     await persistence.bulkInsertCashLedgerEntries(userId, allCashEntries);
   }
 
-  // 7. Build summary
+  // 7. Recompute dividend ledger entries (Invariant 5 / Rule B).
+  //
+  // Load a fresh store AFTER step 6 so the plan sees the current trade set
+  // persisted by this replay, then apply the changes under a row lock.
+  // Reconciliation is reset (matched/explained → open, note preserved) per
+  // Rule B because this path represents a runtime trade mutation.
+  const storeAfterReplay = await persistence.loadStore(userId);
+  const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
+    resetReconciliation: true,
+  });
+  const appliedChanges = dividendChanges.length > 0
+    ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
+    : [];
+
+  // 8. Build summary
   const openLots = lots.filter((l) => l.openQuantity > 0);
   const openQuantity = openLots.reduce((sum, l) => sum + l.openQuantity, 0);
   const totalCost = openLots.reduce((sum, l) => sum + l.totalCostAmount, 0);
@@ -171,7 +193,37 @@ export async function replayPositionHistory(
     cashBalanceChange,
     lotsRecalculated: lots.length,
     affectedTradeCount: trades.length,
+    dividendLedgerChanges: appliedChanges,
   };
+}
+
+async function emitDividendLedgerChangeEvents(
+  eventBus: EventBus,
+  userId: string,
+  changes: DividendLedgerRecomputeChange[],
+): Promise<void> {
+  for (const change of changes) {
+    try {
+      if (change.reconciliationReset) {
+        await eventBus.publishEvent(userId, "dividend_reconciliation_changed", {
+          dividendLedgerEntryId: change.ledgerEntryId,
+          dividendEventId: change.dividendEventId,
+          accountId: change.accountId,
+          reconciliationStatus: change.nextReconciliationStatus,
+          version: change.nextVersion,
+        });
+      } else {
+        await eventBus.publishEvent(userId, "dividend_updated", {
+          dividendLedgerEntryId: change.ledgerEntryId,
+          dividendEventId: change.dividendEventId,
+          accountId: change.accountId,
+          version: change.nextVersion,
+        });
+      }
+    } catch {
+      // EventBus unavailable — client will pick up the change on next poll.
+    }
+  }
 }
 
 export function scheduleReplayWithRetry(
@@ -192,6 +244,7 @@ export function scheduleReplayWithRetry(
         lotsRecalculated: summary.lotsRecalculated,
         affectedTradeCount: summary.affectedTradeCount,
       });
+      await emitDividendLedgerChangeEvents(eventBus, userId, summary.dividendLedgerChanges);
     } catch (firstError) {
       const firstReason = firstError instanceof Error ? firstError.message : String(firstError);
       try {
@@ -217,6 +270,7 @@ export function scheduleReplayWithRetry(
             lotsRecalculated: summary.lotsRecalculated,
             affectedTradeCount: summary.affectedTradeCount,
           });
+          await emitDividendLedgerChangeEvents(eventBus, userId, summary.dividendLedgerChanges);
         } catch (retryError) {
           const retryReason = retryError instanceof Error ? retryError.message : String(retryError);
           try {

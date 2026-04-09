@@ -36,7 +36,7 @@ import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 
-type AppSection = "dashboard" | "portfolio" | "transactions";
+type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends";
 type ViewportMode = "mobile" | "compact" | "wide";
 
 interface AppShellProps {
@@ -212,6 +212,12 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         label: dict.navigation.transactionsLabel,
         description: dict.navigation.transactionsDescription,
       },
+      {
+        id: "dividends",
+        href: "/dividends",
+        label: dict.navigation.dividendsLabel,
+        description: dict.navigation.dividendsDescription,
+      },
     ],
     [dict],
   );
@@ -242,12 +248,16 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     ? dict.navigation.dashboardLabel
     : section === "portfolio"
       ? dict.navigation.portfolioLabel
-      : dict.navigation.transactionsLabel;
+      : section === "transactions"
+        ? dict.navigation.transactionsLabel
+        : dict.navigation.dividendsLabel;
   const shellDescription = section === "dashboard"
     ? dict.navigation.dashboardDescription
     : section === "portfolio"
       ? dict.navigation.portfolioDescription
-      : dict.navigation.transactionsDescription;
+      : section === "transactions"
+        ? dict.navigation.transactionsDescription
+        : dict.navigation.dividendsDescription;
 
   function toggleDesktopNavigation() {
     if (viewportMode === "mobile") return;
@@ -632,6 +642,10 @@ function renderSection({
         </div>
       </div>
     );
+  }
+
+  if (section === "dividends") {
+    return null;
   }
 
   return (

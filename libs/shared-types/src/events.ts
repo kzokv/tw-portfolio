@@ -95,6 +95,31 @@ export interface DailyRefreshSummaryEvent {
   severity: "info" | "warning" | "error";
 }
 
+export interface DividendPostedEvent {
+  type: "dividend_posted";
+  dividendLedgerEntryId: string;
+  dividendEventId: string;
+  accountId: string;
+  version: number;
+}
+
+export interface DividendUpdatedEvent {
+  type: "dividend_updated";
+  dividendLedgerEntryId: string;
+  dividendEventId: string;
+  accountId: string;
+  version: number;
+}
+
+export interface DividendReconciliationChangedEvent {
+  type: "dividend_reconciliation_changed";
+  dividendLedgerEntryId: string;
+  dividendEventId: string;
+  accountId: string;
+  reconciliationStatus: "open" | "matched" | "explained" | "resolved";
+  version: number;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -109,7 +134,10 @@ export type SSEEvent =
   | RepairFailedEvent
   | DailyRefreshCompleteEvent
   | DailyRefreshFailedEvent
-  | DailyRefreshSummaryEvent;
+  | DailyRefreshSummaryEvent
+  | DividendPostedEvent
+  | DividendUpdatedEvent
+  | DividendReconciliationChangedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -124,5 +152,8 @@ export type SSEDomainEventType =
   | "repair_failed"
   | "daily_refresh_complete"
   | "daily_refresh_failed"
-  | "daily_refresh_summary";
+  | "daily_refresh_summary"
+  | "dividend_posted"
+  | "dividend_updated"
+  | "dividend_reconciliation_changed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

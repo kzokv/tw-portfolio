@@ -1,5 +1,5 @@
 import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
-import type { UserSettings } from "@tw-portfolio/shared-types";
+import type { DividendSourceLine, SourceCompositionStatus, UserSettings } from "@tw-portfolio/shared-types";
 
 export interface Account {
   id: string;
@@ -89,7 +89,7 @@ export interface DividendEvent {
   ticker: string;
   eventType: DividendEventType;
   exDividendDate: string;
-  paymentDate: string;
+  paymentDate: string | null;
   cashDividendPerShare: number;
   cashDividendCurrency: CurrencyCode;
   stockDividendPerShare: number;
@@ -115,6 +115,9 @@ export interface DividendLedgerEntry {
   receivedStockQuantity: number;
   postingStatus: DividendPostingStatus;
   reconciliationStatus: DividendReconciliationStatus;
+  version: number;
+  sourceCompositionStatus: SourceCompositionStatus;
+  reconciliationNote?: string;
   reversalOfDividendLedgerEntryId?: string;
   supersededAt?: string;
   bookedAt?: string;
@@ -214,6 +217,7 @@ export interface AccountingFacts {
   cashLedgerEntries: CashLedgerEntry[];
   dividendLedgerEntries: DividendLedgerEntry[];
   dividendDeductionEntries: DividendDeductionEntry[];
+  dividendSourceLines: DividendSourceLine[];
   corporateActions: CorporateAction[];
 }
 

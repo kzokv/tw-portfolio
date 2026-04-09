@@ -1,5 +1,6 @@
 import { apiAssistantRegistry } from "@tw-portfolio/test-framework/config";
 import { accountsApiAssistantFactory } from "../assistants/accounts/index.js";
+import { dividendsApiAssistantFactory } from "../assistants/dividends/index.js";
 import { feeProfilesApiAssistantFactory } from "../assistants/feeProfiles/index.js";
 import { notificationsApiAssistantFactory } from "../assistants/notifications/index.js";
 import { profileApiAssistantFactory } from "../assistants/profile/index.js";
@@ -8,6 +9,7 @@ import { sessionApiAssistantFactory } from "../assistants/session/index.js";
 import { settingsApiAssistantFactory } from "../assistants/settings/index.js";
 import { transactionsApiAssistantFactory } from "../assistants/transactions/index.js";
 import { AccountsEndpoint } from "../endpoints/AccountsEndpoint.js";
+import { DividendsEndpoint } from "../endpoints/DividendsEndpoint.js";
 import { FeeProfilesEndpoint } from "../endpoints/FeeProfilesEndpoint.js";
 import { NotificationsEndpoint } from "../endpoints/NotificationsEndpoint.js";
 import { ProfileEndpoint } from "../endpoints/ProfileEndpoint.js";
@@ -24,6 +26,7 @@ export function registerTestApiAssistants(): void {
   }
 
   apiAssistantRegistry.register(AccountsEndpoint, accountsApiAssistantFactory);
+  apiAssistantRegistry.register(DividendsEndpoint, dividendsApiAssistantFactory);
   apiAssistantRegistry.register(FeeProfilesEndpoint, feeProfilesApiAssistantFactory);
   apiAssistantRegistry.register(NotificationsEndpoint, notificationsApiAssistantFactory);
   apiAssistantRegistry.register(ProfileEndpoint, profileApiAssistantFactory);

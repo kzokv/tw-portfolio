@@ -29,6 +29,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       portfolioDescription: "Focused holdings review with ticker filtering and allocation context.",
       transactionsLabel: "Transactions",
       transactionsDescription: "Record trades and verify the resulting holdings without leaving the workspace.",
+      dividendsLabel: "Dividends",
+      dividendsDescription: "Monthly dividend calendar, posting workflow, and reconciliation status in one place.",
     },
     hero: {
       eyebrow: "Operational Snapshot",
@@ -198,6 +200,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       portfolioDescription: "把持倉檢視拉成主要畫面，方便依標的與帳戶快速聚焦。",
       transactionsLabel: "交易",
       transactionsDescription: "集中新增交易並立即確認對持倉造成的結果。",
+      dividendsLabel: "股利",
+      dividendsDescription: "用月曆集中處理股利入帳、編修與對帳狀態。",
     },
     hero: {
       eyebrow: "營運概覽",

@@ -1167,6 +1167,11 @@ describe("transaction mutations (delete + edit)", () => {
         tradeDate: "2026-01-02",
       });
 
+      // KZO-37 Invariant 5: POST /portfolio/transactions now fires replay
+      // via setImmediate. Drain those pending replays before installing the
+      // fault-injection spy so the retry events are solely from the DELETE.
+      await waitForRecompute(50);
+
       // Spy on a persistence method used by replayPositionHistory to throw once
       let callCount = 0;
       const original = app.persistence.getTradeEventsForAccountTicker.bind(app.persistence);
@@ -1206,6 +1211,10 @@ describe("transaction mutations (delete + edit)", () => {
         unitPrice: 120,
         tradeDate: "2026-01-02",
       });
+
+      // KZO-37 Invariant 5: drain pending POST-triggered replays before
+      // installing the spy so the collected events are solely from DELETE.
+      await waitForRecompute(50);
 
       // Spy that always throws
       vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockRejectedValue(

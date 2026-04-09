@@ -4,6 +4,27 @@ export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type LocaleCode = "en" | "zh-TW";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
 export type CurrencyCode = string;
+export type DividendSourceBucket =
+  | "DIVIDEND_INCOME"
+  | "INTEREST_INCOME"
+  | "SECURITIES_GAIN_INCOME"
+  | "REVENUE_EQUALIZATION"
+  | "CAPITAL_EQUALIZATION"
+  | "CAPITAL_RETURN"
+  | "OTHER";
+export type SourceCompositionStatus = "provided" | "unknown_pending_disclosure";
+
+export interface DividendSourceLine {
+  id: string;
+  dividendLedgerEntryId: string;
+  sourceBucket: DividendSourceBucket;
+  amount: number;
+  currencyCode: CurrencyCode;
+  source: string;
+  sourceReference?: string;
+  note?: string;
+  bookedAt?: string;
+}
 
 export interface UserSettings {
   userId: string;

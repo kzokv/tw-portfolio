@@ -11,6 +11,7 @@ import type {
 } from "@tw-portfolio/shared-types";
 import { roundToDecimal } from "@tw-portfolio/domain";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
+import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
 
@@ -163,6 +164,8 @@ function buildOverviewHoldings(
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
+const UPCOMING_DIVIDEND_WINDOW_DAYS = 60;
+
 function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividendDto[] {
   const activeLedgerByAccountAndEvent = new Map<string, { expectedCashAmount: number; postingStatus: string }>();
   const postedEventKeys = new Set<string>();
@@ -180,20 +183,37 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
     }
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+  const horizon = new Date();
+  horizon.setUTCDate(horizon.getUTCDate() + UPCOMING_DIVIDEND_WINDOW_DAYS);
+  const horizonDate = horizon.toISOString().slice(0, 10);
+
   return store.accounts
     .flatMap((account) =>
       store.marketData.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
-        const accountHolding = store.accounting.projections.holdings.find(
-          (holding) => holding.accountId === account.id && holding.ticker === event.ticker && holding.quantity > 0,
-        );
-        if (!accountHolding) return [];
-
         const ledgerKey = `${account.id}:${event.id}`;
         const activeLedger = activeLedgerByAccountAndEvent.get(ledgerKey);
         if (postedEventKeys.has(ledgerKey)) return [];
 
-        const expectedAmount = activeLedger?.expectedCashAmount
-          ?? (event.cashDividendPerShare > 0 ? accountHolding.quantity * event.cashDividendPerShare : null);
+        // Only surface events whose payment date is still ahead of us and inside
+        // the upcoming horizon. Events with an unknown payment date (declared
+        // but not yet scheduled) are always included.
+        if (event.paymentDate !== null) {
+          if (event.paymentDate < today) return [];
+          if (event.paymentDate > horizonDate) return [];
+        }
+
+        // Use the eligible quantity at the ex-dividend date from current
+        // trade events — this ensures retroactive trade edits flow into the
+        // upcoming widget immediately. Do not trust any stored
+        // expected_cash_amount on an active ledger entry: those are
+        // snapshots captured at posting time and may be stale.
+        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate);
+        if (eligibleQuantity <= 0) return [];
+
+        const expectedAmount = event.cashDividendPerShare > 0
+          ? eligibleQuantity * event.cashDividendPerShare
+          : null;
 
         return [
           {
@@ -259,11 +279,15 @@ function resolveSourceSummary(eventType: string | undefined): string | null {
 }
 
 function resolveUpcomingStatus(
-  paymentDate: string,
+  paymentDate: string | null,
   postingStatus: string | undefined,
 ): DashboardOverviewUpcomingDividendDto["status"] {
   if (postingStatus === "expected") {
     return "expected";
+  }
+
+  if (!paymentDate) {
+    return "declared";
   }
 
   const today = new Date();
