@@ -440,10 +440,10 @@ Use the `/aaa:add` skill to scaffold new POMs, endpoints, and assistant triplets
 - [x] Update `docs/004-notes/001-planning/kzo-33-dividend-lifecycle.md`:
   - [x] Add a "Phase 1 Implementation Note" banner near the top
   - [x] Add a footnote at the start of §4 "Adjust Or Correct The Posting" pointing to the banner
-- [ ] Update KZO-31 Linear ticket description with the PATCH endpoint carve-out note
-- [ ] Create follow-up Linear ticket "ETF distribution source-aware tax & NHI projection" linked as related to KZO-37
-- [ ] Update KZO-37 Linear ticket description with the `## Locked Scope` section
-- [ ] Add session summary comment on KZO-37
+- [x] Update KZO-31 Linear ticket description with the PATCH endpoint carve-out note
+- [x] Create follow-up Linear ticket "ETF distribution source-aware tax & NHI projection" linked as related to KZO-37
+- [x] Update KZO-37 Linear ticket description with the `## Locked Scope` section
+- [x] Add session summary comment on KZO-37
 
 (Items 1-5 in this phase are scheduled to run during scope-lock — see Linear write-back at the end of the scope-grill session.)
 
