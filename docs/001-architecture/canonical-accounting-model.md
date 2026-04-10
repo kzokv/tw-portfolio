@@ -369,7 +369,7 @@ Represents a first-class cash movement.
 - `currency`
 - `relatedTradeEventId`
 - `relatedDividendLedgerEntryId`
-- `sourceType`
+- `source`
 - `sourceReference`
 - `note`
 - `bookedAt`
@@ -388,12 +388,14 @@ Represents a first-class cash movement.
 - dividend cash entries must link back to the related dividend ledger entry when applicable
 - broker fee rebates are separate cash ledger entries, not silent reductions of the original trade charge
 - orphan ledger entries are invalid unless the entry type explicitly allows it
-- corrections to posted cash ledger entries must follow the posted-fact correction contract and must be represented through reversal
+- **Phase 1 override:** cash ledger entries are treated as mutable derived state. The originating event (trade event or dividend ledger entry) is the source of truth. Direct edit and delete-and-replace are the sanctioned correction patterns. The `REVERSAL` entry type remains in schema as a reserved capability.
 
 ### Current Mapping
 
 - implemented in the API store and Postgres persistence
 - current runtime stores signed `amount` plus explicit `currency`
+
+See [`cash-ledger-rules.md`](./cash-ledger-rules.md) for detailed entry taxonomy, generation matrix, and correction rules.
 
 ## `DividendEvent`
 
