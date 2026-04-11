@@ -196,6 +196,8 @@ const dividendDateRangeQuerySchema = z.object({
 
 const dividendLedgerQuerySchema = dividendDateRangeQuerySchema.extend({
   accountId: userScopedIdSchema.optional(),
+  reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
+  postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
 });
 
 const dividendReconciliationSchema = z.object({
@@ -1460,6 +1462,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       query.fromPaymentDate,
       query.toPaymentDate,
       query.limit,
+      query.reconciliationStatus,
+      query.postingStatus,
     );
 
     return {

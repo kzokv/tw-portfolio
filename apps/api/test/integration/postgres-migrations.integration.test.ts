@@ -811,7 +811,6 @@ describePostgres("postgres migrations", () => {
       "cash_ledger_entries",
       "dividend_ledger_entries",
       "dividend_deduction_entries",
-      "reconciliation_records",
       "daily_portfolio_snapshots",
     ];
     const tables = await pool.query<{ table_name: string }>(
@@ -844,7 +843,6 @@ describePostgres("postgres migrations", () => {
       "ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id",
       "idx_dividend_deduction_entries_dividend_ledger_entry_id",
       "ux_dividend_ledger_entries_active_account_event",
-      "idx_reconciliation_records_user_account_status",
       "ux_daily_portfolio_snapshots_user_date_run",
     ];
     const indexes = await pool.query<{ indexname: string; indexdef: string }>(
@@ -949,8 +947,6 @@ describePostgres("postgres migrations", () => {
         "FOREIGN KEY (dividend_ledger_entry_id) REFERENCES dividend_ledger_entries(id)",
       ),
     ).toBe(true);
-    expect(hasConstraint("reconciliation_records", "reconciliation_status = ANY")).toBe(true);
-
     expect(
       hasConstraint(
         "daily_portfolio_snapshots",

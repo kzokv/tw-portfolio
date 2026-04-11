@@ -7,6 +7,8 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  DividendLedgerEntry,
+  DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -409,6 +411,8 @@ export class MemoryPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
+    postingStatus?: DividendPostingStatus,
   ) {
     const store = await this.loadStore(userId);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
@@ -425,6 +429,8 @@ export class MemoryPersistence implements Persistence {
       .filter((entry) => !reversedIds.has(entry.id))
       .filter((entry) => !accountId || entry.accountId === accountId)
       .filter((entry) => matchesNullableDateRange(eventById.get(entry.dividendEventId)?.paymentDate ?? null, fromPaymentDate, toPaymentDate))
+      .filter((entry) => !reconciliationStatus || entry.reconciliationStatus === reconciliationStatus)
+      .filter((entry) => !postingStatus || entry.postingStatus === postingStatus)
       .sort((left, right) => compareNullablePaymentDates(eventById.get(left.dividendEventId), eventById.get(right.dividendEventId)))
       .slice(0, limit)
       .map((entry) => ({

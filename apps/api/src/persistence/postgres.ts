@@ -27,6 +27,7 @@ import type {
   DividendDeductionEntry,
   DividendEvent,
   DividendLedgerEntry,
+  DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
   RecomputeJob,
@@ -1879,6 +1880,8 @@ export class PostgresPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
+    postingStatus?: DividendPostingStatus,
   ): Promise<Array<DividendLedgerEntry & {
     deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
     sourceLines: DividendSourceLine[];
@@ -1920,9 +1923,11 @@ export class PostgresPersistence implements Persistence {
              AND ($4::date IS NULL OR event.payment_date <= $4::date)
            )
          )
+         AND ($6::text IS NULL OR dle.reconciliation_status = $6)
+         AND ($7::text IS NULL OR dle.posting_status = $7)
        ORDER BY event.payment_date NULLS FIRST, dle.booked_at, dle.id
        LIMIT $5`,
-      [userId, accountId ?? null, fromPaymentDate ?? null, toPaymentDate ?? null, limit],
+      [userId, accountId ?? null, fromPaymentDate ?? null, toPaymentDate ?? null, limit, reconciliationStatus ?? null, postingStatus ?? null],
     );
 
     const ledgerIds = ledgerResult.rows.map((row) => row.id);
