@@ -1,5 +1,5 @@
 import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
-import type { DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type {
   AccountingStore,
@@ -87,6 +87,40 @@ export interface DelistingRecord {
   date: string;
 }
 
+// ── Dividend ledger listing (KZO-135) ─────────────────────────────────────────
+
+export type DividendLedgerSortColumn =
+  | "paymentDate"
+  | "ticker"
+  | "account"
+  | "expectedCashAmount"
+  | "receivedCashAmount"
+  | "reconciliationStatus";
+
+export interface DividendLedgerListOptions {
+  accountId?: string;
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
+  reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"];
+  postingStatus?: DividendPostingStatus;
+  ticker?: string;
+  page: number;
+  limit: number;
+  sortBy: DividendLedgerSortColumn;
+  sortOrder: "asc" | "desc";
+}
+
+export type DividendLedgerEntryWithDetails = DividendLedgerEntry & {
+  deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
+  sourceLines: DividendSourceLine[];
+};
+
+export interface DividendLedgerListResult {
+  ledgerEntries: DividendLedgerEntryWithDetails[];
+  total: number;
+  aggregates: DividendLedgerAggregates;
+}
+
 export interface CatalogSyncResult {
   upserted: number;
   delisted: number;
@@ -169,18 +203,11 @@ export interface Persistence {
     toPaymentDate?: string,
     limit?: number,
   ): Promise<Store["marketData"]["dividendEvents"]>;
-  listDividendLedgerEntriesByPaymentDate(
+  listDividendLedgerEntries(
     userId: string,
-    accountId?: string,
-    fromPaymentDate?: string,
-    toPaymentDate?: string,
-    limit?: number,
-    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
-    postingStatus?: DividendPostingStatus,
-  ): Promise<Array<DividendLedgerEntry & {
-    deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
-    sourceLines: DividendSourceLine[];
-  }>>;
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendLedgerListResult>;
+  listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;

@@ -314,3 +314,16 @@ export interface NotificationListResponse {
 export interface UnreadCountResponse {
   count: number;
 }
+
+// ── Dividend ledger aggregates (KZO-135) ────────────────────────────────────
+
+export type CurrencyAmounts = Record<string, number>;
+export type CurrencyExpectedReceived = Record<string, { expected: number; received: number }>;
+
+export interface DividendLedgerAggregates {
+  totalExpectedCashAmount: CurrencyAmounts;
+  totalReceivedCashAmount: CurrencyAmounts;
+  openCount: number;
+  byMonth: Record<string, CurrencyExpectedReceived>;
+  byTicker: Record<string, CurrencyExpectedReceived>;
+}

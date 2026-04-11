@@ -89,34 +89,36 @@ describe("dividends", () => {
 
     const ledgerResponse = await app.inject({ method: "GET", url: "/portfolio/dividends/ledger" });
     expect(ledgerResponse.statusCode).toBe(200);
-    expect(ledgerResponse.json()).toEqual({
-      ledgerEntries: [
-        expect.objectContaining({
-          accountId: "acc-1",
-          dividendEventId: dividendEvent.id,
-          eligibleQuantity: 10,
-          ticker: "2330",
-          expectedCashAmount: 120,
-          receivedCashAmount: 108,
-          postingStatus: "posted",
-          reconciliationStatus: "open",
-          sourceCompositionStatus: "provided",
-          version: 1,
-          deductions: [
-            expect.objectContaining({
-              deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
-              amount: 12,
-            }),
-          ],
-          sourceLines: [
-            expect.objectContaining({
-              sourceBucket: "DIVIDEND_INCOME",
-              amount: 120,
-            }),
-          ],
-        }),
-      ],
-    });
+    expect(ledgerResponse.json()).toEqual(
+      expect.objectContaining({
+        ledgerEntries: [
+          expect.objectContaining({
+            accountId: "acc-1",
+            dividendEventId: dividendEvent.id,
+            eligibleQuantity: 10,
+            ticker: "2330",
+            expectedCashAmount: 120,
+            receivedCashAmount: 108,
+            postingStatus: "posted",
+            reconciliationStatus: "open",
+            sourceCompositionStatus: "provided",
+            version: 1,
+            deductions: [
+              expect.objectContaining({
+                deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+                amount: 12,
+              }),
+            ],
+            sourceLines: [
+              expect.objectContaining({
+                sourceBucket: "DIVIDEND_INCOME",
+                amount: 120,
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
 
     const store = await app.persistence.loadStore("user-1");
     expect(store.accounting.facts.dividendDeductionEntries).toEqual([
