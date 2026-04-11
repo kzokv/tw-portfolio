@@ -278,6 +278,8 @@ export interface AppDictionary {
       posted: string;
       postedVariance: string;
       resolved: string;
+      matched: string;
+      explained: string;
     };
     action: {
       postDividend: string;

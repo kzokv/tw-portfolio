@@ -15,6 +15,13 @@ export interface TDividendPostingDrawerElements {
   errorBanner: Locator;
   deductions: DeductionSubFormComponent;
   sourceLines: SourceLineSubFormComponent;
+  // Reconciliation section elements (KZO-32)
+  reconcileSection: Locator;
+  reconcileStatusSelect: Locator;
+  reconcileNote: Locator;
+  reconcileError: Locator;
+  reconcileSaveButton: Locator;
+  stockEditDisabledLabel: Locator;
 }
 
 export class DividendPostingDrawerComponent extends BasePage<TDividendPostingDrawerElements> {
@@ -31,6 +38,13 @@ export class DividendPostingDrawerComponent extends BasePage<TDividendPostingDra
       errorBanner: this.locate("dividend-form-error", "Dividend Form Error"),
       deductions: new DeductionSubFormComponent(this.page),
       sourceLines: new SourceLineSubFormComponent(this.page),
+      // Reconciliation section (KZO-32)
+      reconcileSection: this.locate("dividend-reconcile-section", "Dividend Reconcile Section"),
+      reconcileStatusSelect: this.locate("dividend-reconcile-status-select", "Dividend Reconcile Status Select"),
+      reconcileNote: this.locate("dividend-reconcile-note", "Dividend Reconcile Note"),
+      reconcileError: this.locate("dividend-reconcile-error", "Dividend Reconcile Error"),
+      reconcileSaveButton: this.locate("dividend-reconcile-save", "Save Dividend Reconciliation"),
+      stockEditDisabledLabel: this.locate("dividend-stock-edit-disabled-label", "Stock Edit Disabled Label"),
     };
   }
 }

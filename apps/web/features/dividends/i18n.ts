@@ -19,6 +19,8 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
         posted: "Posted",
         postedVariance: "Posted (variance)",
         resolved: "Resolved",
+        matched: "Matched",
+        explained: "Explained",
       },
       action: {
         postDividend: "Post dividend",
@@ -117,6 +119,8 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
         posted: "已入帳",
         postedVariance: "已入帳（有差異）",
         resolved: "已結案",
+        matched: "相符",
+        explained: "已說明",
       },
       action: {
         postDividend: "登錄股利",
