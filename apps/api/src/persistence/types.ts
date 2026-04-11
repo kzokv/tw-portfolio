@@ -6,6 +6,7 @@ import type {
   BookedTradeEvent,
   CashLedgerEntry,
   DividendLedgerEntry,
+  DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -174,6 +175,8 @@ export interface Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit?: number,
+    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
+    postingStatus?: DividendPostingStatus,
   ): Promise<Array<DividendLedgerEntry & {
     deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
     sourceLines: DividendSourceLine[];

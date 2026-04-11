@@ -13,7 +13,7 @@ export async function cleanupExpiredDemoUsers(pool: Pool): Promise<number> {
   try {
     await client.query("BEGIN");
 
-    // 18 DELETEs in FK topological order
+    // 16 DELETEs in FK topological order
     await client.query(`DELETE FROM recompute_job_items WHERE job_id IN (SELECT id FROM recompute_jobs WHERE user_id = ANY($1))`, [userIds]);
     await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM dividend_deduction_entries WHERE dividend_ledger_entry_id IN (SELECT id FROM dividend_ledger_entries WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ANY($1)))`, [userIds]);
@@ -23,7 +23,6 @@ export async function cleanupExpiredDemoUsers(pool: Pool): Promise<number> {
     await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM lots WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ANY($1))`, [userIds]);
     await client.query(`DELETE FROM corporate_actions WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ANY($1))`, [userIds]);
-    await client.query(`DELETE FROM reconciliation_records WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM recompute_jobs WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM accounts WHERE user_id = ANY($1)`, [userIds]);
