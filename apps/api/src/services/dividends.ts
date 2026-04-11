@@ -426,10 +426,11 @@ export function buildDividendEventListItems(
 export function buildDividendLedgerEntryDetails(
   store: Store,
   ledgerEntries: Array<DividendLedgerEntry & { deductions: DividendDeductionEntry[]; sourceLines: DividendSourceLine[] }>,
+  options: { preserveOrder?: boolean } = {},
 ): DividendLedgerEntryDetails[] {
   const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
 
-  return ledgerEntries
+  const mapped = ledgerEntries
     .map((entry) => {
       const dividendEvent = eventById.get(entry.dividendEventId);
       if (!dividendEvent) {
@@ -448,14 +449,19 @@ export function buildDividendLedgerEntryDetails(
         cashCurrency: dividendEvent.cashDividendCurrency,
       };
     })
-    .filter((entry): entry is DividendLedgerEntryDetails => Boolean(entry))
-    .sort(
-      (left, right) =>
-        compareNullableDates(left.paymentDate, right.paymentDate) ||
-        left.accountId.localeCompare(right.accountId) ||
-        left.ticker.localeCompare(right.ticker) ||
-        left.id.localeCompare(right.id),
-    );
+    .filter((entry): entry is DividendLedgerEntryDetails => Boolean(entry));
+
+  // Caller may have already sorted by user-selected column (paginated listing);
+  // preserveOrder keeps that ordering instead of the default paymentDate sort.
+  if (options.preserveOrder) return mapped;
+
+  return mapped.sort(
+    (left, right) =>
+      compareNullableDates(left.paymentDate, right.paymentDate) ||
+      left.accountId.localeCompare(right.accountId) ||
+      left.ticker.localeCompare(right.ticker) ||
+      left.id.localeCompare(right.id),
+  );
 }
 
 function materializeExpectedDividendEntry(

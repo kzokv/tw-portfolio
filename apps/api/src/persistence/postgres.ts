@@ -27,7 +27,6 @@ import type {
   DividendDeductionEntry,
   DividendEvent,
   DividendLedgerEntry,
-  DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
   RecomputeJob,
@@ -37,6 +36,7 @@ import type {
   Transaction,
 } from "../types/store.js";
 import type {
+  DividendLedgerAggregates,
   DividendSourceLine,
   InstrumentCatalogItemDto,
   MonitoredTickerDto,
@@ -52,6 +52,8 @@ import type {
   CatalogSyncResult,
   DelistingRecord,
   DeleteTradeEventResult,
+  DividendLedgerListOptions,
+  DividendLedgerListResult,
   InstrumentRow,
   OAuthClaims,
   Persistence,
@@ -1874,63 +1876,203 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
-  async listDividendLedgerEntriesByPaymentDate(
+  async listDividendLedgerEntries(
     userId: string,
-    accountId?: string,
-    fromPaymentDate?: string,
-    toPaymentDate?: string,
-    limit: number = 500,
-    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
-    postingStatus?: DividendPostingStatus,
-  ): Promise<Array<DividendLedgerEntry & {
-    deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
-    sourceLines: DividendSourceLine[];
-  }>> {
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendLedgerListResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const ledgerResult = await this.pool.query(
-      `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
-              dle.posting_status, dle.reconciliation_status, dle.version,
-              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
-              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
-              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
-       FROM dividend_ledger_entries AS dle
-       JOIN accounts AS account
-         ON account.id = dle.account_id
-       JOIN market_data.dividend_events AS event
-         ON event.id = dle.dividend_event_id
-       LEFT JOIN (
-         SELECT related_dividend_ledger_entry_id,
-                SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
-         FROM cash_ledger_entries
-         WHERE user_id = $1
-         GROUP BY related_dividend_ledger_entry_id
-       ) AS receipts
-         ON receipts.related_dividend_ledger_entry_id = dle.id
-       WHERE account.user_id = $1
-         AND ($2::text IS NULL OR dle.account_id = $2)
-         AND dle.superseded_at IS NULL
-         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
-         AND NOT EXISTS (
-           SELECT 1
-           FROM dividend_ledger_entries AS reversal
-           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
-         )
-         AND (
-           event.payment_date IS NULL
-           OR (
-             ($3::date IS NULL OR event.payment_date >= $3::date)
-             AND ($4::date IS NULL OR event.payment_date <= $4::date)
-           )
-         )
-         AND ($6::text IS NULL OR dle.reconciliation_status = $6)
-         AND ($7::text IS NULL OR dle.posting_status = $7)
-       ORDER BY event.payment_date NULLS FIRST, dle.booked_at, dle.id
-       LIMIT $5`,
-      [userId, accountId ?? null, fromPaymentDate ?? null, toPaymentDate ?? null, limit, reconciliationStatus ?? null, postingStatus ?? null],
-    );
 
-    const ledgerIds = ledgerResult.rows.map((row) => row.id);
+    // Static allowlist maps protect against SQL injection. Sort column and
+    // direction are the only user-provided fragments that become SQL literals,
+    // and both pass through these maps before interpolation.
+    const SORT_COLUMNS: Record<DividendLedgerListOptions["sortBy"], string> = {
+      paymentDate: "event.payment_date",
+      ticker: "event.ticker",
+      account: "account.name",
+      expectedCashAmount: "dle.expected_cash_amount",
+      receivedCashAmount: "COALESCE(receipts.received_cash_amount, 0)",
+      reconciliationStatus: "dle.reconciliation_status",
+    };
+    const sortColumn = SORT_COLUMNS[opts.sortBy];
+    const sortDirection: "ASC" | "DESC" = opts.sortOrder === "asc" ? "ASC" : "DESC";
+
+    // Shared CTE params. $1 = userId is always present; optional filters bind
+    // as NULLs so the WHERE clause is the same for every call site and the
+    // query planner can reuse prepared statement plans.
+    const params = [
+      userId, // $1
+      opts.accountId ?? null, // $2
+      opts.fromPaymentDate ?? null, // $3
+      opts.toPaymentDate ?? null, // $4
+      opts.reconciliationStatus ?? null, // $5
+      opts.postingStatus ?? null, // $6
+      opts.ticker ?? null, // $7
+    ];
+
+    // Re-usable WHERE clause and FROM join shared by every query below.
+    // Must preserve every invariant from the pre-KZO-135 query:
+    //   - tenant guard (account.user_id = $1)
+    //   - three-way superseded/reversed exclusion
+    //   - null payment-date passthrough for date range
+    //   - reconciliation and posting status filters
+    //   - optional ticker filter on dividend_events.ticker
+    const fromAndWhere = `
+      FROM dividend_ledger_entries AS dle
+      JOIN accounts AS account
+        ON account.id = dle.account_id
+      JOIN market_data.dividend_events AS event
+        ON event.id = dle.dividend_event_id
+      LEFT JOIN (
+        SELECT related_dividend_ledger_entry_id,
+               SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
+        FROM cash_ledger_entries
+        WHERE user_id = $1
+        GROUP BY related_dividend_ledger_entry_id
+      ) AS receipts
+        ON receipts.related_dividend_ledger_entry_id = dle.id
+      WHERE account.user_id = $1
+        AND ($2::text IS NULL OR dle.account_id = $2)
+        AND dle.superseded_at IS NULL
+        AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM dividend_ledger_entries AS reversal
+          WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+        )
+        AND (
+          event.payment_date IS NULL
+          OR (
+            ($3::date IS NULL OR event.payment_date >= $3::date)
+            AND ($4::date IS NULL OR event.payment_date <= $4::date)
+          )
+        )
+        AND ($5::text IS NULL OR dle.reconciliation_status = $5)
+        AND ($6::text IS NULL OR dle.posting_status = $6)
+        AND ($7::text IS NULL OR event.ticker = $7)
+    `;
+
+    // Query A — total count + openCount (single row).
+    const queryA = `
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE dle.reconciliation_status = 'open')::int AS open_count
+      ${fromAndWhere}
+    `;
+
+    // Query B — totals by currency.
+    const queryB = `
+      SELECT event.cash_dividend_currency AS currency,
+             SUM(dle.expected_cash_amount) AS expected_sum,
+             SUM(COALESCE(receipts.received_cash_amount, 0)) AS received_sum
+      ${fromAndWhere}
+      GROUP BY event.cash_dividend_currency
+    `;
+
+    // Query C — byMonth (YYYY-MM × currency).
+    const queryC = `
+      SELECT to_char(event.payment_date, 'YYYY-MM') AS month_key,
+             event.cash_dividend_currency AS currency,
+             SUM(dle.expected_cash_amount) AS expected_sum,
+             SUM(COALESCE(receipts.received_cash_amount, 0)) AS received_sum
+      ${fromAndWhere}
+        AND event.payment_date IS NOT NULL
+      GROUP BY to_char(event.payment_date, 'YYYY-MM'), event.cash_dividend_currency
+    `;
+
+    // Query D — byTicker.
+    const queryD = `
+      SELECT event.ticker AS ticker,
+             event.cash_dividend_currency AS currency,
+             SUM(dle.expected_cash_amount) AS expected_sum,
+             SUM(COALESCE(receipts.received_cash_amount, 0)) AS received_sum
+      ${fromAndWhere}
+      GROUP BY event.ticker, event.cash_dividend_currency
+    `;
+
+    // Query E — paginated rows with dynamic (allowlisted) ORDER BY and LIMIT/OFFSET.
+    // The sort column and direction are injected from the static maps above —
+    // no user input reaches the SQL as a string literal.
+    const limit = opts.limit;
+    const offset = (opts.page - 1) * opts.limit;
+    const queryE = `
+      SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+             dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+             dle.posting_status, dle.reconciliation_status, dle.version,
+             dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+             dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+             COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
+      ${fromAndWhere}
+      ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, dle.id ASC
+      LIMIT $8 OFFSET $9
+    `;
+
+    // Run all five queries inside a REPEATABLE READ transaction so that
+    // aggregates (A–D) and the paginated rows (E) reflect the same snapshot.
+    // Without this, a concurrent posting/reconciliation between queries could
+    // produce a `total`/`aggregates` that doesn't match the returned page.
+    const client = await this.pool.connect();
+    const [aResult, bResult, cResult, dResult, eResult] = await (async () => {
+      try {
+        await client.query("BEGIN");
+        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const results = await Promise.all([
+          client.query(queryA, params),
+          client.query(queryB, params),
+          client.query(queryC, params),
+          client.query(queryD, params),
+          client.query(queryE, [...params, limit, offset]),
+        ]);
+        await client.query("COMMIT");
+        return results;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    })();
+
+    const total = Number(aResult.rows[0]?.total ?? 0);
+    const openCount = Number(aResult.rows[0]?.open_count ?? 0);
+
+    const totalExpectedCashAmount: Record<string, number> = {};
+    const totalReceivedCashAmount: Record<string, number> = {};
+    for (const row of bResult.rows) {
+      const currency = String(row.currency);
+      totalExpectedCashAmount[currency] = Number(row.expected_sum ?? 0);
+      totalReceivedCashAmount[currency] = Number(row.received_sum ?? 0);
+    }
+
+    const byMonth: DividendLedgerAggregates["byMonth"] = {};
+    for (const row of cResult.rows) {
+      const monthKey = String(row.month_key);
+      const currency = String(row.currency);
+      const bucket = (byMonth[monthKey] ??= {});
+      bucket[currency] = {
+        expected: Number(row.expected_sum ?? 0),
+        received: Number(row.received_sum ?? 0),
+      };
+    }
+
+    const byTicker: DividendLedgerAggregates["byTicker"] = {};
+    for (const row of dResult.rows) {
+      const ticker = String(row.ticker);
+      const currency = String(row.currency);
+      const bucket = (byTicker[ticker] ??= {});
+      bucket[currency] = {
+        expected: Number(row.expected_sum ?? 0),
+        received: Number(row.received_sum ?? 0),
+      };
+    }
+
+    const aggregates: DividendLedgerAggregates = {
+      totalExpectedCashAmount,
+      totalReceivedCashAmount,
+      openCount,
+      byMonth,
+      byTicker,
+    };
+
+    const ledgerIds = eResult.rows.map((row) => row.id);
     const [deductionsResult, sourceLinesResult] = ledgerIds.length
       ? await Promise.all([
           this.pool.query(
@@ -1950,12 +2092,12 @@ export class PostgresPersistence implements Persistence {
             [ledgerIds],
           ),
         ])
-      : [{ rows: [] }, { rows: [] }];
+      : [{ rows: [] as Record<string, unknown>[] }, { rows: [] as Record<string, unknown>[] }];
 
     const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
     const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
 
-    return ledgerResult.rows.map((row) => ({
+    const ledgerEntries = eResult.rows.map((row) => ({
       ...mapDividendLedgerEntryRow(row),
       deductions: (deductionsByLedgerId.get(String(row.id)) ?? []).map((deduction) => ({
         id: String(deduction.id),
@@ -1981,6 +2123,32 @@ export class PostgresPersistence implements Persistence {
         bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
       })),
     }));
+
+    return { ledgerEntries, total, aggregates };
+  }
+
+  async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query(
+      `SELECT DISTINCT EXTRACT(YEAR FROM event.payment_date)::int AS year
+       FROM dividend_ledger_entries AS dle
+       JOIN accounts AS account
+         ON account.id = dle.account_id
+       JOIN market_data.dividend_events AS event
+         ON event.id = dle.dividend_event_id
+       WHERE account.user_id = $1
+         AND event.payment_date IS NOT NULL
+         AND dle.superseded_at IS NULL
+         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries AS reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
+       ORDER BY 1 DESC`,
+      [userId],
+    );
+    return { years: result.rows.map((row) => Number(row.year)) };
   }
 
   private async runMigrations(): Promise<void> {

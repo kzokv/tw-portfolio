@@ -194,10 +194,28 @@ const dividendDateRangeQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(500),
 });
 
-const dividendLedgerQuerySchema = dividendDateRangeQuerySchema.extend({
+// Standalone schema (NOT extending dividendDateRangeQuerySchema) because
+// the default limit changes 500 → 50 for paginated dividend ledger listing.
+const dividendLedgerQuerySchema = z.object({
+  fromPaymentDate: isoDateSchema.optional(),
+  toPaymentDate: isoDateSchema.optional(),
   accountId: userScopedIdSchema.optional(),
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
+  ticker: tickerSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(500).default(50),
+  sortBy: z
+    .enum([
+      "paymentDate",
+      "ticker",
+      "account",
+      "expectedCashAmount",
+      "receivedCashAmount",
+      "reconciliationStatus",
+    ])
+    .default("paymentDate"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 const dividendReconciliationSchema = z.object({
@@ -1456,19 +1474,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/portfolio/dividends/ledger", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
     const { userId, store } = await loadUserStore(app, req);
-    const ledgerEntries = await app.persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      query.accountId,
-      query.fromPaymentDate,
-      query.toPaymentDate,
-      query.limit,
-      query.reconciliationStatus,
-      query.postingStatus,
-    );
+    const result = await app.persistence.listDividendLedgerEntries(userId, {
+      accountId: query.accountId,
+      fromPaymentDate: query.fromPaymentDate,
+      toPaymentDate: query.toPaymentDate,
+      reconciliationStatus: query.reconciliationStatus,
+      postingStatus: query.postingStatus,
+      ticker: query.ticker,
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
 
     return {
-      ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerEntries),
+      ledgerEntries: buildDividendLedgerEntryDetails(store, result.ledgerEntries, { preserveOrder: true }),
+      total: result.total,
+      aggregates: result.aggregates,
     };
+  });
+
+  app.get("/portfolio/dividends/ledger/years", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return app.persistence.listDividendLedgerYears(userId);
   });
 
   app.get("/portfolio/cash-ledger", async (req) => {

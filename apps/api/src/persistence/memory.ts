@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@tw-portfolio/domain";
-import type { DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
-  DividendLedgerEntry,
-  DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -22,6 +20,8 @@ import type {
   CatalogSyncResult,
   DelistingRecord,
   DeleteTradeEventResult,
+  DividendLedgerListOptions,
+  DividendLedgerListResult,
   OAuthClaims,
   Persistence,
   ReadinessStatus,
@@ -405,39 +405,154 @@ export class MemoryPersistence implements Persistence {
       .slice(0, limit);
   }
 
-  async listDividendLedgerEntriesByPaymentDate(
+  async listDividendLedgerEntries(
     userId: string,
-    accountId?: string,
-    fromPaymentDate?: string,
-    toPaymentDate?: string,
-    limit: number = 500,
-    reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"],
-    postingStatus?: DividendPostingStatus,
-  ) {
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendLedgerListResult> {
     const store = await this.loadStore(userId);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
-    // Collect ids that have been reversed by a later entry — those must be
-    // treated as inactive even if their own supersededAt is still null.
+    const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+
+    // Sum received cash amounts from DIVIDEND_RECEIPT cash ledger entries,
+    // keyed by relatedDividendLedgerEntryId. Matches postgres receipts subquery.
+    const receivedByLedgerId = new Map<string, number>();
+    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+      if (cashEntry.entryType !== "DIVIDEND_RECEIPT") continue;
+      const ledgerId = cashEntry.relatedDividendLedgerEntryId;
+      if (!ledgerId) continue;
+      receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
+    }
+
+    // Entries reversed by a later entry are inactive even if their own
+    // supersededAt is still null — matches the NOT EXISTS reversal subquery.
     const reversedIds = new Set(
       store.accounting.facts.dividendLedgerEntries
         .map((entry) => entry.reversalOfDividendLedgerEntryId)
         .filter((id): id is string => Boolean(id)),
     );
-    return store.accounting.facts.dividendLedgerEntries
-      .filter((entry) => !entry.reversalOfDividendLedgerEntryId)
-      .filter((entry) => !entry.supersededAt)
-      .filter((entry) => !reversedIds.has(entry.id))
-      .filter((entry) => !accountId || entry.accountId === accountId)
-      .filter((entry) => matchesNullableDateRange(eventById.get(entry.dividendEventId)?.paymentDate ?? null, fromPaymentDate, toPaymentDate))
-      .filter((entry) => !reconciliationStatus || entry.reconciliationStatus === reconciliationStatus)
-      .filter((entry) => !postingStatus || entry.postingStatus === postingStatus)
-      .sort((left, right) => compareNullablePaymentDates(eventById.get(left.dividendEventId), eventById.get(right.dividendEventId)))
-      .slice(0, limit)
-      .map((entry) => ({
-        ...entry,
-        deductions: store.accounting.facts.dividendDeductionEntries.filter((deduction) => deduction.dividendLedgerEntryId === entry.id),
-        sourceLines: store.accounting.facts.dividendSourceLines.filter((line) => line.dividendLedgerEntryId === entry.id),
-      }));
+
+    const filtered = store.accounting.facts.dividendLedgerEntries.filter((entry) => {
+      if (entry.reversalOfDividendLedgerEntryId) return false;
+      if (entry.supersededAt) return false;
+      if (reversedIds.has(entry.id)) return false;
+      if (opts.accountId && entry.accountId !== opts.accountId) return false;
+      const event = eventById.get(entry.dividendEventId);
+      if (!matchesNullableDateRange(event?.paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate)) return false;
+      if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return false;
+      if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return false;
+      if (opts.ticker && event?.ticker !== opts.ticker) return false;
+      return true;
+    });
+
+    // Compute aggregates over the full filtered set BEFORE slicing.
+    const aggregates: DividendLedgerAggregates = {
+      totalExpectedCashAmount: {},
+      totalReceivedCashAmount: {},
+      openCount: 0,
+      byMonth: {},
+      byTicker: {},
+    };
+    for (const entry of filtered) {
+      const event = eventById.get(entry.dividendEventId);
+      if (!event) continue;
+      const currency = event.cashDividendCurrency;
+      const expected = entry.expectedCashAmount;
+      const received = receivedByLedgerId.get(entry.id) ?? 0;
+
+      aggregates.totalExpectedCashAmount[currency] =
+        (aggregates.totalExpectedCashAmount[currency] ?? 0) + expected;
+      aggregates.totalReceivedCashAmount[currency] =
+        (aggregates.totalReceivedCashAmount[currency] ?? 0) + received;
+      if (entry.reconciliationStatus === "open") aggregates.openCount += 1;
+
+      if (event.paymentDate) {
+        const monthKey = event.paymentDate.substring(0, 7);
+        const monthBucket = (aggregates.byMonth[monthKey] ??= {});
+        const monthCurrencyBucket = (monthBucket[currency] ??= { expected: 0, received: 0 });
+        monthCurrencyBucket.expected += expected;
+        monthCurrencyBucket.received += received;
+      }
+
+      const tickerBucket = (aggregates.byTicker[event.ticker] ??= {});
+      const tickerCurrencyBucket = (tickerBucket[currency] ??= { expected: 0, received: 0 });
+      tickerCurrencyBucket.expected += expected;
+      tickerCurrencyBucket.received += received;
+    }
+
+    // Sort full filtered set before pagination slice.
+    const orderFactor = opts.sortOrder === "asc" ? 1 : -1;
+    const sorted = filtered.slice().sort((left, right) => {
+      const leftEvent = eventById.get(left.dividendEventId);
+      const rightEvent = eventById.get(right.dividendEventId);
+      let cmp = 0;
+      switch (opts.sortBy) {
+        case "paymentDate":
+          cmp = compareNullablePaymentDates(leftEvent, rightEvent);
+          break;
+        case "ticker":
+          cmp = (leftEvent?.ticker ?? "").localeCompare(rightEvent?.ticker ?? "");
+          break;
+        case "account": {
+          const leftName = accountById.get(left.accountId)?.name ?? "";
+          const rightName = accountById.get(right.accountId)?.name ?? "";
+          cmp = leftName.localeCompare(rightName);
+          break;
+        }
+        case "expectedCashAmount":
+          cmp = left.expectedCashAmount - right.expectedCashAmount;
+          break;
+        case "receivedCashAmount": {
+          const leftReceived = receivedByLedgerId.get(left.id) ?? 0;
+          const rightReceived = receivedByLedgerId.get(right.id) ?? 0;
+          cmp = leftReceived - rightReceived;
+          break;
+        }
+        case "reconciliationStatus":
+          cmp = left.reconciliationStatus.localeCompare(right.reconciliationStatus);
+          break;
+      }
+      if (cmp !== 0) return cmp * orderFactor;
+      // Stable final tiebreaker by id (direction-independent — matches
+      // postgres `ORDER BY ..., dle.id ASC` tiebreaker).
+      return left.id.localeCompare(right.id);
+    });
+
+    const total = sorted.length;
+    const startIndex = (opts.page - 1) * opts.limit;
+    const pageRows = sorted.slice(startIndex, startIndex + opts.limit);
+
+    const ledgerEntries = pageRows.map((entry) => ({
+      ...entry,
+      receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
+      deductions: store.accounting.facts.dividendDeductionEntries.filter(
+        (deduction) => deduction.dividendLedgerEntryId === entry.id,
+      ),
+      sourceLines: store.accounting.facts.dividendSourceLines.filter(
+        (line) => line.dividendLedgerEntryId === entry.id,
+      ),
+    }));
+
+    return { ledgerEntries, total, aggregates };
+  }
+
+  async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {
+    const store = await this.loadStore(userId);
+    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const years = new Set<number>();
+    for (const entry of store.accounting.facts.dividendLedgerEntries) {
+      if (entry.reversalOfDividendLedgerEntryId) continue;
+      if (entry.supersededAt) continue;
+      if (reversedIds.has(entry.id)) continue;
+      const event = eventById.get(entry.dividendEventId);
+      if (!event?.paymentDate) continue;
+      years.add(parseInt(event.paymentDate.substring(0, 4), 10));
+    }
+    return { years: Array.from(years).sort((a, b) => b - a) };
   }
 
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {

@@ -48,10 +48,10 @@ async function resetDatabase(): Promise<void> {
  *    backend's convention ("user-1-acc-1"), so fixture-driven HTTP seeding
  *    would fail with 404.
  *
- * Directly calling listDividendLedgerEntriesByPaymentDate covers the same
+ * Directly calling listDividendLedgerEntries covers the same
  * SQL clauses that the route handler exercises.
  */
-describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatus + postingStatus SQL filters", () => {
+describePostgres("listDividendLedgerEntries — reconciliationStatus + postingStatus SQL filters", () => {
   let persistence: PostgresPersistence;
   let pool: Pool;
   let userId: string;
@@ -143,17 +143,21 @@ describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatu
     await insertLedgerEntry(ev4, "posted", "explained");
   }
 
+  const baseListOpts = {
+    page: 1 as const,
+    limit: 500 as const,
+    sortBy: "paymentDate" as const,
+    sortOrder: "desc" as const,
+  };
+
   it("(a): reconciliationStatus=open → returns expected+open and posted+open; excludes matched and explained", async () => {
     await seedAllBuckets();
 
-    const entries = await persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      undefined,
-      undefined,
-      undefined,
-      500,
-      "open",
-    );
+    const result = await persistence.listDividendLedgerEntries(userId, {
+      ...baseListOpts,
+      reconciliationStatus: "open",
+    });
+    const entries = result.ledgerEntries;
 
     expect(entries).toHaveLength(2);
     for (const e of entries) {
@@ -167,14 +171,11 @@ describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatu
   it("(b): reconciliationStatus=matched → returns only the matched entry", async () => {
     await seedAllBuckets();
 
-    const entries = await persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      undefined,
-      undefined,
-      undefined,
-      500,
-      "matched",
-    );
+    const result = await persistence.listDividendLedgerEntries(userId, {
+      ...baseListOpts,
+      reconciliationStatus: "matched",
+    });
+    const entries = result.ledgerEntries;
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.reconciliationStatus).toBe("matched");
@@ -184,15 +185,11 @@ describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatu
   it("(c): postingStatus=posted → returns three posted entries; excludes expected+open", async () => {
     await seedAllBuckets();
 
-    const entries = await persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      undefined,
-      undefined,
-      undefined,
-      500,
-      undefined,
-      "posted",
-    );
+    const result = await persistence.listDividendLedgerEntries(userId, {
+      ...baseListOpts,
+      postingStatus: "posted",
+    });
+    const entries = result.ledgerEntries;
 
     expect(entries).toHaveLength(3);
     for (const e of entries) {
@@ -207,15 +204,12 @@ describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatu
   it("(d): reconciliationStatus=open + postingStatus=posted → intersection is posted+open only; expected+open excluded", async () => {
     await seedAllBuckets();
 
-    const entries = await persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      undefined,
-      undefined,
-      undefined,
-      500,
-      "open",
-      "posted",
-    );
+    const result = await persistence.listDividendLedgerEntries(userId, {
+      ...baseListOpts,
+      reconciliationStatus: "open",
+      postingStatus: "posted",
+    });
+    const entries = result.ledgerEntries;
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.reconciliationStatus).toBe("open");
@@ -227,14 +221,11 @@ describePostgres("listDividendLedgerEntriesByPaymentDate — reconciliationStatu
     const ev = await insertDividendEvent("2026-02-01", "2026-02-28");
     await insertLedgerEntry(ev, "posted", "open");
 
-    const entries = await persistence.listDividendLedgerEntriesByPaymentDate(
-      userId,
-      undefined,
-      undefined,
-      undefined,
-      500,
-      "resolved",
-    );
+    const result = await persistence.listDividendLedgerEntries(userId, {
+      ...baseListOpts,
+      reconciliationStatus: "resolved",
+    });
+    const entries = result.ledgerEntries;
 
     expect(entries).toHaveLength(0);
   });
@@ -286,4 +277,82 @@ describe("GET /portfolio/dividends/ledger — schema validation", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  // ── KZO-135 schema validation (pagination, sort) ──────────────────────────
+
+  it("KZO-135: limit greater than 500 → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?limit=501",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: limit equal to 500 is accepted", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?limit=500",
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("KZO-135: sortBy not in allowlist → 400 (SQL injection payload blocked)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?sortBy=DROP_TABLE",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: sortBy=unknownColumn → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?sortBy=unknownColumn",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: sortOrder not in enum → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?sortOrder=random",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: negative page → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?page=-1",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: page=0 → 400 (page is 1-indexed)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?page=0",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: limit=0 → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?limit=0",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("KZO-135: negative limit → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?limit=-5",
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
+
+// KZO-135 behavioral coverage lives in:
+//   - apps/api/test/unit/dividendLedgerPagination.test.ts (memory-backed)
+//   - apps/api/test/integration/dividendLedgerPagination.integration.test.ts (postgres-backed)
