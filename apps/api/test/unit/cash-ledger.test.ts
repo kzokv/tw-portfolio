@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
-import type { BookedTradeEvent, CashLedgerEntry, DividendLedgerEntry } from "../../src/types/store.js";
+import type { BookedTradeEvent, CashLedgerEntry, DividendDeductionEntry, DividendLedgerEntry } from "../../src/types/store.js";
 
 let app: AppInstance;
 
@@ -87,6 +87,11 @@ async function seedTradeEvents(...events: BookedTradeEvent[]) {
 async function seedDividendLedgerEntries(...entries: DividendLedgerEntry[]) {
   const store = await app.persistence.loadStore("user-1");
   store.accounting.facts.dividendLedgerEntries.push(...entries);
+}
+
+async function seedDividendDeductionEntries(...entries: DividendDeductionEntry[]) {
+  const store = await app.persistence.loadStore("user-1");
+  store.accounting.facts.dividendDeductionEntries.push(...entries);
 }
 
 async function seedDividendEvents(...events: Array<{
@@ -305,6 +310,16 @@ describe("GET /portfolio/cash-ledger", () => {
         entryDate: "2025-02-20",
       }),
     );
+
+    await seedDividendDeductionEntries({
+      id: randomUUID(),
+      dividendLedgerEntryId: dleId,
+      deductionType: "WITHHOLDING_TAX",
+      amount: 120,
+      currencyCode: "TWD",
+      withheldAtSource: true,
+      source: "test",
+    });
 
     const res = await app.inject({ method: "GET", url: "/portfolio/cash-ledger" });
     expect(res.statusCode).toBe(200);
