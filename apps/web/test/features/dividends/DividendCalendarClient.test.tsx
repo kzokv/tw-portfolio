@@ -139,15 +139,18 @@ describe("DividendCalendarClient", () => {
     await act(async () => {});
 
     expect((document.querySelector("[data-testid='dividend-badge-event-open']") as HTMLElement).textContent).toBe(dict.dividends.badge.pendingReview);
-    expect((document.querySelector("[data-testid='dividend-badge-event-posted']") as HTMLElement).textContent).toBe(dict.dividends.badge.posted);
-    expect((document.querySelector("[data-testid='dividend-badge-event-variance']") as HTMLElement).textContent).toBe(dict.dividends.badge.postedVariance);
+    expect((document.querySelector("[data-testid='dividend-badge-event-posted']") as HTMLElement).textContent).toBe(dict.dividends.badge.matched);
+    // Variance has reconciliationStatus=matched, so precedence picks "matched"
+    // ahead of the variance fallback.
+    expect((document.querySelector("[data-testid='dividend-badge-event-variance']") as HTMLElement).textContent).toBe(dict.dividends.badge.matched);
     expect((document.querySelector("[data-testid='dividend-badge-event-resolved']") as HTMLElement).textContent).toBe(dict.dividends.badge.resolved);
     expect((document.querySelector("[data-testid='dividend-badge-event-tbd']") as HTMLElement).textContent).toBe(dict.dividends.badge.unposted);
     expect(document.querySelector("[data-testid='dividends-tbd-section']")).not.toBeNull();
 
+    // Stock entries are now editable (they open the drawer in reconcile-only mode).
     const stockEditButton = document.querySelector("[data-testid='dividend-edit-event-stock']") as HTMLButtonElement;
-    expect(stockEditButton.disabled).toBe(true);
-    expect(stockEditButton.title).toBe(dict.dividends.action.stockEditDisabled);
+    expect(stockEditButton.disabled).toBe(false);
+    expect(stockEditButton.title).toBe("");
 
     const markMatchedButton = document.querySelector("[data-testid='dividend-mark-matched-event-open']") as HTMLButtonElement;
     await act(async () => {
@@ -156,6 +159,33 @@ describe("DividendCalendarClient", () => {
 
     expect(updateDividendReconciliation).toHaveBeenCalledWith("ledger-open", "matched");
     expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders matched and explained badges for reconciliation statuses", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [
+        buildEvent({ id: "event-matched", ticker: "1111", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-matched" }),
+        buildEvent({ id: "event-explained", ticker: "2222", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-explained" }),
+      ],
+      ledgerEntries: [
+        buildLedger({ id: "ledger-matched", dividendEventId: "event-matched", ticker: "1111", reconciliationStatus: "matched" }),
+        buildLedger({ id: "ledger-explained", dividendEventId: "event-explained", ticker: "2222", reconciliationStatus: "explained", receivedCashAmount: 90, expectedCashAmount: 100 }),
+      ],
+    };
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    const matchedBadge = document.querySelector("[data-testid='dividend-badge-event-matched']") as HTMLElement;
+    expect(matchedBadge.textContent).toBe(dict.dividends.badge.matched);
+    expect(matchedBadge.className).toContain("bg-sky-50");
+
+    const explainedBadge = document.querySelector("[data-testid='dividend-badge-event-explained']") as HTMLElement;
+    expect(explainedBadge.textContent).toBe(dict.dividends.badge.explained);
+    expect(explainedBadge.className).toContain("bg-indigo-50");
   });
 
   it("renders an ELIGIBLE SHARES column per row card", async () => {

@@ -16,7 +16,7 @@ function seededEventId(seedBody: Record<string, unknown>): string {
 }
 
 test.describe("dividend calendar", () => {
-  test("dividend calendar: current month rows render → tbd bucket and stock edit guard are visible", async ({
+  test("dividend calendar: current month rows render → tbd bucket and stock edit button enabled", async ({
     dividends,
   }) => {
     const stockSeed = await dividends.arrange.seedPostedDividend({
@@ -43,17 +43,15 @@ test.describe("dividend calendar", () => {
     await dividends.actions.navigateToCalendar();
     await dividends.assert.calendarLoaded();
     await dividends.assert.tbdSectionIsVisible();
-    await dividends.assert.editButtonIsDisabledWithTooltip(
-      stockSeed.dividendEventId,
-      /Stock and mixed dividends cannot be edited in place|股票股利與混合股利目前不能原地編輯/,
-    );
+    // KZO-32: stock edit button is now always enabled (reconcile-only mode inside drawer)
+    await dividends.assert.editButtonIsEnabled(stockSeed.dividendEventId);
     await dividends.assert.rowBadgeContains(
       seededEventId(tbdSeed),
       /Unposted|未入帳/,
     );
   });
 
-  test("dividend calendar: cash posting → pending review and inline mark matched → posted", async ({
+  test("dividend calendar: cash posting → pending review and inline mark matched → Matched badge", async ({
     dividends,
   }) => {
     const seed = await dividends.arrange.seedDividendEvent({
@@ -78,7 +76,8 @@ test.describe("dividend calendar", () => {
     await dividends.assert.rowBadgeContains(eventId, /Pending review|待覆核/);
 
     await dividends.actions.clickMarkMatchedInline(eventId);
-    await dividends.assert.rowBadgeContains(eventId, /Posted|已入帳/);
+    // KZO-32: resolveBadge() now returns "matched" for reconciliationStatus=matched
+    await dividends.assert.rowBadgeContains(eventId, /Matched|相符/);
   });
 
   test("dividend calendar: unknown disclosure toggle hides source lines and edit submit refreshes the row", async ({
@@ -200,5 +199,162 @@ test.describe("dividend calendar", () => {
     await dividends.actions.submitPostingForm();
 
     await dividends.assert.formErrorContains(/updated elsewhere|其他地方更新/);
+  });
+
+  // ─── KZO-32: Reconciliation badge + drawer tests ───────────────────────────
+
+  test("dividend calendar: badge for matched status → Matched badge visible", async ({
+    dividends,
+  }) => {
+    const seeded = await dividends.arrange.seedPostedDividendWithReconciliation({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: isoDateForMonth(16),
+      paymentDate: isoDateForMonth(27),
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+      reconciliationStatus: "matched",
+    });
+
+    await dividends.actions.navigateToCalendar();
+    await dividends.assert.calendarLoaded();
+    await dividends.assert.rowBadgeContains(seeded.dividendEventId, /Matched|相符/);
+  });
+
+  test("dividend calendar: badge for explained status → Explained badge visible", async ({
+    dividends,
+  }) => {
+    const seeded = await dividends.arrange.seedPostedDividendWithReconciliation({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: isoDateForMonth(17),
+      paymentDate: isoDateForMonth(27),
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+      reconciliationStatus: "explained",
+      reconciliationNote: "Difference due to broker rounding",
+    });
+
+    await dividends.actions.navigateToCalendar();
+    await dividends.assert.calendarLoaded();
+    await dividends.assert.rowBadgeContains(seeded.dividendEventId, /Explained|已說明/);
+  });
+
+  test("dividend calendar: reconcile drawer (cash, happy path) → save as Explained → badge flips", async ({
+    dividends,
+  }) => {
+    const seeded = await dividends.arrange.seedPostedDividend({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: isoDateForMonth(18),
+      paymentDate: isoDateForMonth(28),
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+
+    await dividends.actions.navigateToCalendar();
+    await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
+    await dividends.assert.drawerIsVisible();
+
+    // Amounts form IS visible for cash entries
+    await dividends.assert.amountsFormIsVisible();
+    // Reconcile section is visible for posted entries in edit mode
+    await dividends.assert.reconcileSectionIsVisible();
+
+    await dividends.actions.selectReconcileStatus("explained");
+    await dividends.actions.fillReconcileNote("Broker rounded down by NT$2");
+    await dividends.actions.submitReconciliationForm();
+
+    // onSaved() refreshes and may close or re-render the drawer.
+    // Accept both SSE intermediate and final states per playwright-fast-sse-assertions.md.
+    await dividends.assert.rowBadgeContains(
+      seeded.dividendEventId,
+      /Explained|已說明|Pending review|待覆核/,
+    );
+  });
+
+  test("dividend calendar: reconcile drawer (stock, reconcile-only mode) → amounts hidden, save as Matched", async ({
+    dividends,
+  }) => {
+    const seeded = await dividends.arrange.seedPostedDividend({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: isoDateForMonth(19),
+      paymentDate: isoDateForMonth(28),
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 100,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+
+    await dividends.actions.navigateToCalendar();
+    // KZO-32: stock edit button is now enabled
+    await dividends.assert.editButtonIsEnabled(seeded.dividendEventId);
+    await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
+    await dividends.assert.drawerIsVisible();
+
+    // In reconcile-only mode: amounts form hidden, stockEditDisabled label visible
+    await dividends.assert.amountsFormIsHidden();
+    await dividends.assert.stockEditDisabledLabelIsVisible();
+    await dividends.assert.reconcileSectionIsVisible();
+
+    await dividends.actions.selectReconcileStatus("matched");
+    await dividends.actions.submitReconciliationForm();
+
+    // Accept both intermediate and final states per playwright-fast-sse-assertions.md
+    await dividends.assert.rowBadgeContains(
+      seeded.dividendEventId,
+      /Matched|相符|Pending review|待覆核/,
+    );
+  });
+
+  test("dividend calendar: reconcile drawer → explained requires note → error shown, badge unchanged", async ({
+    dividends,
+  }) => {
+    const seeded = await dividends.arrange.seedPostedDividend({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: isoDateForMonth(20),
+      paymentDate: isoDateForMonth(29),
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+
+    await dividends.actions.navigateToCalendar();
+    await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
+    await dividends.assert.drawerIsVisible();
+    await dividends.assert.reconcileSectionIsVisible();
+
+    // Select Explained but leave note empty
+    await dividends.actions.selectReconcileStatus("explained");
+    // Note is intentionally left blank
+    await dividends.actions.clickReconcileSaveButton();
+
+    // Error must be shown; drawer stays open
+    await dividends.assert.reconcileErrorContains(
+      /note is required|必須填寫備註/i,
+    );
+    await dividends.assert.drawerIsVisible();
+
+    // Badge must remain at Pending review (no PATCH was sent)
+    await dividends.assert.rowBadgeContains(
+      seeded.dividendEventId,
+      /Pending review|待覆核/,
+    );
   });
 });

@@ -60,6 +60,13 @@ function defaultPostingPayload(
   };
 }
 
+interface SeedPostedDividendWithReconciliationOptions extends SeedPostedDividendOptions {
+  /** The reconciliation status to PATCH after seeding the posting. Defaults to "open". */
+  reconciliationStatus?: "open" | "matched" | "explained" | "resolved";
+  /** Required when reconciliationStatus is "explained". */
+  reconciliationNote?: string;
+}
+
 export class DividendsArrange extends BaseArrange {
   declare protected readonly _instance: DividendCalendarPage;
 
@@ -90,6 +97,52 @@ export class DividendsArrange extends BaseArrange {
     }
 
     return await response.json() as Record<string, unknown>;
+  }
+
+  /**
+   * Seeds a posted dividend and optionally PATCHes the reconciliation status.
+   * Use this when a test needs a row that already has a specific reconciliation
+   * status (e.g. "matched" or "explained") before the user opens the calendar.
+   */
+  @Step()
+  async seedPostedDividendWithReconciliation(options: SeedPostedDividendWithReconciliationOptions): Promise<{
+    dividendEventId: string;
+    dividendLedgerEntryId: string;
+    version: number;
+  }> {
+    if (!this.userId) throw new Error("seedPostedDividendWithReconciliation requires userId");
+
+    const posted = await this.seedPostedDividend(options);
+    const { reconciliationStatus = "open", reconciliationNote } = options;
+
+    if (reconciliationStatus !== "open") {
+      const patchUrl = new URL(
+        `/portfolio/dividends/postings/${encodeURIComponent(posted.dividendLedgerEntryId)}/reconciliation`,
+        TestEnv.apiBaseUrl,
+      ).href;
+      const response = await this.request.patch(patchUrl, {
+        headers: {
+          "content-type": "application/json",
+          "x-user-id": this.userId,
+        },
+        data: {
+          status: reconciliationStatus,
+          note: reconciliationNote,
+        },
+      });
+      if (!response.ok()) {
+        throw new Error(
+          `seedPostedDividendWithReconciliation PATCH failed: ${response.status()} ${await response.text()}`,
+        );
+      }
+      const body = await response.json() as { ledgerEntry?: { version?: number } };
+      const patchedVersion = body.ledgerEntry?.version;
+      if (typeof patchedVersion === "number") {
+        return { ...posted, version: patchedVersion };
+      }
+    }
+
+    return posted;
   }
 
   @Step()

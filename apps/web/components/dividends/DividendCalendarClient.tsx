@@ -27,7 +27,14 @@ interface DividendCalendarClientProps {
   locale: LocaleCode;
 }
 
-type CalendarBadge = "unposted" | "pendingReview" | "posted" | "postedVariance" | "resolved";
+type CalendarBadge =
+  | "unposted"
+  | "pendingReview"
+  | "posted"
+  | "postedVariance"
+  | "resolved"
+  | "matched"
+  | "explained";
 
 function monthBounds(anchor: Date): { fromPaymentDate: string; toPaymentDate: string } {
   const start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
@@ -86,15 +93,12 @@ function resolveBadge(row: DividendCalendarRow): CalendarBadge {
   if (!row.ledgerEntry) {
     return "unposted";
   }
-  if (row.ledgerEntry.reconciliationStatus === "resolved") {
-    return "resolved";
-  }
-  if (row.ledgerEntry.reconciliationStatus === "open") {
-    return "pendingReview";
-  }
-  if (hasVariance(row)) {
-    return "postedVariance";
-  }
+  const status = row.ledgerEntry.reconciliationStatus;
+  if (status === "resolved") return "resolved";
+  if (status === "matched") return "matched";
+  if (status === "explained") return "explained";
+  if (status === "open") return "pendingReview";
+  if (hasVariance(row)) return "postedVariance";
   return "posted";
 }
 
@@ -108,6 +112,10 @@ function resolveBadgeLabel(dict: AppDictionary, badge: CalendarBadge): string {
       return dict.dividends.badge.postedVariance;
     case "resolved":
       return dict.dividends.badge.resolved;
+    case "matched":
+      return dict.dividends.badge.matched;
+    case "explained":
+      return dict.dividends.badge.explained;
     default:
       return dict.dividends.badge.unposted;
   }
@@ -123,6 +131,10 @@ function badgeClassName(badge: CalendarBadge): string {
       return "border-teal-200 bg-teal-50 text-teal-700";
     case "resolved":
       return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "matched":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "explained":
+      return "border-indigo-200 bg-indigo-50 text-indigo-700";
     default:
       return "border-slate-200 bg-slate-50 text-slate-600";
   }
@@ -352,7 +364,6 @@ function DividendRowCard({
   const badge = resolveBadge(row);
   const grossAmount = row.ledgerEntry ? calculateGrossAmount(row.ledgerEntry) : row.event.expectedCashAmount;
   const canEdit = row.ledgerEntry !== null;
-  const editDisabled = row.ledgerEntry !== null && row.event.eventType !== "CASH";
 
   return (
     <Card className="rounded-[24px] border border-slate-200 bg-white/92 p-5 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
@@ -395,8 +406,7 @@ function DividendRowCard({
               size="sm"
               variant="secondary"
               onClick={onEdit}
-              disabled={!canEdit || editDisabled}
-              title={editDisabled ? dict.dividends.action.stockEditDisabled : undefined}
+              disabled={!canEdit}
               data-testid={`dividend-edit-${row.event.id}`}
             >
               {dict.dividends.action.edit}

@@ -7,11 +7,13 @@ import type { LocaleCode } from "@tw-portfolio/shared-types";
 import { Button } from "../ui/Button";
 import { fieldClassName } from "../ui/fieldStyles";
 import { useDividendPosting } from "../../features/dividends/hooks/useDividendPosting";
+import { updateDividendReconciliation } from "../../features/dividends/services/dividendService";
 import type {
   DividendCalendarRow,
   DividendDeductionInput,
   DividendDeductionType,
   DividendPostingPayload,
+  DividendReconciliationStatus,
   DividendSourceLineInput,
 } from "../../features/dividends/types";
 
@@ -171,6 +173,20 @@ export function DividendPostingForm({
   const [sourceLines, setSourceLines] = useState<DividendSourceLineInput[]>(initialFormState.sourceLines);
   const [formError, setFormError] = useState("");
 
+  const reconcileBaseline = useMemo(
+    () => ({
+      status: row.ledgerEntry?.reconciliationStatus ?? "open",
+      note: row.ledgerEntry?.reconciliationNote ?? "",
+    }),
+    [row.ledgerEntry?.reconciliationStatus, row.ledgerEntry?.reconciliationNote],
+  );
+  const [reconcileStatus, setReconcileStatus] = useState<DividendReconciliationStatus>(
+    reconcileBaseline.status,
+  );
+  const [reconcileNote, setReconcileNote] = useState<string>(reconcileBaseline.note);
+  const [reconcileError, setReconcileError] = useState("");
+  const [isReconcileSaving, setIsReconcileSaving] = useState(false);
+
   useEffect(() => {
     setReceivedCashAmount(initialFormState.receivedCashAmount);
     setReceivedStockQuantity(initialFormState.receivedStockQuantity);
@@ -178,7 +194,10 @@ export function DividendPostingForm({
     setSourceCompositionStatus(initialFormState.sourceCompositionStatus);
     setSourceLines(initialFormState.sourceLines);
     setFormError("");
-  }, [initialFormState]);
+    setReconcileStatus(reconcileBaseline.status);
+    setReconcileNote(reconcileBaseline.note);
+    setReconcileError("");
+  }, [initialFormState, reconcileBaseline]);
 
   const { errorMessage, isSubmitting, submit } = useDividendPosting({
     versionConflictMessage: dict.dividends.form.error.versionConflict,
@@ -190,16 +209,23 @@ export function DividendPostingForm({
     .reduce((sum, entry) => sum + entry.amount, 0);
   const sourceLineTotal = sourceLines.reduce((sum, entry) => sum + entry.amount, 0);
   const sourceLineVariance = sourceLineTotal - grossAmount;
-  const isDirty = JSON.stringify({
+  const amountsDirty = JSON.stringify({
     receivedCashAmount,
     receivedStockQuantity,
     deductions,
     sourceCompositionStatus,
     sourceLines,
   }) !== JSON.stringify(initialFormState);
+  const reconcileDirty =
+    reconcileStatus !== reconcileBaseline.status || reconcileNote !== reconcileBaseline.note;
+  const isDirty = amountsDirty || reconcileDirty;
 
   const canShowCashField = row.event.eventType !== "STOCK";
   const canShowStockField = !isEditMode && row.event.eventType !== "CASH";
+  const reconcileOnlyMode = isEditMode && row.event.eventType !== "CASH";
+  const postingStatus = row.ledgerEntry?.postingStatus;
+  const showReconcileSection =
+    isEditMode && (postingStatus === "posted" || postingStatus === "adjusted");
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -255,27 +281,55 @@ export function DividendPostingForm({
     await onSaved();
   }
 
-  return (
-    <form className="space-y-6" onSubmit={handleSubmit} data-testid="dividend-posting-form">
-      <div className="rounded-[22px] border border-slate-200 bg-white/90 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-xl font-semibold text-slate-950">{row.event.ticker}</h3>
-            <p className="mt-1 break-all text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {row.event.accountId}
-            </p>
-          </div>
-          <div className="shrink-0 text-right">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {dict.dashboardHome.paymentDateLabel}
-            </p>
-            <p className="mt-1 text-sm font-medium text-slate-700">
-              {row.event.paymentDate ?? dict.dividends.paymentDateTbdSection}
-            </p>
-          </div>
+  async function handleSaveReconciliation() {
+    setReconcileError("");
+    if (!row.ledgerEntry) return;
+    if (reconcileStatus === "explained" && reconcileNote.trim().length === 0) {
+      setReconcileError(dict.dividends.form.error.noteRequiredForExplained);
+      return;
+    }
+    if (amountsDirty && typeof window !== "undefined") {
+      const confirmed = window.confirm(dict.dividends.form.unsavedChangesConfirm);
+      if (!confirmed) return;
+    }
+    setIsReconcileSaving(true);
+    try {
+      await updateDividendReconciliation(
+        row.ledgerEntry.id,
+        reconcileStatus,
+        reconcileNote.trim() ? reconcileNote.trim() : undefined,
+      );
+      await onSaved();
+    } catch (error) {
+      setReconcileError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsReconcileSaving(false);
+    }
+  }
+
+  const headerBlock = (
+    <div className="rounded-[22px] border border-slate-200 bg-white/90 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-xl font-semibold text-slate-950">{row.event.ticker}</h3>
+          <p className="mt-1 break-all text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            {row.event.accountId}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            {dict.dashboardHome.paymentDateLabel}
+          </p>
+          <p className="mt-1 text-sm font-medium text-slate-700">
+            {row.event.paymentDate ?? dict.dividends.paymentDateTbdSection}
+          </p>
         </div>
       </div>
+    </div>
+  );
 
+  const amountsFormBlock = (
+    <form className="space-y-6" onSubmit={handleSubmit} data-testid="dividend-posting-form">
       {canShowCashField ? (
         <label className="block space-y-2">
           <span className="text-sm font-medium text-slate-800">{dict.dividends.form.receivedCash}</span>
@@ -496,14 +550,107 @@ export function DividendPostingForm({
       ) : null}
 
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
-        <Button variant="secondary" onClick={onCancel} data-testid="dividend-cancel">
-          {dict.dividends.action.cancel}
-        </Button>
         <Button type="submit" disabled={isSubmitting} data-testid="dividend-save">
           {isSubmitting ? dict.feedback.loadingDashboard : dict.dividends.action.save}
         </Button>
       </div>
     </form>
+  );
+
+  const reconcileSection = (
+    <section
+      className="space-y-3 rounded-[22px] border border-slate-200 bg-white/90 p-4"
+      data-testid="dividend-reconcile-section"
+    >
+      <h4 className="text-sm font-semibold text-slate-900">
+        {dict.dividends.form.reconciliation.title}
+      </h4>
+
+      <label className="block space-y-2">
+        <span className="text-sm font-medium text-slate-800">
+          {dict.dividends.form.reconciliation.title}
+        </span>
+        <select
+          className={fieldClassName}
+          data-testid="dividend-reconcile-status-select"
+          value={reconcileStatus}
+          onChange={(event) =>
+            setReconcileStatus(event.target.value as DividendReconciliationStatus)
+          }
+        >
+          <option value="open">{dict.dividends.form.reconciliation.statusOpen}</option>
+          <option value="matched">{dict.dividends.form.reconciliation.statusMatched}</option>
+          <option value="explained">{dict.dividends.form.reconciliation.statusExplained}</option>
+          <option value="resolved">{dict.dividends.form.reconciliation.statusResolved}</option>
+        </select>
+      </label>
+
+      <label className="block space-y-2">
+        <span className="text-sm font-medium text-slate-800">
+          {dict.dividends.form.reconciliation.noteLabel}
+        </span>
+        <textarea
+          className={fieldClassName}
+          data-testid="dividend-reconcile-note"
+          maxLength={500}
+          rows={3}
+          value={reconcileNote}
+          onChange={(event) => setReconcileNote(event.target.value)}
+        />
+        {reconcileStatus === "explained" ? (
+          <p className="text-xs text-slate-500">
+            {dict.dividends.form.reconciliation.noteRequired}
+          </p>
+        ) : null}
+      </label>
+
+      {reconcileError ? (
+        <p
+          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          data-testid="dividend-reconcile-error"
+        >
+          {reconcileError}
+        </p>
+      ) : null}
+
+      <div className="flex items-center justify-end">
+        <Button
+          type="button"
+          onClick={() => void handleSaveReconciliation()}
+          disabled={isReconcileSaving}
+          data-testid="dividend-reconcile-save"
+        >
+          {isReconcileSaving ? dict.feedback.loadingDashboard : dict.dividends.action.save}
+        </Button>
+      </div>
+    </section>
+  );
+
+  return (
+    <div className="space-y-6" data-testid="dividend-posting-form-container">
+      {headerBlock}
+      {reconcileOnlyMode ? (
+        <p
+          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+          data-testid="dividend-stock-edit-disabled-label"
+        >
+          {dict.dividends.action.stockEditDisabled}
+        </p>
+      ) : (
+        amountsFormBlock
+      )}
+      {showReconcileSection ? reconcileSection : null}
+      <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onCancel}
+          data-testid="dividend-cancel"
+        >
+          {dict.dividends.action.cancel}
+        </Button>
+      </div>
+    </div>
   );
 }
 

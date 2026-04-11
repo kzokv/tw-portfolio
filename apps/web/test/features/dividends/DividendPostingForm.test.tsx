@@ -3,7 +3,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DividendPostingForm } from "../../../components/dividends/DividendPostingForm";
 import { getDictionary } from "../../../lib/i18n";
-import type { DividendCalendarRow, DividendPostingResult } from "../../../features/dividends/types";
+import type {
+  DividendCalendarRow,
+  DividendLedgerEntryDetails,
+  DividendPostingResult,
+} from "../../../features/dividends/types";
 
 const submitMock = vi.fn<(payload: unknown) => Promise<DividendPostingResult | null>>();
 
@@ -14,6 +18,38 @@ vi.mock("../../../features/dividends/hooks/useDividendPosting", () => ({
     submit: submitMock,
   }),
 }));
+
+vi.mock("../../../features/dividends/services/dividendService", () => ({
+  updateDividendReconciliation: vi.fn(),
+}));
+
+import { updateDividendReconciliation } from "../../../features/dividends/services/dividendService";
+
+function buildLedger(overrides?: Partial<DividendLedgerEntryDetails>): DividendLedgerEntryDetails {
+  return {
+    id: overrides?.id ?? "ledger-1",
+    dividendEventId: overrides?.dividendEventId ?? "event-1",
+    accountId: overrides?.accountId ?? "acc-1",
+    ticker: overrides?.ticker ?? "2330",
+    instrumentType: overrides?.instrumentType ?? "STOCK",
+    eventType: overrides?.eventType ?? "CASH",
+    paymentDate: overrides?.paymentDate ?? "2026-04-20",
+    exDividendDate: overrides?.exDividendDate ?? "2026-04-10",
+    cashCurrency: overrides?.cashCurrency ?? "TWD",
+    postingStatus: overrides?.postingStatus ?? "posted",
+    reconciliationStatus: overrides?.reconciliationStatus ?? "open",
+    sourceCompositionStatus: overrides?.sourceCompositionStatus ?? "provided",
+    version: overrides?.version ?? 1,
+    reconciliationNote: overrides?.reconciliationNote ?? null,
+    expectedCashAmount: overrides?.expectedCashAmount ?? 100,
+    receivedCashAmount: overrides?.receivedCashAmount ?? 100,
+    expectedStockQuantity: overrides?.expectedStockQuantity ?? 0,
+    receivedStockQuantity: overrides?.receivedStockQuantity ?? 0,
+    eligibleQuantity: overrides?.eligibleQuantity ?? 1_000,
+    sourceLines: overrides?.sourceLines ?? [],
+    deductions: overrides?.deductions ?? [],
+  };
+}
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,6 +100,8 @@ describe("DividendPostingForm", () => {
         sourceCompositionStatus: "provided",
       },
     });
+    vi.mocked(updateDividendReconciliation).mockReset();
+    vi.mocked(updateDividendReconciliation).mockResolvedValue(buildLedger());
 
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -422,5 +460,154 @@ describe("DividendPostingForm", () => {
 
     const hint = document.querySelector("[data-testid='dividend-received-cash-hint']");
     expect(hint?.textContent).toMatch(/NT\$6.*1,000 shares/);
+  });
+
+  it("hides amounts form and shows reconcile-only label for stock ledger entries", () => {
+    const row = buildRow({
+      event: { eventType: "STOCK", expectedCashAmount: 0, expectedStockQuantity: 50 },
+      ledgerEntry: buildLedger({
+        eventType: "STOCK",
+        postingStatus: "posted",
+        receivedStockQuantity: 50,
+        expectedCashAmount: 0,
+        receivedCashAmount: 0,
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    // Amounts form is NOT rendered in reconcile-only mode.
+    expect(document.querySelector("[data-testid='dividend-posting-form']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividend-received-cash']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividend-received-stock']")).toBeNull();
+    // Disabled label and reconcile section are visible.
+    expect(
+      document.querySelector("[data-testid='dividend-stock-edit-disabled-label']")?.textContent,
+    ).toContain(dict.dividends.action.stockEditDisabled);
+    expect(document.querySelector("[data-testid='dividend-reconcile-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-reconcile-status-select']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-cancel']")).not.toBeNull();
+  });
+
+  it("renders reconciliation section below the amounts form for posted cash entries", () => {
+    const row = buildRow({
+      ledgerEntry: buildLedger({ postingStatus: "posted", reconciliationStatus: "open" }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='dividend-posting-form']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-reconcile-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-reconcile-save']")).not.toBeNull();
+  });
+
+  it("saves reconciliation via PATCH and calls onSaved", async () => {
+    const onSaved = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const row = buildRow({
+      ledgerEntry: buildLedger({
+        id: "ledger-posted",
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={onSaved}
+        />,
+      );
+    });
+
+    const select = document.querySelector(
+      "[data-testid='dividend-reconcile-status-select']",
+    ) as HTMLSelectElement;
+    act(() => {
+      select.value = "matched";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const reconcileSave = document.querySelector(
+      "[data-testid='dividend-reconcile-save']",
+    ) as HTMLButtonElement;
+    // Reconcile save must NOT be a submit button — otherwise it would submit
+    // the amounts form and reset reconciliation_status to "open" on the API.
+    expect(reconcileSave.getAttribute("type")).toBe("button");
+
+    await act(async () => {
+      reconcileSave.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(updateDividendReconciliation).toHaveBeenCalledWith(
+      "ledger-posted",
+      "matched",
+      undefined,
+    );
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    // Amounts submit path must not have fired.
+    expect(submitMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks reconciliation save when explained status has an empty note", async () => {
+    const row = buildRow({
+      ledgerEntry: buildLedger({ postingStatus: "posted", reconciliationStatus: "open" }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const select = document.querySelector(
+      "[data-testid='dividend-reconcile-status-select']",
+    ) as HTMLSelectElement;
+    act(() => {
+      select.value = "explained";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const reconcileSave = document.querySelector(
+      "[data-testid='dividend-reconcile-save']",
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      reconcileSave.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(updateDividendReconciliation).not.toHaveBeenCalled();
+    expect(
+      document.querySelector("[data-testid='dividend-reconcile-error']")?.textContent,
+    ).toContain(dict.dividends.form.error.noteRequiredForExplained);
   });
 });

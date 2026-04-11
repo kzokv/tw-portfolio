@@ -84,6 +84,34 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async selectReconcileStatus(status: "open" | "matched" | "explained" | "resolved"): Promise<void> {
+    await this.uiActions.select.perform(this.el.drawer.elements.reconcileStatusSelect, status);
+  }
+
+  @Step()
+  async fillReconcileNote(note: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.drawer.elements.reconcileNote, note);
+  }
+
+  @Step()
+  async submitReconciliationForm(): Promise<Response> {
+    const patchResponsePromise = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH"
+        && response.url().includes("/portfolio/dividends/postings/")
+        && response.url().includes("/reconciliation"),
+    );
+
+    await this.uiActions.click.perform(this.el.drawer.elements.reconcileSaveButton);
+    return await patchResponsePromise;
+  }
+
+  @Step()
+  async clickReconcileSaveButton(): Promise<void> {
+    await this.uiActions.click.perform(this.el.drawer.elements.reconcileSaveButton);
+  }
+
+  @Step()
   async updatePostedDividendViaApi(data: Record<string, unknown>): Promise<APIResponse> {
     if (!this.userId) throw new Error("updatePostedDividendViaApi requires userId");
 
