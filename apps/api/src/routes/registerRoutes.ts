@@ -16,13 +16,16 @@ import {
   type GoogleTokenResponse,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
 import {
+  listCashLedgerEntries,
   listCorporateActions,
+  listDividendDeductionEntries,
+  listDividendLedgerEntries,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
@@ -198,6 +201,26 @@ const dividendLedgerQuerySchema = dividendDateRangeQuerySchema.extend({
 const dividendReconciliationSchema = z.object({
   status: z.enum(["open", "matched", "explained", "resolved"]),
   note: z.string().trim().max(500).optional(),
+});
+
+const cashLedgerEntryTypes = [
+  "TRADE_SETTLEMENT_IN",
+  "TRADE_SETTLEMENT_OUT",
+  "DIVIDEND_RECEIPT",
+  "DIVIDEND_DEDUCTION",
+  "MANUAL_ADJUSTMENT",
+  "REVERSAL",
+] as const;
+
+const cashLedgerQuerySchema = z.object({
+  fromEntryDate: isoDateSchema.optional(),
+  toEntryDate: isoDateSchema.optional(),
+  accountId: userScopedIdSchema.optional(),
+  entryType: z.union([
+    z.enum(cashLedgerEntryTypes),
+    z.array(z.enum(cashLedgerEntryTypes)),
+  ]).optional().transform(v => v ? (Array.isArray(v) ? v : [v]) : undefined),
+  limit: z.coerce.number().int().positive().max(500).default(500),
 });
 
 function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
@@ -1442,6 +1465,105 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerEntries),
     };
+  });
+
+  app.get("/portfolio/cash-ledger", async (req) => {
+    const query = cashLedgerQuerySchema.parse(req.query);
+    const { store } = await loadUserStore(app, req);
+
+    let entries = listCashLedgerEntries(store);
+
+    // Filter in memory
+    if (query.fromEntryDate) entries = entries.filter(e => e.entryDate >= query.fromEntryDate!);
+    if (query.toEntryDate) entries = entries.filter(e => e.entryDate <= query.toEntryDate!);
+    if (query.accountId) entries = entries.filter(e => e.accountId === query.accountId);
+    if (query.entryType) entries = entries.filter(e => query.entryType!.includes(e.entryType));
+
+    // Sort: entryDate DESC, bookedAt DESC
+    entries.sort((a, b) =>
+      b.entryDate.localeCompare(a.entryDate) ||
+      (b.bookedAt ?? "").localeCompare(a.bookedAt ?? ""),
+    );
+
+    // Apply limit before enrichment and summary so table and totals always agree
+    const limitedEntries = entries.slice(0, query.limit);
+
+    // Build enrichment maps (O(1) lookups)
+    const tradeMap = new Map(listTradeEvents(store).map(t => [t.id, t]));
+    const dividendLedgerMap = new Map(listDividendLedgerEntries(store).map(d => [d.id, d]));
+    const dividendEventMap = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
+
+    // Build deduction total map: sum actual DividendDeductionEntry amounts per ledger entry
+    const deductionTotals = new Map<string, number>();
+    for (const d of listDividendDeductionEntries(store)) {
+      deductionTotals.set(d.dividendLedgerEntryId, (deductionTotals.get(d.dividendLedgerEntryId) ?? 0) + d.amount);
+    }
+
+    // Enrich entries
+    const enriched = limitedEntries.map(entry => {
+      let ticker: string | null = null;
+      let side: "BUY" | "SELL" | null = null;
+      let tradeDetail: {
+        quantity: number;
+        unitPrice: number;
+        commissionAmount: number;
+        taxAmount: number;
+      } | undefined;
+      let dividendDetail: {
+        expectedCashAmount: number;
+        receivedCashAmount: number;
+        deductionTotal: number;
+      } | undefined;
+
+      if (entry.relatedTradeEventId) {
+        const trade = tradeMap.get(entry.relatedTradeEventId);
+        if (trade) {
+          ticker = trade.ticker;
+          side = trade.type;
+          tradeDetail = {
+            quantity: trade.quantity,
+            unitPrice: trade.unitPrice,
+            commissionAmount: trade.commissionAmount,
+            taxAmount: trade.taxAmount,
+          };
+        }
+      }
+
+      if (entry.relatedDividendLedgerEntryId) {
+        const dle = dividendLedgerMap.get(entry.relatedDividendLedgerEntryId);
+        if (dle) {
+          const event = dividendEventMap.get(dle.dividendEventId);
+          ticker = event?.ticker ?? null;
+          dividendDetail = {
+            expectedCashAmount: dle.expectedCashAmount,
+            receivedCashAmount: dle.receivedCashAmount,
+            deductionTotal: roundToDecimal(deductionTotals.get(dle.id) ?? 0, 2),
+          };
+        }
+      }
+
+      return { ...entry, ticker, side, tradeDetail, dividendDetail };
+    });
+
+    // Compute summary — subtotals grouped by (accountId, currency)
+    const summaryMap = new Map<string, { accountId: string; currency: string; amount: number }>();
+    for (const e of enriched) {
+      const key = `${e.accountId}:${e.currency}`;
+      const existing = summaryMap.get(key);
+      if (existing) {
+        existing.amount += e.amount;
+      } else {
+        summaryMap.set(key, { accountId: e.accountId, currency: e.currency, amount: e.amount });
+      }
+    }
+
+    // Round summary amounts
+    const summary = [...summaryMap.values()].map(s => ({
+      ...s,
+      amount: roundToDecimal(s.amount, 2),
+    }));
+
+    return { entries: enriched, summary };
   });
 
   app.post("/portfolio/dividends/postings", async (req) => {
