@@ -26,6 +26,8 @@ export interface AppDictionary {
     transactionsDescription: string;
     dividendsLabel: string;
     dividendsDescription: string;
+    cashLedgerLabel: string;
+    cashLedgerDescription: string;
   };
   hero: {
     eyebrow: string;
@@ -354,6 +356,43 @@ export interface AppDictionary {
         stockEditNotAllowed: string;
       };
     };
+  };
+  cashLedger: {
+    pageTitle: string;
+    pageDescription: string;
+    columnDate: string;
+    columnType: string;
+    columnTicker: string;
+    columnSide: string;
+    columnAmount: string;
+    columnCurrency: string;
+    columnAccount: string;
+    entryTypeTradeSettlementIn: string;
+    entryTypeTradeSettlementOut: string;
+    entryTypeDividendReceipt: string;
+    entryTypeDividendDeduction: string;
+    entryTypeManualAdjustment: string;
+    entryTypeReversal: string;
+    emptyState: string;
+    summaryTotalLabel: string;
+    filterDateFrom: string;
+    filterDateTo: string;
+    filterAccount: string;
+    filterEntryType: string;
+    drawerSettlementTitle: string;
+    drawerDividendTitle: string;
+    drawerTicker: string;
+    drawerSide: string;
+    drawerDate: string;
+    drawerQuantity: string;
+    drawerUnitPrice: string;
+    drawerCommission: string;
+    drawerTax: string;
+    drawerNetSettlement: string;
+    drawerExpectedCash: string;
+    drawerReceivedCash: string;
+    drawerDeductionTotal: string;
+    applyFilter: string;
   };
   recompute: {
     title: string;

@@ -1,6 +1,7 @@
 import { webAssistantRegistry } from "@tw-portfolio/test-framework/config";
 
 import { authErrorAssistantFactory, loginAssistantFactory, sessionAssistantFactory } from "../assistants/auth/index.js";
+import { cashLedgerAssistantFactory } from "../assistants/cash-ledger/index.js";
 import { dashboardAssistantFactory } from "../assistants/dashboard/index.js";
 import { dividendsAssistantFactory } from "../assistants/dividends/index.js";
 import { appShellAssistantFactory } from "../assistants/layout/index.js";
@@ -11,6 +12,7 @@ import { transactionsAssistantFactory } from "../assistants/transactions/index.j
 import { AuthErrorPage } from "../pages/auth/AuthErrorPage.js";
 import { BrowserSessionPage } from "../pages/auth/BrowserSessionPage.js";
 import { LoginPage } from "../pages/auth/LoginPage.js";
+import { CashLedgerPage } from "../pages/cash-ledger/CashLedgerPage.js";
 import { DashboardPage } from "../pages/dashboard/DashboardPage.js";
 import { DividendCalendarPage } from "../pages/dividends/DividendCalendarPage.js";
 import { AppShellPage } from "../pages/layout/AppShellPage.js";
@@ -32,6 +34,7 @@ export function registerTestE2EAssistants(): void {
     .register(LoginPage, loginAssistantFactory)
     .register(AuthErrorPage, authErrorAssistantFactory)
     .register(BrowserSessionPage, sessionAssistantFactory)
+    .register(CashLedgerPage, cashLedgerAssistantFactory)
     .register(DashboardPage, dashboardAssistantFactory)
     .register(DividendCalendarPage, dividendsAssistantFactory)
     .register(PortfolioPage, portfolioAssistantFactory)

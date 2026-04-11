@@ -31,6 +31,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       transactionsDescription: "Record trades and verify the resulting holdings without leaving the workspace.",
       dividendsLabel: "Dividends",
       dividendsDescription: "Monthly dividend calendar, posting workflow, and reconciliation status in one place.",
+      cashLedgerLabel: "Cash Ledger",
+      cashLedgerDescription: "Track cash flows from trades and dividends",
     },
     hero: {
       eyebrow: "Operational Snapshot",
@@ -202,6 +204,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
       transactionsDescription: "集中新增交易並立即確認對持倉造成的結果。",
       dividendsLabel: "股利",
       dividendsDescription: "用月曆集中處理股利入帳、編修與對帳狀態。",
+      cashLedgerLabel: "現金分類帳",
+      cashLedgerDescription: "追蹤交易與股利的現金流動",
     },
     hero: {
       eyebrow: "營運概覽",

@@ -36,7 +36,7 @@ import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 
-type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends";
+type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 type ViewportMode = "mobile" | "compact" | "wide";
 
 interface AppShellProps {
@@ -218,6 +218,12 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         label: dict.navigation.dividendsLabel,
         description: dict.navigation.dividendsDescription,
       },
+      {
+        id: "cash-ledger",
+        href: "/cash-ledger",
+        label: dict.navigation.cashLedgerLabel,
+        description: dict.navigation.cashLedgerDescription,
+      },
     ],
     [dict],
   );
@@ -250,14 +256,18 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
       ? dict.navigation.portfolioLabel
       : section === "transactions"
         ? dict.navigation.transactionsLabel
-        : dict.navigation.dividendsLabel;
+        : section === "cash-ledger"
+          ? dict.navigation.cashLedgerLabel
+          : dict.navigation.dividendsLabel;
   const shellDescription = section === "dashboard"
     ? dict.navigation.dashboardDescription
     : section === "portfolio"
       ? dict.navigation.portfolioDescription
       : section === "transactions"
         ? dict.navigation.transactionsDescription
-        : dict.navigation.dividendsDescription;
+        : section === "cash-ledger"
+          ? dict.navigation.cashLedgerDescription
+          : dict.navigation.dividendsDescription;
 
   function toggleDesktopNavigation() {
     if (viewportMode === "mobile") return;
@@ -645,6 +655,10 @@ function renderSection({
   }
 
   if (section === "dividends") {
+    return null;
+  }
+
+  if (section === "cash-ledger") {
     return null;
   }
 

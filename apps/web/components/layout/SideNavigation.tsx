@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { ArrowRightLeft, CalendarDays, LayoutDashboard, PieChart } from "lucide-react";
+import { ArrowRightLeft, CalendarDays, LayoutDashboard, PieChart, Wallet } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends";
+type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
 interface NavigationItem {
   id: AppSection;
@@ -30,6 +30,7 @@ const iconMap = {
   portfolio: PieChart,
   transactions: ArrowRightLeft,
   dividends: CalendarDays,
+  "cash-ledger": Wallet,
 } satisfies Record<AppSection, typeof LayoutDashboard>;
 
 export function SideNavigation({

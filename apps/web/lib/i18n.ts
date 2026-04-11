@@ -1,4 +1,5 @@
 import type { LocaleCode } from "@tw-portfolio/shared-types";
+import { cashLedgerI18n } from "../features/cash-ledger/i18n";
 import { dashboardI18n } from "../features/dashboard/i18n";
 import { dividendsI18n } from "../features/dividends/i18n";
 import { notificationsI18n } from "../features/notifications/i18n";
@@ -15,6 +16,7 @@ export function getDictionary(locale: LocaleCode): AppDictionary {
 
   return {
     ...commonI18n[localeKey],
+    ...cashLedgerI18n[localeKey],
     ...dashboardI18n[localeKey],
     ...dividendsI18n[localeKey],
     ...notificationsI18n[localeKey],
