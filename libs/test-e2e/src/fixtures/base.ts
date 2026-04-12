@@ -14,6 +14,7 @@ export const test = base.extend<TBaseFixtures>({
       prewarmAppRoute(request, ROUTES.PORTFOLIO),
       prewarmAppRoute(request, ROUTES.TRANSACTIONS),
       prewarmAppRoute(request, "/dividends"),
+      prewarmAppRoute(request, "/dividends/review"),
       prewarmAppRoute(request, "/cash-ledger"),
       prewarmAppRoute(request, `/tickers/${TEST_DATA.TICKER_SYMBOL}`),
     ]);

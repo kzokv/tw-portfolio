@@ -437,7 +437,13 @@ export class MemoryPersistence implements Persistence {
       if (reversedIds.has(entry.id)) return false;
       if (opts.accountId && entry.accountId !== opts.accountId) return false;
       const event = eventById.get(entry.dividendEventId);
-      if (!matchesNullableDateRange(event?.paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate)) return false;
+      const hasDates = opts.fromPaymentDate != null || opts.toPaymentDate != null;
+      if (hasDates) {
+        if (!matchesNullableDateRange(event?.paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate)) return false;
+      } else {
+        // No date params: exclude TBD entries (null payment_date)
+        if ((event?.paymentDate ?? null) == null) return false;
+      }
       if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return false;
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return false;
       if (opts.ticker && event?.ticker !== opts.ticker) return false;

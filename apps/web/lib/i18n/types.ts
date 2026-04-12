@@ -358,6 +358,74 @@ export interface AppDictionary {
         stockEditNotAllowed: string;
       };
     };
+    review: {
+      pageTitle: string;
+      pageDescription: string;
+      breadcrumb: string;
+      preset: {
+        yesterday: string;
+        thisWeek: string;
+        last7Days: string;
+        last30Days: string;
+        thisMonth: string;
+        lastMonth: string;
+        currentQuarter: string;
+        lastQuarter: string;
+        currentYear: string;
+        lastYear: string;
+        unspecified: string;
+        custom: string;
+      };
+      filter: {
+        ticker: string;
+        account: string;
+        status: string;
+        dateFrom: string;
+        dateTo: string;
+        allAccounts: string;
+        allStatuses: string;
+        needsReconciliation: string;
+        partialDateError: string;
+      };
+      stat: {
+        totalExpected: string;
+        totalReceived: string;
+        variance: string;
+        openItems: string;
+      };
+      chart: {
+        tabMonthly: string;
+        tabAccumulated: string;
+        tabByTicker: string;
+        tooltipMonthly: string;
+        tooltipAccumulated: string;
+        tooltipByTicker: string;
+        granularityMonth: string;
+        granularityQuarter: string;
+        granularityYear: string;
+        noData: string;
+        rangeTooNarrow: string;
+        expected: string;
+        received: string;
+      };
+      table: {
+        paymentDate: string;
+        ticker: string;
+        account: string;
+        expected: string;
+        received: string;
+        variance: string;
+        status: string;
+        actions: string;
+      };
+      pagination: {
+        page: string;
+        of: string;
+        totalSuffix: string;
+        previous: string;
+        next: string;
+      };
+    };
   };
   cashLedger: {
     pageTitle: string;
