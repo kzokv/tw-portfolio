@@ -1,3 +1,4 @@
+import type { DividendLedgerAggregates } from "@tw-portfolio/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   DividendCalendarSnapshot,
@@ -9,22 +10,62 @@ import type {
 } from "../types";
 
 export interface DividendQuery {
-  fromPaymentDate: string;
-  toPaymentDate: string;
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
   accountId?: string;
   limit?: number;
 }
 
+export interface DividendReviewQuery {
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
+  accountId?: string;
+  ticker?: string;
+  postingStatus?: string;
+  reconciliationStatus?: string;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
+  page?: number;
+  limit?: number;
+}
+
+export interface DividendLedgerReviewResponse {
+  ledgerEntries: DividendLedgerEntryDetails[];
+  total: number;
+  aggregates: DividendLedgerAggregates;
+}
+
 function buildQuery(params: DividendQuery): string {
   const query = new URLSearchParams({
-    fromPaymentDate: params.fromPaymentDate,
-    toPaymentDate: params.toPaymentDate,
     limit: String(params.limit ?? 500),
   });
 
+  if (params.fromPaymentDate) {
+    query.set("fromPaymentDate", params.fromPaymentDate);
+  }
+  if (params.toPaymentDate) {
+    query.set("toPaymentDate", params.toPaymentDate);
+  }
   if (params.accountId) {
     query.set("accountId", params.accountId);
   }
+
+  return query.toString();
+}
+
+function buildReviewQuery(params: DividendReviewQuery): string {
+  const query = new URLSearchParams();
+
+  if (params.fromPaymentDate) query.set("fromPaymentDate", params.fromPaymentDate);
+  if (params.toPaymentDate) query.set("toPaymentDate", params.toPaymentDate);
+  if (params.accountId) query.set("accountId", params.accountId);
+  if (params.ticker) query.set("ticker", params.ticker);
+  if (params.postingStatus) query.set("postingStatus", params.postingStatus);
+  if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
+  if (params.sortBy) query.set("sortBy", params.sortBy);
+  if (params.sortOrder) query.set("sortOrder", params.sortOrder);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
 
   return query.toString();
 }
@@ -78,6 +119,26 @@ export async function submitDividendPosting(payload: DividendPostingPayload): Pr
     payload,
     { "idempotency-key": `dividend-${payload.dividendLedgerEntryId ?? payload.dividendEventId}-${Date.now()}` },
   );
+}
+
+export async function fetchDividendLedgerReview(params: DividendReviewQuery): Promise<DividendLedgerReviewResponse> {
+  const payload = await getJson<DividendLedgerReviewResponse>(`/portfolio/dividends/ledger?${buildReviewQuery(params)}`);
+  return {
+    ledgerEntries: payload.ledgerEntries ?? [],
+    total: payload.total ?? 0,
+    aggregates: payload.aggregates ?? {
+      totalExpectedCashAmount: {},
+      totalReceivedCashAmount: {},
+      openCount: 0,
+      byMonth: {},
+      byTicker: {},
+    },
+  };
+}
+
+export async function fetchDividendLedgerYears(): Promise<number[]> {
+  const payload = await getJson<{ years: number[] }>("/portfolio/dividends/ledger/years");
+  return payload.years ?? [];
 }
 
 export async function updateDividendReconciliation(

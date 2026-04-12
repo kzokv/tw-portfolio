@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
@@ -304,6 +305,16 @@ export function DividendCalendarClient({
         )}
       </section>
 
+      <div className="flex justify-center">
+        <Link
+          href="/dividends/review"
+          className="text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
+          data-testid="dividends-view-all-link"
+        >
+          {dict.dividends.viewAllLink}
+        </Link>
+      </div>
+
       <Drawer
         open={drawerRow !== null}
         onOpenChange={(open) => {
@@ -382,7 +393,7 @@ function DividendRowCard({
               {resolveBadgeLabel(dict, badge)}
             </span>
           </div>
-          <p className="mt-1 break-all text-sm text-slate-500">{row.event.accountId}</p>
+          <p className="mt-1 truncate text-sm text-slate-500">{row.event.accountId}</p>
         </div>
 
         <div className="flex flex-wrap gap-2 lg:shrink-0 lg:justify-end">

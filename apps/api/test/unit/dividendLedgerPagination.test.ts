@@ -509,6 +509,65 @@ describe("MemoryPersistence.listDividendLedgerEntries — filter/sort/page/aggre
   });
 });
 
+// ── 1.5 Date filter fallback — null payment_date exclusion ──────────────────
+
+describe("MemoryPersistence.listDividendLedgerEntries — date filter fallback", () => {
+  beforeEach(async () => {
+    app = await buildApp({ persistenceBackend: "memory" });
+  });
+
+  afterEach(async () => {
+    if (app) await app.close();
+  });
+
+  it("UM-28: no date params → excludes entries with null paymentDate", async () => {
+    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
+    await seedFullEntry({ ticker: "GOOG", currency: "USD", paymentDate: null, expected: 200, received: 0 });
+
+    const result = await app.persistence.listDividendLedgerEntries(USER_ID, {
+      ...defaultOpts,
+      // No fromPaymentDate or toPaymentDate
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.ledgerEntries).toHaveLength(1);
+    // Only AAPL (with non-null paymentDate) should be present
+    const store = await app.persistence.loadStore(USER_ID);
+    const eventId = result.ledgerEntries[0]!.dividendEventId;
+    expect(store.marketData.dividendEvents.find((e) => e.id === eventId)?.ticker).toBe("AAPL");
+  });
+
+  it("UM-29: no date params → aggregates exclude null paymentDate entries", async () => {
+    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 90 });
+    await seedFullEntry({ ticker: "GOOG", currency: "USD", paymentDate: null, expected: 500, received: 0 });
+
+    const result = await app.persistence.listDividendLedgerEntries(USER_ID, {
+      ...defaultOpts,
+    });
+
+    expect(result.aggregates.totalExpectedCashAmount).toEqual({ USD: 100 });
+    expect(result.aggregates.totalReceivedCashAmount).toEqual({ USD: 90 });
+    expect(result.aggregates.byTicker).toEqual({
+      AAPL: { USD: { expected: 100, received: 90 } },
+    });
+  });
+
+  it("UM-30: with date params → includes entries with null paymentDate (existing behavior)", async () => {
+    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
+    await seedFullEntry({ ticker: "GOOG", currency: "USD", paymentDate: null, expected: 200, received: 0 });
+
+    const result = await app.persistence.listDividendLedgerEntries(USER_ID, {
+      ...defaultOpts,
+      fromPaymentDate: "2024-01-01",
+      toPaymentDate: "2024-12-31",
+    });
+
+    // Both entries should be present — null paymentDate passes through when dates are provided
+    expect(result.total).toBe(2);
+    expect(result.ledgerEntries).toHaveLength(2);
+  });
+});
+
 // ── 1.5 listDividendLedgerYears ──────────────────────────────────────────────
 
 describe("MemoryPersistence.listDividendLedgerYears", () => {

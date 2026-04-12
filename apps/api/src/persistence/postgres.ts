@@ -1913,9 +1913,24 @@ export class PostgresPersistence implements Persistence {
     // Must preserve every invariant from the pre-KZO-135 query:
     //   - tenant guard (account.user_id = $1)
     //   - three-way superseded/reversed exclusion
-    //   - null payment-date passthrough for date range
+    //   - date-range filter OR null payment-date exclusion (when no dates)
     //   - reconciliation and posting status filters
     //   - optional ticker filter on dividend_events.ticker
+    // When dates are provided: keep existing behavior (null payment_date passthrough).
+    // When no dates: exclude TBD entries (payment_date IS NOT NULL).
+    // CASE always references $3/$4 to avoid PostgreSQL 42P18 indeterminate_datatype.
+    const dateClause = `AND (
+      CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN
+        event.payment_date IS NOT NULL
+      ELSE
+        event.payment_date IS NULL
+        OR (
+          ($3::date IS NULL OR event.payment_date >= $3::date)
+          AND ($4::date IS NULL OR event.payment_date <= $4::date)
+        )
+      END
+    )`;
+
     const fromAndWhere = `
       FROM dividend_ledger_entries AS dle
       JOIN accounts AS account
@@ -1939,13 +1954,7 @@ export class PostgresPersistence implements Persistence {
           FROM dividend_ledger_entries AS reversal
           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
         )
-        AND (
-          event.payment_date IS NULL
-          OR (
-            ($3::date IS NULL OR event.payment_date >= $3::date)
-            AND ($4::date IS NULL OR event.payment_date <= $4::date)
-          )
-        )
+        ${dateClause}
         AND ($5::text IS NULL OR dle.reconciliation_status = $5)
         AND ($6::text IS NULL OR dle.posting_status = $6)
         AND ($7::text IS NULL OR event.ticker = $7)
