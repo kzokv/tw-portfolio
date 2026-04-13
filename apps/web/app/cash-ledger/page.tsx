@@ -24,6 +24,7 @@ export default async function CashLedgerPage() {
     fetchCashLedgerEntries().catch(() => ({
       entries: [],
       summary: [],
+      total: 0,
     })),
   ]);
 

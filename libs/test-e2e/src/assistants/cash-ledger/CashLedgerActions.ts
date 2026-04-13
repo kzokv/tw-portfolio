@@ -34,9 +34,18 @@ export class CashLedgerActions extends AppBaseActions {
   }
 
   @Step()
-  async clickApplyFilter(): Promise<void> {
-    // Click the submit button in the filter form
-    const submitButton = this.el.filterToolbar.locator("button[type='submit']");
-    await this.uiActions.click.perform(submitButton);
+  async goToNextPage(): Promise<void> {
+    await this.uiActions.click.perform(this.el.paginationNext);
+  }
+
+  @Step()
+  async goToPrevPage(): Promise<void> {
+    await this.uiActions.click.perform(this.el.paginationPrev);
+  }
+
+  @Step()
+  async clickColumnHeader(field: string): Promise<void> {
+    const header = this.el.table.locator("th").filter({ hasText: new RegExp(field, "i") });
+    await this.uiActions.click.perform(header);
   }
 }

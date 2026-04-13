@@ -123,7 +123,7 @@ describe("GET /portfolio/cash-ledger", () => {
     const res = await app.inject({ method: "GET", url: "/portfolio/cash-ledger" });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toEqual({ entries: [], summary: [] });
+    expect(body).toEqual({ entries: [], summary: [], total: 0 });
   });
 
   // --- 2. Returns all entries unfiltered ---

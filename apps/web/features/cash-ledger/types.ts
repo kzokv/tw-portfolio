@@ -46,9 +46,12 @@ export interface CashLedgerSummary {
   amount: number;
 }
 
+export type CashLedgerSortColumn = "entryDate" | "entryType" | "amount" | "currency" | "accountId";
+
 export interface CashLedgerListResponse {
   entries: EnrichedCashLedgerEntry[];
   summary: CashLedgerSummary[];
+  total: number;
 }
 
 export interface CashLedgerQuery {
@@ -57,4 +60,7 @@ export interface CashLedgerQuery {
   accountId?: string;
   entryType?: CashLedgerEntryType[];
   limit?: number;
+  page?: number;
+  sortBy?: CashLedgerSortColumn;
+  sortOrder?: "asc" | "desc";
 }

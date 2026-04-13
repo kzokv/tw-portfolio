@@ -37,7 +37,13 @@ export const cashLedgerI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "cashLed
       drawerExpectedCash: "Expected Cash",
       drawerReceivedCash: "Received Cash",
       drawerDeductionTotal: "Deduction Total",
-      applyFilter: "Apply Filters",
+      pagination: {
+        page: "Page",
+        of: "of",
+        totalSuffix: "",
+        previous: "Previous",
+        next: "Next",
+      },
     },
   },
   "zh-TW": {
@@ -76,7 +82,13 @@ export const cashLedgerI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "cashLed
       drawerExpectedCash: "預期現金",
       drawerReceivedCash: "實收現金",
       drawerDeductionTotal: "扣款合計",
-      applyFilter: "套用篩選",
+      pagination: {
+        page: "第",
+        of: "頁，共",
+        totalSuffix: "頁",
+        previous: "上一頁",
+        next: "下一頁",
+      },
     },
   },
 };

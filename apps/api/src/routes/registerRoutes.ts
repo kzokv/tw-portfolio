@@ -22,7 +22,6 @@ import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
 import {
-  listCashLedgerEntries,
   listCorporateActions,
   listDividendDeductionEntries,
   listDividendLedgerEntries,
@@ -240,7 +239,10 @@ const cashLedgerQuerySchema = z.object({
     z.enum(cashLedgerEntryTypes),
     z.array(z.enum(cashLedgerEntryTypes)),
   ]).optional().transform(v => v ? (Array.isArray(v) ? v : [v]) : undefined),
-  limit: z.coerce.number().int().positive().max(500).default(500),
+  limit: z.coerce.number().int().positive().max(500).default(50),
+  page: z.coerce.number().int().min(1).default(1),
+  sortBy: z.enum(["entryDate", "entryType", "amount", "currency", "accountId"]).default("entryDate"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
@@ -1501,26 +1503,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/cash-ledger", async (req) => {
     const query = cashLedgerQuerySchema.parse(req.query);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const result = await app.persistence.listCashLedgerEntries(userId, {
+      fromEntryDate: query.fromEntryDate,
+      toEntryDate: query.toEntryDate,
+      accountId: query.accountId,
+      entryType: query.entryType,
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+
+    // Load store for enrichment maps (O(1) lookups)
     const { store } = await loadUserStore(app, req);
-
-    let entries = listCashLedgerEntries(store);
-
-    // Filter in memory
-    if (query.fromEntryDate) entries = entries.filter(e => e.entryDate >= query.fromEntryDate!);
-    if (query.toEntryDate) entries = entries.filter(e => e.entryDate <= query.toEntryDate!);
-    if (query.accountId) entries = entries.filter(e => e.accountId === query.accountId);
-    if (query.entryType) entries = entries.filter(e => query.entryType!.includes(e.entryType));
-
-    // Sort: entryDate DESC, bookedAt DESC
-    entries.sort((a, b) =>
-      b.entryDate.localeCompare(a.entryDate) ||
-      (b.bookedAt ?? "").localeCompare(a.bookedAt ?? ""),
-    );
-
-    // Apply limit before enrichment and summary so table and totals always agree
-    const limitedEntries = entries.slice(0, query.limit);
-
-    // Build enrichment maps (O(1) lookups)
     const tradeMap = new Map(listTradeEvents(store).map(t => [t.id, t]));
     const dividendLedgerMap = new Map(listDividendLedgerEntries(store).map(d => [d.id, d]));
     const dividendEventMap = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
@@ -1531,8 +1528,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       deductionTotals.set(d.dividendLedgerEntryId, (deductionTotals.get(d.dividendLedgerEntryId) ?? 0) + d.amount);
     }
 
-    // Enrich entries
-    const enriched = limitedEntries.map(entry => {
+    // Enrich paginated entries
+    const enriched = result.entries.map(entry => {
       let ticker: string | null = null;
       let side: "BUY" | "SELL" | null = null;
       let tradeDetail: {
@@ -1577,25 +1574,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return { ...entry, ticker, side, tradeDetail, dividendDetail };
     });
 
-    // Compute summary — subtotals grouped by (accountId, currency)
-    const summaryMap = new Map<string, { accountId: string; currency: string; amount: number }>();
-    for (const e of enriched) {
-      const key = `${e.accountId}:${e.currency}`;
-      const existing = summaryMap.get(key);
-      if (existing) {
-        existing.amount += e.amount;
-      } else {
-        summaryMap.set(key, { accountId: e.accountId, currency: e.currency, amount: e.amount });
-      }
-    }
-
     // Round summary amounts
-    const summary = [...summaryMap.values()].map(s => ({
+    const summary = result.summary.map(s => ({
       ...s,
       amount: roundToDecimal(s.amount, 2),
     }));
 
-    return { entries: enriched, summary };
+    return { entries: enriched, summary, total: result.total };
   });
 
   app.post("/portfolio/dividends/postings", async (req) => {

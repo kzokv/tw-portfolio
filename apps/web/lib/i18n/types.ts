@@ -462,7 +462,13 @@ export interface AppDictionary {
     drawerExpectedCash: string;
     drawerReceivedCash: string;
     drawerDeductionTotal: string;
-    applyFilter: string;
+    pagination: {
+      page: string;
+      of: string;
+      totalSuffix: string;
+      previous: string;
+      next: string;
+    };
   };
   recompute: {
     title: string;
