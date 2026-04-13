@@ -1,5 +1,4 @@
-import type { DividendSourceBucket, SourceCompositionStatus } from "@tw-portfolio/shared-types";
-import type { CurrencyCode, InstrumentType } from "./types.js";
+import type { CurrencyCode, DividendSourceBucket, InstrumentType, SourceCompositionStatus } from "./types.js";
 
 export interface DividendDeductionLikeEvent {
   cashDividendCurrency: CurrencyCode;

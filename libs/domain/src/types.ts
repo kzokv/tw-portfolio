@@ -1,6 +1,15 @@
 export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type RoundingMode = "FLOOR" | "ROUND" | "CEIL";
 export type InstrumentType = "STOCK" | "ETF" | "BOND_ETF";
+export type DividendSourceBucket =
+  | "DIVIDEND_INCOME"
+  | "INTEREST_INCOME"
+  | "SECURITIES_GAIN_INCOME"
+  | "REVENUE_EQUALIZATION"
+  | "CAPITAL_EQUALIZATION"
+  | "CAPITAL_RETURN"
+  | "OTHER";
+export type SourceCompositionStatus = "provided" | "unknown_pending_disclosure";
 export type CommissionChargeMode = "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 export type CurrencyCode = string;
 export type MarketCode = string;
