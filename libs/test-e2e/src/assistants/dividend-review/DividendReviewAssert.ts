@@ -244,4 +244,36 @@ export class DividendReviewAssert extends BaseAssert {
   async drawerContains(text: string | RegExp): Promise<void> {
     await expect(this.el.drawer.elements.dialog).toContainText(text);
   }
+
+  // ─── NHI Rollup (KZO-134) ──────────────────────────────────────────────
+
+  @Step()
+  async nhiRollupSectionIsVisible(): Promise<void> {
+    await expect(this.el.nhiRollupSection).toBeVisible();
+  }
+
+  @Step()
+  async nhiRollupEmptyIsVisible(): Promise<void> {
+    await expect(this.el.nhiRollupEmpty).toBeVisible();
+  }
+
+  @Step()
+  async nhiRollupPendingLinkIsVisible(): Promise<void> {
+    await expect(this.el.nhiRollupPendingLink).toBeVisible();
+  }
+
+  @Step()
+  async nhiRollupPendingLinkContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.nhiRollupPendingLink).toContainText(text);
+  }
+
+  @Step()
+  async nhiRollupPremiumContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.nhiRollupPremium).toContainText(text);
+  }
+
+  @Step()
+  async nhiRollupSectionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.nhiRollupSection).toContainText(text);
+  }
 }

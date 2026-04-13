@@ -16,6 +16,8 @@ import type {
   DividendReconciliationStatus,
   DividendSourceLineInput,
 } from "../../features/dividends/types";
+import { SourceCompositionTab } from "./SourceCompositionTab";
+import type { DividendSourceBucket } from "@tw-portfolio/shared-types";
 
 interface DividendPostingFormProps {
   row: DividendCalendarRow;
@@ -53,6 +55,11 @@ const NHI_RATE = 0.0211;
 const NHI_THRESHOLD_TWD = 20_000;
 const DEFAULT_BANK_FEE_TWD = 10;
 const DEFAULT_PAR_VALUE_TWD = 10;
+
+const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
+  "DIVIDEND_INCOME",
+  "INTEREST_INCOME",
+]);
 
 function roundTwd(value: number): number {
   return Math.round(value + Number.EPSILON);
@@ -93,6 +100,20 @@ function buildDefaultDeductions(row: DividendCalendarRow): DividendDeductionInpu
         source: "dividend_posting",
       });
     }
+  }
+
+  if (isEtf && isTwd) {
+    // ETF/BOND_ETF: NHI premium depends on source composition disclosure.
+    // New postings start as "unknown_pending_disclosure" — push NHI at 0
+    // as a placeholder. The reactive effect in the form component will
+    // recompute the amount when the user enters source lines.
+    defaults.push({
+      deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+      amount: 0,
+      currencyCode: "TWD",
+      withheldAtSource: true,
+      source: "dividend_posting",
+    });
   }
 
   if (isTwd && row.event.expectedCashAmount > 0) {
@@ -203,6 +224,33 @@ export function DividendPostingForm({
     versionConflictMessage: dict.dividends.form.error.versionConflict,
     stockEditNotAllowedMessage: dict.dividends.form.error.stockEditNotAllowed,
   });
+
+  const isEtf = row.event.instrumentType === "ETF" || row.event.instrumentType === "BOND_ETF";
+  const isEtfEstimate = isEtf && sourceCompositionStatus === "unknown_pending_disclosure";
+
+  // Reactively recompute ETF NHI deduction when source composition changes
+  useEffect(() => {
+    if (!isEtf || row.event.cashDividendCurrency !== "TWD") return;
+
+    setDeductions((prev) => {
+      const nhiIndex = prev.findIndex((d) => d.deductionType === "NHI_SUPPLEMENTAL_PREMIUM");
+      if (nhiIndex === -1) return prev;
+
+      let nhiAmount = 0;
+      if (sourceCompositionStatus === "provided") {
+        const nhiSubjectTotal = sourceLines
+          .filter((line) => NHI_SUBJECT_BUCKETS.has(line.sourceBucket))
+          .reduce((sum, line) => sum + line.amount, 0);
+        if (nhiSubjectTotal >= NHI_THRESHOLD_TWD) {
+          nhiAmount = roundTwd(nhiSubjectTotal * NHI_RATE);
+        }
+      }
+      // unknown_pending_disclosure → keep at 0
+
+      if (prev[nhiIndex].amount === nhiAmount) return prev;
+      return prev.map((d, i) => (i === nhiIndex ? { ...d, amount: nhiAmount } : d));
+    });
+  }, [isEtf, row.event.cashDividendCurrency, sourceCompositionStatus, sourceLines]);
 
   const grossAmount = receivedCashAmount + deductions
     .filter((entry) => entry.withheldAtSource)
@@ -454,6 +502,15 @@ export function DividendPostingForm({
             ))}
           </div>
         )}
+
+        {isEtfEstimate && (
+          <p
+            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700"
+            data-testid="nhi-estimate-warning"
+          >
+            {dict.dividends.form.sourceComposition.estimateWarning}
+          </p>
+        )}
       </section>
 
       <section className="space-y-3 rounded-[22px] border border-slate-200 bg-white/90 p-4">
@@ -542,6 +599,15 @@ export function DividendPostingForm({
           </>
         ) : null}
       </section>
+
+      {isEtf && (
+        <SourceCompositionCollapsible
+          sourceLines={sourceLines}
+          sourceCompositionStatus={sourceCompositionStatus}
+          dict={dict}
+          locale={locale}
+        />
+      )}
 
       {formError || errorMessage ? (
         <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" data-testid="dividend-form-error">
@@ -651,6 +717,65 @@ export function DividendPostingForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+function SourceCompositionCollapsible({
+  sourceLines,
+  sourceCompositionStatus,
+  dict,
+  locale,
+}: {
+  sourceLines: DividendSourceLineInput[];
+  sourceCompositionStatus: "provided" | "unknown_pending_disclosure";
+  dict: AppDictionary;
+  locale: LocaleCode;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const badgeWarning = sourceCompositionStatus === "unknown_pending_disclosure"
+    ? dict.dividends.form.sourceComposition.badgeWarning
+    : null;
+
+  // Convert DividendSourceLineInput[] to the shape SourceCompositionTab expects
+  const asSourceLines = sourceLines.map((line, i) => ({
+    id: line.id ?? `local-${i}`,
+    dividendLedgerEntryId: "",
+    sourceBucket: line.sourceBucket,
+    amount: line.amount,
+    currencyCode: line.currencyCode ?? "TWD",
+    source: line.source ?? "dividend_posting",
+    sourceReference: line.sourceReference,
+    note: line.note,
+  }));
+
+  return (
+    <section className="space-y-3 rounded-[22px] border border-slate-200 bg-white/90 p-4">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 text-left"
+        onClick={() => setIsOpen((prev) => !prev)}
+        data-testid="source-composition-toggle"
+      >
+        <span className="flex items-center gap-2">
+          <h4 className="text-sm font-semibold text-slate-900">
+            {dict.dividends.form.sourceComposition.tabLabel}
+          </h4>
+          {badgeWarning && (
+            <span className="text-xs text-amber-600">{badgeWarning}</span>
+          )}
+        </span>
+        <span className="text-xs text-slate-400">{isOpen ? "▲" : "▼"}</span>
+      </button>
+
+      {isOpen && (
+        <SourceCompositionTab
+          sourceLines={asSourceLines}
+          sourceCompositionStatus={sourceCompositionStatus}
+          dict={dict}
+          locale={locale}
+        />
+      )}
+    </section>
   );
 }
 

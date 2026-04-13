@@ -23,6 +23,7 @@ import {
   type DatePreset,
   type Granularity,
 } from "./dividendReviewUtils";
+import { NhiRollupSection } from "../../features/dividends/components/NhiRollupSection";
 
 const DividendReviewCharts = dynamic(() => import("./DividendReviewCharts"), {
   ssr: false,
@@ -188,6 +189,11 @@ export function DividendReviewClient({
   const [drawerEntry, setDrawerEntry] = useState<DividendLedgerEntryDetails | null>(null);
   const [isDrawerDirty, setIsDrawerDirty] = useState(false);
 
+  // Source composition pending filter (client-side, triggered by NHI rollup)
+  const [sourceCompositionPendingFilter, setSourceCompositionPendingFilter] = useState(
+    () => searchParams.get("sourceComposition") === "pending",
+  );
+
   const lastValidQuery = useRef<DividendReviewQuery | null>(null);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
@@ -251,6 +257,7 @@ export function DividendReviewClient({
 
   const applyFilters = useCallback((next: FilterState) => {
     setFilters(next);
+    setSourceCompositionPendingFilter(false);
     syncUrl(next);
     void fetchData(next);
   }, [syncUrl, fetchData]);
@@ -327,6 +334,15 @@ export function DividendReviewClient({
     applyFilters({ ...filters, page });
   }, [filters, applyFilters]);
 
+  // ── NHI Rollup: filter pending disclosure ─────────────────────────────
+
+  const handleFilterPending = useCallback(() => {
+    setSourceCompositionPendingFilter(true);
+    const params = new URLSearchParams(window.location.search);
+    params.set("sourceComposition", "pending");
+    router.replace(`/dividends/review?${params.toString()}`, { scroll: false });
+  }, [router]);
+
   // ── Mark Matched ──────────────────────────────────────────────────────
 
   const handleMarkMatched = useCallback(async (entry: DividendLedgerEntryDetails) => {
@@ -385,6 +401,16 @@ export function DividendReviewClient({
   });
 
   // ── Computed values ───────────────────────────────────────────────────
+
+  // Apply client-side source composition filter
+  const displayEntries = useMemo(() => {
+    if (!sourceCompositionPendingFilter) return data.ledgerEntries;
+    return data.ledgerEntries.filter(
+      (e) =>
+        (e.instrumentType === "ETF" || e.instrumentType === "BOND_ETF") &&
+        e.sourceCompositionStatus === "unknown_pending_disclosure",
+    );
+  }, [data.ledgerEntries, sourceCompositionPendingFilter]);
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const aggregates = data.aggregates;
@@ -613,6 +639,14 @@ export function DividendReviewClient({
         />
       </Card>
 
+      {/* NHI Rollup */}
+      <NhiRollupSection
+        ledgerEntries={data.ledgerEntries}
+        dict={dict}
+        locale={locale}
+        onFilterPending={handleFilterPending}
+      />
+
       {/* Table (desktop) */}
       <div className="hidden lg:block">
         <Card className="overflow-hidden rounded-[24px] border border-slate-200 bg-white/92 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
@@ -631,18 +665,18 @@ export function DividendReviewClient({
                 </tr>
               </thead>
               <tbody>
-                {isLoading && data.ledgerEntries.length === 0 ? (
+                {isLoading && displayEntries.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">…</td>
                   </tr>
-                ) : data.ledgerEntries.length === 0 ? (
+                ) : displayEntries.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
                       {dict.dividends.review.chart.noData}
                     </td>
                   </tr>
                 ) : (
-                  data.ledgerEntries.map((entry) => {
+                  displayEntries.map((entry) => {
                     const variance = varianceAmount(entry);
                     return (
                       <tr
@@ -727,12 +761,12 @@ export function DividendReviewClient({
 
       {/* Card grid (mobile) */}
       <div className="grid gap-3 lg:hidden" data-testid="review-card-grid">
-        {data.ledgerEntries.length === 0 && !isLoading ? (
+        {displayEntries.length === 0 && !isLoading ? (
           <Card className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-10 text-center text-sm text-slate-600">
             {dict.dividends.review.chart.noData}
           </Card>
         ) : (
-          data.ledgerEntries.map((entry) => {
+          displayEntries.map((entry) => {
             const variance = varianceAmount(entry);
             return (
               <Card

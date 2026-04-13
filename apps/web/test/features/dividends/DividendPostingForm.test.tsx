@@ -304,7 +304,7 @@ describe("DividendPostingForm", () => {
     expect(amountInputs[1]!.value).toBe("10");
   });
 
-  it("skips NHI prefill for ETF dividends but still prefills the bank fee", () => {
+  it("prefills ETF dividends with NHI at 0 (estimate mode) and bank fee", () => {
     const row = buildRow({
       event: {
         instrumentType: "ETF",
@@ -329,9 +329,15 @@ describe("DividendPostingForm", () => {
     const typeSelects = Array.from(
       document.querySelectorAll<HTMLSelectElement>("[data-testid^='dividend-deduction-type-']"),
     );
+    const amountInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>("[data-testid^='dividend-deduction-amount-']"),
+    );
 
-    expect(typeSelects.length).toBe(1);
-    expect(typeSelects[0]!.value).toBe("BANK_FEE");
+    expect(typeSelects.length).toBe(2);
+    expect(typeSelects[0]!.value).toBe("NHI_SUPPLEMENTAL_PREMIUM");
+    expect(amountInputs[0]!.value).toBe("0");
+    expect(typeSelects[1]!.value).toBe("BANK_FEE");
+    expect(amountInputs[1]!.value).toBe("10");
   });
 
   it("prefills NHI for stock-only dividends using par value × received shares", () => {
@@ -570,6 +576,104 @@ describe("DividendPostingForm", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
     // Amounts submit path must not have fired.
     expect(submitMock).not.toHaveBeenCalled();
+  });
+
+  it("shows NHI estimate warning for ETF with unknown_pending_disclosure", () => {
+    const row = buildRow({
+      event: {
+        instrumentType: "ETF",
+        eventType: "CASH",
+        cashDividendCurrency: "TWD",
+        expectedCashAmount: 30_000,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    // New ETF posts default to "unknown disclosure" mode — estimate warning must be visible
+    const warning = document.querySelector("[data-testid='nhi-estimate-warning']");
+    expect(warning).not.toBeNull();
+    expect(warning?.textContent).toContain("Estimated NT$0");
+  });
+
+  it("hides NHI estimate warning for ETF with provided source composition above threshold", () => {
+    const ledger = buildLedger({
+      instrumentType: "ETF",
+      eventType: "CASH",
+      cashCurrency: "TWD",
+      sourceCompositionStatus: "provided",
+      sourceLines: [
+        {
+          id: "sl-1",
+          dividendLedgerEntryId: "ledger-1",
+          sourceBucket: "DIVIDEND_INCOME",
+          amount: 25_000,
+          currencyCode: "TWD",
+          source: "issuer",
+        },
+      ],
+    });
+    const row = buildRow({
+      event: {
+        instrumentType: "ETF",
+        eventType: "CASH",
+        cashDividendCurrency: "TWD",
+        expectedCashAmount: 25_000,
+        hasPostedLedgerEntry: true,
+        dividendLedgerEntryId: "ledger-1",
+      },
+      ledgerEntry: ledger,
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    // Provided mode — no estimate warning
+    expect(document.querySelector("[data-testid='nhi-estimate-warning']")).toBeNull();
+  });
+
+  it("does not show NHI estimate warning for non-ETF instruments", () => {
+    const row = buildRow({
+      event: {
+        instrumentType: "STOCK",
+        eventType: "CASH",
+        cashDividendCurrency: "TWD",
+        expectedCashAmount: 30_000,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='nhi-estimate-warning']")).toBeNull();
   });
 
   it("blocks reconciliation save when explained status has an empty note", async () => {

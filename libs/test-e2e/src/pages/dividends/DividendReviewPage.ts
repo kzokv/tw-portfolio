@@ -45,6 +45,12 @@ export interface TDividendReviewElements {
 
   // Drawer (reused from KZO-32)
   drawer: DividendPostingDrawerComponent;
+
+  // NHI rollup section (KZO-134)
+  nhiRollupSection: Locator;
+  nhiRollupEmpty: Locator;
+  nhiRollupPendingLink: Locator;
+  nhiRollupPremium: Locator;
 }
 
 export class DividendReviewPage extends BasePage<TDividendReviewElements> {
@@ -92,6 +98,12 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
 
       // Drawer (reused from KZO-32)
       drawer: new DividendPostingDrawerComponent(this.page),
+
+      // NHI rollup section (KZO-134)
+      nhiRollupSection: this.locate("nhi-rollup-section", "NHI Rollup Section"),
+      nhiRollupEmpty: this.locate("nhi-rollup-empty", "NHI Rollup Empty State"),
+      nhiRollupPendingLink: this.locate("nhi-rollup-pending-link", "NHI Rollup Pending Link"),
+      nhiRollupPremium: this.locate("nhi-rollup-premium", "NHI Rollup Premium"),
     };
   }
 }

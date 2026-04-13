@@ -90,4 +90,46 @@ export class DividendsAssert extends BaseAssert {
   async reconcileErrorContains(text: string | RegExp): Promise<void> {
     await expect(this.el.drawer.elements.reconcileError).toContainText(text);
   }
+
+  // ─── Source Composition Tab (KZO-134) ─────────────────────────────────────
+
+  @Step()
+  async sourceCompositionToggleIsVisible(): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionToggle).toBeVisible();
+  }
+
+  @Step()
+  async sourceCompositionToggleIsHidden(): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionToggle).not.toBeVisible();
+  }
+
+  @Step()
+  async sourceCompositionTabIsVisible(): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionTab).toBeVisible();
+  }
+
+  @Step()
+  async sourceCompositionEstimateWarningIsVisible(): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionEstimateWarning).toBeVisible();
+  }
+
+  @Step()
+  async sourceCompositionEstimateWarningIsHidden(): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionEstimateWarning).not.toBeVisible();
+  }
+
+  @Step()
+  async sourceCompositionNhiSubtotalContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.drawer.elements.sourceCompositionNhiSubtotal).toContainText(text);
+  }
+
+  @Step()
+  async nhiEstimateWarningIsVisible(): Promise<void> {
+    await expect(this.el.drawer.elements.nhiEstimateWarning).toBeVisible();
+  }
+
+  @Step()
+  async nhiEstimateWarningIsHidden(): Promise<void> {
+    await expect(this.el.drawer.elements.nhiEstimateWarning).not.toBeVisible();
+  }
 }

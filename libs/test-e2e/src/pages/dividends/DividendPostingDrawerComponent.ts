@@ -22,6 +22,12 @@ export interface TDividendPostingDrawerElements {
   reconcileError: Locator;
   reconcileSaveButton: Locator;
   stockEditDisabledLabel: Locator;
+  // Source composition tab (KZO-134)
+  sourceCompositionToggle: Locator;
+  sourceCompositionTab: Locator;
+  sourceCompositionEstimateWarning: Locator;
+  sourceCompositionNhiSubtotal: Locator;
+  nhiEstimateWarning: Locator;
 }
 
 export class DividendPostingDrawerComponent extends BasePage<TDividendPostingDrawerElements> {
@@ -45,6 +51,12 @@ export class DividendPostingDrawerComponent extends BasePage<TDividendPostingDra
       reconcileError: this.locate("dividend-reconcile-error", "Dividend Reconcile Error"),
       reconcileSaveButton: this.locate("dividend-reconcile-save", "Save Dividend Reconciliation"),
       stockEditDisabledLabel: this.locate("dividend-stock-edit-disabled-label", "Stock Edit Disabled Label"),
+      // Source composition tab (KZO-134)
+      sourceCompositionToggle: this.locate("source-composition-toggle", "Source Composition Toggle"),
+      sourceCompositionTab: this.locate("source-composition-tab", "Source Composition Tab Content"),
+      sourceCompositionEstimateWarning: this.locate("source-composition-estimate-warning", "Source Composition Estimate Warning"),
+      sourceCompositionNhiSubtotal: this.locate("source-composition-nhi-subtotal", "Source Composition NHI Subtotal"),
+      nhiEstimateWarning: this.locate("nhi-estimate-warning", "NHI Estimate Warning"),
     };
   }
 }
