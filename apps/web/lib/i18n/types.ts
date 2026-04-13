@@ -333,6 +333,14 @@ export interface AppDictionary {
         amount: string;
         varianceLabel: string;
       };
+      sourceComposition: {
+        tabLabel: string;
+        badgeWarning: string;
+        estimateWarning: string;
+        nhiSubjectSubtotal: string;
+        projectedPremium: string;
+        nhiSubjectColumn: string;
+      };
       sourceBucket: {
         dividendIncome: string;
         interestIncome: string;
@@ -424,6 +432,13 @@ export interface AppDictionary {
         totalSuffix: string;
         previous: string;
         next: string;
+      };
+      nhiRollup: {
+        title: string;
+        emptyState: string;
+        pendingLink: string;
+        nhiSubjectTotal: string;
+        projectedPremium: string;
       };
     };
   };

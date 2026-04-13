@@ -112,6 +112,11 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async clickSourceCompositionToggle(): Promise<void> {
+    await this.uiActions.click.perform(this.el.drawer.elements.sourceCompositionToggle);
+  }
+
+  @Step()
   async updatePostedDividendViaApi(data: Record<string, unknown>): Promise<APIResponse> {
     if (!this.userId) throw new Error("updatePostedDividendViaApi requires userId");
 

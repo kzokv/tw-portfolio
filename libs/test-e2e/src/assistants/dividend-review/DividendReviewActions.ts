@@ -148,6 +148,11 @@ export class DividendReviewActions extends AppBaseActions {
   // ─── Calendar page navigation ───��────────────────────────────────────────
 
   @Step()
+  async clickNhiRollupPendingLink(): Promise<void> {
+    await this.uiActions.click.perform(this.el.nhiRollupPendingLink);
+  }
+
+  @Step()
   async clickViewAllDividendsLink(): Promise<void> {
     const link = this.page.getByRole("link", { name: /View all dividends|查看所有股利/i });
     await this.uiActions.click.perform(link);
