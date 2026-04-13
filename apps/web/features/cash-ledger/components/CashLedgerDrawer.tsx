@@ -65,9 +65,9 @@ export function CashLedgerDrawer({ entry, onClose, dict, locale }: CashLedgerDra
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className="text-sm font-medium text-slate-900">{value}</span>
+    <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-3">
+      <span className="flex-shrink-0 text-sm text-slate-500">{label}</span>
+      <span className="min-w-0 break-words text-right text-sm font-medium text-slate-900">{value}</span>
     </div>
   );
 }

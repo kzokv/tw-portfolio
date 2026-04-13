@@ -73,4 +73,52 @@ export class CashLedgerAssert extends BaseAssert {
   async rowContainsText(index: number, text: string | RegExp): Promise<void> {
     await expect(this.el.row(index)).toContainText(text);
   }
+
+  @Step()
+  async paginationVisible(): Promise<void> {
+    await expect(this.el.pagination).toBeVisible();
+  }
+
+  @Step()
+  async pageInfoContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.paginationInfo).toContainText(text);
+  }
+
+  @Step()
+  async prevButtonDisabled(): Promise<void> {
+    await expect(this.el.paginationPrev).toBeDisabled();
+  }
+
+  @Step()
+  async nextButtonDisabled(): Promise<void> {
+    await expect(this.el.paginationNext).toBeDisabled();
+  }
+
+  @Step()
+  async prevButtonEnabled(): Promise<void> {
+    await expect(this.el.paginationPrev).toBeEnabled();
+  }
+
+  @Step()
+  async nextButtonEnabled(): Promise<void> {
+    await expect(this.el.paginationNext).toBeEnabled();
+  }
+
+  @Step()
+  async sortIndicatorOnColumn(field: string): Promise<void> {
+    const header = this.el.table.locator("th").filter({ hasText: new RegExp(field, "i") });
+    // Sort indicator: ↑ or ↓ or data-sort attribute
+    await expect(header).toContainText(/[↑↓▲▼]/);
+  }
+
+  @Step()
+  async summaryText(): Promise<string> {
+    return (await this.el.summary.textContent()) ?? "";
+  }
+
+  @Step()
+  async summaryMatchesSnapshot(snapshot: string): Promise<void> {
+    const current = (await this.el.summary.textContent()) ?? "";
+    expect(current).toBe(snapshot);
+  }
 }

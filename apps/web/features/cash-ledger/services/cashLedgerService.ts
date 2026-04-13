@@ -15,6 +15,9 @@ export async function fetchCashLedgerEntries(
     }
   }
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.page !== undefined) params.set("page", String(query.page));
+  if (query.sortBy) params.set("sortBy", query.sortBy);
+  if (query.sortOrder) params.set("sortOrder", query.sortOrder);
 
   const qs = params.toString();
   return getJson<CashLedgerListResponse>(`/portfolio/cash-ledger${qs ? `?${qs}` : ""}`);

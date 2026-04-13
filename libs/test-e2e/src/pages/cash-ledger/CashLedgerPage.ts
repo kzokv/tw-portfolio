@@ -8,6 +8,10 @@ export interface TCashLedgerElements {
   emptyState: Locator;
   drawer: Locator;
   row: (index: number) => Locator;
+  pagination: Locator;
+  paginationPrev: Locator;
+  paginationNext: Locator;
+  paginationInfo: Locator;
 }
 
 export class CashLedgerPage extends BasePage<TCashLedgerElements> {
@@ -19,6 +23,10 @@ export class CashLedgerPage extends BasePage<TCashLedgerElements> {
       emptyState: this.locate("cash-ledger-empty", "Cash Ledger Empty State"),
       drawer: this.locate("cash-ledger-drawer", "Cash Ledger Drawer"),
       row: (index: number) => this.page.locator(`[data-testid^="cash-ledger-row-"]`).nth(index),
+      pagination: this.locate("pagination", "Pagination Controls"),
+      paginationPrev: this.locate("pagination-prev", "Pagination Previous"),
+      paginationNext: this.locate("pagination-next", "Pagination Next"),
+      paginationInfo: this.locate("pagination-info", "Pagination Info"),
     };
   }
 }

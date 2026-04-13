@@ -16,6 +16,8 @@ import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, Pro
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type {
+  CashLedgerListOptions,
+  CashLedgerListResult,
   CatalogInstrument,
   CatalogSyncResult,
   DelistingRecord,
@@ -539,6 +541,78 @@ export class MemoryPersistence implements Persistence {
     }));
 
     return { ledgerEntries, total, aggregates };
+  }
+
+  async listCashLedgerEntries(
+    userId: string,
+    opts: CashLedgerListOptions,
+  ): Promise<CashLedgerListResult> {
+    const store = await this.loadStore(userId);
+
+    // 1. Filter
+    const filtered = store.accounting.facts.cashLedgerEntries.filter((entry) => {
+      if (entry.userId !== userId) return false;
+      if (opts.fromEntryDate && entry.entryDate < opts.fromEntryDate) return false;
+      if (opts.toEntryDate && entry.entryDate > opts.toEntryDate) return false;
+      if (opts.accountId && entry.accountId !== opts.accountId) return false;
+      if (opts.entryType && !opts.entryType.includes(entry.entryType)) return false;
+      return true;
+    });
+
+    // 2. Summary over full filtered set (NOT page slice)
+    const summaryMap = new Map<string, { accountId: string; currency: string; amount: number }>();
+    for (const entry of filtered) {
+      const key = `${entry.accountId}:${entry.currency}`;
+      const existing = summaryMap.get(key);
+      if (existing) {
+        existing.amount += entry.amount;
+      } else {
+        summaryMap.set(key, { accountId: entry.accountId, currency: entry.currency, amount: entry.amount });
+      }
+    }
+    const summary = [...summaryMap.values()];
+
+    // 3. Sort with tiebreaker
+    const orderFactor = opts.sortOrder === "asc" ? 1 : -1;
+    const sorted = filtered.slice().sort((left, right) => {
+      let cmp = 0;
+      switch (opts.sortBy) {
+        case "entryDate":
+          cmp = left.entryDate.localeCompare(right.entryDate);
+          break;
+        case "entryType":
+          cmp = left.entryType.localeCompare(right.entryType);
+          break;
+        case "amount":
+          cmp = left.amount - right.amount;
+          break;
+        case "currency":
+          cmp = left.currency.localeCompare(right.currency);
+          break;
+        case "accountId":
+          cmp = left.accountId.localeCompare(right.accountId);
+          break;
+      }
+      if (cmp !== 0) return cmp * orderFactor;
+      // Tiebreaker: bookedAt DESC NULLS LAST
+      const leftBookedAt = left.bookedAt ?? "";
+      const rightBookedAt = right.bookedAt ?? "";
+      if (leftBookedAt || rightBookedAt) {
+        if (!leftBookedAt) return 1; // null sorts last
+        if (!rightBookedAt) return -1;
+        const bookedCmp = rightBookedAt.localeCompare(leftBookedAt); // DESC
+        if (bookedCmp !== 0) return bookedCmp;
+      }
+      // Final tiebreaker: id ASC
+      return left.id.localeCompare(right.id);
+    });
+
+    // 4. Paginate
+    const total = sorted.length;
+    const startIndex = (opts.page - 1) * opts.limit;
+    const entries = sorted.slice(startIndex, startIndex + opts.limit);
+
+    return { entries, total, summary };
   }
 
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {

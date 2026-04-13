@@ -87,6 +87,27 @@ export interface DelistingRecord {
   date: string;
 }
 
+// ── Cash ledger listing (KZO-137) ────────────────────────────────────────────
+
+export type CashLedgerSortColumn = "entryDate" | "entryType" | "amount" | "currency" | "accountId";
+
+export interface CashLedgerListOptions {
+  fromEntryDate?: string;
+  toEntryDate?: string;
+  accountId?: string;
+  entryType?: string[];
+  page: number;
+  limit: number;
+  sortBy: CashLedgerSortColumn;
+  sortOrder: "asc" | "desc";
+}
+
+export interface CashLedgerListResult {
+  entries: CashLedgerEntry[];
+  total: number;
+  summary: { accountId: string; currency: string; amount: number }[];
+}
+
 // ── Dividend ledger listing (KZO-135) ─────────────────────────────────────────
 
 export type DividendLedgerSortColumn =
@@ -208,6 +229,7 @@ export interface Persistence {
     opts: DividendLedgerListOptions,
   ): Promise<DividendLedgerListResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
+  listCashLedgerEntries(userId: string, opts: CashLedgerListOptions): Promise<CashLedgerListResult>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;

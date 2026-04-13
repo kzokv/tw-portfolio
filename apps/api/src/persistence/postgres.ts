@@ -48,6 +48,9 @@ import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
 import type {
+  CashLedgerListOptions,
+  CashLedgerListResult,
+  CashLedgerSortColumn,
   CatalogInstrument,
   CatalogSyncResult,
   DelistingRecord,
@@ -2134,6 +2137,108 @@ export class PostgresPersistence implements Persistence {
     }));
 
     return { ledgerEntries, total, aggregates };
+  }
+
+  async listCashLedgerEntries(
+    userId: string,
+    opts: CashLedgerListOptions,
+  ): Promise<CashLedgerListResult> {
+    await this.ensureDefaultPortfolioData(userId);
+
+    const CASH_LEDGER_SORT_COLUMNS: Record<CashLedgerSortColumn, string> = {
+      entryDate: "entry_date",
+      entryType: "entry_type",
+      amount: "amount",
+      currency: "currency",
+      accountId: "account_id",
+    };
+    const sortColumn = CASH_LEDGER_SORT_COLUMNS[opts.sortBy];
+    const sortDirection: "ASC" | "DESC" = opts.sortOrder === "asc" ? "ASC" : "DESC";
+
+    const params = [
+      userId, // $1
+      opts.accountId ?? null, // $2
+      opts.fromEntryDate ?? null, // $3
+      opts.toEntryDate ?? null, // $4
+      opts.entryType?.length ? opts.entryType : null, // $5
+    ];
+
+    const whereClause = `
+      WHERE user_id = $1
+        AND ($2::text IS NULL OR account_id = $2)
+        AND ($3::date IS NULL OR entry_date >= $3)
+        AND ($4::date IS NULL OR entry_date <= $4)
+        AND ($5::text[] IS NULL OR entry_type = ANY($5))
+    `;
+
+    // Query A — COUNT for total
+    const queryA = `SELECT COUNT(*)::int AS total FROM cash_ledger_entries ${whereClause}`;
+
+    // Query B — Summary (GROUP BY, full filtered set)
+    const queryB = `
+      SELECT account_id, currency, SUM(amount)::numeric AS amount
+      FROM cash_ledger_entries ${whereClause}
+      GROUP BY account_id, currency
+    `;
+
+    // Query C — Paginated entries
+    const limit = opts.limit;
+    const offset = (opts.page - 1) * opts.limit;
+    const queryC = `
+      SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
+             related_trade_event_id, related_dividend_ledger_entry_id, source,
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+      FROM cash_ledger_entries ${whereClause}
+      ORDER BY ${sortColumn} ${sortDirection}, booked_at DESC NULLS LAST, id ASC
+      LIMIT $6 OFFSET $7
+    `;
+
+    const client = await this.pool.connect();
+    const [aResult, bResult, cResult] = await (async () => {
+      try {
+        await client.query("BEGIN");
+        await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const results = await Promise.all([
+          client.query(queryA, params),
+          client.query(queryB, params),
+          client.query(queryC, [...params, limit, offset]),
+        ]);
+        await client.query("COMMIT");
+        return results;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
+    })();
+
+    const total = Number(aResult.rows[0]?.total ?? 0);
+
+    const summary = bResult.rows.map((row) => ({
+      accountId: String(row.account_id),
+      currency: String(row.currency),
+      amount: Number(row.amount),
+    }));
+
+    const entries: CashLedgerEntry[] = cResult.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      entryDate: normalizeDate(row.entry_date),
+      entryType: row.entry_type,
+      amount: Number(row.amount),
+      currency: row.currency,
+      relatedTradeEventId: row.related_trade_event_id ?? undefined,
+      relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      bookedAt: row.booked_at ? normalizeDateTime(row.booked_at) : undefined,
+    }));
+
+    return { entries, total, summary };
   }
 
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {
