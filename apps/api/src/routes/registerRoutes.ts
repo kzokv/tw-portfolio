@@ -1863,6 +1863,53 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const job = confirmRecompute(store, userId, body.jobId);
     await app.persistence.saveStore(store);
+
+    // Recompute History rewrites every trade's fee snapshot via saveStore,
+    // which leaves daily_holding_snapshots stale. Trigger a full regeneration
+    // asynchronously so the caller doesn't block on the walker. Mirrors the
+    // pattern in POST /portfolio/snapshots/generate.
+    const snapshotRunId = randomUUID();
+    setImmediate(async () => {
+      try {
+        const result = await generateHoldingSnapshots(userId, app.persistence, {
+          generationRunId: snapshotRunId,
+        });
+        if (app.boss && result.tickersNeedingBackfill.length > 0) {
+          for (const ticker of result.tickersNeedingBackfill) {
+            try {
+              await app.boss.send(BACKFILL_QUEUE, {
+                ticker,
+                trigger: "first_trade",
+                includeBars: true,
+              } satisfies BackfillJobData);
+            } catch {
+              // Backfill queue unavailable — provisional data remains.
+            }
+          }
+        }
+        await app.eventBus.publishEvent(userId, "snapshots_generated", {
+          status: "ok",
+          totalRows: result.totalRows,
+          provisionalRows: result.provisionalRows,
+          dateRange: result.dateRange ?? null,
+          generationRunId: result.generationRunId,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[recompute-confirm:snapshots] Failed:", message);
+        try {
+          await app.eventBus.publishEvent(userId, "snapshots_generated", {
+            status: "error",
+            totalRows: 0,
+            provisionalRows: 0,
+            dateRange: null,
+            generationRunId: snapshotRunId,
+            error: message,
+          });
+        } catch { /* swallow — best effort */ }
+      }
+    });
+
     return job;
   });
 
