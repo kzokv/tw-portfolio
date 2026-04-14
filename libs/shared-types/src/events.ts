@@ -120,6 +120,17 @@ export interface DividendReconciliationChangedEvent {
   version: number;
 }
 
+export interface SnapshotsGeneratedEvent {
+  type: "snapshots_generated";
+  /** "ok" when generation succeeded; "error" when it failed — totals will be 0 and `error` holds the reason. */
+  status: "ok" | "error";
+  totalRows: number;
+  provisionalRows: number;
+  dateRange: { from: string; to: string } | null;
+  generationRunId: string;
+  error?: string;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -137,7 +148,8 @@ export type SSEEvent =
   | DailyRefreshSummaryEvent
   | DividendPostedEvent
   | DividendUpdatedEvent
-  | DividendReconciliationChangedEvent;
+  | DividendReconciliationChangedEvent
+  | SnapshotsGeneratedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -155,5 +167,6 @@ export type SSEDomainEventType =
   | "daily_refresh_summary"
   | "dividend_posted"
   | "dividend_updated"
-  | "dividend_reconciliation_changed";
+  | "dividend_reconciliation_changed"
+  | "snapshots_generated";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

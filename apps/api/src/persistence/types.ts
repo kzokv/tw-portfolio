@@ -147,6 +147,79 @@ export interface CatalogSyncResult {
   delisted: number;
 }
 
+// ── Holding snapshots (KZO-115) ─────────────────────────────────────────────
+
+export interface HoldingSnapshot {
+  id: string;
+  userId: string;
+  accountId: string;
+  ticker: string;
+  snapshotDate: string;
+  quantity: number;
+  closePrice: number | null;
+  marketValue: number | null;
+  costBasis: number;
+  unrealizedPnl: number | null;
+  cumulativeRealizedPnl: number;
+  cumulativeDividends: number;
+  isProvisional: boolean;
+  currency: string;
+  generatedAt: string;
+  generationRunId: string;
+}
+
+export interface AggregatedSnapshotPoint {
+  date: string;
+  totalCostBasis: number;
+  totalMarketValue: number | null;
+  totalUnrealizedPnl: number | null;
+  cumulativeRealizedPnl: number;
+  cumulativeDividends: number;
+  totalReturnAmount: number | null;
+  totalReturnPercent: number | null;
+  isProvisional: boolean;
+}
+
+/**
+ * Flat dividend record for snapshot generation: the walker accumulates these
+ * by (accountId, ticker) in payment-date order. Filtering (posted, not
+ * reversed, not superseded) is done server-side so the walker stays simple.
+ */
+export interface SnapshotDividendInput {
+  accountId: string;
+  ticker: string;
+  paymentDate: string;
+  amount: number;
+}
+
+/**
+ * Narrow trade shape for the snapshot walker — only the fields it actually
+ * reads. Avoids loading fee policy snapshots, market data, etc., that the
+ * walker does not need.
+ */
+export interface SnapshotTradeInput {
+  id: string;
+  accountId: string;
+  ticker: string;
+  type: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  tradeDate: string;
+  bookingSequence?: number;
+  commissionAmount: number;
+  taxAmount: number;
+}
+
+export interface SnapshotGenerationInputs {
+  trades: SnapshotTradeInput[];
+  postedDividends: SnapshotDividendInput[];
+}
+
+export interface SnapshotGenerationScope {
+  accountId: string;
+  ticker: string;
+}
+
 export interface Persistence {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -283,6 +356,32 @@ export interface Persistence {
   markAllRead(userId: string): Promise<void>;
   dismissNotification(userId: string, notificationId: string): Promise<void>;
   markNotificationEscalated(userId: string, notificationId: string): Promise<void>;
+
+  // Holding snapshots (KZO-115)
+  bulkUpsertHoldingSnapshots(userId: string, snapshots: HoldingSnapshot[]): Promise<void>;
+  deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
+  deleteAllHoldingSnapshots(userId: string): Promise<void>;
+  getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]>;
+  countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
+  getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
+  getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]>;
+  /**
+   * Batched variant of getDailyBarsForTicker: fetches bars for N tickers in a
+   * single query. Returned map is keyed by ticker; missing tickers yield an
+   * empty array. Used by the full-generation path to avoid N+1 queries.
+   */
+  getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>>;
+  /**
+   * Fetch the inputs needed to generate holding snapshots — trade events and
+   * posted dividend ledger entries pre-joined with their dividend events.
+   * Avoids the broader cost of loadStore (which pulls accounts, lots, fee
+   * policies, source lines, etc.).
+   *
+   * When `scope` is provided, results are filtered to that (accountId, ticker)
+   * pair; dividends are filtered by ticker (not accountId) because the ticker
+   * lives on the event, not the ledger entry.
+   */
+  getSnapshotGenerationInputs(userId: string, scope?: SnapshotGenerationScope): Promise<SnapshotGenerationInputs>;
 
   // Refresh batches (KZO-132)
   createRefreshBatch(userId: string | null, jobsTotal: number): Promise<string>;

@@ -1256,22 +1256,8 @@ describePostgres("postgres migrations", () => {
         createdAt: "2026-03-01T09:00:02.000Z",
       },
     ];
-    store.accounting.projections.dailyPortfolioSnapshots = [
-      {
-        id: "snapshot-kzo48-1",
-        snapshotDate: "2026-03-01",
-        totalMarketValueAmount: 1000,
-        totalCostAmount: 1020,
-        totalUnrealizedPnlAmount: -20,
-        totalRealizedPnlAmount: 0,
-        totalDividendReceivedAmount: 0,
-        totalCashBalanceAmount: -1020,
-        totalNavAmount: -20,
-        currency: "TWD",
-        generatedAt: "2026-03-01T23:59:59.000Z",
-        generationRunId: "run-kzo48-1",
-      },
-    ];
+    // daily_portfolio_snapshots is no longer written by saveStore (replaced by daily_holding_snapshots).
+    // The table still exists in the schema but saveStore/loadStore skip it.
 
     await persistence.saveStore(store);
 
@@ -1303,13 +1289,11 @@ describePostgres("postgres migrations", () => {
       { id: "cash-kzo48-1", amount: -1020, related_trade_event_id: "trade-kzo48-1" },
     ]);
 
-    const snapshots = await pool.query<{ id: string; generation_run_id: string }>(
-      `SELECT id, generation_run_id
-       FROM daily_portfolio_snapshots
-       WHERE user_id = 'user-1'
-       ORDER BY id`,
+    // daily_portfolio_snapshots no longer written by saveStore — table is empty.
+    const snapshots = await pool.query<{ id: string }>(
+      `SELECT id FROM daily_portfolio_snapshots WHERE user_id = 'user-1'`,
     );
-    expect(snapshots.rows).toEqual([{ id: "snapshot-kzo48-1", generation_run_id: "run-kzo48-1" }]);
+    expect(snapshots.rows).toEqual([]);
 
     const reloaded = await persistence.loadStore("user-1");
     expect(reloaded.accounting.facts.tradeEvents).toEqual([
@@ -1334,12 +1318,8 @@ describePostgres("postgres migrations", () => {
         amount: -1020,
       }),
     ]);
-    expect(reloaded.accounting.projections.dailyPortfolioSnapshots).toEqual([
-      expect.objectContaining({
-        id: "snapshot-kzo48-1",
-        generationRunId: "run-kzo48-1",
-      }),
-    ]);
+    // loadStore no longer reads daily_portfolio_snapshots — always returns [].
+    expect(reloaded.accounting.projections.dailyPortfolioSnapshots).toEqual([]);
 
     const feeSnapshots = await pool.query<{
       id: string;

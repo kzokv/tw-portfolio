@@ -23,6 +23,10 @@ export async function cleanupExpiredDemoUsers(pool: Pool): Promise<number> {
     await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM lots WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ANY($1))`, [userIds]);
     await client.query(`DELETE FROM corporate_actions WHERE account_id IN (SELECT id FROM accounts WHERE user_id = ANY($1))`, [userIds]);
+    // KZO-115: daily_portfolio_snapshots is no longer written (replaced by
+    // daily_holding_snapshots). The table still exists in the schema but is
+    // effectively dead — cleaning it keeps demo cleanup defensive.
+    await client.query(`DELETE FROM daily_holding_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM recompute_jobs WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM accounts WHERE user_id = ANY($1)`, [userIds]);
