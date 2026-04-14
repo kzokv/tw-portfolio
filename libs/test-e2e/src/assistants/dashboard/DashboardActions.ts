@@ -12,7 +12,7 @@ export class DashboardActions extends AppBaseActions {
 
   @Step()
   async navigateToDashboard(): Promise<void> {
-    await this.mxNavigateToRoute("/", TestEnv.appBaseUrl);
+    await this.mxNavigateToRoute("/dashboard", TestEnv.appBaseUrl);
   }
 
   @Step()

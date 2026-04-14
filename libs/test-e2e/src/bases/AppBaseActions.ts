@@ -5,6 +5,7 @@ import { BaseActions } from "@tw-portfolio/test-framework/mixins";
 import { SHARED_TEST_IDS } from "../pages/constants.js";
 
 const DEFAULT_APP_READY_TIMEOUT_MS = 20_000;
+const LOAD_EVENT_PROBE_TIMEOUT_MS = 2_000;
 
 /**
  * App-specific BaseActions with shell/app readiness checks tied to
@@ -14,7 +15,10 @@ const DEFAULT_APP_READY_TIMEOUT_MS = 20_000;
 export class AppBaseActions extends BaseActions {
   @Step("Wait For Shell Client Ready")
   override async mxWaitForShellClientReady(timeoutMs = DEFAULT_APP_READY_TIMEOUT_MS): Promise<void> {
-    await super.mxWaitForShellClientReady(timeoutMs);
+    await this.page.waitForLoadState("domcontentloaded");
+    // App-specific readiness is driven by explicit shell markers. Cap the "load"
+    // probe so slow route resources do not consume the whole test timeout budget.
+    await this.page.waitForLoadState("load", { timeout: Math.min(timeoutMs, LOAD_EVENT_PROBE_TIMEOUT_MS) }).catch(() => {});
     await expect(this.page.getByTestId("app-shell-ready")).toBeAttached({ timeout: timeoutMs });
     await expect(this.page.getByTestId("app-shell-client-ready")).toBeAttached({ timeout: timeoutMs });
 
