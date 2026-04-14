@@ -60,7 +60,7 @@ function makeBar(ticker: string, date: string, close: number): DailyBar {
 }
 
 beforeEach(async () => {
-  app = await buildApp();
+  app = await buildApp({ persistenceBackend: "memory" });
   persistence = app.persistence as MemoryPersistence;
 });
 
