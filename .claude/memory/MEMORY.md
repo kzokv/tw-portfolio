@@ -1,5 +1,8 @@
 # Memory Index
 
+## User
+- [user_profile.md](user_profile.md) — Senior engineer, TWSE portfolio tracker, worktrees + scope-grill + /team + code-review-then-fix workflow, expects terse responses
+
 ## E2E / testing
 - ~~project_e2e_webserver_gotchas.md~~ — **PROMOTED** to `.claude/rules/playwright-webserver-startup.md`
 - ~~feedback_sse_app_inject_limitation.md~~ — **PROMOTED** to `.claude/rules/sse-app-inject-pattern.md`
@@ -31,13 +34,13 @@
 - [project_api_surface.md](project_api_surface.md) — HTTP API endpoints, auth model, persistence write paths, and web-consumed surface
 
 ## Migration process knowledge
-- [feedback_aaa_migration_methodology.md](feedback_aaa_migration_methodology.md) — AAA migration: dual-pair validation + A/B/C upfront classification
+- ~~feedback_aaa_migration_methodology.md~~ — **PROMOTED** to `.claude/rules/test-migration-methodology.md`
 - [feedback_code_review_as_formal_phase.md](feedback_code_review_as_formal_phase.md) — Run structured CR before PR creation; catches architectural drift early
-- [feedback_test_framework_is_architecture.md](feedback_test_framework_is_architecture.md) — Test framework migration is 3-5x scope; surfaces readiness, hydration, auth, parallel issues
+- ~~feedback_test_framework_is_architecture.md~~ — **PROMOTED** to `.claude/rules/test-framework-scope-estimation.md`
 - [feedback_structured_debate_resolves_forks.md](feedback_structured_debate_resolves_forks.md) — /debate for decisions with >1 viable option and downstream lock-in
 
 ## Agent team workflow
-- [feedback_agent_team_workflow.md](feedback_agent_team_workflow.md) — /team skill: 3 tiers, convergence loop, Architect-as-lead, validator gating, state file tracking
+- ~~feedback_agent_team_workflow.md~~ — **PROMOTED** to `.claude/rules/agent-team-workflow.md`
 - [feedback_e2e_seed_guard_selection.md](feedback_e2e_seed_guard_selection.md) — assertE2ESeedEnabled (NODE_ENV only) vs assertE2EResetEnabled (dev_bypass) for test endpoints
 - [feedback_test_api_mapper_registration.md](feedback_test_api_mapper_registration.md) — New AAA endpoint+assistant must be registered in mapper.ts or tests fail at runtime
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
