@@ -941,11 +941,11 @@ export class PostgresPersistence implements Persistence {
       : "user_id = $1";
     const tradeParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
     const tradesResult = await this.pool.query<{
-      id: string; account_id: string; ticker: string; side: string;
+      id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
       booking_sequence: number | null; commission_amount: string; tax_amount: string;
     }>(
-      `SELECT id, account_id, ticker, side, quantity, unit_price, trade_date::text,
+      `SELECT id, account_id, ticker, trade_type, quantity, unit_price, trade_date::text,
               booking_sequence, commission_amount, tax_amount
        FROM trade_events
        WHERE ${tradeFilter}
@@ -954,16 +954,32 @@ export class PostgresPersistence implements Persistence {
     );
 
     // Dividends: join ledger entries to events so we can scope by ticker.
+    // - tenant scoping via accounts.user_id (dividend_ledger_entries has no user_id column)
+    // - dividend_events lives in the market_data schema (migration 018)
+    // - received_cash_amount was dropped from dividend_ledger_entries in migration 010;
+    //   the authoritative value is the sum of cash_ledger_entries with
+    //   entry_type='DIVIDEND_RECEIPT' linked via related_dividend_ledger_entry_id.
     const divFilter = scope
-      ? "dle.user_id = $1 AND dle.account_id = $2 AND de.ticker = $3"
-      : "dle.user_id = $1";
+      ? "account.user_id = $1 AND dle.account_id = $2 AND de.ticker = $3"
+      : "account.user_id = $1";
     const divParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
     const divResult = await this.pool.query<{
       account_id: string; ticker: string; payment_date: string; amount: string;
     }>(
-      `SELECT dle.account_id, de.ticker, de.payment_date::text, dle.received_cash_amount::text AS amount
+      `SELECT dle.account_id,
+              de.ticker,
+              de.payment_date::text,
+              COALESCE(receipts.received_cash_amount, 0)::text AS amount
        FROM dividend_ledger_entries dle
-       JOIN dividend_events de ON de.id = dle.dividend_event_id
+       JOIN accounts AS account ON account.id = dle.account_id
+       JOIN market_data.dividend_events de ON de.id = dle.dividend_event_id
+       LEFT JOIN (
+         SELECT related_dividend_ledger_entry_id,
+                SUM(amount) AS received_cash_amount
+         FROM cash_ledger_entries
+         WHERE user_id = $1 AND entry_type = 'DIVIDEND_RECEIPT'
+         GROUP BY related_dividend_ledger_entry_id
+       ) AS receipts ON receipts.related_dividend_ledger_entry_id = dle.id
        WHERE ${divFilter}
          AND dle.posting_status = 'posted'
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
@@ -978,7 +994,7 @@ export class PostgresPersistence implements Persistence {
         id: row.id,
         accountId: row.account_id,
         ticker: row.ticker,
-        type: row.side as "BUY" | "SELL",
+        type: row.trade_type as "BUY" | "SELL",
         quantity: Number(row.quantity),
         unitPrice: Number(row.unit_price),
         tradeDate: row.trade_date,
