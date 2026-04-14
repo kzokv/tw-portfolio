@@ -95,22 +95,26 @@ jobs:
           set -euo pipefail
           warp-cli --accept-tos registration new
           warp-cli --accept-tos connect
-          # Poll until the daemon reaches Connected. `registration new` /
-          # `connect` both exit 0 even when Zero Trust rejects the registration
-          # (e.g. Invalidated(ApiMismatch) when the device pool is full). A
-          # fixed `sleep 10` can't distinguish that from a healthy connect, so
-          # SSH later fails with a generic "Connection timed out" and buries
-          # the real cause. Fail fast here with the actual daemon status.
-          for _ in $(seq 1 30); do
-            status=$(warp-cli --accept-tos status 2>/dev/null | head -1 || true)
-            case "$status" in
-              *Connected*) echo "WARP connected"; exit 0 ;;
-              *Unable*)    echo "WARP registration rejected: $status" >&2; exit 1 ;;
-            esac
+          # Trust only the unambiguous success signal: `Status update: Connected`.
+          # Every other state — `Daemon Startup`, `Connecting`, `Updating`,
+          # transient `Unable` immediately after `connect`, etc. — is treated
+          # as "still in progress, keep polling." Both `registration new` and
+          # `connect` exit 0 even when Zero Trust later rejects the registration
+          # (e.g. `Registration Missing due to: Does not exist in API` when the
+          # device pool is exhausted), so we cannot rely on their exit codes.
+          # On timeout, dump the full status output (including the `Reason:`
+          # line) so the next operator sees the actual rejection cause instead
+          # of a generic SSH timeout 30s later in the next step.
+          deadline=$((SECONDS + 60))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if warp-cli --accept-tos status 2>/dev/null | grep -q '^Status update: Connected'; then
+              echo "WARP connected"
+              exit 0
+            fi
             sleep 2
           done
-          echo "WARP failed to reach Connected within 60s" >&2
-          warp-cli --accept-tos status || true
+          echo "WARP failed to reach Connected within 60s; final status:" >&2
+          warp-cli --accept-tos status >&2 || true
           exit 1
 
       - name: Install SSH materials
