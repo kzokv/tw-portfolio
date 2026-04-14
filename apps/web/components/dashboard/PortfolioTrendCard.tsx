@@ -33,11 +33,13 @@ export function PortfolioTrendCard({
   const points = data?.points ?? [];
   const latestPoint = points.at(-1) ?? null;
   const latestMarketValuePoint = [...points].reverse().find((point) => point.marketValueAmount !== null) ?? null;
+  const latestTotalReturnPoint = [...points].reverse().find((point) => point.totalReturnAmount != null) ?? null;
   const hasPoints = points.length > 0;
   const hasMarketValue = points.some((point) => point.marketValueAmount !== null);
+  const hasTotalReturn = points.some((point) => point.totalReturnAmount != null);
   const hasPartialQuotes = points.some((point) => point.totalCostAmount > 0 && point.marketValueAmount === null);
 
-  const { totalCostPath, marketValuePath, marketValueArea, yLabels, xLabels } = buildChartGeometry(points, locale);
+  const { totalCostPath, marketValuePath, totalReturnPath, marketValueArea, yLabels, xLabels } = buildChartGeometry(points, locale);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-performance-card">
@@ -73,7 +75,7 @@ export function PortfolioTrendCard({
         </div>
       ) : null}
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <LegendMetric
           label={dict.dashboardHome.performanceMarketValueSeriesLabel}
           value={latestMarketValuePoint?.marketValueAmount !== null && latestMarketValuePoint?.marketValueAmount !== undefined
@@ -86,6 +88,15 @@ export function PortfolioTrendCard({
           value={latestPoint ? formatCurrencyAmount(latestPoint.totalCostAmount, currency, locale) : dict.dashboardHome.noMarketValue}
           swatchClassName="bg-slate-400"
         />
+        {hasTotalReturn ? (
+          <LegendMetric
+            label={dict.dashboardHome.snapshotsTotalReturnSeriesLabel}
+            value={latestTotalReturnPoint?.totalReturnAmount != null
+              ? formatCurrencyAmount(latestTotalReturnPoint.totalReturnAmount, currency, locale)
+              : dict.dashboardHome.noMarketValue}
+            swatchClassName="bg-emerald-500"
+          />
+        ) : null}
       </div>
 
       {hasPartialQuotes ? (
@@ -143,12 +154,18 @@ export function PortfolioTrendCard({
             {hasMarketValue ? (
               <path d={marketValuePath} fill="none" stroke="#4f46e5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
             ) : null}
+            {hasTotalReturn ? (
+              <path d={totalReturnPath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 4" />
+            ) : null}
 
             {latestPoint ? (
               <g>
                 <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.totalCostAmount, points)} r="5" fill="#94a3b8" />
                 {latestPoint.marketValueAmount !== null ? (
                   <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.marketValueAmount, points)} r="6" fill="#4f46e5" />
+                ) : null}
+                {latestTotalReturnPoint?.totalReturnAmount != null ? (
+                  <circle cx={resolvePointX(points)} cy={resolvePointY(latestTotalReturnPoint.totalReturnAmount, points)} r="5" fill="#10b981" />
                 ) : null}
               </g>
             ) : null}
@@ -176,6 +193,7 @@ function buildChartGeometry(points: DashboardPerformancePointDto[], locale: Loca
     return {
       totalCostPath: "",
       marketValuePath: "",
+      totalReturnPath: "",
       marketValueArea: "",
       yLabels: [] as Array<{ y: number; label: string; value: number }>,
       xLabels: [] as Array<{ x: number; label: string; index: number }>,
@@ -189,16 +207,18 @@ function buildChartGeometry(points: DashboardPerformancePointDto[], locale: Loca
   const values = points.flatMap((point) => [
     point.totalCostAmount,
     point.marketValueAmount ?? point.totalCostAmount,
+    ...(point.totalReturnAmount != null ? [point.totalReturnAmount] : []),
   ]);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values, 1);
-  const paddedMin = Math.max(0, minValue * 0.92);
+  const paddedMin = minValue - Math.abs(minValue) * 0.08;
   const paddedMax = maxValue * 1.06;
   const scaleX = (index: number) => chartLeft + ((chartWidth * index) / Math.max(points.length - 1, 1));
   const scaleY = (value: number) => chartTop + chartHeight - ((value - paddedMin) / Math.max(paddedMax - paddedMin, 1)) * chartHeight;
 
   const totalCostPath = buildLinePath(points, scaleX, scaleY, (point) => point.totalCostAmount);
   const marketValuePath = buildLinePath(points, scaleX, scaleY, (point) => point.marketValueAmount);
+  const totalReturnPath = buildLinePath(points, scaleX, scaleY, (point) => point.totalReturnAmount ?? null);
   const areaPoints = points.filter((point) => point.marketValueAmount !== null);
   const marketValueArea = areaPoints.length === points.length
     ? `${marketValuePath} L ${scaleX(points.length - 1)} ${chartTop + chartHeight} L ${scaleX(0)} ${chartTop + chartHeight} Z`
@@ -229,6 +249,7 @@ function buildChartGeometry(points: DashboardPerformancePointDto[], locale: Loca
   return {
     totalCostPath,
     marketValuePath,
+    totalReturnPath,
     marketValueArea,
     yLabels,
     xLabels,
@@ -253,10 +274,14 @@ function buildLinePath(
 }
 
 function resolvePointY(value: number, points: DashboardPerformancePointDto[]): number {
-  const values = points.flatMap((point) => [point.totalCostAmount, point.marketValueAmount ?? point.totalCostAmount]);
+  const values = points.flatMap((point) => [
+    point.totalCostAmount,
+    point.marketValueAmount ?? point.totalCostAmount,
+    ...(point.totalReturnAmount != null ? [point.totalReturnAmount] : []),
+  ]);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values, 1);
-  const paddedMin = Math.max(0, minValue * 0.92);
+  const paddedMin = minValue - Math.abs(minValue) * 0.08;
   const paddedMax = maxValue * 1.06;
   const chartTop = 24;
   const chartHeight = 244;

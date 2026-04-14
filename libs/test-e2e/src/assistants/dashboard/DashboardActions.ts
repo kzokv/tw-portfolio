@@ -38,4 +38,23 @@ export class DashboardActions extends AppBaseActions {
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/recompute/confirm") && r.ok(),
     );
   }
+
+  @Step()
+  async clickGenerateSnapshots(): Promise<void> {
+    await this.uiActions.click.perform(this.el.generateSnapshotsButton);
+  }
+
+  @Step()
+  async waitForSnapshotGeneration(): Promise<import("@playwright/test").Response> {
+    return this.page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes("/portfolio/snapshots/generate") && r.status() === 202,
+    );
+  }
+
+  @Step()
+  async generateSnapshotsAndWait(): Promise<void> {
+    const responsePromise = this.waitForSnapshotGeneration();
+    await this.clickGenerateSnapshots();
+    await responsePromise;
+  }
 }
