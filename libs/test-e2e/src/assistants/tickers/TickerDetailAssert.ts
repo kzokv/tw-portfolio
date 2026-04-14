@@ -55,6 +55,11 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
+  async deleteSnapshotImpactIsVisible(): Promise<void> {
+    await expect(this.el.deleteDialog.elements.snapshotImpact).toBeVisible({ timeout: 5_000 });
+  }
+
+  @Step()
   async deleteConfirmButtonIsHidden(): Promise<void> {
     await expect(this.el.deleteDialog.elements.confirmButton).toBeHidden();
   }

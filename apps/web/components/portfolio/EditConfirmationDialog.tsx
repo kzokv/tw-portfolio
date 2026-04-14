@@ -52,6 +52,18 @@ export function EditConfirmationDialog({
             </div>
           )}
 
+          {preview && preview.affectedRows.holdingSnapshots > 0 && (
+            <p
+              className="mt-3 text-sm text-slate-600"
+              data-testid="edit-snapshot-impact"
+            >
+              {dict.mutations.editSnapshotImpact.replace(
+                "{holdingSnapshots}",
+                String(preview.affectedRows.holdingSnapshots),
+              )}
+            </p>
+          )}
+
           {isLoading && (
             <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />

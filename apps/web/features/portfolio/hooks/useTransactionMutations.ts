@@ -7,6 +7,7 @@ import type {
   PreviewImpactResponse,
   RecomputeCompleteEvent,
   RecomputeFailedEvent,
+  SnapshotsGeneratedEvent,
 } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { useEventStream } from "../../../hooks/useEventStream";
@@ -29,6 +30,7 @@ interface UseTransactionMutationsOptions {
   locale: LocaleCode;
   dict: AppDictionary;
   refresh: () => Promise<void>;
+  onSnapshotsGenerated?: (event: SnapshotsGeneratedEvent) => void;
 }
 
 export interface UseTransactionMutationsResult {
@@ -75,6 +77,7 @@ const SAFETY_NET_MS = 10_000;
 export function useTransactionMutations({
   dict,
   refresh,
+  onSnapshotsGenerated,
 }: UseTransactionMutationsOptions): UseTransactionMutationsResult {
   // Delete flow state
   const [deleteTarget, setDeleteTarget] = useState<TransactionHistoryItemDto | null>(null);
@@ -111,6 +114,8 @@ export function useTransactionMutations({
   refreshRef.current = refresh;
   const dictRef = useRef(dict);
   dictRef.current = dict;
+  const onSnapshotsGeneratedRef = useRef(onSnapshotsGenerated);
+  onSnapshotsGeneratedRef.current = onSnapshotsGenerated;
 
   const sseDeliveredRef = useRef(false);
   const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -314,18 +319,25 @@ export function useTransactionMutations({
         safetyNetTimerRef.current = null;
       }
 
-      const event = data as RecomputeCompleteEvent | RecomputeFailedEvent;
-      const key = `${event.accountId}:${event.ticker}`;
+      const event = data as RecomputeCompleteEvent | RecomputeFailedEvent | SnapshotsGeneratedEvent;
 
-      if (event.type === "recompute_complete") {
+      if (event.type === "snapshots_generated") {
+        onSnapshotsGeneratedRef.current?.(event);
+        return;
+      }
+
+      const recomputeEvent = event as RecomputeCompleteEvent | RecomputeFailedEvent;
+      const key = `${recomputeEvent.accountId}:${recomputeEvent.ticker}`;
+
+      if (recomputeEvent.type === "recompute_complete") {
         removeRecomputingBySymbol(key);
         setMessage(dictRef.current.mutations.recomputeCompleteMessage);
         setErrorMessage("");
         void refreshRef.current();
       }
 
-      if (event.type === "recompute_failed") {
-        if (!event.retriesExhausted) {
+      if (recomputeEvent.type === "recompute_failed") {
+        if (!recomputeEvent.retriesExhausted) {
           setMessage(dictRef.current.mutations.recomputeRetryMessage);
         } else {
           removeRecomputingBySymbol(key);
@@ -338,7 +350,7 @@ export function useTransactionMutations({
   );
 
   useEventStream({
-    eventTypes: ["recompute_complete", "recompute_failed"],
+    eventTypes: ["recompute_complete", "recompute_failed", "snapshots_generated"],
     onEvent: handleSSEEvent,
     enabled: true,
   });

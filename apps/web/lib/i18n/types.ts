@@ -103,6 +103,18 @@ export interface AppDictionary {
     statusPayingSoon: string;
     statusPosted: string;
     statusUnreconciled: string;
+    generateSnapshotsButton: string;
+    generatingSnapshots: string;
+    snapshotsGeneratedMessage: string;
+    snapshotsGenerationFailed: string;
+    snapshotsTitle: string;
+    snapshotsDescription: string;
+    snapshotsTotalReturnSeriesLabel: string;
+    snapshotsReturnPercentTitle: string;
+    snapshotsReturnPercentDescription: string;
+    snapshotsReturnPercentSeriesLabel: string;
+    snapshotsProvisionalWarning: string;
+    snapshotsEmpty: string;
   };
   tickerHistory: {
     eyebrow: string;
@@ -544,6 +556,8 @@ export interface AppDictionary {
     deleteSummaryLabel: string;
     deleteImpactLabel: string;
     deleteImpactDetail: string;
+    deleteSnapshotImpact: string;
+    editSnapshotImpact: string;
     deleteNegativeLotsWarning: string;
     deleteSuccessMessage: string;
     editSaveButton: string;

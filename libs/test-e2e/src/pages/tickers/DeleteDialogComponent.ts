@@ -6,6 +6,7 @@ export interface TDeleteDialogElements {
   confirmationDialog: Locator;
   tradeSummary: Locator;
   impactCounts: Locator;
+  snapshotImpact: Locator;
   negativeLotsWarning: Locator;
   confirmButton: Locator;
   cancelButton: Locator;
@@ -18,6 +19,7 @@ export class DeleteDialogComponent extends BasePage<TDeleteDialogElements> {
       confirmationDialog: this.locate("delete-confirmation-dialog", "Delete Confirmation Dialog"),
       tradeSummary: this.locate("delete-trade-summary", "Delete Trade Summary"),
       impactCounts: this.locate("delete-impact-counts", "Delete Impact Counts"),
+      snapshotImpact: this.locate("delete-snapshot-impact", "Delete Snapshot Impact"),
       negativeLotsWarning: this.locate("delete-negative-lots-warning", "Delete Negative Lots Warning"),
       confirmButton: this.locate("delete-confirm-button", "Delete Confirm Button"),
       cancelButton: this.withDescription(

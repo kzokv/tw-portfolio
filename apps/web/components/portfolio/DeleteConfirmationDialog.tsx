@@ -92,6 +92,14 @@ export function DeleteConfirmationDialog({
                   .replace("{cashEntries}", String(preview.affectedRows.cashLedgerEntries))
                   .replace("{lotAllocations}", String(preview.affectedRows.lotAllocations))}
               </p>
+              {preview.affectedRows.holdingSnapshots > 0 && (
+                <p className="mt-1" data-testid="delete-snapshot-impact">
+                  {dict.mutations.deleteSnapshotImpact
+                    .replace("{holdingSnapshots}", String(preview.affectedRows.holdingSnapshots))
+                    .replace("{ticker}", transaction.ticker)
+                    .replace("{date}", transaction.tradeDate)}
+                </p>
+              )}
             </div>
           )}
 

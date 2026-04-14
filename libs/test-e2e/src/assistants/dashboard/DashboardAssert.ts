@@ -76,4 +76,69 @@ export class DashboardAssert extends BaseAssert {
   async holdingsTableContains(text: string | RegExp): Promise<void> {
     await expect(this.el.holdingsTable).toContainText(text);
   }
+
+  // --- Snapshot chart assertions ---
+
+  @Step()
+  async generateSnapshotsButtonIsVisible(): Promise<void> {
+    await expect(this.el.generateSnapshotsButton).toBeVisible();
+  }
+
+  @Step()
+  async generateSnapshotsButtonIsDisabled(): Promise<void> {
+    await expect(this.el.generateSnapshotsButton).toBeDisabled();
+  }
+
+  @Step()
+  async snapshotStatusContains(text: string | RegExp, options?: { timeout?: number }): Promise<void> {
+    await expect(this.el.snapshotStatus).toContainText(text, options);
+  }
+
+  @Step()
+  async performanceCardIsVisible(): Promise<void> {
+    await expect(this.el.performanceCard).toBeVisible();
+  }
+
+  @Step()
+  async performanceChartHasData(): Promise<void> {
+    // Chart SVG has at least one <path> with a non-empty d attribute (data lines rendered)
+    const paths = this.el.performanceChart.locator("path[d]");
+    await expect(paths.first()).toBeVisible();
+  }
+
+  @Step()
+  async performancePartialWarningIsVisible(): Promise<void> {
+    await expect(this.el.performancePartialWarning).toBeVisible();
+  }
+
+  @Step()
+  async performancePartialWarningIsHidden(): Promise<void> {
+    await expect(this.el.performancePartialWarning).not.toBeVisible();
+  }
+
+  @Step()
+  async returnPercentCardIsVisible(): Promise<void> {
+    await expect(this.el.returnPercentCard).toBeVisible();
+  }
+
+  @Step()
+  async returnPercentChartHasData(): Promise<void> {
+    const paths = this.el.returnPercentChart.locator("path[d]");
+    await expect(paths.first()).toBeVisible();
+  }
+
+  @Step()
+  async returnPercentCardContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.returnPercentCard).toContainText(text);
+  }
+
+  @Step()
+  async returnPercentProvisionalWarningIsVisible(): Promise<void> {
+    await expect(this.el.returnPercentProvisionalWarning).toBeVisible();
+  }
+
+  @Step()
+  async returnPercentProvisionalWarningIsHidden(): Promise<void> {
+    await expect(this.el.returnPercentProvisionalWarning).not.toBeVisible();
+  }
 }

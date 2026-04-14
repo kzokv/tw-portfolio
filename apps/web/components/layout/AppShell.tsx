@@ -7,6 +7,7 @@ import type {
   DashboardPerformanceRange,
   InstrumentOptionDto,
   LocaleCode,
+  SnapshotsGeneratedEvent,
 } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -17,7 +18,7 @@ import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { API_PUBLIC } from "../../lib/api";
+import { API_PUBLIC, postJson } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
@@ -34,6 +35,7 @@ import { DividendsSection } from "../dashboard/DividendsSection";
 import { ActionCenterSection } from "../dashboard/ActionCenterSection";
 import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
+import { ReturnPercentCard } from "../dashboard/ReturnPercentCard";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
@@ -128,7 +130,14 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     if (section === "transactions") {
       await recentTransactions.refresh();
     }
-  }, [dashboard.refresh, recentTransactions.refresh, section]);
+    // KZO-115: trade mutations trigger a scoped snapshot recompute inside
+    // scheduleReplayWithRetry; refresh the performance chart when we're on
+    // the dashboard so the chart reflects the new snapshots without the user
+    // having to navigate away and back.
+    if (section === "dashboard") {
+      await performance.refresh();
+    }
+  }, [dashboard.refresh, performance.refresh, recentTransactions.refresh, section]);
 
   const transactionSubmission = useTransactionSubmission({
     initialValue: DEFAULT_TRANSACTION,
@@ -151,10 +160,51 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     refresh: refreshAfterRecompute,
   });
 
+  const [isGeneratingSnapshots, setIsGeneratingSnapshots] = useState(false);
+  const [snapshotMessage, setSnapshotMessage] = useState("");
+
+  const handleSnapshotsGenerated = useCallback(
+    (event: SnapshotsGeneratedEvent) => {
+      setIsGeneratingSnapshots(false);
+      if (event.status === "error") {
+        setSnapshotMessage(
+          dict.dashboardHome.snapshotsGenerationFailed.replace(
+            "{error}",
+            event.error ?? "",
+          ),
+        );
+        return;
+      }
+      setSnapshotMessage(
+        dict.dashboardHome.snapshotsGeneratedMessage
+          .replace("{totalRows}", String(event.totalRows))
+          .replace("{provisionalRows}", String(event.provisionalRows)),
+      );
+      void performance.refresh();
+    },
+    [
+      dict.dashboardHome.snapshotsGeneratedMessage,
+      dict.dashboardHome.snapshotsGenerationFailed,
+      performance.refresh,
+    ],
+  );
+
+  const generateSnapshots = useCallback(async () => {
+    setIsGeneratingSnapshots(true);
+    setSnapshotMessage("");
+    try {
+      await postJson("/portfolio/snapshots/generate", {});
+    } catch {
+      setIsGeneratingSnapshots(false);
+      setSnapshotMessage("");
+    }
+  }, []);
+
   const mutations = useTransactionMutations({
     locale,
     dict,
     refresh: refreshAfterTransaction,
+    onSnapshotsGenerated: handleSnapshotsGenerated,
   });
 
   const profileData = useProfile();
@@ -442,6 +492,17 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
               <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
             ) : null}
 
+            {!globalError && snapshotMessage ? (
+              <p
+                className="mb-5 rounded-[22px] border border-[rgba(52,211,153,0.22)] bg-[rgba(236,253,245,0.96)] px-4 py-3 text-sm text-emerald-700 shadow-[0_18px_36px_rgba(52,211,153,0.1)]"
+                data-testid="snapshot-status"
+                role="status"
+                aria-live="polite"
+              >
+                {snapshotMessage}
+              </p>
+            ) : null}
+
             {showPageSkeleton ? (
               <DashboardLoading />
             ) : (
@@ -461,6 +522,8 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
                   recomputeAction,
                   setDrawerOpen,
                   recomputingSymbols: mutations.recomputingSymbols,
+                  generateSnapshots,
+                  isGeneratingSnapshots,
                 })}
               </>
             )}
@@ -507,6 +570,8 @@ function renderSection({
   recomputeAction,
   setDrawerOpen,
   recomputingSymbols,
+  generateSnapshots,
+  isGeneratingSnapshots,
 }: {
   section: AppSection;
   dashboard: ReturnType<typeof useDashboardData>;
@@ -520,6 +585,8 @@ function renderSection({
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   setDrawerOpen: (open: boolean) => void;
   recomputingSymbols: Set<string>;
+  generateSnapshots: () => Promise<void>;
+  isGeneratingSnapshots: boolean;
 }) {
   const largestHolding = dashboard.holdings[0] ?? null;
   const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -748,6 +815,16 @@ function renderSection({
         <AllocationSnapshotCard holdings={dashboard.holdings} locale={locale} dict={dict} />
       </div>
 
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)]">
+        <ReturnPercentCard
+          data={performance.data}
+          locale={locale}
+          dict={dict}
+          isLoading={performance.isLoading}
+          errorMessage={performance.errorMessage}
+        />
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
         <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} recomputingSymbols={recomputingSymbols} />
         <ActionCenterSection
@@ -756,6 +833,8 @@ function renderSection({
           integrityIssue={dashboard.actions.integrityIssue}
           pending={recomputeAction.isRunning}
           onRecompute={recomputeAction.runRecompute}
+          onGenerateSnapshots={generateSnapshots}
+          isGeneratingSnapshots={isGeneratingSnapshots}
           onOpenSettings={() => setDrawerOpen(true)}
           dict={dict}
         />
