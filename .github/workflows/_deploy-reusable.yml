@@ -95,7 +95,23 @@ jobs:
           set -euo pipefail
           warp-cli --accept-tos registration new
           warp-cli --accept-tos connect
-          sleep 10
+          # Poll until the daemon reaches Connected. `registration new` /
+          # `connect` both exit 0 even when Zero Trust rejects the registration
+          # (e.g. Invalidated(ApiMismatch) when the device pool is full). A
+          # fixed `sleep 10` can't distinguish that from a healthy connect, so
+          # SSH later fails with a generic "Connection timed out" and buries
+          # the real cause. Fail fast here with the actual daemon status.
+          for _ in $(seq 1 30); do
+            status=$(warp-cli --accept-tos status 2>/dev/null | head -1 || true)
+            case "$status" in
+              *Connected*) echo "WARP connected"; exit 0 ;;
+              *Unable*)    echo "WARP registration rejected: $status" >&2; exit 1 ;;
+            esac
+            sleep 2
+          done
+          echo "WARP failed to reach Connected within 60s" >&2
+          warp-cli --accept-tos status || true
+          exit 1
 
       - name: Install SSH materials
         run: |
@@ -149,6 +165,21 @@ jobs:
           set +e
           warp-cli --accept-tos status || true
           sudo systemctl status warp-svc --no-pager || true
+
+      - name: Revoke WARP registration
+        if: always()
+        run: |
+          # Each CI run creates a fresh device registration under the
+          # non_identity@<team>.cloudflareaccess.com service-token pseudo-user.
+          # Without this cleanup step, orphan registrations accumulate and
+          # eventually hit the per-user device cap, after which subsequent
+          # registrations are silently invalidated post-enrollment
+          # (RegistrationMissing(Invalidated(ApiMismatch))) and SSH then times
+          # out. Free/Team plans don't expose bulk revoke in the UI, so
+          # preventing the accumulation at source is the only sustainable fix.
+          set +e
+          warp-cli --accept-tos disconnect || true
+          warp-cli --accept-tos registration delete || true
 
       - name: Cleanup credentials
         if: always()
