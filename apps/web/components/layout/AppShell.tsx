@@ -337,7 +337,6 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         </div>
       )}
       <TopBar
-        skeleton={dashboard.isBootstrapping}
         userId={dashboard.settings?.userId}
         displayName={profileData.profile?.displayName}
         pictureUrl={profileData.profile?.providerPictureUrl}
@@ -488,8 +487,6 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
               >
                 {recomputeMessage}
               </p>
-            ) : showPageSkeleton ? (
-              <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
             ) : null}
 
             {!globalError && snapshotMessage ? (
@@ -503,29 +500,31 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
               </p>
             ) : null}
 
+            <div data-testid="app-shell-ready" />
+            {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
+
             {showPageSkeleton ? (
-              <DashboardLoading />
-            ) : (
               <>
-                <div data-testid="app-shell-ready" />
-                {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
-                {children ?? renderSection({
-                  section,
-                  dashboard,
-                  dict,
-                  locale,
-                  performance,
-                  performanceRange,
-                  setPerformanceRange,
-                  recentTransactions,
-                  transactionSubmission,
-                  recomputeAction,
-                  setDrawerOpen,
-                  recomputingSymbols: mutations.recomputingSymbols,
-                  generateSnapshots,
-                  isGeneratingSnapshots,
-                })}
+                <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
+                <DashboardLoading />
               </>
+            ) : (
+              children ?? renderSection({
+                section,
+                dashboard,
+                dict,
+                locale,
+                performance,
+                performanceRange,
+                setPerformanceRange,
+                recentTransactions,
+                transactionSubmission,
+                recomputeAction,
+                setDrawerOpen,
+                recomputingSymbols: mutations.recomputingSymbols,
+                generateSnapshots,
+                isGeneratingSnapshots,
+              })
             )}
           </main>
         </div>
