@@ -14,6 +14,7 @@ import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
+import type { Persistence } from "../persistence/types.js";
 
 interface BuildDashboardOverviewOptions {
   integrityIssue: IntegrityIssueDto | null;
@@ -92,19 +93,21 @@ export function buildDashboardOverview(
   };
 }
 
-export function buildDashboardPerformance(
+export async function buildDashboardPerformance(
   store: Store,
   {
     range,
     quotes = [],
     asOf = quotes[0]?.asOf ?? new Date().toISOString(),
+    persistence,
   }: {
     range: DashboardPerformanceRange;
     quotes?: QuoteSnapshot[];
     asOf?: string;
+    persistence: Persistence;
   },
-): DashboardPerformanceDto {
-  const snapshotPoints = buildPerformanceFromSnapshots(store, range, asOf);
+): Promise<DashboardPerformanceDto> {
+  const snapshotPoints = await buildPerformanceFromSnapshots(store.userId, range, asOf, persistence);
   if (snapshotPoints.length > 0) {
     return { range, points: snapshotPoints };
   }
@@ -300,22 +303,25 @@ function resolveUpcomingStatus(
   return "declared";
 }
 
-function buildPerformanceFromSnapshots(
-  store: Store,
+async function buildPerformanceFromSnapshots(
+  userId: string,
   range: DashboardPerformanceRange,
   asOf: string,
-): DashboardPerformancePointDto[] {
+  persistence: Persistence,
+): Promise<DashboardPerformancePointDto[]> {
   const { startDate, endDate } = resolveRangeBounds(range, asOf);
+  const aggregated = await persistence.getAggregatedSnapshots(userId, startDate, endDate);
 
-  return store.accounting.projections.dailyPortfolioSnapshots
-    .filter((snapshot) => snapshot.snapshotDate >= startDate && snapshot.snapshotDate <= endDate)
-    .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate))
-    .map((snapshot) => ({
-      date: snapshot.snapshotDate,
-      totalCostAmount: snapshot.totalCostAmount,
-      marketValueAmount: snapshot.totalMarketValueAmount,
-      unrealizedPnlAmount: snapshot.totalUnrealizedPnlAmount,
-    }));
+  return aggregated.map((point) => ({
+    date: point.date,
+    totalCostAmount: point.totalCostBasis,
+    marketValueAmount: point.totalMarketValue,
+    unrealizedPnlAmount: point.totalUnrealizedPnl,
+    cumulativeRealizedPnlAmount: point.cumulativeRealizedPnl,
+    cumulativeDividendsAmount: point.cumulativeDividends,
+    totalReturnAmount: point.totalReturnAmount,
+    totalReturnPercent: point.totalReturnPercent,
+  }));
 }
 
 function buildSyntheticPerformance(

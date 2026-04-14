@@ -29,6 +29,8 @@ import type {
   ReadinessStatus,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
+  HoldingSnapshot,
+  AggregatedSnapshotPoint,
 } from "./types.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
@@ -96,6 +98,8 @@ export class MemoryPersistence implements Persistence {
   private readonly instruments = new Map<string, MemoryInstrument>();
   /** userId → (ticker → MemoryInstrument) test-only catalog overrides */
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
+  /** Holding snapshots (KZO-115) */
+  private readonly holdingSnapshots: HoldingSnapshot[] = [];
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
@@ -703,6 +707,163 @@ export class MemoryPersistence implements Persistence {
 
   _seedDailyBars(bars: DailyBar[]): void { this.dailyBars.push(...bars); }
   _clearDailyBars(): void { this.dailyBars.length = 0; }
+  _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
+  _clearHoldingSnapshots(): void { this.holdingSnapshots.length = 0; }
+
+  async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {
+    return this.dailyBars
+      .filter(b => b.ticker === ticker && b.barDate >= startDate && b.barDate <= endDate)
+      .sort((a, b) => a.barDate.localeCompare(b.barDate));
+  }
+
+  async getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>> {
+    const result = new Map<string, DailyBar[]>();
+    for (const t of tickers) result.set(t, []);
+    const wanted = new Set(tickers);
+    const sorted = [...this.dailyBars]
+      .filter(b => wanted.has(b.ticker) && b.barDate >= startDate && b.barDate <= endDate)
+      .sort((a, b) => a.barDate.localeCompare(b.barDate));
+    for (const bar of sorted) {
+      const list = result.get(bar.ticker) ?? [];
+      list.push(bar);
+      result.set(bar.ticker, list);
+    }
+    return result;
+  }
+
+  async getSnapshotGenerationInputs(
+    userId: string,
+    scope?: { accountId: string; ticker: string },
+  ): Promise<import("./types.js").SnapshotGenerationInputs> {
+    const store = await this.loadStore(userId);
+
+    // Trades — apply optional scope filter, then sort by trade_date → booking_sequence → id.
+    const trades = store.accounting.facts.tradeEvents
+      .filter(t => !scope || (t.accountId === scope.accountId && t.ticker === scope.ticker))
+      .slice()
+      .sort((a, b) =>
+        a.tradeDate.localeCompare(b.tradeDate)
+        || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0)
+        || a.id.localeCompare(b.id),
+      )
+      .map(t => ({
+        id: t.id,
+        accountId: t.accountId,
+        ticker: t.ticker,
+        type: t.type as "BUY" | "SELL",
+        quantity: t.quantity,
+        unitPrice: t.unitPrice,
+        tradeDate: t.tradeDate,
+        bookingSequence: t.bookingSequence,
+        commissionAmount: t.commissionAmount,
+        taxAmount: t.taxAmount,
+      }));
+
+    // Dividends — filter posted, non-reversed, non-superseded; join with events for paymentDate+ticker.
+    const eventById = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
+    const postedDividends = store.accounting.facts.dividendLedgerEntries
+      .filter(e => e.postingStatus === "posted" && !e.reversalOfDividendLedgerEntryId && !e.supersededAt)
+      .map(entry => {
+        const event = eventById.get(entry.dividendEventId);
+        if (!event?.paymentDate) return null;
+        if (scope && (entry.accountId !== scope.accountId || event.ticker !== scope.ticker)) return null;
+        return {
+          accountId: entry.accountId,
+          ticker: event.ticker,
+          paymentDate: event.paymentDate,
+          amount: entry.receivedCashAmount,
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
+
+    return { trades, postedDividends };
+  }
+
+  async bulkUpsertHoldingSnapshots(_userId: string, snapshots: HoldingSnapshot[]): Promise<void> {
+    for (const s of snapshots) {
+      const idx = this.holdingSnapshots.findIndex(
+        e => e.userId === s.userId && e.accountId === s.accountId && e.ticker === s.ticker && e.snapshotDate === s.snapshotDate,
+      );
+      if (idx >= 0) {
+        this.holdingSnapshots[idx] = s;
+      } else {
+        this.holdingSnapshots.push(s);
+      }
+    }
+  }
+
+  async deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+    let deleted = 0;
+    for (let i = this.holdingSnapshots.length - 1; i >= 0; i--) {
+      const s = this.holdingSnapshots[i];
+      if (s.userId === userId && s.accountId === accountId && s.ticker === ticker && s.snapshotDate >= fromDate) {
+        this.holdingSnapshots.splice(i, 1);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  async deleteAllHoldingSnapshots(userId: string): Promise<void> {
+    for (let i = this.holdingSnapshots.length - 1; i >= 0; i--) {
+      if (this.holdingSnapshots[i].userId === userId) {
+        this.holdingSnapshots.splice(i, 1);
+      }
+    }
+  }
+
+  async getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]> {
+    const byDate = new Map<string, HoldingSnapshot[]>();
+    for (const s of this.holdingSnapshots) {
+      if (s.userId !== userId || s.snapshotDate < startDate || s.snapshotDate > endDate) continue;
+      const list = byDate.get(s.snapshotDate) ?? [];
+      list.push(s);
+      byDate.set(s.snapshotDate, list);
+    }
+    const dates = [...byDate.keys()].sort();
+    return dates.map(date => {
+      const rows = byDate.get(date)!;
+      const totalCostBasis = rows.reduce((sum, r) => sum + r.costBasis, 0);
+      const isProvisional = rows.some(r => r.isProvisional);
+      const totalMarketValue = isProvisional ? null : rows.reduce((sum, r) => sum + (r.marketValue ?? 0), 0);
+      const totalUnrealizedPnl = isProvisional ? null : rows.reduce((sum, r) => sum + (r.unrealizedPnl ?? 0), 0);
+      const cumulativeRealizedPnl = rows.reduce((sum, r) => sum + r.cumulativeRealizedPnl, 0);
+      const cumulativeDividends = rows.reduce((sum, r) => sum + r.cumulativeDividends, 0);
+      const totalReturnAmount = totalMarketValue !== null
+        ? totalMarketValue + cumulativeRealizedPnl + cumulativeDividends - totalCostBasis
+        : null;
+      const totalReturnPercent = totalReturnAmount !== null && totalCostBasis > 0
+        ? (totalReturnAmount / totalCostBasis) * 100
+        : null;
+      return {
+        date,
+        totalCostBasis,
+        totalMarketValue,
+        totalUnrealizedPnl,
+        cumulativeRealizedPnl,
+        cumulativeDividends,
+        totalReturnAmount,
+        totalReturnPercent,
+        isProvisional,
+      };
+    });
+  }
+
+  async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+    return this.holdingSnapshots.filter(
+      s => s.userId === userId && s.accountId === accountId && s.ticker === ticker && s.snapshotDate >= fromDate,
+    ).length;
+  }
+
+  async getHoldingSnapshotsForTicker(
+    userId: string, accountId: string, ticker: string, startDate: string, endDate: string,
+  ): Promise<HoldingSnapshot[]> {
+    return this.holdingSnapshots
+      .filter(s => s.userId === userId && s.accountId === accountId && s.ticker === ticker
+        && s.snapshotDate >= startDate && s.snapshotDate <= endDate)
+      .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  }
 
   async readiness(): Promise<ReadinessStatus> {
     return { backend: "memory", postgres: true, redis: true };

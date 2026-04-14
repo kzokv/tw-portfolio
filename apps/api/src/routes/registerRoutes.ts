@@ -39,6 +39,7 @@ import {
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
+import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
@@ -1191,7 +1192,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // retroactively eligible. Fire the replay (which includes dividend
     // ledger recompute) after savePostedTrade commits. Fire-and-forget —
     // POST remains 200 and the client refetches on SSE.
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker);
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker, {
+      snapshotFromDate: tx.tradeDate,
+    });
 
     // KZO-126: First-trade backfill trigger
     if (app.boss && !isDemo) {
@@ -1242,8 +1245,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await app.persistence.deleteTradeEvent(userId, tradeEventId);
 
-    // Schedule async recompute
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker);
+    // Schedule async recompute — snapshots from the deleted trade's date
+    // onward may change, nothing before that can.
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker, {
+      snapshotFromDate: trade.tradeDate,
+    });
 
     reply.code(202);
     return {
@@ -1323,8 +1329,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
 
-    // Schedule async recompute
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker);
+    // Schedule async recompute — use min(oldTradeDate, newTradeDate) so a
+    // patch that moves the trade earlier regenerates the earlier window too.
+    const effectiveFromDate = patch.date && patch.date < trade.tradeDate ? patch.date : trade.tradeDate;
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker, {
+      snapshotFromDate: effectiveFromDate,
+    });
 
     reply.code(202);
     return {
@@ -1358,6 +1368,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const lotAllocs = store.accounting.projections.lotAllocations.filter(
       (a) => a.tradeEventId === tradeEventId,
     ).length;
+    // For a patch that moves the trade earlier, the affected snapshot window
+    // extends back to the new date — use min(old, new) for an accurate count.
+    const effectiveSnapshotFromDate = query.action === "patch" && query.date && query.date < trade.tradeDate
+      ? query.date
+      : trade.tradeDate;
+    const holdingSnapshots = await app.persistence.countHoldingSnapshotsAfterDate(
+      userId, trade.accountId, trade.ticker, effectiveSnapshotFromDate,
+    );
 
     // Check for negative lots
     let negativeLots = { wouldOccur: false, resultingQuantity: 0, ticker: trade.ticker };
@@ -1396,6 +1414,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         cashLedgerEntries: cashEntries,
         lotAllocations: lotAllocs,
         feePolicySnapshots: 1,
+        holdingSnapshots,
       },
       negativeLots,
     };
@@ -1455,6 +1474,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return buildDashboardPerformance(store, {
       range: query.range as DashboardPerformanceRange,
       quotes,
+      persistence: app.persistence,
     });
   });
 
@@ -1751,6 +1771,55 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return action;
   });
 
+  app.post("/portfolio/snapshots/generate", async (req, reply) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const generationRunId = randomUUID();
+
+    reply.code(202).send({ generationRunId });
+
+    setImmediate(async () => {
+      try {
+        const result = await generateHoldingSnapshots(userId, app.persistence, { generationRunId });
+
+        // Trigger backfill for tickers missing daily_bars
+        if (app.boss && result.tickersNeedingBackfill.length > 0) {
+          for (const ticker of result.tickersNeedingBackfill) {
+            try {
+              await app.boss.send(BACKFILL_QUEUE, { ticker, trigger: "first_trade", includeBars: true } satisfies BackfillJobData);
+            } catch {
+              // Backfill queue unavailable — provisional data remains
+            }
+          }
+        }
+
+        await app.eventBus.publishEvent(userId, "snapshots_generated", {
+          status: "ok",
+          totalRows: result.totalRows,
+          provisionalRows: result.provisionalRows,
+          dateRange: result.dateRange ?? null,
+          generationRunId: result.generationRunId,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[snapshot-generate] Failed:", message);
+        // Surface the failure with a distinct status so the client can render
+        // an error state instead of "0 snapshots generated" success text.
+        try {
+          await app.eventBus.publishEvent(userId, "snapshots_generated", {
+            status: "error",
+            totalRows: 0,
+            provisionalRows: 0,
+            dateRange: null,
+            generationRunId,
+            error: message,
+          });
+        } catch { /* swallow — best effort */ }
+      }
+    });
+
+    return reply;
+  });
+
   app.post("/portfolio/recompute/preview", async (req) => {
     const body = z
       .object({
@@ -1884,10 +1953,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // KZO-37 Invariant 5: each new trade may retroactively change the
     // eligibility of existing dividend ledger entries. Schedule a replay
-    // per unique (accountId, ticker) affected by this batch.
-    const touchedTickers = new Set(body.proposals.map((proposal) => proposal.ticker));
-    for (const ticker of touchedTickers) {
-      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, ticker);
+    // per unique (accountId, ticker) affected by this batch, scoped to the
+    // earliest trade date for that ticker so snapshot recompute stays narrow.
+    const earliestByTicker = new Map<string, string>();
+    for (const proposal of body.proposals) {
+      const prev = earliestByTicker.get(proposal.ticker);
+      if (!prev || proposal.tradeDate < prev) earliestByTicker.set(proposal.ticker, proposal.tradeDate);
+    }
+    for (const [ticker, fromDate] of earliestByTicker) {
+      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, body.accountId, ticker, {
+        snapshotFromDate: fromDate,
+      });
     }
 
     return { created };

@@ -23,7 +23,6 @@ import { createDefaultInstruments, upsertInstrumentDefinitions } from "../servic
 import type {
   AccountingStore,
   CashLedgerEntry,
-  DailyPortfolioSnapshot,
   DividendDeductionEntry,
   DividendEvent,
   DividendLedgerEntry,
@@ -63,6 +62,8 @@ import type {
   ReadinessStatus,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
+  HoldingSnapshot,
+  AggregatedSnapshotPoint,
 } from "./types.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
@@ -215,7 +216,6 @@ export class PostgresPersistence implements Persistence {
       dividendEventsResult,
       jobsResult,
       cashLedgerResult,
-      snapshotsResult,
       symbolsResult,
     ] = await Promise.all([
       this.pool.query(
@@ -292,15 +292,6 @@ export class PostgresPersistence implements Persistence {
          FROM cash_ledger_entries
          WHERE user_id = $1
          ORDER BY entry_date, booked_at, id`,
-        [userId],
-      ),
-      this.pool.query(
-        `SELECT id, snapshot_date, total_market_value_amount, total_cost_amount,
-                total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
-                total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
-         FROM daily_portfolio_snapshots
-         WHERE user_id = $1
-         ORDER BY snapshot_date DESC, generated_at DESC, id DESC`,
         [userId],
       ),
       this.pool.query(
@@ -562,21 +553,6 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
     }));
 
-    const snapshots: DailyPortfolioSnapshot[] = snapshotsResult.rows.map((row) => ({
-      id: row.id,
-      snapshotDate: normalizeDate(row.snapshot_date),
-      totalMarketValueAmount: row.total_market_value_amount,
-      totalCostAmount: row.total_cost_amount,
-      totalUnrealizedPnlAmount: row.total_unrealized_pnl_amount,
-      totalRealizedPnlAmount: row.total_realized_pnl_amount,
-      totalDividendReceivedAmount: row.total_dividend_received_amount,
-      totalCashBalanceAmount: row.total_cash_balance_amount,
-      totalNavAmount: row.total_nav_amount,
-      currency: row.currency,
-      generatedAt: normalizeDateTime(row.generated_at),
-      generationRunId: row.generation_run_id,
-    }));
-
     const recomputeItems = new Map<string, RecomputePreviewItem[]>();
     for (const item of jobItemsResult.rows) {
       const list = recomputeItems.get(item.job_id) ?? [];
@@ -659,7 +635,7 @@ export class PostgresPersistence implements Persistence {
           })),
           lotAllocations,
           holdings: [],
-          dailyPortfolioSnapshots: snapshots,
+          dailyPortfolioSnapshots: [],
         },
         policy: buildAccountingPolicy(),
       },
@@ -897,6 +873,295 @@ export class PostgresPersistence implements Persistence {
       volume: Number(row.volume),
       source: row.source,
       ingestedAt: row.ingested_at,
+    }));
+  }
+
+  async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {
+    const result = await this.pool.query<{
+      ticker: string; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       FROM market_data.daily_bars
+       WHERE ticker = $1 AND bar_date >= $2::date AND bar_date <= $3::date
+       ORDER BY bar_date ASC`,
+      [ticker, startDate, endDate],
+    );
+    return result.rows.map(row => ({
+      ticker: row.ticker,
+      barDate: row.bar_date,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+      source: row.source,
+      ingestedAt: row.ingested_at,
+    }));
+  }
+
+  async getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>> {
+    const result = new Map<string, DailyBar[]>();
+    for (const t of tickers) result.set(t, []);
+    if (tickers.length === 0) return result;
+    const rows = await this.pool.query<{
+      ticker: string; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       FROM market_data.daily_bars
+       WHERE ticker = ANY($1::text[]) AND bar_date >= $2::date AND bar_date <= $3::date
+       ORDER BY ticker ASC, bar_date ASC`,
+      [tickers, startDate, endDate],
+    );
+    for (const row of rows.rows) {
+      const list = result.get(row.ticker) ?? [];
+      list.push({
+        ticker: row.ticker,
+        barDate: row.bar_date,
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume),
+        source: row.source,
+        ingestedAt: row.ingested_at,
+      });
+      result.set(row.ticker, list);
+    }
+    return result;
+  }
+
+  async getSnapshotGenerationInputs(
+    userId: string,
+    scope?: { accountId: string; ticker: string },
+  ): Promise<import("./types.js").SnapshotGenerationInputs> {
+    const tradeFilter = scope
+      ? "user_id = $1 AND account_id = $2 AND ticker = $3"
+      : "user_id = $1";
+    const tradeParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
+    const tradesResult = await this.pool.query<{
+      id: string; account_id: string; ticker: string; side: string;
+      quantity: string; unit_price: string; trade_date: string;
+      booking_sequence: number | null; commission_amount: string; tax_amount: string;
+    }>(
+      `SELECT id, account_id, ticker, side, quantity, unit_price, trade_date::text,
+              booking_sequence, commission_amount, tax_amount
+       FROM trade_events
+       WHERE ${tradeFilter}
+       ORDER BY trade_date ASC, booking_sequence ASC, id ASC`,
+      tradeParams,
+    );
+
+    // Dividends: join ledger entries to events so we can scope by ticker.
+    const divFilter = scope
+      ? "dle.user_id = $1 AND dle.account_id = $2 AND de.ticker = $3"
+      : "dle.user_id = $1";
+    const divParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
+    const divResult = await this.pool.query<{
+      account_id: string; ticker: string; payment_date: string; amount: string;
+    }>(
+      `SELECT dle.account_id, de.ticker, de.payment_date::text, dle.received_cash_amount::text AS amount
+       FROM dividend_ledger_entries dle
+       JOIN dividend_events de ON de.id = dle.dividend_event_id
+       WHERE ${divFilter}
+         AND dle.posting_status = 'posted'
+         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+         AND dle.superseded_at IS NULL
+         AND de.payment_date IS NOT NULL
+       ORDER BY de.payment_date ASC`,
+      divParams,
+    );
+
+    return {
+      trades: tradesResult.rows.map(row => ({
+        id: row.id,
+        accountId: row.account_id,
+        ticker: row.ticker,
+        type: row.side as "BUY" | "SELL",
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unit_price),
+        tradeDate: row.trade_date,
+        bookingSequence: row.booking_sequence ?? undefined,
+        commissionAmount: Number(row.commission_amount),
+        taxAmount: Number(row.tax_amount),
+      })),
+      postedDividends: divResult.rows.map(r => ({
+        accountId: r.account_id,
+        ticker: r.ticker,
+        paymentDate: r.payment_date,
+        amount: Number(r.amount),
+      })),
+    };
+  }
+
+  async bulkUpsertHoldingSnapshots(_userId: string, snapshots: HoldingSnapshot[]): Promise<void> {
+    if (snapshots.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Build a single multi-row INSERT with unnest-style arrays. Each column
+      // becomes a parallel array; Postgres expands them into rows server-side.
+      await client.query(
+        `INSERT INTO daily_holding_snapshots (
+           id, user_id, account_id, ticker, snapshot_date, quantity,
+           close_price, market_value, cost_basis, unrealized_pnl,
+           cumulative_realized_pnl, cumulative_dividends,
+           is_provisional, currency, generated_at, generation_run_id
+         )
+         SELECT * FROM UNNEST(
+           $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[],
+           $7::numeric[], $8::numeric[], $9::numeric[], $10::numeric[],
+           $11::numeric[], $12::numeric[],
+           $13::boolean[], $14::text[], $15::timestamptz[], $16::text[]
+         )
+         ON CONFLICT (user_id, account_id, ticker, snapshot_date) DO UPDATE SET
+           quantity = EXCLUDED.quantity,
+           close_price = EXCLUDED.close_price,
+           market_value = EXCLUDED.market_value,
+           cost_basis = EXCLUDED.cost_basis,
+           unrealized_pnl = EXCLUDED.unrealized_pnl,
+           cumulative_realized_pnl = EXCLUDED.cumulative_realized_pnl,
+           cumulative_dividends = EXCLUDED.cumulative_dividends,
+           is_provisional = EXCLUDED.is_provisional,
+           currency = EXCLUDED.currency,
+           generated_at = EXCLUDED.generated_at,
+           generation_run_id = EXCLUDED.generation_run_id`,
+        [
+          snapshots.map(s => s.id),
+          snapshots.map(s => s.userId),
+          snapshots.map(s => s.accountId),
+          snapshots.map(s => s.ticker),
+          snapshots.map(s => s.snapshotDate),
+          snapshots.map(s => s.quantity),
+          snapshots.map(s => s.closePrice),
+          snapshots.map(s => s.marketValue),
+          snapshots.map(s => s.costBasis),
+          snapshots.map(s => s.unrealizedPnl),
+          snapshots.map(s => s.cumulativeRealizedPnl),
+          snapshots.map(s => s.cumulativeDividends),
+          snapshots.map(s => s.isProvisional),
+          snapshots.map(s => s.currency),
+          snapshots.map(s => s.generatedAt),
+          snapshots.map(s => s.generationRunId),
+        ],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM daily_holding_snapshots
+       WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND snapshot_date >= $4::date`,
+      [userId, accountId, ticker, fromDate],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async deleteAllHoldingSnapshots(userId: string): Promise<void> {
+    await this.pool.query(`DELETE FROM daily_holding_snapshots WHERE user_id = $1`, [userId]);
+  }
+
+  async getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]> {
+    const result = await this.pool.query<{
+      snapshot_date: string;
+      total_cost_basis: string;
+      total_market_value: string | null;
+      total_unrealized_pnl: string | null;
+      cumulative_realized_pnl: string;
+      cumulative_dividends: string;
+      is_provisional: boolean;
+    }>(
+      `SELECT
+         snapshot_date::text,
+         SUM(cost_basis) AS total_cost_basis,
+         CASE WHEN bool_or(is_provisional) THEN NULL ELSE SUM(market_value) END AS total_market_value,
+         CASE WHEN bool_or(is_provisional) THEN NULL ELSE SUM(unrealized_pnl) END AS total_unrealized_pnl,
+         SUM(cumulative_realized_pnl) AS cumulative_realized_pnl,
+         SUM(cumulative_dividends) AS cumulative_dividends,
+         bool_or(is_provisional) AS is_provisional
+       FROM daily_holding_snapshots
+       WHERE user_id = $1 AND snapshot_date >= $2::date AND snapshot_date <= $3::date
+       GROUP BY snapshot_date
+       ORDER BY snapshot_date ASC`,
+      [userId, startDate, endDate],
+    );
+    return result.rows.map(row => {
+      const totalCostBasis = Number(row.total_cost_basis);
+      const totalMarketValue = row.total_market_value !== null ? Number(row.total_market_value) : null;
+      const cumulativeRealizedPnl = Number(row.cumulative_realized_pnl);
+      const cumulativeDividends = Number(row.cumulative_dividends);
+      const totalReturnAmount = totalMarketValue !== null
+        ? totalMarketValue + cumulativeRealizedPnl + cumulativeDividends - totalCostBasis
+        : null;
+      const totalReturnPercent = totalReturnAmount !== null && totalCostBasis > 0
+        ? (totalReturnAmount / totalCostBasis) * 100
+        : null;
+      return {
+        date: row.snapshot_date,
+        totalCostBasis,
+        totalMarketValue,
+        totalUnrealizedPnl: row.total_unrealized_pnl !== null ? Number(row.total_unrealized_pnl) : null,
+        cumulativeRealizedPnl,
+        cumulativeDividends,
+        totalReturnAmount,
+        totalReturnPercent,
+        isProvisional: row.is_provisional,
+      };
+    });
+  }
+
+  async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM daily_holding_snapshots
+       WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND snapshot_date >= $4::date`,
+      [userId, accountId, ticker, fromDate],
+    );
+    return Number(result.rows[0].count);
+  }
+
+  async getHoldingSnapshotsForTicker(
+    userId: string, accountId: string, ticker: string, startDate: string, endDate: string,
+  ): Promise<HoldingSnapshot[]> {
+    const result = await this.pool.query<{
+      id: string; user_id: string; account_id: string; ticker: string; snapshot_date: string;
+      quantity: string; close_price: string | null; market_value: string | null; cost_basis: string;
+      unrealized_pnl: string | null; cumulative_realized_pnl: string; cumulative_dividends: string;
+      is_provisional: boolean; currency: string; generated_at: string; generation_run_id: string;
+    }>(
+      `SELECT id, user_id, account_id, ticker, snapshot_date::text,
+              quantity, close_price, market_value, cost_basis,
+              unrealized_pnl, cumulative_realized_pnl, cumulative_dividends,
+              is_provisional, currency, generated_at::text, generation_run_id
+       FROM daily_holding_snapshots
+       WHERE user_id = $1 AND account_id = $2 AND ticker = $3
+         AND snapshot_date >= $4::date AND snapshot_date <= $5::date
+       ORDER BY snapshot_date ASC`,
+      [userId, accountId, ticker, startDate, endDate],
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      ticker: row.ticker,
+      snapshotDate: row.snapshot_date,
+      quantity: Number(row.quantity),
+      closePrice: row.close_price !== null ? Number(row.close_price) : null,
+      marketValue: row.market_value !== null ? Number(row.market_value) : null,
+      costBasis: Number(row.cost_basis),
+      unrealizedPnl: row.unrealized_pnl !== null ? Number(row.unrealized_pnl) : null,
+      cumulativeRealizedPnl: Number(row.cumulative_realized_pnl),
+      cumulativeDividends: Number(row.cumulative_dividends),
+      isProvisional: row.is_provisional,
+      currency: row.currency,
+      generatedAt: row.generated_at,
+      generationRunId: row.generation_run_id,
     }));
   }
 
@@ -2710,8 +2975,6 @@ export class PostgresPersistence implements Persistence {
     await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [userId]);
     await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = $1`, [userId]);
-    await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = $1`, [userId]);
-
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
       const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
       const dividendSourceCompositionStatus =
@@ -2897,35 +3160,6 @@ export class PostgresPersistence implements Persistence {
           allocation.allocatedCostAmount,
           allocation.costCurrency,
           allocation.createdAt ?? new Date().toISOString(),
-        ],
-      );
-    }
-
-    for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
-      await client.query(
-        `INSERT INTO daily_portfolio_snapshots (
-           id, user_id, snapshot_date, total_market_value_amount, total_cost_amount,
-           total_unrealized_pnl_amount, total_realized_pnl_amount, total_dividend_received_amount,
-           total_cash_balance_amount, total_nav_amount, currency, generated_at, generation_run_id
-         ) VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7, $8,
-           $9, $10, $11, $12, $13
-         )`,
-        [
-          snapshot.id,
-          userId,
-          snapshot.snapshotDate,
-          snapshot.totalMarketValueAmount,
-          snapshot.totalCostAmount,
-          snapshot.totalUnrealizedPnlAmount,
-          snapshot.totalRealizedPnlAmount,
-          snapshot.totalDividendReceivedAmount,
-          snapshot.totalCashBalanceAmount,
-          snapshot.totalNavAmount,
-          snapshot.currency,
-          snapshot.generatedAt,
-          snapshot.generationRunId,
         ],
       );
     }
@@ -4127,11 +4361,6 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
   }
 
-  for (const snapshot of accounting.projections.dailyPortfolioSnapshots) {
-    if (!isCurrencyCode(snapshot.currency)) {
-      throw new Error(`snapshot ${snapshot.id} has invalid currency ${snapshot.currency}`);
-    }
-  }
 }
 
 function validateMarketDataInvariants(marketData: MarketDataFacts): void {

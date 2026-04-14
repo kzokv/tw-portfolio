@@ -4,6 +4,7 @@ import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
 import { planDividendLedgerRecompute, type DividendLedgerRecomputeChange } from "./dividends.js";
+import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
 
 export interface ReplaySummary {
   accountId: string;
@@ -226,16 +227,60 @@ async function emitDividendLedgerChangeEvents(
   }
 }
 
+/**
+ * Options for scheduling a scoped replay after a trade mutation.
+ *
+ * `snapshotFromDate` is the earliest date whose snapshots need to be
+ * regenerated for this (accountId, ticker). Callers should pass the trade's
+ * tradeDate for create/delete; for patches that move a trade across dates,
+ * pass the earlier of (oldTradeDate, newTradeDate). Omitting it regenerates
+ * from the ticker's earliest snapshot (functionally correct but slower).
+ */
+export interface ScheduleReplayOptions {
+  snapshotFromDate?: string;
+}
+
+/**
+ * Recompute snapshots for (accountId, ticker) from `fromDate`, but only if
+ * snapshots already exist for that ticker. Logs (doesn't throw) on failure —
+ * snapshot recompute is advisory and must not block the recompute_complete
+ * path.
+ */
+async function recomputeSnapshotsIfExists(
+  persistence: Persistence,
+  userId: string,
+  accountId: string,
+  ticker: string,
+  fromDate: string,
+): Promise<void> {
+  try {
+    const existingCount = await persistence.countHoldingSnapshotsAfterDate(userId, accountId, ticker, "1970-01-01");
+    if (existingCount > 0) {
+      await recomputeSnapshotsForTicker(userId, accountId, ticker, fromDate, persistence);
+    }
+  } catch (snapshotError) {
+    console.warn(`[snapshot-recompute] Failed for ${ticker}:`, snapshotError instanceof Error ? snapshotError.message : snapshotError);
+  }
+}
+
 export function scheduleReplayWithRetry(
   persistence: Persistence,
   eventBus: EventBus,
   userId: string,
   accountId: string,
   ticker: string,
+  options: ScheduleReplayOptions = {},
 ): void {
+  // Default to epoch only as a conservative fallback; callers should pass a
+  // real fromDate so the scoped recompute is actually scoped.
+  const fromDate = options.snapshotFromDate ?? "1970-01-01";
+
   setImmediate(async () => {
     try {
       const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
+
+      await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+
       await eventBus.publishEvent(userId, "recompute_complete", {
         accountId: summary.accountId,
         ticker: summary.ticker,
@@ -258,10 +303,15 @@ export function scheduleReplayWithRetry(
         // EventBus unavailable — client will hit safety net timeout
       }
 
-      // One automatic retry
+      // One automatic retry — same guard as the primary path so we never
+      // begin populating partial snapshots for a ticker the user didn't opt
+      // into.
       setImmediate(async () => {
         try {
           const summary = await replayPositionHistory(persistence, userId, accountId, ticker);
+
+          await recomputeSnapshotsIfExists(persistence, userId, accountId, ticker, fromDate);
+
           await eventBus.publishEvent(userId, "recompute_complete", {
             accountId: summary.accountId,
             ticker: summary.ticker,

@@ -156,6 +156,10 @@ export interface DashboardPerformancePointDto {
   totalCostAmount: number;
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
+  cumulativeRealizedPnlAmount?: number;
+  cumulativeDividendsAmount?: number;
+  totalReturnAmount?: number | null;
+  totalReturnPercent?: number | null;
 }
 
 export interface DashboardPerformanceDto {
@@ -192,6 +196,7 @@ export interface PreviewImpactResponse {
     cashLedgerEntries: number;
     lotAllocations: number;
     feePolicySnapshots: number;
+    holdingSnapshots: number;
   };
   negativeLots: {
     wouldOccur: boolean;
