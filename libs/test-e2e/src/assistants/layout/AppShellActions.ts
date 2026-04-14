@@ -48,6 +48,13 @@ export class AppShellActions extends AppBaseActions {
   }
 
   @Step()
+  async reloadShellPage(): Promise<void> {
+    await this.page.reload({ waitUntil: "domcontentloaded" });
+    await expect(this.el.appReady).toBeAttached({ timeout: 20_000 });
+    await expect(this.el.topBar.elements.title).toBeVisible({ timeout: 20_000 });
+  }
+
+  @Step()
   async toggleDesktopSidebar(): Promise<void> {
     await this.uiActions.click.perform(this.el.desktopNavToggle);
   }

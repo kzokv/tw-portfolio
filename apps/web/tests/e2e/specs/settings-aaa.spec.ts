@@ -26,7 +26,7 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await appShell.assert.topBarTitleContains("儀表板");
   await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
 
-  await appShell.actions.reloadPage();
+  await appShell.actions.reloadShellPage();
 
   await appShell.assert.topBarTitleContains("儀表板");
   await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
