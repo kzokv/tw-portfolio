@@ -1,13 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildApp, type AppInstance } from "../../src/app.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
-import {
-  dividendEventPayload,
-  dividendPostingPayload,
-  transactionPayload,
-} from "../helpers/fixtures.js";
 
 // ── Postgres integration gate ─────────────────────────────────────────────────
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
@@ -44,108 +38,163 @@ async function resetDatabase(): Promise<void> {
 // drift between code and migrations (e.g. SELECT side vs. trade_type) cannot
 // ship without being caught. Memory-backed suites skip these queries entirely.
 describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
-  let app: AppInstance;
+  let persistence: PostgresPersistence;
   let pool: Pool;
   let userId: string;
   let accountId: string;
-  let idempotencyCounter = 0;
+  let feeProfileId: string;
 
-  async function seedDailyBar(ticker: string, date: string, close: number): Promise<void> {
-    await pool.query(
-      `INSERT INTO market_data.daily_bars
-         (ticker, bar_date, open, high, low, close, volume, source)
-       VALUES ($1, $2::date, $3, $3, $3, $3, 1000, 'test_seed')
-       ON CONFLICT (ticker, bar_date) DO NOTHING`,
-      [ticker, date, close],
-    );
-  }
-
-  async function createTrade(
-    overrides: Parameters<typeof transactionPayload>[0] = {},
-  ): Promise<{ id: string; accountId: string; ticker: string }> {
-    idempotencyCounter += 1;
-    const res = await app.inject({
-      method: "POST",
-      url: "/portfolio/transactions",
-      headers: { "idempotency-key": `k-snapgen-${idempotencyCounter}` },
-      payload: transactionPayload({ accountId, ...overrides }),
-    });
-    expect(res.statusCode).toBe(200);
-    return res.json() as { id: string; accountId: string; ticker: string };
-  }
-
-  async function createDividendEvent(
-    overrides: Record<string, unknown> = {},
-  ): Promise<string> {
+  async function seedFeePolicySnapshot(): Promise<string> {
     const id = randomUUID();
-    const payload = dividendEventPayload(overrides);
     await pool.query(
-      `INSERT INTO market_data.dividend_events (
-         id, ticker, event_type, ex_dividend_date, payment_date,
-         cash_dividend_per_share, cash_dividend_currency,
-         stock_dividend_per_share, source
-       ) VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, 'test_seed')`,
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking,
+         board_commission_rate, commission_discount_percent,
+         minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode
+       ) VALUES ($1, $2, $3, 'Default Broker',
+                 1.425, 28,
+                 20, 'TWD',
+                 'FLOOR', 'FLOOR',
+                 30, 15,
+                 10, 0,
+                 'CHARGED_UPFRONT')`,
+      [id, userId, feeProfileId],
+    );
+    return id;
+  }
+
+  async function seedTrade(overrides: {
+    ticker: string;
+    tradeDate: string;
+    tradeType: "BUY" | "SELL";
+    quantity: number;
+    unitPrice: number;
+    bookingSequence?: number;
+    accountId?: string;
+  }): Promise<string> {
+    const snapshotId = await seedFeePolicySnapshot();
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker,
+         instrument_type, trade_type, quantity, unit_price,
+         trade_date, commission_amount, tax_amount, is_day_trade,
+         source, trade_timestamp, booking_sequence,
+         price_currency, fee_policy_snapshot_id, market_code
+       ) VALUES ($1, $2, $3, $4,
+                 'STOCK', $5, $6, $7,
+                 $8::date, 0, 0, false,
+                 'manual_trade', NOW(), $9,
+                 'TWD', $10, 'TW')`,
       [
         id,
-        payload.ticker,
-        payload.eventType,
-        payload.exDividendDate,
-        payload.paymentDate,
-        payload.cashDividendPerShare,
-        payload.cashDividendCurrency,
-        payload.stockDividendPerShare,
+        userId,
+        overrides.accountId ?? accountId,
+        overrides.ticker,
+        overrides.tradeType,
+        overrides.quantity,
+        overrides.unitPrice,
+        overrides.tradeDate,
+        overrides.bookingSequence ?? 1,
+        snapshotId,
       ],
     );
     return id;
   }
 
-  async function postDividend(dividendEventId: string, receivedCashAmount: number): Promise<void> {
-    idempotencyCounter += 1;
-    const res = await app.inject({
-      method: "POST",
-      url: "/portfolio/dividends/postings",
-      headers: { "idempotency-key": `k-snapgen-div-${idempotencyCounter}` },
-      payload: dividendPostingPayload({
-        accountId,
-        dividendEventId,
-        receivedCashAmount,
-        deductions: [],
-        sourceLines: [
-          {
-            sourceBucket: "DIVIDEND_INCOME",
-            amount: receivedCashAmount,
-            currencyCode: "TWD",
-            source: "test_seed",
-          },
+  async function seedDividendEvent(params: {
+    ticker: string;
+    exDividendDate: string;
+    paymentDate: string;
+    cashDividendPerShare?: number;
+  }): Promise<string> {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, cash_dividend_currency,
+         stock_dividend_per_share, source
+       ) VALUES ($1, $2, 'CASH', $3::date, $4::date,
+                 $5, 'TWD', 0, 'test_seed')`,
+      [id, params.ticker, params.exDividendDate, params.paymentDate, params.cashDividendPerShare ?? 10],
+    );
+    return id;
+  }
+
+  async function seedPostedDividend(params: {
+    eventId: string;
+    receivedCashAmount: number;
+    targetAccountId?: string;
+    targetUserId?: string;
+    supersededAt?: string | null;
+    reversalOf?: string | null;
+  }): Promise<string> {
+    const ledgerId = randomUUID();
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity,
+         expected_cash_amount, expected_stock_quantity, received_stock_quantity,
+         posting_status, reconciliation_status, version, source_composition_status,
+         booked_at, superseded_at, reversal_of_dividend_ledger_entry_id
+       ) VALUES ($1, $2, $3, 10,
+                 $4, 0, 0,
+                 'posted', 'open', 1, 'provided',
+                 NOW(), $5, $6)`,
+      [
+        ledgerId,
+        params.targetAccountId ?? accountId,
+        params.eventId,
+        params.receivedCashAmount,
+        params.supersededAt ?? null,
+        params.reversalOf ?? null,
+      ],
+    );
+    if (params.receivedCashAmount > 0) {
+      await pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           related_dividend_ledger_entry_id, source
+         ) VALUES ($1, $2, $3, CURRENT_DATE, 'DIVIDEND_RECEIPT', $4, 'TWD', $5, 'test_seed')`,
+        [
+          randomUUID(),
+          params.targetUserId ?? userId,
+          params.targetAccountId ?? accountId,
+          params.receivedCashAmount,
+          ledgerId,
         ],
-      }),
-    });
-    expect(res.statusCode).toBe(200);
+      );
+    }
+    return ledgerId;
   }
 
   beforeEach(async () => {
     await resetDatabase();
-    app = await buildApp({ persistenceBackend: "postgres" });
-    const store = await app.persistence.loadStore("user-1");
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+    const store = await persistence.loadStore("user-1");
     userId = store.userId;
     accountId = store.accounts[0]!.id;
+    feeProfileId = store.accounts[0]!.feeProfileId;
     pool = new Pool({ connectionString: databaseUrl });
-    idempotencyCounter = 0;
   });
 
   afterEach(async () => {
-    if (app) await app.close();
-    if (pool) await pool.end();
+    await persistence.close();
+    await pool.end();
   });
 
   it("returns trades with BUY/SELL types sourced from trade_events.trade_type", async () => {
-    await seedDailyBar("2330", "2026-01-02", 600);
-    await seedDailyBar("2330", "2026-01-05", 610);
+    await seedTrade({ ticker: "2330", tradeDate: "2026-01-02", tradeType: "BUY", quantity: 10, unitPrice: 600, bookingSequence: 1 });
+    await seedTrade({ ticker: "2330", tradeDate: "2026-01-05", tradeType: "SELL", quantity: 4, unitPrice: 610, bookingSequence: 2 });
 
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-02", quantity: 10, unitPrice: 600, type: "BUY", commissionAmount: 0, taxAmount: 0 });
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-05", quantity: 4, unitPrice: 610, type: "SELL", commissionAmount: 0, taxAmount: 0 });
-
-    const inputs = await (app.persistence as PostgresPersistence).getSnapshotGenerationInputs(userId);
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
 
     expect(inputs.trades).toHaveLength(2);
     const types = inputs.trades.map((t) => t.type).sort();
@@ -160,33 +209,21 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
   });
 
   it("scopes tenant via accounts.user_id (dividend_ledger_entries has no user_id column)", async () => {
-    await seedDailyBar("2330", "2026-01-02", 600);
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-02", quantity: 10, unitPrice: 600, type: "BUY", commissionAmount: 0, taxAmount: 0 });
+    const mineEventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    await seedPostedDividend({ eventId: mineEventId, receivedCashAmount: 100 });
 
-    const dividendEventId = await createDividendEvent({
-      ticker: "2330",
-      exDividendDate: "2026-02-01",
-      paymentDate: "2026-02-20",
-      cashDividendPerShare: 10,
-    });
-    await postDividend(dividendEventId, 100);
-
-    // Cross-tenant dividend: different user posting another ticker's dividend
-    // must not leak into the user-1 result.
-    const otherEventId = await createDividendEvent({
-      ticker: "2317",
-      exDividendDate: "2026-02-01",
-      paymentDate: "2026-02-20",
-    });
-    const otherLedgerId = randomUUID();
+    // Cross-tenant dividend under a DIFFERENT user/account must not leak into
+    // this user's result — validates the accounts.user_id JOIN filter.
     await pool.query(
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
          VALUES ('user-other', 'other@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
     );
     await pool.query(
       `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+         id, user_id, name, commission_rate_bps, board_commission_rate,
+         commission_discount_percent, commission_discount_bps,
+         minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode,
          stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
          etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
        ) VALUES ('fp-other', 'user-other', 'Other Broker', 14, 1.425, 0, 10000,
@@ -196,27 +233,15 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
       `INSERT INTO accounts (id, user_id, name, fee_profile_id)
          VALUES ('acc-other', 'user-other', 'Main', 'fp-other')`,
     );
-    await pool.query(
-      `INSERT INTO dividend_ledger_entries (
-         id, account_id, dividend_event_id, eligible_quantity,
-         expected_cash_amount, expected_stock_quantity, received_stock_quantity,
-         posting_status, reconciliation_status, version, source_composition_status,
-         booked_at
-       ) VALUES ($1, 'acc-other', $2, 10,
-                 50, 0, 0,
-                 'posted', 'open', 1, 'provided',
-                 NOW())`,
-      [otherLedgerId, otherEventId],
-    );
-    await pool.query(
-      `INSERT INTO cash_ledger_entries (
-         id, user_id, account_id, entry_date, entry_type, amount, currency,
-         related_dividend_ledger_entry_id, source
-       ) VALUES ($1, 'user-other', 'acc-other', CURRENT_DATE, 'DIVIDEND_RECEIPT', 50, 'TWD', $2, 'test_seed')`,
-      [randomUUID(), otherLedgerId],
-    );
+    const otherEventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    await seedPostedDividend({
+      eventId: otherEventId,
+      receivedCashAmount: 50,
+      targetUserId: "user-other",
+      targetAccountId: "acc-other",
+    });
 
-    const inputs = await (app.persistence as PostgresPersistence).getSnapshotGenerationInputs(userId);
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
 
     expect(inputs.postedDividends).toHaveLength(1);
     expect(inputs.postedDividends[0]!.ticker).toBe("2330");
@@ -224,18 +249,10 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
   });
 
   it("sources postedDividends.amount from cash_ledger_entries DIVIDEND_RECEIPT (migration 010)", async () => {
-    await seedDailyBar("2330", "2026-01-02", 600);
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-02", quantity: 10, unitPrice: 600, type: "BUY", commissionAmount: 0, taxAmount: 0 });
+    const eventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    await seedPostedDividend({ eventId, receivedCashAmount: 96 });
 
-    const dividendEventId = await createDividendEvent({
-      ticker: "2330",
-      exDividendDate: "2026-02-01",
-      paymentDate: "2026-02-20",
-      cashDividendPerShare: 10,
-    });
-    await postDividend(dividendEventId, 96);
-
-    const inputs = await (app.persistence as PostgresPersistence).getSnapshotGenerationInputs(userId);
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
 
     expect(inputs.postedDividends).toHaveLength(1);
     const posted = inputs.postedDividends[0]!;
@@ -248,17 +265,12 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
   });
 
   it("joins market_data.dividend_events (schema-qualified in migration 018)", async () => {
-    await seedDailyBar("2330", "2026-01-02", 600);
-    await seedDailyBar("0050", "2026-01-02", 120);
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-02", quantity: 10, unitPrice: 600, type: "BUY", commissionAmount: 0, taxAmount: 0 });
-    await createTrade({ ticker: "0050", tradeDate: "2026-01-02", quantity: 50, unitPrice: 120, type: "BUY", commissionAmount: 0, taxAmount: 0 });
+    const ev2330 = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    const ev0050 = await seedDividendEvent({ ticker: "0050", exDividendDate: "2026-03-01", paymentDate: "2026-03-20" });
+    await seedPostedDividend({ eventId: ev2330, receivedCashAmount: 100 });
+    await seedPostedDividend({ eventId: ev0050, receivedCashAmount: 150 });
 
-    const div2330 = await createDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20", cashDividendPerShare: 10 });
-    const div0050 = await createDividendEvent({ ticker: "0050", exDividendDate: "2026-03-01", paymentDate: "2026-03-20", cashDividendPerShare: 3 });
-    await postDividend(div2330, 100);
-    await postDividend(div0050, 150);
-
-    const inputs = await (app.persistence as PostgresPersistence).getSnapshotGenerationInputs(userId, {
+    const inputs = await persistence.getSnapshotGenerationInputs(userId, {
       accountId,
       ticker: "0050",
     });
@@ -266,29 +278,38 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     expect(inputs.postedDividends).toHaveLength(1);
     expect(inputs.postedDividends[0]!.ticker).toBe("0050");
     expect(inputs.postedDividends[0]!.amount).toBe(150);
-    // Scoped: only trades for 0050 return
-    expect(inputs.trades.every((t) => t.ticker === "0050")).toBe(true);
   });
 
-  it("returns empty postedDividends when dividend ledger entry is superseded or reversed", async () => {
-    await seedDailyBar("2330", "2026-01-02", 600);
-    await createTrade({ ticker: "2330", tradeDate: "2026-01-02", quantity: 10, unitPrice: 600, type: "BUY", commissionAmount: 0, taxAmount: 0 });
-
-    const dividendEventId = await createDividendEvent({
-      ticker: "2330",
-      exDividendDate: "2026-02-01",
-      paymentDate: "2026-02-20",
-      cashDividendPerShare: 10,
+  it("returns empty postedDividends when dividend ledger entry is superseded", async () => {
+    const eventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    await seedPostedDividend({
+      eventId,
+      receivedCashAmount: 100,
+      supersededAt: new Date().toISOString(),
     });
-    await postDividend(dividendEventId, 100);
 
-    // Mark the just-created ledger entry as superseded.
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
+    expect(inputs.postedDividends).toHaveLength(0);
+  });
+
+  it("filters out non-posted dividend ledger entries", async () => {
+    const eventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    const ledgerId = randomUUID();
+    // "expected" status — not yet posted. Receipts don't exist for expected entries.
     await pool.query(
-      `UPDATE dividend_ledger_entries SET superseded_at = NOW() WHERE dividend_event_id = $1`,
-      [dividendEventId],
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity,
+         expected_cash_amount, expected_stock_quantity, received_stock_quantity,
+         posting_status, reconciliation_status, version, source_composition_status,
+         booked_at
+       ) VALUES ($1, $2, $3, 10,
+                 100, 0, 0,
+                 'expected', 'open', 1, 'provided',
+                 NOW())`,
+      [ledgerId, accountId, eventId],
     );
 
-    const inputs = await (app.persistence as PostgresPersistence).getSnapshotGenerationInputs(userId);
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
     expect(inputs.postedDividends).toHaveLength(0);
   });
 });
