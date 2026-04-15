@@ -170,6 +170,47 @@ jobs:
           warp-cli --accept-tos status || true
           sudo systemctl status warp-svc --no-pager || true
 
+      - name: Diagnose WARP registration identifiers (temporary)
+        if: always()
+        run: |
+          # One-off diagnostic. Previous commits assumed
+          # `warp-cli registration delete` would remove the device from the
+          # Zero Trust dashboard, but MDM-enrolled clients are explicitly
+          # prevented from leaving the org and the command returns
+          # "Operation not authorized in this context" (silently swallowed
+          # by the `|| true` below). Capture enough CLI metadata here so a
+          # follow-up commit can replace the no-op delete with an authenticated
+          # Cloudflare API call scoped to this runner's registration id.
+          set +e
+          echo "=== warp-cli --help (top-level commands) ==="
+          warp-cli --help 2>&1 | sed -n '1,120p'
+          echo
+          echo "=== warp-cli registration --help ==="
+          warp-cli registration --help 2>&1 | sed -n '1,40p'
+          echo
+          echo "=== warp-cli status ==="
+          warp-cli --accept-tos status 2>&1
+          echo
+          echo "=== warp-cli account (if supported) ==="
+          warp-cli --accept-tos account 2>&1 | sed -n '1,20p'
+          echo
+          echo "=== warp-cli settings (if supported) ==="
+          warp-cli --accept-tos settings 2>&1 | sed -n '1,40p'
+          echo
+          echo "=== warp-cli registration show (if supported) ==="
+          warp-cli --accept-tos registration show 2>&1 | sed -n '1,20p'
+          echo
+          echo "=== /var/lib/cloudflare-warp listing (metadata only, mdm.xml already removed by daemon) ==="
+          sudo ls -la /var/lib/cloudflare-warp/ 2>&1 | sed -n '1,15p'
+          echo
+          echo "=== reg.json / conf.json contents (if present) ==="
+          for f in /var/lib/cloudflare-warp/reg.json /var/lib/cloudflare-warp/conf.json; do
+            if sudo test -f "$f"; then
+              echo "--- $f ---"
+              sudo cat "$f" 2>&1 | sed -n '1,50p'
+            fi
+          done
+
       - name: Revoke WARP registration
         if: always()
         run: |
@@ -181,6 +222,11 @@ jobs:
           # (RegistrationMissing(Invalidated(ApiMismatch))) and SSH then times
           # out. Free/Team plans don't expose bulk revoke in the UI, so
           # preventing the accumulation at source is the only sustainable fix.
+          # NOTE: `warp-cli registration delete` is rejected for MDM-enrolled
+          # clients with "Operation not authorized in this context". This
+          # step is therefore a no-op today; the diagnostic step above is
+          # gathering the data needed to replace it with an authenticated
+          # Cloudflare API call in a follow-up PR.
           set +e
           warp-cli --accept-tos disconnect || true
           warp-cli --accept-tos registration delete || true
