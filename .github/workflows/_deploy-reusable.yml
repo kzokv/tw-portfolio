@@ -217,11 +217,16 @@ jobs:
             exit 0
           fi
           echo "Revoking WARP registration $reg_id from Cloudflare account ${CF_ACCOUNT_ID}"
+          # The REST contract is `DELETE /accounts/{id}/devices/registrations`
+          # with the registration id passed as a `?id=` query param. The SDK
+          # method `bulk_delete()` doesn't correspond to a URL suffix; passing
+          # `/registrations/bulk_delete` returns Cloudflare error 10405
+          # ("Method not allowed for this authentication scheme") which is
+          # misleadingly an auth-shaped error for what is really a wrong
+          # URL/method. See https://developers.cloudflare.com/api/resources/zero_trust/subresources/devices/subresources/registrations/methods/bulk_delete/
           http=$(curl -sS -o /tmp/cf-revoke.json -w '%{http_code}' \
-            -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/devices/registrations/bulk_delete" \
-            -H "Authorization: Bearer ${CF_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --data "[\"${reg_id}\"]")
+            -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/devices/registrations?id=${reg_id}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}")
           # Echo the API response body so the operator can see the outcome.
           # The body is a normal CF API envelope: {success, errors, messages, result}.
           cat /tmp/cf-revoke.json
