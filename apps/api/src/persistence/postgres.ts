@@ -3692,6 +3692,17 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  async getRepairCooldownMinutes(): Promise<number | null> {
+    const r = await this.pool.query<{ repair_cooldown_minutes: number | null }>(
+      "SELECT repair_cooldown_minutes FROM public.app_config WHERE id = 1",
+    );
+    if (r.rowCount === 0) {
+      console.warn("[app_config] row missing — falling back to env REPAIR_COOLDOWN_MINUTES");
+      return null;
+    }
+    return r.rows[0].repair_cooldown_minutes;
+  }
+
   async upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
     const client = await this.pool.connect();
     try {
@@ -3759,7 +3770,7 @@ export class PostgresPersistence implements Persistence {
 
   // --- Monitored Symbols ---
 
-  async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
+  async getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]> {
     const result = await this.pool.query<{
       ticker: string;
       source: "manual" | "position";
@@ -3886,7 +3897,11 @@ export class PostgresPersistence implements Persistence {
     return { newTickers };
   }
 
-  async listInstrumentsCatalog(search?: string, type?: string, _userId?: string): Promise<InstrumentCatalogItemDto[]> {
+  async listInstrumentsCatalog(
+    search?: string,
+    type?: string,
+    _userId?: string,
+  ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]> {
     const conditions: string[] = ["i.delisted_at IS NULL"];
     const params: unknown[] = [];
     let paramIndex = 1;

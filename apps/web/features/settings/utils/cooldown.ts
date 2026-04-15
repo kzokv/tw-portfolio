@@ -1,19 +1,18 @@
-const DEFAULT_COOLDOWN_MINUTES = 60;
-
 /**
  * Returns the number of minutes remaining in the repair cooldown window,
- * or 0 if the cooldown has expired or no repair has been performed.
+ * or 0 if the cooldown has expired or no repair is in force.
+ *
+ * The server computes `repairAvailableAt` as `lastRepairAt + effectiveCooldown`
+ * (see `deriveRepairAvailableAt` in apps/api). The client just compares to now.
  */
 export function getCooldownRemainingMinutes(
-  lastRepairAt: string | null | undefined,
+  repairAvailableAt: string | null | undefined,
   now: Date = new Date(),
-  cooldownMinutes: number = DEFAULT_COOLDOWN_MINUTES,
 ): number {
-  if (!lastRepairAt) return 0;
-  const parsed = new Date(lastRepairAt);
-  if (Number.isNaN(parsed.getTime())) return 0;
-  const cooldownMs = cooldownMinutes * 60 * 1000;
-  const elapsed = now.getTime() - parsed.getTime();
-  if (elapsed >= cooldownMs) return 0;
-  return Math.max(1, Math.ceil((cooldownMs - elapsed) / (60 * 1000)));
+  if (!repairAvailableAt) return 0;
+  const target = new Date(repairAvailableAt).getTime();
+  if (Number.isNaN(target)) return 0;
+  const remaining = target - now.getTime();
+  if (remaining <= 0) return 0;
+  return Math.max(1, Math.ceil(remaining / 60_000));
 }

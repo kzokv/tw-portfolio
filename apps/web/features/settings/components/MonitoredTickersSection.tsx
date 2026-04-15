@@ -14,6 +14,7 @@ interface RepairCapableItem {
   ticker: string;
   barsBackfillStatus: string | null;
   lastRepairAt?: string | null;
+  repairAvailableAt?: string | null;
   name?: string | null;
   source?: "manual" | "position";
 }
@@ -120,6 +121,7 @@ export function MonitoredTickersSection({
           instrumentType: instrument?.instrumentType ?? null,
           barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
           lastRepairAt: instrument?.lastRepairAt ?? null,
+          repairAvailableAt: instrument?.repairAvailableAt ?? null,
         };
       })
       .sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -144,6 +146,7 @@ export function MonitoredTickersSection({
           barsBackfillStatus: positionTicker.barsBackfillStatus ?? null,
           source: "position",
           lastRepairAt: (positionTicker as RepairCapableItem).lastRepairAt ?? null,
+          repairAvailableAt: (positionTicker as RepairCapableItem).repairAvailableAt ?? null,
         });
       }
     }
@@ -187,7 +190,7 @@ export function MonitoredTickersSection({
   function handleToggleRepairTicker(item: RepairCapableItem): void {
     const isSelected = repairSelection.has(item.ticker);
     const isBackfilling = item.barsBackfillStatus === "pending" || item.barsBackfillStatus === "backfilling";
-    const remaining = getCooldownRemainingMinutes(item.lastRepairAt);
+    const remaining = getCooldownRemainingMinutes(item.repairAvailableAt);
     if (!isSelected && (isBackfilling || remaining > 0)) return;
 
     if (!isSelected && repairSelection.size >= 20) {
@@ -366,7 +369,7 @@ export function MonitoredTickersSection({
         ) : (
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50/35 p-2">
             {filteredRepairCandidates.map((item) => {
-              const remaining = getCooldownRemainingMinutes(item.lastRepairAt);
+              const remaining = getCooldownRemainingMinutes(item.repairAvailableAt);
               const disabledReason =
                 item.barsBackfillStatus === "pending" || item.barsBackfillStatus === "backfilling"
                   ? dict.settings.repairModeUnavailableBackfill

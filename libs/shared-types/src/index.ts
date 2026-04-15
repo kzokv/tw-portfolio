@@ -278,6 +278,8 @@ export interface MonitoredTickerDto {
   instrumentType: InstrumentType | null;
   barsBackfillStatus: string | null;
   lastRepairAt: string | null;
+  /** KZO-133: earliest ISO time the ticker can be repaired; null when no prior repair. */
+  repairAvailableAt: string | null;
 }
 
 export interface InstrumentCatalogItemDto {
@@ -287,6 +289,8 @@ export interface InstrumentCatalogItemDto {
   marketCode: string;
   barsBackfillStatus: string;
   lastRepairAt: string | null;
+  /** KZO-133: earliest ISO time the instrument can be repaired; null when no prior repair. */
+  repairAvailableAt: string | null;
 }
 
 // ── Notification types (KZO-132) ────────────────────────────────────────────

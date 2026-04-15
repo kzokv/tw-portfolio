@@ -121,7 +121,7 @@ export function TickerHistoryClient({
 
   const lockedAccountOptions = accounts.filter((account) => account.id === accountId).map((account) => ({ id: account.id, name: account.name }));
 
-  const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.lastRepairAt), [instrumentState]);
+  const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.repairAvailableAt), [instrumentState]);
   const isBackfillBusy = instrumentState?.barsBackfillStatus === "pending" || instrumentState?.barsBackfillStatus === "backfilling";
   const repairDisabled = isDemo || isBackfillBusy || cooldownRemaining > 0 || isRepairSubmitting;
   const lastRepairAt = useMemo(() => {
@@ -185,8 +185,11 @@ export function TickerHistoryClient({
       if (event.type === "repair_complete") {
         setRepairInProgress(false);
         setRepairMessage(dict.tickerHistory.repairToastCompleted);
+        const now = new Date();
+        const nowIso = now.toISOString();
+        const optimisticAvailableAt = new Date(now.getTime() + 60 * 60_000).toISOString();
         setInstrumentState((prev) =>
-          prev ? { ...prev, lastRepairAt: new Date().toISOString() } : prev,
+          prev ? { ...prev, lastRepairAt: nowIso, repairAvailableAt: optimisticAvailableAt } : prev,
         );
       }
 

@@ -44,8 +44,8 @@ describe("useInstrumentCatalog", () => {
   it("filters null instrument types from the fetched catalog", async () => {
     vi.mocked(fetchTransactionInstrumentCatalog).mockResolvedValue({
       instruments: [
-        { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null },
-        { ticker: "020000", name: "ETN", instrumentType: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null },
+        { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null },
+        { ticker: "020000", name: "ETN", instrumentType: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null },
       ] satisfies InstrumentCatalogItemDto[],
     });
 
@@ -63,9 +63,9 @@ describe("useInstrumentCatalog", () => {
 
 describe("filterInstrumentCatalog", () => {
   const catalog: TransactionInstrumentOption[] = [
-    { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null },
-    { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready", lastRepairAt: null },
-    { ticker: "0050", name: "Yuanta Taiwan 50 ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null },
+    { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null },
+    { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready", lastRepairAt: null, repairAvailableAt: null },
+    { ticker: "0050", name: "Yuanta Taiwan 50 ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null },
   ];
 
   it("matches by ticker and name case-insensitively", () => {
@@ -81,6 +81,7 @@ describe("filterInstrumentCatalog", () => {
       marketCode: "TW",
       barsBackfillStatus: "pending",
       lastRepairAt: null,
+      repairAvailableAt: null,
     }));
 
     const filtered = filterInstrumentCatalog(largeCatalog, "");
