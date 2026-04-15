@@ -33,6 +33,15 @@ on:
         required: true
       DEPLOY_USER:
         required: true
+      # Optional — required for the post-deploy WARP registration revoke
+      # (`Revoke WARP registration via Cloudflare API` step). When unset, the
+      # revoke step no-ops with a log line and the deploy still completes,
+      # so this stays optional for backward compatibility with any caller
+      # that hasn't provisioned the API token / account id yet.
+      CF_API_TOKEN:
+        required: false
+      CF_ACCOUNT_ID:
+        required: false
 
 permissions: {}
 
@@ -170,66 +179,58 @@ jobs:
           warp-cli --accept-tos status || true
           sudo systemctl status warp-svc --no-pager || true
 
-      - name: Diagnose WARP registration identifiers (temporary)
+      - name: Disconnect WARP
         if: always()
         run: |
-          # One-off diagnostic. Previous commits assumed
-          # `warp-cli registration delete` would remove the device from the
-          # Zero Trust dashboard, but MDM-enrolled clients are explicitly
-          # prevented from leaving the org and the command returns
-          # "Operation not authorized in this context" (silently swallowed
-          # by the `|| true` below). Capture enough CLI metadata here so a
-          # follow-up commit can replace the no-op delete with an authenticated
-          # Cloudflare API call scoped to this runner's registration id.
+          # Local cleanup only — closes the WARP tunnel from the runner side.
+          # Does not remove the device row from the Zero Trust dashboard;
+          # that's done in the next step via the Cloudflare API.
           set +e
-          echo "=== warp-cli --help (top-level commands) ==="
-          warp-cli --help 2>&1 | sed -n '1,120p'
-          echo
-          echo "=== warp-cli registration --help ==="
-          warp-cli registration --help 2>&1 | sed -n '1,40p'
-          echo
-          echo "=== warp-cli status ==="
-          warp-cli --accept-tos status 2>&1
-          echo
-          echo "=== warp-cli account (if supported) ==="
-          warp-cli --accept-tos account 2>&1 | sed -n '1,20p'
-          echo
-          echo "=== warp-cli settings (if supported) ==="
-          warp-cli --accept-tos settings 2>&1 | sed -n '1,40p'
-          echo
-          echo "=== warp-cli registration show (if supported) ==="
-          warp-cli --accept-tos registration show 2>&1 | sed -n '1,20p'
-          echo
-          echo "=== /var/lib/cloudflare-warp listing (metadata only, mdm.xml already removed by daemon) ==="
-          sudo ls -la /var/lib/cloudflare-warp/ 2>&1 | sed -n '1,15p'
-          echo
-          echo "=== reg.json / conf.json contents (if present) ==="
-          for f in /var/lib/cloudflare-warp/reg.json /var/lib/cloudflare-warp/conf.json; do
-            if sudo test -f "$f"; then
-              echo "--- $f ---"
-              sudo cat "$f" 2>&1 | sed -n '1,50p'
-            fi
-          done
+          warp-cli --accept-tos disconnect || true
 
-      - name: Revoke WARP registration
+      - name: Revoke WARP registration via Cloudflare API
         if: always()
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           # Each CI run creates a fresh device registration under the
           # non_identity@<team>.cloudflareaccess.com service-token pseudo-user.
-          # Without this cleanup step, orphan registrations accumulate and
-          # eventually hit the per-user device cap, after which subsequent
-          # registrations are silently invalidated post-enrollment
-          # (RegistrationMissing(Invalidated(ApiMismatch))) and SSH then times
-          # out. Free/Team plans don't expose bulk revoke in the UI, so
-          # preventing the accumulation at source is the only sustainable fix.
-          # NOTE: `warp-cli registration delete` is rejected for MDM-enrolled
-          # clients with "Operation not authorized in this context". This
-          # step is therefore a no-op today; the diagnostic step above is
-          # gathering the data needed to replace it with an authenticated
-          # Cloudflare API call in a follow-up PR.
+          # MDM-enrolled clients cannot self-revoke (`warp-cli registration
+          # delete` returns "Operation not authorized in this context"), so
+          # we have to call Cloudflare's management API directly. Without
+          # this cleanup, orphan registrations accumulate, eventually hit
+          # the per-user device cap, and subsequent registrations get
+          # silently invalidated (Unable(RegistrationMissing(Invalidated(
+          # ApiMismatch)))). Free/Team plans don't expose bulk revoke in
+          # the UI, so this step is the only sustainable cleanup.
           set +e
-          warp-cli --accept-tos disconnect || true
-          warp-cli --accept-tos registration delete || true
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+            echo "CF_API_TOKEN or CF_ACCOUNT_ID not configured; skipping API revoke."
+            echo "Device row will persist in the Zero Trust dashboard until manually deleted."
+            exit 0
+          fi
+          reg_id=$(warp-cli --accept-tos registration show 2>/dev/null \
+                    | awk -F': *' '/^ID:/ {print $2; exit}')
+          if [ -z "$reg_id" ]; then
+            echo "No registration id surfaced by warp-cli (WARP may never have connected); nothing to revoke."
+            exit 0
+          fi
+          echo "Revoking WARP registration $reg_id from Cloudflare account ${CF_ACCOUNT_ID}"
+          http=$(curl -sS -o /tmp/cf-revoke.json -w '%{http_code}' \
+            -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/devices/registrations/bulk_delete" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "[\"${reg_id}\"]")
+          # Echo the API response body so the operator can see the outcome.
+          # The body is a normal CF API envelope: {success, errors, messages, result}.
+          cat /tmp/cf-revoke.json
+          echo
+          if [ "$http" != "200" ]; then
+            echo "Cloudflare API returned HTTP $http; device row may persist." >&2
+            exit 1
+          fi
+          echo "Device $reg_id revoked successfully."
 
       - name: Cleanup credentials
         if: always()
