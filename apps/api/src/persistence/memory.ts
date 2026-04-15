@@ -100,6 +100,8 @@ export class MemoryPersistence implements Persistence {
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
+  /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
+  private _repairCooldownMinutes: number | null = null;
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
@@ -1080,9 +1082,20 @@ export class MemoryPersistence implements Persistence {
     }
   }
 
+  // --- App Config (KZO-133) ---
+
+  async getRepairCooldownMinutes(): Promise<number | null> {
+    return this._repairCooldownMinutes;
+  }
+
+  /** Test-only: override the in-memory repair cooldown (null = use env fallback). */
+  _setRepairCooldownMinutes(n: number | null): void {
+    this._repairCooldownMinutes = n;
+  }
+
   // --- Monitored Tickers ---
 
-  async getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]> {
+  async getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]> {
     const manualTickers = this.monitoredTickers.get(userId) ?? new Map<string, string>();
     const store = this.stores.get(userId);
     const catalog = this._catalogForUser(userId);
@@ -1097,8 +1110,9 @@ export class MemoryPersistence implements Persistence {
       }
     }
 
-    // Build union: manual selections take precedence
-    const result: MonitoredTickerDto[] = [];
+    // Build union: manual selections take precedence. Persistence returns rows
+    // without `repairAvailableAt` (KZO-133 — route layer decorates).
+    const result: Omit<MonitoredTickerDto, "repairAvailableAt">[] = [];
     const seen = new Set<string>();
 
     for (const ticker of manualTickers.keys()) {
@@ -1163,7 +1177,11 @@ export class MemoryPersistence implements Persistence {
     return { newTickers };
   }
 
-  async listInstrumentsCatalog(search?: string, type?: string, userId?: string): Promise<InstrumentCatalogItemDto[]> {
+  async listInstrumentsCatalog(
+    search?: string,
+    type?: string,
+    userId?: string,
+  ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]> {
     let results = [...this._catalogForUser(userId).values()].filter((instrument) => !instrument.delistedAt);
 
     if (search) {

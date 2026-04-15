@@ -329,13 +329,23 @@ export interface Persistence {
   updateBackfillStatus(ticker: string, status: BackfillStatus): Promise<void>;
   updateLastRepairAt(ticker: string): Promise<void>;
 
+  // App config (KZO-133) — global settings. Returns null when unset (callers
+  // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
+  getRepairCooldownMinutes(): Promise<number | null>;
+
   // Monitored tickers
-  getMonitoredSet(userId: string): Promise<MonitoredTickerDto[]>;
+  // KZO-133: persistence returns DTOs without `repairAvailableAt` — route layer
+  // decorates using getEffectiveRepairCooldownMinutes() + deriveRepairAvailableAt().
+  getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]>;
   getAllMonitoredTickers(): Promise<string[]>;
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
   replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
-  listInstrumentsCatalog(search?: string, type?: string, userId?: string): Promise<InstrumentCatalogItemDto[]>;
+  listInstrumentsCatalog(
+    search?: string,
+    type?: string,
+    userId?: string,
+  ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]>;
 
   // Catalog sync
   upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;

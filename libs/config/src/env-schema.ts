@@ -14,6 +14,8 @@ export const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX_MUTATIONS: z.coerce.number().int().positive().default(120),
+  // Fallback default (minutes) used when `app_config.repair_cooldown_minutes` is NULL or
+  // the singleton row is missing. When the DB value is set, it is authoritative. See KZO-133.
   REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
   // Google OAuth — required when AUTH_MODE=oauth.
   // GOOGLE_CLIENT_ID: OAuth 2.0 client ID from Google Cloud Console credentials.

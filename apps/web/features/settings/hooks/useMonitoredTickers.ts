@@ -114,14 +114,26 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
           break;
         case "repair_started":
           break;
-        case "repair_complete":
+        case "repair_complete": {
+          const now = new Date();
+          const nowIso = now.toISOString();
+          const optimisticAvailableAt = new Date(now.getTime() + 60 * 60_000).toISOString();
           setMonitoredTickers((prev) =>
-            prev.map((t) => (t.ticker === event.ticker ? { ...t, lastRepairAt: new Date().toISOString() } : t)),
+            prev.map((t) =>
+              t.ticker === event.ticker
+                ? { ...t, lastRepairAt: nowIso, repairAvailableAt: optimisticAvailableAt }
+                : t,
+            ),
           );
           setInstruments((prev) =>
-            prev.map((i) => (i.ticker === event.ticker ? { ...i, lastRepairAt: new Date().toISOString() } : i)),
+            prev.map((i) =>
+              i.ticker === event.ticker
+                ? { ...i, lastRepairAt: nowIso, repairAvailableAt: optimisticAvailableAt }
+                : i,
+            ),
           );
           break;
+        }
         case "repair_failed":
           break;
       }

@@ -44,6 +44,7 @@ import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
+import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store, Transaction } from "../types/store.js";
 
@@ -245,14 +246,6 @@ const cashLedgerQuerySchema = z.object({
   sortBy: z.enum(["entryDate", "entryType", "amount", "currency", "accountId"]).default("entryDate"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
-
-function remainingCooldownMinutes(lastRepairAt: string, cooldownMinutes: number, nowMs: number): number {
-  const repairedAtMs = new Date(lastRepairAt).getTime();
-  if (Number.isNaN(repairedAtMs)) return 0;
-  const cooldownUntilMs = repairedAtMs + cooldownMinutes * 60_000;
-  if (nowMs >= cooldownUntilMs) return 0;
-  return Math.ceil((cooldownUntilMs - nowMs) / 60_000);
-}
 
 function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomain?: string): string {
   const secure = isProduction || cookieName.startsWith("__Host-");
@@ -2027,12 +2020,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse(req.query);
 
-    return { instruments: await app.persistence.listInstrumentsCatalog(query.search, query.type, userId) };
+    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const rows = await app.persistence.listInstrumentsCatalog(query.search, query.type, userId);
+    return { instruments: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
   });
 
   app.get("/monitored-tickers", async (req) => {
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    return { tickers: await app.persistence.getMonitoredSet(userId) };
+    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const rows = await app.persistence.getMonitoredSet(userId);
+    return { tickers: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
   });
 
   app.put("/monitored-tickers", async (req) => {
@@ -2056,8 +2053,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
     const monitored = await app.persistence.getMonitoredSet(userId);
-    return { tickers: monitored, newTickers: result.newTickers };
+    const decorated = monitored.map((r) => ({
+      ...r,
+      repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown),
+    }));
+    return { tickers: decorated, newTickers: result.newTickers };
   });
 
   // --- Backfill Retry (KZO-126) ---
@@ -2131,6 +2133,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const nowMs = Date.now();
+    const effectiveCooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
     const queued: string[] = [];
     const rejected: Array<{ ticker: string; reason: string }> = [];
 
@@ -2147,7 +2150,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (instrument.lastRepairAt) {
-        const minutes = remainingCooldownMinutes(instrument.lastRepairAt, Env.REPAIR_COOLDOWN_MINUTES, nowMs);
+        const minutes = remainingCooldownMinutes(instrument.lastRepairAt, effectiveCooldown, nowMs);
         if (minutes > 0) {
           rejected.push({ ticker, reason: `cooldown_active:${minutes}` });
           continue;
