@@ -314,7 +314,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
   });
 
   it("first login seeds all fields from claims", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-first-login", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-first-login", {
       email: "alice@example.com",
       name: "Alice Chen",
       picture: "https://lh3.googleusercontent.com/alice.jpg",
@@ -338,7 +338,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
 
   it("repeat login updates mutable fields (display_name, provider fields, last_seen_at)", async () => {
     // First login
-    const userId = await persistence.resolveOrCreateUser("google", "sub-repeat", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-repeat", {
       email: "bob@example.com",
       name: "Bob Original",
       picture: "https://lh3.googleusercontent.com/bob-old.jpg",
@@ -353,7 +353,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Repeat login with updated info
-    const sameUserId = await persistence.resolveOrCreateUser("google", "sub-repeat", {
+    const { userId: sameUserId } = await persistence.resolveOrCreateUser("google", "sub-repeat", {
       email: "bob@example.com",
       name: "Bob Updated",
       picture: "https://lh3.googleusercontent.com/bob-new.jpg",
@@ -377,7 +377,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
 
   it("repeat login does NOT touch users.email or ext.provider_email", async () => {
     // First login
-    const userId = await persistence.resolveOrCreateUser("google", "sub-immutable", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-immutable", {
       email: "carol@example.com",
       name: "Carol",
       picture: "https://lh3.googleusercontent.com/carol.jpg",
@@ -402,14 +402,14 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
 
   it("same email, different provider_subject — same UUID, stale ext row deleted", async () => {
     // First login with sub-A
-    const userId = await persistence.resolveOrCreateUser("google", "sub-old", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-old", {
       email: "dave@example.com",
       name: "Dave",
       picture: "https://lh3.googleusercontent.com/dave.jpg",
     });
 
     // Second login with different sub but same email (e.g. user recreated Google account)
-    const sameUserId = await persistence.resolveOrCreateUser("google", "sub-new", {
+    const { userId: sameUserId } = await persistence.resolveOrCreateUser("google", "sub-new", {
       email: "dave@example.com",
       name: "Dave Recreated",
       picture: "https://lh3.googleusercontent.com/dave-new.jpg",
@@ -429,14 +429,14 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
 
   it("different email, same provider_subject — creates new user", async () => {
     // First user with email A
-    const userIdA = await persistence.resolveOrCreateUser("google", "sub-shared", {
+    const { userId: userIdA } = await persistence.resolveOrCreateUser("google", "sub-shared", {
       email: "eve-a@example.com",
       name: "Eve A",
       picture: "https://lh3.googleusercontent.com/eve-a.jpg",
     });
 
     // Different email resolves to a different user (email is the identity anchor)
-    const userIdB = await persistence.resolveOrCreateUser("google", "sub-shared", {
+    const { userId: userIdB } = await persistence.resolveOrCreateUser("google", "sub-shared", {
       email: "eve-b@example.com",
       name: "Eve B",
       picture: "https://lh3.googleusercontent.com/eve-b.jpg",
@@ -452,7 +452,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
   });
 
   it("display name change propagates to users.display_name", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-name-change", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-name-change", {
       email: "frank@example.com",
       name: "Frank Original",
     });
@@ -470,7 +470,7 @@ describePostgres("resolveOrCreateUser field sync rules", () => {
   });
 
   it("null name claim results in NULL display_name and provider_display_name", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-null-name", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-null-name", {
       email: "nullname@example.com",
       // name is omitted (undefined)
     });

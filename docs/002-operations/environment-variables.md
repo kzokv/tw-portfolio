@@ -88,6 +88,12 @@ graph TD
 | `APP_BASE_URL` | Post-login redirect base URL (computed in compose from `PUBLIC_DOMAIN_WEB`) |
 | `GOOGLE_TOKEN_URL` | Google token endpoint (default: `https://oauth2.googleapis.com/token`) |
 
+### Admin bootstrap
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INITIAL_ADMIN_EMAIL` | (none) | Optional. When set, promotes matching user to `admin` on startup; bypasses invite-gate on first sign-in. See [Auth — INITIAL_ADMIN_EMAIL](../001-architecture/auth-and-session.md#initial_admin_email-bootstrap). |
+
 ### Cookie configuration
 
 | Variable | Default | Description |

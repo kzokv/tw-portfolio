@@ -1258,3 +1258,32 @@ The following sections describe product behavior for support and verification. T
 ### 14.4 Tooltips
 
 - Settings terms and key financial terms on the dashboard/forms have hover/focus tooltips. Weighted-average cost basis includes detailed explanatory content in settings. Tooltips are keyboard-accessible via the info icon triggers.
+
+---
+
+## 15. KZO-143 deploy notes
+
+### Session cookie format change
+
+KZO-143 changes the OAuth session cookie from 2-part (`{userId}.{hmac}`) to 3-part (`{userId}.{sessionVersion}.{hmac}`). On deploy, any user with an active OAuth session will receive a 401 on their next API request because the old 2-part cookie fails the new signature check. The web proxy redirects them to `/login` — a one-time re-login restores the session.
+
+**Demo sessions are unaffected** — they remain 2-part (`demo:{userId}.{hmac}`).
+
+**No data migration required.** The `030_kzo143_auth_foundations.sql` migration adds columns, creates tables, and backfills emails to lowercase. It does not modify or move user data.
+
+**Rollback impact:** Rolling back the API image to pre-KZO-143 means old code sees 3-part cookies and rejects them → another forced re-login. No data corruption in either direction.
+
+### New env var: `INITIAL_ADMIN_EMAIL`
+
+Optional. When set, the startup routine promotes the matching user to admin. On first sign-in, the email bypasses the invite-gate. See [Auth and Session — INITIAL_ADMIN_EMAIL](../001-architecture/auth-and-session.md#initial_admin_email-bootstrap).
+
+If the deployment is a fresh install with no existing users, set this to the admin's Google email before first boot.
+
+### New CLI commands
+
+- `npm run admin:promote -- email@example.com` — promotes an existing user to admin (requires the user to have signed in at least once)
+- `npm run admin:bootstrap-invite -- email@example.com admin` — seeds an invite directly in DB, bypassing HTTP auth (escape hatch for fresh deployments when `INITIAL_ADMIN_EMAIL` is not set)
+
+### Migration pre-backfill guard
+
+Migration `030_kzo143_auth_foundations.sql` lowercases all `users.email` values. If case-insensitive duplicates exist (e.g. `User@X.com` and `user@x.com`), the migration **aborts with a listing of the duplicates**. Resolve manually (delete or merge the duplicate) before re-running.

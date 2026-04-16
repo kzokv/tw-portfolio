@@ -53,11 +53,12 @@ describePostgres("notification CRUD persistence", () => {
   }
 
   async function createUser(email: string): Promise<string> {
-    return persistence!.resolveOrCreateUser("google", `sub:${email}`, {
+    const { userId } = await persistence!.resolveOrCreateUser("google", `sub:${email}`, {
       email,
       name: email,
       emailVerified: true,
     });
+    return userId;
   }
 
   beforeEach(async () => {

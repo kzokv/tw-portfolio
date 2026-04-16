@@ -1,46 +1,21 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { Card } from "../../../components/ui/Card";
 import { buttonVariants } from "../../../components/ui/Button";
+import { authPageCopy, resolveAuthLocale, type AuthErrorReason } from "../../../lib/authPages";
 import { cn } from "../../../lib/utils";
-
-const REASON_MESSAGES: Record<string, { title: string; description: string; linkText?: string }> = {
-  invalid_state: {
-    title: "Sign-in failed",
-    description: "The sign-in request was invalid or expired. Please try again.",
-  },
-  oauth_error: {
-    title: "Sign-in cancelled",
-    description: "Google reported an error during sign-in. Please try again.",
-  },
-  server_error: {
-    title: "Something went wrong",
-    description: "A server error occurred during sign-in. Please try again in a moment.",
-  },
-  session_expired: {
-    title: "Your session has expired",
-    description: "Please sign in again to continue.",
-    linkText: "Sign in again",
-  },
-  insecure_transport: {
-    title: "Session cookie rejected",
-    description:
-      "Your browser rejected the session cookie because you're accessing the app over HTTP, but the cookie requires HTTPS (Secure flag). To fix this, set NODE_ENV=test in your Docker env file (infra/docker/.env.local) and rebuild.",
-    linkText: "Back to login",
-  },
-};
-
-const DEFAULT_MESSAGE: { title: string; description: string; linkText?: string } = {
-  title: "Sign-in failed",
-  description: "An unexpected error occurred during sign-in. Please try again.",
-};
 
 interface Props {
   searchParams: Promise<{ reason?: string }>;
 }
 
 export default async function AuthErrorPage({ searchParams }: Props) {
+  const headerStore = await headers();
+  const locale = resolveAuthLocale(headerStore.get("accept-language"));
+  const copy = authPageCopy[locale];
   const { reason } = await searchParams;
-  const message = (reason ? REASON_MESSAGES[reason] : undefined) ?? DEFAULT_MESSAGE;
+  const typedReason = reason as AuthErrorReason | undefined;
+  const message = (typedReason ? copy.errorReasons[typedReason] : undefined) ?? copy.defaultError;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-bg px-4">
@@ -54,7 +29,7 @@ export default async function AuthErrorPage({ searchParams }: Props) {
           data-testid="auth-error-try-again"
           className={cn(buttonVariants({ variant: "default" }), "w-full")}
         >
-          {message.linkText ?? "Try again"}
+          {message.linkText ?? copy.defaultError.linkText}
         </Link>
       </Card>
     </main>

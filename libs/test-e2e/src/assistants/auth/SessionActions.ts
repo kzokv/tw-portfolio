@@ -13,6 +13,8 @@ interface TOAuthCallbackOptions {
   state?: string;
 }
 
+type TUserRole = "admin" | "member" | "viewer";
+
 export class SessionActions extends AppBaseActions {
   declare protected readonly _instance: BrowserSessionPage;
 
@@ -51,8 +53,18 @@ export class SessionActions extends AppBaseActions {
   }
 
   @Step()
-  async requestOAuthStart(returnTo?: string): Promise<import("@playwright/test").APIResponse> {
-    const path = returnTo ? `/auth/google/start?returnTo=${encodeURIComponent(returnTo)}` : "/auth/google/start";
+  async requestOAuthStart(
+    returnTo?: string,
+    inviteCode?: string,
+  ): Promise<import("@playwright/test").APIResponse> {
+    const params = new URLSearchParams();
+    if (returnTo) {
+      params.set("returnTo", returnTo);
+    }
+    if (inviteCode) {
+      params.set("invite_code", inviteCode);
+    }
+    const path = params.size > 0 ? `/auth/google/start?${params.toString()}` : "/auth/google/start";
     return await this.request.get(apiUrl(path), { maxRedirects: 0 });
   }
 
@@ -78,6 +90,23 @@ export class SessionActions extends AppBaseActions {
   async requestOAuthSession(idToken?: string): Promise<import("@playwright/test").APIResponse> {
     return await this.request.post(apiUrl(E2E_ENDPOINTS.OAUTH_SESSION), {
       ...(idToken ? { data: { id_token: idToken } } : {}),
+    });
+  }
+
+  @Step()
+  async requestInvite(
+    email: string,
+    role: TUserRole = "member",
+    cookie?: string,
+    expiresAt?: string,
+  ): Promise<import("@playwright/test").APIResponse> {
+    return await this.request.post(apiUrl("/invites"), {
+      data: {
+        email,
+        role,
+        ...(expiresAt ? { expiresAt } : {}),
+      },
+      ...(cookie ? { headers: { cookie } } : {}),
     });
   }
 

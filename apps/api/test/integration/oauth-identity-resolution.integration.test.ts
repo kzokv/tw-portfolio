@@ -57,6 +57,24 @@ async function getValidState(app: Awaited<ReturnType<typeof buildApp>>): Promise
   return new URL(location).searchParams.get("state")!;
 }
 
+async function getInviteState(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  email = "test@example.com",
+): Promise<string> {
+  const invite = await app.persistence.insertBootstrapInvite({
+    email,
+    role: "member",
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    issuedByUserId: null,
+  });
+  const res = await app.inject({
+    method: "GET",
+    url: `/auth/google/start?invite_code=${encodeURIComponent(invite.code)}`,
+  });
+  const location = res.headers.location as string;
+  return new URL(location).searchParams.get("state")!;
+}
+
 function extractCookieUserId(setCookie: string, sessionSecret: string): string | null {
   const match = setCookie.match(new RegExp(`${Env.SESSION_COOKIE_NAME}=([^;]+)`));
   if (!match) return null;
@@ -77,7 +95,7 @@ describe("OAuth callback → identity resolution", () => {
 
   it("first-time login creates user and sets cookie with UUID (not Google sub)", async () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
-    const state = await getValidState(app);
+    const state = await getInviteState(app);
 
     const res = await app.inject({
       method: "GET",
@@ -97,7 +115,7 @@ describe("OAuth callback → identity resolution", () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
 
     // First login
-    const state1 = await getValidState(app);
+    const state1 = await getInviteState(app);
     const res1 = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state1)}`,
@@ -118,7 +136,7 @@ describe("OAuth callback → identity resolution", () => {
   it("different Google sub with same email resolves to the same user (sub update)", async () => {
     // First login with sub-001
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse({ sub: "google-sub-001" })));
-    const state1 = await getValidState(app);
+    const state1 = await getInviteState(app);
     const res1 = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state1)}`,
@@ -140,7 +158,7 @@ describe("OAuth callback → identity resolution", () => {
   it("different Google sub with different email creates a new user", async () => {
     // First login
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
-    const state1 = await getValidState(app);
+    const state1 = await getInviteState(app);
     const res1 = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state1)}`,
@@ -153,7 +171,7 @@ describe("OAuth callback → identity resolution", () => {
       email: "other@example.com",
       name: "Other User",
     })));
-    const state2 = await getValidState(app);
+    const state2 = await getInviteState(app, "other@example.com");
     const res2 = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state2)}`,
@@ -165,7 +183,7 @@ describe("OAuth callback → identity resolution", () => {
 
   it("cookie userId can be used to load the user's store", async () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
-    const state = await getValidState(app);
+    const state = await getInviteState(app);
     const res = await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state)}`,
@@ -203,7 +221,7 @@ describe("ensureDefaultPortfolioData idempotency", () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
 
     // Two login cycles
-    const state1 = await getValidState(app);
+    const state1 = await getInviteState(app);
     await app.inject({
       method: "GET",
       url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(state1)}`,

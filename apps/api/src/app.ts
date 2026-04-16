@@ -5,7 +5,7 @@ import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
 import { createEventBus, type BufferedEventBus } from "./events/index.js";
-import { registerRoutes } from "./routes/registerRoutes.js";
+import { enforceRouteRole, hydrateAuthContext, isPublicRoute, registerRoutes } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
@@ -62,6 +62,39 @@ function isLocalDevOrigin(origin: string): boolean {
   return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
+async function bootstrapAdminAccess(app: AppInstance): Promise<void> {
+  if (Env.AUTH_MODE === "dev_bypass") {
+    await app.persistence.ensureDevBypassUser();
+    return;
+  }
+
+  if (!Env.INITIAL_ADMIN_EMAIL) {
+    app.log.warn({ msg: "admin_bootstrap_missing", reason: "no admin bootstrap configured" });
+    return;
+  }
+
+  const existing = await app.persistence.getAuthUserByEmail(Env.INITIAL_ADMIN_EMAIL);
+  if (!existing) {
+    app.log.warn({
+      msg: "admin_bootstrap_pending",
+      email: Env.INITIAL_ADMIN_EMAIL,
+      reason: "no user matches INITIAL_ADMIN_EMAIL; admin will be promoted on first sign-in",
+    });
+    return;
+  }
+
+  if (existing.deactivatedAt || existing.deletedAt) {
+    app.log.warn({
+      msg: "admin_bootstrap_skipped_inactive_user",
+      email: Env.INITIAL_ADMIN_EMAIL,
+      userId: existing.userId,
+    });
+    return;
+  }
+
+  await app.persistence.promoteUserToAdminByEmail(Env.INITIAL_ADMIN_EMAIL, "admin_promote_startup");
+}
+
 export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
   const app = Fastify({ logger: true }) as AppInstance;
   app.decorateRequest("__sessionType", undefined);
@@ -81,6 +114,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.oauthConfig = options.oauthConfig !== undefined ? options.oauthConfig : Env.getGoogleOAuthEnvConfig();
   app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
   await app.persistence.init();
+  await bootstrapAdminAccess(app);
 
   // KZO-37: Fire-and-forget dividend ledger backfill on boot. Brings stored
   // expected_cash_amount / eligible_quantity / expected_stock_quantity into
@@ -161,6 +195,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     if (req.__sessionType) {
       reply.header("x-session-type", req.__sessionType);
     }
+  });
+
+  app.addHook("preHandler", async (req) => {
+    const routeUrl = req.routeOptions.url;
+    if (!routeUrl || isPublicRoute(req.method, routeUrl)) {
+      return;
+    }
+
+    await hydrateAuthContext(app, req);
+    enforceRouteRole(req);
   });
 
   app.setErrorHandler((error: HttpishError, req, reply) => {

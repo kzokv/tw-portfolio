@@ -21,7 +21,7 @@ describe("resolveOrCreateUser", () => {
   });
 
   it("creates a new user and returns a UUID on first login", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     expect(userId).toBeTruthy();
     // UUID v4 format: 8-4-4-4-12 hex chars
@@ -29,14 +29,14 @@ describe("resolveOrCreateUser", () => {
   });
 
   it("returns the same UUID for an existing user with the same email", async () => {
-    const firstId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
-    const secondId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId: firstId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId: secondId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     expect(secondId).toBe(firstId);
   });
 
   it("seeds display_name from Google on first login and surfaces it in store settings", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     const store = await persistence.loadStore(userId);
     expect(store.userId).toBe(userId);
@@ -44,11 +44,11 @@ describe("resolveOrCreateUser", () => {
   });
 
   it("updates display_name from Google on subsequent login", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     // Log in again with updated name
     const updatedClaims: OAuthClaims = { ...googleClaims, name: "Alice Chen-Smith" };
-    const sameId = await persistence.resolveOrCreateUser("google", "google-sub-001", updatedClaims);
+    const { userId: sameId } = await persistence.resolveOrCreateUser("google", "google-sub-001", updatedClaims);
 
     expect(sameId).toBe(userId);
     const store = await persistence.loadStore(userId);
@@ -56,20 +56,20 @@ describe("resolveOrCreateUser", () => {
   });
 
   it("different email in claims creates a new user (email is the identity key)", async () => {
-    const aliceId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId: aliceId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     // Same Google sub but different email → treated as a new user
     const differentEmailClaims: OAuthClaims = { ...googleClaims, email: "newalice@example.com" };
-    const newId = await persistence.resolveOrCreateUser("google", "google-sub-001", differentEmailClaims);
+    const { userId: newId } = await persistence.resolveOrCreateUser("google", "google-sub-001", differentEmailClaims);
 
     expect(newId).not.toBe(aliceId);
   });
 
   it("updates provider_subject when sub changes for the same email", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     // Same email, different Google sub (account recreated)
-    const secondId = await persistence.resolveOrCreateUser("google", "google-sub-002", googleClaims);
+    const { userId: secondId } = await persistence.resolveOrCreateUser("google", "google-sub-002", googleClaims);
 
     expect(secondId).toBe(userId);
     // Verify provider_subject was actually updated in the identity store.
@@ -85,7 +85,7 @@ describe("resolveOrCreateUser", () => {
     // The guard lives in the /auth/google/callback route handler (registerRoutes.ts),
     // which rejects unverified emails before calling this function.
     // Integration tests cover the route-level rejection path.
-    const userId = await persistence.resolveOrCreateUser("google", "sub-unverified", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-unverified", {
       email: "unverified@example.com",
       emailVerified: false,
     });
@@ -94,14 +94,14 @@ describe("resolveOrCreateUser", () => {
   });
 
   it("creates a different user for a different email", async () => {
-    const aliceId = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
+    const { userId: aliceId } = await persistence.resolveOrCreateUser("google", "google-sub-001", googleClaims);
 
     const bobClaims: OAuthClaims = {
       email: "bob@example.com",
       name: "Bob Lee",
       picture: "https://lh3.googleusercontent.com/bob.jpg",
     };
-    const bobId = await persistence.resolveOrCreateUser("google", "google-sub-002", bobClaims);
+    const { userId: bobId } = await persistence.resolveOrCreateUser("google", "google-sub-002", bobClaims);
 
     expect(bobId).not.toBe(aliceId);
   });

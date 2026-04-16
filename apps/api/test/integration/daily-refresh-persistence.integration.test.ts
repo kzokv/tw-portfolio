@@ -63,7 +63,7 @@ describePostgres("daily refresh persistence queries", () => {
   }
 
   async function createUser(email: string, isDemo = false): Promise<{ userId: string; accountId: string }> {
-    const userId = await persistence!.resolveOrCreateUser("google", `sub:${email}`, {
+    const { userId } = await persistence!.resolveOrCreateUser("google", `sub:${email}`, {
       email,
       name: email,
       emailVerified: true,

@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import { WebEnv } from "@tw-portfolio/config/web";
 import { cookies, headers } from "next/headers";
+import { parseSessionCookie } from "./sessionCookie";
 
 // ---------------------------------------------------------------------------
 // Session type
@@ -12,6 +13,7 @@ import { cookies, headers } from "next/headers";
 export interface Session {
   userId: string;
   isDemo: boolean;
+  sessionVersion?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,24 +74,23 @@ const resolveSession = cache(async (): Promise<Session | null> => {
   const raw = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
   if (!raw?.trim()) return null;
 
-  const cookieValue = raw.trim();
-  const dotIndex = cookieValue.lastIndexOf(".");
-  if (dotIndex <= 0) return null;
+  const parsed = parseSessionCookie(raw);
+  if (!parsed) return null;
 
-  const userId = cookieValue.slice(0, dotIndex);
-  const receivedHmac = cookieValue.slice(dotIndex + 1);
-  if (!userId || !receivedHmac) return null;
-
-  if (!hmacVerify(userId, receivedHmac, secret)) {
+  if (!hmacVerify(parsed.signedPayload, parsed.hmac, secret)) {
     console.warn("[auth] HMAC verification failed for session cookie");
     return null;
   }
 
-  // Check for demo prefix on verified payload
-  if (userId.startsWith("demo:")) {
-    return { userId: userId.slice(5), isDemo: true };
+  if (parsed.isDemo) {
+    return { userId: parsed.userId, isDemo: true };
   }
-  return { userId, isDemo: false };
+
+  return {
+    userId: parsed.userId,
+    isDemo: false,
+    sessionVersion: parsed.sessionVersion,
+  };
 });
 
 export function isValidReturnTo(path: string): boolean {

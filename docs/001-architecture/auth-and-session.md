@@ -91,11 +91,21 @@ sequenceDiagram
 
 ### Format
 
-The session cookie value is `{payload}.{hmacSignature}`:
+Two formats coexist, disambiguated by part count:
 
-- **Payload**: the internal user UUID (e.g., `a1b2c3d4-...`)
-- **Signature**: HMAC-SHA256 of the payload using `SESSION_SECRET`
-- **Demo prefix**: demo session payloads use `demo:{userId}` to distinguish from OAuth sessions
+**OAuth sessions (3-part):** `{userId}.{sessionVersion}.{hmacSignature}`
+
+- **Payload**: `{userId}.{sessionVersion}` — internal UUID + integer version counter
+- **Signature**: HMAC-SHA256 of the full payload using `SESSION_SECRET`
+- **Session version**: checked against `users.session_version` on every authenticated API request. Mismatch → 401 (forces re-login after admin actions like disable or role change).
+
+**Demo sessions (2-part):** `demo:{userId}.{hmacSignature}`
+
+- **Payload**: `demo:{userId}` — prefix distinguishes from OAuth sessions
+- **Signature**: HMAC-SHA256 of the full payload using `SESSION_SECRET`
+- **No version check**: demo sessions self-expire via `demo_expires_at`; `session_version` does not apply.
+
+`parseSessionCookie` splits on `.` and routes by part count: 2 parts → demo path, 3 parts → OAuth path. Old 2-part OAuth cookies (pre-KZO-143) fail signature verification and force a one-time re-login.
 
 ### Cookie attributes
 
@@ -157,18 +167,32 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A[resolveUserId in registerRoutes.ts] --> B{AUTH_MODE?}
-  B -->|oauth| C{Session cookie present?}
+  A["preHandler: hydrateAuthContext"] --> B{Public route?}
+  B -->|Yes| Z[Skip — no auth context]
+  B -->|No| C{Session cookie present?}
   C -->|Yes| D[verifySessionCookie]
-  D -->|Valid| E[Return userId from cookie]
-  D -->|Invalid| F[401 auth_required]
-  C -->|No| F
-  B -->|dev_bypass| G{x-user-id header present?}
-  G -->|Yes| H[Return header value]
-  G -->|No| I[Return 'user-1']
+  D -->|Valid| E["getAuthUserById(userId)"]
+  E --> F{User active? session_version match?}
+  F -->|Yes| G["req.authContext = { sessionUserId, contextUserId, role, isDemo, isImpersonating }"]
+  F -->|No| H[401 auth_required]
+  D -->|Invalid| H
+  C -->|No, oauth mode| H
+  C -->|No, dev_bypass| I{x-user-id header?}
+  I -->|Yes| J["getAuthUserById or fallback"]
+  I -->|No| K["user-1 (admin)"]
+  J --> G
+  K --> G
+  G --> L["enforceRouteRole(req)"]
+  L --> M{Admin route?}
+  M -->|Yes, non-admin| N[403 admin_role_required]
+  M -->|No| O{Writer route?}
+  O -->|Yes, viewer| P[403 write_blocked_viewer_role]
+  O -->|No| Q[Handler executes]
 ```
 
-In `oauth` mode, the HMAC-signed session cookie is the **sole identity source**. No headers, no env vars participate in the identity path.
+**Return shape:** `resolveUserId` returns `{ sessionUserId, contextUserId, role, isDemo, isImpersonating }`. In the current version, `contextUserId` always equals `sessionUserId` (sharing/impersonation added in KZO-146/148).
+
+The `preHandler` hook runs `hydrateAuthContext` (one DB hit per request to fetch `role` and `session_version`) then `enforceRouteRole` (checks admin-only and writer-only route sets). In `dev_bypass` mode, `x-user-role` header overrides the resolved role per-request without mutating the DB.
 
 ---
 
@@ -274,8 +298,10 @@ The `/__e2e/reset` endpoint is available only when `NODE_ENV=development` (not `
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `TEXT` PK | Internal UUID — tenancy root |
-| `email` | `TEXT` | Nullable; partial unique index (KZO-77) |
+| `email` | `TEXT` | Nullable; functional unique index on `LOWER(email)`, CHECK `email = LOWER(email)` (KZO-77, KZO-143) |
 | `display_name` | `TEXT` | From OAuth profile or demo default |
+| `role` | `TEXT DEFAULT 'member'` | `CHECK (role IN ('admin','member','viewer'))` — role-derived permissions (KZO-143) |
+| `session_version` | `INT DEFAULT 1` | Monotonically incremented on disable/delete/role-change; cookie carries this value; mismatch → 401 (KZO-143) |
 | `is_demo` | `BOOLEAN` | `true` for demo users |
 | `demo_expires_at` | `TIMESTAMP` | Demo session expiry |
 | `locale` | `TEXT DEFAULT 'en'` | UI locale |
@@ -301,6 +327,114 @@ The `/__e2e/reset` endpoint is available only when `NODE_ENV=development` (not `
 | `last_seen_at` | `TIMESTAMP` | Last login via this identity |
 
 **Unique constraint**: `(provider, provider_subject)` — one external identity per provider per subject.
+
+---
+
+---
+
+## Roles and Permissions (KZO-143)
+
+Three fixed roles: `admin`, `member`, `viewer`. Stored in `users.role` as `TEXT + CHECK`.
+
+| Action | admin | member | viewer |
+|---|:-:|:-:|:-:|
+| Read own data (holdings, settings, etc.) | Yes | Yes | Yes |
+| Write own data (accounts, transactions, fee profiles, etc.) | Yes | Yes | No |
+| Create/revoke invites | Yes | No | No |
+| Access `/admin/*` (KZO-144) | Yes | No | No |
+| Impersonate users (KZO-148) | Yes | No | No |
+
+Enforcement: `enforceRouteRole` in the `preHandler` hook checks `req.authContext.role` against two route key sets — `ADMIN_ROUTE_KEYS` (403 `admin_role_required`) and `WRITER_ROLE_ROUTE_KEYS` (403 `write_blocked_viewer_role`).
+
+Demo users are `role = member`, `is_demo = true`. Share-link blocking is deferred to KZO-146/147.
+
+In `dev_bypass` mode, the default user (`user-1`) is `admin`. The `x-user-role` header overrides the resolved role per-request for testing without mutating the database.
+
+---
+
+## Invite-Gated Signup (KZO-143)
+
+New users cannot sign in without a valid invite, except for the `INITIAL_ADMIN_EMAIL` bootstrap path.
+
+### `invites` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `code` | `TEXT` PK | 8-char Crockford base32 (uppercase, no `O/I/L/U`) |
+| `email` | `TEXT NOT NULL` | Lowercased, `CHECK (email = LOWER(email))` |
+| `role` | `TEXT NOT NULL` | `CHECK (role IN ('admin','member','viewer'))` |
+| `expires_at` | `TIMESTAMP NOT NULL` | Default 7 days from creation |
+| `revoked_at` | `TIMESTAMP` | Set by `DELETE /invites/:code` (idempotent) |
+| `used_at` | `TIMESTAMP` | Set atomically on OAuth callback consumption |
+| `issued_by_user_id` | `TEXT` FK | Nullable (null for CLI-bootstrapped invites) |
+| `created_at` | `TIMESTAMP NOT NULL` | Default `NOW()` |
+
+### Invite flow
+
+```mermaid
+sequenceDiagram
+  participant Admin
+  participant API
+  participant NewUser
+  participant Google
+
+  Admin->>API: POST /invites { email, role }
+  API-->>Admin: { code, url }
+  Admin->>NewUser: Shares invite URL
+  NewUser->>API: GET /invite/{code} (web page)
+  API-->>NewUser: Pre-validates code, renders Sign-in button
+  NewUser->>API: GET /auth/google/start?invite_code={code}
+  API->>Google: Redirect to consent (code embedded in HMAC-signed state)
+  Google-->>API: Callback with auth code + state
+  API->>API: Verify state, exchange tokens, normalize email
+  API->>API: Atomic UPDATE invites SET used_at = NOW() WHERE code AND email match
+  API->>API: Create user with invite.role, link identity
+  API-->>NewUser: Set session cookie, redirect to /dashboard
+```
+
+Error reasons at callback: `invite_required`, `invalid_code`, `expired_code`, `email_mismatch`, `already_used`, `revoked`, `account_disabled`.
+
+### API endpoints
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| `POST` | `/invites` | Admin-only | Creates invite; rejects if email already registered |
+| `DELETE` | `/invites/:code` | Admin-only | Idempotent revoke (sets `revoked_at`); returns 204 |
+| `GET` | `/invites/:code/status` | Public | Rate-limited 20/min/IP; returns `{ status }` only |
+
+### `INITIAL_ADMIN_EMAIL` bootstrap
+
+On startup (non-`dev_bypass` mode):
+- If set and matching active user exists → idempotently promote to admin, emit `admin_promote_startup` audit
+- If set but no user matches → WARN log ("admin will be promoted on first sign-in")
+- If set but user is deactivated/deleted → WARN log, no promotion
+- If unset → WARN log ("no admin bootstrap configured")
+
+On OAuth callback, `INITIAL_ADMIN_EMAIL` check runs **before** the invite-gate. If the incoming email matches, the user is created/promoted to admin without consuming an invite.
+
+CLI escape hatches:
+- `npm run admin:promote -- email@example.com` — promotes existing user; fails if no match
+- `npm run admin:bootstrap-invite -- email@example.com admin` — seeds an invite directly in DB
+
+---
+
+## Audit Log (KZO-143)
+
+### `audit_log` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `TEXT` PK | UUID |
+| `actor_user_id` | `TEXT` FK → `users(id)` | Nullable — null for system events (CLI, startup) |
+| `action` | `TEXT NOT NULL` | `CHECK IN ('admin_promote_cli', 'admin_promote_startup', 'admin_promote_first_signin')` — extended in KZO-144 |
+| `target_user_id` | `TEXT` FK → `users(id)` | Nullable |
+| `metadata` | `JSONB NOT NULL DEFAULT '{}'` | |
+| `ip_address` | `INET` | Nullable — null for CLI/startup events |
+| `created_at` | `TIMESTAMP NOT NULL DEFAULT NOW()` | |
+
+Indexes: `(created_at DESC)`, `(actor_user_id, created_at DESC)`, `(target_user_id, created_at DESC)`.
+
+In KZO-143, only the 3 admin-promotion events write audit rows. Invite create/consume audit writers land in KZO-144.
 
 ---
 

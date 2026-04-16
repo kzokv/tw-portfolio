@@ -57,6 +57,24 @@ async function getValidState(app: Awaited<ReturnType<typeof buildApp>>): Promise
   return new URL(location).searchParams.get("state")!;
 }
 
+async function getInviteState(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  email = "test@example.com",
+): Promise<string> {
+  const invite = await app.persistence.insertBootstrapInvite({
+    email,
+    role: "member",
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    issuedByUserId: null,
+  });
+  const res = await app.inject({
+    method: "GET",
+    url: `/auth/google/start?invite_code=${encodeURIComponent(invite.code)}`,
+  });
+  const location = res.headers.location as string;
+  return new URL(location).searchParams.get("state")!;
+}
+
 describe("auth - no OAuth config", () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -188,7 +206,7 @@ describe("GET /auth/google/callback", () => {
 
   it(`sets ${Env.SESSION_COOKIE_NAME} cookie and redirects to app on successful code exchange (first-time signup flow)`, async () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
-    const state = await getValidState(app);
+    const state = await getInviteState(app);
 
     const res = await app.inject({
       method: "GET",
@@ -214,11 +232,18 @@ describe("GET /auth/google/callback", () => {
     const cookieValue = cookieMatch![1];
     const verifiedIdentity = verifySessionCookie(cookieValue, testOAuthConfig.sessionSecret);
     expect(verifiedIdentity?.userId).toBeTruthy();
+    expect(verifiedIdentity?.sessionVersion).toBe(1);
     expect(verifiedIdentity?.userId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it(`sets ${Env.SESSION_COOKIE_NAME} cookie and redirects on returning user login flow`, async () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
+    const firstState = await getInviteState(app);
+    await app.inject({
+      method: "GET",
+      url: `/auth/google/callback?code=auth-code&state=${encodeURIComponent(firstState)}`,
+    });
+
     const state = await getValidState(app);
 
     const res = await app.inject({
@@ -280,7 +305,7 @@ describe("GET /auth/google/callback", () => {
     const responseWithoutRefresh = makeTokenExchangeResponse();
     delete (responseWithoutRefresh as Record<string, unknown>).refresh_token;
     vi.stubGlobal("fetch", makeFetchMock(200, responseWithoutRefresh));
-    const state = await getValidState(app);
+    const state = await getInviteState(app);
 
     const res = await app.inject({
       method: "GET",
@@ -309,7 +334,7 @@ describe("GET /auth/google/callback", () => {
 
   it("redirects to /auth/error?reason=oauth_error when resolveOrCreateUser throws", async () => {
     vi.stubGlobal("fetch", makeFetchMock(200, makeTokenExchangeResponse()));
-    const state = await getValidState(app);
+    const state = await getInviteState(app);
 
     // Sabotage resolveOrCreateUser to throw
     const originalResolve = app.persistence.resolveOrCreateUser.bind(app.persistence);

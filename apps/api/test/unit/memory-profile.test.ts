@@ -10,7 +10,7 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
   });
 
   it("getProfile returns profile for an existing user", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-1", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-1", {
       email: "alice@example.com",
       name: "Alice Chen",
       picture: "https://lh3.googleusercontent.com/alice.jpg",
@@ -32,7 +32,7 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
   });
 
   it("updateProfileEmail changes the user email and returns updated profile", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-2", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-2", {
       email: "bob@example.com",
       name: "Bob",
     });
@@ -45,7 +45,7 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
   });
 
   it("updateProfileEmail re-keys the map so subsequent lookups work", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-3", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-3", {
       email: "carol@example.com",
       name: "Carol",
     });
@@ -67,7 +67,7 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
       name: "User A",
     });
 
-    const userIdB = await persistence.resolveOrCreateUser("google", "sub-conflict-b", {
+    const { userId: userIdB } = await persistence.resolveOrCreateUser("google", "sub-conflict-b", {
       email: "free@example.com",
       name: "User B",
     });
@@ -78,7 +78,7 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
   });
 
   it("getProfile returns null provider fields when claims have no picture", async () => {
-    const userId = await persistence.resolveOrCreateUser("google", "sub-4", {
+    const { userId } = await persistence.resolveOrCreateUser("google", "sub-4", {
       email: "dan@example.com",
     });
 
@@ -94,9 +94,9 @@ describe("MemoryPersistence getProfile / updateProfileEmail", () => {
     const profile = await seeded.getProfile("user-1");
     expect(profile.userId).toBe("user-1");
     expect(profile.email).toBe("user-1@placeholder.local");
-    expect(profile.displayName).toBeNull();
+    expect(profile.displayName).toBe("Dev User");
     expect(profile.providerPictureUrl).toBeNull();
-    expect(profile.providerDisplayName).toBeNull();
+    expect(profile.providerDisplayName).toBe("Dev User");
     expect(profile.linkedAt).toBeNull();
     expect(profile.lastSeenAt).toBeNull();
   });

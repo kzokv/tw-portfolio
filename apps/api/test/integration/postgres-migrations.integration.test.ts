@@ -281,6 +281,36 @@ describePostgres("postgres migrations", () => {
     bookedAt?: string;
     reversalOfTradeEventId?: string;
   }): Promise<void> {
+    const feeProfileId = `${input.userId}-fp-default`;
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ($1, $2, 'en', 'WEIGHTED_AVERAGE', 10)
+       ON CONFLICT (id) DO NOTHING`,
+      [input.userId, `${input.userId}@example.com`],
+    );
+    await pool.query(
+      `INSERT INTO fee_profiles (
+         id, user_id, name, commission_rate_bps, commission_discount_bps,
+         minimum_commission_amount, commission_rounding_mode, tax_rounding_mode,
+         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
+         bond_etf_sell_tax_rate_bps
+       ) VALUES (
+         $1, $2, 'Default Broker', 14, 7200,
+         20, 'FLOOR', 'FLOOR',
+         30, 15, 10,
+         0
+       )
+       ON CONFLICT (id) DO NOTHING`,
+      [feeProfileId, input.userId],
+    );
+    await pool.query(
+      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+       VALUES ($1, $2, 'Main', $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [input.accountId, input.userId, feeProfileId],
+    );
+
     const feePolicySnapshotId = `trade-fee-snapshot:${input.id}`;
     await pool.query(
       `INSERT INTO trade_fee_policy_snapshots (
@@ -1737,6 +1767,11 @@ describePostgres("postgres migrations", () => {
       redisUrl: redisUrl!,
     });
     await persistence.init();
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('user-1', 'user-1@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+       ON CONFLICT (id) DO NOTHING`,
+    );
 
     await pool.query(
       `INSERT INTO trade_fee_policy_snapshots (
