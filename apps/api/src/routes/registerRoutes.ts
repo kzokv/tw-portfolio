@@ -6,6 +6,7 @@ import {
   buildAuthorizationUrl,
   decodeIdTokenPayload,
   exchangeCodeForTokens,
+  extractInviteCode,
   extractReturnTo,
   generateState,
   isValidReturnTo,
@@ -47,6 +48,7 @@ import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/ba
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store, Transaction } from "../types/store.js";
+import type { UserRole } from "../persistence/types.js";
 
 const userScopedIdSchema = z
   .string()
@@ -254,7 +256,89 @@ function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomai
   return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
 }
 
-function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): SessionIdentity | null {
+const VALID_USER_ROLES = ["admin", "member", "viewer"] as const;
+const userRoleSchema = z.enum(VALID_USER_ROLES);
+const PUBLIC_ROUTE_KEYS = new Set([
+  "GET /health/live",
+  "GET /health/ready",
+  "GET /auth/logout",
+  "GET /auth/google/start",
+  "GET /auth/google/callback",
+  "POST /auth/token/refresh",
+  "POST /auth/demo/start",
+  "POST /__e2e/oauth-session",
+  "POST /__e2e/demo-session",
+  "POST /__e2e/reset-demo-rate-buckets",
+  "GET /invites/:code/status",
+]);
+const WRITER_ROLE_ROUTE_KEYS = new Set([
+  "PATCH /settings",
+  "PUT /settings/full",
+  "PUT /settings/fee-config",
+  "PATCH /profile",
+  "PATCH /accounts/:id",
+  "POST /fee-profiles",
+  "PATCH /fee-profiles/:id",
+  "DELETE /fee-profiles/:id",
+  "PUT /fee-profile-bindings",
+  "POST /portfolio/transactions",
+  "DELETE /portfolio/transactions/:tradeEventId",
+  "PATCH /portfolio/transactions/:tradeEventId",
+  "POST /portfolio/dividends/postings",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
+  "POST /corporate-actions",
+  "POST /portfolio/snapshots/generate",
+  "POST /portfolio/recompute/preview",
+  "POST /portfolio/recompute/confirm",
+  "POST /ai/transactions/confirm",
+  "PUT /monitored-tickers",
+  "POST /backfill/retry",
+  "POST /backfill/repair",
+  "PATCH /notifications/:id/read",
+  "PATCH /notifications/read-all",
+  "DELETE /notifications/:id",
+  "PATCH /notifications/:id/escalate",
+]);
+const ADMIN_ROUTE_KEYS = new Set([
+  "POST /invites",
+  "DELETE /invites/:code",
+]);
+const inviteStatusBuckets = new Map<string, number[]>();
+const INVITE_STATUS_WINDOW_MS = 60_000;
+const INVITE_STATUS_LIMIT = 20;
+
+type ResolvedRequestIdentity = {
+  sessionUserId: string;
+  contextUserId: string;
+  role: UserRole;
+  sessionVersion: number;
+  isDemo: boolean;
+  isImpersonating: boolean;
+  email?: string | null;
+  userId: string;
+};
+
+function normalizeEmailAddress(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function routeKey(method: string, routeUrl: string): string {
+  return `${method.toUpperCase()} ${routeUrl}`;
+}
+
+function authRequired(): never {
+  throw routeError(401, "auth_required", "authentication required");
+}
+
+function validateActiveAuthUser(
+  user: Awaited<ReturnType<FastifyInstance["persistence"]["getAuthUserById"]>>,
+): asserts user is NonNullable<typeof user> {
+  if (!user || user.deactivatedAt || user.deletedAt) {
+    authRequired();
+  }
+}
+
+export function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): SessionIdentity | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const eqIdx = part.indexOf("=");
@@ -269,38 +353,143 @@ function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: str
   return null;
 }
 
-export function resolveUserId(req: FastifyRequest, sessionSecret?: string): { userId: string; isDemo: boolean } {
-  if (Env.AUTH_MODE === "oauth") {
-    const identity = parseSessionCookie(req.headers.cookie, sessionSecret);
-    if (identity) {
-      req.__sessionType = identity.isDemo ? "demo" : "oauth";
-      return { userId: userScopedIdSchema.parse(identity.userId), isDemo: identity.isDemo };
-    }
-    throw routeError(401, "auth_required", "authentication required");
+export function isPublicRoute(method: string, routeUrl: string): boolean {
+  return PUBLIC_ROUTE_KEYS.has(routeKey(method, routeUrl));
+}
+
+function resolveDevBypassFallback(req: FastifyRequest): ResolvedRequestIdentity {
+  const rawUserId = req.headers["x-user-id"];
+  const rawRole = req.headers["x-user-role"];
+  const sessionUserId = userScopedIdSchema.parse(
+    !rawUserId || Array.isArray(rawUserId) ? "user-1" : rawUserId,
+  );
+  const role = rawRole && !Array.isArray(rawRole) ? userRoleSchema.parse(rawRole) : "admin";
+  return {
+    sessionUserId,
+    contextUserId: sessionUserId,
+    role,
+    sessionVersion: 1,
+    isDemo: false,
+    isImpersonating: false,
+    email: null,
+    userId: sessionUserId,
+  };
+}
+
+export function resolveUserId(req: FastifyRequest, _sessionSecret?: string): ResolvedRequestIdentity {
+  if (req.authContext) {
+    return {
+      ...req.authContext,
+      userId: req.authContext.contextUserId,
+    };
   }
 
-  // dev_bypass: also accept a valid session cookie when sessionSecret is available,
-  // so integration tests that exercise the OAuth flow work without setting AUTH_MODE=oauth.
-  if (sessionSecret) {
-    const identity = parseSessionCookie(req.headers.cookie, sessionSecret);
-    if (identity) {
-      req.__sessionType = identity.isDemo ? "demo" : "oauth";
-      return { userId: userScopedIdSchema.parse(identity.userId), isDemo: identity.isDemo };
-    }
+  if (Env.AUTH_MODE === "dev_bypass") {
+    return resolveDevBypassFallback(req);
   }
 
-  const bypassHeader = req.headers["x-user-id"];
-  if (!bypassHeader || Array.isArray(bypassHeader)) {
-    return { userId: "user-1", isDemo: false };
-  }
-  return { userId: userScopedIdSchema.parse(bypassHeader), isDemo: false };
+  authRequired();
 }
 
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
-  const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-  const store = await app.persistence.loadStore(userId);
+  const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+  const store = await app.persistence.loadStore(contextUserId);
   syncAccountingPolicy(store);
-  return { userId, store };
+  return { userId: contextUserId, store };
+}
+
+async function resolveCookieBackedAuthContext(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  identity: SessionIdentity,
+): Promise<void> {
+  const authUser = await app.persistence.getAuthUserById(userScopedIdSchema.parse(identity.userId));
+  validateActiveAuthUser(authUser);
+  if (!identity.isDemo && identity.sessionVersion !== authUser.sessionVersion) {
+    authRequired();
+  }
+  req.__sessionType = identity.isDemo ? "demo" : "oauth";
+  req.authContext = {
+    sessionUserId: authUser.userId,
+    contextUserId: authUser.userId,
+    role: authUser.role,
+    sessionVersion: authUser.sessionVersion,
+    isDemo: identity.isDemo,
+    isImpersonating: false,
+    email: authUser.email,
+  };
+}
+
+export async function hydrateAuthContext(app: FastifyInstance, req: FastifyRequest): Promise<void> {
+  if (req.authContext) return;
+
+  const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET;
+  const cookieIdentity = parseSessionCookie(req.headers.cookie, sessionSecret);
+  if (cookieIdentity) {
+    await resolveCookieBackedAuthContext(app, req, cookieIdentity);
+    return;
+  }
+
+  if (Env.AUTH_MODE === "oauth") {
+    authRequired();
+  }
+
+  const rawUserId = req.headers["x-user-id"];
+  const rawRole = req.headers["x-user-role"];
+  const sessionUserId = userScopedIdSchema.parse(
+    !rawUserId || Array.isArray(rawUserId) ? "user-1" : rawUserId,
+  );
+  const overrideRole = rawRole && !Array.isArray(rawRole) ? userRoleSchema.parse(rawRole) : undefined;
+  const authUser = await app.persistence.getAuthUserById(sessionUserId);
+
+  req.authContext = {
+    sessionUserId,
+    contextUserId: sessionUserId,
+    role: authUser && !authUser.deactivatedAt && !authUser.deletedAt ? (overrideRole ?? authUser.role) : (overrideRole ?? "admin"),
+    sessionVersion: authUser?.sessionVersion ?? 1,
+    isDemo: false,
+    isImpersonating: false,
+    email: authUser?.email ?? null,
+  };
+}
+
+export function requireWriterRole(req: FastifyRequest): void {
+  if (req.authContext?.role === "viewer") {
+    throw routeError(403, "write_blocked_viewer_role", "viewer role cannot mutate portfolio data");
+  }
+}
+
+export function requireAdminRole(req: FastifyRequest): void {
+  if (req.authContext?.role !== "admin") {
+    throw routeError(403, "admin_role_required", "admin role required");
+  }
+}
+
+export function enforceRouteRole(req: FastifyRequest): void {
+  const routeUrl = req.routeOptions.url;
+  if (!routeUrl) return;
+  const key = routeKey(req.method, routeUrl);
+  if (ADMIN_ROUTE_KEYS.has(key)) {
+    requireAdminRole(req);
+    return;
+  }
+  if (WRITER_ROLE_ROUTE_KEYS.has(key)) {
+    requireWriterRole(req);
+  }
+}
+
+function assertInviteStatusRateLimit(req: FastifyRequest): void {
+  const now = Date.now();
+  const recent = (inviteStatusBuckets.get(req.ip) ?? []).filter((timestamp) => now - timestamp < INVITE_STATUS_WINDOW_MS);
+  if (recent.length >= INVITE_STATUS_LIMIT) {
+    throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
+  }
+  recent.push(now);
+  inviteStatusBuckets.set(req.ip, recent);
+}
+
+export function _resetInviteStatusBuckets(): void {
+  inviteStatusBuckets.clear();
 }
 
 /** Guard for `/__e2e/reset` — allowed in development and test with dev_bypass + memory, blocked in production. */
@@ -339,10 +528,15 @@ async function createDemoSession(
   const email = `demo-${demoId}@demo.local`;
   const ttlSeconds = Env.DEMO_SESSION_TTL_SECONDS;
 
-  const userId = await app.persistence.resolveOrCreateUser("demo", demoId, {
-    email,
-    name: "Demo User",
-  });
+  const { userId } = await app.persistence.resolveOrCreateUser(
+    "demo",
+    demoId,
+    {
+      email,
+      name: "Demo User",
+    },
+    { role: "member" },
+  );
 
   await app.persistence.markDemoUser(userId, ttlSeconds);
   await seedDemoTransactions(app.persistence, userId);
@@ -658,6 +852,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2EOauthSessionEnabled();
 
     const body = z.object({ id_token: z.string().min(1).optional() }).nullable().parse(req.body ?? {});
+    const query = z.object({
+      role: userRoleSchema.default("admin"),
+      sessionVersion: z.coerce.number().int().positive().default(1),
+    }).parse(req.query);
 
     let sub: string;
     let email: string;
@@ -676,16 +874,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       name = "E2E CI User";
     }
 
-    const userId = await app.persistence.resolveOrCreateUser("google", sub, { email, name, picture });
+    const { userId, sessionVersion } = await app.persistence.resolveOrCreateUser(
+      "google",
+      sub,
+      { email, name, picture },
+      { role: query.role, sessionVersion: query.sessionVersion },
+    );
 
     const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
     if (!sessionSecret) {
       throw routeError(500, "missing_secret", "SESSION_SECRET is required for session cookie signing");
     }
-    const signedCookie = signSessionCookie(userId, sessionSecret);
+    const signedCookie = signSessionCookie(userId, sessionSecret, sessionVersion);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, (Env.NODE_ENV as string) === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
-    return { status: "ok", sub, userId };
+    return { status: "ok", sub, userId, role: query.role, sessionVersion };
   });
 
   /**
@@ -740,10 +943,55 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/auth/logout", async (_req, reply) => {
+  app.get("/auth/logout", async (req, reply) => {
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`);
-    return reply.redirect(`${app.appBaseUrl}/login`, 302);
+    const rawQuery = req.query as Record<string, string | undefined>;
+    const returnTo = rawQuery.returnTo && isValidReturnTo(rawQuery.returnTo) ? rawQuery.returnTo : undefined;
+    const destination = returnTo ? `${app.appBaseUrl}${returnTo}` : `${app.appBaseUrl}/login`;
+    return reply.redirect(destination, 302);
+  });
+
+  app.get("/invites/:code/status", async (req) => {
+    assertInviteStatusRateLimit(req);
+    const params = z.object({
+      code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
+    }).parse(req.params);
+    return { status: await app.persistence.getInviteStatus(params.code) };
+  });
+
+  app.post("/invites", async (req) => {
+    const body = z.object({
+      email: z.string().trim().email().transform((value) => value.toLowerCase()),
+      role: userRoleSchema,
+      expiresAt: z.string().datetime({ offset: true }).optional(),
+    }).parse(req.body);
+
+    const existingUser = await app.persistence.getAuthUserByEmail(body.email);
+    if (existingUser) {
+      throw routeError(409, "invite_email_registered", "A user with that email already exists");
+    }
+
+    const invite = await app.persistence.createInvite({
+      email: body.email,
+      role: body.role,
+      expiresAt: body.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      issuedByUserId: req.authContext?.sessionUserId ?? null,
+    });
+
+    return {
+      code: invite.code,
+      url: `${app.appBaseUrl}/invite/${invite.code}`,
+    };
+  });
+
+  app.delete("/invites/:code", async (req, reply) => {
+    const params = z.object({
+      code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
+    }).parse(req.params);
+    await app.persistence.revokeInvite(params.code);
+    reply.code(204);
+    return null;
   });
 
   app.get("/auth/google/start", async (req, reply) => {
@@ -752,7 +1000,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const rawQuery = req.query as Record<string, string | undefined>;
     const returnTo = rawQuery.returnTo && isValidReturnTo(rawQuery.returnTo) ? rawQuery.returnTo : undefined;
-    const state = generateState(app.oauthConfig.sessionSecret, returnTo);
+    const inviteCode = rawQuery.invite_code?.trim().toUpperCase() || undefined;
+    const state = generateState(app.oauthConfig.sessionSecret, returnTo, inviteCode);
     const url = buildAuthorizationUrl(app.oauthConfig, state);
     return reply.redirect(url, 302);
   });
@@ -793,19 +1042,72 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return errorRedirect("oauth_error");
     }
 
-    let userId: string;
+    const normalizedEmail = normalizeEmailAddress(claims.email);
+    const initialAdminEmail = Env.INITIAL_ADMIN_EMAIL ? normalizeEmailAddress(Env.INITIAL_ADMIN_EMAIL) : null;
+    const inviteCode = extractInviteCode(query.state)?.toUpperCase() ?? null;
+    const returnTo = extractReturnTo(query.state);
+
+    const existingUser = await app.persistence.getAuthUserByEmail(normalizedEmail);
+    if (existingUser?.deactivatedAt || existingUser?.deletedAt) {
+      return errorRedirect("account_disabled");
+    }
+
+    let authUser: Awaited<ReturnType<typeof app.persistence.resolveOrCreateUser>>;
     try {
-      userId = await app.persistence.resolveOrCreateUser("google", claims.sub, {
-        email: claims.email,
-        name: claims.name,
-        picture: claims.picture,
-        emailVerified: claims.email_verified,
-      });
+      if (initialAdminEmail && normalizedEmail === initialAdminEmail) {
+        authUser = await app.persistence.resolveOrCreateUser("google", claims.sub, {
+          email: normalizedEmail,
+          name: claims.name,
+          picture: claims.picture,
+          emailVerified: claims.email_verified,
+        }, { role: "admin" });
+        if (!existingUser || existingUser.role !== "admin") {
+          await app.persistence.appendAuditLog({
+            action: "admin_promote_first_signin",
+            targetUserId: authUser.userId,
+            metadata: { email: normalizedEmail },
+          });
+        }
+      } else if (existingUser) {
+        authUser = await app.persistence.resolveOrCreateUser("google", claims.sub, {
+          email: normalizedEmail,
+          name: claims.name,
+          picture: claims.picture,
+          emailVerified: claims.email_verified,
+        });
+      } else {
+        if (!inviteCode) {
+          return errorRedirect("invite_required");
+        }
+        // Validate invite (read-only) before creating user — if user creation
+        // fails, the invite stays unused and the user can retry.
+        const invite = await app.persistence.getInviteRecord(inviteCode);
+        if (!invite) return errorRedirect("invalid_code");
+        if (invite.revokedAt) return errorRedirect("revoked");
+        if (invite.usedAt) return errorRedirect("already_used");
+        if (new Date(invite.expiresAt).getTime() <= Date.now()) return errorRedirect("expired_code");
+        if (invite.email.toLowerCase() !== normalizedEmail) return errorRedirect("email_mismatch");
+
+        authUser = await app.persistence.resolveOrCreateUser("google", claims.sub, {
+          email: normalizedEmail,
+          name: claims.name,
+          picture: claims.picture,
+          emailVerified: claims.email_verified,
+        }, { role: invite.role });
+
+        // Consume after user creation succeeds — atomic UPDATE handles races
+        // where another request consumed between validate and consume.
+        const consumeResult = await app.persistence.consumeInvite(inviteCode, normalizedEmail);
+        if (consumeResult.status !== "consumed") {
+          // Race: invite was consumed between validate and consume.
+          // User already exists (created above), so they can log in on next attempt.
+        }
+      }
     } catch {
       return errorRedirect("oauth_error");
     }
 
-    const signedCookie = signSessionCookie(userId, app.oauthConfig.sessionSecret);
+    const signedCookie = signSessionCookie(authUser.userId, app.oauthConfig.sessionSecret, authUser.sessionVersion);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
 
     // Detect misconfigured Docker local: NODE_ENV=production sets the Secure
@@ -815,7 +1117,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
-    const returnTo = extractReturnTo(query.state);
     const destination = returnTo ? `${app.appBaseUrl}${returnTo}` : `${app.appBaseUrl}/dashboard`;
     return reply.redirect(destination, 302);
   });

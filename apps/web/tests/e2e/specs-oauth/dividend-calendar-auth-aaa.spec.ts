@@ -1,5 +1,5 @@
 import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { startOAuthAndGetState } from "@tw-portfolio/test-e2e/utils";
+import { startInvitedOAuthAndGetState } from "@tw-portfolio/test-e2e/utils";
 
 test.describe("dividend calendar auth", () => {
   test("dividends auth: unauthenticated visit → redirects to login with returnTo", async ({
@@ -17,7 +17,7 @@ test.describe("dividend calendar auth", () => {
     session,
   }) => {
     await session.actions.clearCookies();
-    const state = await startOAuthAndGetState(session, "/dividends");
+    const state = await startInvitedOAuthAndGetState(session, "e2e-user@example.com", "/dividends");
     await session.actions.navigateToOAuthCallback({
       code: "e2e-auth-code",
       state,

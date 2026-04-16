@@ -61,6 +61,7 @@ export const dockerLocalSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_REDIRECT_URI: z.string().default("http://localhost:4300/auth/google/callback"),
   SESSION_SECRET: z.string().min(32),
+  INITIAL_ADMIN_EMAIL: z.string().trim().email().transform((value) => value.toLowerCase()).optional(),
   // Use g_auth_session (no __Host- prefix) since local Docker runs on HTTP,
   // and __Host- requires the Secure flag which needs HTTPS.
   SESSION_COOKIE_NAME: z.string().min(1).default("g_auth_session"),

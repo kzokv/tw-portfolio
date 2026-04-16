@@ -16,6 +16,10 @@ import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, Pro
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type {
+  AuditLogInput,
+  AuthUserRecord,
+  ConsumeInviteResult,
+  CreateInviteInput,
   CashLedgerListOptions,
   CashLedgerListResult,
   CatalogInstrument,
@@ -24,13 +28,18 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  InviteRecord,
+  InviteStatus,
   OAuthClaims,
   Persistence,
   ReadinessStatus,
+  ResolveOrCreateUserOptions,
+  ResolveOrCreateUserResult,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
   AggregatedSnapshotPoint,
+  UserRole,
 } from "./types.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
@@ -65,6 +74,56 @@ interface MemoryPersistenceOptions {
   seedDevBypassUser?: boolean;
 }
 
+interface MemoryInvite {
+  code: string;
+  email: string;
+  role: UserRole;
+  expiresAt: string;
+  revokedAt: string | null;
+  usedAt: string | null;
+  issuedByUserId: string | null;
+  createdAt: string;
+}
+
+interface MemoryAuditLogEntry {
+  id: string;
+  actorUserId: string | null;
+  action: AuditLogInput["action"];
+  targetUserId: string | null;
+  metadata: Record<string, unknown>;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const INVITE_CODE_LENGTH = 8;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function generateInviteCode(): string {
+  let code = "";
+  for (let i = 0; i < INVITE_CODE_LENGTH; i += 1) {
+    const index = Math.floor(Math.random() * INVITE_CODE_ALPHABET.length);
+    code += INVITE_CODE_ALPHABET[index]!;
+  }
+  return code;
+}
+
+function mapMemoryUser(user: MemoryUser): AuthUserRecord {
+  return {
+    userId: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    sessionVersion: user.sessionVersion,
+    isDemo: user.isDemo ?? false,
+    deactivatedAt: user.deactivatedAt ?? null,
+    deletedAt: user.deletedAt ?? null,
+  };
+}
+
 const DEFAULT_MEMORY_CATALOG: MemoryInstrument[] = [
   { ticker: "2330", name: "台積電", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
   { ticker: "2317", name: "鴻海", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
@@ -80,6 +139,11 @@ interface MemoryUser {
   providerSubject: string;
   providerDisplayName: string | null;
   providerPictureUrl: string | null;
+  role: UserRole;
+  sessionVersion: number;
+  createdAt: string;
+  deactivatedAt?: string | null;
+  deletedAt?: string | null;
   isDemo?: boolean;
   demoExpiresAt?: Date;
 }
@@ -100,6 +164,8 @@ export class MemoryPersistence implements Persistence {
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
+  private readonly invites = new Map<string, MemoryInvite>();
+  private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
 
@@ -113,18 +179,29 @@ export class MemoryPersistence implements Persistence {
       this.usersByEmail.set("user-1@placeholder.local", {
         id: "user-1",
         email: "user-1@placeholder.local",
-        displayName: null,
+        displayName: "Dev User",
         providerSubject: "dev-bypass",
-        providerDisplayName: null,
+        providerDisplayName: "Dev User",
         providerPictureUrl: null,
+        role: "admin",
+        sessionVersion: 1,
+        createdAt: new Date().toISOString(),
       });
     }
   }
 
   async close(): Promise<void> {}
 
-  async resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string> {
-    const existing = this.usersByEmail.get(claims.email);
+  async resolveOrCreateUser(
+    provider: string,
+    providerSubject: string,
+    claims: OAuthClaims,
+    options: ResolveOrCreateUserOptions = {},
+  ): Promise<ResolveOrCreateUserResult> {
+    const normalizedEmail = normalizeEmail(claims.email);
+    const existing = this.usersByEmail.get(normalizedEmail);
+    const targetRole = options.role;
+    const targetSessionVersion = options.sessionVersion;
 
     if (existing) {
       // Subsequent login: update mutable fields, never touch email
@@ -132,35 +209,161 @@ export class MemoryPersistence implements Persistence {
       existing.providerSubject = providerSubject;
       existing.providerDisplayName = claims.name ?? existing.providerDisplayName;
       existing.providerPictureUrl = claims.picture ?? existing.providerPictureUrl;
+      if (targetRole) {
+        existing.role = targetRole;
+      }
+      if (targetSessionVersion) {
+        existing.sessionVersion = targetSessionVersion;
+      }
       // Sync displayName to already-cached store settings so callers see the updated name.
       if (claims.name) {
         const cachedStore = this.stores.get(existing.id);
         if (cachedStore) cachedStore.settings.displayName = claims.name;
       }
-      return existing.id;
+      return {
+        userId: existing.id,
+        role: existing.role,
+        sessionVersion: existing.sessionVersion,
+      };
     }
 
     // New user: generate UUID, seed all fields
     const userId = randomUUID();
-    this.usersByEmail.set(claims.email, {
+    this.usersByEmail.set(normalizedEmail, {
       id: userId,
-      email: claims.email,
+      email: normalizedEmail,
       displayName: claims.name ?? null,
       providerSubject,
       providerDisplayName: claims.name ?? null,
       providerPictureUrl: claims.picture ?? null,
+      role: targetRole ?? "member",
+      sessionVersion: targetSessionVersion ?? 1,
+      createdAt: new Date().toISOString(),
     });
 
     // Ensure default portfolio data for the new user
     await this.ensureDefaultPortfolioData(userId);
 
-    return userId;
+    return {
+      userId,
+      role: targetRole ?? "member",
+      sessionVersion: targetSessionVersion ?? 1,
+    };
   }
 
   async ensureDefaultPortfolioData(userId: string): Promise<void> {
     // In memory persistence, loadStore already creates default data (fee profile, account, etc.)
     // Just ensure the store exists for this user.
     await this.loadStore(userId);
+  }
+
+  async getAuthUserById(userId: string): Promise<AuthUserRecord | null> {
+    const user = this.getUserById(userId);
+    return user ? mapMemoryUser(user) : null;
+  }
+
+  async getAuthUserByEmail(email: string): Promise<AuthUserRecord | null> {
+    const user = this.usersByEmail.get(normalizeEmail(email));
+    return user ? mapMemoryUser(user) : null;
+  }
+
+  async ensureDevBypassUser(): Promise<void> {
+    const existing = this.getUserById("user-1");
+    if (existing?.deactivatedAt || existing?.deletedAt || existing) {
+      return;
+    }
+
+    this.usersByEmail.set("user-1@placeholder.local", {
+      id: "user-1",
+      email: "user-1@placeholder.local",
+      displayName: "Dev User",
+      providerSubject: "dev-bypass",
+      providerDisplayName: "Dev User",
+      providerPictureUrl: null,
+      role: "admin",
+      sessionVersion: 1,
+      createdAt: new Date().toISOString(),
+    });
+    await this.ensureDefaultPortfolioData("user-1");
+  }
+
+  async promoteUserToAdminByEmail(
+    email: string,
+    action: AuditLogInput["action"],
+    metadata: Record<string, unknown> = {},
+  ): Promise<AuthUserRecord | null> {
+    const user = this.usersByEmail.get(normalizeEmail(email));
+    if (!user || user.deactivatedAt || user.deletedAt) {
+      return null;
+    }
+    user.role = "admin";
+    await this.appendAuditLog({
+      action,
+      targetUserId: user.id,
+      metadata: { email: user.email, ...metadata },
+    });
+    return mapMemoryUser(user);
+  }
+
+  async appendAuditLog(input: AuditLogInput): Promise<void> {
+    this.auditLog.push({
+      id: randomUUID(),
+      actorUserId: input.actorUserId ?? null,
+      action: input.action,
+      targetUserId: input.targetUserId ?? null,
+      metadata: input.metadata ?? {},
+      ipAddress: input.ipAddress ?? null,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async bumpSessionVersion(userId: string): Promise<number> {
+    const user = this.getUserById(userId);
+    if (!user) {
+      throw routeError(404, "not_found", "User not found");
+    }
+    user.sessionVersion += 1;
+    return user.sessionVersion;
+  }
+
+  async createInvite(input: CreateInviteInput): Promise<InviteRecord> {
+    return this.insertInvite(input);
+  }
+
+  async insertBootstrapInvite(input: CreateInviteInput): Promise<InviteRecord> {
+    return this.insertInvite(input);
+  }
+
+  async revokeInvite(code: string): Promise<void> {
+    const invite = this.invites.get(code);
+    if (!invite || invite.revokedAt) return;
+    invite.revokedAt = new Date().toISOString();
+  }
+
+  async getInviteStatus(code: string): Promise<InviteStatus> {
+    const invite = this.invites.get(code);
+    if (!invite) return "invalid";
+    if (invite.revokedAt) return "revoked";
+    if (invite.usedAt) return "used";
+    if (new Date(invite.expiresAt).getTime() <= Date.now()) return "expired";
+    return "valid";
+  }
+
+  async getInviteRecord(code: string): Promise<InviteRecord | null> {
+    const invite = this.invites.get(code);
+    return invite ? { ...invite } : null;
+  }
+
+  async consumeInvite(code: string, email: string): Promise<ConsumeInviteResult> {
+    const invite = this.invites.get(code);
+    const normalizedEmail = normalizeEmail(email);
+    if (!invite) return { status: "invalid" };
+    if (invite.revokedAt) return { status: "revoked" };
+    if (invite.usedAt) return { status: "used" };
+    if (new Date(invite.expiresAt).getTime() <= Date.now()) return { status: "expired" };
+    if (invite.email !== normalizedEmail) return { status: "email_mismatch" };
+    invite.usedAt = new Date().toISOString();
+    return { status: "consumed", invite: { ...invite } };
   }
 
   async loadStore(userId: string) {
@@ -677,15 +880,16 @@ export class MemoryPersistence implements Persistence {
     if (!memUser) {
       throw routeError(404, "not_found", "Profile not found");
     }
+    const normalizedEmail = normalizeEmail(email);
     // Re-key the map if email changed
-    if (memUser.email !== email) {
-      const existing = this.usersByEmail.get(email);
+    if (memUser.email !== normalizedEmail) {
+      const existing = this.usersByEmail.get(normalizedEmail);
       if (existing && existing.id !== userId) {
         throw routeError(409, "email_conflict", "Email is already in use");
       }
       this.usersByEmail.delete(memUser.email);
-      memUser.email = email;
-      this.usersByEmail.set(email, memUser);
+      memUser.email = normalizedEmail;
+      this.usersByEmail.set(normalizedEmail, memUser);
     }
     return this.getProfile(userId);
   }
@@ -1350,6 +1554,32 @@ export class MemoryPersistence implements Persistence {
       this.instrumentsByUser.set(userId, catalog);
     }
     return catalog;
+  }
+
+  private getUserById(userId: string): MemoryUser | undefined {
+    return [...this.usersByEmail.values()].find((user) => user.id === userId);
+  }
+
+  private async insertInvite(input: CreateInviteInput): Promise<InviteRecord> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const code = generateInviteCode();
+      if (this.invites.has(code)) {
+        continue;
+      }
+      const invite: MemoryInvite = {
+        code,
+        email: normalizeEmail(input.email),
+        role: input.role,
+        expiresAt: input.expiresAt,
+        revokedAt: null,
+        usedAt: null,
+        issuedByUserId: input.issuedByUserId,
+        createdAt: new Date().toISOString(),
+      };
+      this.invites.set(code, invite);
+      return { ...invite };
+    }
+    throw new Error("Failed to generate a unique invite code after 3 attempts");
   }
 }
 

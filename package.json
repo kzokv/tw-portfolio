@@ -45,7 +45,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "env:setup": "tsx scripts/env-setup.ts",
-    "auth:refresh-token": "node scripts/get-google-refresh-token.mjs"
+    "auth:refresh-token": "node scripts/get-google-refresh-token.mjs",
+    "admin:promote": "tsx apps/api/src/cli/adminPromote.ts",
+    "admin:bootstrap-invite": "tsx apps/api/src/cli/adminBootstrapInvite.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

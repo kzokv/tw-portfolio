@@ -6,9 +6,21 @@ import { API_BASE } from "../lib/api";
 interface SignInButtonProps {
   href: string;
   className?: string;
+  label?: string;
+  loadingLabel?: string;
+  apiUnreachableMessage?: string;
 }
 
-export function SignInButton({ href, className }: SignInButtonProps) {
+const DEFAULT_API_UNREACHABLE_MESSAGE =
+  "Cannot reach the API server. If your API runs in a Docker container, create an SSH tunnel forwarding the API port (e.g. -L 4300:192.168.64.1:4300 — replace the IP with your Docker host IP).";
+
+export function SignInButton({
+  href,
+  className,
+  label = "Sign in with Google",
+  loadingLabel = "Connecting…",
+  apiUnreachableMessage = DEFAULT_API_UNREACHABLE_MESSAGE,
+}: SignInButtonProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,9 +34,7 @@ export function SignInButton({ href, className }: SignInButtonProps) {
       });
       window.location.href = href;
     } catch {
-      setError(
-        "Cannot reach the API server. If your API runs in a Docker container, create an SSH tunnel forwarding the API port (e.g. -L 4300:192.168.64.1:4300 — replace the IP with your Docker host IP).",
-      );
+      setError(apiUnreachableMessage);
     } finally {
       setLoading(false);
     }
@@ -39,7 +49,7 @@ export function SignInButton({ href, className }: SignInButtonProps) {
         className={className}
         aria-disabled={loading || undefined}
       >
-        {loading ? "Connecting…" : "Sign in with Google"}
+        {loading ? loadingLabel : label}
       </a>
       {error && (
         <p className="mt-2 text-sm text-red-600" role="alert">

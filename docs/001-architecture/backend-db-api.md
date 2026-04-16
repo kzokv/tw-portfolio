@@ -57,6 +57,8 @@ Workflow or dormant tables still matter:
 ```mermaid
 erDiagram
   users ||--o{ user_external_identities : identity_mapping
+  users ||--o{ invites : issued_by
+  users ||--o{ audit_log : actor_or_target
   users ||--o{ fee_profiles : owns
   users ||--o{ accounts : owns
   users ||--o{ trade_events : owns
@@ -95,6 +97,9 @@ Plain-text adjacency list:
 ```text
 users
   -> user_external_identities.user_id
+  -> invites.issued_by_user_id
+  -> audit_log.actor_user_id
+  -> audit_log.target_user_id
   -> fee_profiles.user_id
   -> accounts.user_id
   -> trade_events.user_id
@@ -158,8 +163,10 @@ Fields:
 | Column | Type / default | Constraints | Notes |
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | tenant key (internal UUID) |
-| `email` | `TEXT` | nullable, partial unique index (KZO-77) | user's real email from OAuth; identity resolution key. Nullable for demo users. |
+| `email` | `TEXT` | nullable, functional unique index on `LOWER(email)`, CHECK `email = LOWER(email)` (KZO-77, KZO-143) | user's real email from OAuth; identity resolution key. Nullable for demo users. |
 | `display_name` | `TEXT` | nullable | from OAuth profile or demo default |
+| `role` | `TEXT DEFAULT 'member'` | `NOT NULL`, `CHECK (role IN ('admin','member','viewer'))` | role-derived permissions (KZO-143). `admin` for bootstrap user, `member` for OAuth users, `viewer` for read-only guests. |
+| `session_version` | `INT DEFAULT 1` | `NOT NULL` | incremented on disable/delete/role-change; cookie carries this; mismatch → 401 (KZO-143) |
 | `is_demo` | `BOOLEAN DEFAULT false` | `NOT NULL` | `true` for demo users |
 | `demo_expires_at` | `TIMESTAMP` | nullable | demo session expiry; null for OAuth users |
 | `locale` | `TEXT DEFAULT 'en'` | `NOT NULL` | route layer restricts to `en` or `zh-TW` |
@@ -205,6 +212,65 @@ Read path:
 
 Write path:
 - upserted by `resolveOrCreateUser` on each OAuth login (updates `last_seen_at`, `provider_email`, `provider_display_name`, `provider_picture_url`)
+
+#### `invites` (KZO-143)
+
+Purpose:
+- invite-gated signup codes issued by admins (or CLI bootstrap)
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `code` | `TEXT` | PK | 8-char Crockford base32 (uppercase, no `O/I/L/U`) |
+| `email` | `TEXT` | `NOT NULL`, `CHECK (email = LOWER(email))` | target email for the invite |
+| `role` | `TEXT` | `NOT NULL`, `CHECK (role IN ('admin','member','viewer'))` | role assigned on consumption |
+| `expires_at` | `TIMESTAMP` | `NOT NULL` | default 7 days from creation |
+| `revoked_at` | `TIMESTAMP` | nullable | set by `DELETE /invites/:code` |
+| `used_at` | `TIMESTAMP` | nullable | set atomically on OAuth callback consumption |
+| `issued_by_user_id` | `TEXT` | FK → `users(id)`, nullable | null for CLI-bootstrapped invites |
+| `created_at` | `TIMESTAMP DEFAULT NOW()` | `NOT NULL` | |
+
+Indexes:
+- `idx_invites_active_email` on `(email) WHERE used_at IS NULL AND revoked_at IS NULL`
+- `idx_invites_active_expires_at` on `(expires_at) WHERE used_at IS NULL AND revoked_at IS NULL`
+
+Read path:
+- `getInviteStatus(code)` — returns `valid | invalid | expired | used | revoked`
+- `consumeInvite(code, email)` — atomic conditional UPDATE + follow-up SELECT for failure reason
+
+Write path:
+- `createInvite` / `insertBootstrapInvite` — generates Crockford code with retry on UNIQUE violation (max 3)
+- `revokeInvite(code)` — sets `revoked_at = COALESCE(revoked_at, NOW())`
+- `consumeInvite(code, email)` — sets `used_at = NOW()` atomically
+
+#### `audit_log` (KZO-143)
+
+Purpose:
+- append-only log of admin and system actions for compliance and debugging
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | UUID |
+| `actor_user_id` | `TEXT` | FK → `users(id)`, nullable | null for system events (CLI, startup) |
+| `action` | `TEXT` | `NOT NULL`, `CHECK IN (...)` | `admin_promote_cli`, `admin_promote_startup`, `admin_promote_first_signin` (extended in KZO-144) |
+| `target_user_id` | `TEXT` | FK → `users(id)`, nullable | the user affected by the action |
+| `metadata` | `JSONB DEFAULT '{}'` | `NOT NULL` | action-specific payload (e.g. `{ email }`) |
+| `ip_address` | `INET` | nullable | null for CLI/startup events |
+| `created_at` | `TIMESTAMP DEFAULT NOW()` | `NOT NULL` | |
+
+Indexes:
+- `idx_audit_log_created_at_desc` on `(created_at DESC)`
+- `idx_audit_log_actor_created_at_desc` on `(actor_user_id, created_at DESC)`
+- `idx_audit_log_target_created_at_desc` on `(target_user_id, created_at DESC)`
+
+Read path:
+- admin UI paginated list (KZO-144)
+
+Write path:
+- `appendAuditLog(input)` — called from `promoteUserToAdminByEmail` and OAuth callback admin-promotion path
 
 #### `fee_profiles`
 
@@ -1151,7 +1217,17 @@ POST /ai/transactions/confirm
 | `POST` | `/__e2e/reset` | none | `{ status: "ok" }` | `NODE_ENV === "development"` | resets test state; only available in development |
 
 Finding:
-- OAuth routes are fully implemented (KZO-77). Identity resolution is email-based (`users.email` partial unique index). The session cookie contains the internal UUID, not the Google `sub`. Demo mode adds a parallel auth path using the same HMAC cookie mechanism with a `demo:` prefix.
+- OAuth routes are fully implemented (KZO-77, extended KZO-143). Identity resolution is email-based (`users.email` functional unique index on `LOWER(email)`). The session cookie contains the internal UUID + session version (3-part), not the Google `sub`. Demo mode adds a parallel auth path using the same HMAC cookie mechanism with a `demo:` prefix (2-part).
+
+#### Invites (KZO-143)
+
+| Method | Path | Request shape | Response shape | Dependencies | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/invites` | `{ email, role, expiresAt? }` | `{ code, url }` | Admin-only (`requireAdminRole`); rejects if email already registered (409) | Generates 8-char Crockford base32 code; default 7-day expiry |
+| `DELETE` | `/invites/:code` | path param | 204 (no body) | Admin-only | Idempotent — sets `revoked_at = NOW()` if not already set |
+| `GET` | `/invites/:code/status` | path param | `{ status }` where status is `valid \| invalid \| expired \| used \| revoked` | Public (no auth); rate-limited 20 req/min/IP | Does not leak email or role. Code uppercased on input. |
+
+Invite consumption happens inside the OAuth callback — not via a dedicated endpoint. See [Auth and Session — Invite-Gated Signup](./auth-and-session.md#invite-gated-signup-kzo-143).
 
 #### Settings and fee configuration
 

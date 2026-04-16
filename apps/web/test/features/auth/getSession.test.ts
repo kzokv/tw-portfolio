@@ -51,8 +51,14 @@ function hmacSign(data: string, secret: string): string {
   return createHmac("sha256", secret).update(data).digest("hex");
 }
 
-function signCookie(userId: string, secret: string = SECRET): string {
-  return `${userId}.${hmacSign(userId, secret)}`;
+function signCookie(userId: string, sessionVersion = 1, secret: string = SECRET): string {
+  const payload = `${userId}.${sessionVersion}`;
+  return `${payload}.${hmacSign(payload, secret)}`;
+}
+
+function signDemoCookie(userId: string, secret: string = SECRET): string {
+  const payload = `demo:${userId}`;
+  return `${payload}.${hmacSign(payload, secret)}`;
 }
 
 function makeCookieStore(pairs: Record<string, string>) {
@@ -106,9 +112,9 @@ describe("getSession (oauth mode)", () => {
     expect(await getSession()).toBeNull();
   });
 
-  it("returns { userId, isDemo: false } for a validly-signed cookie", async () => {
+  it("returns { userId, isDemo: false, sessionVersion } for a validly-signed oauth cookie", async () => {
     setCookie(signCookie("google-sub-123"));
-    expect(await getSession()).toEqual({ userId: "google-sub-123", isDemo: false });
+    expect(await getSession()).toEqual({ userId: "google-sub-123", isDemo: false, sessionVersion: 1 });
   });
 
   it("returns null for a tampered HMAC", async () => {
@@ -118,13 +124,13 @@ describe("getSession (oauth mode)", () => {
     expect(await getSession()).toBeNull();
   });
 
-  it("returns null for a plain userId with no HMAC", async () => {
-    setCookie("google-sub-123");
+  it("returns null for a legacy 2-part oauth cookie", async () => {
+    setCookie("google-sub-123.deadbeef");
     expect(await getSession()).toBeNull();
   });
 
   it("returns null when signed with a different secret", async () => {
-    setCookie(signCookie("google-sub-123", "other-secret-that-is-long-enough-32chars!!"));
+    setCookie(signCookie("google-sub-123", 1, "other-secret-that-is-long-enough-32chars!!"));
     expect(await getSession()).toBeNull();
   });
 
@@ -145,15 +151,13 @@ describe("getSession (oauth mode)", () => {
 
   it("correctly handles a userId that contains dots", async () => {
     const userId = "numeric.sub.with.dots";
-    setCookie(signCookie(userId));
-    expect(await getSession()).toEqual({ userId, isDemo: false });
+    setCookie(signCookie(userId, 7));
+    expect(await getSession()).toEqual({ userId, isDemo: false, sessionVersion: 7 });
   });
 
   it("logs a warning on HMAC mismatch", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    setCookie(
-      "google-sub-123.badhmacsignaturebadhmacsignaturebadhmacsignaturebadhmacsignature",
-    );
+    setCookie("google-sub-123.1.badhmacsignaturebadhmacsignaturebadhmacsignaturebadhmac");
     await getSession();
     expect(warnSpy).toHaveBeenCalledWith(
       "[auth] HMAC verification failed for session cookie",
@@ -177,14 +181,13 @@ describe("getSession (oauth mode)", () => {
 
 describe("getSession (oauth mode) — demo prefix", () => {
   it("returns { userId, isDemo: true } for demo-prefixed cookie", async () => {
-    const demoSigned = `demo:user-123.${hmacSign("demo:user-123", SECRET)}`;
-    setCookie(demoSigned);
+    setCookie(signDemoCookie("user-123"));
     expect(await getSession()).toEqual({ userId: "user-123", isDemo: true });
   });
 
-  it("returns { userId, isDemo: false } for non-demo cookie", async () => {
+  it("returns { userId, isDemo: false, sessionVersion } for non-demo cookie", async () => {
     setCookie(signCookie("user-123"));
-    expect(await getSession()).toEqual({ userId: "user-123", isDemo: false });
+    expect(await getSession()).toEqual({ userId: "user-123", isDemo: false, sessionVersion: 1 });
   });
 });
 
@@ -242,7 +245,7 @@ describe("requireSession", () => {
   it("returns session when authenticated", async () => {
     setCookie(signCookie("google-sub-123"));
     const session = await requireSession();
-    expect(session).toEqual({ userId: "google-sub-123", isDemo: false });
+    expect(session).toEqual({ userId: "google-sub-123", isDemo: false, sessionVersion: 1 });
     expect(redirect).not.toHaveBeenCalled();
   });
 

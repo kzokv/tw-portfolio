@@ -47,6 +47,10 @@ import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
 import type {
+  AuditLogInput,
+  AuthUserRecord,
+  ConsumeInviteResult,
+  CreateInviteInput,
   CashLedgerListOptions,
   CashLedgerListResult,
   CashLedgerSortColumn,
@@ -57,13 +61,18 @@ import type {
   DividendLedgerListOptions,
   DividendLedgerListResult,
   InstrumentRow,
+  InviteRecord,
+  InviteStatus,
   OAuthClaims,
   Persistence,
   ReadinessStatus,
+  ResolveOrCreateUserOptions,
+  ResolveOrCreateUserResult,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
   AggregatedSnapshotPoint,
+  UserRole,
 } from "./types.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
@@ -74,6 +83,66 @@ export interface PostgresPersistenceOptions {
 
 function computeChecksum(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const INVITE_CODE_LENGTH = 8;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function generateInviteCode(): string {
+  let code = "";
+  for (let i = 0; i < INVITE_CODE_LENGTH; i += 1) {
+    const index = Math.floor(Math.random() * INVITE_CODE_ALPHABET.length);
+    code += INVITE_CODE_ALPHABET[index]!;
+  }
+  return code;
+}
+
+function mapAuthUserRow(row: {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  role: UserRole;
+  session_version: number;
+  is_demo: boolean;
+  deactivated_at: string | null;
+  deleted_at: string | null;
+}): AuthUserRecord {
+  return {
+    userId: row.user_id,
+    email: row.email,
+    displayName: row.display_name,
+    role: row.role,
+    sessionVersion: Number(row.session_version),
+    isDemo: row.is_demo,
+    deactivatedAt: row.deactivated_at,
+    deletedAt: row.deleted_at,
+  };
+}
+
+function mapInviteRow(row: {
+  code: string;
+  email: string;
+  role: UserRole;
+  expires_at: string;
+  revoked_at: string | null;
+  used_at: string | null;
+  issued_by_user_id: string | null;
+  created_at: string;
+}): InviteRecord {
+  return {
+    code: row.code,
+    email: row.email,
+    role: row.role,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    usedAt: row.used_at,
+    issuedByUserId: row.issued_by_user_id,
+    createdAt: row.created_at,
+  };
 }
 
 export class PostgresPersistence implements Persistence {
@@ -101,20 +170,43 @@ export class PostgresPersistence implements Persistence {
     await this.pool.end();
   }
 
-  async resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string> {
+  async resolveOrCreateUser(
+    provider: string,
+    providerSubject: string,
+    claims: OAuthClaims,
+    options: ResolveOrCreateUserOptions = {},
+  ): Promise<ResolveOrCreateUserResult> {
+    const normalizedEmail = normalizeEmail(claims.email);
+    const insertRole = options.role ?? "member";
+    const insertSessionVersion = options.sessionVersion ?? 1;
+    const updateRole = options.role ?? null;
+    const updateSessionVersion = options.sessionVersion ?? null;
     // Upsert user by email — eliminates TOCTOU race between SELECT and INSERT.
-    // The partial unique index (ux_users_email WHERE email IS NOT NULL) requires
-    // the matching WHERE predicate in ON CONFLICT to identify the correct index.
-    const userResult = await this.pool.query<{ id: string }>(
-      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
-       VALUES ($1, $2, $3, 'en', 'WEIGHTED_AVERAGE', 10)
-       ON CONFLICT (email) WHERE email IS NOT NULL DO UPDATE
+    const userResult = await this.pool.query<{
+      id: string;
+      role: UserRole;
+      session_version: number;
+    }>(
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds, role, session_version)
+       VALUES ($1, $2, $3, 'en', 'WEIGHTED_AVERAGE', 10, $4, $5)
+       ON CONFLICT ((LOWER(email))) WHERE email IS NOT NULL DO UPDATE
          SET display_name = COALESCE($3, users.display_name),
+             role = COALESCE($6, users.role),
+             session_version = COALESCE($7, users.session_version),
              updated_at = CURRENT_TIMESTAMP
-       RETURNING id`,
-      [randomUUID(), claims.email, claims.name ?? null],
+       RETURNING id, role, session_version`,
+      [
+        randomUUID(),
+        normalizedEmail,
+        claims.name ?? null,
+        insertRole,
+        insertSessionVersion,
+        updateRole,
+        updateSessionVersion,
+      ],
     );
-    const userId = userResult.rows[0].id;
+    const user = userResult.rows[0]!;
+    const userId = user.id;
 
     // Upsert external identity.
     // First, remove any stale row for (user_id, provider) with a different provider_subject
@@ -132,13 +224,17 @@ export class PostgresPersistence implements Persistence {
          SET provider_display_name = $6,
              provider_picture_url = $7,
              last_seen_at = CURRENT_TIMESTAMP`,
-      [randomUUID(), userId, provider, providerSubject, claims.email, claims.name ?? null, claims.picture ?? null],
+      [randomUUID(), userId, provider, providerSubject, normalizedEmail, claims.name ?? null, claims.picture ?? null],
     );
 
     // Default portfolio data seeded after upsert (idempotent safety net)
     await this.ensureDefaultPortfolioData(userId);
 
-    return userId;
+    return {
+      userId,
+      role: user.role,
+      sessionVersion: Number(user.session_version),
+    };
   }
 
   async ensureDefaultPortfolioData(userId: string): Promise<void> {
@@ -153,10 +249,10 @@ export class PostgresPersistence implements Persistence {
     // In OAuth mode, resolveOrCreateUser creates the user first.
     // Deterministic placeholder email for dev_bypass mode — not used in production.
     await this.pool.query(
-      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds)
-       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10)
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds, role)
+       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10, 'member')
        ON CONFLICT (id) DO NOTHING`,
-      [userId, `${userId}@placeholder.local`],
+      [userId, normalizeEmail(`${userId}@placeholder.local`)],
     );
 
     const profileResult = await this.pool.query(
@@ -202,6 +298,282 @@ export class PostgresPersistence implements Persistence {
         commissionChargeMode: "CHARGED_UPFRONT",
       });
     }
+  }
+
+  async getAuthUserById(userId: string): Promise<AuthUserRecord | null> {
+    const result = await this.pool.query<{
+      user_id: string;
+      email: string | null;
+      display_name: string | null;
+      role: UserRole;
+      session_version: number;
+      is_demo: boolean;
+      deactivated_at: string | null;
+      deleted_at: string | null;
+    }>(
+      `SELECT id AS user_id,
+              email,
+              display_name,
+              role,
+              session_version,
+              is_demo,
+              deactivated_at::text AS deactivated_at,
+              deleted_at::text AS deleted_at
+       FROM users
+       WHERE id = $1`,
+      [userId],
+    );
+    return result.rows[0] ? mapAuthUserRow(result.rows[0]) : null;
+  }
+
+  async getAuthUserByEmail(email: string): Promise<AuthUserRecord | null> {
+    const result = await this.pool.query<{
+      user_id: string;
+      email: string | null;
+      display_name: string | null;
+      role: UserRole;
+      session_version: number;
+      is_demo: boolean;
+      deactivated_at: string | null;
+      deleted_at: string | null;
+    }>(
+      `SELECT id AS user_id,
+              email,
+              display_name,
+              role,
+              session_version,
+              is_demo,
+              deactivated_at::text AS deactivated_at,
+              deleted_at::text AS deleted_at
+       FROM users
+       WHERE email = $1`,
+      [normalizeEmail(email)],
+    );
+    return result.rows[0] ? mapAuthUserRow(result.rows[0]) : null;
+  }
+
+  async ensureDevBypassUser(): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds, role)
+       SELECT $1, $2, $3, 'en', 'WEIGHTED_AVERAGE', 10, 'admin'
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM users
+         WHERE id = $1
+           AND (deactivated_at IS NOT NULL OR deleted_at IS NOT NULL)
+       )
+       ON CONFLICT (id) DO NOTHING`,
+      ["user-1", "user-1@placeholder.local", "Dev User"],
+    );
+    await this.ensureDefaultPortfolioData("user-1");
+  }
+
+  async promoteUserToAdminByEmail(
+    email: string,
+    action: AuditLogInput["action"],
+    metadata: Record<string, unknown> = {},
+  ): Promise<AuthUserRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<{
+        user_id: string;
+        email: string | null;
+        display_name: string | null;
+        role: UserRole;
+        session_version: number;
+        is_demo: boolean;
+        deactivated_at: string | null;
+        deleted_at: string | null;
+      }>(
+        `UPDATE users
+         SET role = 'admin',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE email = $1
+           AND deactivated_at IS NULL
+           AND deleted_at IS NULL
+         RETURNING id AS user_id,
+                   email,
+                   display_name,
+                   role,
+                   session_version,
+                   is_demo,
+                   deactivated_at::text AS deactivated_at,
+                   deleted_at::text AS deleted_at`,
+        [normalizeEmail(email)],
+      );
+
+      if (!result.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const authUser = mapAuthUserRow(result.rows[0]);
+      await this.appendAuditLogTx(client, {
+        action,
+        targetUserId: authUser.userId,
+        metadata: { email: authUser.email, ...metadata },
+      });
+      await client.query("COMMIT");
+      return authUser;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async appendAuditLog(input: AuditLogInput): Promise<void> {
+    await this.appendAuditLogTx(this.pool, input);
+  }
+
+  async bumpSessionVersion(userId: string): Promise<number> {
+    const result = await this.pool.query<{ session_version: number }>(
+      `UPDATE users
+       SET session_version = session_version + 1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING session_version`,
+      [userId],
+    );
+    if (!result.rows[0]) {
+      throw routeError(404, "not_found", "User not found");
+    }
+    return Number(result.rows[0].session_version);
+  }
+
+  async createInvite(input: CreateInviteInput): Promise<InviteRecord> {
+    return this.insertInviteWithGeneratedCode(input);
+  }
+
+  async insertBootstrapInvite(input: CreateInviteInput): Promise<InviteRecord> {
+    return this.insertInviteWithGeneratedCode(input);
+  }
+
+  async revokeInvite(code: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE invites
+       SET revoked_at = COALESCE(revoked_at, NOW())
+       WHERE code = $1`,
+      [code],
+    );
+  }
+
+  async getInviteStatus(code: string): Promise<InviteStatus> {
+    const result = await this.pool.query<{
+      expires_at: string;
+      revoked_at: string | null;
+      used_at: string | null;
+    }>(
+      `SELECT expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              used_at::text AS used_at
+       FROM invites
+       WHERE code = $1`,
+      [code],
+    );
+    const row = result.rows[0];
+    if (!row) return "invalid";
+    if (row.revoked_at) return "revoked";
+    if (row.used_at) return "used";
+    if (new Date(row.expires_at).getTime() <= Date.now()) return "expired";
+    return "valid";
+  }
+
+  async getInviteRecord(code: string): Promise<InviteRecord | null> {
+    const result = await this.pool.query<{
+      code: string;
+      email: string;
+      role: UserRole;
+      expires_at: string;
+      revoked_at: string | null;
+      used_at: string | null;
+      issued_by_user_id: string | null;
+      created_at: string;
+    }>(
+      `SELECT code,
+              email,
+              role,
+              expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              used_at::text AS used_at,
+              issued_by_user_id,
+              created_at::text AS created_at
+       FROM invites
+       WHERE code = $1`,
+      [code],
+    );
+    return result.rows[0] ? mapInviteRow(result.rows[0]) : null;
+  }
+
+  async consumeInvite(code: string, email: string): Promise<ConsumeInviteResult> {
+    const normalizedEmail = normalizeEmail(email);
+    const consumed = await this.pool.query<{
+      code: string;
+      email: string;
+      role: UserRole;
+      expires_at: string;
+      revoked_at: string | null;
+      used_at: string | null;
+      issued_by_user_id: string | null;
+      created_at: string;
+    }>(
+      `UPDATE invites
+       SET used_at = NOW()
+       WHERE code = $1
+         AND used_at IS NULL
+         AND revoked_at IS NULL
+         AND expires_at > NOW()
+         AND email = $2
+       RETURNING code,
+                 email,
+                 role,
+                 expires_at::text AS expires_at,
+                 revoked_at::text AS revoked_at,
+                 used_at::text AS used_at,
+                 issued_by_user_id,
+                 created_at::text AS created_at`,
+      [code, normalizedEmail],
+    );
+
+    if (consumed.rows[0]) {
+      return {
+        status: "consumed",
+        invite: mapInviteRow(consumed.rows[0]),
+      };
+    }
+
+    const existing = await this.pool.query<{
+      code: string;
+      email: string;
+      role: UserRole;
+      expires_at: string;
+      revoked_at: string | null;
+      used_at: string | null;
+      issued_by_user_id: string | null;
+      created_at: string;
+    }>(
+      `SELECT code,
+              email,
+              role,
+              expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              used_at::text AS used_at,
+              issued_by_user_id,
+              created_at::text AS created_at
+       FROM invites
+       WHERE code = $1`,
+      [code],
+    );
+
+    const invite = existing.rows[0];
+    if (!invite) return { status: "invalid" };
+    if (invite.revoked_at) return { status: "revoked" };
+    if (invite.used_at) return { status: "used" };
+    if (new Date(invite.expires_at).getTime() <= Date.now()) return { status: "expired" };
+    if (invite.email !== normalizedEmail) return { status: "email_mismatch" };
+    return { status: "invalid" };
   }
 
   async loadStore(userId: string): Promise<Store> {
@@ -1215,10 +1587,11 @@ export class PostgresPersistence implements Persistence {
   }
 
   async updateProfileEmail(userId: string, email: string): Promise<ProfileDto> {
+    const normalizedEmail = normalizeEmail(email);
     try {
       await this.pool.query(
         `UPDATE users SET email = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [userId, email],
+        [userId, normalizedEmail],
       );
     } catch (err: unknown) {
       if (err instanceof Error && "code" in err && (err as { code: string }).code === "23505") {
@@ -2906,7 +3279,58 @@ export class PostgresPersistence implements Persistence {
 
   private async seedDefaults(): Promise<void> {
     await this.seedInstruments();
-    await this.ensureDefaultPortfolioData("user-1");
+  }
+
+  private async insertInviteWithGeneratedCode(input: CreateInviteInput): Promise<InviteRecord> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const code = generateInviteCode();
+      try {
+        const result = await this.pool.query<{
+          code: string;
+          email: string;
+          role: UserRole;
+          expires_at: string;
+          revoked_at: string | null;
+          used_at: string | null;
+          issued_by_user_id: string | null;
+          created_at: string;
+        }>(
+          `INSERT INTO invites (code, email, role, expires_at, issued_by_user_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING code,
+                     email,
+                     role,
+                     expires_at::text AS expires_at,
+                     revoked_at::text AS revoked_at,
+                     used_at::text AS used_at,
+                     issued_by_user_id,
+                     created_at::text AS created_at`,
+          [code, normalizeEmail(input.email), input.role, input.expiresAt, input.issuedByUserId],
+        );
+        return mapInviteRow(result.rows[0]!);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Failed to generate a unique invite code after 3 attempts");
+  }
+
+  private async appendAuditLogTx(client: Pool | PoolClient, input: AuditLogInput): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::inet)`,
+      [
+        randomUUID(),
+        input.actorUserId ?? null,
+        input.action,
+        input.targetUserId ?? null,
+        JSON.stringify(input.metadata ?? {}),
+        input.ipAddress ?? null,
+      ],
+    );
   }
 
   private async seedInstruments(): Promise<void> {
@@ -4156,6 +4580,10 @@ export class PostgresPersistence implements Persistence {
   getPool(): Pool {
     return this.pool;
   }
+}
+
+function isUniqueViolation(error: unknown): error is Error & { code: string } {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
 }
 
 function mapNotificationRow(row: {

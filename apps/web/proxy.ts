@@ -1,41 +1,66 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { WebEnv } from "@tw-portfolio/config/web";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { parseSessionCookie } from "./lib/sessionCookie";
 
-// HMAC helpers (duplicated from API — small, stable, avoids cross-app import)
-function hmacSign(data: string, secret: string): string {
-  return createHmac("sha256", secret).update(data).digest("hex");
+const textEncoder = new TextEncoder();
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function hmacVerify(data: string, receivedHmac: string, secret: string): boolean {
-  const expectedHmac = hmacSign(data, secret);
-  try {
-    const expectedBuf = Buffer.from(expectedHmac, "hex");
-    const receivedBuf = Buffer.from(receivedHmac, "hex");
-    if (expectedBuf.length !== receivedBuf.length) return false;
-    return timingSafeEqual(expectedBuf, receivedBuf);
-  } catch {
-    return false;
+function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
+
+  return mismatch === 0;
 }
 
-function verifySessionCookie(cookieValue: string, secret: string): boolean {
-  const dotIndex = cookieValue.lastIndexOf(".");
-  if (dotIndex <= 0) return false;
-  const userId = cookieValue.slice(0, dotIndex);
-  const receivedHmac = cookieValue.slice(dotIndex + 1);
-  if (!userId || !receivedHmac) return false;
-  return hmacVerify(userId, receivedHmac, secret);
+async function hmacSign(data: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(data));
+  return bytesToHex(new Uint8Array(signature));
 }
 
-export function proxy(request: NextRequest): NextResponse {
+async function verifySessionCookie(cookieValue: string, secret: string): Promise<boolean> {
+  const parsed = parseSessionCookie(cookieValue);
+  if (!parsed) return false;
+
+  const expectedHmac = await hmacSign(parsed.signedPayload, secret);
+  return constantTimeEqual(expectedHmac, parsed.hmac);
+}
+
+function isPublicPath(pathname: string): boolean {
+  return pathname === "/login"
+    || pathname === "/auth/error"
+    || pathname === "/invite"
+    || pathname.startsWith("/invite/")
+    || pathname === "/api/demo"
+    || pathname.startsWith("/api/demo/");
+}
+
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   // In dev_bypass mode, skip session enforcement
   if (WebEnv.NEXT_PUBLIC_AUTH_MODE !== "oauth") {
     return NextResponse.next();
   }
 
   const pathname = request.nextUrl.pathname;
+  if (isPublicPath(pathname)) {
+    return NextResponse.next();
+  }
+
   const session = request.cookies.get(WebEnv.SESSION_COOKIE_NAME);
   const cookieValue = session?.value?.trim();
 
@@ -50,7 +75,7 @@ export function proxy(request: NextRequest): NextResponse {
   // Cookie present — verify HMAC
   const secret = WebEnv.SESSION_SECRET;
   if (secret) {
-    if (!verifySessionCookie(cookieValue, secret)) {
+    if (!(await verifySessionCookie(cookieValue, secret))) {
       // Cookie present but HMAC invalid → session expired
       const errorUrl = request.nextUrl.clone();
       errorUrl.pathname = "/auth/error";
@@ -69,7 +94,7 @@ export function proxy(request: NextRequest): NextResponse {
 
 export const config = {
   matcher: [
-    // Protect all paths except: /login, /auth/error, /api/demo/*, /_next/*, static assets
-    "/((?!login|auth/error|api/demo|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
+    // Protect all paths except: /login, /invite/*, /auth/error, /api/demo/*, /_next/*, static assets
+    "/((?!login|invite(?:/|$)|auth/error|api/demo|_next/|favicon\\.ico|robots\\.txt|manifest\\.json|.*\\..*).*)",
   ],
 };

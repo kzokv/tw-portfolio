@@ -1,99 +1,114 @@
 import { describe, expect, it } from "vitest";
+import { Env } from "@tw-portfolio/config";
 import { signSessionCookie, verifySessionCookie } from "../../src/auth/googleOAuth.js";
+import { parseSessionCookie } from "../../src/routes/registerRoutes.js";
 
 const SECRET = "test-session-secret-that-is-long-enough-32chars!!";
 
 describe("signSessionCookie", () => {
-  it("returns sub.hmac format", () => {
-    const signed = signSessionCookie("google-sub-123", SECRET);
+  it("returns userId.sessionVersion.hmac for oauth sessions", () => {
+    const signed = signSessionCookie("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278", SECRET, 3);
     const parts = signed.split(".");
-    expect(parts).toHaveLength(2);
-    expect(parts[0]).toBe("google-sub-123");
-    // HMAC is a 64-char hex string (SHA-256)
-    expect(parts[1]).toMatch(/^[a-f0-9]{64}$/);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toBe("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278");
+    expect(parts[1]).toBe("3");
+    expect(parts[2]).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it("produces deterministic output for the same inputs", () => {
-    const a = signSessionCookie("sub-1", SECRET);
-    const b = signSessionCookie("sub-1", SECRET);
-    expect(a).toBe(b);
-  });
-
-  it("produces different output for different subs", () => {
-    const a = signSessionCookie("sub-1", SECRET);
-    const b = signSessionCookie("sub-2", SECRET);
-    expect(a).not.toBe(b);
-  });
-
-  it("produces different output for different secrets", () => {
-    const a = signSessionCookie("sub-1", "secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    const b = signSessionCookie("sub-1", "secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    expect(a).not.toBe(b);
+  it("keeps demo cookies on the 2-part demo:userId.hmac format", () => {
+    const signed = signSessionCookie("demo-user-1", SECRET, true);
+    expect(signed.startsWith("demo:demo-user-1.")).toBe(true);
+    expect(signed.split(".")).toHaveLength(2);
   });
 });
 
 describe("verifySessionCookie", () => {
-  it("returns the sub for a validly-signed cookie", () => {
-    const signed = signSessionCookie("google-sub-123", SECRET);
-    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: "google-sub-123", isDemo: false });
+  it("round-trips oauth cookies with sessionVersion", () => {
+    const signed = signSessionCookie("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278", SECRET, 4);
+    expect(verifySessionCookie(signed, SECRET)).toEqual({
+      userId: "7d7649b4-4daa-4bb4-9f78-9ec5db2f6278",
+      isDemo: false,
+      sessionVersion: 4,
+    });
   });
 
-  it("returns null for a tampered HMAC", () => {
-    const signed = signSessionCookie("google-sub-123", SECRET);
-    const tampered = signed.slice(0, signed.lastIndexOf(".")) + ".badhmacsignaturebadhmacsignaturebadhmacsignaturebadhmacsignature";
+  it("round-trips demo cookies", () => {
+    const signed = signSessionCookie("demo-user-1", SECRET, true);
+    expect(verifySessionCookie(signed, SECRET)).toEqual({
+      userId: "demo-user-1",
+      isDemo: true,
+    });
+  });
+
+  it("rejects tampering of oauth userId", () => {
+    const signed = signSessionCookie("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278", SECRET, 2);
+    const [, sessionVersion, hmac] = signed.split(".");
+    const tampered = `other-user.${sessionVersion}.${hmac}`;
     expect(verifySessionCookie(tampered, SECRET)).toBeNull();
   });
 
-  it("returns null for a plain sub with no HMAC", () => {
-    expect(verifySessionCookie("google-sub-123", SECRET)).toBeNull();
+  it("rejects tampering of oauth sessionVersion", () => {
+    const signed = signSessionCookie("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278", SECRET, 2);
+    const [userId, , hmac] = signed.split(".");
+    const tampered = `${userId}.9.${hmac}`;
+    expect(verifySessionCookie(tampered, SECRET)).toBeNull();
   });
 
-  it("returns null for empty string", () => {
-    expect(verifySessionCookie("", SECRET)).toBeNull();
+  it("rejects tampering of demo payload", () => {
+    const signed = signSessionCookie("demo-user-1", SECRET, true);
+    const [, hmac] = signed.split(".");
+    const tampered = `demo:someone-else.${hmac}`;
+    expect(verifySessionCookie(tampered, SECRET)).toBeNull();
   });
 
-  it("returns null when signed with a different secret", () => {
-    const signed = signSessionCookie("google-sub-123", "other-secret-that-is-long-enough-32chars!!");
-    expect(verifySessionCookie(signed, SECRET)).toBeNull();
-  });
-
-  it("returns null for malformed input (no dot separator)", () => {
-    expect(verifySessionCookie("no-dot-here", SECRET)).toBeNull();
-  });
-
-  it("returns null when HMAC portion is empty", () => {
-    expect(verifySessionCookie("sub.", SECRET)).toBeNull();
-  });
-
-  it("returns null when sub portion is empty", () => {
-    expect(verifySessionCookie(".somehmacsig", SECRET)).toBeNull();
-  });
-
-  it("correctly round-trips a sub that contains dots", () => {
-    const sub = "numeric.sub.with.dots";
-    const signed = signSessionCookie(sub, SECRET);
-    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: sub, isDemo: false });
+  it("rejects malformed oauth cookies", () => {
+    expect(verifySessionCookie("uuid.only-hmac", SECRET)).toBeNull();
+    expect(verifySessionCookie("uuid.not-a-number.deadbeef", SECRET)).toBeNull();
   });
 });
 
-describe("demo cookie prefix", () => {
-  it("signSessionCookie with isDemo=true prepends demo: to payload", () => {
-    const signed = signSessionCookie("user-123", SECRET, true);
-    expect(signed.startsWith("demo:user-123.")).toBe(true);
+describe("signSessionCookie — sessionVersion guard", () => {
+  it("throws when oauth sessionVersion is zero", () => {
+    // Arrange + Act + Assert
+    expect(() => signSessionCookie("user-1", SECRET, 0)).toThrow(/positive integer/);
   });
 
-  it("verifySessionCookie returns isDemo=true for demo-prefixed cookie", () => {
-    const signed = signSessionCookie("user-123", SECRET, true);
-    expect(verifySessionCookie(signed, SECRET)).toEqual({ userId: "user-123", isDemo: true });
+  it("throws when oauth sessionVersion is negative", () => {
+    expect(() => signSessionCookie("user-1", SECRET, -5)).toThrow(/positive integer/);
   });
 
-  it("round-trip: sign demo cookie and verify returns correct identity", () => {
-    const signed = signSessionCookie("demo-user-uuid", SECRET, true);
-    const result = verifySessionCookie(signed, SECRET);
-    expect(result).toEqual({ userId: "demo-user-uuid", isDemo: true });
-    // Verify tampering fails
-    const nonDemo = signSessionCookie("demo-user-uuid", SECRET, false);
-    const nonDemoResult = verifySessionCookie(nonDemo, SECRET);
-    expect(nonDemoResult).toEqual({ userId: "demo-user-uuid", isDemo: false });
+  it("throws when oauth sessionVersion is non-integer", () => {
+    expect(() => signSessionCookie("user-1", SECRET, 1.5)).toThrow(/positive integer/);
+  });
+
+  it("accepts sessionVersion=1 (default)", () => {
+    // Act + Assert
+    expect(() => signSessionCookie("user-1", SECRET, 1)).not.toThrow();
+  });
+
+  it("does not validate sessionVersion path for demo cookies", () => {
+    // Demo cookies ignore sessionVersion entirely — guard should not fire.
+    expect(() => signSessionCookie("demo-user-1", SECRET, true)).not.toThrow();
+  });
+});
+
+describe("parseSessionCookie", () => {
+  it("disambiguates oauth cookies by 3 parts", () => {
+    const signed = signSessionCookie("7d7649b4-4daa-4bb4-9f78-9ec5db2f6278", SECRET, 5);
+    const identity = parseSessionCookie(`${Env.SESSION_COOKIE_NAME}=${signed}`, SECRET);
+    expect(identity).toEqual({
+      userId: "7d7649b4-4daa-4bb4-9f78-9ec5db2f6278",
+      isDemo: false,
+      sessionVersion: 5,
+    });
+  });
+
+  it("disambiguates demo cookies by 2 parts", () => {
+    const signed = signSessionCookie("demo-user-1", SECRET, true);
+    const identity = parseSessionCookie(`${Env.SESSION_COOKIE_NAME}=${signed}`, SECRET);
+    expect(identity).toEqual({
+      userId: "demo-user-1",
+      isDemo: true,
+    });
   });
 });

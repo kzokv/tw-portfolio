@@ -1,10 +1,22 @@
 import type { APIResponse } from "@playwright/test";
 import type { TSessionAssistant } from "@tw-portfolio/test-e2e/assistants";
 import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
-import { apiUrl, startOAuthAndGetState, startOAuthAndGetTamperedState } from "@tw-portfolio/test-e2e/utils";
+import {
+  apiUrl,
+  makeDeterministicIdToken,
+  startInvitedOAuthAndGetState,
+  startOAuthAndGetState,
+  startOAuthAndGetTamperedState,
+} from "@tw-portfolio/test-e2e/utils";
 import { TestEnv } from "@tw-portfolio/config/test";
 
 const sessionCookieRequiresSecure = TestEnv.sessionCookieName.startsWith("__Host-");
+const firstSigninEmail = "e2e-user@example.com";
+const existingUserIdToken = makeDeterministicIdToken({
+  sub: "e2e-google-sub-001",
+  email: "e2e-user@example.com",
+  name: "E2E Test User",
+});
 
 async function assertSecureCookieAttribute(
   session: TSessionAssistant,
@@ -20,6 +32,11 @@ async function assertSecureCookieAttribute(
     "; Secure",
     "set-cookie header",
   );
+}
+
+async function ensureExistingOAuthUser(session: TSessionAssistant): Promise<void> {
+  const response = await session.actions.requestOAuthSession(existingUserIdToken);
+  await session.assert.responseStatusIs(response, 200);
 }
 
 test.describe("login page", () => {
@@ -83,7 +100,7 @@ test.describe("GET /auth/google/start", () => {
 
 test.describe("GET /auth/google/callback", () => {
   test(`signup flow sets ${TestEnv.sessionCookieName} cookie and redirects to app`, async ({ session }) => {
-    const state = await startOAuthAndGetState(session);
+    const state = await startInvitedOAuthAndGetState(session, firstSigninEmail);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
       state,
@@ -95,6 +112,7 @@ test.describe("GET /auth/google/callback", () => {
   });
 
   test(`login flow sets ${TestEnv.sessionCookieName} cookie and redirects (same as signup)`, async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const state = await startOAuthAndGetState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
@@ -189,6 +207,7 @@ test.describe("full browser OAuth flow", () => {
     dashboard,
     session,
   }) => {
+    await ensureExistingOAuthUser(session);
     const state = await startOAuthAndGetState(session);
 
     await session.actions.navigateToOAuthCallback({
@@ -204,6 +223,7 @@ test.describe("full browser OAuth flow", () => {
 
 test.describe("cookie security attributes", () => {
   test(`${TestEnv.sessionCookieName} cookie has correct security attributes`, async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const state = await startOAuthAndGetState(session);
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
@@ -220,6 +240,7 @@ test.describe("cookie security attributes", () => {
 
 test.describe("authorization code replay", () => {
   test("replayed authorization code with new state", async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const firstState = await startOAuthAndGetState(session);
     const firstUse = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
@@ -279,6 +300,7 @@ test.describe("returnTo in OAuth state", () => {
   });
 
   test("callback with 3-part state redirects to returnTo destination", async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const state = await startOAuthAndGetState(session, "/transactions");
     const response = await session.actions.requestOAuthCallback({
       code: "e2e-auth-code",
@@ -290,6 +312,7 @@ test.describe("returnTo in OAuth state", () => {
   });
 
   test("absolute URL returnTo is rejected and redirects to /dashboard", async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const state = await session.arrange.oauthState(
       await session.actions.requestOAuthStart("https://evil.com"),
     );
@@ -304,6 +327,7 @@ test.describe("returnTo in OAuth state", () => {
   });
 
   test("scheme-relative returnTo is rejected and redirects to /dashboard", async ({ session }) => {
+    await ensureExistingOAuthUser(session);
     const state = await session.arrange.oauthState(
       await session.actions.requestOAuthStart("//evil.com"),
     );

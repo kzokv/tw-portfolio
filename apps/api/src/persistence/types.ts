@@ -29,6 +29,64 @@ export interface OAuthClaims {
   emailVerified?: boolean;
 }
 
+export type UserRole = "admin" | "member" | "viewer";
+
+export interface AuthUserRecord {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  role: UserRole;
+  sessionVersion: number;
+  isDemo: boolean;
+  deactivatedAt: string | null;
+  deletedAt: string | null;
+}
+
+export interface ResolveOrCreateUserOptions {
+  role?: UserRole;
+  sessionVersion?: number;
+}
+
+export interface ResolveOrCreateUserResult {
+  userId: string;
+  role: UserRole;
+  sessionVersion: number;
+}
+
+export type InviteStatus = "valid" | "invalid" | "expired" | "used" | "revoked";
+export type InviteConsumeFailure = InviteStatus | "email_mismatch";
+
+export interface InviteRecord {
+  code: string;
+  email: string;
+  role: UserRole;
+  expiresAt: string;
+  revokedAt: string | null;
+  usedAt: string | null;
+  issuedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateInviteInput {
+  email: string;
+  role: UserRole;
+  expiresAt: string;
+  issuedByUserId: string | null;
+}
+
+export interface ConsumeInviteResult {
+  status: "consumed" | InviteConsumeFailure;
+  invite?: InviteRecord;
+}
+
+export interface AuditLogInput {
+  actorUserId?: string | null;
+  action: "admin_promote_cli" | "admin_promote_startup" | "admin_promote_first_signin";
+  targetUserId?: string | null;
+  metadata?: Record<string, unknown>;
+  ipAddress?: string | null;
+}
+
 export interface TradeEventPatch {
   date?: string;
   quantity?: number;
@@ -231,9 +289,30 @@ export interface Persistence {
    * - First login: seed all fields from claims
    * - Subsequent login: update display_name, provider fields, last_seen_at; never touch email
    */
-  resolveOrCreateUser(provider: string, providerSubject: string, claims: OAuthClaims): Promise<string>;
+  resolveOrCreateUser(
+    provider: string,
+    providerSubject: string,
+    claims: OAuthClaims,
+    options?: ResolveOrCreateUserOptions,
+  ): Promise<ResolveOrCreateUserResult>;
   /** @internal — used by resolveOrCreateUser and dev_bypass loadStore. Not for direct use from routes. */
   ensureDefaultPortfolioData(userId: string): Promise<void>;
+  getAuthUserById(userId: string): Promise<AuthUserRecord | null>;
+  getAuthUserByEmail(email: string): Promise<AuthUserRecord | null>;
+  ensureDevBypassUser(): Promise<void>;
+  promoteUserToAdminByEmail(
+    email: string,
+    action: AuditLogInput["action"],
+    metadata?: Record<string, unknown>,
+  ): Promise<AuthUserRecord | null>;
+  appendAuditLog(input: AuditLogInput): Promise<void>;
+  bumpSessionVersion(userId: string): Promise<number>;
+  createInvite(input: CreateInviteInput): Promise<InviteRecord>;
+  insertBootstrapInvite(input: CreateInviteInput): Promise<InviteRecord>;
+  revokeInvite(code: string): Promise<void>;
+  getInviteStatus(code: string): Promise<InviteStatus>;
+  getInviteRecord(code: string): Promise<InviteRecord | null>;
+  consumeInvite(code: string, email: string): Promise<ConsumeInviteResult>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
