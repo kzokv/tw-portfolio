@@ -5,11 +5,11 @@ set -euo pipefail
 # Available env vars:
 #   MAIN_ROOT      – absolute path to the main repo checkout
 
-echo "→ Setting up environment files from main repo..."
-npx tsx scripts/env-setup.ts --target root:local,docker:local --non-interactive --source "$MAIN_ROOT"
-
 echo "→ Installing dependencies…"
 npm ci
+
+echo "→ Setting up environment files from main repo..."
+npx tsx scripts/env-setup.ts --target root:local,docker:local --non-interactive --source "$MAIN_ROOT"
 
 echo "→ Building…"
 npm run build
