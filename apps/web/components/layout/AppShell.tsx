@@ -341,6 +341,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         displayName={profileData.profile?.displayName}
         pictureUrl={profileData.profile?.providerPictureUrl}
         email={profileData.profile?.email}
+        role={profileData.profile?.role}
         onOpenSettings={() => setDrawerOpen(true)}
         onToggleNavigation={() => setMobileNavOpen((current) => !current)}
         onToggleDesktopNavigation={toggleDesktopNavigation}

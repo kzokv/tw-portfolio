@@ -217,5 +217,6 @@ export async function deleteJson<T>(path: string): Promise<T> {
     headers: await getAuthHeaders(),
   });
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }

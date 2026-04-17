@@ -5,6 +5,7 @@ export interface TTopBarElements {
   title: Locator;
   avatarButton: Locator;
   avatarMenuSettings: Locator;
+  avatarMenuAdmin: Locator;
   avatarMenuIdentity: Locator;
   avatarMenuSignOut: Locator;
   notificationBell: Locator;
@@ -20,6 +21,7 @@ export class TopBarComponent extends BasePage<TTopBarElements> {
       title: this.locate("topbar-title", "Top Bar Title"),
       avatarButton: this.locate("avatar-button", "Avatar Button"),
       avatarMenuSettings: this.locate("avatar-menu-settings", "Open Settings Menu Item"),
+      avatarMenuAdmin: this.locate("avatar-menu-admin", "Avatar Menu Admin Link"),
       avatarMenuIdentity: this.locate("avatar-menu-identity", "Avatar Menu Identity Header"),
       avatarMenuSignOut: this.locate("avatar-menu-sign-out", "Avatar Menu Sign Out"),
       notificationBell: this.locate("notification-bell", "Notification Bell"),

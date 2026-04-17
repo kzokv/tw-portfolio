@@ -37,7 +37,11 @@ import type {
 import type {
   DividendLedgerAggregates,
   DividendSourceLine,
+  AdminAuditLogResponse,
+  AdminInviteListResponse,
+  AdminUserListResponse,
   InstrumentCatalogItemDto,
+  InviteListStatus,
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
@@ -47,6 +51,9 @@ import { roundToDecimal } from "@tw-portfolio/domain";
 import type { Lot } from "@tw-portfolio/domain";
 import type { BookedTradeEvent } from "../types/store.js";
 import type {
+  AdminAuditLogListOptions,
+  AdminInviteListOptions,
+  AdminUserListOptions,
   AuditLogInput,
   AuthUserRecord,
   ConsumeInviteResult,
@@ -143,6 +150,13 @@ function mapInviteRow(row: {
     issuedByUserId: row.issued_by_user_id,
     createdAt: row.created_at,
   };
+}
+
+function deriveInviteStatusFromRow(row: { used_at: string | null; revoked_at: string | null; expires_at: string }): InviteListStatus {
+  if (row.used_at) return "used";
+  if (row.revoked_at) return "revoked";
+  if (new Date(row.expires_at) < new Date()) return "expired";
+  return "pending";
 }
 
 export class PostgresPersistence implements Persistence {
@@ -412,7 +426,7 @@ export class PostgresPersistence implements Persistence {
       await this.appendAuditLogTx(client, {
         action,
         targetUserId: authUser.userId,
-        metadata: { email: authUser.email, ...metadata },
+        metadata: { email: authUser.email, targetEmail: authUser.email, ...metadata },
       });
       await client.query("COMMIT");
       return authUser;
@@ -1558,12 +1572,13 @@ export class PostgresPersistence implements Persistence {
       user_id: string;
       email: string | null;
       display_name: string | null;
+      role: UserRole;
       provider_picture_url: string | null;
       provider_display_name: string | null;
       linked_at: string | null;
       last_seen_at: string | null;
     }>(
-      `SELECT u.id AS user_id, u.email, u.display_name,
+      `SELECT u.id AS user_id, u.email, u.display_name, u.role,
               e.provider_picture_url, e.provider_display_name,
               e.linked_at, e.last_seen_at
        FROM users u
@@ -1583,6 +1598,7 @@ export class PostgresPersistence implements Persistence {
       providerDisplayName: row.provider_display_name,
       linkedAt: row.linked_at,
       lastSeenAt: row.last_seen_at,
+      role: row.role,
     };
   }
 
@@ -4579,6 +4595,565 @@ export class PostgresPersistence implements Persistence {
 
   getPool(): Pool {
     return this.pool;
+  }
+
+  // ── Admin portal methods (KZO-144) ──────────────────────────────────────────
+
+  async listUsers(options: AdminUserListOptions): Promise<AdminUserListResponse> {
+    const { page, limit, search, role, status } = options;
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    // Status filter: derive from deactivated_at/deleted_at
+    if (status === "active") {
+      conditions.push("u.deactivated_at IS NULL AND u.deleted_at IS NULL");
+    } else if (status === "disabled") {
+      conditions.push("u.deactivated_at IS NOT NULL AND u.deleted_at IS NULL");
+    } else if (status === "deleted") {
+      conditions.push("u.deleted_at IS NOT NULL");
+    }
+    // When status is undefined (e.g. "All" tab), no status filter — returns all users
+
+    if (role) {
+      conditions.push(`u.role = $${paramIdx}`);
+      params.push(role);
+      paramIdx++;
+    }
+
+    if (search) {
+      conditions.push(`(u.email ILIKE $${paramIdx} OR u.display_name ILIKE $${paramIdx})`);
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM users u ${whereClause}`,
+      params,
+    );
+    const total = parseInt(countResult.rows[0]!.count, 10);
+
+    const offset = (page - 1) * limit;
+    const dataResult = await this.pool.query<{
+      id: string;
+      email: string | null;
+      display_name: string | null;
+      role: string;
+      deactivated_at: string | null;
+      deleted_at: string | null;
+      last_seen_at: string | null;
+      created_at: string;
+    }>(
+      `SELECT u.id, u.email, u.display_name, u.role,
+              u.deactivated_at::text, u.deleted_at::text,
+              e.last_seen_at::text AS last_seen_at,
+              u.created_at::text AS created_at
+       FROM users u
+       LEFT JOIN user_external_identities e ON e.user_id = u.id AND e.provider = 'google'
+       ${whereClause}
+       ORDER BY u.created_at DESC
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...params, limit, offset],
+    );
+
+    return {
+      items: dataResult.rows.map((row) => ({
+        userId: row.id,
+        email: row.email,
+        displayName: row.display_name,
+        role: row.role as UserRole,
+        status: row.deleted_at ? "deleted" : row.deactivated_at ? "disabled" : "active",
+        lastSeenAt: row.last_seen_at,
+        createdAt: row.created_at,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async changeUserRole(userId: string, newRole: UserRole, auditInput: Omit<AuditLogInput, "action">): Promise<AuthUserRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<{
+        user_id: string; email: string | null; display_name: string | null;
+        role: UserRole; session_version: number; is_demo: boolean;
+        deactivated_at: string | null; deleted_at: string | null;
+      }>(
+        `SELECT id AS user_id, email, display_name, role, session_version, is_demo,
+                deactivated_at::text AS deactivated_at, deleted_at::text AS deleted_at
+         FROM users WHERE id = $1 FOR UPDATE`,
+        [userId],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const row = result.rows[0];
+      const fromRole = row.role;
+
+      // Atomic last-admin guard when demoting an admin
+      if (fromRole === "admin" && newRole !== "admin") {
+        await this.assertNotLastAdminTx(client);
+      }
+
+      await client.query("UPDATE users SET role = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1", [userId, newRole]);
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "admin_role_change",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, fromRole, toRole: newRole, targetEmail: row.email },
+      });
+
+      await client.query("COMMIT");
+
+      return mapAuthUserRow({ ...row, role: newRole });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async disableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Read role under FOR UPDATE to decide last-admin guard atomically
+      const check = await client.query<{ role: string }>(
+        "SELECT role FROM users WHERE id = $1 FOR UPDATE",
+        [userId],
+      );
+      if (check.rows[0]?.role === "admin") {
+        await this.assertNotLastAdminTx(client);
+      }
+
+      const result = await client.query<{ email: string | null }>(
+        `UPDATE users SET deactivated_at = NOW(), session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING email`,
+        [userId],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const { email } = result.rows[0];
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "admin_disable_user",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email },
+      });
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "session_force_logout",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email, reason: "admin_disable_user" },
+      });
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async enableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<{ email: string | null }>(
+        `UPDATE users SET deactivated_at = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING email`,
+        [userId],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "admin_enable_user",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: result.rows[0].email },
+      });
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async softDeleteUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Read role under FOR UPDATE to decide last-admin guard atomically
+      const check = await client.query<{ role: string }>(
+        "SELECT role FROM users WHERE id = $1 FOR UPDATE",
+        [userId],
+      );
+      if (check.rows[0]?.role === "admin") {
+        await this.assertNotLastAdminTx(client);
+      }
+
+      const result = await client.query<{ email: string | null }>(
+        `UPDATE users SET deleted_at = NOW(), session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING email`,
+        [userId],
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const { email } = result.rows[0];
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "admin_delete_user",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email },
+      });
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "session_force_logout",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email, reason: "admin_delete_user" },
+      });
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async hardPurgeUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Fetch user info for audit metadata before deletion
+      const userResult = await client.query<{ email: string | null; display_name: string | null; role: string }>(
+        "SELECT email, display_name, role FROM users WHERE id = $1 FOR UPDATE",
+        [userId],
+      );
+      if (!userResult.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const { email, display_name, role } = userResult.rows[0];
+
+      // Atomic last-admin guard
+      if (role === "admin") {
+        await this.assertNotLastAdminTx(client);
+      }
+
+      // Insert audit entries BEFORE user deletion (FK ON DELETE SET NULL preserves them)
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "admin_hard_purge_user",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email, targetDisplayName: display_name },
+      });
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "session_force_logout",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, targetEmail: email, reason: "admin_hard_purge_user" },
+      });
+
+      // CASCADE: Delete all user-referencing data in dependency order.
+      // Tables with user_id FK that must be cleaned before user row deletion.
+
+      // 1. Account-scoped data (depends on accounts)
+      const accountIds = await client.query<{ id: string }>(
+        "SELECT id FROM accounts WHERE user_id = $1",
+        [userId],
+      );
+
+      if (accountIds.rows.length > 0) {
+        const ids = accountIds.rows.map((r) => r.id);
+        await client.query("DELETE FROM daily_holding_snapshots WHERE account_id = ANY($1)", [ids]);
+        await client.query("DELETE FROM cash_ledger_entries WHERE account_id = ANY($1)", [ids]);
+        await client.query("DELETE FROM lot_allocations WHERE lot_id IN (SELECT id FROM lots WHERE account_id = ANY($1))", [ids]);
+        await client.query("DELETE FROM lots WHERE account_id = ANY($1)", [ids]);
+        // dividend_ledger_entries references accounts(id) — no user_id column
+        // dividend_deduction_entries FK to dividend_ledger_entries without CASCADE
+        await client.query(
+          `DELETE FROM dividend_deduction_entries
+           WHERE dividend_ledger_entry_id IN (SELECT id FROM dividend_ledger_entries WHERE account_id = ANY($1))`,
+          [ids],
+        );
+        // dividend_source_lines cascades from dividend_ledger_entries (ON DELETE CASCADE)
+        await client.query("DELETE FROM dividend_ledger_entries WHERE account_id = ANY($1)", [ids]);
+        // corporate_actions references accounts(id) without CASCADE
+        await client.query("DELETE FROM corporate_actions WHERE account_id = ANY($1)", [ids]);
+        // trade_events must be deleted BEFORE trade_fee_policy_snapshots
+        // (trade_events.fee_policy_snapshot_id references trade_fee_policy_snapshots without CASCADE)
+        await client.query("DELETE FROM trade_events WHERE account_id = ANY($1)", [ids]);
+        // trade_fee_policy_snapshot_tax_components cascades from trade_fee_policy_snapshots
+        await client.query("DELETE FROM trade_fee_policy_snapshots WHERE user_id = $1", [userId]);
+        await client.query("DELETE FROM accounts WHERE user_id = $1", [userId]);
+      }
+
+      // 3. User-scoped data
+      await client.query("DELETE FROM user_external_identities WHERE user_id = $1", [userId]);
+      // fee_profile_tax_rules cascades from fee_profiles (ON DELETE CASCADE)
+      await client.query("DELETE FROM fee_profiles WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM refresh_batches WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM recompute_jobs WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM reconciliation_records WHERE user_id = $1", [userId]);
+      await client.query("DELETE FROM daily_portfolio_snapshots WHERE user_id = $1", [userId]);
+
+      // 4. SET NULL on invites (preserve invite records)
+      await client.query("UPDATE invites SET issued_by_user_id = NULL WHERE issued_by_user_id = $1", [userId]);
+
+      // 5. Notifications
+      await client.query("DELETE FROM notifications WHERE user_id = $1", [userId]);
+
+      // 6. Delete user row — FK ON DELETE SET NULL handles audit_log actor/target references
+      await client.query("DELETE FROM users WHERE id = $1", [userId]);
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async hasActiveJobs(userId: string): Promise<boolean> {
+    // Check pgboss.job for active jobs
+    const pgbossResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM pgboss.job
+       WHERE state IN ('created', 'active', 'retry')
+       AND data->>'userId' = $1`,
+      [userId],
+    );
+    if (parseInt(pgbossResult.rows[0]!.count, 10) > 0) return true;
+
+    // Check refresh_batches for non-terminal batches
+    const batchResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM refresh_batches
+       WHERE user_id = $1
+       AND status NOT IN ('completed', 'failed')`,
+      [userId],
+    );
+    return parseInt(batchResult.rows[0]!.count, 10) > 0;
+  }
+
+  async countActiveAdmins(): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM users
+       WHERE role = 'admin'
+       AND deactivated_at IS NULL
+       AND deleted_at IS NULL`,
+    );
+    return parseInt(result.rows[0]!.count, 10);
+  }
+
+  /**
+   * Transactional last-admin guard: locks all active admin rows with FOR UPDATE
+   * to prevent concurrent admin-removal requests from both proceeding.
+   * Uses subquery to avoid FOR UPDATE + aggregate (which PostgreSQL prohibits).
+   * Must be called inside an existing transaction.
+   */
+  private async assertNotLastAdminTx(client: PoolClient): Promise<void> {
+    const result = await client.query<{ id: string }>(
+      `SELECT id FROM users
+       WHERE role = 'admin'
+       AND deactivated_at IS NULL
+       AND deleted_at IS NULL
+       FOR UPDATE`,
+    );
+    if (result.rows.length <= 1) {
+      throw routeError(409, "last_admin_blocked", "Cannot modify the last remaining admin");
+    }
+  }
+
+  async listInvites(options: AdminInviteListOptions): Promise<AdminInviteListResponse> {
+    const { page, limit, status, email } = options;
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    if (status === "pending") {
+      conditions.push("i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > NOW()");
+    } else if (status === "used") {
+      conditions.push("i.used_at IS NOT NULL");
+    } else if (status === "expired") {
+      conditions.push("i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at <= NOW()");
+    } else if (status === "revoked") {
+      conditions.push("i.revoked_at IS NOT NULL");
+    }
+
+    if (email) {
+      conditions.push(`i.email ILIKE $${paramIdx}`);
+      params.push(`%${email}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM invites i ${whereClause}`,
+      params,
+    );
+    const total = parseInt(countResult.rows[0]!.count, 10);
+
+    const offset = (page - 1) * limit;
+    const dataResult = await this.pool.query<{
+      code: string;
+      email: string;
+      role: string;
+      expires_at: string;
+      used_at: string | null;
+      revoked_at: string | null;
+      created_at: string;
+      issued_by_email: string | null;
+      issued_by_display_name: string | null;
+    }>(
+      `SELECT i.code, i.email, i.role,
+              i.expires_at::text AS expires_at,
+              i.used_at::text AS used_at,
+              i.revoked_at::text AS revoked_at,
+              i.created_at::text AS created_at,
+              u.email AS issued_by_email,
+              u.display_name AS issued_by_display_name
+       FROM invites i
+       LEFT JOIN users u ON u.id = i.issued_by_user_id
+       ${whereClause}
+       ORDER BY i.created_at DESC
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...params, limit, offset],
+    );
+
+    return {
+      items: dataResult.rows.map((row) => ({
+        code: row.code,
+        email: row.email,
+        role: row.role as UserRole,
+        status: deriveInviteStatusFromRow(row),
+        expiresAt: row.expires_at,
+        usedAt: row.used_at,
+        revokedAt: row.revoked_at,
+        issuedByEmail: row.issued_by_email,
+        issuedByDisplayName: row.issued_by_display_name,
+        createdAt: row.created_at,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async listAuditLog(options: AdminAuditLogListOptions): Promise<AdminAuditLogResponse> {
+    const { page, limit, actorUserId, targetUserId, actions, fromDate, toDate } = options;
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    if (actorUserId) {
+      conditions.push(`a.actor_user_id = $${paramIdx}`);
+      params.push(actorUserId);
+      paramIdx++;
+    }
+    if (targetUserId) {
+      conditions.push(`a.target_user_id = $${paramIdx}`);
+      params.push(targetUserId);
+      paramIdx++;
+    }
+    if (actions && actions.length > 0) {
+      conditions.push(`a.action = ANY($${paramIdx})`);
+      params.push(actions);
+      paramIdx++;
+    }
+    if (fromDate) {
+      conditions.push(`a.created_at >= $${paramIdx}::timestamptz`);
+      params.push(fromDate);
+      paramIdx++;
+    }
+    if (toDate) {
+      conditions.push(`a.created_at <= $${paramIdx}::timestamptz`);
+      params.push(toDate);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countResult = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM audit_log a ${whereClause}`,
+      params,
+    );
+    const total = parseInt(countResult.rows[0]!.count, 10);
+
+    const offset = (page - 1) * limit;
+    const dataResult = await this.pool.query<{
+      id: string;
+      actor_user_id: string | null;
+      action: string;
+      target_user_id: string | null;
+      metadata: Record<string, unknown>;
+      ip_address: string | null;
+      created_at: string;
+      actor_email: string | null;
+    }>(
+      `SELECT a.id, a.actor_user_id, a.action, a.target_user_id,
+              a.metadata, a.ip_address::text, a.created_at::text AS created_at,
+              u.email AS actor_email
+       FROM audit_log a
+       LEFT JOIN users u ON u.id = a.actor_user_id
+       ${whereClause}
+       ORDER BY a.created_at DESC
+       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...params, limit, offset],
+    );
+
+    return {
+      items: dataResult.rows.map((row) => ({
+        id: row.id,
+        actorUserId: row.actor_user_id,
+        actorEmail: row.actor_email ?? (row.metadata?.actorEmail as string) ?? (row.metadata?.email as string) ?? null,
+        action: row.action,
+        targetUserId: row.target_user_id,
+        targetEmail: (row.metadata?.targetEmail as string) ?? (row.metadata?.email as string) ?? null,
+        targetDisplayName: (row.metadata?.targetDisplayName as string) ?? null,
+        metadata: row.metadata,
+        ipAddress: row.ip_address,
+        createdAt: row.created_at,
+      })),
+      total,
+      page,
+      limit,
+    };
   }
 }
 

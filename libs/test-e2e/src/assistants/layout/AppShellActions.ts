@@ -147,4 +147,27 @@ export class AppShellActions extends AppBaseActions {
     // Click on the page body outside the dropdown to close it
     await this.page.locator("body").click({ position: { x: 10, y: 10 } });
   }
+
+  // ── Admin portal actions ──────────────────────────────────────────────────
+
+  @Step()
+  async fillAdminInviteForm(email: string, role: string): Promise<void> {
+    await this.mxFill(this.page.getByTestId("invite-email-input"), email);
+    await this.mxSelectOption(this.page.getByTestId("invite-role-select"), role);
+  }
+
+  @Step()
+  async submitAdminInviteForm(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("invite-submit"));
+  }
+
+  @Step()
+  async clickFirstRevokeButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.locator("[data-testid^='revoke-btn-']").first());
+  }
+
+  @Step()
+  async confirmDialog(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("confirm-dialog-confirm"));
+  }
 }

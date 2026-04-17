@@ -302,6 +302,14 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
   "DELETE /invites/:code",
+  "GET /admin/users",
+  "PATCH /admin/users/:id/role",
+  "POST /admin/users/:id/disable",
+  "POST /admin/users/:id/enable",
+  "DELETE /admin/users/:id",
+  "DELETE /admin/users/:id/purge",
+  "GET /admin/invites",
+  "GET /admin/audit-log",
 ]);
 const inviteStatusBuckets = new Map<string, number[]>();
 const INVITE_STATUS_WINDOW_MS = 60_000;
@@ -697,10 +705,21 @@ export function _resetDemoRateBuckets(): void {
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const store = createSeededStoreForUser(userId);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const store = createSeededStoreForUser(identity.userId);
     await app.persistence.saveStore(store);
-    return { status: "reset", userId };
+
+    // Ensure user identity exists for server-side getProfile()
+    await app.persistence.ensureDefaultPortfolioData(identity.userId);
+
+    // Set role to match the resolved identity (default: admin in dev_bypass)
+    const role = identity.role ?? "admin";
+    const user = await app.persistence.getAuthUserById(identity.userId);
+    if (user && user.role !== role) {
+      await app.persistence.changeUserRole(identity.userId, role, { actorUserId: "system" });
+    }
+
+    return { status: "reset", userId: identity.userId };
   });
 
   app.post("/__e2e/seed-instruments", async (req) => {
@@ -979,6 +998,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       issuedByUserId: req.authContext?.sessionUserId ?? null,
     });
 
+    await app.persistence.appendAuditLog({
+      actorUserId: req.authContext?.sessionUserId ?? null,
+      action: "admin_invite_issued",
+      metadata: { targetEmail: body.email, inviteCode: invite.code, role: body.role },
+      ipAddress: req.ip,
+    });
+
     return {
       code: invite.code,
       url: `${app.appBaseUrl}/invite/${invite.code}`,
@@ -989,7 +1015,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({
       code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
     }).parse(req.params);
+
+    // Look up invite email for audit metadata before revoking
+    const invite = await app.persistence.getInviteRecord(params.code);
     await app.persistence.revokeInvite(params.code);
+
+    await app.persistence.appendAuditLog({
+      actorUserId: req.authContext?.sessionUserId ?? null,
+      action: "admin_invite_revoked",
+      metadata: { inviteCode: params.code, targetEmail: invite?.email ?? null },
+      ipAddress: req.ip,
+    });
+
     reply.code(204);
     return null;
   });
@@ -1065,7 +1102,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           await app.persistence.appendAuditLog({
             action: "admin_promote_first_signin",
             targetUserId: authUser.userId,
-            metadata: { email: normalizedEmail },
+            metadata: { email: normalizedEmail, targetEmail: normalizedEmail },
           });
         }
       } else if (existingUser) {
@@ -2524,5 +2561,187 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "ok" };
   });
 
+  // ── Admin portal routes (KZO-144) ──────────────────────────────────────────
+
+  app.get("/admin/users", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listUsers({
+      page,
+      limit,
+      search: query.search,
+      role: query.role ? userRoleSchema.parse(query.role) : undefined,
+      status: z.enum(["active", "disabled", "deleted"]).optional().parse(query.status || undefined),
+    });
+  });
+
+  app.patch("/admin/users/:id/role", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({ role: userRoleSchema }).parse(req.body);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside changeUserRole transaction
+
+    const result = await app.persistence.changeUserRole(id, body.role, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+
+    // Force logout when removing admin role
+    if (target.role === "admin" && body.role !== "admin") {
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "session_force_logout",
+        targetUserId: id,
+        ipAddress,
+        metadata: { targetEmail: target.email, reason: "admin_role_change" },
+      });
+    }
+
+    return result;
+  });
+
+  app.post("/admin/users/:id/disable", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside disableUser transaction
+    await app.persistence.disableUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.post("/admin/users/:id/enable", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    await app.persistence.enableUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.delete("/admin/users/:id", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside softDeleteUser transaction
+    await app.persistence.softDeleteUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.delete("/admin/users/:id/purge", async (req) => {
+    const { sessionUserId, ipAddress, email: adminEmail } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      confirmation: z.string(),
+      adminEmail: z.string().email(),
+    }).parse(req.body);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+    if (!target.email) {
+      throw routeError(400, "no_email_for_purge", "Cannot purge a user with no email address");
+    }
+
+    // Validate confirmation strings
+    const expectedConfirmation = `PURGE ${target.email}`;
+    if (body.confirmation !== expectedConfirmation) {
+      throw routeError(400, "invalid_confirmation", `Confirmation must be "${expectedConfirmation}"`);
+    }
+    if (body.adminEmail.toLowerCase() !== (adminEmail ?? "").toLowerCase()) {
+      throw routeError(400, "invalid_admin_email", "Admin email does not match");
+    }
+
+    // Last-admin guard is enforced atomically inside hardPurgeUser transaction
+
+    // Check for active jobs
+    const hasJobs = await app.persistence.hasActiveJobs(id);
+    if (hasJobs) {
+      throw routeError(409, "active_jobs_blocked", "User has active background jobs — wait for completion before purging");
+    }
+
+    await app.persistence.hardPurgeUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.get("/admin/invites", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listInvites({
+      page,
+      limit,
+      status: z.enum(["pending", "used", "expired", "revoked"]).optional().parse(query.status || undefined),
+      email: query.email,
+    });
+  });
+
+  app.get("/admin/audit-log", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listAuditLog({
+      page,
+      limit,
+      actorUserId: query.actorUserId,
+      targetUserId: query.targetUserId,
+      actions: query.action ? query.action.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+    });
+  });
+
   registerSSERoute(app, resolveUserId);
 }
+
+// ── Admin route helpers (KZO-144) ───────────────────────────────────────────
+
+function resolveAdminContext(req: FastifyRequest, app: FastifyInstance) {
+  const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+  return {
+    sessionUserId: identity.sessionUserId,
+    ipAddress: req.ip,
+    email: identity.email,
+  };
+}
+
+function assertNotSelf(sessionUserId: string, targetUserId: string): void {
+  if (targetUserId === sessionUserId) {
+    throw routeError(403, "self_operation_blocked", "Cannot perform this action on your own account");
+  }
+}
+
+// assertNotLastAdmin moved to persistence layer (assertNotLastAdminTx) for atomic check+mutation

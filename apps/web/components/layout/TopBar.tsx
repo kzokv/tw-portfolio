@@ -27,6 +27,7 @@ interface TopBarProps {
   displayName?: string | null;
   pictureUrl?: string | null;
   email?: string | null;
+  role?: string;
   onOpenSettings: () => void;
   onToggleNavigation?: () => void;
   navigationOpen?: boolean;
@@ -67,6 +68,7 @@ export function TopBar({
   displayName,
   pictureUrl,
   email,
+  role,
   onOpenSettings,
   onToggleNavigation,
   navigationOpen = false,
@@ -320,7 +322,7 @@ export function TopBar({
           )}
 
           <div className="shrink-0">
-            <UserAvatarButton userId={userId} displayName={displayName} pictureUrl={pictureUrl} email={email} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
+            <UserAvatarButton userId={userId} displayName={displayName} pictureUrl={pictureUrl} email={email} role={role} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
           </div>
         </div>
       </header>

@@ -13,7 +13,17 @@ import type {
   InstrumentDef,
 } from "../types/store.js";
 import type { DailyBar } from "@tw-portfolio/domain";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type {
+  AdminAuditLogResponse,
+  AdminInviteListResponse,
+  AdminUserListResponse,
+  AdminUserStatus,
+  InstrumentCatalogItemDto,
+  InviteListStatus,
+  MonitoredTickerDto,
+  NotificationDto,
+  ProfileDto,
+} from "@tw-portfolio/shared-types";
 
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
@@ -79,9 +89,22 @@ export interface ConsumeInviteResult {
   invite?: InviteRecord;
 }
 
+export type AuditLogAction =
+  | "admin_promote_cli"
+  | "admin_promote_startup"
+  | "admin_promote_first_signin"
+  | "admin_role_change"
+  | "admin_disable_user"
+  | "admin_enable_user"
+  | "admin_delete_user"
+  | "admin_hard_purge_user"
+  | "admin_invite_issued"
+  | "admin_invite_revoked"
+  | "session_force_logout";
+
 export interface AuditLogInput {
   actorUserId?: string | null;
-  action: "admin_promote_cli" | "admin_promote_startup" | "admin_promote_first_signin";
+  action: AuditLogAction;
   targetUserId?: string | null;
   metadata?: Record<string, unknown>;
   ipAddress?: string | null;
@@ -276,6 +299,33 @@ export interface SnapshotGenerationInputs {
 export interface SnapshotGenerationScope {
   accountId: string;
   ticker: string;
+}
+
+// ── Admin portal list options (KZO-144) ────────────────────────────────────
+
+export interface AdminUserListOptions {
+  page: number;
+  limit: number;
+  search?: string;
+  role?: UserRole;
+  status?: AdminUserStatus;
+}
+
+export interface AdminInviteListOptions {
+  page: number;
+  limit: number;
+  status?: InviteListStatus;
+  email?: string;
+}
+
+export interface AdminAuditLogListOptions {
+  page: number;
+  limit: number;
+  actorUserId?: string;
+  targetUserId?: string;
+  actions?: string[];
+  fromDate?: string;
+  toDate?: string;
 }
 
 export interface Persistence {
@@ -488,4 +538,17 @@ export interface Persistence {
     tickerResults: Record<string, { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string }>;
   } | null>;
   completeRefreshBatch(batchId: string, status: "completed" | "failed"): Promise<void>;
+
+  // ── Admin portal methods (KZO-144) ──────────────────────────────────────────
+
+  listUsers(options: AdminUserListOptions): Promise<AdminUserListResponse>;
+  changeUserRole(userId: string, newRole: UserRole, auditInput: Omit<AuditLogInput, "action">): Promise<AuthUserRecord>;
+  disableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
+  enableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
+  softDeleteUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
+  hardPurgeUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
+  hasActiveJobs(userId: string): Promise<boolean>;
+  countActiveAdmins(): Promise<number>;
+  listInvites(options: AdminInviteListOptions): Promise<AdminInviteListResponse>;
+  listAuditLog(options: AdminAuditLogListOptions): Promise<AdminAuditLogResponse>;
 }
