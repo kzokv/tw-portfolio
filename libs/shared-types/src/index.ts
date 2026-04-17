@@ -248,6 +248,8 @@ export interface UserExternalIdentity {
   lastSeenAt: string;
 }
 
+export type UserRole = "admin" | "member" | "viewer";
+
 export interface ProfileDto {
   userId: string;
   email: string | null;
@@ -256,6 +258,70 @@ export interface ProfileDto {
   providerDisplayName: string | null;
   linkedAt: string | null;
   lastSeenAt: string | null;
+  role: UserRole;
+}
+
+// ── Admin portal DTOs (KZO-144) ──────────────────────────────────────────────
+
+export type AdminUserStatus = "active" | "disabled" | "deleted";
+
+export interface AdminUserListItemDto {
+  userId: string;
+  email: string | null;
+  displayName: string | null;
+  role: UserRole;
+  status: AdminUserStatus;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminUserListResponse {
+  items: AdminUserListItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type InviteListStatus = "pending" | "used" | "expired" | "revoked";
+
+export interface AdminInviteListItemDto {
+  code: string;
+  email: string;
+  role: UserRole;
+  status: InviteListStatus;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  issuedByEmail: string | null;
+  issuedByDisplayName: string | null;
+  createdAt: string;
+}
+
+export interface AdminInviteListResponse {
+  items: AdminInviteListItemDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminAuditLogEntryDto {
+  id: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  action: string;
+  targetUserId: string | null;
+  targetEmail: string | null;
+  targetDisplayName: string | null;
+  metadata: Record<string, unknown>;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+export interface AdminAuditLogResponse {
+  items: AdminAuditLogEntryDto[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface QuoteSnapshotDto {

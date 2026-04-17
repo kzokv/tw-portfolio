@@ -12,10 +12,23 @@ import type {
   Store,
 } from "../types/store.js";
 import type { DailyBar } from "@tw-portfolio/domain";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto, NotificationDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type {
+  AdminAuditLogResponse,
+  AdminInviteListResponse,
+  AdminUserListResponse,
+  AdminUserStatus,
+  InstrumentCatalogItemDto,
+  InviteListStatus,
+  MonitoredTickerDto,
+  NotificationDto,
+  ProfileDto,
+} from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type {
+  AdminAuditLogListOptions,
+  AdminInviteListOptions,
+  AdminUserListOptions,
   AuditLogInput,
   AuthUserRecord,
   ConsumeInviteResult,
@@ -252,8 +265,25 @@ export class MemoryPersistence implements Persistence {
   }
 
   async ensureDefaultPortfolioData(userId: string): Promise<void> {
+    // Ensure user identity exists (matches postgres behavior: INSERT ... ON CONFLICT DO NOTHING)
+    const existingUser = this.getUserById(userId);
+    if (!existingUser) {
+      const email = normalizeEmail(`${userId}@placeholder.local`);
+      if (!this.usersByEmail.has(email)) {
+        this.usersByEmail.set(email, {
+          id: userId,
+          email,
+          displayName: null,
+          providerSubject: userId,
+          providerDisplayName: null,
+          providerPictureUrl: null,
+          role: "member",
+          sessionVersion: 1,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
     // In memory persistence, loadStore already creates default data (fee profile, account, etc.)
-    // Just ensure the store exists for this user.
     await this.loadStore(userId);
   }
 
@@ -300,7 +330,7 @@ export class MemoryPersistence implements Persistence {
     await this.appendAuditLog({
       action,
       targetUserId: user.id,
-      metadata: { email: user.email, ...metadata },
+      metadata: { email: user.email, targetEmail: user.email, ...metadata },
     });
     return mapMemoryUser(user);
   }
@@ -872,6 +902,7 @@ export class MemoryPersistence implements Persistence {
       providerDisplayName: memUser.providerDisplayName,
       linkedAt: null,
       lastSeenAt: null,
+      role: memUser.role,
     };
   }
 
@@ -1581,6 +1612,333 @@ export class MemoryPersistence implements Persistence {
     }
     throw new Error("Failed to generate a unique invite code after 3 attempts");
   }
+
+  // ── Admin portal methods (KZO-144) ──────────────────────────────────────────
+
+  async listUsers(options: AdminUserListOptions): Promise<AdminUserListResponse> {
+    const { page, limit, search, role, status } = options;
+    let users = [...this.usersByEmail.values()];
+
+    // Filter by status (default: active + disabled)
+    if (status) {
+      users = users.filter((u) => deriveUserStatus(u) === status);
+    }
+    // When status is undefined (e.g. "All" tab), no status filter — returns all users
+
+    if (role) {
+      users = users.filter((u) => u.role === role);
+    }
+
+    if (search) {
+      const lower = search.toLowerCase();
+      users = users.filter(
+        (u) =>
+          u.email.toLowerCase().includes(lower) ||
+          (u.displayName && u.displayName.toLowerCase().includes(lower)),
+      );
+    }
+
+    // Sort by createdAt DESC
+    users.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const total = users.length;
+    const offset = (page - 1) * limit;
+    const pageItems = users.slice(offset, offset + limit);
+
+    return {
+      items: pageItems.map((u) => ({
+        userId: u.id,
+        email: u.email,
+        displayName: u.displayName,
+        role: u.role,
+        status: deriveUserStatus(u),
+        lastSeenAt: null,
+        createdAt: u.createdAt,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async changeUserRole(userId: string, newRole: UserRole, auditInput: Omit<AuditLogInput, "action">): Promise<AuthUserRecord> {
+    const user = this.getUserById(userId);
+    if (!user) throw routeError(404, "user_not_found", "User not found");
+
+    const fromRole = user.role;
+
+    // Atomic last-admin guard when demoting an admin
+    if (fromRole === "admin" && newRole !== "admin") {
+      this.assertNotLastAdminMem();
+    }
+
+    user.role = newRole;
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_role_change",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, fromRole, toRole: newRole, targetEmail: user.email },
+    });
+
+    return mapMemoryUser(user);
+  }
+
+  async disableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const user = this.getUserById(userId);
+    if (!user) throw routeError(404, "user_not_found", "User not found");
+
+    if (user.role === "admin") {
+      this.assertNotLastAdminMem();
+    }
+
+    user.deactivatedAt = new Date().toISOString();
+    user.sessionVersion += 1;
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_disable_user",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email },
+    });
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "session_force_logout",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email, reason: "admin_disable_user" },
+    });
+  }
+
+  async enableUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const user = this.getUserById(userId);
+    if (!user) throw routeError(404, "user_not_found", "User not found");
+
+    user.deactivatedAt = null;
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_enable_user",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email },
+    });
+  }
+
+  async softDeleteUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const user = this.getUserById(userId);
+    if (!user) throw routeError(404, "user_not_found", "User not found");
+
+    if (user.role === "admin") {
+      this.assertNotLastAdminMem();
+    }
+
+    user.deletedAt = new Date().toISOString();
+    user.sessionVersion += 1;
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_delete_user",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email },
+    });
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "session_force_logout",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email, reason: "admin_delete_user" },
+    });
+  }
+
+  async hardPurgeUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void> {
+    const user = this.getUserById(userId);
+    if (!user) throw routeError(404, "user_not_found", "User not found");
+
+    if (user.role === "admin") {
+      this.assertNotLastAdminMem();
+    }
+
+    // Emit audit entries BEFORE deletion (FK ON DELETE SET NULL preserves them)
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_hard_purge_user",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email, targetDisplayName: user.displayName },
+    });
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "session_force_logout",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, targetEmail: user.email, reason: "admin_hard_purge_user" },
+    });
+
+    // Cascade delete user data
+    this.stores.delete(userId);
+    this.idempotencyKeys.delete(userId);
+    this.monitoredTickers.delete(userId);
+    this.notifications.delete(userId);
+    this.instrumentsByUser.delete(userId);
+
+    // Remove holding snapshots for user
+    const snapshotsToRemove = this.holdingSnapshots.filter((s) => s.userId === userId);
+    for (const s of snapshotsToRemove) {
+      const idx = this.holdingSnapshots.indexOf(s);
+      if (idx >= 0) this.holdingSnapshots.splice(idx, 1);
+    }
+
+    // SET NULL on invites.issued_by_user_id
+    for (const invite of this.invites.values()) {
+      if (invite.issuedByUserId === userId) {
+        invite.issuedByUserId = null;
+      }
+    }
+
+    // SET NULL on audit_log actor/target
+    for (const entry of this.auditLog) {
+      if (entry.actorUserId === userId) entry.actorUserId = null;
+      if (entry.targetUserId === userId) entry.targetUserId = null;
+    }
+
+    // Remove user
+    this.usersByEmail.delete(user.email);
+  }
+
+  async hasActiveJobs(_userId: string): Promise<boolean> {
+    return false;
+  }
+
+  async countActiveAdmins(): Promise<number> {
+    let count = 0;
+    for (const user of this.usersByEmail.values()) {
+      if (user.role === "admin" && !user.deactivatedAt && !user.deletedAt) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private resolveActorEmail(actorUserId: string | null, metadata?: Record<string, unknown>): string | null {
+    // Try users table first (mirrors Postgres LEFT JOIN fallback)
+    if (actorUserId) {
+      for (const user of this.usersByEmail.values()) {
+        if (user.id === actorUserId) return user.email;
+      }
+    }
+    // Fall back to metadata
+    return (metadata?.actorEmail as string) ?? (metadata?.email as string) ?? null;
+  }
+
+  private assertNotLastAdminMem(): void {
+    let count = 0;
+    for (const user of this.usersByEmail.values()) {
+      if (user.role === "admin" && !user.deactivatedAt && !user.deletedAt) {
+        count++;
+      }
+    }
+    if (count <= 1) {
+      throw routeError(409, "last_admin_blocked", "Cannot modify the last remaining admin");
+    }
+  }
+
+  async listInvites(options: AdminInviteListOptions): Promise<AdminInviteListResponse> {
+    const { page, limit, status, email } = options;
+    let inviteList = [...this.invites.values()];
+
+    if (status) {
+      inviteList = inviteList.filter((inv) => deriveInviteStatus(inv) === status);
+    }
+
+    if (email) {
+      const lower = email.toLowerCase();
+      inviteList = inviteList.filter((inv) => inv.email.toLowerCase().includes(lower));
+    }
+
+    // Sort by createdAt DESC
+    inviteList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const total = inviteList.length;
+    const offset = (page - 1) * limit;
+    const pageItems = inviteList.slice(offset, offset + limit);
+
+    return {
+      items: pageItems.map((inv) => {
+        const issuer = inv.issuedByUserId ? this.getUserById(inv.issuedByUserId) : null;
+        return {
+          code: inv.code,
+          email: inv.email,
+          role: inv.role,
+          status: deriveInviteStatus(inv),
+          expiresAt: inv.expiresAt,
+          usedAt: inv.usedAt,
+          revokedAt: inv.revokedAt,
+          issuedByEmail: issuer?.email ?? null,
+          issuedByDisplayName: issuer?.displayName ?? null,
+          createdAt: inv.createdAt,
+        };
+      }),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async listAuditLog(options: AdminAuditLogListOptions): Promise<AdminAuditLogResponse> {
+    const { page, limit, actorUserId, targetUserId, actions, fromDate, toDate } = options;
+    let entries = [...this.auditLog];
+
+    if (actorUserId) {
+      entries = entries.filter((e) => e.actorUserId === actorUserId);
+    }
+    if (targetUserId) {
+      entries = entries.filter((e) => e.targetUserId === targetUserId);
+    }
+    if (actions && actions.length > 0) {
+      const actionSet = new Set(actions);
+      entries = entries.filter((e) => actionSet.has(e.action));
+    }
+    if (fromDate) {
+      entries = entries.filter((e) => e.createdAt >= fromDate);
+    }
+    if (toDate) {
+      entries = entries.filter((e) => e.createdAt <= toDate);
+    }
+
+    // Sort by createdAt DESC
+    entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    const total = entries.length;
+    const offset = (page - 1) * limit;
+    const pageItems = entries.slice(offset, offset + limit);
+
+    return {
+      items: pageItems.map((e) => ({
+        id: e.id,
+        actorUserId: e.actorUserId,
+        actorEmail: this.resolveActorEmail(e.actorUserId, e.metadata) ?? null,
+        action: e.action,
+        targetUserId: e.targetUserId,
+        targetEmail: (e.metadata?.targetEmail as string) ?? (e.metadata?.email as string) ?? null,
+        targetDisplayName: (e.metadata?.targetDisplayName as string) ?? null,
+        metadata: e.metadata,
+        ipAddress: e.ipAddress,
+        createdAt: e.createdAt,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+}
+
+function deriveUserStatus(user: { deactivatedAt?: string | null; deletedAt?: string | null }): AdminUserStatus {
+  if (user.deletedAt) return "deleted";
+  if (user.deactivatedAt) return "disabled";
+  return "active";
+}
+
+function deriveInviteStatus(invite: { usedAt: string | null; revokedAt: string | null; expiresAt: string }): InviteListStatus {
+  if (invite.usedAt) return "used";
+  if (invite.revokedAt) return "revoked";
+  if (new Date(invite.expiresAt) < new Date()) return "expired";
+  return "pending";
 }
 
 function matchesNullableDateRange(value: string | null | undefined, fromDate?: string, toDate?: string): boolean {

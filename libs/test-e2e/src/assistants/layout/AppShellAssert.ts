@@ -184,4 +184,76 @@ export class AppShellAssert extends BaseAssert {
   async notificationUnreadDotIsHidden(notificationId: string): Promise<void> {
     await expect(this.page.getByTestId(`notification-unread-${notificationId}`)).toBeHidden();
   }
+
+  // ── Admin portal assertions ───────────────────────────────────────────────
+
+  @Step()
+  async adminUsersPageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-users-page")).toBeVisible();
+  }
+
+  @Step()
+  async adminInvitesPageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-invites-page")).toBeVisible();
+  }
+
+  @Step()
+  async adminAuditLogPageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-audit-log-page")).toBeVisible();
+  }
+
+  @Step()
+  async adminUsersTableIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("users-table")).toBeVisible();
+  }
+
+  @Step()
+  async adminInvitesTableIsVisible(): Promise<void> {
+    // Fresh test users may have zero invites — accept either the table or the empty state
+    const table = this.page.getByTestId("invites-table");
+    const empty = this.page.getByText("No invites found.");
+    await expect(table.or(empty)).toBeVisible();
+  }
+
+  @Step()
+  async adminAuditLogTableIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("audit-log-table")).toBeVisible();
+  }
+
+  @Step()
+  async adminYouBadgeIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("you-badge")).toBeVisible();
+  }
+
+  @Step()
+  async adminOwnRowHasDisabledActions(): Promise<void> {
+    const youBadge = this.page.getByTestId("you-badge");
+    const ownRow = youBadge.locator("xpath=ancestor::tr").first();
+    await expect(ownRow.locator("button[disabled]").first()).toBeVisible();
+  }
+
+  @Step()
+  async adminInviteFormSuccessIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("invite-form-success")).toBeVisible();
+  }
+
+  @Step()
+  async adminInviteStatusBadgeIsVisible(status: string): Promise<void> {
+    await expect(this.page.getByTestId(`status-badge-${status}`).first()).toBeVisible();
+  }
+
+  @Step()
+  async adminConfirmDialogIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("confirm-dialog")).toBeVisible();
+  }
+
+  @Step()
+  async avatarMenuAdminLinkIsVisible(): Promise<void> {
+    await expect(this.el.topBar.elements.avatarMenuAdmin).toBeVisible();
+  }
+
+  @Step()
+  async pageContainsText(text: string): Promise<void> {
+    await expect(this.page.getByText(text).first()).toBeVisible();
+  }
 }
