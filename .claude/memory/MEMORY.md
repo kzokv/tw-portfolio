@@ -8,7 +8,7 @@
 - ~~feedback_sse_app_inject_limitation.md~~ — **PROMOTED** to `.claude/rules/sse-app-inject-pattern.md`
 - ~~project_preexisting_bypass_failures.md~~ — **REMOVED** (stale — tests now pass, identity-resolution moved to specs-oauth/)
 - [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
-- [project_e2e_aaa.md](project_e2e_aaa.md) — Phase 5d AAA migration lessons, web/API AAA rules, and parallel-execution guardrails
+- [project_e2e_aaa.md](project_e2e_aaa.md) — Phase 5e HTTP AAA migration specifics — fixture roles, mixed Vitest splitting, dual-pair validation
 
 ## Auth / session
 - ~~project_session_cookie_architecture.md~~ — **PROMOTED** to `.claude/rules/session-cookie-host-prefix.md`
@@ -35,14 +35,14 @@
 
 ## Migration process knowledge
 - ~~feedback_aaa_migration_methodology.md~~ — **PROMOTED** to `.claude/rules/test-migration-methodology.md`
-- [feedback_code_review_as_formal_phase.md](feedback_code_review_as_formal_phase.md) — Run structured CR before PR creation; catches architectural drift early
+- ~~feedback_code_review_as_formal_phase.md~~ — **PROMOTED** to `.claude/rules/code-review-before-pr.md`
 - ~~feedback_test_framework_is_architecture.md~~ — **PROMOTED** to `.claude/rules/test-framework-scope-estimation.md`
-- [feedback_structured_debate_resolves_forks.md](feedback_structured_debate_resolves_forks.md) — /debate for decisions with >1 viable option and downstream lock-in
+- ~~feedback_structured_debate_resolves_forks.md~~ — **PROMOTED** to `.claude/rules/debate-for-architectural-forks.md`
 
 ## Agent team workflow
 - ~~feedback_agent_team_workflow.md~~ — **PROMOTED** to `.claude/rules/agent-team-workflow.md`
-- [feedback_e2e_seed_guard_selection.md](feedback_e2e_seed_guard_selection.md) — assertE2ESeedEnabled (NODE_ENV only) vs assertE2EResetEnabled (dev_bypass) for test endpoints
-- [feedback_test_api_mapper_registration.md](feedback_test_api_mapper_registration.md) — New AAA endpoint+assistant must be registered in mapper.ts or tests fail at runtime
+- ~~feedback_e2e_seed_guard_selection.md~~ — **PROMOTED** to `.claude/rules/e2e-seed-vs-reset-guards.md`
+- ~~feedback_test_api_mapper_registration.md~~ — **PROMOTED** to `.claude/rules/test-api-mapper-registration.md`
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
 - ~~feedback_qa_test_infra_check.md~~ — **PROMOTED** to `.claude/rules/qa-test-infra-check.md`
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
