@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
-import { ApiBaseActions } from "../../mixins/index.js";
+import { ApiBaseActions, headersForCookie } from "../../mixins/index.js";
 import type { NotificationsEndpoint } from "../../endpoints/NotificationsEndpoint.js";
 
 export class NotificationsApiActions extends ApiBaseActions {
@@ -9,6 +9,11 @@ export class NotificationsApiActions extends ApiBaseActions {
   @Step()
   async listNotifications(params?: { page?: number; limit?: number }): Promise<APIResponse> {
     return this._instance.list(params, this.authHeaders);
+  }
+
+  @Step()
+  async listNotificationsForCookie(cookie: string, params?: { page?: number; limit?: number }): Promise<APIResponse> {
+    return this._instance.list(params, headersForCookie(cookie));
   }
 
   @Step()

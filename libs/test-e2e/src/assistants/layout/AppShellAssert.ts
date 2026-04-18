@@ -252,6 +252,50 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.topBar.elements.avatarMenuAdmin).toBeVisible();
   }
 
+  // ── Sharing surface assertions ────────────────────────────────────────────
+
+  @Step()
+  async avatarMenuSharingLinkIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("avatar-menu-sharing")).toBeVisible();
+  }
+
+  @Step()
+  async sharingPageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("sharing-page")).toBeVisible();
+  }
+
+  @Step()
+  async sharingGrantButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("sharing-grant-button")).toBeVisible();
+  }
+
+  @Step()
+  async sharingOutboundSectionIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("sharing-outbound-section")).toBeVisible();
+  }
+
+  @Step()
+  async sharingInboundSectionIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("sharing-inbound-section")).toBeVisible();
+  }
+
+  @Step()
+  async sharingGrantDialogIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("grant-share-dialog")).toBeVisible();
+  }
+
+  @Step()
+  async sharingGrantEmailInputIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("grant-share-email-input")).toBeVisible();
+  }
+
+  @Step()
+  async adminAuditLogTableContains(text: string): Promise<void> {
+    const table = this.page.getByTestId("audit-log-table");
+    await expect(table).toBeVisible();
+    await expect(table).toContainText(text);
+  }
+
   @Step()
   async pageContainsText(text: string): Promise<void> {
     await expect(this.page.getByText(text).first()).toBeVisible();
