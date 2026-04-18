@@ -5,7 +5,15 @@ import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
 import { createEventBus, type BufferedEventBus } from "./events/index.js";
-import { enforceRouteRole, hydrateAuthContext, isPublicRoute, registerRoutes } from "./routes/registerRoutes.js";
+import {
+  CONTEXT_FALLBACK_HEADER,
+  contextClearCookieString,
+  enforceRouteRole,
+  hydrateAuthContext,
+  isPublicRoute,
+  registerRoutes,
+  shouldStampContextFallback,
+} from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
@@ -194,6 +202,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     reply.header("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     if (req.__sessionType) {
       reply.header("x-session-type", req.__sessionType);
+    }
+    if (shouldStampContextFallback(req)) {
+      reply.header(CONTEXT_FALLBACK_HEADER, "revoked");
+      const clearCookie = contextClearCookieString();
+      const existing = reply.getHeader("set-cookie");
+      if (existing === undefined) {
+        reply.header("set-cookie", clearCookie);
+      } else if (Array.isArray(existing)) {
+        reply.header("set-cookie", [...existing, clearCookie]);
+      } else {
+        reply.header("set-cookie", [String(existing), clearCookie]);
+      }
     }
   });
 

@@ -436,6 +436,12 @@ export interface Persistence {
   countActivePendingShareInvites(ownerUserId: string): Promise<number>;
   listSharesForOwner(ownerUserId: string): Promise<ListSharesForOwnerResult>;
   listInboundSharesForGrantee(granteeUserId: string): Promise<ListInboundSharesForGranteeResult>;
+  /**
+   * Return `true` iff there is an active (non-revoked) share grant from `ownerUserId`
+   * to `granteeUserId`. Used by the auth middleware to validate the `x-context-user-id`
+   * header before hydrating `contextUserId`. Must be cheap (single indexed lookup).
+   */
+  validateActiveShare(ownerUserId: string, granteeUserId: string): Promise<boolean>;
   revokePendingShareInvite(
     code: string,
     ownerUserId: string,

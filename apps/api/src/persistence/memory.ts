@@ -617,6 +617,15 @@ export class MemoryPersistence implements Persistence {
     };
   }
 
+  async validateActiveShare(ownerUserId: string, granteeUserId: string): Promise<boolean> {
+    return this.portfolioShares.some(
+      (candidate) =>
+        candidate.ownerUserId === ownerUserId &&
+        candidate.granteeUserId === granteeUserId &&
+        candidate.revokedAt === null,
+    );
+  }
+
   async revokePendingShareInvite(
     code: string,
     ownerUserId: string,
