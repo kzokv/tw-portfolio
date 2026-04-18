@@ -14,6 +14,11 @@ test.describe("portfolio switcher deep link", () => {
     dashboard,
     page,
   }) => {
+    // CI runners (2 vCPU GitHub Actions) with 2 Playwright workers can
+    // saturate on cold-start navigation + hydration + deep-link effect chain
+    // (refresh → router.refresh → RSC refetch). Triple the default 30s
+    // budget so this test isn't bounded by Playwright's test-level timeout.
+    test.slow();
     const owner = await seedUser({
       sub: "e2e-switcher-deeplink-owner-sub",
       email: "switcher-deeplink-owner@example.com",
