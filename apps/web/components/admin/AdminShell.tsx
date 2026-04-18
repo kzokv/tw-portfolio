@@ -48,6 +48,7 @@ export function AdminShell({
         pictureUrl={pictureUrl}
         email={email}
         role={role}
+        sharingLabel="Sharing"
         onOpenSettings={() => { /* admin pages don't use settings drawer */ }}
         onToggleNavigation={() => setMobileNavOpen((c) => !c)}
         navigationOpen={mobileNavOpen}

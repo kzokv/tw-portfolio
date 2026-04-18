@@ -16,7 +16,7 @@ interface NavigationItem {
 
 interface SideNavigationProps {
   items: NavigationItem[];
-  activeSection: AppSection;
+  activeSection: AppSection | null;
   eyebrow: string;
   title: string;
   description: string;
@@ -74,7 +74,7 @@ export function SideNavigation({
         <div className="mt-5 flex flex-1 flex-col gap-2">
           {items.map((item) => {
             const Icon = iconMap[item.id];
-            const active = item.id === activeSection;
+            const active = activeSection !== null && item.id === activeSection;
             const link = (
               <Link
                 key={item.id}

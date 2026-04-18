@@ -28,6 +28,7 @@ interface TopBarProps {
   pictureUrl?: string | null;
   email?: string | null;
   role?: string;
+  isDemo?: boolean;
   onOpenSettings: () => void;
   onToggleNavigation?: () => void;
   navigationOpen?: boolean;
@@ -37,6 +38,7 @@ interface TopBarProps {
   title: string;
   titleTooltip: string;
   openSettingsLabel: string;
+  sharingLabel: string;
   signOutLabel: string;
   signOutHref: string;
   searchPlaceholder: string;
@@ -69,6 +71,7 @@ export function TopBar({
   pictureUrl,
   email,
   role,
+  isDemo = false,
   onOpenSettings,
   onToggleNavigation,
   navigationOpen = false,
@@ -78,6 +81,7 @@ export function TopBar({
   title,
   titleTooltip,
   openSettingsLabel,
+  sharingLabel,
   signOutLabel,
   signOutHref,
   searchPlaceholder,
@@ -322,7 +326,19 @@ export function TopBar({
           )}
 
           <div className="shrink-0">
-            <UserAvatarButton userId={userId} displayName={displayName} pictureUrl={pictureUrl} email={email} role={role} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} signOutLabel={signOutLabel} signOutHref={signOutHref} />
+            <UserAvatarButton
+              userId={userId}
+              displayName={displayName}
+              pictureUrl={pictureUrl}
+              email={email}
+              role={role}
+              isDemo={isDemo}
+              onOpenSettings={onOpenSettings}
+              openSettingsLabel={openSettingsLabel}
+              sharingLabel={sharingLabel}
+              signOutLabel={signOutLabel}
+              signOutHref={signOutHref}
+            />
           </div>
         </div>
       </header>

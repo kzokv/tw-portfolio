@@ -56,6 +56,7 @@ export const API_PUBLIC = getApiBaseUrl();
 /** Fetch API URL — may be Docker-internal on the server. Use for fetch() only. */
 export const API_BASE = getFetchApiBaseUrl();
 const E2E_USER_COOKIE = "tw_e2e_user";
+const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
 
 export class ApiError extends Error {
   constructor(
@@ -77,7 +78,12 @@ export class ApiError extends Error {
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const runtimeDevUserId = await getRuntimeDevUserId();
   if (runtimeDevUserId) {
-    return { "x-user-id": runtimeDevUserId };
+    const headers: Record<string, string> = { "x-user-id": runtimeDevUserId };
+    const runtimeDevUserRole = await getRuntimeDevUserRole();
+    if (runtimeDevUserRole) {
+      headers["x-user-role"] = runtimeDevUserRole;
+    }
+    return headers;
   }
 
   // Server-side: forward the session cookie for OAuth/demo users.
@@ -99,6 +105,34 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   }
 
   return {};
+}
+
+async function getRuntimeDevUserRole(): Promise<string> {
+  // Client-side: read from document.cookie
+  if (typeof document !== "undefined") {
+    const cookie = document.cookie
+      .split(";")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`${E2E_USER_ROLE_COOKIE}=`));
+
+    if (cookie) {
+      return decodeURIComponent(cookie.slice(E2E_USER_ROLE_COOKIE.length + 1)).trim();
+    }
+    return "";
+  }
+
+  // Server-side (RSC/SSR): read from next/headers cookies()
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { cookies } = require("next/headers") as typeof import("next/headers");
+    const cookieStore = await cookies();
+    const roleRaw = cookieStore.get(E2E_USER_ROLE_COOKIE)?.value;
+    if (roleRaw?.trim()) return decodeURIComponent(roleRaw.trim());
+  } catch {
+    // next/headers not available outside of RSC render — ignore
+  }
+
+  return "";
 }
 
 async function getRuntimeDevUserId(): Promise<string> {

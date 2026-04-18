@@ -44,6 +44,10 @@ type ViewportMode = "mobile" | "compact" | "wide";
 interface AppShellProps {
   section?: AppSection;
   isDemo?: boolean;
+  localeOverride?: LocaleCode;
+  titleOverride?: string;
+  descriptionOverride?: string;
+  activeSectionOverride?: AppSection | null;
   children?: React.ReactNode;
 }
 
@@ -66,7 +70,15 @@ const DEFAULT_TRANSACTION: TransactionInput = {
   isDayTrade: false,
 };
 
-export function AppShell({ section = "dashboard", isDemo = false, children }: AppShellProps) {
+export function AppShell({
+  section = "dashboard",
+  isDemo = false,
+  localeOverride,
+  titleOverride,
+  descriptionOverride,
+  activeSectionOverride,
+  children,
+}: AppShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -86,7 +98,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     enabled: section === "transactions",
   });
 
-  const locale: LocaleCode = dashboard.settings?.locale ?? "en";
+  const locale: LocaleCode = localeOverride ?? dashboard.settings?.locale ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
 
   useEffect(() => {
@@ -216,7 +228,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     closeDrawer: () => setDrawerOpen(false),
   });
 
-  const isI18nReady = !!dashboard.settings;
+  const isI18nReady = !!dashboard.settings || !!localeOverride;
   const hasCustomChildren = children !== undefined;
   const showPageSkeleton = !hasCustomChildren && (dashboard.isBootstrapping || !isI18nReady);
 
@@ -300,7 +312,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
     [dashboard.instruments, navigationItems],
   );
 
-  const shellTitle = section === "dashboard"
+  const derivedShellTitle = section === "dashboard"
     ? dict.navigation.dashboardLabel
     : section === "portfolio"
       ? dict.navigation.portfolioLabel
@@ -309,7 +321,7 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         : section === "cash-ledger"
           ? dict.navigation.cashLedgerLabel
           : dict.navigation.dividendsLabel;
-  const shellDescription = section === "dashboard"
+  const derivedShellDescription = section === "dashboard"
     ? dict.navigation.dashboardDescription
     : section === "portfolio"
       ? dict.navigation.portfolioDescription
@@ -342,15 +354,17 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         pictureUrl={profileData.profile?.providerPictureUrl}
         email={profileData.profile?.email}
         role={profileData.profile?.role}
+        isDemo={isDemo}
         onOpenSettings={() => setDrawerOpen(true)}
         onToggleNavigation={() => setMobileNavOpen((current) => !current)}
         onToggleDesktopNavigation={toggleDesktopNavigation}
         navigationOpen={mobileNavOpen}
         desktopNavigationCollapsed={desktopNavigationCollapsed}
         productName={dict.topBar.productName}
-        title={shellTitle}
-        titleTooltip={shellDescription}
+        title={titleOverride ?? derivedShellTitle}
+        titleTooltip={descriptionOverride ?? derivedShellDescription}
         openSettingsLabel={dict.topBar.openSettingsLabel}
+        sharingLabel={dict.topBar.sharingLabel}
         signOutLabel="Sign out"
         signOutHref={`${API_PUBLIC}/auth/logout`}
         searchPlaceholder={dict.topBar.searchPlaceholder}
@@ -391,12 +405,12 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
         )}
       >
         <SideNavigation
-          items={navigationItems}
-          activeSection={section}
-          eyebrow={dict.topBar.productName}
-          title={shellTitle}
-          description={shellDescription}
-          mobile
+              items={navigationItems}
+              activeSection={activeSectionOverride ?? section}
+              eyebrow={dict.topBar.productName}
+              title={titleOverride ?? derivedShellTitle}
+              description={descriptionOverride ?? derivedShellDescription}
+              mobile
           onNavigate={() => setMobileNavOpen(false)}
         />
       </aside>
@@ -409,10 +423,10 @@ export function AppShell({ section = "dashboard", isDemo = false, children }: Ap
           <div className="hidden lg:block">
             <SideNavigation
               items={navigationItems}
-              activeSection={section}
+              activeSection={activeSectionOverride ?? section}
               eyebrow={dict.topBar.productName}
-              title={shellTitle}
-              description={shellDescription}
+              title={titleOverride ?? derivedShellTitle}
+              description={descriptionOverride ?? derivedShellDescription}
               collapsed={desktopNavigationCollapsed}
             />
           </div>
