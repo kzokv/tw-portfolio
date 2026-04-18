@@ -11,7 +11,7 @@ Related docs:
 
 Portfolio sharing is a user-to-user, read-only access model:
 - owners remain the source of truth for portfolio data
-- grantees receive inbound access records and can view an owner's portfolio from the sharing UI and future switcher flows
+- grantees receive inbound access records and can view an owner's portfolio from the sharing UI and the TopBar switcher
 - viewers can consume shared access but cannot create new grants
 - demo users can view inbound shares but cannot issue share grants
 
@@ -63,11 +63,15 @@ Important detail:
 | Issue share grants | Yes | Yes | No | No |
 | Revoke own active grants | Yes | Yes | No | No |
 | View inbound shared portfolios | Yes | Yes | Yes | Yes |
+| Use TopBar switcher when inbound shares exist | Yes | Yes | Yes | Yes |
+| Write while switched into a shared portfolio | No | No | No | No |
 | Use `/admin/audit-log` sharing filters | Yes | n/a | n/a | n/a |
 
 Server enforcement:
 - `requireShareGrantorRole(req)` allows only `admin` or `member` when `is_demo !== true`
-- write endpoints continue to distinguish `sessionUserId` from future `contextUserId` switcher state
+- read endpoints under the portfolio surface may resolve `contextUserId` to an active share owner
+- write endpoints always execute against `sessionUserId`; shared-context writes fail with `write_blocked_viewing_shared`
+- non-portfolio identity routes (`/profile`, `/notifications`, `/shares`, `/admin/*`) stay bound to `sessionUserId`
 
 ## Main Flows
 
@@ -138,6 +142,25 @@ Sections:
 - outbound grant form with email entry and pending-invite confirmation step
 - outbound table with active, pending, expired, and optional history rows
 - inbound cards showing who shared access with the current user
+- inbound cards include an "Open in switcher" CTA that writes `tw_context_user_id` and routes to `/dashboard`
+
+### TopBar switcher
+
+Visibility:
+- hidden when the current user has zero active inbound shares
+- shown when one or more active inbound shares exist, regardless of role
+
+Behavior:
+- selection writes the readable `tw_context_user_id` cookie
+- the web layer forwards that cookie as `x-context-user-id` on API calls
+- dashboard, portfolio, ticker history, and transactions read surfaces render the owner's data while switched in
+- write controls are hidden in the web UI while switched in; direct write requests are also blocked server-side
+- deep links such as `/dashboard?as={ownerUserId}` hydrate the same cookie, then strip `?as=` from the URL
+
+Fallback:
+- if the selected owner no longer has an active share, the API falls back to `sessionUserId`
+- the fallback response sets `x-context-fallback: revoked` and clears `tw_context_user_id`
+- the UI resets to "My Portfolio", shows a revoke toast, and refetches self-scoped data
 
 ## Audit and Notifications
 
@@ -164,4 +187,4 @@ Expected titles:
 - share granted: "Portfolio shared with you"
 - share revoked: "Portfolio access revoked"
 
-The notification center remains the primary inbox. KZO-145 also expects the sharing and admin flows to expose enough stable `data-testid` hooks for HTTP/E2E coverage.
+The notification center remains the primary inbox. KZO-146 also relies on the revoke notification SSE payload to trigger client-side shared-context fallback. Sharing and admin flows continue to expose stable `data-testid` hooks for HTTP/E2E coverage.
