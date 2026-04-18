@@ -117,6 +117,26 @@ export class AppShellActions extends AppBaseActions {
   }
 
   @Step()
+  async clickAvatarMenuSharing(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("avatar-menu-sharing"));
+  }
+
+  @Step()
+  async clickSharingGrantButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("sharing-grant-button"));
+  }
+
+  @Step()
+  async clickAdminAuditToggleFilters(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("toggle-filters"));
+  }
+
+  @Step()
+  async clickAdminAuditActionFilter(action: string): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId(`action-filter-${action}`));
+  }
+
+  @Step()
   async clickNotificationBell(): Promise<void> {
     await this.uiActions.click.perform(this.el.topBar.elements.notificationBell);
   }

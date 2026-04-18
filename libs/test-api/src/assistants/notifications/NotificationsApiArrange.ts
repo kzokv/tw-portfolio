@@ -1,4 +1,5 @@
 import type { APIResponse } from "@playwright/test";
+import type { NotificationDto, NotificationListResponse } from "@tw-portfolio/shared-types";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { ApiBaseArrange } from "../../mixins/index.js";
 import type { NotificationsEndpoint } from "../../endpoints/NotificationsEndpoint.js";
@@ -19,6 +20,15 @@ export class NotificationsApiArrange extends ApiBaseArrange {
       page: number;
       limit: number;
     };
+  }
+
+  @Step()
+  async typedListBody(response: APIResponse): Promise<NotificationListResponse> {
+    return (await this.body(response)) as NotificationListResponse;
+  }
+
+  findNotificationByTitle(body: NotificationListResponse, title: string): NotificationDto | undefined {
+    return body.notifications.find((item) => item.title === title);
   }
 
   @Step()
