@@ -93,7 +93,7 @@ describe("POST /invites — admin-only invite creation", () => {
     });
 
     // Assert
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(body.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
     expect(body.url).toContain(`/invite/${body.code}`);

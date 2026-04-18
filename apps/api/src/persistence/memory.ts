@@ -24,6 +24,11 @@ import type {
   ProfileDto,
 } from "@tw-portfolio/shared-types";
 import { routeError } from "../lib/routeError.js";
+import {
+  buildShareAuditMetadata,
+  buildShareGrantedNotification,
+  buildShareRevokedNotification,
+} from "./shareHelpers.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
 import type {
   AdminAuditLogListOptions,
@@ -31,6 +36,8 @@ import type {
   AdminUserListOptions,
   AuditLogInput,
   AuthUserRecord,
+  CreateShareCoupledInviteInput,
+  CreateShareGrantInput,
   ConsumeInviteResult,
   CreateInviteInput,
   CashLedgerListOptions,
@@ -51,6 +58,11 @@ import type {
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
+  ListInboundSharesForGranteeResult,
+  ListSharesForOwnerResult,
+  MaterializePendingSharesInput,
+  PendingShareInviteRecord,
+  ShareGrantRecord,
   AggregatedSnapshotPoint,
   UserRole,
 } from "./types.js";
@@ -95,7 +107,17 @@ interface MemoryInvite {
   revokedAt: string | null;
   usedAt: string | null;
   issuedByUserId: string | null;
+  shareOwnerUserId: string | null;
   createdAt: string;
+}
+
+interface MemoryShare {
+  id: string;
+  ownerUserId: string;
+  granteeUserId: string;
+  revokedByUserId: string | null;
+  createdAt: string;
+  revokedAt: string | null;
 }
 
 interface MemoryAuditLogEntry {
@@ -110,6 +132,7 @@ interface MemoryAuditLogEntry {
 
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_LENGTH = 8;
+const PENDING_SHARE_INVITE_LIMIT = 10;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -178,6 +201,7 @@ export class MemoryPersistence implements Persistence {
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
   private readonly invites = new Map<string, MemoryInvite>();
+  private readonly portfolioShares: MemoryShare[] = [];
   private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
@@ -394,6 +418,301 @@ export class MemoryPersistence implements Persistence {
     if (invite.email !== normalizedEmail) return { status: "email_mismatch" };
     invite.usedAt = new Date().toISOString();
     return { status: "consumed", invite: { ...invite } };
+  }
+
+  async createShareGrant(input: CreateShareGrantInput): Promise<ShareGrantRecord> {
+    const owner = this.getUserById(input.ownerUserId);
+    const grantee = this.getUserById(input.granteeUserId);
+    if (!owner || !grantee) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    const existing = this.portfolioShares.find(
+      (share) =>
+        share.ownerUserId === input.ownerUserId &&
+        share.granteeUserId === input.granteeUserId &&
+        share.revokedAt === null,
+    );
+
+    if (existing) {
+      return toShareGrantRecord(existing, owner, grantee);
+    }
+
+    const share: MemoryShare = {
+      id: randomUUID(),
+      ownerUserId: input.ownerUserId,
+      granteeUserId: input.granteeUserId,
+      revokedByUserId: null,
+      createdAt: new Date().toISOString(),
+      revokedAt: null,
+    };
+    this.portfolioShares.push(share);
+
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "share_granted",
+      targetUserId: input.granteeUserId,
+      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+    });
+    await this.createNotification(buildShareGrantedNotification(share.id, owner, grantee.id));
+
+    return toShareGrantRecord(share, owner, grantee);
+  }
+
+  async revokeShareGrant(
+    shareId: string,
+    revokedByUserId: string,
+    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<{ granteeUserId: string } | null> {
+    const share = this.portfolioShares.find((candidate) => candidate.id === shareId);
+    if (!share || share.ownerUserId !== revokedByUserId) {
+      throw routeError(404, "share_not_found", "Share not found");
+    }
+    if (share.revokedAt !== null) {
+      return null;
+    }
+
+    const owner = this.getUserById(share.ownerUserId);
+    const grantee = this.getUserById(share.granteeUserId);
+    if (!owner || !grantee) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    share.revokedAt = new Date().toISOString();
+    share.revokedByUserId = revokedByUserId;
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "share_revoked",
+      targetUserId: share.granteeUserId,
+      metadata: buildShareAuditMetadata(share.id, owner, grantee),
+    });
+    await this.createNotification(buildShareRevokedNotification(share.id, owner, grantee.id));
+    return { granteeUserId: share.granteeUserId };
+  }
+
+  async createShareCoupledInvite(input: CreateShareCoupledInviteInput): Promise<PendingShareInviteRecord> {
+    const normalizedEmail = normalizeEmail(input.email);
+    const owner = this.getUserById(input.ownerUserId);
+    if (!owner) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    const existing = [...this.invites.values()]
+      .filter(
+        (invite) =>
+          invite.email === normalizedEmail &&
+          invite.usedAt === null &&
+          invite.revokedAt === null &&
+          new Date(invite.expiresAt).getTime() > Date.now() &&
+          (invite.shareOwnerUserId === null || invite.shareOwnerUserId === input.ownerUserId),
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+
+    if (existing) {
+      existing.shareOwnerUserId = input.ownerUserId;
+      return toPendingShareInviteRecord(existing, owner);
+    }
+
+    // Rate limit only applies when a new invite row is about to be inserted —
+    // dedup updates existing rows in place and does not contribute to growth.
+    const activePending = await this.countActivePendingShareInvites(input.ownerUserId);
+    if (activePending >= PENDING_SHARE_INVITE_LIMIT) {
+      throw routeError(429, "share_invite_rate_limited", "share invite rate limited");
+    }
+
+    const invite = await this.insertInvite({
+      email: normalizedEmail,
+      role: "viewer",
+      expiresAt: input.expiresAt,
+      issuedByUserId: input.issuedByUserId,
+    });
+    const stored = this.invites.get(invite.code);
+    if (!stored) {
+      throw new Error("Expected invite to exist after insert");
+    }
+    stored.shareOwnerUserId = input.ownerUserId;
+    return toPendingShareInviteRecord(stored, owner);
+  }
+
+  async countActivePendingShareInvites(ownerUserId: string): Promise<number> {
+    return [...this.invites.values()].filter(
+      (invite) =>
+        invite.shareOwnerUserId === ownerUserId &&
+        invite.usedAt === null &&
+        invite.revokedAt === null &&
+        new Date(invite.expiresAt).getTime() > Date.now(),
+    ).length;
+  }
+
+  async listSharesForOwner(ownerUserId: string): Promise<ListSharesForOwnerResult> {
+    const owner = this.getUserById(ownerUserId);
+    if (!owner) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    const active: ShareGrantRecord[] = [];
+    const revokedShares: ShareGrantRecord[] = [];
+    for (const share of this.portfolioShares.filter((candidate) => candidate.ownerUserId === ownerUserId)) {
+      const grantee = this.getUserById(share.granteeUserId);
+      if (!grantee) {
+        continue;
+      }
+      const record = toShareGrantRecord(share, owner, grantee);
+      if (share.revokedAt) {
+        revokedShares.push(record);
+      } else {
+        active.push(record);
+      }
+    }
+
+    const pending: PendingShareInviteRecord[] = [];
+    const expired: PendingShareInviteRecord[] = [];
+    const revokedInvites: PendingShareInviteRecord[] = [];
+    for (const invite of [...this.invites.values()].filter((candidate) => candidate.shareOwnerUserId === ownerUserId)) {
+      const record = toPendingShareInviteRecord(invite, owner);
+      if (invite.revokedAt) {
+        revokedInvites.push(record);
+      } else if (invite.usedAt) {
+        continue;
+      } else if (new Date(invite.expiresAt).getTime() <= Date.now()) {
+        expired.push(record);
+      } else {
+        pending.push(record);
+      }
+    }
+
+    return {
+      active: active.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      pending: pending.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      expired: expired.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      revoked: [...revokedShares, ...revokedInvites].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    };
+  }
+
+  async listInboundSharesForGrantee(granteeUserId: string): Promise<ListInboundSharesForGranteeResult> {
+    const grantee = this.getUserById(granteeUserId);
+    if (!grantee) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    const active: ShareGrantRecord[] = [];
+    const revoked: ShareGrantRecord[] = [];
+    for (const share of this.portfolioShares.filter((candidate) => candidate.granteeUserId === granteeUserId)) {
+      const owner = this.getUserById(share.ownerUserId);
+      if (!owner) {
+        continue;
+      }
+      const record = toShareGrantRecord(share, owner, grantee);
+      if (share.revokedAt) {
+        revoked.push(record);
+      } else {
+        active.push(record);
+      }
+    }
+
+    return {
+      active: active.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      revoked: revoked.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    };
+  }
+
+  async revokePendingShareInvite(
+    code: string,
+    ownerUserId: string,
+    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<void> {
+    const invite = this.invites.get(code);
+    if (!invite || invite.shareOwnerUserId !== ownerUserId) {
+      throw routeError(404, "share_pending_not_found", "Pending share invite not found");
+    }
+    if (invite.usedAt !== null) {
+      throw routeError(409, "share_pending_already_used", "Pending share invite already used");
+    }
+    if (invite.revokedAt !== null) {
+      return;
+    }
+
+    const owner = this.getUserById(ownerUserId);
+    if (!owner) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    invite.revokedAt = new Date().toISOString();
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "admin_invite_revoked",
+      metadata: {
+        inviteCode: code,
+        targetEmail: invite.email,
+        shareCoupled: true,
+        shareOwnerEmail: owner.email,
+        shareOwnerDisplayName: owner.displayName,
+      },
+    });
+  }
+
+  async materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]> {
+    const normalizedEmail = normalizeEmail(input.email);
+    const grantee = this.getUserById(input.userId);
+    if (!grantee) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    const matches = [...this.invites.values()].filter(
+      (invite) =>
+        invite.email === normalizedEmail &&
+        invite.shareOwnerUserId !== null &&
+        invite.usedAt === null &&
+        invite.revokedAt === null &&
+        new Date(invite.expiresAt).getTime() > Date.now(),
+    );
+
+    const materialized: ShareGrantRecord[] = [];
+    for (const invite of matches) {
+      invite.usedAt = new Date().toISOString();
+      // Owner was hard-purged (FK set to NULL). Invite is marked used above so
+      // subsequent logins don't retry materialization for this orphan record.
+      if (!invite.shareOwnerUserId) {
+        continue;
+      }
+      const owner = this.getUserById(invite.shareOwnerUserId);
+      if (!owner) {
+        continue;
+      }
+      const existing = this.portfolioShares.find(
+        (share) =>
+          share.ownerUserId === owner.id &&
+          share.granteeUserId === input.userId &&
+          share.revokedAt === null,
+      );
+      if (existing) {
+        continue;
+      }
+
+      const share: MemoryShare = {
+        id: randomUUID(),
+        ownerUserId: owner.id,
+        granteeUserId: input.userId,
+        revokedByUserId: null,
+        createdAt: new Date().toISOString(),
+        revokedAt: null,
+      };
+      this.portfolioShares.push(share);
+
+      await this.appendAuditLog({
+        ...input.auditInput,
+        action: "share_granted",
+        targetUserId: input.userId,
+        metadata: buildShareAuditMetadata(share.id, owner, grantee),
+      });
+      await this.createNotification(buildShareGrantedNotification(share.id, owner, input.userId));
+
+      materialized.push(toShareGrantRecord(share, owner, grantee));
+    }
+
+    return materialized;
   }
 
   async loadStore(userId: string) {
@@ -1605,6 +1924,7 @@ export class MemoryPersistence implements Persistence {
         revokedAt: null,
         usedAt: null,
         issuedByUserId: input.issuedByUserId,
+        shareOwnerUserId: null,
         createdAt: new Date().toISOString(),
       };
       this.invites.set(code, invite);
@@ -1784,10 +2104,25 @@ export class MemoryPersistence implements Persistence {
       if (idx >= 0) this.holdingSnapshots.splice(idx, 1);
     }
 
-    // SET NULL on invites.issued_by_user_id
+    // Remove owned or grantee share records.
+    for (let i = this.portfolioShares.length - 1; i >= 0; i -= 1) {
+      const share = this.portfolioShares[i];
+      if (share.ownerUserId === userId || share.granteeUserId === userId) {
+        this.portfolioShares.splice(i, 1);
+        continue;
+      }
+      if (share.revokedByUserId === userId) {
+        share.revokedByUserId = null;
+      }
+    }
+
+    // SET NULL on invites.issued_by_user_id and invites.share_owner_user_id
     for (const invite of this.invites.values()) {
       if (invite.issuedByUserId === userId) {
         invite.issuedByUserId = null;
+      }
+      if (invite.shareOwnerUserId === userId) {
+        invite.shareOwnerUserId = null;
       }
     }
 
@@ -1956,6 +2291,39 @@ function compareNullablePaymentDates(
   const rightDate = right?.paymentDate ?? "";
   return leftDate.localeCompare(rightDate);
 }
+
+function toShareGrantRecord(share: MemoryShare, owner: MemoryUser, grantee: MemoryUser): ShareGrantRecord {
+  return {
+    id: share.id,
+    ownerUserId: owner.id,
+    ownerEmail: owner.email,
+    ownerDisplayName: owner.displayName,
+    granteeUserId: grantee.id,
+    granteeEmail: grantee.email,
+    granteeDisplayName: grantee.displayName,
+    createdAt: share.createdAt,
+    revokedAt: share.revokedAt,
+    revokedByUserId: share.revokedByUserId,
+  };
+}
+
+function toPendingShareInviteRecord(invite: MemoryInvite, owner: MemoryUser): PendingShareInviteRecord {
+  return {
+    code: invite.code,
+    email: invite.email,
+    role: invite.role,
+    shareOwnerUserId: invite.shareOwnerUserId,
+    ownerEmail: owner.email,
+    ownerDisplayName: owner.displayName,
+    createdAt: invite.createdAt,
+    expiresAt: invite.expiresAt,
+    revokedAt: invite.revokedAt,
+    usedAt: invite.usedAt,
+  };
+}
+
+// Share audit metadata + notification helpers live in shareHelpers.ts to keep
+// memory and postgres backends aligned on shape.
 
 function toNotificationDto(n: MemoryNotification): NotificationDto {
   return {

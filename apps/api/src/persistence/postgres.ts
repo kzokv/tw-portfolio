@@ -56,6 +56,8 @@ import type {
   AdminUserListOptions,
   AuditLogInput,
   AuthUserRecord,
+  CreateShareCoupledInviteInput,
+  CreateShareGrantInput,
   ConsumeInviteResult,
   CreateInviteInput,
   CashLedgerListOptions,
@@ -70,11 +72,16 @@ import type {
   InstrumentRow,
   InviteRecord,
   InviteStatus,
+  ListInboundSharesForGranteeResult,
+  ListSharesForOwnerResult,
+  MaterializePendingSharesInput,
   OAuthClaims,
+  PendingShareInviteRecord,
   Persistence,
   ReadinessStatus,
   ResolveOrCreateUserOptions,
   ResolveOrCreateUserResult,
+  ShareGrantRecord,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
@@ -94,6 +101,7 @@ function computeChecksum(content: string): string {
 
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_LENGTH = 8;
+const PENDING_SHARE_INVITE_LIMIT = 10;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -138,6 +146,7 @@ function mapInviteRow(row: {
   revoked_at: string | null;
   used_at: string | null;
   issued_by_user_id: string | null;
+  share_owner_user_id: string | null;
   created_at: string;
 }): InviteRecord {
   return {
@@ -148,8 +157,105 @@ function mapInviteRow(row: {
     revokedAt: row.revoked_at,
     usedAt: row.used_at,
     issuedByUserId: row.issued_by_user_id,
+    shareOwnerUserId: row.share_owner_user_id,
     createdAt: row.created_at,
   };
+}
+
+function mapShareGrantRow(row: {
+  id: string;
+  owner_user_id: string;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  grantee_user_id: string;
+  grantee_email: string | null;
+  grantee_display_name: string | null;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_by_user_id: string | null;
+}): ShareGrantRecord {
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    ownerEmail: row.owner_email,
+    ownerDisplayName: row.owner_display_name,
+    granteeUserId: row.grantee_user_id,
+    granteeEmail: row.grantee_email,
+    granteeDisplayName: row.grantee_display_name,
+    createdAt: row.created_at,
+    revokedAt: row.revoked_at,
+    revokedByUserId: row.revoked_by_user_id,
+  };
+}
+
+function mapPendingShareInviteRow(row: {
+  code: string;
+  email: string;
+  role: UserRole;
+  share_owner_user_id: string | null;
+  owner_email: string | null;
+  owner_display_name: string | null;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  used_at: string | null;
+}): PendingShareInviteRecord {
+  return {
+    code: row.code,
+    email: row.email,
+    role: row.role,
+    shareOwnerUserId: row.share_owner_user_id,
+    ownerEmail: row.owner_email,
+    ownerDisplayName: row.owner_display_name,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    usedAt: row.used_at,
+  };
+}
+
+// Share audit metadata + notification helpers live in shareHelpers.ts.
+// Postgres row shapes (`display_name`) are adapted to `displayName` at call sites.
+import {
+  buildShareAuditMetadata as buildShareAuditMetadataShared,
+  buildShareGrantedNotification as buildShareGrantedNotificationShared,
+  buildShareRevokedNotification as buildShareRevokedNotificationShared,
+} from "./shareHelpers.js";
+
+function buildShareAuditMetadata(
+  shareId: string,
+  owner: { email: string | null; display_name: string | null },
+  grantee: { email: string | null; display_name: string | null },
+): Record<string, unknown> {
+  return buildShareAuditMetadataShared(
+    shareId,
+    { email: owner.email, displayName: owner.display_name },
+    { email: grantee.email, displayName: grantee.display_name },
+  );
+}
+
+function buildShareGrantedNotification(
+  shareId: string,
+  owner: { id: string; email: string | null; display_name: string | null },
+  granteeUserId: string,
+) {
+  return buildShareGrantedNotificationShared(
+    shareId,
+    { id: owner.id, email: owner.email, displayName: owner.display_name },
+    granteeUserId,
+  );
+}
+
+function buildShareRevokedNotification(
+  shareId: string,
+  owner: { id: string; email: string | null; display_name: string | null },
+  granteeUserId: string,
+) {
+  return buildShareRevokedNotificationShared(
+    shareId,
+    { id: owner.id, email: owner.email, displayName: owner.display_name },
+    granteeUserId,
+  );
 }
 
 function deriveInviteStatusFromRow(row: { used_at: string | null; revoked_at: string | null; expires_at: string }): InviteListStatus {
@@ -504,6 +610,7 @@ export class PostgresPersistence implements Persistence {
       revoked_at: string | null;
       used_at: string | null;
       issued_by_user_id: string | null;
+      share_owner_user_id: string | null;
       created_at: string;
     }>(
       `SELECT code,
@@ -513,6 +620,7 @@ export class PostgresPersistence implements Persistence {
               revoked_at::text AS revoked_at,
               used_at::text AS used_at,
               issued_by_user_id,
+              share_owner_user_id,
               created_at::text AS created_at
        FROM invites
        WHERE code = $1`,
@@ -531,6 +639,7 @@ export class PostgresPersistence implements Persistence {
       revoked_at: string | null;
       used_at: string | null;
       issued_by_user_id: string | null;
+      share_owner_user_id: string | null;
       created_at: string;
     }>(
       `UPDATE invites
@@ -547,6 +656,7 @@ export class PostgresPersistence implements Persistence {
                  revoked_at::text AS revoked_at,
                  used_at::text AS used_at,
                  issued_by_user_id,
+                 share_owner_user_id,
                  created_at::text AS created_at`,
       [code, normalizedEmail],
     );
@@ -566,6 +676,7 @@ export class PostgresPersistence implements Persistence {
       revoked_at: string | null;
       used_at: string | null;
       issued_by_user_id: string | null;
+      share_owner_user_id: string | null;
       created_at: string;
     }>(
       `SELECT code,
@@ -575,6 +686,7 @@ export class PostgresPersistence implements Persistence {
               revoked_at::text AS revoked_at,
               used_at::text AS used_at,
               issued_by_user_id,
+              share_owner_user_id,
               created_at::text AS created_at
        FROM invites
        WHERE code = $1`,
@@ -588,6 +700,681 @@ export class PostgresPersistence implements Persistence {
     if (new Date(invite.expires_at).getTime() <= Date.now()) return { status: "expired" };
     if (invite.email !== normalizedEmail) return { status: "email_mismatch" };
     return { status: "invalid" };
+  }
+
+  async createShareGrant(input: CreateShareGrantInput): Promise<ShareGrantRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const usersResult = await client.query<{
+        id: string;
+        email: string | null;
+        display_name: string | null;
+      }>(
+        `SELECT id, email, display_name
+         FROM users
+         WHERE id = ANY($1::text[])`,
+        [[input.ownerUserId, input.granteeUserId]],
+      );
+
+      const owner = usersResult.rows.find((row) => row.id === input.ownerUserId);
+      const grantee = usersResult.rows.find((row) => row.id === input.granteeUserId);
+      if (!owner || !grantee) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const inserted = await client.query<{
+        id: string;
+        owner_user_id: string;
+        owner_email: string | null;
+        owner_display_name: string | null;
+        grantee_user_id: string;
+        grantee_email: string | null;
+        grantee_display_name: string | null;
+        created_at: string;
+        revoked_at: string | null;
+        revoked_by_user_id: string | null;
+      }>(
+        `INSERT INTO portfolio_shares (id, owner_user_id, grantee_user_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (owner_user_id, grantee_user_id) WHERE revoked_at IS NULL DO NOTHING
+         RETURNING id,
+                   owner_user_id,
+                   $4::text AS owner_email,
+                   $5::text AS owner_display_name,
+                   grantee_user_id,
+                   $6::text AS grantee_email,
+                   $7::text AS grantee_display_name,
+                   created_at::text AS created_at,
+                   revoked_at::text AS revoked_at,
+                   revoked_by_user_id`,
+        [
+          randomUUID(),
+          input.ownerUserId,
+          input.granteeUserId,
+          owner.email,
+          owner.display_name,
+          grantee.email,
+          grantee.display_name,
+        ],
+      );
+
+      let share = inserted.rows[0];
+      if (share) {
+        await this.appendAuditLogTx(client, {
+          ...input.auditInput,
+          action: "share_granted",
+          targetUserId: input.granteeUserId,
+          metadata: buildShareAuditMetadata(share.id, owner, grantee),
+        });
+        await this.createNotificationTx(client, buildShareGrantedNotification(share.id, owner, input.granteeUserId));
+      } else {
+        const existing = await client.query<{
+          id: string;
+          owner_user_id: string;
+          owner_email: string | null;
+          owner_display_name: string | null;
+          grantee_user_id: string;
+          grantee_email: string | null;
+          grantee_display_name: string | null;
+          created_at: string;
+          revoked_at: string | null;
+          revoked_by_user_id: string | null;
+        }>(
+          `SELECT ps.id,
+                  ps.owner_user_id,
+                  owner.email AS owner_email,
+                  owner.display_name AS owner_display_name,
+                  ps.grantee_user_id,
+                  grantee.email AS grantee_email,
+                  grantee.display_name AS grantee_display_name,
+                  ps.created_at::text AS created_at,
+                  ps.revoked_at::text AS revoked_at,
+                  ps.revoked_by_user_id
+           FROM portfolio_shares ps
+           JOIN users owner ON owner.id = ps.owner_user_id
+           JOIN users grantee ON grantee.id = ps.grantee_user_id
+           WHERE ps.owner_user_id = $1
+             AND ps.grantee_user_id = $2
+             AND ps.revoked_at IS NULL`,
+          [input.ownerUserId, input.granteeUserId],
+        );
+        share = existing.rows[0];
+      }
+
+      await client.query("COMMIT");
+      return mapShareGrantRow(share!);
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async revokeShareGrant(
+    shareId: string,
+    revokedByUserId: string,
+    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<{ granteeUserId: string } | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const shareResult = await client.query<{
+        id: string;
+        owner_user_id: string;
+        owner_email: string | null;
+        owner_display_name: string | null;
+        grantee_user_id: string;
+        grantee_email: string | null;
+        grantee_display_name: string | null;
+        revoked_at: string | null;
+      }>(
+        `SELECT ps.id,
+                ps.owner_user_id,
+                owner.email AS owner_email,
+                owner.display_name AS owner_display_name,
+                ps.grantee_user_id,
+                grantee.email AS grantee_email,
+                grantee.display_name AS grantee_display_name,
+                ps.revoked_at::text AS revoked_at
+         FROM portfolio_shares ps
+         JOIN users owner ON owner.id = ps.owner_user_id
+         JOIN users grantee ON grantee.id = ps.grantee_user_id
+         WHERE ps.id = $1
+           AND ps.owner_user_id = $2
+         FOR UPDATE`,
+        [shareId, revokedByUserId],
+      );
+
+      const share = shareResult.rows[0];
+      if (!share) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "share_not_found", "Share not found");
+      }
+
+      const wasAlreadyRevoked = !!share.revoked_at;
+      if (!share.revoked_at) {
+        await client.query(
+          `UPDATE portfolio_shares
+           SET revoked_at = NOW(),
+               revoked_by_user_id = $2
+           WHERE id = $1`,
+          [shareId, revokedByUserId],
+        );
+        await this.appendAuditLogTx(client, {
+          ...auditInput,
+          action: "share_revoked",
+          targetUserId: share.grantee_user_id,
+          metadata: buildShareAuditMetadata(
+            share.id,
+            {
+              email: share.owner_email,
+              display_name: share.owner_display_name,
+            },
+            {
+              email: share.grantee_email,
+              display_name: share.grantee_display_name,
+            },
+          ),
+        });
+        await this.createNotificationTx(
+          client,
+          buildShareRevokedNotification(
+            share.id,
+            {
+              id: share.owner_user_id,
+              email: share.owner_email,
+              display_name: share.owner_display_name,
+            },
+            share.grantee_user_id,
+          ),
+        );
+      }
+
+      await client.query("COMMIT");
+      return wasAlreadyRevoked ? null : { granteeUserId: share.grantee_user_id };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createShareCoupledInvite(input: CreateShareCoupledInviteInput): Promise<PendingShareInviteRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const ownerResult = await client.query<{
+        id: string;
+        email: string | null;
+        display_name: string | null;
+      }>(
+        `SELECT id, email, display_name
+         FROM users
+         WHERE id = $1`,
+        [input.ownerUserId],
+      );
+      const owner = ownerResult.rows[0];
+      if (!owner) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const normalizedEmail = normalizeEmail(input.email);
+      const existingResult = await client.query<{
+        code: string;
+      }>(
+        `SELECT code
+         FROM invites
+         WHERE email = $1
+           AND used_at IS NULL
+           AND revoked_at IS NULL
+           AND expires_at > NOW()
+           AND (share_owner_user_id IS NULL OR share_owner_user_id = $2)
+         ORDER BY created_at ASC
+         LIMIT 1
+         FOR UPDATE`,
+        [normalizedEmail, input.ownerUserId],
+      );
+
+      let invite: InviteRecord;
+      if (existingResult.rows[0]) {
+        const updated = await client.query<{
+          code: string;
+          email: string;
+          role: UserRole;
+          expires_at: string;
+          revoked_at: string | null;
+          used_at: string | null;
+          issued_by_user_id: string | null;
+          share_owner_user_id: string | null;
+          created_at: string;
+        }>(
+          `UPDATE invites
+           SET share_owner_user_id = $2
+           WHERE code = $1
+           RETURNING code,
+                     email,
+                     role,
+                     expires_at::text AS expires_at,
+                     revoked_at::text AS revoked_at,
+                     used_at::text AS used_at,
+                     issued_by_user_id,
+                     share_owner_user_id,
+                     created_at::text AS created_at`,
+          [existingResult.rows[0].code, input.ownerUserId],
+        );
+        invite = mapInviteRow(updated.rows[0]!);
+      } else {
+        // Rate limit only applies when a new invite row is about to be inserted —
+        // dedup updates existing rows in place and does not contribute to growth.
+        const activeCountResult = await client.query<{ count: string }>(
+          `SELECT count(*) AS count
+           FROM invites
+           WHERE share_owner_user_id = $1
+             AND used_at IS NULL
+             AND revoked_at IS NULL
+             AND expires_at > NOW()`,
+          [input.ownerUserId],
+        );
+        const activePending = parseInt(activeCountResult.rows[0]!.count, 10);
+        if (activePending >= PENDING_SHARE_INVITE_LIMIT) {
+          await client.query("ROLLBACK");
+          throw routeError(429, "share_invite_rate_limited", "share invite rate limited");
+        }
+
+        invite = await this.insertInviteWithGeneratedCode(
+          {
+            email: normalizedEmail,
+            role: "viewer",
+            expiresAt: input.expiresAt,
+            issuedByUserId: input.issuedByUserId,
+            shareOwnerUserId: input.ownerUserId,
+          },
+          client,
+        );
+      }
+
+      await client.query("COMMIT");
+      return {
+        code: invite.code,
+        email: invite.email,
+        role: invite.role,
+        shareOwnerUserId: invite.shareOwnerUserId,
+        ownerEmail: owner.email,
+        ownerDisplayName: owner.display_name,
+        createdAt: invite.createdAt,
+        expiresAt: invite.expiresAt,
+        revokedAt: invite.revokedAt,
+        usedAt: invite.usedAt,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async countActivePendingShareInvites(ownerUserId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT count(*) AS count
+       FROM invites
+       WHERE share_owner_user_id = $1
+         AND used_at IS NULL
+         AND revoked_at IS NULL
+         AND expires_at > NOW()`,
+      [ownerUserId],
+    );
+    return parseInt(result.rows[0]!.count, 10);
+  }
+
+  async listSharesForOwner(ownerUserId: string): Promise<ListSharesForOwnerResult> {
+    const [sharesResult, invitesResult] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        owner_user_id: string;
+        owner_email: string | null;
+        owner_display_name: string | null;
+        grantee_user_id: string;
+        grantee_email: string | null;
+        grantee_display_name: string | null;
+        created_at: string;
+        revoked_at: string | null;
+        revoked_by_user_id: string | null;
+      }>(
+        `SELECT ps.id,
+                ps.owner_user_id,
+                owner.email AS owner_email,
+                owner.display_name AS owner_display_name,
+                ps.grantee_user_id,
+                grantee.email AS grantee_email,
+                grantee.display_name AS grantee_display_name,
+                ps.created_at::text AS created_at,
+                ps.revoked_at::text AS revoked_at,
+                ps.revoked_by_user_id
+         FROM portfolio_shares ps
+         JOIN users owner ON owner.id = ps.owner_user_id
+         JOIN users grantee ON grantee.id = ps.grantee_user_id
+         WHERE ps.owner_user_id = $1
+         ORDER BY ps.created_at DESC`,
+        [ownerUserId],
+      ),
+      this.pool.query<{
+        code: string;
+        email: string;
+        role: UserRole;
+        share_owner_user_id: string | null;
+        owner_email: string | null;
+        owner_display_name: string | null;
+        created_at: string;
+        expires_at: string;
+        revoked_at: string | null;
+        used_at: string | null;
+      }>(
+        `SELECT i.code,
+                i.email,
+                i.role,
+                i.share_owner_user_id,
+                owner.email AS owner_email,
+                owner.display_name AS owner_display_name,
+                i.created_at::text AS created_at,
+                i.expires_at::text AS expires_at,
+                i.revoked_at::text AS revoked_at,
+                i.used_at::text AS used_at
+         FROM invites i
+         LEFT JOIN users owner ON owner.id = i.share_owner_user_id
+         WHERE i.share_owner_user_id = $1
+         ORDER BY i.created_at DESC`,
+        [ownerUserId],
+      ),
+    ]);
+
+    const active = sharesResult.rows
+      .filter((row) => row.revoked_at === null)
+      .map((row) => mapShareGrantRow(row));
+    const revokedShares = sharesResult.rows
+      .filter((row) => row.revoked_at !== null)
+      .map((row) => mapShareGrantRow(row));
+
+    const pending: PendingShareInviteRecord[] = [];
+    const expired: PendingShareInviteRecord[] = [];
+    const revokedInvites: PendingShareInviteRecord[] = [];
+    for (const row of invitesResult.rows) {
+      if (row.used_at) continue;
+      const invite = mapPendingShareInviteRow(row);
+      if (row.revoked_at) {
+        revokedInvites.push(invite);
+      } else if (new Date(row.expires_at).getTime() <= Date.now()) {
+        expired.push(invite);
+      } else {
+        pending.push(invite);
+      }
+    }
+
+    return {
+      active,
+      pending,
+      expired,
+      revoked: [...revokedShares, ...revokedInvites].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    };
+  }
+
+  async listInboundSharesForGrantee(granteeUserId: string): Promise<ListInboundSharesForGranteeResult> {
+    const sharesResult = await this.pool.query<{
+      id: string;
+      owner_user_id: string;
+      owner_email: string | null;
+      owner_display_name: string | null;
+      grantee_user_id: string;
+      grantee_email: string | null;
+      grantee_display_name: string | null;
+      created_at: string;
+      revoked_at: string | null;
+      revoked_by_user_id: string | null;
+    }>(
+      `SELECT ps.id,
+              ps.owner_user_id,
+              owner.email AS owner_email,
+              owner.display_name AS owner_display_name,
+              ps.grantee_user_id,
+              grantee.email AS grantee_email,
+              grantee.display_name AS grantee_display_name,
+              ps.created_at::text AS created_at,
+              ps.revoked_at::text AS revoked_at,
+              ps.revoked_by_user_id
+       FROM portfolio_shares ps
+       JOIN users owner ON owner.id = ps.owner_user_id
+       JOIN users grantee ON grantee.id = ps.grantee_user_id
+       WHERE ps.grantee_user_id = $1
+       ORDER BY ps.created_at DESC`,
+      [granteeUserId],
+    );
+
+    return {
+      active: sharesResult.rows.filter((row) => row.revoked_at === null).map((row) => mapShareGrantRow(row)),
+      revoked: sharesResult.rows.filter((row) => row.revoked_at !== null).map((row) => mapShareGrantRow(row)),
+    };
+  }
+
+  async revokePendingShareInvite(
+    code: string,
+    ownerUserId: string,
+    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const inviteResult = await client.query<{
+        email: string;
+        used_at: string | null;
+        revoked_at: string | null;
+      }>(
+        `SELECT email,
+                used_at::text AS used_at,
+                revoked_at::text AS revoked_at
+         FROM invites
+         WHERE code = $1
+           AND share_owner_user_id = $2
+         FOR UPDATE`,
+        [code, ownerUserId],
+      );
+
+      const invite = inviteResult.rows[0];
+      if (!invite) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "share_pending_not_found", "Pending share invite not found");
+      }
+      if (invite.used_at) {
+        await client.query("ROLLBACK");
+        throw routeError(409, "share_pending_already_used", "Pending share invite already used");
+      }
+
+      if (!invite.revoked_at) {
+        const ownerResult = await client.query<{ email: string | null; display_name: string | null }>(
+          `SELECT email, display_name
+           FROM users
+           WHERE id = $1`,
+          [ownerUserId],
+        );
+        const owner = ownerResult.rows[0];
+        if (!owner) {
+          await client.query("ROLLBACK");
+          throw routeError(404, "user_not_found", "User not found");
+        }
+
+        await client.query(
+          `UPDATE invites
+           SET revoked_at = NOW()
+           WHERE code = $1`,
+          [code],
+        );
+        await this.appendAuditLogTx(client, {
+          ...auditInput,
+          action: "admin_invite_revoked",
+          metadata: {
+            inviteCode: code,
+            targetEmail: invite.email,
+            shareCoupled: true,
+            shareOwnerEmail: owner.email,
+            shareOwnerDisplayName: owner.display_name,
+          },
+        });
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const granteeResult = await client.query<{
+        id: string;
+        email: string | null;
+        display_name: string | null;
+      }>(
+        `SELECT id, email, display_name
+         FROM users
+         WHERE id = $1`,
+        [input.userId],
+      );
+      const grantee = granteeResult.rows[0];
+      if (!grantee) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const invitesResult = await client.query<{
+        code: string;
+        owner_user_id: string;
+        owner_email: string | null;
+        owner_display_name: string | null;
+      }>(
+        `SELECT i.code,
+                i.share_owner_user_id AS owner_user_id,
+                owner.email AS owner_email,
+                owner.display_name AS owner_display_name
+         FROM invites i
+         LEFT JOIN users owner ON owner.id = i.share_owner_user_id
+         WHERE i.email = $1
+           AND i.share_owner_user_id IS NOT NULL
+           AND i.used_at IS NULL
+           AND i.revoked_at IS NULL
+           AND i.expires_at > NOW()
+         ORDER BY i.created_at ASC
+         FOR UPDATE`,
+        [normalizeEmail(input.email)],
+      );
+
+      const materialized: ShareGrantRecord[] = [];
+      for (const invite of invitesResult.rows) {
+        // Always mark the invite used — including the orphan-owner case below —
+        // so subsequent logins don't retry materialization against a dangling row.
+        await client.query(
+          `UPDATE invites
+           SET used_at = NOW()
+           WHERE code = $1`,
+          [invite.code],
+        );
+
+        // Owner was hard-purged (FK set to NULL). Share cannot materialize.
+        // owner_email being null (legitimate user without email) is NOT a reason to skip.
+        if (!invite.owner_user_id) {
+          continue;
+        }
+
+        const inserted = await client.query<{
+          id: string;
+          owner_user_id: string;
+          owner_email: string | null;
+          owner_display_name: string | null;
+          grantee_user_id: string;
+          grantee_email: string | null;
+          grantee_display_name: string | null;
+          created_at: string;
+          revoked_at: string | null;
+          revoked_by_user_id: string | null;
+        }>(
+          `INSERT INTO portfolio_shares (id, owner_user_id, grantee_user_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (owner_user_id, grantee_user_id) WHERE revoked_at IS NULL DO NOTHING
+           RETURNING id,
+                     owner_user_id,
+                     $4::text AS owner_email,
+                     $5::text AS owner_display_name,
+                     grantee_user_id,
+                     $6::text AS grantee_email,
+                     $7::text AS grantee_display_name,
+                     created_at::text AS created_at,
+                     revoked_at::text AS revoked_at,
+                     revoked_by_user_id`,
+          [
+            randomUUID(),
+            invite.owner_user_id,
+            input.userId,
+            invite.owner_email,
+            invite.owner_display_name,
+            grantee.email,
+            grantee.display_name,
+          ],
+        );
+
+        const share = inserted.rows[0];
+        if (!share) {
+          continue;
+        }
+
+        await this.appendAuditLogTx(client, {
+          ...input.auditInput,
+          action: "share_granted",
+          targetUserId: input.userId,
+          metadata: buildShareAuditMetadata(
+            share.id,
+            {
+              email: invite.owner_email,
+              display_name: invite.owner_display_name,
+            },
+            grantee,
+          ),
+        });
+        await this.createNotificationTx(
+          client,
+          buildShareGrantedNotification(
+            share.id,
+            {
+              id: invite.owner_user_id,
+              email: invite.owner_email,
+              display_name: invite.owner_display_name,
+            },
+            input.userId,
+          ),
+        );
+        materialized.push(mapShareGrantRow(share));
+      }
+
+      await client.query("COMMIT");
+      return materialized;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async loadStore(userId: string): Promise<Store> {
@@ -3297,11 +4084,14 @@ export class PostgresPersistence implements Persistence {
     await this.seedInstruments();
   }
 
-  private async insertInviteWithGeneratedCode(input: CreateInviteInput): Promise<InviteRecord> {
+  private async insertInviteWithGeneratedCode(
+    input: CreateInviteInput & { shareOwnerUserId?: string | null },
+    client: Pool | PoolClient = this.pool,
+  ): Promise<InviteRecord> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const code = generateInviteCode();
       try {
-        const result = await this.pool.query<{
+        const result = await client.query<{
           code: string;
           email: string;
           role: UserRole;
@@ -3309,10 +4099,11 @@ export class PostgresPersistence implements Persistence {
           revoked_at: string | null;
           used_at: string | null;
           issued_by_user_id: string | null;
+          share_owner_user_id: string | null;
           created_at: string;
         }>(
-          `INSERT INTO invites (code, email, role, expires_at, issued_by_user_id)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO invites (code, email, role, expires_at, issued_by_user_id, share_owner_user_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING code,
                      email,
                      role,
@@ -3320,8 +4111,16 @@ export class PostgresPersistence implements Persistence {
                      revoked_at::text AS revoked_at,
                      used_at::text AS used_at,
                      issued_by_user_id,
+                     share_owner_user_id,
                      created_at::text AS created_at`,
-          [code, normalizeEmail(input.email), input.role, input.expiresAt, input.issuedByUserId],
+          [
+            code,
+            normalizeEmail(input.email),
+            input.role,
+            input.expiresAt,
+            input.issuedByUserId,
+            input.shareOwnerUserId ?? null,
+          ],
         );
         return mapInviteRow(result.rows[0]!);
       } catch (error) {
@@ -3347,6 +4146,35 @@ export class PostgresPersistence implements Persistence {
         input.ipAddress ?? null,
       ],
     );
+  }
+
+  private async createNotificationTx(
+    client: Pool | PoolClient,
+    notification: {
+      userId: string;
+      severity: "info" | "warning" | "error";
+      source: string;
+      sourceRef?: string;
+      title: string;
+      body?: string;
+      detail?: unknown;
+    },
+  ): Promise<string> {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO notifications (user_id, severity, source, source_ref, title, body, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        notification.userId,
+        notification.severity,
+        notification.source,
+        notification.sourceRef ?? null,
+        notification.title,
+        notification.body ?? null,
+        notification.detail ? JSON.stringify(notification.detail) : null,
+      ],
+    );
+    return result.rows[0]!.id;
   }
 
   private async seedInstruments(): Promise<void> {
@@ -4394,21 +5222,7 @@ export class PostgresPersistence implements Persistence {
     body?: string;
     detail?: unknown;
   }): Promise<string> {
-    const result = await this.pool.query<{ id: string }>(
-      `INSERT INTO notifications (user_id, severity, source, source_ref, title, body, detail)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        notification.userId,
-        notification.severity,
-        notification.source,
-        notification.sourceRef ?? null,
-        notification.title,
-        notification.body ?? null,
-        notification.detail ? JSON.stringify(notification.detail) : null,
-      ],
-    );
-    return result.rows[0].id;
+    return this.createNotificationTx(this.pool, notification);
   }
 
   async getNotificationsForUser(

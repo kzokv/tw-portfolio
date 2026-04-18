@@ -74,6 +74,7 @@ export interface InviteRecord {
   revokedAt: string | null;
   usedAt: string | null;
   issuedByUserId: string | null;
+  shareOwnerUserId: string | null;
   createdAt: string;
 }
 
@@ -100,7 +101,66 @@ export type AuditLogAction =
   | "admin_hard_purge_user"
   | "admin_invite_issued"
   | "admin_invite_revoked"
+  | "share_granted"
+  | "share_revoked"
   | "session_force_logout";
+
+export interface ShareGrantRecord {
+  id: string;
+  ownerUserId: string;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  granteeUserId: string;
+  granteeEmail: string | null;
+  granteeDisplayName: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+}
+
+export interface PendingShareInviteRecord {
+  code: string;
+  email: string;
+  role: UserRole;
+  shareOwnerUserId: string | null;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  usedAt: string | null;
+}
+
+export interface CreateShareGrantInput {
+  ownerUserId: string;
+  granteeUserId: string;
+  auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+}
+
+export interface CreateShareCoupledInviteInput {
+  ownerUserId: string;
+  email: string;
+  expiresAt: string;
+  issuedByUserId: string | null;
+}
+
+export interface ListSharesForOwnerResult {
+  active: ShareGrantRecord[];
+  pending: PendingShareInviteRecord[];
+  expired: PendingShareInviteRecord[];
+  revoked: Array<ShareGrantRecord | PendingShareInviteRecord>;
+}
+
+export interface ListInboundSharesForGranteeResult {
+  active: ShareGrantRecord[];
+  revoked: ShareGrantRecord[];
+}
+
+export interface MaterializePendingSharesInput {
+  userId: string;
+  email: string;
+  auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+}
 
 export interface AuditLogInput {
   actorUserId?: string | null;
@@ -363,6 +423,25 @@ export interface Persistence {
   getInviteStatus(code: string): Promise<InviteStatus>;
   getInviteRecord(code: string): Promise<InviteRecord | null>;
   consumeInvite(code: string, email: string): Promise<ConsumeInviteResult>;
+  createShareGrant(input: CreateShareGrantInput): Promise<ShareGrantRecord>;
+  /**
+   * Revoke a share grant owned by `revokedByUserId`. Idempotent — already-revoked
+   * shares silently succeed without re-emitting audit or notification. Returns
+   * the grantee user id when the revoke flipped the row from active to revoked,
+   * or null when the call was a no-op (already revoked). Caller uses the return
+   * to decide whether to publish an SSE event.
+   */
+  revokeShareGrant(shareId: string, revokedByUserId: string, auditInput: Omit<AuditLogInput, "action" | "targetUserId">): Promise<{ granteeUserId: string } | null>;
+  createShareCoupledInvite(input: CreateShareCoupledInviteInput): Promise<PendingShareInviteRecord>;
+  countActivePendingShareInvites(ownerUserId: string): Promise<number>;
+  listSharesForOwner(ownerUserId: string): Promise<ListSharesForOwnerResult>;
+  listInboundSharesForGrantee(granteeUserId: string): Promise<ListInboundSharesForGranteeResult>;
+  revokePendingShareInvite(
+    code: string,
+    ownerUserId: string,
+    auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<void>;
+  materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;

@@ -470,7 +470,7 @@ describe("DELETE /admin/users/:id/purge — hard purge", () => {
     if (app) await app.close();
   });
 
-  it("hard purge: valid confirmation → 200", async () => {
+  it("hard purge: valid confirmation → 204", async () => {
     const res = await app.inject({
       method: "DELETE",
       url: `/admin/users/${targetUserId}/purge`,
@@ -480,8 +480,7 @@ describe("DELETE /admin/users/:id/purge — hard purge", () => {
         adminEmail: "user-1@placeholder.local",
       },
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe("ok");
+    expect(res.statusCode).toBe(204);
   });
 
   it("hard purge: mismatched confirmation string → 400", async () => {
@@ -742,7 +741,7 @@ describe("hard-purge blocked when active jobs exist — 409", () => {
     expect(res.json().error).toBe("active_jobs_blocked");
   });
 
-  it("hard purge: no active jobs → 200 (proceeds normally)", async () => {
+  it("hard purge: no active jobs → 204 (proceeds normally)", async () => {
     // Verify that without the stub (memory returns false), purge succeeds
     const res = await app.inject({
       method: "DELETE",
@@ -753,7 +752,7 @@ describe("hard-purge blocked when active jobs exist — 409", () => {
         adminEmail: devBypassAdminEmail,
       },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(204);
   });
 });
 

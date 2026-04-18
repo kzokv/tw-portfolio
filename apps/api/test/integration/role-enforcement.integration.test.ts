@@ -126,7 +126,7 @@ describe("requireAdminRole — admin-only endpoints block non-admins", () => {
       headers: { "x-user-id": "user-1", "x-user-role": "admin" },
       payload: { email: "ok@example.com", role: "member" },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
   });
 });
 
@@ -151,7 +151,7 @@ describe("dev_bypass — x-user-role header behavior", () => {
     });
 
     // Assert
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
   });
 
   it("x-user-role: viewer downgrades the resolved role for this request", async () => {
@@ -171,7 +171,7 @@ describe("dev_bypass — x-user-role header behavior", () => {
       headers: { "x-user-id": "ghost-user-xyz" },
       payload: { email: "from-ghost@example.com", role: "member" },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
   });
 
   it("x-user-role with invalid value returns 400 (zod rejection)", async () => {
