@@ -4,6 +4,7 @@ import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Settings, LogOut, Share2, Shield, UserCircle2 } from "lucide-react";
 import { Button } from "../ui/Button";
+import { clearContextCookie } from "../../lib/context";
 
 const AVATAR_COLORS = [
   "#4F46E5",
@@ -158,6 +159,7 @@ export function UserAvatarButton({
           <DropdownMenu.Item asChild>
             <a
               href={signOutHref}
+              onClick={() => clearContextCookie()}
               className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none transition hover:bg-slate-100 focus:bg-slate-100 data-[highlighted]:bg-slate-100"
               data-testid="avatar-menu-sign-out"
             >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import type { NotificationDto } from "@tw-portfolio/shared-types";
@@ -63,6 +63,8 @@ interface TopBarProps {
   onNotificationDismiss?: (id: string) => void;
   onNotificationDropdownClose?: () => void;
   notificationDict?: AppDictionary;
+  /** Rendered between the title block and the desktop quick-search; typically the PortfolioSwitcher. */
+  portfolioSwitcher?: ReactNode;
 }
 
 export function TopBar({
@@ -106,6 +108,7 @@ export function TopBar({
   onNotificationDismiss,
   onNotificationDropdownClose,
   notificationDict,
+  portfolioSwitcher,
 }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -254,7 +257,18 @@ export function TopBar({
                 contentTestId="tooltip-app-title-content"
               />
             </div>
+            {portfolioSwitcher ? (
+              <div className="mt-3 md:hidden" data-testid="topbar-portfolio-switcher-slot-mobile">
+                {portfolioSwitcher}
+              </div>
+            ) : null}
           </div>
+
+          {portfolioSwitcher ? (
+            <div className="hidden shrink-0 md:block" data-testid="topbar-portfolio-switcher-slot">
+              {portfolioSwitcher}
+            </div>
+          ) : null}
 
           <div className="hidden lg:block lg:w-full lg:max-w-[24rem] xl:max-w-[26rem]">
             <div className="relative">

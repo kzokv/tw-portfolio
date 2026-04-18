@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import { buttonVariants } from "../ui/Button";
 import type { SharingPageData } from "../../features/sharing/types";
+import { writeContextCookie } from "../../lib/context";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatDateLabel } from "../../lib/utils";
 import { Card } from "../ui/Card";
@@ -15,7 +17,13 @@ interface InboundSharesCardsProps {
 
 export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps) {
   const dict = useMemo(() => getDictionary(locale), [locale]);
+  const router = useRouter();
   const totalCount = inbound.active.length + inbound.revoked.length;
+
+  const handleOpenDashboard = (ownerUserId: string | null) => {
+    if (ownerUserId) writeContextCookie(ownerUserId);
+    router.push("/dashboard");
+  };
 
   return (
     <Card className="space-y-5" data-testid="sharing-inbound-section">
@@ -56,13 +64,14 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
               </p>
               <div className="mt-5 flex items-center justify-between gap-3">
                 <p className="text-xs text-slate-500">{dict.sharing.switcherHint}</p>
-                <a
-                  href="/dashboard"
-                  className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "shrink-0 no-underline")}
+                <button
+                  type="button"
+                  onClick={() => handleOpenDashboard(item.ownerUserId)}
+                  className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "shrink-0")}
                   data-testid={`sharing-open-dashboard-${item.id}`}
                 >
                   {dict.sharing.actions.openSwitcher}
-                </a>
+                </button>
               </div>
             </article>
           ))}
