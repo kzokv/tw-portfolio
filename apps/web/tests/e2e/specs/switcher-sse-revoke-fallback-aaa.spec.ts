@@ -14,9 +14,6 @@ test.describe("portfolio switcher SSE revoke fallback", () => {
     dashboard,
     page,
   }) => {
-    // Setup + navigation + switcher settle + SSE revoke delivery. CI 2-worker
-    // contention can push total test time beyond the default 30s budget.
-    test.slow();
     const owner = await seedUser({
       sub: "e2e-switcher-revoke-owner-sub",
       email: "switcher-revoke-owner@example.com",

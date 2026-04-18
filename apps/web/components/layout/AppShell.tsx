@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   DashboardPerformanceRange,
@@ -101,6 +101,13 @@ export function AppShell({
   const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
   const [switcherLoaded, setSwitcherLoaded] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
+  // Guards the deep-link effect: once we apply ?as=X the first time, don't
+  // re-apply even if the effect's dependencies thrash during the refresh
+  // cascade (router.refresh → re-render → stable callback identity change).
+  // Without this guard, the deep-link effect can race with React's hook
+  // tracking under Next's Suspense + router.refresh combo and manifest as
+  // "Rendered more hooks than during the previous render."
+  const deepLinkAppliedRef = useRef(false);
   const currentContextOwnerId = useSharedContextOwnerId();
 
   const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
@@ -225,6 +232,7 @@ export function AppShell({
 
   useEffect(() => {
     if (!switcherLoaded) return;
+    if (deepLinkAppliedRef.current) return;
     const asOwnerId = searchParams.get("as");
     if (!asOwnerId) return;
 
@@ -232,6 +240,8 @@ export function AppShell({
       .map((item) => item.ownerUserId)
       .filter((value): value is string => Boolean(value));
     const appliedOwnerId = applyDeepLinkAs(searchParams, ownerIds);
+
+    deepLinkAppliedRef.current = true;
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete("as");
