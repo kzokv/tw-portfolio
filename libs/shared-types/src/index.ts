@@ -324,6 +324,62 @@ export interface AdminAuditLogResponse {
   limit: number;
 }
 
+// ── Sharing types (KZO-145 / KZO-146) ──────────────────────────────────────
+
+export interface ShareGrantDto {
+  id: string;
+  status: "active" | "revoked";
+  ownerUserId: string;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  granteeUserId: string;
+  granteeEmail: string | null;
+  granteeDisplayName: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+}
+
+export interface PendingShareInviteDto {
+  code: string;
+  status: "pending" | "expired" | "revoked";
+  email: string;
+  role: UserRole;
+  shareOwnerUserId: string | null;
+  ownerEmail: string | null;
+  ownerDisplayName: string | null;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  usedAt: string | null;
+  inviteUrl: string | null;
+}
+
+export type OutboundShareHistoryItemDto = ShareGrantDto | PendingShareInviteDto;
+
+export interface SharesListResponseDto {
+  outbound: {
+    active: ShareGrantDto[];
+    pending: PendingShareInviteDto[];
+    expired: PendingShareInviteDto[];
+    revoked: OutboundShareHistoryItemDto[];
+  };
+  inbound: {
+    active: ShareGrantDto[];
+    revoked: ShareGrantDto[];
+  };
+}
+
+export type CreateShareResponseDto =
+  | {
+      type: "resolved";
+      share: ShareGrantDto;
+    }
+  | {
+      type: "pending";
+      invite: PendingShareInviteDto;
+    };
+
 export interface QuoteSnapshotDto {
   ticker: string;
   close: number;

@@ -250,7 +250,7 @@ describe("invite audit entries — existing endpoints", () => {
       headers: { cookie: `${SESSION_COOKIE_NAME}=${adminCookie}` },
       payload: { email: "newbie@example.com", role: "member" },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(201);
     const { code } = res.json();
 
     const auditResult = await app.persistence.listAuditLog({
