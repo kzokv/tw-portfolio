@@ -8,6 +8,7 @@ export interface TContextSwitcherElements {
   readonlyBadge: Locator;
   eyebrow: Locator;
   manageSharingLink: Locator;
+  dataReady: Locator;
 }
 
 export class ContextSwitcherPage extends BasePage<TContextSwitcherElements> {
@@ -20,6 +21,11 @@ export class ContextSwitcherPage extends BasePage<TContextSwitcherElements> {
       readonlyBadge: desktopSlot.getByTestId("portfolio-switcher-badge-readonly"),
       eyebrow: desktopSlot.getByTestId("portfolio-switcher-eyebrow"),
       manageSharingLink: this.locate("portfolio-switcher-manage-sharing", "Manage sharing footer link"),
+      // Attached once AppShell's inbound-shares fetch has resolved (pass or
+      // fail). Assertions that expect the switcher to appear must wait for
+      // this marker first — otherwise they race the client-side fetch and
+      // can time out before shares load on slow CI runners.
+      dataReady: this.locate("switcher-data-ready", "Switcher data ready marker"),
     };
   }
 
