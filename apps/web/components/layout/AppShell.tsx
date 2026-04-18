@@ -714,6 +714,7 @@ export function AppShell({
 
             <div data-testid="app-shell-ready" />
             {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
+            {switcherLoaded ? <div data-testid="switcher-data-ready" /> : null}
 
             {showPageSkeleton ? (
               <>

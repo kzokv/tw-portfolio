@@ -13,13 +13,25 @@ export class ContextSwitcherAssert extends BaseAssert {
     return this._instance.elements;
   }
 
+  /**
+   * Wait for the client-side inbound-shares fetch to resolve before any
+   * visibility assertion. Prevents races where the test runs on the first
+   * (no-switcher) paint while the shares fetch is still in flight.
+   */
+  @Step()
+  async dataIsReady(): Promise<void> {
+    await expect(this.el.dataReady).toBeAttached({ timeout: 30_000 });
+  }
+
   @Step()
   async switcherIsVisible(): Promise<void> {
+    await this.dataIsReady();
     await expect(this.el.switcherRoot).toBeVisible();
   }
 
   @Step()
   async switcherIsHidden(): Promise<void> {
+    await this.dataIsReady();
     await expect(this.el.switcherRoot).toHaveCount(0);
   }
 
@@ -64,6 +76,7 @@ export class ContextSwitcherAssert extends BaseAssert {
    */
   @Step()
   async assertSwitchedIn(label: string | RegExp): Promise<void> {
+    await this.dataIsReady();
     await this.selectedLabelContains(label);
     await expect(this.el.readonlyBadge).toBeVisible();
     await expect(this.el.eyebrow).toBeVisible();
@@ -72,6 +85,7 @@ export class ContextSwitcherAssert extends BaseAssert {
   /** Switched-out state: self selected, no badge, no eyebrow. */
   @Step()
   async assertSwitchedOut(): Promise<void> {
+    await this.dataIsReady();
     await expect(this.el.readonlyBadge).toBeHidden();
     await expect(this.el.eyebrow).toBeHidden();
   }

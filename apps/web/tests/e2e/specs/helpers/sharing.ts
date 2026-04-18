@@ -130,7 +130,12 @@ export async function seedTransactionForUser(
       },
       headers: {
         "x-user-id": userId,
-        "idempotency-key": `e2e-switcher-${userId}-${input.ticker}-${input.tradeDate ?? "2026-01-02"}`,
+        // Unique per invocation so Playwright test retries don't collide with
+        // the prior attempt's already-claimed key (which 409s as
+        // duplicate_idempotency_key and breaks the retry before the UI even
+        // renders). The helper is a seed, not a dedup exercise — losing
+        // idempotency semantics here is intentional.
+        "idempotency-key": `e2e-switcher-${userId}-${input.ticker}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       },
     });
     if (!response.ok()) {
