@@ -7,7 +7,7 @@ import type { TDividendsAssistant } from "../assistants/dividends/index.js";
 import type { TAppShellAssistant } from "../assistants/layout/index.js";
 import type { TPortfolioAssistant } from "../assistants/portfolio/index.js";
 import type { TSettingsAssistant } from "../assistants/settings/index.js";
-import type { TSharingAssistant } from "../assistants/sharing/index.js";
+import type { TContextSwitcherAssistant, TSharingAssistant } from "../assistants/sharing/index.js";
 import type { TTickerDetailAssistant } from "../assistants/tickers/index.js";
 import type { TTransactionsAssistant } from "../assistants/transactions/index.js";
 import { CashLedgerPage } from "../pages/cash-ledger/index.js";
@@ -16,7 +16,7 @@ import { DividendCalendarPage, DividendReviewPage } from "../pages/dividends/ind
 import { AppShellPage } from "../pages/layout/index.js";
 import { PortfolioPage } from "../pages/portfolio/index.js";
 import { SettingsDrawerPage } from "../pages/settings/index.js";
-import { SharingPage } from "../pages/sharing/index.js";
+import { ContextSwitcherPage, SharingPage } from "../pages/sharing/index.js";
 import { TickerDetailPage } from "../pages/tickers/index.js";
 import { TransactionsPage } from "../pages/transactions/index.js";
 
@@ -25,6 +25,7 @@ import { test as base } from "./base.js";
 export interface TAppPagesFixtures {
   appShell: TAppShellAssistant;
   cashLedger: TCashLedgerAssistant;
+  contextSwitcher: TContextSwitcherAssistant;
   dashboard: TDashboardAssistant;
   dividendReview: TDividendReviewAssistant;
   dividends: TDividendsAssistant;
@@ -38,6 +39,7 @@ export interface TAppPagesFixtures {
 export const test = base.extend<TAppPagesFixtures>({
   appShell: createWebFixture<TAppShellAssistant>(AppShellPage),
   cashLedger: createWebFixture<TCashLedgerAssistant>(CashLedgerPage),
+  contextSwitcher: createWebFixture<TContextSwitcherAssistant>(ContextSwitcherPage),
   dashboard: createWebFixture<TDashboardAssistant>(DashboardPage),
   dividendReview: createWebFixture<TDividendReviewAssistant>(DividendReviewPage),
   dividends: createWebFixture<TDividendsAssistant>(DividendCalendarPage),

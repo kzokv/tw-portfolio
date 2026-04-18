@@ -83,7 +83,9 @@ export class SharesApiAssert extends ApiBaseAssert {
   @Step()
   async notificationMatches(
     notification: NotificationDto,
-    expected: Partial<Pick<NotificationDto, "source" | "title" | "severity">>,
+    expected: Partial<Pick<NotificationDto, "source" | "title" | "severity">> & {
+      detail?: Record<string, unknown>;
+    },
   ): Promise<void> {
     if (expected.source !== undefined) {
       await this.mxAssertEqual(notification.source, expected.source, "notification.source");
@@ -93,6 +95,16 @@ export class SharesApiAssert extends ApiBaseAssert {
     }
     if (expected.severity !== undefined) {
       await this.mxAssertEqual(notification.severity, expected.severity, "notification.severity");
+    }
+    if (expected.detail !== undefined) {
+      await this.mxAssertTruthy(
+        notification.detail !== null && typeof notification.detail === "object",
+        "notification.detail is an object",
+      );
+      const actualDetail = notification.detail as Record<string, unknown>;
+      for (const [key, value] of Object.entries(expected.detail)) {
+        await this.mxAssertEqual(actualDetail[key], value, `notification.detail.${key}`);
+      }
     }
   }
 

@@ -40,6 +40,15 @@ export interface TSeededUser {
   email: string;
 }
 
+export interface TSeededTransactionInput {
+  accountId?: string;
+  ticker: string;
+  quantity?: number;
+  unitPrice?: number;
+  tradeDate?: string;
+  type?: "BUY" | "SELL";
+}
+
 /**
  * Creates a real `users` row with a known email via the /__e2e/oauth-session
  * endpoint. Uses a fresh APIRequestContext so the minted session cookie is
@@ -100,6 +109,44 @@ export async function seedResolvedShareFromAdmin(
       throw new Error(`expected resolved share for known grantee email, got pending: ${granteeEmail}`);
     }
     return { shareId: body.share.id };
+  });
+}
+
+export async function seedTransactionForUser(
+  userId: string,
+  input: TSeededTransactionInput,
+): Promise<void> {
+  return withFreshContext(async (ctx) => {
+    const response = await ctx.post(new URL("/portfolio/transactions", TestEnv.apiBaseUrl).href, {
+      data: {
+        accountId: input.accountId ?? "acc-1",
+        ticker: input.ticker,
+        quantity: input.quantity ?? 100,
+        unitPrice: input.unitPrice ?? 100,
+        priceCurrency: "TWD",
+        tradeDate: input.tradeDate ?? "2026-01-02",
+        type: input.type ?? "BUY",
+        isDayTrade: false,
+      },
+      headers: {
+        "x-user-id": userId,
+        "idempotency-key": `e2e-switcher-${userId}-${input.ticker}-${input.tradeDate ?? "2026-01-02"}`,
+      },
+    });
+    if (!response.ok()) {
+      throw new Error(`seed transaction failed: ${response.status()} ${await response.text()}`);
+    }
+  });
+}
+
+export async function revokeShareAsOwner(shareId: string, ownerUserId: string): Promise<void> {
+  return withFreshContext(async (ctx) => {
+    const response = await ctx.delete(new URL(`/shares/${shareId}`, TestEnv.apiBaseUrl).href, {
+      headers: { "x-user-id": ownerUserId },
+    });
+    if (!response.ok()) {
+      throw new Error(`revoke share failed: ${response.status()} ${await response.text()}`);
+    }
   });
 }
 
