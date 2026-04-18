@@ -16,9 +16,6 @@ test.describe("portfolio switcher cross-page persistence", () => {
     portfolio,
     transactions,
   }) => {
-    // Three navigations + three switcher-data-ready waits. CI 2-worker
-    // contention pushes total test time above the default 30s budget.
-    test.slow();
     const owner = await seedUser({
       sub: "e2e-switcher-persist-owner-sub",
       email: "switcher-persist-owner@example.com",
