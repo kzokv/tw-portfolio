@@ -9,8 +9,8 @@
 - ~~project_preexisting_bypass_failures.md~~ — **REMOVED** (stale — tests now pass, identity-resolution moved to specs-oauth/)
 - [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
 - [project_e2e_aaa.md](project_e2e_aaa.md) — Durable AAA conventions — fixture roles, declarative spec shape, Vitest split criteria
-- [feedback_playwright_request_cookie_jar_leak.md](feedback_playwright_request_cookie_jar_leak.md) — Playwright `request` shares cookie jar with page; seed helpers must use isolated `apiRequest.newContext()` to avoid session-cookie override of x-user-id
-- [feedback_e2e_testuser_not_user1.md](feedback_e2e_testuser_not_user1.md) — Default E2E test user is `e2eUserId` not `user-1`; admin seeds must pass `testUser.userId` when the UI observes seeded state
+- ~~feedback_playwright_request_cookie_jar_leak.md~~ — **PROMOTED** to `.claude/rules/playwright-request-cookie-jar-isolation.md`
+- ~~feedback_e2e_testuser_not_user1.md~~ — **PROMOTED** to `.claude/rules/e2e-seed-testuser-userid.md`
 
 ## Auth / session
 - ~~project_session_cookie_architecture.md~~ — **PROMOTED** to `.claude/rules/session-cookie-host-prefix.md`
