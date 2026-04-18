@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-18)
+## Completed tickets (as of 2026-04-18, KZO-146 pre-PR)
 
 ### Market Data Platform (epic)
 | Ticket | Title | Completed |
@@ -42,17 +42,17 @@ type: project
 |---|---|---|
 | KZO-143 | Foundations — role, invites, session_version, INITIAL_ADMIN_EMAIL | Complete 2026-04-16 |
 | KZO-144 | Admin management portal — shell + users + invites + audit log | Complete 2026-04-17 |
-| KZO-145 | Scope-grill: user-to-user share grant UI | **In active worktree (2026-04-18)** — scope locked, implementation drafted, under code review |
-| KZO-146 | User-to-user portfolio sharing — switcher UX | Scoped, not started |
+| KZO-145 | User-to-user share grant UI — schema, API, /sharing page, AAA specs | Complete 2026-04-18 (merged to dev: `fc77731` → `04ffd18`) |
+| KZO-146 | User-to-user portfolio sharing — switcher UX | **In active worktree (2026-04-18)** — implementation complete, code-review-then-fix done, 7-suite green, pre-PR |
 | KZO-147 | Anonymous share tokens — public read-only route | Scoped, not started |
 | KZO-148 | Admin impersonation — support-debug mode | Scoped, not started |
 | KZO-142 | Admin settings UI — GET/PATCH /settings | Scoped (repositioned), not started |
 
 ## Next up
 
-- KZO-145 PR merge (sharing implementation + 12 HTTP + 6 UI E2E AAA specs)
-- KZO-146 switcher UX (depends on 145 merge)
+- KZO-146 PR merge (portfolio switcher UX + 6 HTTP + 8 UI E2E AAA specs, including 2 stretch)
 - KZO-147 anonymous share tokens
+- KZO-148 admin impersonation (unblocked by KZO-146's `isSharedContext` flag; will pair with a future `isImpersonating` flag)
 - Notification preferences UI (mute by source, snooze escalation)
 - Email digest of unread failure notifications
 - Backup/restore script for market_data (ADR §5-6 gap, still unscoped)
