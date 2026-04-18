@@ -51,14 +51,16 @@ Workflow or dormant tables still matter:
 - `recompute_job_items`
 - `schema_migrations`
 - `reconciliation_records`: present in schema, unused by current runtime code
+- `portfolio_shares`: sharing access control records for inbound/outbound grants
 
 ### Database relationship graph
 
 ```mermaid
 erDiagram
   users ||--o{ user_external_identities : identity_mapping
-  users ||--o{ invites : issued_by
+  users ||--o{ invites : issuer_or_share_owner
   users ||--o{ audit_log : actor_or_target
+  users ||--o{ portfolio_shares : owner_or_grantee
   users ||--o{ fee_profiles : owns
   users ||--o{ accounts : owns
   users ||--o{ trade_events : owns
@@ -98,8 +100,12 @@ Plain-text adjacency list:
 users
   -> user_external_identities.user_id
   -> invites.issued_by_user_id
+  -> invites.share_owner_user_id
   -> audit_log.actor_user_id
   -> audit_log.target_user_id
+  -> portfolio_shares.owner_user_id
+  -> portfolio_shares.grantee_user_id
+  -> portfolio_shares.revoked_by_user_id
   -> fee_profiles.user_id
   -> accounts.user_id
   -> trade_events.user_id
@@ -229,11 +235,13 @@ Fields:
 | `revoked_at` | `TIMESTAMP` | nullable | set by `DELETE /invites/:code` |
 | `used_at` | `TIMESTAMP` | nullable | set atomically on OAuth callback consumption |
 | `issued_by_user_id` | `TEXT` | FK → `users(id)`, nullable | null for CLI-bootstrapped invites |
+| `share_owner_user_id` | `TEXT` | FK → `users(id)`, nullable | present when the invite carries pending share intent for an owner |
 | `created_at` | `TIMESTAMP DEFAULT NOW()` | `NOT NULL` | |
 
 Indexes:
 - `idx_invites_active_email` on `(email) WHERE used_at IS NULL AND revoked_at IS NULL`
 - `idx_invites_active_expires_at` on `(expires_at) WHERE used_at IS NULL AND revoked_at IS NULL`
+- `idx_invites_share_pending` on `(share_owner_user_id) WHERE share_owner_user_id IS NOT NULL AND used_at IS NULL AND revoked_at IS NULL`
 
 Read path:
 - `getInviteStatus(code)` — returns `valid | invalid | expired | used | revoked`
@@ -241,8 +249,38 @@ Read path:
 
 Write path:
 - `createInvite` / `insertBootstrapInvite` — generates Crockford code with retry on UNIQUE violation (max 3)
+- `createShareCoupledInvite` — links or creates a pending invite for an owner-facing share grant
 - `revokeInvite(code)` — sets `revoked_at = COALESCE(revoked_at, NOW())`
 - `consumeInvite(code, email)` — sets `used_at = NOW()` atomically
+
+#### `portfolio_shares` (KZO-145/KZO-146)
+
+Purpose:
+- durable owner-to-grantee access grants for shared portfolio viewing
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | `TEXT` | PK | UUID |
+| `owner_user_id` | `TEXT` | `NOT NULL`, FK → `users(id)` | owner of the portfolio being shared |
+| `grantee_user_id` | `TEXT` | `NOT NULL`, FK → `users(id)` | user who receives read-only access |
+| `created_at` | `TIMESTAMP DEFAULT NOW()` | `NOT NULL` | share creation time |
+| `revoked_at` | `TIMESTAMP` | nullable | null for active shares |
+| `revoked_by_user_id` | `TEXT` | FK → `users(id)`, nullable | owner who revoked the share |
+
+Indexes:
+- partial unique index on `(owner_user_id, grantee_user_id) WHERE revoked_at IS NULL`
+- owner-scoped and grantee-scoped list queries
+
+Read path:
+- owner outbound list grouping active / pending / expired / revoked
+- grantee inbound list grouping active / revoked
+
+Write path:
+- direct grant for an existing user
+- OAuth callback materialization from share-coupled pending invites
+- owner revocation of an active share
 
 #### `audit_log` (KZO-143)
 
@@ -255,7 +293,7 @@ Fields:
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | UUID |
 | `actor_user_id` | `TEXT` | FK → `users(id)`, nullable | null for system events (CLI, startup) |
-| `action` | `TEXT` | `NOT NULL`, `CHECK IN (...)` | `admin_promote_cli`, `admin_promote_startup`, `admin_promote_first_signin` (extended in KZO-144) |
+| `action` | `TEXT` | `NOT NULL`, `CHECK IN (...)` | includes admin actions plus sharing actions such as `share_granted` and `share_revoked` |
 | `target_user_id` | `TEXT` | FK → `users(id)`, nullable | the user affected by the action |
 | `metadata` | `JSONB DEFAULT '{}'` | `NOT NULL` | action-specific payload (e.g. `{ email }`) |
 | `ip_address` | `INET` | nullable | null for CLI/startup events |
@@ -1228,6 +1266,14 @@ Finding:
 | `GET` | `/invites/:code/status` | path param | `{ status }` where status is `valid \| invalid \| expired \| used \| revoked` | Public (no auth); rate-limited 20 req/min/IP | Does not leak email or role. Code uppercased on input. |
 
 Invite consumption happens inside the OAuth callback — not via a dedicated endpoint. See [Auth and Session — Invite-Gated Signup](./auth-and-session.md#invite-gated-signup-kzo-143).
+
+#### Sharing (KZO-145/KZO-146)
+
+| Method | Path | Request shape | Response shape | Dependencies | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/shares` | none | outbound + inbound sharing snapshot | authenticated session | Returns grouped owner outbound rows and grantee inbound rows |
+| `POST` | `/shares` | `{ email }` | `{ type: "resolved", share }` or `{ type: "pending", invite }` | `requireShareGrantorRole`; email normalization; existing-user lookup | Rejects viewer/demo callers and self-share |
+| `DELETE` | `/shares/:id` | path param | 204 (no body) | owner-only active share revoke | Emits `share_revoked` and grantee notification |
 
 #### Settings and fee configuration
 

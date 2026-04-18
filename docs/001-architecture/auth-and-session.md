@@ -341,6 +341,7 @@ Three fixed roles: `admin`, `member`, `viewer`. Stored in `users.role` as `TEXT 
 | Read own data (holdings, settings, etc.) | Yes | Yes | Yes |
 | Write own data (accounts, transactions, fee profiles, etc.) | Yes | Yes | No |
 | Create/revoke invites | Yes | No | No |
+| Create/revoke own share grants | Yes | Yes | No |
 | Access `/admin/*` (KZO-144) | Yes | No | No |
 | Impersonate users (KZO-148) | Yes | No | No |
 
@@ -367,6 +368,7 @@ New users cannot sign in without a valid invite, except for the `INITIAL_ADMIN_E
 | `revoked_at` | `TIMESTAMP` | Set by `DELETE /invites/:code` (idempotent) |
 | `used_at` | `TIMESTAMP` | Set atomically on OAuth callback consumption |
 | `issued_by_user_id` | `TEXT` FK | Nullable (null for CLI-bootstrapped invites) |
+| `share_owner_user_id` | `TEXT` FK | Nullable — present when the invite also carries pending share intent for an owner |
 | `created_at` | `TIMESTAMP NOT NULL` | Default `NOW()` |
 
 ### Invite flow
@@ -394,6 +396,18 @@ sequenceDiagram
 
 Error reasons at callback: `invite_required`, `invalid_code`, `expired_code`, `email_mismatch`, `already_used`, `revoked`, `account_disabled`.
 
+### Share-coupled invite materialization (KZO-145)
+
+Some invites carry pending share intent in addition to their normal signup role:
+
+1. Owner submits a share grant for an email that is not yet a registered user.
+2. The backend either links the owner's share intent to an existing active invite for that email or creates a fresh viewer invite with `share_owner_user_id` populated.
+3. OAuth callback resolves or creates the user first.
+4. After user resolution, the callback scans all active invites for that email where `share_owner_user_id IS NOT NULL`.
+5. For each surviving row, the backend materializes a `portfolio_shares` record, marks the invite used, and emits `share_granted`.
+
+This keeps share intent durable even when the user signs up through a different invite first or multiple owners issued pending shares to the same email.
+
 ### API endpoints
 
 | Method | Path | Auth | Notes |
@@ -401,6 +415,9 @@ Error reasons at callback: `invite_required`, `invalid_code`, `expired_code`, `e
 | `POST` | `/invites` | Admin-only | Creates invite; rejects if email already registered |
 | `DELETE` | `/invites/:code` | Admin-only | Idempotent revoke (sets `revoked_at`); returns 204 |
 | `GET` | `/invites/:code/status` | Public | Rate-limited 20/min/IP; returns `{ status }` only |
+| `POST` | `/shares` | Admin/member non-demo | Creates an active share or a share-coupled pending invite |
+| `GET` | `/shares` | Authenticated | Lists outbound and inbound sharing records |
+| `DELETE` | `/shares/:id` | Owner-only | Revokes an active share |
 
 ### `INITIAL_ADMIN_EMAIL` bootstrap
 
@@ -426,7 +443,7 @@ CLI escape hatches:
 |---|---|---|
 | `id` | `TEXT` PK | UUID |
 | `actor_user_id` | `TEXT` FK → `users(id)` | Nullable — null for system events (CLI, startup) |
-| `action` | `TEXT NOT NULL` | `CHECK IN ('admin_promote_cli', 'admin_promote_startup', 'admin_promote_first_signin')` — extended in KZO-144 |
+| `action` | `TEXT NOT NULL` | Extended over time to include admin actions and sharing actions such as `share_granted` and `share_revoked` |
 | `target_user_id` | `TEXT` FK → `users(id)` | Nullable |
 | `metadata` | `JSONB NOT NULL DEFAULT '{}'` | |
 | `ip_address` | `INET` | Nullable — null for CLI/startup events |
@@ -434,7 +451,7 @@ CLI escape hatches:
 
 Indexes: `(created_at DESC)`, `(actor_user_id, created_at DESC)`, `(target_user_id, created_at DESC)`.
 
-In KZO-143, only the 3 admin-promotion events write audit rows. Invite create/consume audit writers land in KZO-144.
+Initial KZO-143 behavior only emitted the 3 admin-promotion events. Later work adds invite lifecycle events and sharing lifecycle events while keeping metadata self-contained for post-purge readability.
 
 ---
 
