@@ -48,7 +48,7 @@ import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/ba
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store, Transaction } from "../types/store.js";
-import type { UserRole } from "../persistence/types.js";
+import type { PendingShareInviteRecord, ShareGrantRecord, UserRole } from "../persistence/types.js";
 
 const userScopedIdSchema = z
   .string()
@@ -330,6 +330,74 @@ function normalizeEmailAddress(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function buildShareInviteUrl(app: FastifyInstance, code: string): string {
+  return `${app.appBaseUrl}/invite/${code}`;
+}
+
+async function materializePendingSharesPostLogin(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  userId: string,
+  email: string,
+) {
+  try {
+    const materializedShares = await app.persistence.materializePendingSharesForEmail({
+      userId,
+      email,
+      auditInput: {
+        actorUserId: null,
+        ipAddress: req.ip,
+      },
+    });
+    for (const share of materializedShares) {
+      await app.eventBus.publishEvent(userId, "sharing_notification", { shareId: share.id });
+    }
+  } catch (error) {
+    req.log.warn({ err: error, userId }, "share materialization failed post-login");
+  }
+}
+
+function toShareGrantDto(record: ShareGrantRecord) {
+  return {
+    id: record.id,
+    status: record.revokedAt ? "revoked" as const : "active" as const,
+    ownerUserId: record.ownerUserId,
+    ownerEmail: record.ownerEmail,
+    ownerDisplayName: record.ownerDisplayName,
+    granteeUserId: record.granteeUserId,
+    granteeEmail: record.granteeEmail,
+    granteeDisplayName: record.granteeDisplayName,
+    createdAt: record.createdAt,
+    revokedAt: record.revokedAt,
+    revokedByUserId: record.revokedByUserId,
+  };
+}
+
+function toPendingShareInviteDto(
+  app: FastifyInstance,
+  record: PendingShareInviteRecord,
+  status: "pending" | "expired" | "revoked",
+) {
+  return {
+    code: record.code,
+    status,
+    email: record.email,
+    role: record.role,
+    shareOwnerUserId: record.shareOwnerUserId,
+    ownerEmail: record.ownerEmail,
+    ownerDisplayName: record.ownerDisplayName,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    revokedAt: record.revokedAt,
+    usedAt: record.usedAt,
+    inviteUrl: buildShareInviteUrl(app, record.code),
+  };
+}
+
+function isShareGrantRecord(value: ShareGrantRecord | PendingShareInviteRecord): value is ShareGrantRecord {
+  return "granteeUserId" in value;
+}
+
 function routeKey(method: string, routeUrl: string): string {
   return `${method.toUpperCase()} ${routeUrl}`;
 }
@@ -470,6 +538,12 @@ export function requireWriterRole(req: FastifyRequest): void {
 export function requireAdminRole(req: FastifyRequest): void {
   if (req.authContext?.role !== "admin") {
     throw routeError(403, "admin_role_required", "admin role required");
+  }
+}
+
+export function requireShareGrantorRole(req: FastifyRequest): void {
+  if (req.authContext?.isDemo || req.authContext?.role === "viewer") {
+    throw routeError(403, "share_grant_forbidden", "share grant forbidden");
   }
 }
 
@@ -893,21 +967,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       name = "E2E CI User";
     }
 
-    const { userId, sessionVersion } = await app.persistence.resolveOrCreateUser(
+    const normalizedEmail = normalizeEmailAddress(email);
+    const authUser = await app.persistence.resolveOrCreateUser(
       "google",
       sub,
-      { email, name, picture },
+      { email: normalizedEmail, name, picture },
       { role: query.role, sessionVersion: query.sessionVersion },
     );
+
+    await materializePendingSharesPostLogin(app, req, authUser.userId, normalizedEmail);
 
     const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
     if (!sessionSecret) {
       throw routeError(500, "missing_secret", "SESSION_SECRET is required for session cookie signing");
     }
-    const signedCookie = signSessionCookie(userId, sessionSecret, sessionVersion);
+    const signedCookie = signSessionCookie(authUser.userId, sessionSecret, authUser.sessionVersion);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, (Env.NODE_ENV as string) === "production", Env.COOKIE_DOMAIN);
     reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=${signedCookie}; ${attrs}`);
-    return { status: "ok", sub, userId, role: query.role, sessionVersion };
+    return {
+      status: "ok",
+      sub,
+      userId: authUser.userId,
+      role: query.role,
+      sessionVersion: authUser.sessionVersion,
+    };
   });
 
   /**
@@ -979,7 +1062,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: await app.persistence.getInviteStatus(params.code) };
   });
 
-  app.post("/invites", async (req) => {
+  app.post("/invites", async (req, reply) => {
     const body = z.object({
       email: z.string().trim().email().transform((value) => value.toLowerCase()),
       role: userRoleSchema,
@@ -1005,6 +1088,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ipAddress: req.ip,
     });
 
+    reply.code(201);
     return {
       code: invite.code,
       url: `${app.appBaseUrl}/invite/${invite.code}`,
@@ -1020,10 +1104,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const invite = await app.persistence.getInviteRecord(params.code);
     await app.persistence.revokeInvite(params.code);
 
+    let shareOwnerEmail: string | null = null;
+    let shareOwnerDisplayName: string | null = null;
+    if (invite?.shareOwnerUserId) {
+      const shareOwner = await app.persistence.getAuthUserById(invite.shareOwnerUserId);
+      shareOwnerEmail = shareOwner?.email ?? null;
+      shareOwnerDisplayName = shareOwner?.displayName ?? null;
+    }
+
     await app.persistence.appendAuditLog({
       actorUserId: req.authContext?.sessionUserId ?? null,
       action: "admin_invite_revoked",
-      metadata: { inviteCode: params.code, targetEmail: invite?.email ?? null },
+      metadata: {
+        inviteCode: params.code,
+        targetEmail: invite?.email ?? null,
+        ...(invite?.shareOwnerUserId
+          ? {
+            shareCoupled: true,
+            shareOwnerEmail,
+            shareOwnerDisplayName,
+          }
+          : {}),
+      },
       ipAddress: req.ip,
     });
 
@@ -1140,9 +1242,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           // User already exists (created above), so they can log in on next attempt.
         }
       }
+
     } catch {
       return errorRedirect("oauth_error");
     }
+
+    await materializePendingSharesPostLogin(app, req, authUser.userId, normalizedEmail);
 
     const signedCookie = signSessionCookie(authUser.userId, app.oauthConfig.sessionSecret, authUser.sessionVersion);
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
@@ -1203,6 +1308,123 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
     return app.persistence.updateProfileEmail(userId, body.email);
+  });
+
+  app.get("/shares", async (req) => {
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const [outbound, inbound] = await Promise.all([
+      app.persistence.listSharesForOwner(contextUserId),
+      app.persistence.listInboundSharesForGrantee(contextUserId),
+    ]);
+
+    return {
+      outbound: {
+        active: outbound.active.map((record) => toShareGrantDto(record)),
+        pending: outbound.pending.map((record) => toPendingShareInviteDto(app, record, "pending")),
+        expired: outbound.expired.map((record) => toPendingShareInviteDto(app, record, "expired")),
+        revoked: outbound.revoked.map((record) =>
+          isShareGrantRecord(record)
+            ? toShareGrantDto(record)
+            : toPendingShareInviteDto(app, record, "revoked")),
+      },
+      inbound: {
+        active: inbound.active.map((record) => toShareGrantDto(record)),
+        revoked: inbound.revoked.map((record) => toShareGrantDto(record)),
+      },
+    };
+  });
+
+  app.post("/shares", async (req, reply) => {
+    requireShareGrantorRole(req);
+    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const body = z.object({
+      email: z.string().trim().email().transform((value) => value.toLowerCase()),
+    }).parse(req.body);
+
+    const owner = await app.persistence.getAuthUserById(contextUserId);
+    if (!owner) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+    if (owner.email && normalizeEmailAddress(owner.email) === body.email) {
+      throw routeError(400, "cannot_share_with_self", "cannot share with self");
+    }
+
+    const existingUser = await app.persistence.getAuthUserByEmail(body.email);
+    if (existingUser && !existingUser.deletedAt && !existingUser.deactivatedAt) {
+      const share = await app.persistence.createShareGrant({
+        ownerUserId: contextUserId,
+        granteeUserId: existingUser.userId,
+        auditInput: {
+          actorUserId: sessionUserId,
+          ipAddress: req.ip,
+        },
+      });
+      await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
+      reply.code(201);
+      return {
+        type: "resolved" as const,
+        share: toShareGrantDto(share),
+      };
+    }
+
+    const invite = await app.persistence.createShareCoupledInvite({
+      ownerUserId: contextUserId,
+      email: body.email,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      issuedByUserId: sessionUserId,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "admin_invite_issued",
+      metadata: {
+        targetEmail: body.email,
+        inviteCode: invite.code,
+        role: invite.role,
+        shareCoupled: true,
+        shareOwnerEmail: owner.email,
+        shareOwnerDisplayName: owner.displayName,
+      },
+      ipAddress: req.ip,
+    });
+
+    reply.code(201);
+    return {
+      type: "pending" as const,
+      invite: toPendingShareInviteDto(app, invite, "pending"),
+    };
+  });
+
+  app.delete("/shares/pending/:code", async (req, reply) => {
+    requireShareGrantorRole(req);
+    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const params = z.object({
+      code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
+    }).parse(req.params);
+
+    await app.persistence.revokePendingShareInvite(params.code, contextUserId, {
+      actorUserId: sessionUserId,
+      ipAddress: req.ip,
+    });
+
+    reply.code(204);
+    return null;
+  });
+
+  app.delete("/shares/:id", async (req, reply) => {
+    requireShareGrantorRole(req);
+    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    const outcome = await app.persistence.revokeShareGrant(params.id, contextUserId, {
+      actorUserId: sessionUserId,
+      ipAddress: req.ip,
+    });
+    if (outcome) {
+      await app.eventBus.publishEvent(outcome.granteeUserId, "sharing_notification", { shareId: params.id });
+    }
+
+    reply.code(204);
+    return null;
   });
 
   app.put("/settings/full", async (req) => {
@@ -2657,7 +2879,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "ok" };
   });
 
-  app.delete("/admin/users/:id/purge", async (req) => {
+  app.delete("/admin/users/:id/purge", async (req, reply) => {
     const { sessionUserId, ipAddress, email: adminEmail } = resolveAdminContext(req, app);
     const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
     const body = z.object({
@@ -2694,7 +2916,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       actorUserId: sessionUserId,
       ipAddress,
     });
-    return { status: "ok" };
+    reply.code(204);
+    return null;
   });
 
   app.get("/admin/invites", async (req) => {
