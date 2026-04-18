@@ -105,6 +105,11 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
+  async statusToastContains(text: string | RegExp): Promise<void> {
+    await expect(this.page.getByTestId("context-status")).toContainText(text);
+  }
+
+  @Step()
   async avatarMenuShowsSettingsAndSignOut(): Promise<void> {
     await expect(this.el.topBar.elements.avatarMenuSettings).toBeVisible();
     await expect(this.el.topBar.elements.avatarMenuSignOut).toBeVisible();

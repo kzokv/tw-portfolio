@@ -36,6 +36,11 @@ export class TransactionsAssert extends BaseAssert {
   }
 
   @Step()
+  async readOnlyMessageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("transactions-readonly")).toBeVisible();
+  }
+
+  @Step()
   async introIsVisible(): Promise<void> {
     await expect(this.el.transactionsIntro).toBeVisible();
   }

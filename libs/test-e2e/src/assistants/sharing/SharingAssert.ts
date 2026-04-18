@@ -100,6 +100,11 @@ export class SharingAssert extends BaseAssert {
   }
 
   @Step()
+  async openDashboardButtonIsVisible(shareId: string): Promise<void> {
+    await expect(this.page.getByTestId(`sharing-open-dashboard-${shareId}`)).toBeVisible();
+  }
+
+  @Step()
   async inboundCardContainsOwnerEmail(email: string): Promise<void> {
     await expect(this.el.inboundSection).toContainText(email);
   }

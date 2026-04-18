@@ -10,4 +10,5 @@ export default createPlaywrightConfig({
   repoRoot,
   webServers: "full",
   authMode: "dev_bypass",
+  workers: 2,
 });

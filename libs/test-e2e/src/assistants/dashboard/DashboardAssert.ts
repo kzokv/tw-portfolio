@@ -77,11 +77,31 @@ export class DashboardAssert extends BaseAssert {
     await expect(this.el.holdingsTable).toContainText(text);
   }
 
+  @Step()
+  async holdingsTableNotContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.holdingsTable).not.toContainText(text);
+  }
+
   // --- Snapshot chart assertions ---
 
   @Step()
   async generateSnapshotsButtonIsVisible(): Promise<void> {
     await expect(this.el.generateSnapshotsButton).toBeVisible();
+  }
+
+  @Step()
+  async recomputeButtonIsVisible(): Promise<void> {
+    await expect(this.el.recomputeButton).toBeVisible();
+  }
+
+  @Step()
+  async recomputeButtonIsHidden(): Promise<void> {
+    await expect(this.el.recomputeButton).toHaveCount(0);
+  }
+
+  @Step()
+  async generateSnapshotsButtonIsHidden(): Promise<void> {
+    await expect(this.el.generateSnapshotsButton).toHaveCount(0);
   }
 
   @Step()

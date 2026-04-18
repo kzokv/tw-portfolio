@@ -8,4 +8,9 @@ export class TransactionsEndpoint extends BaseEndpoint {
       data,
       ...(headers ? { headers } : {}),
     });
+
+  list = (headers?: Record<string, string>): Promise<APIResponse> =>
+    this.request.get(apiUrl("/portfolio/transactions"), {
+      ...(headers ? { headers } : {}),
+    });
 }
