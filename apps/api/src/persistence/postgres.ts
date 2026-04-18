@@ -1163,6 +1163,19 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
+  async validateActiveShare(ownerUserId: string, granteeUserId: string): Promise<boolean> {
+    const result = await this.pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM portfolio_shares
+         WHERE owner_user_id = $1
+           AND grantee_user_id = $2
+           AND revoked_at IS NULL
+       ) AS exists`,
+      [ownerUserId, granteeUserId],
+    );
+    return result.rows[0]?.exists === true;
+  }
+
   async revokePendingShareInvite(
     code: string,
     ownerUserId: string,

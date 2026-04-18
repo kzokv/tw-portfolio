@@ -12,6 +12,7 @@ interface RequestAuthContext {
   sessionVersion: number;
   isDemo: boolean;
   isImpersonating: boolean;
+  isSharedContext: boolean;
   email?: string | null;
 }
 
@@ -25,6 +26,7 @@ declare module "fastify" {
   }
   interface FastifyRequest {
     __sessionType?: "demo" | "oauth";
+    __contextFallback?: boolean;
     authContext?: RequestAuthContext;
   }
 }

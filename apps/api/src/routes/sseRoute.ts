@@ -2,6 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Env } from "@tw-portfolio/config";
 import { routeError } from "../lib/routeError.js";
+import {
+  CONTEXT_FALLBACK_HEADER,
+  contextClearCookieString,
+  shouldStampContextFallback,
+} from "./contextFallback.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_CONNECTIONS_PER_USER = 5;
@@ -27,29 +32,58 @@ function pickCorsHeaders(reply: FastifyReply): Record<string, string> {
 }
 
 /**
- * Resolve user ID for SSE route.
- * Delegates to the shared resolveUserId for standard auth, with an additional
- * tw_e2e_user cookie fallback in dev_bypass mode for E2E test isolation
- * (EventSource cannot send custom headers).
+ * Build the extra writeHead() headers for KZO-146's context-fallback signal.
+ *
+ * app.ts's onSend hook stamps x-context-fallback + a clear-cookie directive
+ * via reply.header(), which Fastify only flushes when reply.send() is called.
+ * SSE routes write directly to reply.raw and never call send(), so the onSend
+ * hook never fires for them. We read the per-request flag (set by
+ * hydrateAuthContext) and build the equivalent headers inline for writeHead().
+ *
+ * The handshake itself uses requireSessionUserId (ignores context), so the
+ * connection opens even when context fallback is flagged. Propagating the
+ * signal here lets the client tear down UI state at handshake time rather
+ * than waiting for the next fetch response.
+ */
+function pickContextFallbackHeaders(
+  req: FastifyRequest,
+  reply: FastifyReply,
+): { headers: Record<string, string>; setCookie: string[] } {
+  if (!shouldStampContextFallback(req)) {
+    return { headers: {}, setCookie: [] };
+  }
+  const existing = reply.getHeader("set-cookie");
+  const cookies: string[] = [];
+  if (Array.isArray(existing)) {
+    cookies.push(...existing.map((value) => String(value)));
+  } else if (existing !== undefined) {
+    cookies.push(String(existing));
+  }
+  cookies.push(contextClearCookieString());
+  return {
+    headers: { [CONTEXT_FALLBACK_HEADER]: "revoked" },
+    setCookie: cookies,
+  };
+}
+
+/**
+ * Resolve user ID for SSE route — always the session-owner user id (identity
+ * surface, never the shared-context viewer target). Adds a `tw_e2e_user`
+ * cookie fallback in dev_bypass mode for E2E test isolation (EventSource
+ * cannot send custom headers).
  */
 function resolveSSEUserId(
   req: FastifyRequest,
-  resolveUserId: (req: FastifyRequest, sessionSecret?: string) => { userId: string; isDemo: boolean },
-  sessionSecret?: string,
+  requireSessionUserId: (req: FastifyRequest) => string,
 ): string {
-  // Try standard resolveUserId first (handles oauth + dev_bypass header)
   try {
-    const { userId } = resolveUserId(req, sessionSecret);
-    // In dev_bypass mode, if we got the default "user-1" back, check for
-    // the tw_e2e_user cookie as a more specific fallback.
-    if (Env.AUTH_MODE !== "oauth" && userId === "user-1") {
+    const sessionUserId = requireSessionUserId(req);
+    if (Env.AUTH_MODE !== "oauth" && sessionUserId === "user-1") {
       const cookieUserId = parseE2ECookie(req);
       if (cookieUserId) return cookieUserId;
     }
-    return userId;
+    return sessionUserId;
   } catch {
-    // In oauth mode, resolveUserId throws 401 if no session.
-    // Re-throw — SSE connections require auth.
     throw routeError(401, "auth_required", "authentication required");
   }
 }
@@ -74,17 +108,20 @@ function parseE2ECookie(req: FastifyRequest): string | null {
 
 export function registerSSERoute(
   app: FastifyInstance,
-  resolveUserId: (req: FastifyRequest, sessionSecret?: string) => { userId: string; isDemo: boolean },
+  requireSessionUserId: (req: FastifyRequest) => string,
 ): void {
   app.get("/events/stream", async (req, reply) => {
     // 1. Resolve user ID
-    const userId = resolveSSEUserId(req, resolveUserId, app.oauthConfig?.sessionSecret);
+    const userId = resolveSSEUserId(req, requireSessionUserId);
 
     // 2. Connection limit check
     const currentCount = connectionCounts.get(userId) ?? 0;
     if (currentCount >= MAX_CONNECTIONS_PER_USER) {
+      const limitFallback = pickContextFallbackHeaders(req, reply);
       reply.raw.writeHead(200, {
         ...pickCorsHeaders(reply),
+        ...limitFallback.headers,
+        ...(limitFallback.setCookie.length > 0 ? { "set-cookie": limitFallback.setCookie } : {}),
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
@@ -113,8 +150,13 @@ export function registerSSERoute(
     //    and related headers set by @fastify/cors in the onRequest hook. Those
     //    headers live in Fastify's internal buffer (reply.header()) and are NOT
     //    flushed to reply.raw until reply.send() — which we intentionally skip for SSE.
+    //    pickContextFallbackHeaders does the same for KZO-146's x-context-fallback
+    //    + clear-cookie response that the onSend hook queues on revoked context.
+    const connectFallback = pickContextFallbackHeaders(req, reply);
     reply.raw.writeHead(200, {
       ...pickCorsHeaders(reply),
+      ...connectFallback.headers,
+      ...(connectFallback.setCookie.length > 0 ? { "set-cookie": connectFallback.setCookie } : {}),
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
@@ -193,7 +235,7 @@ export function registerSSERoute(
       throw routeError(404, "not_found", "not found");
     }
 
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const body = z.object({ type: z.string().min(1), data: z.unknown().optional() }).parse(req.body);
 
     await app.eventBus.publishEvent(userId, body.type, body.data ?? {});

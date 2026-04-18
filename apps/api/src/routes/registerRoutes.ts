@@ -299,6 +299,39 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "DELETE /notifications/:id",
   "PATCH /notifications/:id/escalate",
 ]);
+
+/**
+ * Routes that mutate the portfolio backing store. When the viewer is in a
+ * shared-context session (`isSharedContext=true`) these MUST 403 so the
+ * grantee cannot write through to the owner's portfolio.
+ *
+ * Subset of `WRITER_ROLE_ROUTE_KEYS`. Identity-surface writes
+ * (`PATCH /profile`, notification CUD) are intentionally excluded: they act
+ * on the session user's own record regardless of viewing context.
+ */
+const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
+  "PATCH /settings",
+  "PUT /settings/full",
+  "PUT /settings/fee-config",
+  "PATCH /accounts/:id",
+  "POST /fee-profiles",
+  "PATCH /fee-profiles/:id",
+  "DELETE /fee-profiles/:id",
+  "PUT /fee-profile-bindings",
+  "POST /portfolio/transactions",
+  "DELETE /portfolio/transactions/:tradeEventId",
+  "PATCH /portfolio/transactions/:tradeEventId",
+  "POST /portfolio/dividends/postings",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
+  "POST /corporate-actions",
+  "POST /portfolio/snapshots/generate",
+  "POST /portfolio/recompute/preview",
+  "POST /portfolio/recompute/confirm",
+  "POST /ai/transactions/confirm",
+  "PUT /monitored-tickers",
+  "POST /backfill/retry",
+  "POST /backfill/repair",
+]);
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
   "DELETE /invites/:code",
@@ -322,6 +355,7 @@ type ResolvedRequestIdentity = {
   sessionVersion: number;
   isDemo: boolean;
   isImpersonating: boolean;
+  isSharedContext: boolean;
   email?: string | null;
   userId: string;
 };
@@ -433,6 +467,51 @@ export function isPublicRoute(method: string, routeUrl: string): boolean {
   return PUBLIC_ROUTE_KEYS.has(routeKey(method, routeUrl));
 }
 
+export {
+  CONTEXT_COOKIE_NAME,
+  CONTEXT_FALLBACK_HEADER,
+  CONTEXT_HEADER_NAME,
+  contextClearCookieString,
+  shouldStampContextFallback,
+} from "./contextFallback.js";
+
+import {
+  CONTEXT_HEADER_NAME,
+  contextClearCookieString,
+  markContextFallback,
+} from "./contextFallback.js";
+
+async function resolveContextOverride(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  sessionUserId: string,
+): Promise<{ contextUserId: string; isSharedContext: boolean }> {
+  const raw = req.headers[CONTEXT_HEADER_NAME];
+  if (!raw || Array.isArray(raw)) {
+    return { contextUserId: sessionUserId, isSharedContext: false };
+  }
+
+  const parsed = userScopedIdSchema.safeParse(raw);
+  if (!parsed.success) {
+    markContextFallback(req);
+    return { contextUserId: sessionUserId, isSharedContext: false };
+  }
+
+  const headerUserId = parsed.data;
+  if (headerUserId === sessionUserId) {
+    markContextFallback(req);
+    return { contextUserId: sessionUserId, isSharedContext: false };
+  }
+
+  const active = await app.persistence.validateActiveShare(headerUserId, sessionUserId);
+  if (!active) {
+    markContextFallback(req);
+    return { contextUserId: sessionUserId, isSharedContext: false };
+  }
+
+  return { contextUserId: headerUserId, isSharedContext: true };
+}
+
 function resolveDevBypassFallback(req: FastifyRequest): ResolvedRequestIdentity {
   const rawUserId = req.headers["x-user-id"];
   const rawRole = req.headers["x-user-role"];
@@ -447,6 +526,7 @@ function resolveDevBypassFallback(req: FastifyRequest): ResolvedRequestIdentity 
     sessionVersion: 1,
     isDemo: false,
     isImpersonating: false,
+    isSharedContext: false,
     email: null,
     userId: sessionUserId,
   };
@@ -464,6 +544,22 @@ export function resolveUserId(req: FastifyRequest, _sessionSecret?: string): Res
     return resolveDevBypassFallback(req);
   }
 
+  authRequired();
+}
+
+/**
+ * Return the session-owner user id (never the shared-context viewer target).
+ * Use this for identity/cross-user endpoints (`/profile`, `/notifications/*`,
+ * `/shares`, `/sse`, `/admin/*`, invites, audit-log) that must always act on
+ * the authenticated session — not on whichever portfolio the user is viewing.
+ */
+export function requireSessionUserId(req: FastifyRequest): string {
+  if (req.authContext) {
+    return req.authContext.sessionUserId;
+  }
+  if (Env.AUTH_MODE === "dev_bypass") {
+    return resolveDevBypassFallback(req).sessionUserId;
+  }
   authRequired();
 }
 
@@ -485,13 +581,15 @@ async function resolveCookieBackedAuthContext(
     authRequired();
   }
   req.__sessionType = identity.isDemo ? "demo" : "oauth";
+  const { contextUserId, isSharedContext } = await resolveContextOverride(app, req, authUser.userId);
   req.authContext = {
     sessionUserId: authUser.userId,
-    contextUserId: authUser.userId,
+    contextUserId,
     role: authUser.role,
     sessionVersion: authUser.sessionVersion,
     isDemo: identity.isDemo,
     isImpersonating: false,
+    isSharedContext,
     email: authUser.email,
   };
 }
@@ -518,13 +616,16 @@ export async function hydrateAuthContext(app: FastifyInstance, req: FastifyReque
   const overrideRole = rawRole && !Array.isArray(rawRole) ? userRoleSchema.parse(rawRole) : undefined;
   const authUser = await app.persistence.getAuthUserById(sessionUserId);
 
+  const { contextUserId, isSharedContext } = await resolveContextOverride(app, req, sessionUserId);
+
   req.authContext = {
     sessionUserId,
-    contextUserId: sessionUserId,
+    contextUserId,
     role: authUser && !authUser.deactivatedAt && !authUser.deletedAt ? (overrideRole ?? authUser.role) : (overrideRole ?? "admin"),
     sessionVersion: authUser?.sessionVersion ?? 1,
     isDemo: false,
     isImpersonating: false,
+    isSharedContext,
     email: authUser?.email ?? null,
   };
 }
@@ -547,6 +648,16 @@ export function requireShareGrantorRole(req: FastifyRequest): void {
   }
 }
 
+export function requireWriteableContext(req: FastifyRequest): void {
+  if (req.authContext?.isSharedContext) {
+    throw routeError(
+      403,
+      "write_blocked_viewing_shared",
+      "Writes are disabled while viewing a shared portfolio.",
+    );
+  }
+}
+
 export function enforceRouteRole(req: FastifyRequest): void {
   const routeUrl = req.routeOptions.url;
   if (!routeUrl) return;
@@ -557,6 +668,9 @@ export function enforceRouteRole(req: FastifyRequest): void {
   }
   if (WRITER_ROLE_ROUTE_KEYS.has(key)) {
     requireWriterRole(req);
+  }
+  if (WRITE_CONTEXT_GUARD_ROUTE_KEYS.has(key)) {
+    requireWriteableContext(req);
   }
 }
 
@@ -1047,7 +1161,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/auth/logout", async (req, reply) => {
     const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
-    reply.header("set-cookie", `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`);
+    // Two Set-Cookie headers: the signed session cookie and the unsigned
+    // context-switcher cookie. Both must clear on logout regardless of which
+    // path triggered it (UI click, direct navigation, server-initiated force-logout).
+    reply.header("set-cookie", [
+      `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`,
+      contextClearCookieString(),
+    ]);
     const rawQuery = req.query as Record<string, string | undefined>;
     const returnTo = rawQuery.returnTo && isValidReturnTo(rawQuery.returnTo) ? rawQuery.returnTo : undefined;
     const destination = returnTo ? `${app.appBaseUrl}${returnTo}` : `${app.appBaseUrl}/login`;
@@ -1300,21 +1420,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/profile", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     return app.persistence.getProfile(userId);
   });
 
   app.patch("/profile", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
     return app.persistence.updateProfileEmail(userId, body.email);
   });
 
   app.get("/shares", async (req) => {
-    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const [outbound, inbound] = await Promise.all([
-      app.persistence.listSharesForOwner(contextUserId),
-      app.persistence.listInboundSharesForGrantee(contextUserId),
+      app.persistence.listSharesForOwner(userId),
+      app.persistence.listInboundSharesForGrantee(userId),
     ]);
 
     return {
@@ -1336,12 +1456,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/shares", async (req, reply) => {
     requireShareGrantorRole(req);
-    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
     const body = z.object({
       email: z.string().trim().email().transform((value) => value.toLowerCase()),
     }).parse(req.body);
 
-    const owner = await app.persistence.getAuthUserById(contextUserId);
+    const owner = await app.persistence.getAuthUserById(sessionUserId);
     if (!owner) {
       throw routeError(404, "user_not_found", "User not found");
     }
@@ -1352,7 +1472,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const existingUser = await app.persistence.getAuthUserByEmail(body.email);
     if (existingUser && !existingUser.deletedAt && !existingUser.deactivatedAt) {
       const share = await app.persistence.createShareGrant({
-        ownerUserId: contextUserId,
+        ownerUserId: sessionUserId,
         granteeUserId: existingUser.userId,
         auditInput: {
           actorUserId: sessionUserId,
@@ -1368,7 +1488,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const invite = await app.persistence.createShareCoupledInvite({
-      ownerUserId: contextUserId,
+      ownerUserId: sessionUserId,
       email: body.email,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       issuedByUserId: sessionUserId,
@@ -1396,12 +1516,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete("/shares/pending/:code", async (req, reply) => {
     requireShareGrantorRole(req);
-    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
     const params = z.object({
       code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
     }).parse(req.params);
 
-    await app.persistence.revokePendingShareInvite(params.code, contextUserId, {
+    await app.persistence.revokePendingShareInvite(params.code, sessionUserId, {
       actorUserId: sessionUserId,
       ipAddress: req.ip,
     });
@@ -1412,10 +1532,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete("/shares/:id", async (req, reply) => {
     requireShareGrantorRole(req);
-    const { sessionUserId, contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sessionUserId = requireSessionUserId(req);
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
 
-    const outcome = await app.persistence.revokeShareGrant(params.id, contextUserId, {
+    const outcome = await app.persistence.revokeShareGrant(params.id, sessionUserId, {
       actorUserId: sessionUserId,
       ipAddress: req.ip,
     });
@@ -2739,7 +2859,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // --- Notifications (KZO-132) ---
 
   app.get("/notifications", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const query = z
       .object({
         page: z.coerce.number().int().positive().default(1),
@@ -2751,33 +2871,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/notifications/unread-count", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const count = await app.persistence.getUnreadCount(userId);
     return { count };
   });
 
   app.patch("/notifications/:id/read", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
     await app.persistence.markNotificationRead(userId, id);
     return { status: "ok" };
   });
 
   app.patch("/notifications/read-all", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     await app.persistence.markAllRead(userId);
     return { status: "ok" };
   });
 
   app.delete("/notifications/:id", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
     await app.persistence.dismissNotification(userId, id);
     return { status: "ok" };
   });
 
   app.patch("/notifications/:id/escalate", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = requireSessionUserId(req);
     const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
     await app.persistence.markNotificationEscalated(userId, id);
     return { status: "ok" };
@@ -2947,17 +3067,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  registerSSERoute(app, resolveUserId);
+  registerSSERoute(app, requireSessionUserId);
 }
 
 // ── Admin route helpers (KZO-144) ───────────────────────────────────────────
 
-function resolveAdminContext(req: FastifyRequest, app: FastifyInstance) {
-  const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
+  const sessionUserId = requireSessionUserId(req);
   return {
-    sessionUserId: identity.sessionUserId,
+    sessionUserId,
     ipAddress: req.ip,
-    email: identity.email,
+    email: req.authContext?.email ?? null,
   };
 }
 
