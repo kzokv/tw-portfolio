@@ -1,6 +1,7 @@
 import { WebEnv } from "@tw-portfolio/config/web";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { applyContextForwarding } from "./lib/proxyHeaders";
 import { parseSessionCookie } from "./lib/sessionCookie";
 
 const textEncoder = new TextEncoder();
@@ -51,9 +52,12 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
-  // In dev_bypass mode, skip session enforcement
+  // In dev_bypass mode, skip session enforcement — but still forward the
+  // portfolio-switcher context header so shared-context SSR works in E2E.
   if (WebEnv.NEXT_PUBLIC_AUTH_MODE !== "oauth") {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    applyContextForwarding(requestHeaders, request);
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const pathname = request.nextUrl.pathname;
@@ -89,6 +93,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // Valid session — pass through with x-current-path header for requireSession()
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-current-path", pathname);
+  applyContextForwarding(requestHeaders, request);
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 

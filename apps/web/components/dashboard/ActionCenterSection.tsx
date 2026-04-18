@@ -13,6 +13,8 @@ interface ActionCenterSectionProps {
   isGeneratingSnapshots: boolean;
   onOpenSettings: () => void;
   dict: AppDictionary;
+  readOnly?: boolean;
+  readOnlyMessage?: string;
 }
 
 export function ActionCenterSection({
@@ -25,6 +27,8 @@ export function ActionCenterSection({
   isGeneratingSnapshots,
   onOpenSettings,
   dict,
+  readOnly = false,
+  readOnlyMessage,
 }: ActionCenterSectionProps) {
   const localeLabel = locale === "zh-TW" ? dict.settings.localeOptionTraditionalChinese : dict.settings.localeOptionEnglish;
 
@@ -75,27 +79,38 @@ export function ActionCenterSection({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-3">
-        <Button onClick={() => onRecompute()} disabled={pending} data-testid="recompute-button" className="w-full">
-          {pending ? dict.actions.recomputing : dict.actions.recomputeHistory}
-        </Button>
-        <Button
-          onClick={() => onGenerateSnapshots()}
-          disabled={isGeneratingSnapshots || pending}
-          data-testid="generate-snapshots-button"
-          variant="secondary"
-          className="w-full"
+      {readOnly ? (
+        <div
+          className="mt-6 rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
+          data-testid="dashboard-actions-readonly"
+          role="status"
+          aria-live="polite"
         >
-          {isGeneratingSnapshots ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-              {dict.dashboardHome.generatingSnapshots}
-            </span>
-          ) : (
-            dict.dashboardHome.generateSnapshotsButton
-          )}
-        </Button>
-      </div>
+          {readOnlyMessage ?? dict.switcher.readonlyDescription}
+        </div>
+      ) : (
+        <div className="mt-6 grid gap-3">
+          <Button onClick={() => onRecompute()} disabled={pending} data-testid="recompute-button" className="w-full">
+            {pending ? dict.actions.recomputing : dict.actions.recomputeHistory}
+          </Button>
+          <Button
+            onClick={() => onGenerateSnapshots()}
+            disabled={isGeneratingSnapshots || pending}
+            data-testid="generate-snapshots-button"
+            variant="secondary"
+            className="w-full"
+          >
+            {isGeneratingSnapshots ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+                {dict.dashboardHome.generatingSnapshots}
+              </span>
+            ) : (
+              dict.dashboardHome.generateSnapshotsButton
+            )}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

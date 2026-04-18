@@ -24,7 +24,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       noHistory: "No revoked shares to show yet.",
       emptyInboundTitle: "No portfolios shared with you yet",
       emptyInboundDescription: "Ask a member or admin to share their portfolio with you.",
-      switcherHint: "Open the switcher from the dashboard to move into the shared portfolio context.",
+      switcherHint: "Open the switcher from the top bar to move into the shared portfolio context.",
       table: {
         grantee: "Grantee",
         status: "Status",
@@ -111,7 +111,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       noHistory: "目前還沒有可顯示的已撤銷分享。",
       emptyInboundTitle: "目前還沒有人分享投資組合給你",
       emptyInboundDescription: "請請一位 member 或 admin 將他們的投資組合分享給你。",
-      switcherHint: "前往儀表板後，可從切換器切換到分享給你的投資組合。",
+      switcherHint: "從頂部導覽列打開切換器，即可切換到分享給你的投資組合。",
       table: {
         grantee: "受分享者",
         status: "狀態",

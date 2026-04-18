@@ -15,18 +15,25 @@ export interface UseNotificationsReturn {
   refetch: () => Promise<void>;
 }
 
-export function useNotifications(): UseNotificationsReturn {
+interface UseNotificationsOptions {
+  onSharingNotification?: (notification: NotificationDto) => void;
+}
+
+export function useNotifications(options: UseNotificationsOptions = {}): UseNotificationsReturn {
   const [notifications, setNotifications] = useState<NotificationDto[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const mounted = useRef(true);
+  const latestSharingNotificationIdRef = useRef<string | null>(null);
+  const onSharingNotificationRef = useRef(options.onSharingNotification);
+  onSharingNotificationRef.current = options.onSharingNotification;
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (emitSharingNotification = false) => {
     setIsLoading(true);
     try {
       const [listRes, countRes] = await Promise.all([
@@ -36,6 +43,20 @@ export function useNotifications(): UseNotificationsReturn {
       if (!mounted.current) return;
       setNotifications(listRes.notifications);
       setUnreadCount(countRes.count);
+      const latestSharingNotification =
+        listRes.notifications.find((item) => item.source === "sharing") ?? null;
+      const latestSharingNotificationId = latestSharingNotification?.id ?? null;
+
+      if (
+        emitSharingNotification
+        && latestSharingNotification
+        && latestSharingNotificationId
+        && latestSharingNotificationId !== latestSharingNotificationIdRef.current
+      ) {
+        onSharingNotificationRef.current?.(latestSharingNotification);
+      }
+
+      latestSharingNotificationIdRef.current = latestSharingNotificationId;
     } catch {
       // API may not be available yet — silently ignore
     } finally {
@@ -45,12 +66,14 @@ export function useNotifications(): UseNotificationsReturn {
 
   // Initial fetch
   useEffect(() => {
-    void refetch();
+    void refetch(false);
   }, [refetch]);
 
   // SSE: refetch when notification-producing flows complete.
-  const handleSSEEvent = useCallback(() => {
-    void refetch();
+  const handleSSEEvent = useCallback((eventData: unknown) => {
+    const event = eventData as { type?: string } | null;
+    const emitSharingNotification = event?.type === "sharing_notification";
+    void refetch(emitSharingNotification);
   }, [refetch]);
 
   useEventStream({

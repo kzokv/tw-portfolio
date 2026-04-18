@@ -58,6 +58,13 @@ export const API_BASE = getFetchApiBaseUrl();
 const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
 
+import {
+  CONTEXT_FALLBACK_REVOKED_EVENT,
+  CONTEXT_USER_ID_COOKIE,
+  clearContextCookie,
+  readContextCookie,
+} from "./context";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -76,19 +83,18 @@ export class ApiError extends Error {
  * - OAuth/demo: forward the session cookie so server-side fetches authenticate.
  */
 async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+
   const runtimeDevUserId = await getRuntimeDevUserId();
   if (runtimeDevUserId) {
-    const headers: Record<string, string> = { "x-user-id": runtimeDevUserId };
+    headers["x-user-id"] = runtimeDevUserId;
     const runtimeDevUserRole = await getRuntimeDevUserRole();
     if (runtimeDevUserRole) {
       headers["x-user-role"] = runtimeDevUserRole;
     }
-    return headers;
-  }
-
-  // Server-side: forward the session cookie for OAuth/demo users.
-  // credentials: "include" does NOT auto-forward cookies in Next.js server-side fetch.
-  if (typeof window === "undefined") {
+  } else if (typeof window === "undefined") {
+    // Server-side: forward the session cookie for OAuth/demo users.
+    // credentials: "include" does NOT auto-forward cookies in Next.js server-side fetch.
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { cookies } = require("next/headers") as typeof import("next/headers");
@@ -97,14 +103,51 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
       const cookieStore = await cookies();
       const sessionValue = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
       if (sessionValue) {
-        return { cookie: `${WebEnv.SESSION_COOKIE_NAME}=${sessionValue}` };
+        headers["cookie"] = `${WebEnv.SESSION_COOKIE_NAME}=${sessionValue}`;
       }
     } catch {
       // next/headers or config not available — ignore
     }
   }
 
-  return {};
+  const contextUserId = await getContextUserId();
+  if (contextUserId) headers["x-context-user-id"] = contextUserId;
+
+  return headers;
+}
+
+/**
+ * Reads the `tw_context_user_id` cookie. Client: `document.cookie`. Server:
+ * `next/headers.cookies()`. Mirrors the `getRuntimeDevUserId()` pattern.
+ */
+async function getContextUserId(): Promise<string> {
+  if (typeof document !== "undefined") {
+    return readContextCookie() ?? "";
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { cookies } = require("next/headers") as typeof import("next/headers");
+    const cookieStore = await cookies();
+    const raw = cookieStore.get(CONTEXT_USER_ID_COOKIE)?.value;
+    if (raw?.trim()) return decodeURIComponent(raw.trim());
+  } catch {
+    // next/headers not available outside of RSC render — ignore
+  }
+  return "";
+}
+
+/**
+ * Intercepts the `x-context-fallback: revoked` response header. On match
+ * (browser only): clears the context cookie and dispatches
+ * `tw:context-fallback-revoked` so listeners can reset UI state. Does NOT
+ * throw — the response is valid; teardown is advisory (KZO-146 design slice 8).
+ */
+function handleContextFallback(res: Response): void {
+  if (typeof window === "undefined") return;
+  if (res.headers.get("x-context-fallback") !== "revoked") return;
+  clearContextCookie();
+  window.dispatchEvent(new CustomEvent(CONTEXT_FALLBACK_REVOKED_EVENT));
 }
 
 async function getRuntimeDevUserRole(): Promise<string> {
@@ -185,6 +228,9 @@ async function parseError(res: Response, path: string): Promise<ApiError> {
 
 async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {
   if (res.status === 401 && typeof window !== "undefined") {
+    // Session is terminating — drop any outbound-share context cookie so the
+    // next login starts in the user's own context (KZO-146 design slice 17).
+    clearContextCookie();
     // Demo session expired — redirect to login with message
     if (sessionStorage.getItem("isDemo")) {
       sessionStorage.removeItem("isDemo");
@@ -203,6 +249,7 @@ export async function getJson<T>(path: string): Promise<T> {
     credentials: "include",
     headers: await getAuthHeaders(),
   });
+  handleContextFallback(res);
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
@@ -218,6 +265,7 @@ export async function postJson<T>(path: string, body: unknown, headers?: Record<
     },
     body: JSON.stringify(body),
   });
+  handleContextFallback(res);
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
@@ -229,6 +277,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
+  handleContextFallback(res);
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
@@ -240,6 +289,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
+  handleContextFallback(res);
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   return res.json() as Promise<T>;
 }
@@ -250,6 +300,7 @@ export async function deleteJson<T>(path: string): Promise<T> {
     credentials: "include",
     headers: await getAuthHeaders(),
   });
+  handleContextFallback(res);
   if (!res.ok) return redirectToLogoutOn401<T>(res, path);
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;

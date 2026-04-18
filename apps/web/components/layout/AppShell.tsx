@@ -31,12 +31,23 @@ import { useTransactionMutations } from "../../features/portfolio/hooks/useTrans
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
 import { useProfile } from "../../features/profile/hooks/useProfile";
 import { useNotifications } from "../../hooks/useNotifications";
+import { fetchSharingPageData } from "../../features/sharing/service";
+import type { InboundShareCardItem } from "../../features/sharing/types";
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { ActionCenterSection } from "../dashboard/ActionCenterSection";
 import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
 import { ReturnPercentCard } from "../dashboard/ReturnPercentCard";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
+import { PortfolioSwitcher } from "./PortfolioSwitcher";
+import {
+  CONTEXT_FALLBACK_REVOKED_EVENT,
+  applyDeepLinkAs,
+  clearContextCookie,
+  writeContextCookie,
+} from "../../lib/context";
+import { useSharedContextOwnerId } from "../../hooks/useSharedContextOwnerId";
+import { StatusToast } from "../ui/StatusToast";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 type ViewportMode = "mobile" | "compact" | "wide";
@@ -87,6 +98,10 @@ export function AppShell({
   const [viewportMode, setViewportMode] = useState<ViewportMode>("wide");
   const [desktopNavPreference, setDesktopNavPreference] = useState<boolean | null>(null);
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
+  const [switcherLoaded, setSwitcherLoaded] = useState(false);
+  const [contextMessage, setContextMessage] = useState("");
+  const currentContextOwnerId = useSharedContextOwnerId();
 
   const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
   const performance = useDashboardPerformance({
@@ -97,9 +112,51 @@ export function AppShell({
     limit: 6,
     enabled: section === "transactions",
   });
+  const profileData = useProfile();
 
   const locale: LocaleCode = localeOverride ?? dashboard.settings?.locale ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
+  const currentSharedOwner = useMemo(
+    () =>
+      currentContextOwnerId
+        ? inboundShares.find((item) => item.ownerUserId === currentContextOwnerId) ?? null
+        : null,
+    [currentContextOwnerId, inboundShares],
+  );
+  const isSharedContext = currentSharedOwner !== null;
+  const currentSharedOwnerLabel = currentSharedOwner?.ownerDisplayName
+    || currentSharedOwner?.ownerEmail
+    || dict.switcher.self;
+  // Only override the truly-empty-portfolio copy. Deliberately does NOT fire
+  // for filter-empty states (e.g. search matched 0 holdings), which share the
+  // same dict key but mean something different. Guarding on a zero-length
+  // portfolio keeps the owner-facing copy scoped to the empty-owner case.
+  const hasOwnerEmptyPortfolio = isSharedContext && dashboard.holdings.length === 0;
+  const hasOwnerEmptyRecentTransactions = isSharedContext && recentTransactions.items.length === 0;
+  const uiDict = useMemo(() => {
+    if (!isSharedContext) return dict;
+    return {
+      ...dict,
+      dashboardHome: hasOwnerEmptyPortfolio
+        ? {
+          ...dict.dashboardHome,
+          holdingsEmpty: dict.switcher.sharedHoldingsEmpty.replace("{owner}", currentSharedOwnerLabel),
+        }
+        : dict.dashboardHome,
+      transactions: hasOwnerEmptyRecentTransactions
+        ? {
+          ...dict.transactions,
+          recentLedgerEmpty: dict.switcher.sharedTransactionsEmpty.replace("{owner}", currentSharedOwnerLabel),
+        }
+        : dict.transactions,
+    };
+  }, [
+    currentSharedOwnerLabel,
+    dict,
+    hasOwnerEmptyPortfolio,
+    hasOwnerEmptyRecentTransactions,
+    isSharedContext,
+  ]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -112,6 +169,98 @@ export function AppShell({
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  const refreshSwitcherData = useCallback(async () => {
+    try {
+      const sharingData = await fetchSharingPageData();
+      setInboundShares(sharingData.inbound.active);
+    } catch {
+      setInboundShares([]);
+    } finally {
+      setSwitcherLoaded(true);
+    }
+  }, []);
+
+  const refreshContextDependentData = useCallback(async () => {
+    router.refresh();
+    await Promise.allSettled([
+      dashboard.refresh(),
+      profileData.refresh(),
+      refreshSwitcherData(),
+      section === "dashboard" ? performance.refresh() : Promise.resolve(),
+      section === "transactions" ? recentTransactions.refresh() : Promise.resolve(),
+    ]);
+  }, [
+    dashboard,
+    performance,
+    profileData,
+    recentTransactions,
+    refreshSwitcherData,
+    router,
+    section,
+  ]);
+
+  useEffect(() => {
+    void refreshSwitcherData();
+  }, [refreshSwitcherData]);
+
+  useEffect(() => {
+    if (!switcherLoaded || !currentContextOwnerId) return;
+    const stillActive = inboundShares.some((item) => item.ownerUserId === currentContextOwnerId);
+    if (stillActive) return;
+    // clearContextCookie() internally dispatches CONTEXT_CHANGED_EVENT, which
+    // drives useSharedContextOwnerId → setOwnerUserId(null). This effect
+    // relies on that internal dispatch to sync the switcher UI. Removing that
+    // dispatch would silently break this fallback path.
+    clearContextCookie();
+    setContextMessage(dict.switcher.revokedFallback);
+    void refreshContextDependentData();
+  }, [
+    currentContextOwnerId,
+    dict.switcher.revokedFallback,
+    inboundShares,
+    refreshContextDependentData,
+    switcherLoaded,
+  ]);
+
+  useEffect(() => {
+    if (!switcherLoaded) return;
+    const asOwnerId = searchParams.get("as");
+    if (!asOwnerId) return;
+
+    const ownerIds = inboundShares
+      .map((item) => item.ownerUserId)
+      .filter((value): value is string => Boolean(value));
+    const appliedOwnerId = applyDeepLinkAs(searchParams, ownerIds);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("as");
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    window.history.replaceState({}, "", nextUrl);
+
+    if (appliedOwnerId) {
+      setContextMessage("");
+      void refreshContextDependentData();
+    }
+  }, [
+    inboundShares,
+    pathname,
+    refreshContextDependentData,
+    searchParams,
+    switcherLoaded,
+  ]);
+
+  useEffect(() => {
+    function handleFallbackRevoked(): void {
+      setContextMessage(dict.switcher.revokedFallback);
+      void refreshContextDependentData();
+    }
+
+    window.addEventListener(CONTEXT_FALLBACK_REVOKED_EVENT, handleFallbackRevoked);
+    return () => {
+      window.removeEventListener(CONTEXT_FALLBACK_REVOKED_EVENT, handleFallbackRevoked);
+    };
+  }, [dict.switcher.revokedFallback, refreshContextDependentData]);
 
   useEffect(() => {
     function resolveViewportMode(width: number): ViewportMode {
@@ -219,8 +368,34 @@ export function AppShell({
     onSnapshotsGenerated: handleSnapshotsGenerated,
   });
 
-  const profileData = useProfile();
-  const notificationData = useNotifications();
+  const handleSharingNotification = useCallback(
+    (notification: { title: string; detail: unknown }) => {
+      void refreshSwitcherData();
+
+      const detail = notification.detail as {
+        ownerUserId?: string;
+        ownerDisplayName?: string | null;
+        ownerEmail?: string | null;
+      } | null;
+      const ownerUserId = typeof detail?.ownerUserId === "string" ? detail.ownerUserId : null;
+      const ownerLabel = detail?.ownerDisplayName || detail?.ownerEmail || dict.switcher.self;
+
+      if (notification.title === "Portfolio access revoked" && ownerUserId && ownerUserId === currentContextOwnerId) {
+        clearContextCookie();
+        setContextMessage(
+          dict.switcher.revokedFallbackOwner.replace("{owner}", ownerLabel),
+        );
+        void refreshContextDependentData();
+      }
+    },
+    [
+      currentContextOwnerId,
+      dict.switcher,
+      refreshContextDependentData,
+      refreshSwitcherData,
+    ],
+  );
+  const notificationData = useNotifications({ onSharingNotification: handleSharingNotification });
   const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
 
   const settingsSave = useSettingsSave({
@@ -313,23 +488,36 @@ export function AppShell({
   );
 
   const derivedShellTitle = section === "dashboard"
-    ? dict.navigation.dashboardLabel
+    ? uiDict.navigation.dashboardLabel
     : section === "portfolio"
-      ? dict.navigation.portfolioLabel
+      ? uiDict.navigation.portfolioLabel
       : section === "transactions"
-        ? dict.navigation.transactionsLabel
+        ? uiDict.navigation.transactionsLabel
         : section === "cash-ledger"
-          ? dict.navigation.cashLedgerLabel
-          : dict.navigation.dividendsLabel;
+          ? uiDict.navigation.cashLedgerLabel
+          : uiDict.navigation.dividendsLabel;
   const derivedShellDescription = section === "dashboard"
-    ? dict.navigation.dashboardDescription
+    ? uiDict.navigation.dashboardDescription
     : section === "portfolio"
-      ? dict.navigation.portfolioDescription
+      ? uiDict.navigation.portfolioDescription
       : section === "transactions"
-        ? dict.navigation.transactionsDescription
+        ? uiDict.navigation.transactionsDescription
         : section === "cash-ledger"
-          ? dict.navigation.cashLedgerDescription
-          : dict.navigation.dividendsDescription;
+          ? uiDict.navigation.cashLedgerDescription
+          : uiDict.navigation.dividendsDescription;
+
+  const handleContextSelect = useCallback((ownerUserId: string | null) => {
+    setContextMessage("");
+    if (ownerUserId) {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      writeContextCookie(ownerUserId);
+    } else {
+      clearContextCookie();
+    }
+    void refreshContextDependentData();
+  }, [refreshContextDependentData]);
 
   function toggleDesktopNavigation() {
     if (viewportMode === "mobile") return;
@@ -360,24 +548,24 @@ export function AppShell({
         onToggleDesktopNavigation={toggleDesktopNavigation}
         navigationOpen={mobileNavOpen}
         desktopNavigationCollapsed={desktopNavigationCollapsed}
-        productName={dict.topBar.productName}
+        productName={uiDict.topBar.productName}
         title={titleOverride ?? derivedShellTitle}
         titleTooltip={descriptionOverride ?? derivedShellDescription}
-        openSettingsLabel={dict.topBar.openSettingsLabel}
-        sharingLabel={dict.topBar.sharingLabel}
+        openSettingsLabel={uiDict.topBar.openSettingsLabel}
+        sharingLabel={uiDict.topBar.sharingLabel}
         signOutLabel="Sign out"
         signOutHref={`${API_PUBLIC}/auth/logout`}
-        searchPlaceholder={dict.topBar.searchPlaceholder}
-        searchLabel={dict.topBar.searchLabel}
-        searchEmptyLabel={dict.topBar.searchEmptyLabel}
-        searchRoutesLabel={dict.topBar.searchRoutesLabel}
-        searchTickersLabel={dict.topBar.searchTickersLabel}
-        openSearchLabel={dict.topBar.openSearchLabel}
-        closeSearchLabel={dict.topBar.closeSearchLabel}
-        openNavigationLabel={dict.topBar.openNavigationLabel}
-        closeNavigationLabel={dict.topBar.closeNavigationLabel}
-        expandSidebarLabel={dict.topBar.expandSidebarLabel}
-        collapseSidebarLabel={dict.topBar.collapseSidebarLabel}
+        searchPlaceholder={uiDict.topBar.searchPlaceholder}
+        searchLabel={uiDict.topBar.searchLabel}
+        searchEmptyLabel={uiDict.topBar.searchEmptyLabel}
+        searchRoutesLabel={uiDict.topBar.searchRoutesLabel}
+        searchTickersLabel={uiDict.topBar.searchTickersLabel}
+        openSearchLabel={uiDict.topBar.openSearchLabel}
+        closeSearchLabel={uiDict.topBar.closeSearchLabel}
+        openNavigationLabel={uiDict.topBar.openNavigationLabel}
+        closeNavigationLabel={uiDict.topBar.closeNavigationLabel}
+        expandSidebarLabel={uiDict.topBar.expandSidebarLabel}
+        collapseSidebarLabel={uiDict.topBar.collapseSidebarLabel}
         searchItems={quickSearchItems}
         unreadCount={notificationData.unreadCount}
         notifications={notificationData.notifications}
@@ -387,7 +575,15 @@ export function AppShell({
         onNotificationMarkAllRead={() => { void notificationData.markAllRead(); }}
         onNotificationDismiss={(id) => { void notificationData.dismiss(id); }}
         onNotificationDropdownClose={() => setNotificationDropdownOpen(false)}
-        notificationDict={dict}
+        notificationDict={uiDict}
+        portfolioSwitcher={
+          <PortfolioSwitcher
+            inboundActive={inboundShares}
+            currentContextOwnerId={currentContextOwnerId}
+            onSelect={handleContextSelect}
+            dict={uiDict.switcher}
+          />
+        }
       />
 
       <div
@@ -432,6 +628,7 @@ export function AppShell({
           </div>
 
           <main className="min-w-0" data-testid="shell-main">
+            <StatusToast message={contextMessage} variant="success" testId="context-status" />
             {globalError ? (
               <div
                 className="mb-5 rounded-[22px] border border-[rgba(251,113,133,0.28)] bg-[rgba(254,226,226,0.9)] px-4 py-3 text-sm text-rose-700 shadow-[0_18px_36px_rgba(251,113,133,0.12)]"
@@ -527,7 +724,7 @@ export function AppShell({
               children ?? renderSection({
                 section,
                 dashboard,
-                dict,
+                dict: uiDict,
                 locale,
                 performance,
                 performanceRange,
@@ -539,6 +736,7 @@ export function AppShell({
                 recomputingSymbols: mutations.recomputingSymbols,
                 generateSnapshots,
                 isGeneratingSnapshots,
+                isSharedContext,
               })
             )}
           </main>
@@ -550,7 +748,7 @@ export function AppShell({
         open={dashboard.showIntegrityDialog}
         onOpenChange={dashboard.setShowIntegrityDialog}
         onOpenSettings={() => setDrawerOpen(true)}
-        dict={dict}
+        dict={uiDict}
       />
 
       <SettingsDrawer
@@ -565,7 +763,7 @@ export function AppShell({
         isSaving={settingsSave.isSaving}
         errorMessage={settingsSave.errorMessage}
         onSave={settingsSave.save}
-        dict={dict}
+        dict={uiDict}
       />
     </div>
   );
@@ -586,6 +784,7 @@ function renderSection({
   recomputingSymbols,
   generateSnapshots,
   isGeneratingSnapshots,
+  isSharedContext,
 }: {
   section: AppSection;
   dashboard: ReturnType<typeof useDashboardData>;
@@ -601,6 +800,7 @@ function renderSection({
   recomputingSymbols: Set<string>;
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
+  isSharedContext: boolean;
 }) {
   const largestHolding = dashboard.holdings[0] ?? null;
   const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -686,17 +886,26 @@ function renderSection({
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
           <div className="min-w-0">
-            <AddTransactionCard
-              value={transactionSubmission.draftTransaction}
-              accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
-              pending={transactionSubmission.isSubmitting}
-              onChange={(next) => {
-                transactionSubmission.setMessage("");
-                transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
-              }}
-              onSubmit={transactionSubmission.submit}
-              dict={dict}
-            />
+            {isSharedContext ? (
+              <Card
+                className="border border-rose-200 bg-rose-50/90 text-rose-700"
+                data-testid="transactions-readonly"
+              >
+                <p role="status" aria-live="polite">{dict.switcher.readonlyDescription}</p>
+              </Card>
+            ) : (
+              <AddTransactionCard
+                value={transactionSubmission.draftTransaction}
+                accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
+                pending={transactionSubmission.isSubmitting}
+                onChange={(next) => {
+                  transactionSubmission.setMessage("");
+                  transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
+                }}
+                onSubmit={transactionSubmission.submit}
+                dict={dict}
+              />
+            )}
           </div>
 
           <div className="grid min-w-0 gap-6">
@@ -851,6 +1060,8 @@ function renderSection({
           isGeneratingSnapshots={isGeneratingSnapshots}
           onOpenSettings={() => setDrawerOpen(true)}
           dict={dict}
+          readOnly={isSharedContext}
+          readOnlyMessage={dict.switcher.readonlyDescription}
         />
       </div>
 

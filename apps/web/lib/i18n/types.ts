@@ -30,6 +30,19 @@ export interface AppDictionary {
     cashLedgerLabel: string;
     cashLedgerDescription: string;
   };
+  switcher: {
+    triggerLabel: string;
+    self: string;
+    readonlyBadge: string;
+    eyebrow: string;
+    manageSharing: string;
+    ownerOptionLabel: string;
+    readonlyDescription: string;
+    revokedFallback: string;
+    revokedFallbackOwner: string;
+    sharedHoldingsEmpty: string;
+    sharedTransactionsEmpty: string;
+  };
   sharing: {
     pageTitle: string;
     pageDescription: string;

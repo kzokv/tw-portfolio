@@ -22,6 +22,7 @@ import { useEventStream } from "../../../hooks/useEventStream";
 import { RepairModal, type RepairModalValue } from "../../../features/settings/components/RepairModal";
 import { requestRepair } from "../../../features/settings/services/repairService";
 import { getCooldownRemainingMinutes } from "../../../features/settings/utils/cooldown";
+import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -73,6 +74,8 @@ export function TickerHistoryClient({
     includeBars: true,
     includeDividends: true,
   });
+  const sharedContextOwnerId = useSharedContextOwnerId();
+  const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
 
   useEffect(() => {
@@ -239,12 +242,25 @@ export function TickerHistoryClient({
               <Wrench className="h-4 w-4" />
               {dict.tickerHistory.repairAction}
             </Button>
-            <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              {dict.tickerHistory.recordTransaction}
-            </Button>
+            {!isSharedContext ? (
+              <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                {dict.tickerHistory.recordTransaction}
+              </Button>
+            ) : null}
           </div>
         </div>
+
+        {isSharedContext ? (
+          <div
+            className="mt-6 rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
+            data-testid="ticker-history-readonly"
+            role="status"
+            aria-live="polite"
+          >
+            {dict.switcher.readonlyDescription}
+          </div>
+        ) : null}
 
         <div ref={statsRef} className="mt-6">
           {statsBar}
@@ -285,11 +301,11 @@ export function TickerHistoryClient({
           transactions={transactions}
           dict={dict}
           locale={locale}
-          onDeleteRequest={mutations.startDelete}
-          editingId={mutations.editingId}
-          onEditStart={mutations.startEdit}
-          onEditCancel={mutations.cancelEdit}
-          onEditSave={mutations.submitEdit}
+          onDeleteRequest={isSharedContext ? undefined : mutations.startDelete}
+          editingId={isSharedContext ? null : mutations.editingId}
+          onEditStart={isSharedContext ? undefined : mutations.startEdit}
+          onEditCancel={isSharedContext ? undefined : mutations.cancelEdit}
+          onEditSave={isSharedContext ? undefined : mutations.submitEdit}
           recomputingIds={mutations.recomputingIds}
         />
       </div>
