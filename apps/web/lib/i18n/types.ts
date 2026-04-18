@@ -4,6 +4,7 @@ export interface AppDictionary {
     title: string;
     titleTooltip: string;
     openSettingsLabel: string;
+    sharingLabel: string;
     searchPlaceholder: string;
     searchLabel: string;
     searchEmptyLabel: string;
@@ -28,6 +29,91 @@ export interface AppDictionary {
     dividendsDescription: string;
     cashLedgerLabel: string;
     cashLedgerDescription: string;
+  };
+  sharing: {
+    pageTitle: string;
+    pageDescription: string;
+    pageEyebrow: string;
+    pageIntro: string;
+    grantButton: string;
+    refreshButton: string;
+    loading: string;
+    loadError: string;
+    emptyManageStateTitle: string;
+    emptyManageStateDescription: string;
+    inboundOnlyViewer: string;
+    inboundOnlyDemo: string;
+    sharedByYouTitle: string;
+    sharedByYouDescription: string;
+    inboundTitle: string;
+    inboundDescription: string;
+    showHistory: string;
+    historyDescription: string;
+    noHistory: string;
+    emptyInboundTitle: string;
+    emptyInboundDescription: string;
+    switcherHint: string;
+    table: {
+      grantee: string;
+      status: string;
+      created: string;
+      expires: string;
+      actions: string;
+    };
+    status: {
+      active: string;
+      pending: string;
+      expired: string;
+      revoked: string;
+    };
+    row: {
+      notRegistered: string;
+      grantedOn: string;
+      inviteExpires: string;
+      revokedOn: string;
+    };
+    grantDialog: {
+      title: string;
+      description: string;
+      emailLabel: string;
+      emailPlaceholder: string;
+      continueLabel: string;
+      confirmTitle: string;
+      confirmDescription: string;
+      confirmAction: string;
+      successTitle: string;
+      successDescription: string;
+      urlLabel: string;
+      copyLabel: string;
+      copiedLabel: string;
+      doneLabel: string;
+      submitLabel: string;
+      submittingLabel: string;
+      resolvedSuccess: string;
+      pendingSuccess: string;
+    };
+    revokeDialog: {
+      activeTitle: string;
+      activeDescription: string;
+      pendingTitle: string;
+      pendingDescription: string;
+      confirmLabel: string;
+    };
+    actions: {
+      copyUrl: string;
+      revoke: string;
+      reshare: string;
+      openSwitcher: string;
+      retry: string;
+    };
+    errors: {
+      generic: string;
+      forbidden: string;
+      selfShare: string;
+      rateLimited: string;
+      invalidEmail: string;
+      copyFailed: string;
+    };
   };
   hero: {
     eyebrow: string;

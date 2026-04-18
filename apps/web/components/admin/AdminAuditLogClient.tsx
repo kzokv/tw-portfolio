@@ -19,6 +19,8 @@ const ACTION_LABELS: Record<string, string> = {
   admin_hard_purge_user: "Purged user",
   admin_invite_issued: "Issued invite",
   admin_invite_revoked: "Revoked invite",
+  share_granted: "Granted share",
+  share_revoked: "Revoked share",
   session_force_logout: "Force logout",
   user_promoted_to_admin: "Promoted to admin",
   user_linked_identity: "Linked identity",
@@ -39,6 +41,10 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
     actions: ["admin_invite_issued", "admin_invite_revoked"],
   },
   {
+    label: "Sharing",
+    actions: ["share_granted", "share_revoked"],
+  },
+  {
     label: "Session",
     actions: ["session_force_logout", "user_login", "user_linked_identity"],
   },
@@ -53,6 +59,12 @@ function formatMetadata(metadata: Record<string, unknown>): string {
   const parts: string[] = [];
   if (metadata.fromRole && metadata.toRole) {
     parts.push(`${String(metadata.fromRole)} → ${String(metadata.toRole)}`);
+  }
+  if (metadata.ownerEmail && metadata.granteeEmail) {
+    parts.push(`${String(metadata.ownerEmail)} → ${String(metadata.granteeEmail)}`);
+  }
+  if (metadata.shareCoupled && metadata.shareOwnerEmail && metadata.targetEmail) {
+    parts.push(`${String(metadata.shareOwnerEmail)} → ${String(metadata.targetEmail)}`);
   }
   if (metadata.inviteCode) {
     parts.push(`code: ${String(metadata.inviteCode)}`);

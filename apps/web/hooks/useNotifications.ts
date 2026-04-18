@@ -48,13 +48,13 @@ export function useNotifications(): UseNotificationsReturn {
     void refetch();
   }, [refetch]);
 
-  // SSE: listen for daily_refresh_summary → trigger refetch (pre-connect pattern)
+  // SSE: refetch when notification-producing flows complete.
   const handleSSEEvent = useCallback(() => {
     void refetch();
   }, [refetch]);
 
   useEventStream({
-    eventTypes: ["daily_refresh_summary", "repair_complete", "repair_failed"],
+    eventTypes: ["daily_refresh_summary", "repair_complete", "repair_failed", "sharing_notification"],
     onEvent: handleSSEEvent,
     enabled: true,
   });

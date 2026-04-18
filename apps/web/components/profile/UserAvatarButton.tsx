@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Settings, LogOut, Shield, UserCircle2 } from "lucide-react";
+import { Settings, LogOut, Share2, Shield, UserCircle2 } from "lucide-react";
 import { Button } from "../ui/Button";
 
 const AVATAR_COLORS = [
@@ -43,8 +43,10 @@ interface UserAvatarButtonProps {
   pictureUrl?: string | null;
   email?: string | null;
   role?: string;
+  isDemo?: boolean;
   onOpenSettings: () => void;
   openSettingsLabel: string;
+  sharingLabel: string;
   signOutLabel: string;
   signOutHref: string;
 }
@@ -55,8 +57,10 @@ export function UserAvatarButton({
   pictureUrl,
   email,
   role,
+  isDemo = false,
   onOpenSettings,
   openSettingsLabel,
+  sharingLabel,
   signOutLabel,
   signOutHref,
 }: UserAvatarButtonProps) {
@@ -132,6 +136,19 @@ export function UserAvatarButton({
               >
                 <Shield className="h-4 w-4 text-slate-400" />
                 Admin
+              </a>
+            </DropdownMenu.Item>
+          )}
+
+          {!isDemo && (
+            <DropdownMenu.Item asChild>
+              <a
+                href="/sharing"
+                className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-700 outline-none transition hover:bg-slate-100 focus:bg-slate-100 data-[highlighted]:bg-slate-100"
+                data-testid="avatar-menu-sharing"
+              >
+                <Share2 className="h-4 w-4 text-slate-400" />
+                {sharingLabel}
               </a>
             </DropdownMenu.Item>
           )}
