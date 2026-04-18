@@ -190,7 +190,27 @@ flowchart TD
   O -->|No| Q[Handler executes]
 ```
 
-**Return shape:** `resolveUserId` returns `{ sessionUserId, contextUserId, role, isDemo, isImpersonating }`. In the current version, `contextUserId` always equals `sessionUserId` (sharing/impersonation added in KZO-146/148).
+**Return shape:** `resolveUserId` returns `{ sessionUserId, contextUserId, role, isDemo, isImpersonating }`.
+
+Context semantics:
+- default: `contextUserId === sessionUserId`
+- shared portfolio context (KZO-146): `contextUserId` may resolve to an owner selected through `tw_context_user_id` / `x-context-user-id`
+- admin impersonation (KZO-148): `sessionUserId` remains the admin while `contextUserId` may point at the impersonated user
+
+### Shared portfolio context transport
+
+KZO-146 adds a narrow, portfolio-read-only context channel:
+
+1. The web client writes `tw_context_user_id={ownerUserId}` when a grantee selects an owner in the TopBar switcher.
+2. `apps/web/lib/api.ts` forwards that cookie as `x-context-user-id` on server and client API calls.
+3. API auth resolution checks whether the session user still has an active inbound share from that owner.
+4. If valid, portfolio read endpoints run with `contextUserId = ownerUserId` while keeping `sessionUserId`, `role`, and admin permissions tied to the signed-in user.
+5. If invalid or revoked, the API falls back to `contextUserId = sessionUserId`, emits `x-context-fallback: revoked`, and clears the cookie.
+
+Narrow taxonomy:
+- portfolio read surfaces may honor `contextUserId`
+- write routes ignore shared context and reject with `write_blocked_viewing_shared`
+- identity/admin routes (`/profile`, `/notifications`, `/shares`, `/admin/*`) remain session-scoped
 
 The `preHandler` hook runs `hydrateAuthContext` (one DB hit per request to fetch `role` and `session_version`) then `enforceRouteRole` (checks admin-only and writer-only route sets). In `dev_bypass` mode, `x-user-role` header overrides the resolved role per-request without mutating the DB.
 
