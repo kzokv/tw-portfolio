@@ -8,7 +8,9 @@
 - ~~feedback_sse_app_inject_limitation.md~~ — **PROMOTED** to `.claude/rules/sse-app-inject-pattern.md`
 - ~~project_preexisting_bypass_failures.md~~ — **REMOVED** (stale — tests now pass, identity-resolution moved to specs-oauth/)
 - [feedback_radix_useLayoutEffect_jsdom.md](feedback_radix_useLayoutEffect_jsdom.md) — useLayoutEffect SSR warnings in web unit tests are cosmetic Radix UI + jsdom noise
-- [project_e2e_aaa.md](project_e2e_aaa.md) — Phase 5e HTTP AAA migration specifics — fixture roles, mixed Vitest splitting, dual-pair validation
+- [project_e2e_aaa.md](project_e2e_aaa.md) — Durable AAA conventions — fixture roles, declarative spec shape, Vitest split criteria
+- [feedback_playwright_request_cookie_jar_leak.md](feedback_playwright_request_cookie_jar_leak.md) — Playwright `request` shares cookie jar with page; seed helpers must use isolated `apiRequest.newContext()` to avoid session-cookie override of x-user-id
+- [feedback_e2e_testuser_not_user1.md](feedback_e2e_testuser_not_user1.md) — Default E2E test user is `e2eUserId` not `user-1`; admin seeds must pass `testUser.userId` when the UI observes seeded state
 
 ## Auth / session
 - ~~project_session_cookie_architecture.md~~ — **PROMOTED** to `.claude/rules/session-cookie-host-prefix.md`
@@ -35,20 +37,20 @@
 
 ## Migration process knowledge
 - ~~feedback_aaa_migration_methodology.md~~ — **PROMOTED** to `.claude/rules/test-migration-methodology.md`
-- ~~feedback_code_review_as_formal_phase.md~~ — **PROMOTED** to `.claude/rules/code-review-before-pr.md`
+- ~~feedback_code_review_as_formal_phase.md~~ — **PROMOTED** to `.claude/rules/code-review-before-pr.md` (file removed 2026-04-18)
 - ~~feedback_test_framework_is_architecture.md~~ — **PROMOTED** to `.claude/rules/test-framework-scope-estimation.md`
-- ~~feedback_structured_debate_resolves_forks.md~~ — **PROMOTED** to `.claude/rules/debate-for-architectural-forks.md`
+- ~~feedback_structured_debate_resolves_forks.md~~ — **PROMOTED** to `.claude/rules/debate-for-architectural-forks.md` (file removed 2026-04-18)
 
 ## Agent team workflow
 - ~~feedback_agent_team_workflow.md~~ — **PROMOTED** to `.claude/rules/agent-team-workflow.md`
-- ~~feedback_e2e_seed_guard_selection.md~~ — **PROMOTED** to `.claude/rules/e2e-seed-vs-reset-guards.md`
-- ~~feedback_test_api_mapper_registration.md~~ — **PROMOTED** to `.claude/rules/test-api-mapper-registration.md`
+- ~~feedback_e2e_seed_guard_selection.md~~ — **PROMOTED** to `.claude/rules/e2e-seed-vs-reset-guards.md` (file removed 2026-04-18)
+- ~~feedback_test_api_mapper_registration.md~~ — **PROMOTED** to `.claude/rules/test-api-mapper-registration.md` (file removed 2026-04-18)
 - ~~feedback_fixer_verification_loop.md~~ — **PROMOTED** to `.claude/rules/fixer-red-green-verification.md`
 - ~~feedback_qa_test_infra_check.md~~ — **PROMOTED** to `.claude/rules/qa-test-infra-check.md`
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
 ## Market data platform
-- [project_market_data_progress.md](project_market_data_progress.md) — KZO-83 complete (pending merge), KZO-130 next; backup/restore gap identified
+- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-18; KZO-141 epic mid-flight (143/144 merged, 145 in active worktree, 146–148 scoped); backup/restore gap still open
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
