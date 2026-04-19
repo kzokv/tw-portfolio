@@ -12,6 +12,12 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
 - `/portfolio` — Portfolio page
 - `/transactions` — Transactions page
 - `/symbols/[symbol]` — Symbol detail page
+- `/sharing` — Outbound share grants UI (KZO-145)
+- `/admin/` — Admin portal (role=admin only, gated in `layout.tsx`)
+  - `/admin/users` — User management (KZO-144)
+  - `/admin/invites` — Invite management (KZO-144)
+  - `/admin/audit-log` — Audit log viewer (KZO-144)
+  - `/admin/settings` — App config settings (KZO-142)
 - `layout.tsx` — Root layout
 
 ## Feature Modules (`apps/web/features/`)
@@ -47,6 +53,11 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
 - `portfolio/` — HoldingsTable, TransactionHistoryTable, etc.
 - `profile/` — `UserAvatarButton` (renders Google picture or display-name initials; identity header in dropdown)
 - `settings/` — Settings drawer (Profile tab renders outside form; General/Fees tabs use existing form flow)
+- `admin/` — Admin portal components:
+  - `AdminShell.tsx` — layout shell with `ADMIN_TITLES` map (must add entry for every new admin subpage)
+  - `AdminSidebar.tsx` — nav items (`adminNavItems`); add entry for every new admin subpage
+  - `AdminAuditLogClient.tsx` — audit log viewer with `ACTION_LABELS` + `ACTION_CATEGORIES`
+  - `AdminSettingsClient.tsx` — app config settings (KZO-142); toggle + number input for `repairCooldownMinutes`
 
 ## Patterns
 - API calls live in `features/*/services/` (not in components)
