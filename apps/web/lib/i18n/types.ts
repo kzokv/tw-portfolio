@@ -127,6 +127,85 @@ export interface AppDictionary {
       invalidEmail: string;
       copyFailed: string;
     };
+    publicLinks: {
+      eyebrow: string;
+      title: string;
+      descriptionWithCount: string;
+      descriptionAtCap: string;
+      createButton: string;
+      emptyState: string;
+      retentionNote: string;
+      auditLogLink: string;
+      capBannerTitle: string;
+      capBannerBody: string;
+      justCreatedBadge: string;
+      copyUrlButton: string;
+      copyUrlCopiedButton: string;
+      revokeButton: string;
+      table: {
+        link: string;
+        created: string;
+        expires: string;
+        status: string;
+        actions: string;
+      };
+      status: {
+        active: string;
+        expired: string;
+        revoked: string;
+      };
+      createDialog: {
+        title: string;
+        description: string;
+        expiryLabel: string;
+        option7Days: string;
+        option30Days: string;
+        option90Days: string;
+        optionCustom: string;
+        defaultBadge: string;
+        customInputPlaceholder: string;
+        customInputSuffix: string;
+        customInvalid: string;
+        cancelLabel: string;
+        submitLabel: string;
+        submittingLabel: string;
+      };
+      revokeDialog: {
+        title: string;
+        description: string;
+        cancelLabel: string;
+        confirmLabel: string;
+      };
+      publicView: {
+        eyebrow: string;
+        sharedBy: string;
+        ownerFallback: string;
+        readOnlyLabel: string;
+        expiresPrefix: string;
+        quotePrefix: string;
+        totalValueLabel: string;
+        returnLabel: string;
+        holdingsTitle: string;
+        holdingsSubtitle: string;
+        holdingsEmpty: string;
+        colTicker: string;
+        colShares: string;
+        colMarketValue: string;
+        colAllocation: string;
+        footerDisclosure: string;
+        notFoundTitle: string;
+        notFoundDescription: string;
+      };
+      errors: {
+        capExceeded: string;
+        forbidden: string;
+        writeBlocked: string;
+        rateLimited: string;
+        validation: string;
+        copyFailed: string;
+        generic: string;
+      };
+    };
   };
   hero: {
     eyebrow: string;

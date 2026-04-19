@@ -16,6 +16,7 @@ import { Card } from "../ui/Card";
 import { GrantShareDialog } from "./GrantShareDialog";
 import { InboundSharesCards } from "./InboundSharesCards";
 import { OutboundSharesTable } from "./OutboundSharesTable";
+import { PublicLinksSection } from "./PublicLinksSection";
 import { ShareRevokeDialog } from "./ShareRevokeDialog";
 
 interface SharingClientProps {
@@ -225,6 +226,8 @@ export function SharingClient({ locale, isDemo, role }: SharingClientProps) {
           ) : null}
 
           <InboundSharesCards locale={locale} inbound={data.inbound} />
+
+          {!isDemo ? <PublicLinksSection locale={locale} /> : null}
         </>
       )}
 
