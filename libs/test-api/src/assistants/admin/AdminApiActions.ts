@@ -25,4 +25,27 @@ export class AdminApiActions extends ApiBaseActions {
   async listAuditLogForCookie(cookie: string, query?: TAdminAuditLogQuery): Promise<APIResponse> {
     return this._instance.listAuditLog(query, headersForCookie(cookie));
   }
+
+  @Step()
+  async getAdminSettings(): Promise<APIResponse> {
+    return this._instance.getAdminSettings(this.authHeaders);
+  }
+
+  @Step()
+  async getAdminSettingsForCookie(cookie: string): Promise<APIResponse> {
+    return this._instance.getAdminSettings(headersForCookie(cookie));
+  }
+
+  @Step()
+  async patchAdminSettings(body: { repairCooldownMinutes: number | null }): Promise<APIResponse> {
+    return this._instance.patchAdminSettings(body, this.authHeaders);
+  }
+
+  @Step()
+  async patchAdminSettingsForCookie(
+    cookie: string,
+    body: { repairCooldownMinutes: number | null },
+  ): Promise<APIResponse> {
+    return this._instance.patchAdminSettings(body, headersForCookie(cookie));
+  }
 }

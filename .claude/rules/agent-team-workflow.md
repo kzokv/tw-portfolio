@@ -37,3 +37,9 @@ The Validator runs **only** after the Architect sends an explicit `[GO]` signal,
 `.worklog/team/state.json` is the single source of truth for loop control and phase tracking. Agents read and write this file; Claude uses it to drive scheduling. Do not treat agent-chat transcripts as state.
 
 **How to apply:** Use the `/team` skill, which handles tier recommendation, agent spawning, state tracking, and tier scaling. When orchestrating multi-agent work manually, honor the validator `[GO]` gate and the convergence-loop bounds even without the skill wrapper.
+
+## Verification gates are contracts (incident-learned — KZO-142)
+
+When a design doc or scope-todo lists a verification gate (e.g. "run suites 4+5+admin E2E before declaring Phase 1 done"), it is an enforceable contract, not a suggestion. The Dispatcher (or Architect at Tier 1) should check whether the completing agent's task result notes confirm the gate was satisfied before sending `[GO]` to the Validator. If a required suite is absent from the result notes, treat the phase as incomplete and request the missing run.
+
+**Why:** In KZO-142, the Backend Implementer skipped suite 6 (E2E), reasoning it was "pure-refactor, E2E is QA's scope." QA ran it clean one phase later — no regression. But a broken extraction would only have been caught in QA's next phase, wasting a convergence cycle.

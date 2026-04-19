@@ -105,7 +105,8 @@ export type AuditLogAction =
   | "share_revoked"
   | "share_token_created"
   | "share_token_revoked"
-  | "session_force_logout";
+  | "session_force_logout"
+  | "app_config_updated";
 
 export interface ShareGrantRecord {
   id: string;
@@ -612,6 +613,15 @@ export interface Persistence {
   // App config (KZO-133) — global settings. Returns null when unset (callers
   // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
   getRepairCooldownMinutes(): Promise<number | null>;
+
+  // App config (KZO-142) — read the raw DB override + updatedAt stamp. Routes
+  // combine this with getEffectiveRepairCooldownMinutes() to expose the full
+  // AppConfigDto to clients.
+  getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }>;
+
+  // App config (KZO-142) — set (or clear) the repair cooldown override and
+  // stamp the `updated_at` column. The route layer wraps this in an audit log.
+  setRepairCooldownMinutes(value: number | null): Promise<void>;
 
   // Monitored tickers
   // KZO-133: persistence returns DTOs without `repairAvailableAt` — route layer

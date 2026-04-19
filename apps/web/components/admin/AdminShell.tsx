@@ -20,6 +20,7 @@ const ADMIN_TITLES: Record<string, string> = {
   "/admin/users": "Users",
   "/admin/invites": "Invites",
   "/admin/audit-log": "Audit Log",
+  "/admin/settings": "Settings",
 };
 
 export function AdminShell({
@@ -49,13 +50,11 @@ export function AdminShell({
         email={email}
         role={role}
         sharingLabel="Sharing"
-        onOpenSettings={() => { /* admin pages don't use settings drawer */ }}
         onToggleNavigation={() => setMobileNavOpen((c) => !c)}
         navigationOpen={mobileNavOpen}
         productName="Admin"
         title={title}
         titleTooltip="Administration panel"
-        openSettingsLabel="Settings"
         signOutLabel="Sign out"
         signOutHref={`${API_PUBLIC}/auth/logout`}
         searchPlaceholder="Search..."

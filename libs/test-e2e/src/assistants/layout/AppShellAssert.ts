@@ -257,6 +257,78 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.topBar.elements.avatarMenuAdmin).toBeVisible();
   }
 
+  // ── Admin settings assertions ─────────────────────────────────────────────
+
+  @Step()
+  async adminSettingsPageIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-page")).toBeVisible();
+  }
+
+  @Step()
+  async adminSettingsSidebarLinkIsCurrent(): Promise<void> {
+    await expect(this.page.getByTestId("admin-sidebar-link-settings").first()).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  }
+
+  @Step()
+  async adminSettingsOverrideToggleChecked(checked: boolean): Promise<void> {
+    const toggle = this.page.getByTestId("admin-settings-override-toggle");
+    if (checked) {
+      await expect(toggle).toBeChecked();
+    } else {
+      await expect(toggle).not.toBeChecked();
+    }
+  }
+
+  @Step()
+  async adminSettingsEnvDefaultBadgeIsVisible(): Promise<void> {
+    const badge = this.page.getByTestId("admin-settings-env-default-badge");
+    await expect(badge).toBeVisible();
+    await expect(badge).toContainText(/Using env default/i);
+  }
+
+  @Step()
+  async adminSettingsEnvDefaultBadgeIsHidden(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-env-default-badge")).toHaveCount(0);
+  }
+
+  @Step()
+  async adminSettingsMinutesInputIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-minutes-input")).toBeVisible();
+  }
+
+  @Step()
+  async adminSettingsMinutesInputIsHidden(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-minutes-input")).toHaveCount(0);
+  }
+
+  @Step()
+  async adminSettingsMinutesInputHasValue(value: string): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-minutes-input")).toHaveValue(value);
+  }
+
+  @Step()
+  async adminSettingsSaveSuccessIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-save-success")).toBeVisible();
+  }
+
+  @Step()
+  async adminSettingsLastUpdatedIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-last-updated")).toBeVisible();
+  }
+
+  @Step()
+  async adminSettingsValidationErrorIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-validation-error")).toBeVisible();
+  }
+
+  @Step()
+  async adminSettingsSaveButtonIsDisabled(): Promise<void> {
+    await expect(this.page.getByTestId("admin-settings-save-button")).toBeDisabled();
+  }
+
   // ── Sharing surface assertions ────────────────────────────────────────────
 
   @Step()

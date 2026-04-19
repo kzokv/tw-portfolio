@@ -324,6 +324,14 @@ export interface AdminAuditLogResponse {
   limit: number;
 }
 
+// ── Admin settings (KZO-142) ────────────────────────────────────────────────
+
+export interface AppConfigDto {
+  repairCooldownMinutes: number | null;
+  effectiveRepairCooldownMinutes: number;
+  updatedAt: string;
+}
+
 // ── Sharing types (KZO-145 / KZO-146) ──────────────────────────────────────
 
 export interface ShareGrantDto {
