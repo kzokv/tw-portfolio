@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProfileDto } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { UserCircle2 } from "lucide-react";
+import { ApiError, patchJson } from "../../../lib/api";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { TooltipInfo } from "../../../components/ui/TooltipInfo";
@@ -30,18 +31,13 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
     setError("");
     setSaved(false);
     try {
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: emailDraft }),
-      });
-      if (!res.ok) {
-        setError(dict.settings.profileEmailError);
-        return;
-      }
+      await patchJson("/profile", { email: emailDraft });
       setSaved(true);
       onProfileUpdate();
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "impersonation_write_blocked") {
+        return;
+      }
       setError(dict.settings.profileEmailError);
     } finally {
       setIsSaving(false);

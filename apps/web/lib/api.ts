@@ -55,8 +55,11 @@ export const API_PUBLIC = getApiBaseUrl();
 
 /** Fetch API URL — may be Docker-internal on the server. Use for fetch() only. */
 export const API_BASE = getFetchApiBaseUrl();
+// Mirrors the KZO-148 backend cookie name from the locked scope doc.
+const IMPERSONATION_COOKIE_NAME = "g_impersonation";
 const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
+export const API_CLIENT_ERROR_EVENT = "tw:api-client-error";
 
 import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
@@ -74,6 +77,13 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export interface ApiClientErrorDetail {
+  code?: string;
+  message: string;
+  path: string;
+  status: number;
 }
 
 /**
@@ -102,8 +112,16 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
       const { WebEnv } = require("@tw-portfolio/config/web") as typeof import("@tw-portfolio/config/web");
       const cookieStore = await cookies();
       const sessionValue = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
+      const impersonationValue = cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value;
+      const cookieParts: string[] = [];
       if (sessionValue) {
-        headers["cookie"] = `${WebEnv.SESSION_COOKIE_NAME}=${sessionValue}`;
+        cookieParts.push(`${WebEnv.SESSION_COOKIE_NAME}=${sessionValue}`);
+      }
+      if (impersonationValue) {
+        cookieParts.push(`${IMPERSONATION_COOKIE_NAME}=${impersonationValue}`);
+      }
+      if (cookieParts.length > 0) {
+        headers["cookie"] = cookieParts.join("; ");
       }
     } catch {
       // next/headers or config not available — ignore
@@ -226,6 +244,20 @@ async function parseError(res: Response, path: string): Promise<ApiError> {
   return new ApiError(message, res.status, code);
 }
 
+function emitClientApiError(error: ApiError, path: string): void {
+  if (typeof window === "undefined") return;
+  if (error.code !== "impersonation_write_blocked") return;
+
+  window.dispatchEvent(new CustomEvent<ApiClientErrorDetail>(API_CLIENT_ERROR_EVENT, {
+    detail: {
+      code: error.code,
+      message: error.message,
+      path,
+      status: error.status,
+    },
+  }));
+}
+
 async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {
   if (res.status === 401 && typeof window !== "undefined") {
     // Session is terminating — drop any outbound-share context cookie so the
@@ -243,6 +275,13 @@ async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T>
   throw await parseError(res, path);
 }
 
+async function throwApiError<T>(res: Response, path: string): Promise<T> {
+  if (res.status === 401) return redirectToLogoutOn401<T>(res, path);
+  const error = await parseError(res, path);
+  emitClientApiError(error, path);
+  throw error;
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
@@ -250,7 +289,7 @@ export async function getJson<T>(path: string): Promise<T> {
     headers: await getAuthHeaders(),
   });
   handleContextFallback(res);
-  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (!res.ok) return throwApiError<T>(res, path);
   return res.json() as Promise<T>;
 }
 
@@ -266,7 +305,7 @@ export async function postJson<T>(path: string, body: unknown, headers?: Record<
     body: JSON.stringify(body),
   });
   handleContextFallback(res);
-  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (!res.ok) return throwApiError<T>(res, path);
   return res.json() as Promise<T>;
 }
 
@@ -278,7 +317,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   handleContextFallback(res);
-  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (!res.ok) return throwApiError<T>(res, path);
   return res.json() as Promise<T>;
 }
 
@@ -290,18 +329,27 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   handleContextFallback(res);
-  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (!res.ok) return throwApiError<T>(res, path);
   return res.json() as Promise<T>;
 }
 
-export async function deleteJson<T>(path: string): Promise<T> {
+export async function deleteJson<T>(
+  path: string,
+  options?: { body?: unknown; headers?: Record<string, string> },
+): Promise<T> {
+  const hasBody = options?.body !== undefined;
   const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
     credentials: "include",
-    headers: await getAuthHeaders(),
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(options?.headers ?? {}),
+      ...(await getAuthHeaders()),
+    },
+    ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
   });
   handleContextFallback(res);
-  if (!res.ok) return redirectToLogoutOn401<T>(res, path);
+  if (!res.ok) return throwApiError<T>(res, path);
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }

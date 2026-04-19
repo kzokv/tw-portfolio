@@ -28,6 +28,9 @@ const ACTION_LABELS: Record<string, string> = {
   user_linked_identity: "Linked identity",
   user_login: "User login",
   app_config_updated: "Updated settings",
+  impersonation_start: "Started impersonation",
+  impersonation_end: "Ended impersonation",
+  impersonation_blocked_write: "Blocked write while impersonating",
 };
 
 const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
@@ -50,6 +53,10 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
   {
     label: "Session",
     actions: ["session_force_logout", "user_login", "user_linked_identity"],
+  },
+  {
+    label: "Impersonation",
+    actions: ["impersonation_start", "impersonation_end", "impersonation_blocked_write"],
   },
   {
     label: "Settings",

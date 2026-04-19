@@ -1,16 +1,12 @@
-import type { LocaleCode, UserRole } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { ProfileWithImpersonationDto } from "../profile/hooks/useProfile";
 
 export type ShareListStatus = "active" | "pending" | "expired" | "revoked";
 
 export interface SharingRouteContextValue {
   isDemo: boolean;
   locale: LocaleCode;
-  profile: {
-    userId: string;
-    email: string | null;
-    displayName: string | null;
-    role: UserRole;
-  };
+  profile: ProfileWithImpersonationDto;
 }
 
 export interface OutboundShareRow {
