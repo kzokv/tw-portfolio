@@ -10,16 +10,21 @@ import {
   extractInviteCode,
   extractReturnTo,
   generateState,
+  IMPERSONATION_COOKIE_NAME,
   isValidReturnTo,
   refreshAccessToken,
+  signImpersonationCookie,
   signSessionCookie,
+  verifyImpersonationCookie,
   verifySessionCookie,
   verifyState,
   type GoogleTokenResponse,
+  type ImpersonationCookieIdentity,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { ImpersonationDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
@@ -274,6 +279,35 @@ function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomai
   return `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}${domain}`;
 }
 
+function parseCookieValue(cookieHeader: string | undefined, cookieName: string): string | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx <= 0) continue;
+    if (part.slice(0, eqIdx).trim() === cookieName) {
+      const value = part.slice(eqIdx + 1).trim();
+      return value || null;
+    }
+  }
+  return null;
+}
+
+export function sessionClearCookieString(): string {
+  const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+  return `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`;
+}
+
+export function impersonationClearCookieString(): string {
+  const attrs = buildCookieAttrs(IMPERSONATION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+  return `${IMPERSONATION_COOKIE_NAME}=; ${attrs}; Max-Age=0`;
+}
+
+export function impersonationSetCookieString(cookieValue: string, ttlMinutes: number): string {
+  const attrs = buildCookieAttrs(IMPERSONATION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
+  const maxAgeSeconds = ttlMinutes * 60 + 5 * 60;
+  return `${IMPERSONATION_COOKIE_NAME}=${cookieValue}; ${attrs}; Max-Age=${maxAgeSeconds}`;
+}
+
 const VALID_USER_ROLES = ["admin", "member", "viewer"] as const;
 export const userRoleSchema = z.enum(VALID_USER_ROLES);
 const PUBLIC_ROUTE_KEYS = new Set([
@@ -286,6 +320,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "POST /auth/demo/start",
   "POST /__e2e/oauth-session",
   "POST /__e2e/demo-session",
+  "POST /__e2e/impersonation-session",
   "POST /__e2e/reset-demo-rate-buckets",
   "POST /__e2e/reset-app-config",
   "POST /__e2e/seed-anonymous-share-token",
@@ -364,11 +399,18 @@ const ADMIN_ROUTE_KEYS = new Set([
   "POST /admin/users/:id/enable",
   "DELETE /admin/users/:id",
   "DELETE /admin/users/:id/purge",
+  "POST /admin/users/:id/impersonate",
+  "DELETE /admin/impersonation",
   "GET /admin/invites",
   "GET /admin/audit-log",
   "GET /admin/settings",
   "PATCH /admin/settings",
 ]);
+const IMPERSONATION_WRITE_ALLOWLIST = new Set([
+  "POST /admin/users/:id/impersonate",
+  "DELETE /admin/impersonation",
+]);
+const IMPERSONATION_BLOCKED_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const inviteStatusBuckets = new Map<string, number[]>();
 const INVITE_STATUS_WINDOW_MS = 60_000;
 const INVITE_STATUS_LIMIT = 20;
@@ -387,6 +429,7 @@ type ResolvedRequestIdentity = {
   isImpersonating: boolean;
   isSharedContext: boolean;
   email?: string | null;
+  impersonation: ImpersonationDto | null;
   userId: string;
 };
 
@@ -495,27 +538,116 @@ function authRequired(): never {
   throw routeError(401, "auth_required", "authentication required");
 }
 
-function validateActiveAuthUser(
-  user: Awaited<ReturnType<FastifyInstance["persistence"]["getAuthUserById"]>>,
-): asserts user is NonNullable<typeof user> {
-  if (!user || user.deactivatedAt || user.deletedAt) {
-    authRequired();
+function markSessionCleanup(req: FastifyRequest): void {
+  req.__clearSessionCookie = true;
+  req.__clearImpersonationCookie = true;
+}
+
+function markImpersonationCleanup(req: FastifyRequest): void {
+  req.__clearImpersonationCookie = true;
+}
+
+async function appendImpersonationEndAudit(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  input: {
+    actorUserId: string;
+    targetUserId?: string | null;
+    targetEmail?: string | null;
+    reason: string;
+  },
+): Promise<void> {
+  await app.persistence.appendAuditLog({
+    actorUserId: input.actorUserId,
+    action: "impersonation_end",
+    targetUserId: input.targetUserId ?? null,
+    ipAddress: req.ip,
+    metadata: {
+      reason: input.reason,
+      ...(input.targetUserId ? { targetUserId: input.targetUserId } : {}),
+      ...(input.targetEmail !== undefined ? { targetEmail: input.targetEmail } : {}),
+    },
+  });
+}
+
+async function resolveImpersonationState(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  sessionUserId: string,
+): Promise<{ active: false } | { active: true; impersonation: ImpersonationDto }> {
+  const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET;
+  const cookieValue = parseCookieValue(req.headers.cookie, IMPERSONATION_COOKIE_NAME);
+  if (!cookieValue) {
+    return { active: false };
   }
+  if (!sessionSecret) {
+    markImpersonationCleanup(req);
+    return { active: false };
+  }
+
+  const parsed = verifyImpersonationCookie(cookieValue, sessionSecret);
+  if (!parsed) {
+    markImpersonationCleanup(req);
+    await appendImpersonationEndAudit(app, req, { actorUserId: sessionUserId, reason: "invalid_hmac" });
+    return { active: false };
+  }
+
+  return validateResolvedImpersonationState(app, req, sessionUserId, parsed);
+}
+
+async function validateResolvedImpersonationState(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  sessionUserId: string,
+  parsed: ImpersonationCookieIdentity,
+): Promise<{ active: false } | { active: true; impersonation: ImpersonationDto }> {
+  if (parsed.adminId !== sessionUserId) {
+    markImpersonationCleanup(req);
+    await appendImpersonationEndAudit(app, req, {
+      actorUserId: sessionUserId,
+      targetUserId: parsed.targetUserId,
+      reason: "session_mismatch",
+    });
+    return { active: false };
+  }
+
+  if (parsed.expiresAtMs <= Date.now()) {
+    markImpersonationCleanup(req);
+    await appendImpersonationEndAudit(app, req, {
+      actorUserId: sessionUserId,
+      targetUserId: parsed.targetUserId,
+      reason: "expired",
+    });
+    return { active: false };
+  }
+
+  const targetUser = await app.persistence.getAuthUserById(parsed.targetUserId);
+  if (!targetUser || targetUser.deactivatedAt || targetUser.deletedAt) {
+    markImpersonationCleanup(req);
+    await appendImpersonationEndAudit(app, req, {
+      actorUserId: sessionUserId,
+      targetUserId: parsed.targetUserId,
+      targetEmail: targetUser?.email ?? null,
+      reason: "target_invalid",
+    });
+    return { active: false };
+  }
+
+  return {
+    active: true,
+    impersonation: {
+      active: true,
+      targetUserId: targetUser.userId,
+      targetEmail: targetUser.email ?? null,
+      expiresAt: new Date(parsed.expiresAtMs).toISOString(),
+    },
+  };
 }
 
 export function parseSessionCookie(cookieHeader: string | undefined, sessionSecret: string | undefined): SessionIdentity | null {
-  if (!cookieHeader) return null;
-  for (const part of cookieHeader.split(";")) {
-    const eqIdx = part.indexOf("=");
-    if (eqIdx <= 0) continue;
-    if (part.slice(0, eqIdx).trim() === Env.SESSION_COOKIE_NAME) {
-      const value = part.slice(eqIdx + 1).trim();
-      if (!value) return null;
-      if (!sessionSecret) return null;
-      return verifySessionCookie(value, sessionSecret);
-    }
-  }
-  return null;
+  const value = parseCookieValue(cookieHeader, Env.SESSION_COOKIE_NAME);
+  if (!value || !sessionSecret) return null;
+  return verifySessionCookie(value, sessionSecret);
 }
 
 export function isPublicRoute(method: string, routeUrl: string): boolean {
@@ -583,6 +715,7 @@ function resolveDevBypassFallback(req: FastifyRequest): ResolvedRequestIdentity 
     isImpersonating: false,
     isSharedContext: false,
     email: null,
+    impersonation: null,
     userId: sessionUserId,
   };
 }
@@ -635,11 +768,46 @@ async function resolveCookieBackedAuthContext(
   identity: SessionIdentity,
 ): Promise<void> {
   const authUser = await app.persistence.getAuthUserById(userScopedIdSchema.parse(identity.userId));
-  validateActiveAuthUser(authUser);
+  if (!authUser || authUser.deactivatedAt || authUser.deletedAt) {
+    markSessionCleanup(req);
+    authRequired();
+  }
   if (!identity.isDemo && identity.sessionVersion !== authUser.sessionVersion) {
+    markSessionCleanup(req);
     authRequired();
   }
   req.__sessionType = identity.isDemo ? "demo" : "oauth";
+  const hadImpersonationCookie = Boolean(parseCookieValue(req.headers.cookie, IMPERSONATION_COOKIE_NAME));
+  const impersonation = await resolveImpersonationState(app, req, authUser.userId);
+  if (impersonation.active) {
+    req.authContext = {
+      sessionUserId: authUser.userId,
+      contextUserId: impersonation.impersonation.targetUserId,
+      role: authUser.role,
+      sessionVersion: authUser.sessionVersion,
+      isDemo: identity.isDemo,
+      isImpersonating: true,
+      isSharedContext: false,
+      email: authUser.email,
+      impersonation: impersonation.impersonation,
+    };
+    return;
+  }
+  if (hadImpersonationCookie) {
+    req.authContext = {
+      sessionUserId: authUser.userId,
+      contextUserId: authUser.userId,
+      role: authUser.role,
+      sessionVersion: authUser.sessionVersion,
+      isDemo: identity.isDemo,
+      isImpersonating: false,
+      isSharedContext: false,
+      email: authUser.email,
+      impersonation: null,
+    };
+    return;
+  }
+
   const { contextUserId, isSharedContext } = await resolveContextOverride(app, req, authUser.userId);
   req.authContext = {
     sessionUserId: authUser.userId,
@@ -650,6 +818,7 @@ async function resolveCookieBackedAuthContext(
     isImpersonating: false,
     isSharedContext,
     email: authUser.email,
+    impersonation: null,
   };
 }
 
@@ -657,10 +826,14 @@ export async function hydrateAuthContext(app: FastifyInstance, req: FastifyReque
   if (req.authContext) return;
 
   const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET;
+  const hasSessionCookie = Boolean(parseCookieValue(req.headers.cookie, Env.SESSION_COOKIE_NAME));
   const cookieIdentity = parseSessionCookie(req.headers.cookie, sessionSecret);
   if (cookieIdentity) {
     await resolveCookieBackedAuthContext(app, req, cookieIdentity);
     return;
+  }
+  if (hasSessionCookie) {
+    markSessionCleanup(req);
   }
 
   if (Env.AUTH_MODE === "oauth") {
@@ -674,6 +847,36 @@ export async function hydrateAuthContext(app: FastifyInstance, req: FastifyReque
   );
   const overrideRole = rawRole && !Array.isArray(rawRole) ? userRoleSchema.parse(rawRole) : undefined;
   const authUser = await app.persistence.getAuthUserById(sessionUserId);
+  const hadImpersonationCookie = Boolean(parseCookieValue(req.headers.cookie, IMPERSONATION_COOKIE_NAME));
+  const impersonation = await resolveImpersonationState(app, req, sessionUserId);
+  if (impersonation.active) {
+    req.authContext = {
+      sessionUserId,
+      contextUserId: impersonation.impersonation.targetUserId,
+      role: authUser && !authUser.deactivatedAt && !authUser.deletedAt ? (overrideRole ?? authUser.role) : (overrideRole ?? "admin"),
+      sessionVersion: authUser?.sessionVersion ?? 1,
+      isDemo: false,
+      isImpersonating: true,
+      isSharedContext: false,
+      email: authUser?.email ?? null,
+      impersonation: impersonation.impersonation,
+    };
+    return;
+  }
+  if (hadImpersonationCookie) {
+    req.authContext = {
+      sessionUserId,
+      contextUserId: sessionUserId,
+      role: authUser && !authUser.deactivatedAt && !authUser.deletedAt ? (overrideRole ?? authUser.role) : (overrideRole ?? "admin"),
+      sessionVersion: authUser?.sessionVersion ?? 1,
+      isDemo: false,
+      isImpersonating: false,
+      isSharedContext: false,
+      email: authUser?.email ?? null,
+      impersonation: null,
+    };
+    return;
+  }
 
   const { contextUserId, isSharedContext } = await resolveContextOverride(app, req, sessionUserId);
 
@@ -686,13 +889,32 @@ export async function hydrateAuthContext(app: FastifyInstance, req: FastifyReque
     isImpersonating: false,
     isSharedContext,
     email: authUser?.email ?? null,
+    impersonation: null,
   };
 }
 
-export function enforceRouteRole(req: FastifyRequest): void {
+export async function enforceRouteRole(req: FastifyRequest): Promise<void> {
   const routeUrl = req.routeOptions.url;
   if (!routeUrl) return;
   const key = routeKey(req.method, routeUrl);
+  if (
+    req.authContext?.isImpersonating
+    && IMPERSONATION_BLOCKED_METHODS.has(req.method.toUpperCase())
+    && !IMPERSONATION_WRITE_ALLOWLIST.has(key)
+  ) {
+    await req.server.persistence.appendAuditLog({
+      actorUserId: req.authContext.sessionUserId,
+      action: "impersonation_blocked_write",
+      targetUserId: req.authContext.impersonation?.targetUserId ?? null,
+      ipAddress: req.ip,
+      metadata: {
+        targetUserId: req.authContext.impersonation?.targetUserId ?? null,
+        method: req.method.toUpperCase(),
+        path: req.url.split("?")[0] ?? req.url,
+      },
+    });
+    throw routeError(403, "impersonation_write_blocked", "Writes are disabled while impersonating.");
+  }
   if (ADMIN_ROUTE_KEYS.has(key)) {
     requireAdminRole(req);
     return;
@@ -1280,6 +1502,44 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "ok", userId, expiresAt, sessionType: "demo" };
   });
 
+  app.post("/__e2e/impersonation-session", async (req, reply) => {
+    assertE2ESeedEnabled();
+    const body = z.object({
+      adminUserId: userScopedIdSchema,
+      targetUserId: userScopedIdSchema,
+      ttlMinutes: z.coerce.number().int().positive().optional(),
+    }).parse(req.body);
+
+    const [adminUser, targetUser] = await Promise.all([
+      app.persistence.getAuthUserById(body.adminUserId),
+      app.persistence.getAuthUserById(body.targetUserId),
+    ]);
+    if (!adminUser || adminUser.role !== "admin" || adminUser.deactivatedAt || adminUser.deletedAt) {
+      throw routeError(404, "admin_not_found", "Admin user not found");
+    }
+    if (!targetUser || targetUser.deactivatedAt || targetUser.deletedAt) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+    if (body.adminUserId === body.targetUserId) {
+      throw routeError(400, "cannot_impersonate_self", "Cannot impersonate yourself");
+    }
+
+    const ttlMinutes = body.ttlMinutes ?? Env.ADMIN_IMPERSONATION_TTL_MINUTES;
+    const expiresAtMs = Date.now() + ttlMinutes * 60_000;
+    const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
+    if (!sessionSecret) {
+      throw routeError(500, "missing_secret", "SESSION_SECRET is required for impersonation cookie signing");
+    }
+
+    const signedCookie = signImpersonationCookie(body.adminUserId, body.targetUserId, expiresAtMs, sessionSecret);
+    reply.header("set-cookie", impersonationSetCookieString(signedCookie, ttlMinutes));
+    return {
+      status: "ok",
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      targetEmail: targetUser.email ?? null,
+    };
+  });
+
   app.post("/auth/demo/start", async (req, reply) => {
     if (Env.DEMO_MODE_ENABLED !== "true") {
       throw routeError(404, "not_found", "not found");
@@ -1316,12 +1576,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/auth/logout", async (req, reply) => {
-    const attrs = buildCookieAttrs(Env.SESSION_COOKIE_NAME, Env.NODE_ENV === "production", Env.COOKIE_DOMAIN);
     // Two Set-Cookie headers: the signed session cookie and the unsigned
     // context-switcher cookie. Both must clear on logout regardless of which
     // path triggered it (UI click, direct navigation, server-initiated force-logout).
     reply.header("set-cookie", [
-      `${Env.SESSION_COOKIE_NAME}=; ${attrs}; Max-Age=0`,
+      sessionClearCookieString(),
+      impersonationClearCookieString(),
       contextClearCookieString(),
     ]);
     const rawQuery = req.query as Record<string, string | undefined>;
@@ -1577,7 +1837,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/profile", async (req) => {
     const userId = requireSessionUserId(req);
-    return app.persistence.getProfile(userId);
+    const profile = await app.persistence.getProfile(userId);
+    return {
+      ...profile,
+      impersonation: req.authContext?.impersonation ?? null,
+    };
   });
 
   app.patch("/profile", async (req) => {

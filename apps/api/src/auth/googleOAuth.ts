@@ -31,6 +31,7 @@ export interface GoogleIdTokenClaims {
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_OAUTH_SCOPE = "openid email profile";
+export const IMPERSONATION_COOKIE_NAME = "g_impersonation";
 
 function upstreamError(httpStatus: number, body: unknown): Error & { statusCode: number; code: string } {
   const msg = `Google token request failed: ${httpStatus} ${JSON.stringify(body)}`;
@@ -64,6 +65,12 @@ export interface SessionIdentity {
   userId: string;
   isDemo: boolean;
   sessionVersion?: number;
+}
+
+export interface ImpersonationCookieIdentity {
+  adminId: string;
+  targetUserId: string;
+  expiresAtMs: number;
 }
 
 /** Sign a session cookie value.
@@ -113,6 +120,36 @@ export function verifySessionCookie(cookieValue: string, sessionSecret: string):
   }
 
   return null;
+}
+
+export function signImpersonationCookie(
+  adminId: string,
+  targetUserId: string,
+  expiresAtMs: number,
+  sessionSecret: string,
+): string {
+  if (!Number.isInteger(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error(`signImpersonationCookie: expiresAtMs must be a positive integer, got ${expiresAtMs}`);
+  }
+  const payload = `${adminId}.${targetUserId}.${expiresAtMs}`;
+  return `${payload}.${hmacSign(payload, sessionSecret)}`;
+}
+
+export function verifyImpersonationCookie(
+  cookieValue: string,
+  sessionSecret: string,
+): ImpersonationCookieIdentity | null {
+  const parts = cookieValue.split(".");
+  if (parts.length !== 4) return null;
+  const [adminId, targetUserId, rawExpiresAtMs, receivedHmac] = parts;
+  if (!adminId || !targetUserId || !rawExpiresAtMs || !receivedHmac) return null;
+
+  const expiresAtMs = Number.parseInt(rawExpiresAtMs, 10);
+  if (!Number.isInteger(expiresAtMs) || expiresAtMs <= 0) return null;
+
+  const payload = `${adminId}.${targetUserId}.${rawExpiresAtMs}`;
+  if (!hmacVerify(payload, receivedHmac, sessionSecret)) return null;
+  return { adminId, targetUserId, expiresAtMs };
 }
 
 /** Generate a stateless HMAC-signed CSRF state token, optionally embedding a returnTo path. */

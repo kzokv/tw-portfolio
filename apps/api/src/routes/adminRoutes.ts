@@ -1,10 +1,14 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import { Env } from "@tw-portfolio/config";
+import { signImpersonationCookie } from "../auth/googleOAuth.js";
 import { routeError } from "../lib/routeError.js";
 import { requireAdminRole } from "../lib/routeGuards.js";
 import { getEffectiveRepairCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import {
+  impersonationClearCookieString,
+  impersonationSetCookieString,
   requireSessionUserId,
   userRoleSchema,
   userScopedIdSchema,
@@ -173,6 +177,91 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       actorUserId: sessionUserId,
       ipAddress,
     });
+    reply.code(204);
+    return null;
+  });
+
+  app.post("/users/:id/impersonate", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id: targetUserId } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    if (req.authContext?.isDemo) {
+      throw routeError(403, "demo_cannot_impersonate", "Demo sessions cannot impersonate users");
+    }
+    if (targetUserId === sessionUserId) {
+      throw routeError(400, "cannot_impersonate_self", "Cannot impersonate yourself");
+    }
+
+    const targetUser = await app.persistence.getAuthUserById(targetUserId);
+    if (!targetUser || targetUser.deactivatedAt || targetUser.deletedAt) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    if (req.authContext?.isImpersonating && req.authContext.impersonation) {
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "impersonation_end",
+        targetUserId: req.authContext.impersonation.targetUserId,
+        ipAddress,
+        metadata: {
+          reason: "replaced",
+          targetUserId: req.authContext.impersonation.targetUserId,
+          targetEmail: req.authContext.impersonation.targetEmail,
+        },
+      });
+    }
+
+    const sessionSecret = app.oauthConfig?.sessionSecret ?? Env.SESSION_SECRET ?? "";
+    if (!sessionSecret) {
+      throw routeError(500, "missing_secret", "SESSION_SECRET is required for impersonation cookie signing");
+    }
+
+    const ttlMinutes = Env.ADMIN_IMPERSONATION_TTL_MINUTES;
+    const expiresAtMs = Date.now() + ttlMinutes * 60_000;
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    const cookieValue = signImpersonationCookie(sessionUserId, targetUserId, expiresAtMs, sessionSecret);
+
+    req.__clearImpersonationCookie = false;
+    reply.header("set-cookie", impersonationSetCookieString(cookieValue, ttlMinutes));
+
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "impersonation_start",
+      targetUserId,
+      ipAddress,
+      metadata: {
+        targetUserId,
+        targetEmail: targetUser.email ?? null,
+        expiresAt,
+      },
+    });
+
+    return {
+      expiresAt,
+      targetEmail: targetUser.email ?? null,
+    };
+  });
+
+  app.delete("/impersonation", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    if (req.authContext?.isImpersonating && req.authContext.impersonation) {
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "impersonation_end",
+        targetUserId: req.authContext.impersonation.targetUserId,
+        ipAddress,
+        metadata: {
+          reason: "manual",
+          targetUserId: req.authContext.impersonation.targetUserId,
+          targetEmail: req.authContext.impersonation.targetEmail,
+        },
+      });
+    }
+
+    req.__clearImpersonationCookie = false;
+    reply.header("set-cookie", impersonationClearCookieString());
     reply.code(204);
     return null;
   });
