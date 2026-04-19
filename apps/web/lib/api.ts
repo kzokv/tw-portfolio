@@ -305,3 +305,19 @@ export async function deleteJson<T>(path: string): Promise<T> {
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }
+
+// ── Anonymous share token fetchers (KZO-147) ────────────────────────────────
+import type { AnonymousShareTokenDto } from "@tw-portfolio/shared-types";
+
+export async function listAnonymousTokens(): Promise<AnonymousShareTokenDto[]> {
+  const response = await getJson<{ tokens: AnonymousShareTokenDto[] }>("/share-tokens");
+  return response.tokens;
+}
+
+export async function createAnonymousToken(expiresInDays: number): Promise<AnonymousShareTokenDto> {
+  return postJson<AnonymousShareTokenDto>("/share-tokens", { expiresInDays });
+}
+
+export async function revokeAnonymousToken(id: string): Promise<void> {
+  await deleteJson<void>(`/share-tokens/${encodeURIComponent(id)}`);
+}

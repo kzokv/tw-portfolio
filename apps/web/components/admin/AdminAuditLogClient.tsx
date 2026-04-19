@@ -21,6 +21,8 @@ const ACTION_LABELS: Record<string, string> = {
   admin_invite_revoked: "Revoked invite",
   share_granted: "Granted share",
   share_revoked: "Revoked share",
+  share_token_created: "Created public link",
+  share_token_revoked: "Revoked public link",
   session_force_logout: "Force logout",
   user_promoted_to_admin: "Promoted to admin",
   user_linked_identity: "Linked identity",
@@ -42,7 +44,7 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
   },
   {
     label: "Sharing",
-    actions: ["share_granted", "share_revoked"],
+    actions: ["share_granted", "share_revoked", "share_token_created", "share_token_revoked"],
   },
   {
     label: "Session",

@@ -21,6 +21,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
   redirect: vi.fn(),
+  notFound: vi.fn(() => {
+    const error = new Error("NEXT_NOT_FOUND");
+    (error as Error & { digest?: string }).digest = "NEXT_NOT_FOUND";
+    throw error;
+  }),
 }));
 
 // --- next/headers ---
