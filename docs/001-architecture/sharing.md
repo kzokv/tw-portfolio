@@ -188,3 +188,143 @@ Expected titles:
 - share revoked: "Portfolio access revoked"
 
 The notification center remains the primary inbox. KZO-146 also relies on the revoke notification SSE payload to trigger client-side shared-context fallback. Sharing and admin flows continue to expose stable `data-testid` hooks for HTTP/E2E coverage.
+
+## Anonymous Share Tokens
+
+KZO-147 adds a second sharing surface: opaque per-owner tokens that expose a read-only portfolio snapshot to unauthenticated visitors via `/share/{token}`. This channel is disjoint from user-to-user sharing — it does not create `portfolio_shares` rows, does not require a grantee identity, and never allows writes.
+
+### Data Model
+
+#### `anonymous_share_tokens`
+
+Purpose:
+- per-owner opaque tokens addressable from a fully public URL
+
+Core columns:
+- `id` — stable PK used on owner CRUD paths (revoke); never appears in the public URL
+- `token` — 22-char base62, UNIQUE, the public-URL secret
+- `owner_user_id` — FK to `users(id)`, `ON DELETE CASCADE`
+- `created_at`, `expires_at`, `revoked_at`
+- `revoked_by_user_id` — FK to `users(id)`, `ON DELETE SET NULL`
+
+Indexes:
+- `idx_anonymous_share_tokens_owner_created_at` — powers the owner list (`created_at DESC`)
+- `idx_anonymous_share_tokens_owner_not_revoked` — partial index on non-revoked rows; expiry is filtered in app code because `NOW()` is not immutable
+
+Lifecycle:
+- creation inserts an active row; the token is surfaced **once** in the POST response and again in the owner list until it terminates
+- revocation flips `revoked_at` only when the row is currently active (`revoked_at IS NULL AND expires_at > NOW()`) — terminal rows are no-ops, protecting the retention clock
+- hard-purge of the owner cascades away every token row
+- the owner list applies a 30-day retention filter: active rows always appear, terminal rows appear for 30 days past termination, then fall off
+
+### Access Rules
+
+| Surface | admin | member | viewer | demo |
+| --- | :-: | :-: | :-: | :-: |
+| Create anonymous token on own portfolio | Yes | Yes | No | No |
+| List / revoke own tokens | Yes | Yes | No | No |
+| Create / revoke while switched into a shared portfolio | No | No | No | No |
+| View `/share/{token}` | anyone authenticated or not | — | — | — |
+| See `share_token_*` in `/admin/audit-log` | Yes | No | No | No |
+
+Server enforcement:
+- `POST /share-tokens` and `DELETE /share-tokens/:id` call `requireShareGrantorRole(req)` + `requireWriteableContext(req)`
+- `GET /share-tokens` is guarded only by `requireSessionUserId(req)` — viewers and demo users have no tokens to list, but returning an empty array is fine
+- `GET /share/:token` sits in `PUBLIC_ROUTE_KEYS`; no auth header, cookie, or context header is read on this path
+- cap-check + insert are serialised per owner via `pg_advisory_xact_lock(hashtext('anon_share:' || owner_user_id))` inside the same transaction, so racing creates can never exceed 20 active
+
+### API Surface
+
+| Method | Path | Guards | Rate limit |
+| --- | --- | --- | --- |
+| `POST` | `/share-tokens` | role + write-context | global mutation limiter |
+| `GET` | `/share-tokens` | session | global read |
+| `DELETE` | `/share-tokens/:id` | role + write-context | global mutation limiter |
+| `GET` | `/share/:token` | none | per-IP `assertAnonymousShareRateLimit` (default 30 / 5 min) |
+
+All owner-facing responses use the unified DTO:
+
+```ts
+type AnonymousShareTokenDto = {
+  id: string;
+  token: string;         // full, owner-visible
+  url: string;           // fully-qualified, API-constructed
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  status: "active" | "expired" | "revoked";  // derived server-side
+};
+```
+
+The public view DTO is **dedicated** (not reused from authenticated holdings) — cost basis is excluded at the type level, not scrubbed at runtime:
+
+```ts
+type PublicShareViewDto = {
+  ownerDisplayName: string;
+  expiresAt: string;
+  holdings: Array<{
+    ticker: string;
+    quantity: number;
+    marketValueAmount: number;
+    marketValueCurrency: string;
+    allocationPercent: number;
+  }>;
+  summary: {
+    totalValueByCurrency: Array<{ currency: string; amount: number }>;
+    returnByCurrency: Array<{ currency: string; returnPercent: number }>;
+  };
+  quoteAsOf: string | null;
+};
+```
+
+### Public Route Handler
+
+`GET /share/:token` runs a strict order to keep enumeration and oracle risks low:
+
+1. **Rate limit** (`assertAnonymousShareRateLimit(req.ip)`) — runs before any DB work; invalid tokens are also counted. 429 carries `Retry-After: 300`.
+2. **Regex pre-check** — malformed tokens `404 token_not_found` without hitting the DB.
+3. **Active token lookup** — `revoked_at IS NULL AND expires_at > NOW()` only.
+4. **Owner active check** — soft-deleted or deactivated owner → 404.
+5. **Load store + resolve quotes** via `loadUserStoreForUserId(app, ownerUserId)`. This helper intentionally drops the `req` dependency so the public route never touches request-scoped identity.
+6. **Build DTO** via `buildPublicShareView(store, quotes, ownerDisplayName, expiresAt)` — zero-quantity holdings are filtered, rows without quotes are dropped, per-currency totals and returns are aggregated over the quote-available subset.
+7. **Response headers** — `Cache-Control: private, no-store, max-age=0`.
+
+Every failure mode after the rate check surfaces as identical `{ error: "token_not_found" }` with status 404; there is no existence oracle.
+
+### Hygiene and Security
+
+- **Token storage is plaintext.** The owner UI requires re-display of the full URL from the list, so hashing is ruled out. Keep DB access tightly controlled; DB access = token access.
+- **Path redaction in logs.** Fastify's `req` serializer rewrites `/share/{22-char base62}` → `/share/[REDACTED]` in request logs. Tokens may still appear in upstream proxy/access logs outside the API boundary.
+- **No caching, no indexing.** The Next.js page declares `dynamic = "force-dynamic"` and `robots: { index: false, follow: false }`. `next.config.mjs` adds `Cache-Control: private, no-store, max-age=0`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer` for `/share/:token*`.
+- **MUST-NOT gates.** The API handler never reads `req.cookies` / `req.headers.cookie` / `req.headers['x-user-id']` / `req.headers['x-context-user-id']`. The Next.js page never calls `cookies()` and never forwards auth headers on its API fetch.
+- **Audit entries are token-id only.** `share_token_created` / `share_token_revoked` metadata carries `tokenId` (the stable PK) and never the plaintext `token`.
+
+### Web Surface
+
+Owner UI lives as Section C of `/sharing` (below Outbound and Inbound), rendered only for non-demo users:
+
+- `PublicLinksSection.tsx` — list + create button + cap banner + flash
+- `CreateAnonymousLinkDialog.tsx` — expiry picker (7 / 30 / 90 / custom 1–365 days)
+- `AnonymousLinksTable.tsx` — truncated token + Copy URL + status pill + Revoke
+- `RevokeAnonymousLinkDialog.tsx` — light confirm, idempotent
+
+The public view (`app/share/[token]/page.tsx`) is a pure server component; failures resolve to a separate `not-found.tsx` with the same layout and no portfolio leakage.
+
+### Audit and Notifications
+
+Audit actions (routed through `/admin/audit-log`'s existing "Sharing" filter group):
+- `share_token_created` — metadata: `{ tokenId, expiresAt, ttlDays }`
+- `share_token_revoked` — metadata: `{ tokenId }`
+
+No notifications are emitted — the audience is unauthenticated by definition.
+
+### Rate Limit Semantics
+
+- `ANONYMOUS_SHARE_RATE_LIMIT_MAX` (default 30) + `ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS` (default 300_000) — sliding window per `req.ip`
+- bucket is in-process (`anonymousShareRateBuckets`); shared with `inviteStatusBuckets` as a "bucket grows unbounded" concern. Eviction is a cross-cutting follow-up, not a KZO-147 fix.
+
+### Interactions With Other Features
+
+- **KZO-146 switcher.** Write-context guard blocks token create/revoke while the owner is switched into a shared portfolio.
+- **KZO-149 hard-purge cascade.** `ON DELETE CASCADE` makes the Postgres side automatic; the memory-backend side is a one-line extension when that ticket lands.
+- **KZO-148 admin impersonation.** When impersonation ships, `POST /share-tokens` must reject impersonated sessions. Flagged on KZO-148's scope.

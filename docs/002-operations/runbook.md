@@ -1287,3 +1287,53 @@ If the deployment is a fresh install with no existing users, set this to the adm
 ### Migration pre-backfill guard
 
 Migration `030_kzo143_auth_foundations.sql` lowercases all `users.email` values. If case-insensitive duplicates exist (e.g. `User@X.com` and `user@x.com`), the migration **aborts with a listing of the duplicates**. Resolve manually (delete or merge the duplicate) before re-running.
+
+---
+
+## 16. KZO-147 deploy notes
+
+### Migration
+
+`033_kzo147_anonymous_share_tokens.sql` adds:
+- `anonymous_share_tokens` table with `ON DELETE CASCADE` on `owner_user_id`
+- `ALTER TABLE audit_log` to extend `audit_log_action_check` with `share_token_created` and `share_token_revoked`
+
+Idempotent (`CREATE TABLE IF NOT EXISTS` + a `DO $$ ... END $$` block that drops and re-adds the CHECK constraint). Safe to re-run. No backfill, no data rewrite.
+
+**Rollback impact.** Older API images do not emit the new audit actions, so the updated CHECK is a superset of the old one — rollback needs no schema rollback. If the table is later dropped, all anonymous share tokens are lost (tokens are plaintext and cannot be rehydrated).
+
+### New env vars
+
+Both optional with sensible defaults:
+- `ANONYMOUS_SHARE_RATE_LIMIT_MAX` (default `30`) — per-IP sliding window count
+- `ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS` (default `300_000` = 5 min)
+
+Keep the defaults unless a specific abuse pattern is observed; `Retry-After` is emitted as `windowMs / 1000`.
+
+### Plaintext token storage
+
+Anonymous share tokens are stored **plaintext** in `anonymous_share_tokens.token`. This is intentional — the owner UI needs to re-display the full URL from the list page, which rules out hashing. Treat this column as sensitive:
+
+- DB access = token access. Anyone with read access to `anonymous_share_tokens` can impersonate the public URL on any active row.
+- Backup files containing this table should be encrypted at rest.
+- `pg_dump` output should not be shared casually.
+
+Request logs are redacted server-side (Fastify `serializers.req` rewrites the 22-char token segment to `[REDACTED]`). Upstream proxies (CDN, Cloudflare, reverse proxy) and browser DevTools will still show the plaintext token in URL access logs.
+
+### Re-enable-owner auto-resumes tokens
+
+Disabling a user (`POST /admin/users/:id/disable`) does **not** revoke their anonymous share tokens. The tokens remain in the table with their original `expires_at`, but the public route returns 404 because step 4 of the handler rejects soft-deleted / deactivated owners.
+
+Re-enabling the same user (`POST /admin/users/:id/enable`) transparently resurrects their tokens — they begin resolving again at `/share/{token}` without further action.
+
+If a deployment needs "disable also revokes tokens" semantics, add a revocation pass to `disableUser` in the admin service. Not a default because it changes the contract for short-lived disables (e.g. investigating a suspected-compromised account).
+
+### Rate-limit bucket memory growth
+
+`anonymousShareRateBuckets` (in-process `Map<ip, timestamps[]>`) grows with the set of distinct IPs that have ever hit `/share/:token`. Same class as `inviteStatusBuckets` (KZO-143). Not bounded in this release; flagged for a cross-cutting eviction follow-up. For a single-instance deployment this is only a concern if the public URL is exposed to scrapers at scale.
+
+### Operational checks
+
+- If a user reports "my public link stopped working", check (in order): `revoked_at`, `expires_at`, owner `deactivated_at` / `deleted_at`, and `/admin/audit-log` for matching `share_token_revoked`.
+- Cap breach: `SELECT COUNT(*) FROM anonymous_share_tokens WHERE owner_user_id = $1 AND revoked_at IS NULL AND expires_at > NOW();` should never exceed 20 — the advisory lock prevents concurrent creates from racing past the cap.
+- Retention cleanup: revoked/expired rows older than 30 days are filtered from the owner list but remain in the table indefinitely. A long-tail cleanup cron is a future candidate; no immediate pressure.
