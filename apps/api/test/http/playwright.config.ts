@@ -12,6 +12,10 @@ export default createPlaywrightConfig({
   webServers: "api-only",
   authMode: "oauth",
   reportFolder: "playwright-report-http",
+  // Serialize cross-file execution. The per-IP anon-share rate-limit bucket
+  // (30 req / 5 min) is shared across specs; any parallel spec that hits
+  // /share/:token pollutes the bucket and breaks the rate-limit test.
+  workers: 1,
   apiEnvOverrides: {
     DEMO_MODE_ENABLED: "true",
     PERSISTENCE_BACKEND: "memory",
@@ -20,5 +24,9 @@ export default createPlaywrightConfig({
     GOOGLE_REDIRECT_URI: TestEnv.googleRedirectUri,
     SESSION_SECRET: TestEnv.oauth.sessionSecret,
     APP_BASE_URL: TestEnv.appBaseUrl,
+    // HTTP tests run many mutations per minute from one IP + "anonymous" user
+    // (e.g. POST /__e2e/oauth-session for every testUser fixture). The default
+    // 120/min cap trips under the full suite; bump for tests only.
+    RATE_LIMIT_MAX_MUTATIONS: "5000",
   },
 });

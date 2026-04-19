@@ -1,6 +1,7 @@
 import { apiAssistantRegistry } from "@tw-portfolio/test-framework/config";
 import { accountsApiAssistantFactory } from "../assistants/accounts/index.js";
 import { adminApiAssistantFactory } from "../assistants/admin/index.js";
+import { anonymousShareTokensApiAssistantFactory } from "../assistants/anonymous-share-tokens/index.js";
 import { dividendsApiAssistantFactory } from "../assistants/dividends/index.js";
 import { feeProfilesApiAssistantFactory } from "../assistants/feeProfiles/index.js";
 import { notificationsApiAssistantFactory } from "../assistants/notifications/index.js";
@@ -12,6 +13,7 @@ import { settingsApiAssistantFactory } from "../assistants/settings/index.js";
 import { transactionsApiAssistantFactory } from "../assistants/transactions/index.js";
 import { AccountsEndpoint } from "../endpoints/AccountsEndpoint.js";
 import { AdminEndpoint } from "../endpoints/AdminEndpoint.js";
+import { AnonymousShareTokensEndpoint } from "../endpoints/AnonymousShareTokensEndpoint.js";
 import { DividendsEndpoint } from "../endpoints/DividendsEndpoint.js";
 import { FeeProfilesEndpoint } from "../endpoints/FeeProfilesEndpoint.js";
 import { NotificationsEndpoint } from "../endpoints/NotificationsEndpoint.js";
@@ -31,6 +33,7 @@ export function registerTestApiAssistants(): void {
 
   apiAssistantRegistry.register(AccountsEndpoint, accountsApiAssistantFactory);
   apiAssistantRegistry.register(AdminEndpoint, adminApiAssistantFactory);
+  apiAssistantRegistry.register(AnonymousShareTokensEndpoint, anonymousShareTokensApiAssistantFactory);
   apiAssistantRegistry.register(DividendsEndpoint, dividendsApiAssistantFactory);
   apiAssistantRegistry.register(FeeProfilesEndpoint, feeProfilesApiAssistantFactory);
   apiAssistantRegistry.register(NotificationsEndpoint, notificationsApiAssistantFactory);

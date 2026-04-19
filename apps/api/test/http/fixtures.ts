@@ -10,6 +10,7 @@ import type { TestUser } from "@tw-portfolio/test-framework/core";
 import type {
   TAccountsApiAssistant,
   TAdminApiAssistant,
+  TAnonymousShareTokensApiAssistant,
   TDividendsApiAssistant,
   TFeeProfilesApiAssistant,
   TNotificationsApiAssistant,
@@ -24,6 +25,7 @@ import { createApiSessionTest } from "@tw-portfolio/test-api/fixtures/sessionBas
 import {
   AccountsEndpoint,
   AdminEndpoint,
+  AnonymousShareTokensEndpoint,
   DividendsEndpoint,
   FeeProfilesEndpoint,
   NotificationsEndpoint,
@@ -40,6 +42,7 @@ const base = createApiSessionTest("oauth");
 type THttpApiFixtures = {
   accountsApi: TAccountsApiAssistant;
   adminApi: TAdminApiAssistant;
+  anonymousShareTokensApi: TAnonymousShareTokensApiAssistant;
   dividendsApi: TDividendsApiAssistant;
   feeProfilesApi: TFeeProfilesApiAssistant;
   notificationsApi: TNotificationsApiAssistant;
@@ -73,4 +76,7 @@ export const test: THttpApiTest = base.extend<THttpApiFixtures>({
   quotesApi: createApiFixture<TQuotesApiAssistant>(QuotesEndpoint),
   transactionsApi: createApiFixture<TTransactionsApiAssistant>(TransactionsEndpoint),
   sharesApi: createApiFixture<TSharesApiAssistant>(SharesEndpoint),
+  anonymousShareTokensApi: createApiFixture<TAnonymousShareTokensApiAssistant>(
+    AnonymousShareTokensEndpoint,
+  ),
 });

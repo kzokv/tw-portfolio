@@ -1,5 +1,8 @@
 import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
 
+import { AnonymousShareActions } from "./AnonymousShareActions.js";
+import { AnonymousShareArrange } from "./AnonymousShareArrange.js";
+import { AnonymousShareAssert } from "./AnonymousShareAssert.js";
 import { ContextSwitcherActions } from "./ContextSwitcherActions.js";
 import { ContextSwitcherArrange } from "./ContextSwitcherArrange.js";
 import { ContextSwitcherAssert } from "./ContextSwitcherAssert.js";
@@ -23,6 +26,17 @@ export const contextSwitcherAssistantFactory = createAssistantFactory({
 
 export type TContextSwitcherAssistant = ReturnType<typeof contextSwitcherAssistantFactory>;
 
+export const anonymousShareAssistantFactory = createAssistantFactory({
+  Arrange: AnonymousShareArrange,
+  Actions: AnonymousShareActions,
+  Assert: AnonymousShareAssert,
+});
+
+export type TAnonymousShareAssistant = ReturnType<typeof anonymousShareAssistantFactory>;
+
+export * from "./AnonymousShareActions.js";
+export * from "./AnonymousShareArrange.js";
+export * from "./AnonymousShareAssert.js";
 export * from "./ContextSwitcherActions.js";
 export * from "./ContextSwitcherArrange.js";
 export * from "./ContextSwitcherAssert.js";
