@@ -44,15 +44,13 @@ type: project
 | KZO-144 | Admin management portal — shell + users + invites + audit log | Complete 2026-04-17 |
 | KZO-145 | User-to-user share grant UI — schema, API, /sharing page, AAA specs | Complete 2026-04-18 |
 | KZO-146 | User-to-user portfolio sharing — switcher UX | Complete 2026-04-18 (merged to dev: `78824b6`) |
-| KZO-147 | Anonymous share tokens — public read-only route | **In active worktree (2026-04-19)** — implementation complete, code-review passed (88/100), 8-suite green, docs extended, pre-PR |
+| KZO-147 | Anonymous share tokens — public read-only route | Complete (merged to dev) |
+| KZO-149 | Hard-purge cascade extension — anonymous_share_tokens cascade | Complete 2026-04-19 |
+| KZO-142 | Admin settings UI — GET/PATCH /admin/settings + settings tab | Complete 2026-04-19 |
 | KZO-148 | Admin impersonation — support-debug mode | Scoped, not started |
-| KZO-142 | Admin settings UI — GET/PATCH /settings | Scoped (repositioned), not started |
-| KZO-149 | Hard-purge cascade extension — memory-backend one-liner | Blocked by KZO-147 merge |
 
 ## Next up
 
-- KZO-147 PR merge (migration 033, 4 routes, SSR `/share/[token]` page, owner Section C, 10 HTTP + 5 UI + 1 integration AAA specs, arch doc + runbook extensions)
-- KZO-149 hard-purge cascade (one-line memory-persistence extension after KZO-147 merges)
 - KZO-148 admin impersonation (unblocked by KZO-146's `isSharedContext` flag; will pair with a future `isImpersonating` flag; must also block `POST /share-tokens`)
 - Notification preferences UI (mute by source, snooze escalation)
 - Email digest of unread failure notifications
