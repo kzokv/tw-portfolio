@@ -380,6 +380,49 @@ export type CreateShareResponseDto =
       invite: PendingShareInviteDto;
     };
 
+// ── Anonymous share tokens (KZO-147) ───────────────────────────────────────
+
+export type AnonymousShareTokenStatus = "active" | "expired" | "revoked";
+
+export interface AnonymousShareTokenDto {
+  id: string;
+  token: string;
+  url: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  status: AnonymousShareTokenStatus;
+}
+
+export interface PublicShareHoldingDto {
+  ticker: string;
+  quantity: number;
+  marketValueAmount: number;
+  marketValueCurrency: CurrencyCode;
+  allocationPercent: number;
+}
+
+export interface PublicShareTotalByCurrencyDto {
+  currency: CurrencyCode;
+  amount: number;
+}
+
+export interface PublicShareReturnByCurrencyDto {
+  currency: CurrencyCode;
+  returnPercent: number;
+}
+
+export interface PublicShareViewDto {
+  ownerDisplayName: string;
+  expiresAt: string;
+  holdings: PublicShareHoldingDto[];
+  summary: {
+    totalValueByCurrency: PublicShareTotalByCurrencyDto[];
+    returnByCurrency: PublicShareReturnByCurrencyDto[];
+  };
+  quoteAsOf: string | null;
+}
+
 export interface QuoteSnapshotDto {
   ticker: string;
   close: number;

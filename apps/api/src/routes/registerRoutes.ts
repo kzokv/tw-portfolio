@@ -48,7 +48,18 @@ import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/ba
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { routeError } from "../lib/routeError.js";
 import type { Store, Transaction } from "../types/store.js";
-import type { PendingShareInviteRecord, ShareGrantRecord, UserRole } from "../persistence/types.js";
+import type {
+  AnonymousShareTokenRecord,
+  PendingShareInviteRecord,
+  ShareGrantRecord,
+  UserRole,
+} from "../persistence/types.js";
+import {
+  ANONYMOUS_SHARE_TOKEN_REGEX,
+  generateAnonymousShareToken,
+} from "../lib/anonymousShareToken.js";
+import { buildPublicShareView } from "../services/publicShareView.js";
+import type { AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 
 const userScopedIdSchema = z
   .string()
@@ -269,7 +280,11 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "POST /__e2e/oauth-session",
   "POST /__e2e/demo-session",
   "POST /__e2e/reset-demo-rate-buckets",
+  "POST /__e2e/seed-anonymous-share-token",
+  "POST /__e2e/anon-share-rate-reset",
+  "POST /__e2e/anon-share-deactivate-owner",
   "GET /invites/:code/status",
+  "GET /share/:token",
 ]);
 const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /settings",
@@ -347,6 +362,11 @@ const ADMIN_ROUTE_KEYS = new Set([
 const inviteStatusBuckets = new Map<string, number[]>();
 const INVITE_STATUS_WINDOW_MS = 60_000;
 const INVITE_STATUS_LIMIT = 20;
+
+// KZO-147: per-IP rate limit on GET /share/:token. Counts invalid tokens too
+// (enumeration resistance). Checked BEFORE DB lookup so brute-forcers cannot
+// burn persistence throughput. See docs/004-notes/kzo-147/ Q4.
+const anonymousShareRateBuckets = new Map<string, number[]>();
 
 type ResolvedRequestIdentity = {
   sessionUserId: string;
@@ -430,6 +450,31 @@ function toPendingShareInviteDto(
 
 function isShareGrantRecord(value: ShareGrantRecord | PendingShareInviteRecord): value is ShareGrantRecord {
   return "granteeUserId" in value;
+}
+
+function deriveAnonymousShareTokenStatus(
+  record: AnonymousShareTokenRecord,
+  now: number = Date.now(),
+): AnonymousShareTokenStatus {
+  if (record.revokedAt) return "revoked";
+  if (Date.parse(record.expiresAt) <= now) return "expired";
+  return "active";
+}
+
+function toAnonymousShareTokenDto(
+  app: FastifyInstance,
+  record: AnonymousShareTokenRecord,
+  now: number = Date.now(),
+): AnonymousShareTokenDto {
+  return {
+    id: record.id,
+    token: record.token,
+    url: `${app.appBaseUrl}/share/${record.token}`,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    revokedAt: record.revokedAt,
+    status: deriveAnonymousShareTokenStatus(record, now),
+  };
 }
 
 function routeKey(method: string, routeUrl: string): string {
@@ -563,11 +608,15 @@ export function requireSessionUserId(req: FastifyRequest): string {
   authRequired();
 }
 
+async function loadUserStoreForUserId(app: FastifyInstance, userId: string) {
+  const store = await app.persistence.loadStore(userId);
+  syncAccountingPolicy(store);
+  return { userId, store };
+}
+
 async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-  const store = await app.persistence.loadStore(contextUserId);
-  syncAccountingPolicy(store);
-  return { userId: contextUserId, store };
+  return loadUserStoreForUserId(app, contextUserId);
 }
 
 async function resolveCookieBackedAuthContext(
@@ -686,6 +735,24 @@ function assertInviteStatusRateLimit(req: FastifyRequest): void {
 
 export function _resetInviteStatusBuckets(): void {
   inviteStatusBuckets.clear();
+}
+
+export function assertAnonymousShareRateLimit(ip: string): void {
+  const now = Date.now();
+  const windowMs = Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS;
+  const limit = Env.ANONYMOUS_SHARE_RATE_LIMIT_MAX;
+  const recent = (anonymousShareRateBuckets.get(ip) ?? []).filter(
+    (timestamp) => now - timestamp < windowMs,
+  );
+  if (recent.length >= limit) {
+    throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
+  }
+  recent.push(now);
+  anonymousShareRateBuckets.set(ip, recent);
+}
+
+export function _resetAnonymousShareRateBuckets(): void {
+  anonymousShareRateBuckets.clear();
 }
 
 /** Guard for `/__e2e/reset` — allowed in development and test with dev_bypass + memory, blocked in production. */
@@ -1053,6 +1120,80 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2EOauthSessionEnabled();
     _resetDemoRateBuckets();
     return { status: "reset" };
+  });
+
+  // KZO-147: seed an anonymous share token row directly (bypasses the normal
+  // create path) so E2E tests can exercise revoked/expired edge cases.
+  app.post("/__e2e/seed-anonymous-share-token", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z.object({
+      userId: userScopedIdSchema.optional(),
+      ownerUserId: userScopedIdSchema.optional(),
+      token: z.string().regex(ANONYMOUS_SHARE_TOKEN_REGEX).optional(),
+      expiresAt: isoDateTimeSchema.optional(),
+      expiresInDays: z.number().int().min(1).max(365).optional(),
+      expiredAt: isoDateTimeSchema.optional(),
+      revokedAt: isoDateTimeSchema.nullable().optional(),
+    }).parse(req.body);
+    const ownerUserId = body.ownerUserId ?? body.userId;
+    if (!ownerUserId) {
+      throw routeError(400, "validation_error", "ownerUserId is required");
+    }
+
+    const token = body.token ?? generateAnonymousShareToken();
+    const expiresAt = body.expiredAt
+      ?? body.expiresAt
+      ?? new Date(Date.now() + (body.expiresInDays ?? 7) * 24 * 60 * 60 * 1000).toISOString();
+    const ttlDays = body.expiresInDays
+      ?? Math.max(1, Math.ceil((Date.parse(expiresAt) - Date.now()) / (24 * 60 * 60 * 1000)));
+
+    const created = await app.persistence.createAnonymousShareToken({
+      ownerUserId,
+      token,
+      expiresAt,
+      ttlDays,
+      auditInput: { actorUserId: null, ipAddress: req.ip },
+    });
+
+    if (created.status !== "ok") {
+      throw routeError(409, "seed_failed", `seed failed: ${created.status}`);
+    }
+
+    let record = created.record;
+    if (body.revokedAt !== undefined && body.revokedAt !== null) {
+      const revoked = await app.persistence.revokeAnonymousShareToken({
+        id: record.id,
+        ownerUserId,
+        auditInput: { actorUserId: null, ipAddress: req.ip },
+      });
+      if (revoked.status === "revoked") {
+        record = revoked.record;
+      }
+    }
+
+    return toAnonymousShareTokenDto(app, record);
+  });
+
+  app.post("/__e2e/anon-share-rate-reset", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z.object({ ip: z.string().trim().min(1).optional() }).parse(req.body ?? {});
+    if (body.ip) {
+      anonymousShareRateBuckets.delete(body.ip);
+    } else {
+      _resetAnonymousShareRateBuckets();
+    }
+    return { status: "reset" };
+  });
+
+  app.post("/__e2e/anon-share-deactivate-owner", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z.object({ userId: userScopedIdSchema }).parse(req.body);
+    await app.persistence.disableUser(body.userId, {
+      actorUserId: null,
+      ipAddress: req.ip,
+      metadata: { reason: "anon_share_test_owner_deactivate" },
+    });
+    return { status: "deactivated", userId: body.userId };
   });
 
   app.post("/__e2e/oauth-session", async (req, reply) => {
@@ -1545,6 +1686,142 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     reply.code(204);
     return null;
+  });
+
+  // ── Anonymous share tokens (KZO-147) ──────────────────────────────────────
+  // POST /share-tokens — create a fresh token. Capped at 20 active per owner.
+  // Plaintext 22-char base62 tokens: the API returns the token exactly once
+  // here (and again on GET /share-tokens list until revoked/expired).
+  app.post("/share-tokens", async (req, reply) => {
+    requireShareGrantorRole(req);
+    requireWriteableContext(req);
+    const sessionUserId = requireSessionUserId(req);
+    const body = z.object({
+      expiresInDays: z.number().int().min(1).max(365),
+    }).parse(req.body);
+
+    const expiresAt = new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000).toISOString();
+
+    // 3-retry loop on 23505 UNIQUE violation (rare; base62^22 keyspace).
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const token = generateAnonymousShareToken();
+      const result = await app.persistence.createAnonymousShareToken({
+        ownerUserId: sessionUserId,
+        token,
+        expiresAt,
+        ttlDays: body.expiresInDays,
+        auditInput: {
+          actorUserId: sessionUserId,
+          ipAddress: req.ip,
+        },
+      });
+      if (result.status === "ok") {
+        reply.code(201);
+        return toAnonymousShareTokenDto(app, result.record);
+      }
+      if (result.status === "cap_exceeded") {
+        throw routeError(
+          429,
+          "anonymous_token_cap_exceeded",
+          "anonymous share token cap (20 active) reached",
+        );
+      }
+      // collision — retry
+    }
+    throw routeError(500, "token_collision_retry_exhausted", "token collision retry exhausted");
+  });
+
+  // GET /share-tokens — list the session user's own tokens (created within
+  // the 30-day retention window). Status is derived server-side.
+  app.get("/share-tokens", async (req) => {
+    const sessionUserId = requireSessionUserId(req);
+    const records = await app.persistence.listAnonymousShareTokensForOwner(sessionUserId);
+    const now = Date.now();
+    return {
+      tokens: records.map((record) => toAnonymousShareTokenDto(app, record, now)),
+    };
+  });
+
+  // DELETE /share-tokens/:id — revoke an active token, or 204 no-op if
+  // already revoked/expired. Wrong-owner returns 404 — no existence leak.
+  app.delete("/share-tokens/:id", async (req, reply) => {
+    requireShareGrantorRole(req);
+    requireWriteableContext(req);
+    const sessionUserId = requireSessionUserId(req);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    const result = await app.persistence.revokeAnonymousShareToken({
+      id: params.id,
+      ownerUserId: sessionUserId,
+      auditInput: {
+        actorUserId: sessionUserId,
+        ipAddress: req.ip,
+      },
+    });
+
+    if (result.status === "not_found") {
+      throw routeError(404, "token_not_found", "token not found");
+    }
+
+    reply.code(204);
+    return null;
+  });
+
+  // GET /share/:token — public read-only view. No auth. Rate-limited per-IP
+  // BEFORE the DB lookup so brute-forcers cannot burn persistence throughput.
+  // Every failure after the rate check returns the same opaque 404.
+  app.get("/share/:token", async (req, reply) => {
+    // Step 1 — rate limit first (even invalid tokens count).
+    try {
+      assertAnonymousShareRateLimit(req.ip);
+    } catch (error) {
+      if ((error as { statusCode?: number; code?: string }).statusCode === 429) {
+        reply.header(
+          "retry-after",
+          String(Math.ceil(Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS / 1000)),
+        );
+      }
+      throw error;
+    }
+
+    // Step 2 — cheap regex pre-check (malformed strings never hit the DB).
+    const rawToken = (req.params as { token?: unknown }).token;
+    if (typeof rawToken !== "string" || !ANONYMOUS_SHARE_TOKEN_REGEX.test(rawToken)) {
+      throw routeError(404, "token_not_found", "token not found");
+    }
+
+    // Step 3 — find an active (not revoked, not expired) token row.
+    const record = await app.persistence.findActiveAnonymousShareTokenByToken(rawToken);
+    if (!record) {
+      throw routeError(404, "token_not_found", "token not found");
+    }
+
+    // Step 4 — owner must be active (not soft-deleted, not deactivated).
+    const owner = await app.persistence.getAuthUserById(record.ownerUserId);
+    if (!owner || owner.deletedAt || owner.deactivatedAt) {
+      throw routeError(404, "token_not_found", "token not found");
+    }
+
+    // Step 5 — load the owner's store and resolve quote snapshots.
+    const { store } = await loadUserStoreForUserId(app, record.ownerUserId);
+    const tickers = [
+      ...new Set(
+        store.accounting.projections.holdings
+          .filter((holding) => holding.quantity > 0)
+          .map((holding) => holding.ticker),
+      ),
+    ];
+    const quotes = await resolveQuoteSnapshots(tickers, app.persistence);
+
+    // Owner display name fallback chain.
+    const ownerDisplayName = owner.displayName
+      ?? (owner.email ? owner.email.split("@")[0]! : "Portfolio owner");
+
+    const view = buildPublicShareView(store, quotes, ownerDisplayName, record.expiresAt);
+
+    // Step 6 — response headers. Never cache and never expose the token/id.
+    reply.header("cache-control", "private, no-store, max-age=0");
+    return view;
   });
 
   app.put("/settings/full", async (req) => {

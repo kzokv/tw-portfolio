@@ -14,6 +14,10 @@ export const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX_MUTATIONS: z.coerce.number().int().positive().default(120),
+  // KZO-147: per-IP rate limit on GET /share/:token. Counts invalid tokens too
+  // (enumeration resistance). See docs/004-notes/kzo-147/ Q4.
+  ANONYMOUS_SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
   // Fallback default (minutes) used when `app_config.repair_cooldown_minutes` is NULL or
   // the singleton row is missing. When the DB value is set, it is authoritative. See KZO-133.
   REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),

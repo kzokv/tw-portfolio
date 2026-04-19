@@ -103,6 +103,8 @@ export type AuditLogAction =
   | "admin_invite_revoked"
   | "share_granted"
   | "share_revoked"
+  | "share_token_created"
+  | "share_token_revoked"
   | "session_force_logout";
 
 export interface ShareGrantRecord {
@@ -161,6 +163,40 @@ export interface MaterializePendingSharesInput {
   email: string;
   auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
 }
+
+export interface AnonymousShareTokenRecord {
+  id: string;
+  token: string;
+  ownerUserId: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+}
+
+export interface CreateAnonymousShareTokenInput {
+  ownerUserId: string;
+  token: string;
+  expiresAt: string;
+  ttlDays: number;
+  auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+}
+
+export interface RevokeAnonymousShareTokenInput {
+  id: string;
+  ownerUserId: string;
+  auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+}
+
+export type CreateAnonymousShareTokenResult =
+  | { status: "ok"; record: AnonymousShareTokenRecord }
+  | { status: "cap_exceeded" }
+  | { status: "collision" };
+
+export type RevokeAnonymousShareTokenResult =
+  | { status: "revoked"; record: AnonymousShareTokenRecord }
+  | { status: "noop" }
+  | { status: "not_found" };
 
 export interface AuditLogInput {
   actorUserId?: string | null;
@@ -448,6 +484,36 @@ export interface Persistence {
     auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
   ): Promise<void>;
   materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]>;
+  /**
+   * Atomically create an anonymous share token, enforcing the per-owner active-token
+   * cap of {@link ANONYMOUS_SHARE_TOKEN_CAP}. On Postgres, serialised with a
+   * transaction-scoped advisory lock keyed by owner; on memory, with a per-owner
+   * async mutex. Returns `"cap_exceeded"` when the owner already holds the maximum
+   * number of active tokens, or `"collision"` on a UNIQUE violation against the
+   * plaintext token (caller retries with a freshly minted token).
+   */
+  createAnonymousShareToken(input: CreateAnonymousShareTokenInput): Promise<CreateAnonymousShareTokenResult>;
+  /**
+   * List tokens for the owner with the 30-day retention filter applied — active
+   * rows always visible; revoked/expired rows visible for 30 days after
+   * termination. Sorted `created_at DESC`.
+   */
+  listAnonymousShareTokensForOwner(ownerUserId: string): Promise<AnonymousShareTokenRecord[]>;
+  /**
+   * Resolve a plaintext token to its active record (non-revoked, not expired).
+   * Returns null in all other cases — callers must not distinguish between
+   * missing, expired, and revoked in their responses.
+   */
+  findActiveAnonymousShareTokenByToken(token: string): Promise<AnonymousShareTokenRecord | null>;
+  /**
+   * Revoke a token owned by `ownerUserId`. Flips `revoked_at = NOW()` only when
+   * the row is currently active (`revoked_at IS NULL AND expires_at > NOW()`);
+   * otherwise returns `"noop"` without writing an audit entry. Wrong-owner
+   * returns `"not_found"` (no existence leak).
+   */
+  revokeAnonymousShareToken(input: RevokeAnonymousShareTokenInput): Promise<RevokeAnonymousShareTokenResult>;
+  /** Count active (non-revoked, non-expired) tokens for the owner. */
+  countActiveAnonymousShareTokensForOwner(ownerUserId: string): Promise<number>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
