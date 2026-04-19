@@ -10,8 +10,10 @@ import {
   type DividendReviewQuery,
 } from "../../../features/dividends/services/dividendService";
 import { requireSession } from "../../../lib/auth";
+import { getJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
 import { resolvePresetDates, type DatePreset } from "../../../components/dividends/dividendReviewUtils";
+import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 
 interface DividendReviewPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -60,7 +62,11 @@ function searchParamsToQuery(sp: Record<string, string | string[] | undefined>):
 }
 
 export default async function DividendReviewPage({ searchParams }: DividendReviewPageProps) {
-  const [sp, session] = await Promise.all([searchParams, requireSession()]);
+  const [sp, session, profile] = await Promise.all([
+    searchParams,
+    requireSession(),
+    getJson<ProfileWithImpersonationDto>("/profile"),
+  ]);
 
   let locale: LocaleCode = "en";
   let accounts: AccountDto[] = [];
@@ -92,7 +98,7 @@ export default async function DividendReviewPage({ searchParams }: DividendRevie
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dividends" isDemo={session.isDemo}>
+      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile}>
         <DividendReviewClient
           initialData={initialData}
           dict={dict}

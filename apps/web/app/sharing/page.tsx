@@ -17,6 +17,7 @@ export default function SharingPage() {
       titleOverride={dict.sharing.pageTitle}
       descriptionOverride={dict.sharing.pageDescription}
       activeSectionOverride={null}
+      initialProfile={profile}
     >
       <SharingClient
         locale={locale}

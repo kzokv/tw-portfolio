@@ -1,9 +1,9 @@
-import type { ProfileDto } from "@tw-portfolio/shared-types";
 import { getJson } from "../../../lib/api";
 import { AdminUsersClient } from "../../../components/admin/AdminUsersClient";
+import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 
 export default async function AdminUsersPage() {
-  const profile = await getJson<ProfileDto>("/profile");
+  const profile = await getJson<ProfileWithImpersonationDto>("/profile");
 
   return (
     <AdminUsersClient

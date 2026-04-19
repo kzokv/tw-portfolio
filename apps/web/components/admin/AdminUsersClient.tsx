@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   AdminUserListItemDto,
   AdminUserListResponse,
   AdminUserStatus,
   UserRole,
 } from "@tw-portfolio/shared-types";
-import { getJson, patchJson, postJson, deleteJson, ApiError, API_BASE } from "../../lib/api";
+import { getJson, patchJson, postJson, deleteJson, ApiError } from "../../lib/api";
+import { PROFILE_REFRESH_EVENT } from "../../features/profile/hooks/useProfile";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { UserStatusBadge } from "./UserStatusBadge";
@@ -51,6 +53,7 @@ function formatDate(dateStr: string): string {
 }
 
 export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsersClientProps) {
+  const router = useRouter();
   const [users, setUsers] = useState<AdminUserListItemDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -114,12 +117,21 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
 
   function handleApiError(err: unknown): string {
     if (err instanceof ApiError) {
+      if (err.code === "impersonation_write_blocked") return "";
       if (err.code === "last_admin_blocked") return "Cannot remove the last admin";
       if (err.code === "self_operation_blocked") return "Cannot modify yourself";
       if (err.code === "active_jobs_blocked") return "User has active background jobs";
+      if (err.code === "cannot_impersonate_self") return "Cannot impersonate yourself";
       return err.message;
     }
     return err instanceof Error ? err.message : "Operation failed";
+  }
+
+  function setHandledActionError(err: unknown): void {
+    const nextMessage = handleApiError(err);
+    if (nextMessage) {
+      setActionError(nextMessage);
+    }
   }
 
   async function handleRoleChange(user: AdminUserListItemDto, newRole: UserRole) {
@@ -142,7 +154,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
       await patchJson(`/admin/users/${user.userId}/role`, { role: newRole });
       await fetchUsers();
     } catch (err) {
-      setActionError(handleApiError(err));
+      setHandledActionError(err);
     } finally {
       setActionLoading(false);
     }
@@ -167,7 +179,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
       await postJson(`/admin/users/${user.userId}/enable`, {});
       await fetchUsers();
     } catch (err) {
-      setActionError(handleApiError(err));
+      setHandledActionError(err);
     } finally {
       setActionLoading(false);
     }
@@ -194,7 +206,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
       setConfirmDialog(null);
       await fetchUsers();
     } catch (err) {
-      setActionError(handleApiError(err));
+      setHandledActionError(err);
       setConfirmDialog(null);
     } finally {
       setActionLoading(false);
@@ -206,20 +218,29 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
     setActionLoading(true);
     setActionError(null);
     try {
-      const res = await fetch(`${API_BASE}/admin/users/${purgeTarget.userId}/purge`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ confirmation, adminEmail }),
+      await deleteJson<void>(`/admin/users/${purgeTarget.userId}/purge`, {
+        body: { confirmation, adminEmail },
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string; message?: string };
-        throw new ApiError(data.message ?? data.error ?? "Purge failed", res.status, data.error);
-      }
       setPurgeTarget(null);
       await fetchUsers();
     } catch (err) {
-      setActionError(handleApiError(err));
+      setHandledActionError(err);
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleImpersonate(user: AdminUserListItemDto) {
+    if (user.userId === currentUserId || user.status !== "active") return;
+
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await postJson(`/admin/users/${user.userId}/impersonate`, {});
+      window.dispatchEvent(new Event(PROFILE_REFRESH_EVENT));
+      router.refresh();
+    } catch (err) {
+      setHandledActionError(err);
     } finally {
       setActionLoading(false);
     }
@@ -354,6 +375,23 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                       <td className="px-4 py-3 text-slate-500">{formatDate(user.createdAt)}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {!isSelf ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={cn(
+                                user.status !== "active"
+                                  ? "text-slate-400 hover:bg-transparent hover:text-slate-400"
+                                  : "text-red-700 hover:text-red-800",
+                              )}
+                              disabled={user.status !== "active" || actionLoading}
+                              onClick={() => void handleImpersonate(user)}
+                              title="Impersonate user"
+                              data-testid={`impersonate-btn-${user.userId}`}
+                            >
+                              Impersonate
+                            </Button>
+                          ) : null}
                           {user.status === "active" && (
                             <>
                               <Button

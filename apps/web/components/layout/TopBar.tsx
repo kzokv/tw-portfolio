@@ -65,6 +65,8 @@ interface TopBarProps {
   notificationDict?: AppDictionary;
   /** Rendered between the title block and the desktop quick-search; typically the PortfolioSwitcher. */
   portfolioSwitcher?: ReactNode;
+  sticky?: boolean;
+  mobileSearchTop?: number;
 }
 
 export function TopBar({
@@ -109,6 +111,8 @@ export function TopBar({
   onNotificationDropdownClose,
   notificationDict,
   portfolioSwitcher,
+  sticky = true,
+  mobileSearchTop,
 }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -203,7 +207,7 @@ export function TopBar({
 
   if (skeleton) {
     return (
-      <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-[rgba(243,247,255,0.92)] backdrop-blur-xl" aria-hidden="true" role="banner">
+      <header className={cn(sticky && "sticky top-0 z-20", "border-b border-slate-200/70 bg-[rgba(243,247,255,0.92)] backdrop-blur-xl")} aria-hidden="true" role="banner">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 px-4 py-4 md:px-8 md:py-5 xl:px-10">
           <div className="min-w-0 flex-1">
             <div className="skeleton-line h-3 w-28 rounded" />
@@ -223,7 +227,7 @@ export function TopBar({
 
   return (
     <>
-      <header className="sticky top-0 z-20 border-b border-slate-200/75 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl" role="banner">
+      <header className={cn(sticky && "sticky top-0 z-20", "border-b border-slate-200/75 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl")} role="banner">
         <div className="mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-4 md:px-8 md:py-5 xl:px-10">
           <Button
             variant="secondary"
@@ -367,9 +371,10 @@ export function TopBar({
       />
       <div
         className={cn(
-          "fixed inset-x-0 top-[5.5rem] z-50 px-4 transition lg:hidden",
+          "fixed inset-x-0 z-50 px-4 transition lg:hidden",
           mobileSearchOpen ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0",
         )}
+        style={mobileSearchTop ? { top: `${mobileSearchTop}px` } : undefined}
         data-testid="topbar-search-sheet"
       >
         <div className="glass-panel rounded-[30px] border border-slate-200/80 bg-[rgba(255,255,255,0.96)] p-4 shadow-[0_28px_70px_rgba(15,23,42,0.16)]">

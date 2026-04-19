@@ -8,10 +8,12 @@ import { DashboardLoading } from "../../../components/dashboard/DashboardLoading
 import { AppShell } from "../../../components/layout/AppShell";
 import { StatChip } from "../../../components/ui/StatChip";
 import { requireSession } from "../../../lib/auth";
+import { getJson } from "../../../lib/api";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import type { DashboardOverviewHoldingDto } from "@tw-portfolio/shared-types";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
@@ -19,10 +21,11 @@ interface TickerHistoryPageProps {
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId }, session] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId }, session, profile] = await Promise.all([
     params,
     searchParams,
     requireSession(),
+    getJson<ProfileWithImpersonationDto>("/profile"),
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
@@ -44,7 +47,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   if (!dashboard) {
     return (
       <Suspense fallback={<DashboardLoading standalone />}>
-        <AppShell isDemo={session.isDemo}>
+        <AppShell isDemo={session.isDemo} initialProfile={profile}>
           <p>
             Failed to load data for {ticker}.{" "}
             <Link href="/portfolio">Back to portfolio</Link>
@@ -84,7 +87,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell isDemo={session.isDemo}>
+      <AppShell isDemo={session.isDemo} initialProfile={profile}>
         <TickerHistoryClient
           transactions={transactions}
           dict={dict}

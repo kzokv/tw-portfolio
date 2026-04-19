@@ -29,7 +29,7 @@ import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentT
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
-import { useProfile } from "../../features/profile/hooks/useProfile";
+import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 import { useNotifications } from "../../hooks/useNotifications";
 import { fetchSharingPageData } from "../../features/sharing/service";
 import type { InboundShareCardItem } from "../../features/sharing/types";
@@ -48,6 +48,8 @@ import {
 } from "../../lib/context";
 import { useSharedContextOwnerId } from "../../hooks/useSharedContextOwnerId";
 import { StatusToast } from "../ui/StatusToast";
+import { ApiClientErrorToast } from "./ApiClientErrorToast";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 type ViewportMode = "mobile" | "compact" | "wide";
@@ -59,6 +61,7 @@ interface AppShellProps {
   titleOverride?: string;
   descriptionOverride?: string;
   activeSectionOverride?: AppSection | null;
+  initialProfile?: ProfileWithImpersonationDto | null;
   children?: React.ReactNode;
 }
 
@@ -88,6 +91,7 @@ export function AppShell({
   titleOverride,
   descriptionOverride,
   activeSectionOverride,
+  initialProfile = null,
   children,
 }: AppShellProps) {
   const router = useRouter();
@@ -101,6 +105,7 @@ export function AppShell({
   const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
   const [switcherLoaded, setSwitcherLoaded] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
+  const [chromeHeight, setChromeHeight] = useState(0);
   // Guards the deep-link effect: once we apply ?as=X the first time, don't
   // re-apply even if the effect's dependencies thrash during the refresh
   // cascade (router.refresh → re-render → stable callback identity change).
@@ -108,6 +113,7 @@ export function AppShell({
   // tracking under Next's Suspense + router.refresh combo and manifest as
   // "Rendered more hooks than during the previous render."
   const deepLinkAppliedRef = useRef(false);
+  const chromeRef = useRef<HTMLDivElement | null>(null);
   const currentContextOwnerId = useSharedContextOwnerId();
 
   const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
@@ -119,7 +125,11 @@ export function AppShell({
     limit: 6,
     enabled: section === "transactions",
   });
-  const profileData = useProfile();
+  const profileData = useProfile(initialProfile);
+  const impersonation = profileData.profile?.impersonation
+    && profileData.profile.impersonation.active !== false
+    ? profileData.profile.impersonation
+    : null;
 
   const locale: LocaleCode = localeOverride ?? dashboard.settings?.locale ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
@@ -176,6 +186,20 @@ export function AppShell({
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const element = chromeRef.current;
+    if (!element) return;
+
+    const updateHeight = () => {
+      setChromeHeight(element.getBoundingClientRect().height);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [impersonation]);
 
   const refreshSwitcherData = useCallback(async () => {
     try {
@@ -546,55 +570,60 @@ export function AppShell({
           You&apos;re using a demo session.
         </div>
       )}
-      <TopBar
-        userId={dashboard.settings?.userId}
-        displayName={profileData.profile?.displayName}
-        pictureUrl={profileData.profile?.providerPictureUrl}
-        email={profileData.profile?.email}
-        role={profileData.profile?.role}
-        isDemo={isDemo}
-        onOpenSettings={() => setDrawerOpen(true)}
-        onToggleNavigation={() => setMobileNavOpen((current) => !current)}
-        onToggleDesktopNavigation={toggleDesktopNavigation}
-        navigationOpen={mobileNavOpen}
-        desktopNavigationCollapsed={desktopNavigationCollapsed}
-        productName={uiDict.topBar.productName}
-        title={titleOverride ?? derivedShellTitle}
-        titleTooltip={descriptionOverride ?? derivedShellDescription}
-        openSettingsLabel={uiDict.topBar.openSettingsLabel}
-        sharingLabel={uiDict.topBar.sharingLabel}
-        signOutLabel="Sign out"
-        signOutHref={`${API_PUBLIC}/auth/logout`}
-        searchPlaceholder={uiDict.topBar.searchPlaceholder}
-        searchLabel={uiDict.topBar.searchLabel}
-        searchEmptyLabel={uiDict.topBar.searchEmptyLabel}
-        searchRoutesLabel={uiDict.topBar.searchRoutesLabel}
-        searchTickersLabel={uiDict.topBar.searchTickersLabel}
-        openSearchLabel={uiDict.topBar.openSearchLabel}
-        closeSearchLabel={uiDict.topBar.closeSearchLabel}
-        openNavigationLabel={uiDict.topBar.openNavigationLabel}
-        closeNavigationLabel={uiDict.topBar.closeNavigationLabel}
-        expandSidebarLabel={uiDict.topBar.expandSidebarLabel}
-        collapseSidebarLabel={uiDict.topBar.collapseSidebarLabel}
-        searchItems={quickSearchItems}
-        unreadCount={notificationData.unreadCount}
-        notifications={notificationData.notifications}
-        notificationDropdownOpen={notificationDropdownOpen}
-        onNotificationBellClick={() => setNotificationDropdownOpen((prev) => !prev)}
-        onNotificationMarkRead={(id) => { void notificationData.markRead(id); }}
-        onNotificationMarkAllRead={() => { void notificationData.markAllRead(); }}
-        onNotificationDismiss={(id) => { void notificationData.dismiss(id); }}
-        onNotificationDropdownClose={() => setNotificationDropdownOpen(false)}
-        notificationDict={uiDict}
-        portfolioSwitcher={
-          <PortfolioSwitcher
-            inboundActive={inboundShares}
-            currentContextOwnerId={currentContextOwnerId}
-            onSelect={handleContextSelect}
-            dict={uiDict.switcher}
-          />
-        }
-      />
+      <div ref={chromeRef} className="sticky top-0 z-30">
+        <ImpersonationBanner impersonation={impersonation} onRefreshContext={refreshContextDependentData} />
+        <TopBar
+          userId={dashboard.settings?.userId}
+          displayName={profileData.profile?.displayName}
+          pictureUrl={profileData.profile?.providerPictureUrl}
+          email={profileData.profile?.email}
+          role={profileData.profile?.role}
+          isDemo={isDemo}
+          onOpenSettings={() => setDrawerOpen(true)}
+          onToggleNavigation={() => setMobileNavOpen((current) => !current)}
+          onToggleDesktopNavigation={toggleDesktopNavigation}
+          navigationOpen={mobileNavOpen}
+          desktopNavigationCollapsed={desktopNavigationCollapsed}
+          productName={uiDict.topBar.productName}
+          title={titleOverride ?? derivedShellTitle}
+          titleTooltip={descriptionOverride ?? derivedShellDescription}
+          openSettingsLabel={uiDict.topBar.openSettingsLabel}
+          sharingLabel={uiDict.topBar.sharingLabel}
+          signOutLabel="Sign out"
+          signOutHref={`${API_PUBLIC}/auth/logout`}
+          searchPlaceholder={uiDict.topBar.searchPlaceholder}
+          searchLabel={uiDict.topBar.searchLabel}
+          searchEmptyLabel={uiDict.topBar.searchEmptyLabel}
+          searchRoutesLabel={uiDict.topBar.searchRoutesLabel}
+          searchTickersLabel={uiDict.topBar.searchTickersLabel}
+          openSearchLabel={uiDict.topBar.openSearchLabel}
+          closeSearchLabel={uiDict.topBar.closeSearchLabel}
+          openNavigationLabel={uiDict.topBar.openNavigationLabel}
+          closeNavigationLabel={uiDict.topBar.closeNavigationLabel}
+          expandSidebarLabel={uiDict.topBar.expandSidebarLabel}
+          collapseSidebarLabel={uiDict.topBar.collapseSidebarLabel}
+          searchItems={quickSearchItems}
+          unreadCount={notificationData.unreadCount}
+          notifications={notificationData.notifications}
+          notificationDropdownOpen={notificationDropdownOpen}
+          onNotificationBellClick={() => setNotificationDropdownOpen((prev) => !prev)}
+          onNotificationMarkRead={(id) => { void notificationData.markRead(id); }}
+          onNotificationMarkAllRead={() => { void notificationData.markAllRead(); }}
+          onNotificationDismiss={(id) => { void notificationData.dismiss(id); }}
+          onNotificationDropdownClose={() => setNotificationDropdownOpen(false)}
+          notificationDict={uiDict}
+          portfolioSwitcher={
+            <PortfolioSwitcher
+              inboundActive={inboundShares}
+              currentContextOwnerId={currentContextOwnerId}
+              onSelect={handleContextSelect}
+              dict={uiDict.switcher}
+            />
+          }
+          sticky={false}
+          mobileSearchTop={chromeHeight}
+        />
+      </div>
 
       <div
         className={cn(
@@ -638,6 +667,7 @@ export function AppShell({
           </div>
 
           <main className="min-w-0" data-testid="shell-main">
+            <ApiClientErrorToast />
             <StatusToast message={contextMessage} variant="success" testId="context-status" />
             {globalError ? (
               <div
