@@ -103,8 +103,29 @@ async function bootstrapAdminAccess(app: AppInstance): Promise<void> {
   await app.persistence.promoteUserToAdminByEmail(Env.INITIAL_ADMIN_EMAIL, "admin_promote_startup");
 }
 
+// KZO-147: redact the 22-char base62 token in GET /share/:token URLs so the
+// plaintext token does not leak into request logs.
+const ANON_SHARE_TOKEN_URL_REGEX = /\/share\/[A-Za-z0-9]{22}(?=[/?#]|$)/g;
+function redactAnonymousShareTokenUrl(url: string): string {
+  return url.replace(ANON_SHARE_TOKEN_URL_REGEX, "/share/[REDACTED]");
+}
+
 export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
-  const app = Fastify({ logger: true }) as AppInstance;
+  const app = Fastify({
+    logger: {
+      serializers: {
+        req(request: { method?: string; url?: string; hostname?: string; remoteAddress?: string; remotePort?: number }) {
+          return {
+            method: request.method,
+            url: typeof request.url === "string" ? redactAnonymousShareTokenUrl(request.url) : request.url,
+            hostname: request.hostname,
+            remoteAddress: request.remoteAddress,
+            remotePort: request.remotePort,
+          };
+        },
+      },
+    },
+  }) as AppInstance;
   app.decorateRequest("__sessionType", undefined);
   const persistenceBackend = options.persistenceBackend ?? Env.PERSISTENCE_BACKEND;
   const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");

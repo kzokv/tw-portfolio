@@ -34,8 +34,11 @@ import type {
   AdminAuditLogListOptions,
   AdminInviteListOptions,
   AdminUserListOptions,
+  AnonymousShareTokenRecord,
   AuditLogInput,
   AuthUserRecord,
+  CreateAnonymousShareTokenInput,
+  CreateAnonymousShareTokenResult,
   CreateShareCoupledInviteInput,
   CreateShareGrantInput,
   ConsumeInviteResult,
@@ -62,10 +65,16 @@ import type {
   ListSharesForOwnerResult,
   MaterializePendingSharesInput,
   PendingShareInviteRecord,
+  RevokeAnonymousShareTokenInput,
+  RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   AggregatedSnapshotPoint,
   UserRole,
 } from "./types.js";
+import {
+  ANONYMOUS_SHARE_TOKEN_CAP,
+  ANONYMOUS_SHARE_TOKEN_RETENTION_MS,
+} from "../lib/anonymousShareToken.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 interface MemoryNotification {
@@ -118,6 +127,16 @@ interface MemoryShare {
   revokedByUserId: string | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+interface MemoryAnonymousShareToken {
+  id: string;
+  token: string;
+  ownerUserId: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
 }
 
 interface MemoryAuditLogEntry {
@@ -202,6 +221,9 @@ export class MemoryPersistence implements Persistence {
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
   private readonly invites = new Map<string, MemoryInvite>();
   private readonly portfolioShares: MemoryShare[] = [];
+  private readonly anonymousShareTokens: MemoryAnonymousShareToken[] = [];
+  /** Per-owner async mutex — ensures cap-check + insert is atomic for concurrent callers. */
+  private readonly anonymousShareTokenLocks = new Map<string, Promise<unknown>>();
   private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
@@ -722,6 +744,130 @@ export class MemoryPersistence implements Persistence {
     }
 
     return materialized;
+  }
+
+  async createAnonymousShareToken(
+    input: CreateAnonymousShareTokenInput,
+  ): Promise<CreateAnonymousShareTokenResult> {
+    // Per-owner mutex keeps cap-check + insert atomic across concurrent callers.
+    const previous = this.anonymousShareTokenLocks.get(input.ownerUserId) ?? Promise.resolve();
+    const next = previous.then(() => this._createAnonymousShareTokenLocked(input));
+    this.anonymousShareTokenLocks.set(
+      input.ownerUserId,
+      next.catch(() => undefined),
+    );
+    return next;
+  }
+
+  private async _createAnonymousShareTokenLocked(
+    input: CreateAnonymousShareTokenInput,
+  ): Promise<CreateAnonymousShareTokenResult> {
+    const owner = this.getUserById(input.ownerUserId);
+    if (!owner) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+
+    if (this.anonymousShareTokens.some((row) => row.token === input.token)) {
+      return { status: "collision" };
+    }
+
+    const activeCount = this._countActiveAnonymousShareTokens(input.ownerUserId);
+    if (activeCount >= ANONYMOUS_SHARE_TOKEN_CAP) {
+      return { status: "cap_exceeded" };
+    }
+
+    const record: MemoryAnonymousShareToken = {
+      id: randomUUID(),
+      token: input.token,
+      ownerUserId: input.ownerUserId,
+      createdAt: new Date().toISOString(),
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      revokedByUserId: null,
+    };
+    this.anonymousShareTokens.push(record);
+
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "share_token_created",
+      targetUserId: null,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        tokenId: record.id,
+        expiresAt: record.expiresAt,
+        ttlDays: input.ttlDays,
+      },
+    });
+
+    return { status: "ok", record: toAnonymousShareTokenRecord(record) };
+  }
+
+  async listAnonymousShareTokensForOwner(ownerUserId: string): Promise<AnonymousShareTokenRecord[]> {
+    const now = Date.now();
+    const cutoff = now - ANONYMOUS_SHARE_TOKEN_RETENTION_MS;
+    return this.anonymousShareTokens
+      .filter((row) => row.ownerUserId === ownerUserId)
+      .filter((row) => {
+        if (row.revokedAt === null) {
+          const expiresAtMs = new Date(row.expiresAt).getTime();
+          if (expiresAtMs > now) return true;
+          return expiresAtMs >= cutoff;
+        }
+        return new Date(row.revokedAt).getTime() >= cutoff;
+      })
+      .slice()
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(toAnonymousShareTokenRecord);
+  }
+
+  async findActiveAnonymousShareTokenByToken(token: string): Promise<AnonymousShareTokenRecord | null> {
+    const row = this.anonymousShareTokens.find((candidate) => candidate.token === token);
+    if (!row) return null;
+    if (row.revokedAt !== null) return null;
+    if (new Date(row.expiresAt).getTime() <= Date.now()) return null;
+    return toAnonymousShareTokenRecord(row);
+  }
+
+  async revokeAnonymousShareToken(
+    input: RevokeAnonymousShareTokenInput,
+  ): Promise<RevokeAnonymousShareTokenResult> {
+    const row = this.anonymousShareTokens.find((candidate) => candidate.id === input.id);
+    if (!row || row.ownerUserId !== input.ownerUserId) {
+      return { status: "not_found" };
+    }
+    const isActive =
+      row.revokedAt === null && new Date(row.expiresAt).getTime() > Date.now();
+    if (!isActive) {
+      return { status: "noop" };
+    }
+    row.revokedAt = new Date().toISOString();
+    row.revokedByUserId = input.ownerUserId;
+
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "share_token_revoked",
+      targetUserId: null,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        tokenId: row.id,
+      },
+    });
+
+    return { status: "revoked", record: toAnonymousShareTokenRecord(row) };
+  }
+
+  async countActiveAnonymousShareTokensForOwner(ownerUserId: string): Promise<number> {
+    return this._countActiveAnonymousShareTokens(ownerUserId);
+  }
+
+  private _countActiveAnonymousShareTokens(ownerUserId: string): number {
+    const now = Date.now();
+    return this.anonymousShareTokens.filter(
+      (row) =>
+        row.ownerUserId === ownerUserId &&
+        row.revokedAt === null &&
+        new Date(row.expiresAt).getTime() > now,
+    ).length;
   }
 
   async loadStore(userId: string) {
@@ -2313,6 +2459,18 @@ function toShareGrantRecord(share: MemoryShare, owner: MemoryUser, grantee: Memo
     createdAt: share.createdAt,
     revokedAt: share.revokedAt,
     revokedByUserId: share.revokedByUserId,
+  };
+}
+
+function toAnonymousShareTokenRecord(row: MemoryAnonymousShareToken): AnonymousShareTokenRecord {
+  return {
+    id: row.id,
+    token: row.token,
+    ownerUserId: row.ownerUserId,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    revokedAt: row.revokedAt,
+    revokedByUserId: row.revokedByUserId,
   };
 }
 

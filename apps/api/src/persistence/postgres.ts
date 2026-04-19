@@ -54,8 +54,11 @@ import type {
   AdminAuditLogListOptions,
   AdminInviteListOptions,
   AdminUserListOptions,
+  AnonymousShareTokenRecord,
   AuditLogInput,
   AuthUserRecord,
+  CreateAnonymousShareTokenInput,
+  CreateAnonymousShareTokenResult,
   CreateShareCoupledInviteInput,
   CreateShareGrantInput,
   ConsumeInviteResult,
@@ -81,6 +84,8 @@ import type {
   ReadinessStatus,
   ResolveOrCreateUserOptions,
   ResolveOrCreateUserResult,
+  RevokeAnonymousShareTokenInput,
+  RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
@@ -88,6 +93,10 @@ import type {
   AggregatedSnapshotPoint,
   UserRole,
 } from "./types.js";
+import {
+  ANONYMOUS_SHARE_TOKEN_CAP,
+  ANONYMOUS_SHARE_TOKEN_RETENTION_MS,
+} from "../lib/anonymousShareToken.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 export interface PostgresPersistenceOptions {
@@ -183,6 +192,26 @@ function mapShareGrantRow(row: {
     granteeEmail: row.grantee_email,
     granteeDisplayName: row.grantee_display_name,
     createdAt: row.created_at,
+    revokedAt: row.revoked_at,
+    revokedByUserId: row.revoked_by_user_id,
+  };
+}
+
+function mapAnonymousShareTokenRow(row: {
+  id: string;
+  token: string;
+  owner_user_id: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_by_user_id: string | null;
+}): AnonymousShareTokenRecord {
+  return {
+    id: row.id,
+    token: row.token,
+    ownerUserId: row.owner_user_id,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     revokedByUserId: row.revoked_by_user_id,
   };
@@ -1388,6 +1417,246 @@ export class PostgresPersistence implements Persistence {
     } finally {
       client.release();
     }
+  }
+
+  async createAnonymousShareToken(
+    input: CreateAnonymousShareTokenInput,
+  ): Promise<CreateAnonymousShareTokenResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Serialise cap-check + insert for this owner — race-safe against concurrent
+      // POST /share-tokens calls that arrive simultaneously while at 19 active.
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext('anon_share:' || $1::text))`,
+        [input.ownerUserId],
+      );
+
+      const ownerCheck = await client.query<{ id: string }>(
+        `SELECT id FROM users WHERE id = $1`,
+        [input.ownerUserId],
+      );
+      if (!ownerCheck.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "user_not_found", "User not found");
+      }
+
+      const countResult = await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM anonymous_share_tokens
+         WHERE owner_user_id = $1
+           AND revoked_at IS NULL
+           AND expires_at > NOW()`,
+        [input.ownerUserId],
+      );
+      const activeCount = Number(countResult.rows[0]?.count ?? "0");
+      if (activeCount >= ANONYMOUS_SHARE_TOKEN_CAP) {
+        await client.query("ROLLBACK");
+        return { status: "cap_exceeded" };
+      }
+
+      let inserted: AnonymousShareTokenRecord;
+      try {
+        const insertResult = await client.query<{
+          id: string;
+          token: string;
+          owner_user_id: string;
+          created_at: string;
+          expires_at: string;
+          revoked_at: string | null;
+          revoked_by_user_id: string | null;
+        }>(
+          `INSERT INTO anonymous_share_tokens (id, token, owner_user_id, expires_at)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id,
+                     token,
+                     owner_user_id,
+                     created_at::text AS created_at,
+                     expires_at::text AS expires_at,
+                     revoked_at::text AS revoked_at,
+                     revoked_by_user_id`,
+          [randomUUID(), input.token, input.ownerUserId, input.expiresAt],
+        );
+        inserted = mapAnonymousShareTokenRow(insertResult.rows[0]!);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          await client.query("ROLLBACK");
+          return { status: "collision" };
+        }
+        throw error;
+      }
+
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "share_token_created",
+        targetUserId: null,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          tokenId: inserted.id,
+          expiresAt: inserted.expiresAt,
+          ttlDays: input.ttlDays,
+        },
+      });
+
+      await client.query("COMMIT");
+      return { status: "ok", record: inserted };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listAnonymousShareTokensForOwner(ownerUserId: string): Promise<AnonymousShareTokenRecord[]> {
+    const retentionCutoff = new Date(Date.now() - ANONYMOUS_SHARE_TOKEN_RETENTION_MS).toISOString();
+    const result = await this.pool.query<{
+      id: string;
+      token: string;
+      owner_user_id: string;
+      created_at: string;
+      expires_at: string;
+      revoked_at: string | null;
+      revoked_by_user_id: string | null;
+    }>(
+      `SELECT id,
+              token,
+              owner_user_id,
+              created_at::text AS created_at,
+              expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              revoked_by_user_id
+       FROM anonymous_share_tokens
+       WHERE owner_user_id = $1
+         AND (
+           -- Not revoked + expired no more than 30 days ago (covers active tokens too,
+           -- since NOW() > retention_cutoff always).
+           (revoked_at IS NULL AND expires_at > $2::timestamptz)
+           OR (revoked_at IS NOT NULL AND revoked_at > $2::timestamptz)
+         )
+       ORDER BY created_at DESC`,
+      [ownerUserId, retentionCutoff],
+    );
+    return result.rows.map(mapAnonymousShareTokenRow);
+  }
+
+  async findActiveAnonymousShareTokenByToken(token: string): Promise<AnonymousShareTokenRecord | null> {
+    const result = await this.pool.query<{
+      id: string;
+      token: string;
+      owner_user_id: string;
+      created_at: string;
+      expires_at: string;
+      revoked_at: string | null;
+      revoked_by_user_id: string | null;
+    }>(
+      `SELECT id,
+              token,
+              owner_user_id,
+              created_at::text AS created_at,
+              expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              revoked_by_user_id
+       FROM anonymous_share_tokens
+       WHERE token = $1
+         AND revoked_at IS NULL
+         AND expires_at > NOW()
+       LIMIT 1`,
+      [token],
+    );
+    const row = result.rows[0];
+    return row ? mapAnonymousShareTokenRow(row) : null;
+  }
+
+  async revokeAnonymousShareToken(
+    input: RevokeAnonymousShareTokenInput,
+  ): Promise<RevokeAnonymousShareTokenResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const existing = await client.query<{
+        id: string;
+        owner_user_id: string;
+        revoked_at: string | null;
+        expires_at: string;
+      }>(
+        `SELECT id,
+                owner_user_id,
+                revoked_at::text AS revoked_at,
+                expires_at::text AS expires_at
+         FROM anonymous_share_tokens
+         WHERE id = $1
+         FOR UPDATE`,
+        [input.id],
+      );
+
+      const row = existing.rows[0];
+      if (!row || row.owner_user_id !== input.ownerUserId) {
+        await client.query("ROLLBACK");
+        return { status: "not_found" };
+      }
+
+      const isActive = row.revoked_at === null && new Date(row.expires_at).getTime() > Date.now();
+      if (!isActive) {
+        await client.query("ROLLBACK");
+        return { status: "noop" };
+      }
+
+      const updated = await client.query<{
+        id: string;
+        token: string;
+        owner_user_id: string;
+        created_at: string;
+        expires_at: string;
+        revoked_at: string | null;
+        revoked_by_user_id: string | null;
+      }>(
+        `UPDATE anonymous_share_tokens
+         SET revoked_at = NOW(),
+             revoked_by_user_id = $2
+         WHERE id = $1
+         RETURNING id,
+                   token,
+                   owner_user_id,
+                   created_at::text AS created_at,
+                   expires_at::text AS expires_at,
+                   revoked_at::text AS revoked_at,
+                   revoked_by_user_id`,
+        [input.id, input.ownerUserId],
+      );
+
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "share_token_revoked",
+        targetUserId: null,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          tokenId: row.id,
+        },
+      });
+
+      await client.query("COMMIT");
+      return { status: "revoked", record: mapAnonymousShareTokenRow(updated.rows[0]!) };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async countActiveAnonymousShareTokensForOwner(ownerUserId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM anonymous_share_tokens
+       WHERE owner_user_id = $1
+         AND revoked_at IS NULL
+         AND expires_at > NOW()`,
+      [ownerUserId],
+    );
+    return Number(result.rows[0]?.count ?? "0");
   }
 
   async loadStore(userId: string): Promise<Store> {
