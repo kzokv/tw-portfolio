@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1520" font-family="-apple-system, 'Segoe UI', Helvetica, sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 20px; font-weight: 700; fill: #111; }
+      .subtitle { font-size: 13px; fill: #555; }
+      .panel-label { font-size: 12px; font-weight: 600; fill: #6b7280; letter-spacing: 0.5px; }
+      .browser-chrome { fill: #f4f4f5; stroke: #d4d4d8; stroke-width: 1; }
+      .browser-url { fill: #fff; stroke: #d4d4d8; stroke-width: 1; }
+      .browser-text { font-size: 11px; fill: #52525b; font-family: 'SF Mono', Menlo, monospace; }
+      .dot { stroke: none; }
+      .red { fill: #ef4444; }
+      .yellow { fill: #eab308; }
+      .green { fill: #22c55e; }
+      .app-bg { fill: #ffffff; stroke: #e5e7eb; stroke-width: 1; }
+      .topbar { fill: #fafafa; stroke: #e5e7eb; stroke-width: 1; }
+      .topbar-text { font-size: 12px; fill: #27272a; }
+      .topbar-active { font-size: 12px; fill: #111; font-weight: 600; }
+      .h1 { font-size: 18px; font-weight: 700; fill: #111; }
+      .h2 { font-size: 14px; font-weight: 600; fill: #27272a; }
+      .body { font-size: 12px; fill: #3f3f46; }
+      .muted { font-size: 11px; fill: #71717a; }
+      .table-header { fill: #fafafa; stroke: #e5e7eb; stroke-width: 1; }
+      .table-header-text { font-size: 11px; fill: #71717a; font-weight: 600; letter-spacing: 0.3px; }
+      .table-row { fill: #fff; stroke: #f4f4f5; stroke-width: 1; }
+      .table-row-alt { fill: #fcfcfc; stroke: #f4f4f5; stroke-width: 1; }
+      .cell { font-size: 12px; fill: #18181b; }
+      .cell-muted { font-size: 11px; fill: #71717a; }
+      .badge { rx: 4; }
+      .badge-admin { fill: #fef3c7; }
+      .badge-admin-text { font-size: 10px; fill: #92400e; font-weight: 600; }
+      .badge-member { fill: #dbeafe; }
+      .badge-member-text { font-size: 10px; fill: #1e40af; font-weight: 600; }
+      .badge-viewer { fill: #e0e7ff; }
+      .badge-viewer-text { font-size: 10px; fill: #3730a3; font-weight: 600; }
+      .badge-active { fill: #dcfce7; }
+      .badge-active-text { font-size: 10px; fill: #166534; font-weight: 600; }
+      .btn-link { font-size: 11px; fill: #2563eb; font-weight: 500; }
+      .btn-primary { fill: #ef4444; rx: 4; }
+      .btn-primary-text { font-size: 11px; fill: #fff; font-weight: 600; }
+      .btn-outline { fill: #fff; stroke: #d4d4d8; stroke-width: 1; rx: 4; }
+      .btn-outline-text { font-size: 11px; fill: #18181b; font-weight: 500; }
+      .btn-danger { fill: #fff; stroke: #ef4444; stroke-width: 1; rx: 4; }
+      .btn-danger-text { font-size: 11px; fill: #b91c1c; font-weight: 600; }
+      .banner-red { fill: #7f1d1d; }
+      .banner-text { font-size: 13px; fill: #fff; font-weight: 500; }
+      .banner-bold { font-size: 13px; fill: #fff; font-weight: 700; }
+      .banner-countdown { font-size: 13px; fill: #fecaca; font-family: 'SF Mono', Menlo, monospace; font-weight: 700; }
+      .arrow-label { font-size: 11px; fill: #6b7280; font-style: italic; }
+      .callout { fill: #fef3c7; stroke: #f59e0b; stroke-width: 1; rx: 6; }
+      .callout-text { font-size: 11px; fill: #78350f; }
+      .callout-title { font-size: 11px; fill: #78350f; font-weight: 700; }
+      .callout-info { fill: #dbeafe; stroke: #3b82f6; stroke-width: 1; rx: 6; }
+      .callout-info-text { font-size: 11px; fill: #1e3a8a; }
+      .callout-info-title { font-size: 11px; fill: #1e3a8a; font-weight: 700; }
+      .flow-box { fill: #fff; stroke: #3f3f46; stroke-width: 1.5; rx: 6; }
+      .flow-text { font-size: 11px; fill: #18181b; }
+      .flow-text-bold { font-size: 11px; fill: #18181b; font-weight: 600; }
+      .flow-arrow { stroke: #3f3f46; stroke-width: 1.5; fill: none; }
+      .flow-label { font-size: 10px; fill: #52525b; }
+      .decision { fill: #fef3c7; stroke: #f59e0b; stroke-width: 1.5; }
+      .terminal-ok { fill: #dcfce7; stroke: #22c55e; stroke-width: 1.5; rx: 6; }
+      .terminal-block { fill: #fee2e2; stroke: #ef4444; stroke-width: 1.5; rx: 6; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#3f3f46"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="40" y="34" class="title">KZO-148 — Admin Impersonation UI + Request Flow</text>
+  <text x="40" y="54" class="subtitle">Mockup for scope-grill · separate cookie + blanket write-block + exit-then-start on re-impersonation</text>
+
+  <!-- ============================================ -->
+  <!-- PANEL 1: /admin/users with Impersonate button -->
+  <!-- ============================================ -->
+  <text x="40" y="90" class="panel-label">PANEL A · /admin/users — start impersonation</text>
+
+  <!-- Browser chrome -->
+  <rect x="40" y="100" width="1020" height="36" class="browser-chrome" rx="6"/>
+  <circle cx="62" cy="118" r="5" class="dot red"/>
+  <circle cx="80" cy="118" r="5" class="dot yellow"/>
+  <circle cx="98" cy="118" r="5" class="dot green"/>
+  <rect x="120" y="108" width="900" height="20" class="browser-url" rx="4"/>
+  <text x="132" y="122" class="browser-text">https://app.kzokvdevs.dpdns.org/admin/users</text>
+
+  <!-- App frame -->
+  <rect x="40" y="136" width="1020" height="420" class="app-bg"/>
+
+  <!-- Top bar -->
+  <rect x="40" y="136" width="1020" height="44" class="topbar"/>
+  <text x="60" y="163" class="topbar-text" font-weight="700" fill="#111">kzokv</text>
+  <text x="130" y="163" class="topbar-text">Portfolio</text>
+  <text x="195" y="163" class="topbar-text">Transactions</text>
+  <text x="280" y="163" class="topbar-text">Dividends</text>
+  <text x="345" y="163" class="topbar-text">Sharing</text>
+  <text x="405" y="163" class="topbar-active">Admin</text>
+  <circle cx="1030" cy="158" r="12" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="1030" y="162" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">KC</text>
+
+  <!-- Admin page heading -->
+  <text x="60" y="215" class="h1">Users</text>
+  <text x="60" y="235" class="muted">Manage roles, access, and impersonate for support-debug.</text>
+
+  <!-- Users table -->
+  <rect x="60" y="255" width="980" height="34" class="table-header"/>
+  <text x="78" y="275" class="table-header-text">EMAIL</text>
+  <text x="340" y="275" class="table-header-text">ROLE</text>
+  <text x="440" y="275" class="table-header-text">STATUS</text>
+  <text x="540" y="275" class="table-header-text">LAST SEEN</text>
+  <text x="680" y="275" class="table-header-text">CREATED</text>
+  <text x="820" y="275" class="table-header-text">ACTIONS</text>
+
+  <!-- Row 1: self (admin) -->
+  <rect x="60" y="289" width="980" height="42" class="table-row-alt"/>
+  <text x="78" y="315" class="cell">keith@kzokv.com</text>
+  <text x="78" y="328" class="cell-muted">(you)</text>
+  <rect x="340" y="303" width="52" height="18" class="badge badge-admin"/>
+  <text x="366" y="316" text-anchor="middle" class="badge-admin-text">ADMIN</text>
+  <rect x="440" y="303" width="54" height="18" class="badge badge-active"/>
+  <text x="467" y="316" text-anchor="middle" class="badge-active-text">ACTIVE</text>
+  <text x="540" y="315" class="cell-muted">now</text>
+  <text x="680" y="315" class="cell-muted">2026-01-04</text>
+  <text x="820" y="315" class="btn-link">Edit role</text>
+  <text x="878" y="315" class="cell-muted" font-style="italic" fill="#a1a1aa">— impersonate self blocked —</text>
+
+  <!-- Row 2: alice (member) -->
+  <rect x="60" y="331" width="980" height="42" class="table-row"/>
+  <text x="78" y="357" class="cell">alice@example.com</text>
+  <rect x="340" y="345" width="58" height="18" class="badge badge-member"/>
+  <text x="369" y="358" text-anchor="middle" class="badge-member-text">MEMBER</text>
+  <rect x="440" y="345" width="54" height="18" class="badge badge-active"/>
+  <text x="467" y="358" text-anchor="middle" class="badge-active-text">ACTIVE</text>
+  <text x="540" y="357" class="cell-muted">3 min ago</text>
+  <text x="680" y="357" class="cell-muted">2026-02-12</text>
+  <text x="820" y="357" class="btn-link">Edit role</text>
+  <rect x="878" y="344" width="92" height="20" class="btn-primary"/>
+  <text x="924" y="358" text-anchor="middle" class="btn-primary-text">Impersonate</text>
+
+  <!-- Row 3: bob (viewer) -->
+  <rect x="60" y="373" width="980" height="42" class="table-row-alt"/>
+  <text x="78" y="399" class="cell">bob@example.com</text>
+  <rect x="340" y="387" width="54" height="18" class="badge badge-viewer"/>
+  <text x="367" y="400" text-anchor="middle" class="badge-viewer-text">VIEWER</text>
+  <rect x="440" y="387" width="54" height="18" class="badge badge-active"/>
+  <text x="467" y="400" text-anchor="middle" class="badge-active-text">ACTIVE</text>
+  <text x="540" y="399" class="cell-muted">1 day ago</text>
+  <text x="680" y="399" class="cell-muted">2026-03-04</text>
+  <text x="820" y="399" class="btn-link">Edit role</text>
+  <rect x="878" y="386" width="92" height="20" class="btn-primary"/>
+  <text x="924" y="400" text-anchor="middle" class="btn-primary-text">Impersonate</text>
+
+  <!-- Row 4: carol (admin) -->
+  <rect x="60" y="415" width="980" height="42" class="table-row"/>
+  <text x="78" y="441" class="cell">carol@example.com</text>
+  <rect x="340" y="429" width="52" height="18" class="badge badge-admin"/>
+  <text x="366" y="442" text-anchor="middle" class="badge-admin-text">ADMIN</text>
+  <rect x="440" y="429" width="54" height="18" class="badge badge-active"/>
+  <text x="467" y="442" text-anchor="middle" class="badge-active-text">ACTIVE</text>
+  <text x="540" y="441" class="cell-muted">6 hours ago</text>
+  <text x="680" y="441" class="cell-muted">2026-01-18</text>
+  <text x="820" y="441" class="btn-link">Edit role</text>
+  <rect x="878" y="428" width="92" height="20" class="btn-primary"/>
+  <text x="924" y="442" text-anchor="middle" class="btn-primary-text">Impersonate</text>
+
+  <!-- Callout: admin-of-admin allowed -->
+  <rect x="60" y="475" width="980" height="64" class="callout"/>
+  <text x="76" y="495" class="callout-title">Per ticket spec:</text>
+  <text x="76" y="512" class="callout-text">• Impersonating another admin is allowed — no special case (useful for debugging admin-only flows).</text>
+  <text x="76" y="528" class="callout-text">• Impersonating self is blocked server-side with 400 cannot_impersonate_self; UI grays the button on the row.</text>
+
+  <!-- Click indicator -->
+  <path d="M 924 448 L 924 570" class="flow-arrow" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="540" y="580" text-anchor="middle" class="arrow-label">admin clicks Impersonate on alice@ · POST /admin/users/:id/impersonate</text>
+
+  <!-- ============================================ -->
+  <!-- PANEL 2: Portfolio view with impersonation banner -->
+  <!-- ============================================ -->
+  <text x="40" y="615" class="panel-label">PANEL B · /portfolio while impersonating — target's data, admin's session identity</text>
+
+  <!-- Browser chrome -->
+  <rect x="40" y="625" width="1020" height="36" class="browser-chrome" rx="6"/>
+  <circle cx="62" cy="643" r="5" class="dot red"/>
+  <circle cx="80" cy="643" r="5" class="dot yellow"/>
+  <circle cx="98" cy="643" r="5" class="dot green"/>
+  <rect x="120" y="633" width="900" height="20" class="browser-url" rx="4"/>
+  <text x="132" y="647" class="browser-text">https://app.kzokvdevs.dpdns.org/portfolio</text>
+
+  <!-- App frame -->
+  <rect x="40" y="661" width="1020" height="440" class="app-bg"/>
+
+  <!-- Red persistent banner -->
+  <rect x="40" y="661" width="1020" height="44" class="banner-red"/>
+  <circle cx="64" cy="683" r="8" fill="#fca5a5" stroke="#fee2e2" stroke-width="2"/>
+  <text x="64" y="687" text-anchor="middle" font-size="11" font-weight="700" fill="#7f1d1d">!</text>
+  <text x="82" y="680" class="banner-text">Impersonating</text>
+  <text x="158" y="680" class="banner-bold">alice@example.com</text>
+  <text x="275" y="680" class="banner-text">· writes are disabled · auto-exit in</text>
+  <text x="485" y="680" class="banner-countdown">28:45</text>
+  <rect x="920" y="672" width="120" height="22" class="btn-danger"/>
+  <text x="980" y="687" text-anchor="middle" class="btn-danger-text">Exit Impersonation</text>
+  <text x="82" y="697" class="muted" fill="#fecaca">Session: keith@kzokv.com (admin) · Context: alice@example.com (member)</text>
+
+  <!-- Top bar (unchanged, admin's navigation) -->
+  <rect x="40" y="705" width="1020" height="44" class="topbar"/>
+  <text x="60" y="732" class="topbar-text" font-weight="700" fill="#111">kzokv</text>
+  <text x="130" y="732" class="topbar-active">Portfolio</text>
+  <text x="195" y="732" class="topbar-text">Transactions</text>
+  <text x="280" y="732" class="topbar-text">Dividends</text>
+  <text x="345" y="732" class="topbar-text">Sharing</text>
+  <text x="405" y="732" class="topbar-text">Admin</text>
+  <circle cx="1030" cy="727" r="12" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="1030" y="731" text-anchor="middle" font-size="10" font-weight="700" fill="#92400e">KC</text>
+
+  <!-- Body: target's portfolio content -->
+  <text x="60" y="790" class="h1">Portfolio</text>
+  <text x="60" y="810" class="muted">Viewing as alice@example.com · read-only</text>
+
+  <!-- Mock holdings table -->
+  <rect x="60" y="830" width="620" height="240" fill="#fff" stroke="#e5e7eb"/>
+  <rect x="60" y="830" width="620" height="34" class="table-header"/>
+  <text x="78" y="850" class="table-header-text">TICKER</text>
+  <text x="200" y="850" class="table-header-text">QTY</text>
+  <text x="310" y="850" class="table-header-text">AVG COST</text>
+  <text x="440" y="850" class="table-header-text">MARKET VAL</text>
+  <text x="570" y="850" class="table-header-text">P&amp;L</text>
+
+  <rect x="60" y="864" width="620" height="34" class="table-row"/>
+  <text x="78" y="884" class="cell">AAPL</text>
+  <text x="200" y="884" class="cell">120</text>
+  <text x="310" y="884" class="cell">$148.20</text>
+  <text x="440" y="884" class="cell">$22,440</text>
+  <text x="570" y="884" class="cell" fill="#15803d">+$4,656</text>
+
+  <rect x="60" y="898" width="620" height="34" class="table-row-alt"/>
+  <text x="78" y="918" class="cell">VOO</text>
+  <text x="200" y="918" class="cell">48</text>
+  <text x="310" y="918" class="cell">$412.55</text>
+  <text x="440" y="918" class="cell">$22,176</text>
+  <text x="570" y="918" class="cell" fill="#15803d">+$2,354</text>
+
+  <rect x="60" y="932" width="620" height="34" class="table-row"/>
+  <text x="78" y="952" class="cell">TSLA</text>
+  <text x="200" y="952" class="cell">30</text>
+  <text x="310" y="952" class="cell">$240.10</text>
+  <text x="440" y="952" class="cell">$6,510</text>
+  <text x="570" y="952" class="cell" fill="#b91c1c">−$693</text>
+
+  <!-- Mock disabled "Add transaction" button -->
+  <rect x="60" y="985" width="180" height="32" class="btn-outline" opacity="0.5"/>
+  <text x="150" y="1005" text-anchor="middle" class="btn-outline-text" opacity="0.8">+ Add transaction</text>
+  <text x="256" y="1005" class="muted" font-style="italic" fill="#b91c1c">disabled — writes blocked while impersonating</text>
+
+  <!-- Right-side info panel: write attempt outcome -->
+  <rect x="700" y="830" width="340" height="240" fill="#fff" stroke="#e5e7eb" rx="4"/>
+  <text x="720" y="854" class="h2">If a write attempt slips through…</text>
+  <rect x="720" y="868" width="300" height="50" fill="#fef2f2" stroke="#fecaca" rx="4"/>
+  <text x="734" y="887" font-size="11" font-family="'SF Mono', Menlo, monospace" fill="#7f1d1d">HTTP/1.1 403 Forbidden</text>
+  <text x="734" y="902" font-size="11" font-family="'SF Mono', Menlo, monospace" fill="#7f1d1d">{ "error": "impersonation_write_blocked" }</text>
+  <text x="720" y="940" class="body">• Audit log: impersonation_blocked_write</text>
+  <text x="720" y="958" class="body">  metadata: {targetUserId, method, path}</text>
+  <text x="720" y="980" class="body">• Client surfaces inline toast</text>
+  <text x="720" y="998" class="body">• No state mutation on server</text>
+
+  <text x="720" y="1028" class="h2">Exit / expiry flow</text>
+  <text x="720" y="1046" class="body">• Click Exit → DELETE /admin/impersonation</text>
+  <text x="720" y="1062" class="body">• TTL elapsed → next request auto-clears</text>
+
+  <!-- ============================================ -->
+  <!-- PANEL 3: Request flow — auth resolution -->
+  <!-- ============================================ -->
+  <text x="40" y="1145" class="panel-label">PANEL C · request auth flow — resolveUserId + blanket write guard</text>
+
+  <!-- Start -->
+  <rect x="40" y="1160" width="150" height="44" class="flow-box"/>
+  <text x="115" y="1180" text-anchor="middle" class="flow-text-bold">Incoming request</text>
+  <text x="115" y="1195" text-anchor="middle" class="flow-label">session + impersonation cookies</text>
+
+  <!-- verify session -->
+  <path d="M 190 1182 L 228 1182" class="flow-arrow" marker-end="url(#arrow)"/>
+  <rect x="230" y="1160" width="160" height="44" class="flow-box"/>
+  <text x="310" y="1180" text-anchor="middle" class="flow-text-bold">Verify session cookie</text>
+  <text x="310" y="1195" text-anchor="middle" class="flow-label">HMAC + session_version</text>
+
+  <!-- verify impersonation -->
+  <path d="M 390 1182 L 428 1182" class="flow-arrow" marker-end="url(#arrow)"/>
+  <rect x="430" y="1150" width="200" height="64" class="decision"/>
+  <text x="530" y="1170" text-anchor="middle" class="flow-text-bold">g_impersonation cookie?</text>
+  <text x="530" y="1186" text-anchor="middle" class="flow-label">HMAC · adminId==session?</text>
+  <text x="530" y="1200" text-anchor="middle" class="flow-label">expiresAt &gt; now · target valid?</text>
+
+  <!-- yes -> isImpersonating -->
+  <path d="M 630 1172 L 710 1172 L 710 1185" class="flow-arrow" marker-end="url(#arrow)"/>
+  <text x="670" y="1166" class="flow-label">all yes</text>
+  <rect x="640" y="1185" width="180" height="50" class="flow-box" fill="#fee2e2" stroke="#ef4444"/>
+  <text x="730" y="1205" text-anchor="middle" class="flow-text-bold">isImpersonating = true</text>
+  <text x="730" y="1221" text-anchor="middle" class="flow-label">contextUserId = target · skip switcher header</text>
+
+  <!-- no -> normal path -->
+  <path d="M 530 1214 L 530 1270" class="flow-arrow" marker-end="url(#arrow)"/>
+  <text x="540" y="1244" class="flow-label">any no</text>
+  <rect x="430" y="1270" width="200" height="44" class="flow-box"/>
+  <text x="530" y="1290" text-anchor="middle" class="flow-text-bold">Normal context resolve</text>
+  <text x="530" y="1305" text-anchor="middle" class="flow-label">(switcher header or self)</text>
+
+  <!-- any-no includes invalid/expired impersonation cookie -->
+  <rect x="830" y="1270" width="230" height="44" class="flow-box" fill="#fef3c7" stroke="#f59e0b"/>
+  <text x="945" y="1290" text-anchor="middle" class="flow-text-bold">If cookie expired/invalid:</text>
+  <text x="945" y="1305" text-anchor="middle" class="flow-label">Set-Cookie clear + audit impersonation_end</text>
+  <path d="M 630 1172 L 730 1172 L 830 1172 L 940 1172 L 940 1270" class="flow-arrow" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="870" y="1166" class="flow-label">cookie present but invalid/expired</text>
+
+  <!-- write guard -->
+  <path d="M 730 1235 L 730 1370" class="flow-arrow" marker-end="url(#arrow)"/>
+  <path d="M 530 1314 L 530 1350 L 660 1350 L 660 1370" class="flow-arrow" marker-end="url(#arrow)"/>
+  <rect x="560" y="1370" width="300" height="50" class="decision"/>
+  <text x="710" y="1390" text-anchor="middle" class="flow-text-bold">Blanket preHandler</text>
+  <text x="710" y="1406" text-anchor="middle" class="flow-label">isImpersonating AND method ∈ {POST,PUT,PATCH,DELETE}?</text>
+
+  <!-- allowlist path (yes but allowed) -->
+  <path d="M 560 1395 L 440 1395 L 440 1445" class="flow-arrow" marker-end="url(#arrow)"/>
+  <text x="450" y="1418" class="flow-label">yes, but allowlisted</text>
+  <rect x="330" y="1445" width="220" height="50" class="terminal-ok"/>
+  <text x="440" y="1465" text-anchor="middle" class="flow-text-bold">Proceed</text>
+  <text x="440" y="1480" text-anchor="middle" class="flow-label">DELETE /admin/impersonation</text>
+  <text x="440" y="1493" text-anchor="middle" class="flow-label">POST /admin/users/:id/impersonate</text>
+
+  <!-- no -> proceed -->
+  <path d="M 710 1420 L 710 1445" class="flow-arrow" marker-end="url(#arrow)"/>
+  <text x="720" y="1435" class="flow-label">no</text>
+  <rect x="620" y="1445" width="180" height="50" class="terminal-ok"/>
+  <text x="710" y="1465" text-anchor="middle" class="flow-text-bold">Proceed to route</text>
+  <text x="710" y="1482" text-anchor="middle" class="flow-label">normal handler</text>
+
+  <!-- yes & not allowlisted -> block -->
+  <path d="M 860 1395 L 940 1395 L 940 1445" class="flow-arrow" marker-end="url(#arrow)"/>
+  <text x="870" y="1418" class="flow-label">yes, not allowlisted</text>
+  <rect x="830" y="1445" width="230" height="50" class="terminal-block"/>
+  <text x="945" y="1465" text-anchor="middle" class="flow-text-bold">403 impersonation_write_blocked</text>
+  <text x="945" y="1482" text-anchor="middle" class="flow-label">audit impersonation_blocked_write</text>
+
+  <!-- Bottom caption -->
+  <text x="550" y="1510" text-anchor="middle" class="muted" font-style="italic">Diagram: request-side resolution. Start/Exit routes themselves emit impersonation_start / impersonation_end independently.</text>
+</svg>
