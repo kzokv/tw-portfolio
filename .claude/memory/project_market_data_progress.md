@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-18, KZO-146 pre-PR)
+## Completed tickets (as of 2026-04-19, KZO-147 pre-PR)
 
 ### Market Data Platform (epic)
 | Ticket | Title | Completed |
@@ -42,17 +42,18 @@ type: project
 |---|---|---|
 | KZO-143 | Foundations — role, invites, session_version, INITIAL_ADMIN_EMAIL | Complete 2026-04-16 |
 | KZO-144 | Admin management portal — shell + users + invites + audit log | Complete 2026-04-17 |
-| KZO-145 | User-to-user share grant UI — schema, API, /sharing page, AAA specs | Complete 2026-04-18 (merged to dev: `fc77731` → `04ffd18`) |
-| KZO-146 | User-to-user portfolio sharing — switcher UX | **In active worktree (2026-04-18)** — implementation complete, code-review-then-fix done, 7-suite green, pre-PR |
-| KZO-147 | Anonymous share tokens — public read-only route | Scoped, not started |
+| KZO-145 | User-to-user share grant UI — schema, API, /sharing page, AAA specs | Complete 2026-04-18 |
+| KZO-146 | User-to-user portfolio sharing — switcher UX | Complete 2026-04-18 (merged to dev: `78824b6`) |
+| KZO-147 | Anonymous share tokens — public read-only route | **In active worktree (2026-04-19)** — implementation complete, code-review passed (88/100), 8-suite green, docs extended, pre-PR |
 | KZO-148 | Admin impersonation — support-debug mode | Scoped, not started |
 | KZO-142 | Admin settings UI — GET/PATCH /settings | Scoped (repositioned), not started |
+| KZO-149 | Hard-purge cascade extension — memory-backend one-liner | Blocked by KZO-147 merge |
 
 ## Next up
 
-- KZO-146 PR merge (portfolio switcher UX + 6 HTTP + 8 UI E2E AAA specs, including 2 stretch)
-- KZO-147 anonymous share tokens
-- KZO-148 admin impersonation (unblocked by KZO-146's `isSharedContext` flag; will pair with a future `isImpersonating` flag)
+- KZO-147 PR merge (migration 033, 4 routes, SSR `/share/[token]` page, owner Section C, 10 HTTP + 5 UI + 1 integration AAA specs, arch doc + runbook extensions)
+- KZO-149 hard-purge cascade (one-line memory-persistence extension after KZO-147 merges)
+- KZO-148 admin impersonation (unblocked by KZO-146's `isSharedContext` flag; will pair with a future `isImpersonating` flag; must also block `POST /share-tokens`)
 - Notification preferences UI (mute by source, snooze escalation)
 - Email digest of unread failure notifications
 - Backup/restore script for market_data (ADR §5-6 gap, still unscoped)
@@ -62,3 +63,5 @@ type: project
 - **Backup/restore**: ADR describes post-ingest backup automation (pg_dump, auto-restore to dev, manual scp to local) — no ticket scopes it. Needs a separate ops ticket.
 - **Legacy test drift** under `apps/api/test/{integration,unit}/` (~14 pre-existing type errors surfaced when the new test tsconfig was briefly widened) — cleanup ticket pending.
 - **Notification i18n**: server emits English-only titles/bodies; zh-TW users see English. Deferred — belongs with a repo-wide notification-localization pass.
+- **Rate-limit bucket eviction**: `anonymousShareRateBuckets` (KZO-147) and `inviteStatusBuckets` (KZO-143) grow unbounded per IP. Cross-cutting follow-up candidate.
+- **Long-tail revoked-token cleanup**: `anonymous_share_tokens` rows with `revoked_at < NOW() - 90d` accumulate indefinitely. Future cron candidate.
