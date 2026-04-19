@@ -737,6 +737,18 @@ export function _resetAnonymousShareRateBuckets(): void {
   anonymousShareRateBuckets.clear();
 }
 
+export function sweepSlidingWindowBucket(
+  bucket: Map<string, number[]>,
+  windowMs: number,
+  now = Date.now(),
+): void {
+  for (const [ip, timestamps] of bucket) {
+    if (timestamps.every((ts) => now - ts >= windowMs)) {
+      bucket.delete(ip);
+    }
+  }
+}
+
 /** Guard for `/__e2e/reset` — allowed in development and test with dev_bypass + memory, blocked in production. */
 function assertE2EResetEnabled(): void {
   if ((Env.NODE_ENV !== "development" && Env.NODE_ENV !== "test") || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
@@ -940,6 +952,19 @@ export function _resetDemoRateBuckets(): void {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  const inviteEvictionTimer = setInterval(
+    () => sweepSlidingWindowBucket(inviteStatusBuckets, INVITE_STATUS_WINDOW_MS),
+    INVITE_STATUS_WINDOW_MS,
+  );
+  app.addHook("onClose", async () => { clearInterval(inviteEvictionTimer); });
+
+  const anonShareWindowMs = Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS;
+  const anonEvictionTimer = setInterval(
+    () => sweepSlidingWindowBucket(anonymousShareRateBuckets, anonShareWindowMs),
+    anonShareWindowMs,
+  );
+  app.addHook("onClose", async () => { clearInterval(anonEvictionTimer); });
+
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
     const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
