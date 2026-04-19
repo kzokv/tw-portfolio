@@ -34,3 +34,7 @@ export {
   test as demoPagesTest,
   expect as demoPagesExpect,
 } from "./demoPages.js";
+export {
+  test as publicPagesTest,
+  expect as publicPagesExpect,
+} from "./publicPages.js";

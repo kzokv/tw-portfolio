@@ -1,5 +1,6 @@
 export * from "./AccountsEndpoint.js";
 export * from "./AdminEndpoint.js";
+export * from "./AnonymousShareTokensEndpoint.js";
 export * from "./DividendsEndpoint.js";
 export * from "./FeeProfilesEndpoint.js";
 export * from "./NotificationsEndpoint.js";

@@ -129,6 +129,113 @@ export class SharingAssert extends BaseAssert {
    * may hold session cookies minted by prior seed calls) cannot override the
    * explicit `x-user-id` header in the API's hydrateAuthContext flow.
    */
+  // ---------- Section C: Public (anonymous) share links ----------
+
+  @Step()
+  async publicLinksSectionIsVisible(): Promise<void> {
+    await expect(this.el.publicLinksSection).toBeVisible();
+  }
+
+  @Step()
+  async publicLinksEmptyIsVisible(): Promise<void> {
+    await expect(this.el.publicLinksEmpty).toBeVisible();
+  }
+
+  @Step()
+  async publicLinksEmptyIsHidden(): Promise<void> {
+    await expect(this.el.publicLinksEmpty).toBeHidden();
+  }
+
+  @Step()
+  async publicLinkRowVisible(tokenId: string): Promise<void> {
+    await expect(this.page.getByTestId(`sharing-public-link-row-${tokenId}`)).toBeVisible();
+  }
+
+  @Step()
+  async publicLinkRowHidden(tokenId: string): Promise<void> {
+    await expect(this.page.getByTestId(`sharing-public-link-row-${tokenId}`)).toBeHidden();
+  }
+
+  @Step()
+  async publicLinkRowStatus(tokenId: string, label: string): Promise<void> {
+    const row = this.page.getByTestId(`sharing-public-link-row-${tokenId}`);
+    await expect(row).toContainText(label);
+  }
+
+  @Step()
+  async publicLinkNewBadgeVisible(tokenId: string): Promise<void> {
+    await expect(
+      this.page.getByTestId(`sharing-public-link-new-badge-${tokenId}`),
+    ).toBeVisible();
+  }
+
+  @Step()
+  async publicLinkNewBadgeAutoDismissed(tokenId: string): Promise<void> {
+    await expect(this.page.getByTestId(`sharing-public-link-new-badge-${tokenId}`)).toHaveCount(0);
+  }
+
+  @Step()
+  async createPublicLinkButtonIsEnabled(): Promise<void> {
+    await expect(this.el.createPublicLinkButton).toBeEnabled();
+    await expect(this.el.createPublicLinkButton).not.toHaveAttribute("aria-disabled", "true");
+  }
+
+  @Step()
+  async createPublicLinkButtonIsDisabled(): Promise<void> {
+    await expect(this.el.createPublicLinkButton).toBeDisabled();
+  }
+
+  @Step()
+  async capBannerIsVisible(): Promise<void> {
+    await expect(this.el.publicLinksCapBanner).toBeVisible();
+    await expect(this.el.publicLinksCapBanner).toContainText("20 / 20");
+  }
+
+  @Step()
+  async capBannerIsHidden(): Promise<void> {
+    await expect(this.el.publicLinksCapBanner).toBeHidden();
+  }
+
+  @Step()
+  async createPublicLinkDialogIsVisible(): Promise<void> {
+    await expect(this.el.createPublicLinkDialog).toBeVisible();
+  }
+
+  @Step()
+  async createPublicLinkDialogIsHidden(): Promise<void> {
+    await expect(this.el.createPublicLinkDialog).toHaveCount(0);
+  }
+
+  @Step()
+  async publicLinksFlashContains(text: string): Promise<void> {
+    await expect(this.el.publicLinksFlash).toBeVisible();
+    await expect(this.el.publicLinksFlash).toContainText(text);
+  }
+
+  @Step()
+  async firstPublicLinkRowIsVisible(): Promise<void> {
+    await expect(
+      this.page.locator('[data-testid^="sharing-public-link-row-"]').first(),
+    ).toBeVisible();
+  }
+
+  @Step()
+  async firstPublicLinkRowHasCopyButton(): Promise<void> {
+    const firstRow = this.page.locator('[data-testid^="sharing-public-link-row-"]').first();
+    await expect(firstRow.locator('[data-testid^="sharing-public-link-copy-"]')).toBeVisible();
+  }
+
+  @Step()
+  async firstPublicLinkRowHasNewBadge(): Promise<void> {
+    const firstRow = this.page.locator('[data-testid^="sharing-public-link-row-"]').first();
+    await expect(firstRow.locator('[data-testid^="sharing-public-link-new-badge-"]')).toBeVisible();
+  }
+
+  @Step()
+  async publicShareNotFoundIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("public-share-not-found")).toBeVisible();
+  }
+
   @Step()
   async granteeReceivedNotification(
     granteeUserId: string,
