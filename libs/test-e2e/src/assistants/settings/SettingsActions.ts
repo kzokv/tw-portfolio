@@ -81,7 +81,11 @@ export class SettingsActions extends AppBaseActions {
   @Step()
   async saveProfileEmail(): Promise<Response> {
     const patchPromise = this.page.waitForResponse(
-      (response) => response.url().includes("/api/profile") && response.request().method() === "PATCH",
+      (response) => {
+        const pathname = new URL(response.url()).pathname;
+        return response.request().method() === "PATCH"
+          && (pathname === "/profile" || pathname === "/api/profile");
+      },
     );
     await this.uiActions.click.perform(this.el.profile.saveEmailButton);
     return await patchPromise;

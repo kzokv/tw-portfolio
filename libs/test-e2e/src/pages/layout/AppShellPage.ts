@@ -9,6 +9,9 @@ import { TopBarComponent } from "./TopBarComponent.js";
 export interface TAppShellElements {
   appReady: Locator;
   globalError: Locator;
+  impersonationBanner: Locator;
+  impersonationCountdown: Locator;
+  clientApiErrorToast: Locator;
   topBar: TopBarComponent;
   sideNavigation: SideNavigationComponent;
   search: SearchComponent;
@@ -29,6 +32,9 @@ export class AppShellPage extends BasePage<TAppShellElements> {
     this._elements = {
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
       globalError: this.locate(SHARED_TEST_IDS.globalErrorBanner, "Global Error Banner"),
+      impersonationBanner: this.locate("impersonation-banner", "Impersonation Banner"),
+      impersonationCountdown: this.locate("impersonation-countdown", "Impersonation Countdown"),
+      clientApiErrorToast: this.locate("client-api-error", "API Client Error Toast"),
       topBar: new TopBarComponent(this.page),
       sideNavigation: new SideNavigationComponent(this.page),
       search: new SearchComponent(this.page),

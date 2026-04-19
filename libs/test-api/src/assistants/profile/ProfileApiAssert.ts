@@ -33,6 +33,7 @@ export class ProfileApiAssert extends ApiBaseAssert {
     await this.mxAssertObjectHasKey(body, "providerDisplayName", "profile body");
     await this.mxAssertObjectHasKey(body, "linkedAt", "profile body");
     await this.mxAssertObjectHasKey(body, "lastSeenAt", "profile body");
+    await this.mxAssertObjectHasKey(body, "impersonation", "profile body");
   }
 
   @Step()

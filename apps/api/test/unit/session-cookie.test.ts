@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Env } from "@tw-portfolio/config";
-import { signSessionCookie, verifySessionCookie } from "../../src/auth/googleOAuth.js";
+import {
+  signImpersonationCookie,
+  signSessionCookie,
+  verifyImpersonationCookie,
+  verifySessionCookie,
+} from "../../src/auth/googleOAuth.js";
 import { parseSessionCookie } from "../../src/routes/registerRoutes.js";
 
 const SECRET = "test-session-secret-that-is-long-enough-32chars!!";
@@ -64,6 +69,64 @@ describe("verifySessionCookie", () => {
   it("rejects malformed oauth cookies", () => {
     expect(verifySessionCookie("uuid.only-hmac", SECRET)).toBeNull();
     expect(verifySessionCookie("uuid.not-a-number.deadbeef", SECRET)).toBeNull();
+  });
+});
+
+describe("signImpersonationCookie", () => {
+  it("returns adminId.targetUserId.expiresAtMs.hmac", () => {
+    const signed = signImpersonationCookie("admin-1", "target-1", 1_900_000_000_000, SECRET);
+    const parts = signed.split(".");
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toBe("admin-1");
+    expect(parts[1]).toBe("target-1");
+    expect(parts[2]).toBe("1900000000000");
+    expect(parts[3]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("throws when expiresAtMs is zero or invalid", () => {
+    expect(() => signImpersonationCookie("admin-1", "target-1", 0, SECRET)).toThrow(
+      /positive integer/,
+    );
+    expect(() => signImpersonationCookie("admin-1", "target-1", 1.5, SECRET)).toThrow(
+      /positive integer/,
+    );
+  });
+});
+
+describe("verifyImpersonationCookie", () => {
+  it("round-trips impersonation cookies", () => {
+    const signed = signImpersonationCookie("admin-1", "target-1", 1_900_000_000_000, SECRET);
+    expect(verifyImpersonationCookie(signed, SECRET)).toEqual({
+      adminId: "admin-1",
+      targetUserId: "target-1",
+      expiresAtMs: 1_900_000_000_000,
+    });
+  });
+
+  it("rejects tampering of adminId", () => {
+    const signed = signImpersonationCookie("admin-1", "target-1", 1_900_000_000_000, SECRET);
+    const [, targetUserId, expiresAtMs, hmac] = signed.split(".");
+    const tampered = `admin-2.${targetUserId}.${expiresAtMs}.${hmac}`;
+    expect(verifyImpersonationCookie(tampered, SECRET)).toBeNull();
+  });
+
+  it("rejects tampering of targetUserId", () => {
+    const signed = signImpersonationCookie("admin-1", "target-1", 1_900_000_000_000, SECRET);
+    const [adminId, , expiresAtMs, hmac] = signed.split(".");
+    const tampered = `${adminId}.target-2.${expiresAtMs}.${hmac}`;
+    expect(verifyImpersonationCookie(tampered, SECRET)).toBeNull();
+  });
+
+  it("rejects tampering of expiry", () => {
+    const signed = signImpersonationCookie("admin-1", "target-1", 1_900_000_000_000, SECRET);
+    const [adminId, targetUserId, , hmac] = signed.split(".");
+    const tampered = `${adminId}.${targetUserId}.1900000000001.${hmac}`;
+    expect(verifyImpersonationCookie(tampered, SECRET)).toBeNull();
+  });
+
+  it("rejects malformed impersonation cookies", () => {
+    expect(verifyImpersonationCookie("admin.target.deadbeef", SECRET)).toBeNull();
+    expect(verifyImpersonationCookie("admin.target.not-a-number.deadbeef", SECRET)).toBeNull();
   });
 });
 

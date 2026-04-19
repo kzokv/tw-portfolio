@@ -92,7 +92,17 @@ test.describe("avatar identity display", () => {
   });
 
   test("avatar button shows initials when user has no picture", async ({ appShell, session }) => {
-    await session.actions.seedOAuthSession(makeDeterministicIdToken({ picture: undefined }));
+    // Distinct sub/email — the default `profile-e2e-sub` is used by the preceding
+    // "avatar button shows picture" test, which seeds a picture URL on that user.
+    // Memory persistence's `resolveOrCreateUser` preserves prior `providerPictureUrl`
+    // when a subsequent login passes `picture: undefined` (realistic OAuth re-login
+    // semantics — see apps/api/src/persistence/memory.ts:273). Using a fresh sub/email
+    // avoids the picture-leak across tests in this shared-server suite.
+    await session.actions.seedOAuthSession(makeDeterministicIdToken({
+      sub: "profile-e2e-no-picture-sub",
+      email: "profile-e2e-no-picture@example.com",
+      picture: undefined,
+    }));
     await appShell.actions.navigateToRoute("/dashboard");
     await appShell.assert.appIsReady();
     await appShell.assert.avatarShowsNoImage();
