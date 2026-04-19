@@ -327,4 +327,4 @@ No notifications are emitted — the audience is unauthenticated by definition.
 
 - **KZO-146 switcher.** Write-context guard blocks token create/revoke while the owner is switched into a shared portfolio.
 - **KZO-149 hard-purge cascade.** `ON DELETE CASCADE` makes the Postgres side automatic; the memory-backend side is a one-line extension when that ticket lands.
-- **KZO-148 admin impersonation.** When impersonation ships, `POST /share-tokens` must reject impersonated sessions. Flagged on KZO-148's scope.
+- **KZO-148 admin impersonation.** `POST /share-tokens` and `DELETE /share-tokens/:id` are blocked while impersonating via the blanket write-block in `enforceRouteRole` (any `POST/PUT/PATCH/DELETE` with `isImpersonating=true` returns `403 impersonation_write_blocked`). See [Auth — Admin Impersonation](./auth-and-session.md#admin-impersonation-kzo-148).

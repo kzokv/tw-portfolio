@@ -101,6 +101,19 @@ graph TD
 | `SESSION_COOKIE_NAME` | `__Host-g_auth_session` | Session cookie name; use `g_auth_session` (no `__Host-` prefix) for HTTP |
 | `COOKIE_DOMAIN` | (none) | Cookie domain for cross-subdomain sharing (e.g., `.example.com`) |
 
+In addition to the configurable session cookie, the API emits two other cookies whose names are fixed in code:
+
+| Cookie | Name | Purpose | Attributes |
+|---|---|---|---|
+| Switcher context | `tw_context_user_id` | Picks an owner from the grantee's share list (KZO-146). | Readable (not HttpOnly), `SameSite=Lax`, `Secure` in prod, `COOKIE_DOMAIN`. |
+| Admin impersonation | `g_impersonation` | Carries the HMAC-signed `{adminId}.{targetUserId}.{expiresAtMs}` payload during an impersonation session (KZO-148). Signed with `SESSION_SECRET`. | `HttpOnly`, `SameSite=Lax`, `Secure` in prod, `COOKIE_DOMAIN`, no `__Host-` prefix. Max-Age = `ADMIN_IMPERSONATION_TTL_MINUTES * 60 + 300` (5-minute grace past expiry). |
+
+### Admin impersonation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ADMIN_IMPERSONATION_TTL_MINUTES` | `30` | Lifetime of an impersonation session. Server enforces expiry on every request via the `expiresAt` claim inside the signed cookie. On expiry, the server auto-clears the cookie and emits an `impersonation_end {reason: "expired"}` audit row. See [Auth — Admin Impersonation](../001-architecture/auth-and-session.md#admin-impersonation-kzo-148). |
+
 ### Demo mode
 
 | Variable | Default | Description |

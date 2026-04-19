@@ -173,7 +173,7 @@ flowchart TD
   C -->|Yes| D[verifySessionCookie]
   D -->|Valid| E["getAuthUserById(userId)"]
   E --> F{User active? session_version match?}
-  F -->|Yes| G["req.authContext = { sessionUserId, contextUserId, role, isDemo, isImpersonating }"]
+  F -->|Yes| G["req.authContext = { sessionUserId, contextUserId, role, isDemo, isImpersonating, isSharedContext, impersonation }"]
   F -->|No| H[401 auth_required]
   D -->|Invalid| H
   C -->|No, oauth mode| H
@@ -183,19 +183,21 @@ flowchart TD
   J --> G
   K --> G
   G --> L["enforceRouteRole(req)"]
-  L --> M{Admin route?}
-  M -->|Yes, non-admin| N[403 admin_role_required]
-  M -->|No| O{Writer route?}
+  L --> M{isImpersonating AND write method AND not allowlisted?}
+  M -->|Yes| M1[403 impersonation_write_blocked + audit]
+  M -->|No| N1{Admin route?}
+  N1 -->|Yes, non-admin| N[403 admin_role_required]
+  N1 -->|No| O{Writer route?}
   O -->|Yes, viewer| P[403 write_blocked_viewer_role]
   O -->|No| Q[Handler executes]
 ```
 
-**Return shape:** `resolveUserId` returns `{ sessionUserId, contextUserId, role, isDemo, isImpersonating }`.
+**Return shape:** `resolveUserId` returns `{ sessionUserId, contextUserId, role, isDemo, isImpersonating, isSharedContext, impersonation }`. The `impersonation` field is `{ active: true, targetUserId, targetEmail, expiresAt } | null`.
 
 Context semantics:
 - default: `contextUserId === sessionUserId`
 - shared portfolio context (KZO-146): `contextUserId` may resolve to an owner selected through `tw_context_user_id` / `x-context-user-id`
-- admin impersonation (KZO-148): `sessionUserId` remains the admin while `contextUserId` may point at the impersonated user
+- admin impersonation (KZO-148): `sessionUserId` remains the admin while `contextUserId` points at the impersonated user; the switcher header is ignored while impersonation is active. See [Admin Impersonation](#admin-impersonation-kzo-148) below.
 
 ### Shared portfolio context transport
 
@@ -213,6 +215,113 @@ Narrow taxonomy:
 - identity/admin routes (`/profile`, `/notifications`, `/shares`, `/admin/*`) remain session-scoped
 
 The `preHandler` hook runs `hydrateAuthContext` (one DB hit per request to fetch `role` and `session_version`) then `enforceRouteRole` (checks admin-only and writer-only route sets). In `dev_bypass` mode, `x-user-role` header overrides the resolved role per-request without mutating the DB.
+
+---
+
+## Admin Impersonation (KZO-148)
+
+Admin impersonation is a time-limited, audit-logged, read-only mode for support debugging. It lets an admin view the app exactly as another user sees it — without the ability to write anything while impersonation is active.
+
+### Transport — separate HMAC cookie
+
+Impersonation travels in a cookie named `g_impersonation`, parallel to `g_auth_session` and signed with the same `SESSION_SECRET`:
+
+- **Payload:** `{adminId}.{targetUserId}.{expiresAtMs}.{hmac}`
+- **Attributes:** `HttpOnly`, `SameSite=Lax`, `Secure` in production, `COOKIE_DOMAIN`, no `__Host-` prefix (matches the session cookie convention).
+- **Max-Age:** `ADMIN_IMPERSONATION_TTL_MINUTES * 60 + 300` (TTL + 5 min grace) so the server gets one post-expiry request to emit `impersonation_end {reason: "expired"}` before the browser discards the cookie.
+- **Sign/verify helpers:** `signImpersonationCookie` / `verifyImpersonationCookie` in `apps/api/src/auth/googleOAuth.ts`, built from the same `createHmac` + `timingSafeEqual` pair as the session cookie.
+
+### Lifecycle
+
+```mermaid
+sequenceDiagram
+  participant Admin
+  participant API
+  participant Audit
+  participant Target as Target User (not involved)
+
+  Admin->>API: POST /admin/users/:id/impersonate
+  API->>API: validate: adminRole, not self, not demo, target active
+  alt already impersonating
+    API->>Audit: impersonation_end { reason: "replaced" }
+  end
+  API->>API: sign g_impersonation cookie (30 min default)
+  API->>Audit: impersonation_start { targetUserId, targetEmail, expiresAt }
+  API-->>Admin: Set-Cookie g_impersonation + { expiresAt, targetEmail }
+
+  Note over Admin,API: Impersonation active — admin reads target's data
+  Admin->>API: GET /settings (portfolio read)
+  API->>API: contextUserId = target → returns target's data
+
+  Admin->>API: PATCH /profile (write attempt)
+  API->>Audit: impersonation_blocked_write { method, path }
+  API-->>Admin: 403 impersonation_write_blocked
+
+  Admin->>API: DELETE /admin/impersonation (manual exit)
+  API->>Audit: impersonation_end { reason: "manual" }
+  API-->>Admin: Set-Cookie g_impersonation=; Max-Age=0 + 204
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/admin/users/:id/impersonate` | Start. Admin-only. Blocks `isDemo`, self-impersonate (`400 cannot_impersonate_self`), and non-existent/deactivated/deleted targets. Rotates any active impersonation (emits `impersonation_end{replaced}` first). Returns `{ expiresAt, targetEmail }`. |
+| `DELETE` | `/admin/impersonation` | Manual exit. Admin-only. Clears the cookie, emits `impersonation_end {reason: "manual"}`, returns 204. |
+| `POST` | `/__e2e/impersonation-session` | Test-only. Gated by `assertE2ESeedEnabled()` (NODE_ENV dev/test + memory backend). Mints a signed cookie from `{ adminUserId, targetUserId, ttlMinutes? }` for E2E tests. |
+
+### Blanket write guard
+
+`enforceRouteRole` applies a blanket write-block: when `isImpersonating && method ∈ {POST, PUT, PATCH, DELETE}`, the request is rejected with `403 impersonation_write_blocked` and an `impersonation_blocked_write {targetUserId, method, path}` audit row is emitted.
+
+The block is opt-OUT via a tiny allowlist:
+
+- `POST /admin/users/:id/impersonate` — needed because "re-impersonate while active" rotates the cookie; the POST itself is a write issued while impersonating.
+- `DELETE /admin/impersonation` — needed to exit.
+
+Unlike the sharing-context guard (`requireWriteableContext`, which only blocks the portfolio-write taxonomy), the impersonation block covers ALL write methods — including narrow-taxonomy writes like `PATCH /profile`, `POST /notifications/ack`, and `POST /shares`. Rationale: impersonation is a strict read-only debug mode; any write would be semantically confusing (admin thinks they're acting as target but would actually write to admin's own data).
+
+### Auto-exit
+
+On each request, `hydrateAuthContext` validates the impersonation cookie. Any failed invariant clears the cookie (`Set-Cookie g_impersonation=; Max-Age=0`), emits an `impersonation_end` audit row with the relevant `reason`, and falls through as admin (no 401):
+
+| Reason | Triggered when |
+|---|---|
+| `invalid_hmac` | HMAC verification fails (tampered or forged cookie). |
+| `session_mismatch` | Cookie's embedded `adminId` ≠ `sessionUserId` (stolen-cookie defense). |
+| `expired` | `expiresAtMs <= now`. |
+| `target_invalid` | Target's `deleted_at` or `deactivated_at` is set. |
+| `manual` | Admin clicked Exit — emitted by `DELETE /admin/impersonation`. |
+| `replaced` | Admin started a new impersonation while one was active — emitted by `POST /admin/users/:id/impersonate`. |
+
+### Logout coupling
+
+Clearing either cookie clears the other:
+- `GET /auth/logout` sets `Set-Cookie` headers for **both** `g_auth_session` and `g_impersonation` (and the switcher cookie `tw_context_user_id`).
+- A 401 from session-version mismatch also triggers `markSessionCleanup(req)` which sets both `req.__clearSessionCookie` and `req.__clearImpersonationCookie`; the `onSend` hook appends both clear-cookies to the response.
+
+### Narrow-taxonomy behavior during impersonation
+
+Narrow-taxonomy endpoints (`/profile`, `/notifications`, `/shares`, `/admin/*`, `/sse`) use `sessionUserId` — the admin's identity — so during impersonation the admin continues to see their own data on those surfaces. Only portfolio-read surfaces (`/settings`, `/portfolio/*`, `/accounts`, etc.) switch to `contextUserId = target`.
+
+### UI
+
+The persistent red `ImpersonationBanner` (`apps/web/components/layout/ImpersonationBanner.tsx`) renders whenever `GET /profile` returns an `impersonation` field with `active: true`. It shows the target email, a live `MM:SS` countdown from `expiresAt`, and an `[Exit Impersonation]` button. The countdown is client-side and display-only; when it reaches zero the client refetches `/profile`, which triggers the server-side auto-exit path (the next request carries the still-present expired cookie, server detects expiry, clears + audits).
+
+### Failure modes covered by tests
+
+| Path | Test location |
+|---|---|
+| Happy start, read, block, exit | `apps/api/test/http/specs/admin-impersonation-aaa.http.spec.ts`, `apps/web/tests/e2e/specs-oauth/admin-impersonation-aaa.spec.ts` |
+| Expired auto-exit | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Re-impersonate while active (`replaced`) | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Session_version bumped mid-session clears both cookies | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Write attempt blocked + audit | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Self-impersonate `400` | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Demo-admin `403` | `apps/api/test/integration/impersonation.integration.test.ts` |
+| Cookie sign/verify roundtrip + tamper | `apps/api/test/unit/session-cookie.test.ts` |
+
+The `session_mismatch`, `invalid_hmac`, and `target_invalid` branches are structurally symmetric with `expired` in `validateResolvedImpersonationState`; see the code review note for the test-parity gap tracked for follow-up.
 
 ---
 
@@ -471,7 +580,7 @@ CLI escape hatches:
 
 Indexes: `(created_at DESC)`, `(actor_user_id, created_at DESC)`, `(target_user_id, created_at DESC)`.
 
-Initial KZO-143 behavior only emitted the 3 admin-promotion events. Later work adds invite lifecycle events and sharing lifecycle events while keeping metadata self-contained for post-purge readability.
+Initial KZO-143 behavior only emitted the 3 admin-promotion events. Later work adds invite lifecycle events, sharing lifecycle events (`share_granted`, `share_revoked`, `share_token_created`, `share_token_revoked`), impersonation lifecycle events (`impersonation_start`, `impersonation_end`, `impersonation_blocked_write` — see [Admin Impersonation](#admin-impersonation-kzo-148)), and app-config updates (`app_config_updated`), while keeping metadata self-contained for post-purge readability.
 
 ---
 

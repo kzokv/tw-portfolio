@@ -64,6 +64,9 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | `resolveOrCreateUser` | The API function that performs email-based identity resolution: finds an existing user by email or creates a new one, then links/updates the external identity and seeds default portfolio data. |
 | `resolveUserId` | The route-level function in `registerRoutes.ts` that extracts user identity from the session cookie (oauth mode) or defaults to `user-1` (dev_bypass mode). |
 | E2E session seeding | The `POST /__e2e/oauth-session` endpoint (non-production only) that creates a session cookie for a test user without going through Google OAuth. |
+| Admin impersonation | A time-limited, audit-logged, read-only mode (KZO-148) where an admin views the app as another user. `sessionUserId` remains the admin; `contextUserId` becomes the target. All writes are blocked at the `enforceRouteRole` preHandler with `403 impersonation_write_blocked`. See [Auth — Admin Impersonation](./auth-and-session.md#admin-impersonation-kzo-148). |
+| Impersonation cookie | The `g_impersonation` HMAC-signed cookie that carries `{adminId}.{targetUserId}.{expiresAtMs}`. Signed with `SESSION_SECRET`, parallel to the session cookie. TTL configurable via `ADMIN_IMPERSONATION_TTL_MINUTES`. |
+| Impersonation write-block | The blanket preHandler rule: when `isImpersonating=true`, any `POST/PUT/PATCH/DELETE` is rejected with `403 impersonation_write_blocked` and audited. Only `POST /admin/users/:id/impersonate` and `DELETE /admin/impersonation` are allowlisted. |
 
 ## Environment and Configuration
 
