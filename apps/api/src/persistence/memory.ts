@@ -2271,6 +2271,13 @@ export class MemoryPersistence implements Persistence {
       }
     }
 
+    this.anonymousShareTokenLocks.delete(userId);
+    for (let i = this.anonymousShareTokens.length - 1; i >= 0; i -= 1) {
+      if (this.anonymousShareTokens[i].ownerUserId === userId) {
+        this.anonymousShareTokens.splice(i, 1);
+      }
+    }
+
     // SET NULL on invites.issued_by_user_id and invites.share_owner_user_id
     for (const invite of this.invites.values()) {
       if (invite.issuedByUserId === userId) {

@@ -1,3 +1,7 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Force oauth mode so preHandler enforces session_version.
@@ -11,8 +15,28 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 
 const { buildApp } = await import("../../src/app.js");
 const { signSessionCookie } = await import("../../src/auth/googleOAuth.js");
+const { PostgresPersistence } = await import("../../src/persistence/postgres.js");
+const { loadMigrationManifest } = await import("../../src/persistence/migrationManifest.js");
 
 type BuiltApp = Awaited<ReturnType<typeof buildApp>>;
+
+// ── Postgres integration guard ────────────────────────────────────────────────
+const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
+const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
+const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
+const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+
+if (runPostgresIntegration && !managedCiStack) {
+  throw new Error(
+    "RUN_POSTGRES_INTEGRATION=1 must be executed via npm run test:integration:ci:host or npm run test:integration:ci:container so the DB/Redis stack is managed automatically.",
+  );
+}
+const shouldRunPostgresSuite = runPostgresIntegration && Boolean(databaseUrl) && Boolean(redisUrl);
+const describePostgres = shouldRunPostgresSuite ? describe : describe.skip;
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
+const migrationManifestPromise = loadMigrationManifest(migrationsDir);
 
 const testOAuthConfig = {
   clientId: "test-client-id",
@@ -307,3 +331,99 @@ describe("invite audit entries — existing endpoints", () => {
 //   4. Verify exactly 1 admin remains after the race
 // Place in this file with `persistenceBackend: "postgres"` when Postgres integration
 // infrastructure is available (see test-placement-persistence-backend.md).
+
+// ── hard-purge cascade (Postgres backend) ────────────────────────────────────
+
+describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
+  let pool: Pool;
+  let persistence: Awaited<ReturnType<typeof newPersistence>> | null = null;
+  let adminActorId: string;
+
+  async function newPersistence() {
+    const p = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await p.init();
+    return p;
+  }
+
+  async function resetDatabase(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("DROP SCHEMA IF EXISTS market_data CASCADE");
+      await client.query("DROP SCHEMA IF EXISTS public CASCADE");
+      await client.query("CREATE SCHEMA public");
+      await client.query("GRANT ALL ON SCHEMA public TO public");
+    } finally {
+      client.release();
+    }
+  }
+
+  async function applyNumberedMigrations(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    const client = await pool.connect();
+    try {
+      for (const file of manifest.numberedMigrations) {
+        const migrationSql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(migrationSql);
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  beforeEach(async () => {
+    pool = new Pool({ connectionString: databaseUrl });
+    await resetDatabase();
+    await applyNumberedMigrations();
+    persistence = await newPersistence();
+    const { userId } = await persistence!.resolveOrCreateUser(
+      "google", "admin-actor-sub", { email: "admin@example.com", name: "Admin" }
+    );
+    adminActorId = userId;
+  });
+
+  afterEach(async () => {
+    if (persistence) { await persistence.close(); persistence = null; }
+    await pool.end();
+  });
+
+  it("portfolio_shares — owner purged → ON DELETE CASCADE removes share", async () => {
+    const { userId: ownerId } = await persistence!.resolveOrCreateUser("google", "owner-sub", { email: "owner@example.com", name: "Owner" });
+    const { userId: granteeId } = await persistence!.resolveOrCreateUser("google", "grantee-sub", { email: "grantee@example.com", name: "Grantee" });
+    await persistence!.createShareGrant({ ownerUserId: ownerId, granteeUserId: granteeId, auditInput: { actorUserId: ownerId } });
+
+    await persistence!.hardPurgeUser(ownerId, { actorUserId: adminActorId});
+
+    const inbound = await persistence!.listInboundSharesForGrantee(granteeId);
+    expect(inbound.active).toEqual([]);
+    expect(inbound.revoked).toEqual([]);
+  });
+
+  it("portfolio_shares — grantee purged → ON DELETE CASCADE removes share", async () => {
+    const { userId: ownerId } = await persistence!.resolveOrCreateUser("google", "owner-sub", { email: "owner@example.com", name: "Owner" });
+    const { userId: granteeId } = await persistence!.resolveOrCreateUser("google", "grantee-sub", { email: "grantee@example.com", name: "Grantee" });
+    await persistence!.createShareGrant({ ownerUserId: ownerId, granteeUserId: granteeId, auditInput: { actorUserId: ownerId } });
+
+    await persistence!.hardPurgeUser(granteeId, { actorUserId: adminActorId});
+
+    const outbound = await persistence!.listSharesForOwner(ownerId);
+    expect(outbound.active).toEqual([]);
+    expect(outbound.revoked).toEqual([]);
+  });
+
+  it("anonymous_share_tokens — owner purged → ON DELETE CASCADE removes token", async () => {
+    const { userId: ownerId } = await persistence!.resolveOrCreateUser("google", "owner-sub", { email: "owner@example.com", name: "Owner" });
+    const result = await persistence!.createAnonymousShareToken({
+      ownerUserId: ownerId,
+      token: "postgrescascadeTokenAB",
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      ttlDays: 7,
+      auditInput: { actorUserId: ownerId },
+    });
+    expect(result.status).toBe("ok");
+
+    await persistence!.hardPurgeUser(ownerId, { actorUserId: adminActorId});
+
+    const found = await persistence!.findActiveAnonymousShareTokenByToken("postgrescascadeTokenAB");
+    expect(found).toBeNull();
+  });
+});

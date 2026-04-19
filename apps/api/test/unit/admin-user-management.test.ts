@@ -223,6 +223,47 @@ describe("hardPurgeUser — memory backend", () => {
     // FKs are set to null after deletion
     expect(purgeEntry!.targetUserId).toBeNull();
   });
+
+  it("hardPurgeUser: portfolioShares — owner purged → row deleted", async () => {
+    // Arrange
+    const { userId: granteeId } = await persistence.resolveOrCreateUser("google", "grantee-sub", bobClaims);
+    await persistence.createShareGrant({ ownerUserId: targetUserId, granteeUserId: granteeId, auditInput: { actorUserId: "actor-1" } });
+    // Act
+    await persistence.hardPurgeUser(targetUserId, { actorUserId: "actor-1" });
+    // Assert — from grantee's perspective (listSharesForOwner(purgedId) throws 404)
+    const inbound = await persistence.listInboundSharesForGrantee(granteeId);
+    expect(inbound.active).toEqual([]);
+    expect(inbound.revoked).toEqual([]);
+  });
+
+  it("hardPurgeUser: portfolioShares — grantee purged → row deleted", async () => {
+    // Arrange
+    const { userId: granteeId } = await persistence.resolveOrCreateUser("google", "grantee-sub", bobClaims);
+    await persistence.createShareGrant({ ownerUserId: targetUserId, granteeUserId: granteeId, auditInput: { actorUserId: "actor-1" } });
+    // Act — purge the grantee
+    await persistence.hardPurgeUser(granteeId, { actorUserId: "actor-1" });
+    // Assert — from owner's perspective (listInboundSharesForGrantee(purgedId) throws 404)
+    const outbound = await persistence.listSharesForOwner(targetUserId);
+    expect(outbound.active).toEqual([]);
+    expect(outbound.revoked).toEqual([]);
+  });
+
+  it("hardPurgeUser: anonymousShareTokens — owner purged → row deleted", async () => {
+    // Arrange
+    const tokenResult = await persistence.createAnonymousShareToken({
+      ownerUserId: targetUserId,
+      token: "testTokenXyzABC0123456",
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      ttlDays: 7,
+      auditInput: { actorUserId: "actor-1" },
+    });
+    expect(tokenResult.status).toBe("ok");
+    // Act
+    await persistence.hardPurgeUser(targetUserId, { actorUserId: "actor-1" });
+    // Assert
+    const found = await persistence.findActiveAnonymousShareTokenByToken("testTokenXyzABC0123456");
+    expect(found).toBeNull();
+  });
 });
 
 describe("hasActiveJobs", () => {
