@@ -6,8 +6,11 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   test: {
-    // Force dev_bypass so tests are never affected by a local .env.local with AUTH_MODE=oauth.
-    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test" },
+    // Force dev_bypass + memory backend so tests are deterministic regardless of a
+    // local .env.local. `assertE2ESeedEnabled` reads `Env.PERSISTENCE_BACKEND` directly
+    // (not `app.persistence`), so CI (no `.env.local` → default "postgres") would
+    // otherwise 404 on /__e2e/seed-* even when buildApp is passed memory.
+    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test", PERSISTENCE_BACKEND: "memory" },
     globalTeardown: "./test/globalTeardown.ts",
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
     //   npm run test:html  → vitest-report/ (view: npx vite preview --outDir vitest-report)
