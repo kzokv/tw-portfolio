@@ -190,6 +190,7 @@ test.describe("dividend calendar", () => {
       sourceCompositionStatus: "unknown_pending_disclosure",
       sourceLines: [],
     });
+    // eslint-disable-next-line playwright/no-conditional-in-test
     if (!backgroundUpdate.ok()) {
       throw new Error(`background dividend update failed: ${backgroundUpdate.status()} ${await backgroundUpdate.text()}`);
     }

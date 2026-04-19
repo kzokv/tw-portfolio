@@ -91,6 +91,7 @@ test("dashboard: provisional quote shows clock indicator", async ({
   // computeIsProvisional() returns false on weekends (Sat/Sun TST) — market is closed.
   // Skip this test on weekends to avoid false failures.
   const tstDayOfWeek = new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCDay();
+  // eslint-disable-next-line playwright/no-skipped-test
   test.skip(tstDayOfWeek === 0 || tstDayOfWeek === 6, "computeIsProvisional returns false on weekends — provisional ⏱ badge not rendered");
 
   await appShell.actions.setViewport(1440, 960);
