@@ -6025,7 +6025,6 @@ export class PostgresPersistence implements Persistence {
       await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM refresh_batches WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM recompute_jobs WHERE user_id = $1", [userId]);
-      await client.query("DELETE FROM reconciliation_records WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM daily_portfolio_snapshots WHERE user_id = $1", [userId]);
 
       // 4. SET NULL on invites (preserve invite records)
