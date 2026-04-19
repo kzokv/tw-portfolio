@@ -16,19 +16,19 @@ Nearest local `AGENTS.md` wins for touched files. Root at `/AGENTS.md`, plus per
 - `libs/shared-types/AGENTS.md` — explicit ownership fields, no secrets in types, backward-compatible evolution
 
 ## Testing
-- Unit: `npm test` (Vitest)
-- Integration: `npm run test:integration:ci:host` (Darwin) or `:ci:container` (Linux) — requires managed CI stack
-- E2E: Playwright in `apps/web/tests/e2e/`
-- Integration tests use `describePostgres` gating with `RUN_POSTGRES_INTEGRATION=1` and `TWP_MANAGED_CI_STACK=1`
+Full definition lives in `.claude/rules/full-test-suite.md` — 8 suites must all be clean to claim "tests pass". Do not duplicate the command list here.
+
+- Integration tests use `describePostgres` gating with `RUN_POSTGRES_INTEGRATION=1` and `TWP_MANAGED_CI_STACK=1`.
 
 ## Migration Conventions
-- Numbered: `NNN_short_description.sql` (next: 021)
+- Numbered: `NNN_short_description.sql` (next: 034)
 - `IF NOT EXISTS` / `IF EXISTS` guards for idempotency
 - PL/pgSQL `DO $$` blocks for conditional changes
 - Backfill with `UPDATE ... WHERE ... IS NULL`
 - CHECK constraints with regex patterns
 - snake_case column names
 - Baseline absorbs numbered migrations; update `manifest.env` when baseline is refreshed
+- See `.claude/rules/migration-strategy.md` for the "applied-migration immutability" rule.
 
 ## TypeScript
 - Strict mode enabled everywhere

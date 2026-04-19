@@ -1,63 +1,18 @@
 ---
-name: API route surface and data flow
-description: HTTP API endpoints, auth model, persistence write paths, and web-consumed surface for the Fastify backend
+name: API route surface reference pointer
+description: Where to find the canonical HTTP route inventory, auth/guard sets, and persistence write paths — read the architecture doc, not this memory
 type: reference
 ---
 
-## Auth Model
-- `AUTH_MODE=oauth`: `resolveUserId` accepts `x-authenticated-user-id` header (gateway/proxy) or HMAC-signed session cookie (direct browser); missing both returns 401
-- `AUTH_MODE=dev_bypass`: optional `x-user-id`, defaults to `user-1`
+The canonical API surface lives in two places — read those before acting:
 
-## Route Surface
+- **Architecture doc:** `docs/001-architecture/backend-db-api.md` — endpoint inventory, auth model, write paths.
+- **Source of truth:** `apps/api/src/routes/registerRoutes.ts` — route registration + the `PUBLIC_ROUTE_KEYS`, `WRITER_ROLE_ROUTE_KEYS`, `WRITE_CONTEXT_GUARD_ROUTE_KEYS`, `ADMIN_ROUTE_KEYS` sets are the authoritative guard taxonomy.
+- **Sharing endpoints:** `docs/001-architecture/sharing.md` — `/shares`, `/share-tokens`, `/share/:token`.
+- **Market-data endpoints:** `docs/001-architecture/market-data-platform.md`.
 
-### Health
-- `GET /health/live` — liveness
-- `GET /health/ready` — Postgres + Redis health check
+**Auth mode reminder:** `AUTH_MODE=oauth` uses HMAC-signed session cookies; `AUTH_MODE=dev_bypass` accepts `x-user-id` and defaults to `user-1`. Dev-bypass is forbidden in production (`validateEnvConstraints`).
 
-### User Profile
-- `GET /profile` — returns `ProfileDto` (auth-guarded; userId, email, displayName, providerPictureUrl, providerDisplayName, linkedAt, lastSeenAt)
-- `PATCH /profile` — update mutable email, returns updated `ProfileDto` (auth-guarded, Zod-validated)
+**Why a pointer, not a snapshot:** route additions outpaced previous memory snapshots by the full KZO-141 epic (roles, invites, sharing, admin portal, anonymous share tokens).
 
-### Settings & Fee Config
-- `GET /settings` — UserSettings (web-consumed)
-- `PATCH /settings` — partial update
-- `PUT /settings/full` — full settings save with draft reconciliation (web-consumed)
-- `GET /settings/fee-config` — accounts + profiles + bindings + integrity (web-consumed)
-- `PUT /settings/fee-config` — update fee config
-
-### Accounts, Fee Profiles, Bindings
-- `GET /accounts`, `PATCH /accounts/:id`
-- CRUD `/fee-profiles` (delete protected: can't delete last, in-use, or snapshot-referenced)
-- `GET/PUT /fee-profile-bindings`
-
-### Portfolio
-- `POST /portfolio/transactions` — idempotent trade posting (web-consumed)
-- `GET /portfolio/transactions` — list trades
-- `GET /portfolio/holdings` — computed holdings (web-consumed)
-
-### Dividends & Corporate Actions
-- `POST /dividend-events`, `GET /dividend-events`
-- `POST /portfolio/dividends/postings` — idempotent dividend posting
-- `GET /portfolio/dividends/ledger`
-- `POST /corporate-actions`, `GET /corporate-actions`
-
-### Recompute & Quotes
-- `POST /portfolio/recompute/preview` (web-consumed)
-- `POST /portfolio/recompute/confirm` (web-consumed)
-- `GET /quotes?tickers=...` — auth-required, returns `Record<string, QuoteSnapshotDto | null>` resolved from `daily_bars` (KZO-87)
-
-### AI
-- `POST /ai/transactions/parse` — local text parser
-- `POST /ai/transactions/confirm` — batch trade creation
-
-## Persistence Write Paths
-- **Incremental**: `savePostedTrade` (trade+snapshot+cash+lots), `savePostedDividend`
-- **Full rewrite**: `saveStore` (users+profiles+accounts+overrides+recompute → `saveAccountingStoreTx` full delete/reinsert of all accounting tables)
-
-## Web-Consumed Routes (shipped UI)
-`GET /profile` (via Next.js proxy), `PATCH /profile` (via Next.js proxy), `GET /settings`, `GET /settings/fee-config`, `GET /portfolio/holdings`, `PUT /settings/full`, `POST /portfolio/transactions`, `POST /portfolio/recompute/preview`, `POST /portfolio/recompute/confirm`
-
-## Next.js API Proxy Routes (`apps/web/app/api/`)
-- `GET /api/profile` — server-side proxy: validates session via `getSession()`, returns 401 JSON if absent, forwards to `GET /profile` with `x-authenticated-user-id` header
-- `PATCH /api/profile` — server-side proxy: validates session, forwards body to `PATCH /profile`
-- Frontend calls relative `/api/profile` URLs; session auth is handled server-side to avoid CORS
+**How to apply:** when a user asks about API routes or auth guards, always grep `registerRoutes.ts` for the route key or the guard set. Do not cite a memorized route list.

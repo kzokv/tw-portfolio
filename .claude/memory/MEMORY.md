@@ -32,8 +32,8 @@
 - [project_web_app.md](project_web_app.md) — Next.js App Router pages, frontend feature modules, component organization, and service-layer patterns
 
 ## Database / API reference
-- [project_db_schema.md](project_db_schema.md) — PostgreSQL table catalog with columns, constraints, indexes, and read/write paths (includes market_data schema)
-- [project_api_surface.md](project_api_surface.md) — HTTP API endpoints, auth model, persistence write paths, and web-consumed surface
+- [project_db_schema.md](project_db_schema.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + migrations; schema moves faster than memory snapshots
+- [project_api_surface.md](project_api_surface.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + `registerRoutes.ts`; route sets are authoritative
 
 ## Migration process knowledge
 - ~~feedback_aaa_migration_methodology.md~~ — **PROMOTED** to `.claude/rules/test-migration-methodology.md`
@@ -50,13 +50,14 @@
 - ~~feedback_test_coupling_split.md~~ — **PROMOTED** to `.claude/rules/implementer-qa-test-ownership.md`
 
 ## Market data platform
-- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-18; KZO-141 epic mid-flight (143/144 merged, 145 in active worktree, 146–148 scoped); backup/restore gap still open
+- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-19; KZO-141 epic mid-flight (143–146 merged, 147 pre-PR green in active worktree, 148/149/142 scoped); backup/restore gap still open
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
 ## Persistence layer
 - ~~project_memory_persistence_gaps.md~~ — **PROMOTED** to `.claude/rules/test-placement-persistence-backend.md`
 - ~~project_fk_cascade_alter_pattern.md~~ — **PROMOTED** to `docs/004-notes/005-market-data/note-202603261200-fk-cascade-alter-pattern.md`
+- [project_memory_persistence_shared_daily_bars.md](project_memory_persistence_shared_daily_bars.md) — `_seedDailyBars` is a process-global array; specs must pick unique tickers or collide (bit KZO-147 twice)
 
 ## SSE / streaming
 - ~~feedback_fastify_cors_sse_raw.md~~ — **PROMOTED** to `.claude/rules/fastify-raw-streaming-cors.md`
