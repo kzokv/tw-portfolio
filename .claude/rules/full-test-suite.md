@@ -1,16 +1,32 @@
 # Full Test Suite Definition
 
-"Full tests pass" for this project requires ALL seven suites to be clean:
+"Full tests pass" for this project requires ALL eight suites to be clean:
 
 1. `npx eslint .` — full project lint (run from repo root)
 2. `npm run typecheck` — typecheck (builds libs, then runs `tsc --noEmit` on `apps/api`, `apps/api/test`, and `apps/web`)
 3. `npm run test --prefix apps/web` — web unit tests (vitest)
-4. `npm run test:integration:full:host` — API integration tests (CI/host mode, run from repo root)
-5. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, mock OAuth, dev_bypass mode)
-6. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, real/mock Google OAuth, AUTH_MODE=oauth)
-7. `npm run test:http --prefix apps/api` — API HTTP tests (Playwright, AUTH_MODE=oauth)
+4. `npm run test --prefix apps/api` — API unit + memory-backed integration tests (vitest)
+5. `npm run test:integration:full:host` — API integration tests (CI/host mode, Postgres-backed, run from repo root)
+6. `npm run test:e2e:bypass:mem --prefix apps/web` — standard E2E (Playwright, mock OAuth, dev_bypass mode)
+7. `npm run test:e2e:oauth:mem --prefix apps/web` — OAuth E2E (Playwright, real/mock Google OAuth, AUTH_MODE=oauth)
+8. `npm run test:http --prefix apps/api` — API HTTP tests (Playwright, AUTH_MODE=oauth)
 
 Never declare "all tests pass" with a subset — e.g. passing unit+integration is NOT "full tests pass".
+
+## Canonical one-shot command
+
+**Before `git push`** (especially before opening or updating a PR) run:
+
+```bash
+npx eslint . --max-warnings=0 && npm run typecheck && npm run test:all:full
+```
+
+- `npm run test:all:full` = `bash scripts/test.sh --all --full --e2e-oauth --http-api`. It runs suites 3–8 in one invocation and is the canonical pre-push gate.
+- It does **not** run lint (1) or typecheck (2). Chain them explicitly as shown above, or run them first.
+- Total runtime is ~8–12 minutes on macOS host; the E2E suites dominate.
+- On CI, each suite runs as a separate job — a single-suite failure does not block the others from reporting, so reading `gh pr checks` still requires checking every job.
+
+**Why this matters:** pushing a commit that only passes a subset of suites triggers CI failures that waste cycles and block the PR. KZO-147's unit-tests CI job failed because `apps/api` vitest tests were verified locally (with a `.env.local` that set `PERSISTENCE_BACKEND=memory`) but the CI runner had no `.env.local`, so `Env.PERSISTENCE_BACKEND` defaulted to `postgres` and `assertE2ESeedEnabled` returned 404. A clean-env pre-push run via `test:all:full` would have caught this.
 
 **Why typecheck is separate from lint/tests:** Vitest uses esbuild which strips types without checking them. ESLint catches some type issues but not generic constraint mismatches or overload resolution failures. Only `tsc --noEmit` catches the full spectrum of TypeScript errors. This must match CI's `build-and-typecheck` job.
 
