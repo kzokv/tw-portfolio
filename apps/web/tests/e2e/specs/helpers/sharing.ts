@@ -45,6 +45,7 @@ export interface TSeededTransactionInput {
   ticker: string;
   quantity?: number;
   unitPrice?: number;
+  priceCurrency?: string;
   tradeDate?: string;
   type?: "BUY" | "SELL";
 }
@@ -123,7 +124,7 @@ export async function seedTransactionForUser(
         ticker: input.ticker,
         quantity: input.quantity ?? 100,
         unitPrice: input.unitPrice ?? 100,
-        priceCurrency: "TWD",
+        priceCurrency: input.priceCurrency ?? "TWD",
         tradeDate: input.tradeDate ?? "2026-01-02",
         type: input.type ?? "BUY",
         isDayTrade: false,
