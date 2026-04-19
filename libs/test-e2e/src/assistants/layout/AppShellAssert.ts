@@ -110,6 +110,26 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
+  async impersonationBannerContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.impersonationBanner).toContainText(text);
+  }
+
+  @Step()
+  async impersonationCountdownIsVisible(): Promise<void> {
+    await expect(this.el.impersonationCountdown).toBeVisible();
+  }
+
+  @Step()
+  async impersonationBannerIsHidden(): Promise<void> {
+    await expect(this.el.impersonationBanner).toHaveCount(0);
+  }
+
+  @Step()
+  async clientApiErrorToastContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.clientApiErrorToast).toContainText(text);
+  }
+
+  @Step()
   async avatarMenuShowsSettingsAndSignOut(): Promise<void> {
     await expect(this.el.topBar.elements.avatarMenuSettings).toBeVisible();
     await expect(this.el.topBar.elements.avatarMenuSignOut).toBeVisible();
