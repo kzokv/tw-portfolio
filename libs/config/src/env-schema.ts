@@ -21,6 +21,7 @@ export const envSchema = z.object({
   // Fallback default (minutes) used when `app_config.repair_cooldown_minutes` is NULL or
   // the singleton row is missing. When the DB value is set, it is authoritative. See KZO-133.
   REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
+  ADMIN_IMPERSONATION_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   // Google OAuth — required when AUTH_MODE=oauth.
   // GOOGLE_CLIENT_ID: OAuth 2.0 client ID from Google Cloud Console credentials.
   // GOOGLE_CLIENT_SECRET: paired secret; never expose to clients.

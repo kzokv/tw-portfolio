@@ -250,6 +250,13 @@ export interface UserExternalIdentity {
 
 export type UserRole = "admin" | "member" | "viewer";
 
+export interface ImpersonationDto {
+  active: boolean;
+  targetUserId: string;
+  targetEmail: string | null;
+  expiresAt: string;
+}
+
 export interface ProfileDto {
   userId: string;
   email: string | null;
@@ -259,6 +266,7 @@ export interface ProfileDto {
   linkedAt: string | null;
   lastSeenAt: string | null;
   role: UserRole;
+  impersonation: ImpersonationDto | null;
 }
 
 // ── Admin portal DTOs (KZO-144) ──────────────────────────────────────────────

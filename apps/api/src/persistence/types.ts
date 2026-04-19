@@ -105,6 +105,9 @@ export type AuditLogAction =
   | "share_revoked"
   | "share_token_created"
   | "share_token_revoked"
+  | "impersonation_start"
+  | "impersonation_end"
+  | "impersonation_blocked_write"
   | "session_force_logout"
   | "app_config_updated";
 

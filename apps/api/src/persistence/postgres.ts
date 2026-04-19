@@ -2668,6 +2668,7 @@ export class PostgresPersistence implements Persistence {
       linkedAt: row.linked_at,
       lastSeenAt: row.last_seen_at,
       role: row.role,
+      impersonation: null,
     };
   }
 

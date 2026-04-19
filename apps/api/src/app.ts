@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
@@ -10,8 +10,10 @@ import {
   contextClearCookieString,
   enforceRouteRole,
   hydrateAuthContext,
+  impersonationClearCookieString,
   isPublicRoute,
   registerRoutes,
+  sessionClearCookieString,
   shouldStampContextFallback,
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
@@ -40,6 +42,19 @@ interface RateCounter {
 interface HttpishError extends Error {
   statusCode?: number;
   code?: string;
+}
+
+function appendSetCookieHeader(reply: FastifyReply, cookie: string): void {
+  const existing = reply.getHeader("set-cookie");
+  if (existing === undefined) {
+    reply.header("set-cookie", cookie);
+    return;
+  }
+  if (Array.isArray(existing)) {
+    reply.header("set-cookie", [...existing, cookie]);
+    return;
+  }
+  reply.header("set-cookie", [String(existing), cookie]);
 }
 
 export type AppInstance = FastifyInstance & {
@@ -221,20 +236,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     reply.header("x-frame-options", "DENY");
     reply.header("referrer-policy", "no-referrer");
     reply.header("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    if (req.__clearSessionCookie) {
+      appendSetCookieHeader(reply, sessionClearCookieString());
+    }
+    if (req.__clearImpersonationCookie) {
+      appendSetCookieHeader(reply, impersonationClearCookieString());
+    }
     if (req.__sessionType) {
       reply.header("x-session-type", req.__sessionType);
     }
     if (shouldStampContextFallback(req)) {
       reply.header(CONTEXT_FALLBACK_HEADER, "revoked");
-      const clearCookie = contextClearCookieString();
-      const existing = reply.getHeader("set-cookie");
-      if (existing === undefined) {
-        reply.header("set-cookie", clearCookie);
-      } else if (Array.isArray(existing)) {
-        reply.header("set-cookie", [...existing, clearCookie]);
-      } else {
-        reply.header("set-cookie", [String(existing), clearCookie]);
-      }
+      appendSetCookieHeader(reply, contextClearCookieString());
     }
   });
 
@@ -245,7 +258,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     }
 
     await hydrateAuthContext(app, req);
-    enforceRouteRole(req);
+    await enforceRouteRole(req);
   });
 
   app.setErrorHandler((error: HttpishError, req, reply) => {

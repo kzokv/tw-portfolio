@@ -1380,6 +1380,7 @@ export class MemoryPersistence implements Persistence {
       linkedAt: null,
       lastSeenAt: null,
       role: memUser.role,
+      impersonation: null,
     };
   }
 

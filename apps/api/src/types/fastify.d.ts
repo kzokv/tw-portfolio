@@ -5,6 +5,13 @@ import type { BufferedEventBus } from "../events/buffered.js";
 import type { PgBoss } from "pg-boss";
 import type { UserRole } from "../persistence/types.js";
 
+interface RequestImpersonationContext {
+  active: boolean;
+  targetUserId: string;
+  targetEmail: string | null;
+  expiresAt: string;
+}
+
 interface RequestAuthContext {
   sessionUserId: string;
   contextUserId: string;
@@ -14,6 +21,7 @@ interface RequestAuthContext {
   isImpersonating: boolean;
   isSharedContext: boolean;
   email?: string | null;
+  impersonation: RequestImpersonationContext | null;
 }
 
 declare module "fastify" {
@@ -27,6 +35,8 @@ declare module "fastify" {
   interface FastifyRequest {
     __sessionType?: "demo" | "oauth";
     __contextFallback?: boolean;
+    __clearSessionCookie?: boolean;
+    __clearImpersonationCookie?: boolean;
     authContext?: RequestAuthContext;
   }
 }
