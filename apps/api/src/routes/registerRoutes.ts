@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerSSERoute } from "./sseRoute.js";
+import { adminRoutes } from "./adminRoutes.js";
 import {
   buildAuthorizationUrl,
   decodeIdTokenPayload,
@@ -47,6 +48,12 @@ import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/i
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { routeError } from "../lib/routeError.js";
+import {
+  requireAdminRole,
+  requireShareGrantorRole,
+  requireWriteableContext,
+  requireWriterRole,
+} from "../lib/routeGuards.js";
 import type { Store, Transaction } from "../types/store.js";
 import type {
   AnonymousShareTokenRecord,
@@ -61,7 +68,7 @@ import {
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 
-const userScopedIdSchema = z
+export const userScopedIdSchema = z
   .string()
   .trim()
   .min(1)
@@ -268,7 +275,7 @@ function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomai
 }
 
 const VALID_USER_ROLES = ["admin", "member", "viewer"] as const;
-const userRoleSchema = z.enum(VALID_USER_ROLES);
+export const userRoleSchema = z.enum(VALID_USER_ROLES);
 const PUBLIC_ROUTE_KEYS = new Set([
   "GET /health/live",
   "GET /health/ready",
@@ -280,6 +287,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "POST /__e2e/oauth-session",
   "POST /__e2e/demo-session",
   "POST /__e2e/reset-demo-rate-buckets",
+  "POST /__e2e/reset-app-config",
   "POST /__e2e/seed-anonymous-share-token",
   "POST /__e2e/anon-share-rate-reset",
   "POST /__e2e/anon-share-deactivate-owner",
@@ -358,6 +366,8 @@ const ADMIN_ROUTE_KEYS = new Set([
   "DELETE /admin/users/:id/purge",
   "GET /admin/invites",
   "GET /admin/audit-log",
+  "GET /admin/settings",
+  "PATCH /admin/settings",
 ]);
 const inviteStatusBuckets = new Map<string, number[]>();
 const INVITE_STATUS_WINDOW_MS = 60_000;
@@ -677,34 +687,6 @@ export async function hydrateAuthContext(app: FastifyInstance, req: FastifyReque
     isSharedContext,
     email: authUser?.email ?? null,
   };
-}
-
-export function requireWriterRole(req: FastifyRequest): void {
-  if (req.authContext?.role === "viewer") {
-    throw routeError(403, "write_blocked_viewer_role", "viewer role cannot mutate portfolio data");
-  }
-}
-
-export function requireAdminRole(req: FastifyRequest): void {
-  if (req.authContext?.role !== "admin") {
-    throw routeError(403, "admin_role_required", "admin role required");
-  }
-}
-
-export function requireShareGrantorRole(req: FastifyRequest): void {
-  if (req.authContext?.isDemo || req.authContext?.role === "viewer") {
-    throw routeError(403, "share_grant_forbidden", "share grant forbidden");
-  }
-}
-
-export function requireWriteableContext(req: FastifyRequest): void {
-  if (req.authContext?.isSharedContext) {
-    throw routeError(
-      403,
-      "write_blocked_viewing_shared",
-      "Writes are disabled while viewing a shared portfolio.",
-    );
-  }
 }
 
 export function enforceRouteRole(req: FastifyRequest): void {
@@ -1120,6 +1102,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2EOauthSessionEnabled();
     _resetDemoRateBuckets();
     return { status: "reset" };
+  });
+
+  // KZO-142: reset the repair cooldown override so each E2E settings spec
+  // starts from a clean "env default" state.
+  app.post("/__e2e/reset-app-config", async () => {
+    assertE2EResetEnabled();
+    await app.persistence.setRepairCooldownMinutes(null);
+    return { ok: true };
   });
 
   // KZO-147: seed an anonymous share token row directly (bypasses the normal
@@ -3180,188 +3170,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "ok" };
   });
 
-  // ── Admin portal routes (KZO-144) ──────────────────────────────────────────
-
-  app.get("/admin/users", async (req) => {
-    const query = req.query as Record<string, string | undefined>;
-    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
-    return app.persistence.listUsers({
-      page,
-      limit,
-      search: query.search,
-      role: query.role ? userRoleSchema.parse(query.role) : undefined,
-      status: z.enum(["active", "disabled", "deleted"]).optional().parse(query.status || undefined),
-    });
-  });
-
-  app.patch("/admin/users/:id/role", async (req) => {
-    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
-    const body = z.object({ role: userRoleSchema }).parse(req.body);
-
-    assertNotSelf(sessionUserId, id);
-
-    const target = await app.persistence.getAuthUserById(id);
-    if (!target) throw routeError(404, "user_not_found", "User not found");
-
-    // Last-admin guard is enforced atomically inside changeUserRole transaction
-
-    const result = await app.persistence.changeUserRole(id, body.role, {
-      actorUserId: sessionUserId,
-      ipAddress,
-    });
-
-    // Force logout when removing admin role
-    if (target.role === "admin" && body.role !== "admin") {
-      await app.persistence.appendAuditLog({
-        actorUserId: sessionUserId,
-        action: "session_force_logout",
-        targetUserId: id,
-        ipAddress,
-        metadata: { targetEmail: target.email, reason: "admin_role_change" },
-      });
-    }
-
-    return result;
-  });
-
-  app.post("/admin/users/:id/disable", async (req) => {
-    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
-
-    assertNotSelf(sessionUserId, id);
-
-    const target = await app.persistence.getAuthUserById(id);
-    if (!target) throw routeError(404, "user_not_found", "User not found");
-
-    // Last-admin guard is enforced atomically inside disableUser transaction
-    await app.persistence.disableUser(id, {
-      actorUserId: sessionUserId,
-      ipAddress,
-    });
-    return { status: "ok" };
-  });
-
-  app.post("/admin/users/:id/enable", async (req) => {
-    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
-
-    assertNotSelf(sessionUserId, id);
-
-    const target = await app.persistence.getAuthUserById(id);
-    if (!target) throw routeError(404, "user_not_found", "User not found");
-
-    await app.persistence.enableUser(id, {
-      actorUserId: sessionUserId,
-      ipAddress,
-    });
-    return { status: "ok" };
-  });
-
-  app.delete("/admin/users/:id", async (req) => {
-    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
-    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
-
-    assertNotSelf(sessionUserId, id);
-
-    const target = await app.persistence.getAuthUserById(id);
-    if (!target) throw routeError(404, "user_not_found", "User not found");
-
-    // Last-admin guard is enforced atomically inside softDeleteUser transaction
-    await app.persistence.softDeleteUser(id, {
-      actorUserId: sessionUserId,
-      ipAddress,
-    });
-    return { status: "ok" };
-  });
-
-  app.delete("/admin/users/:id/purge", async (req, reply) => {
-    const { sessionUserId, ipAddress, email: adminEmail } = resolveAdminContext(req, app);
-    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
-    const body = z.object({
-      confirmation: z.string(),
-      adminEmail: z.string().email(),
-    }).parse(req.body);
-
-    assertNotSelf(sessionUserId, id);
-
-    const target = await app.persistence.getAuthUserById(id);
-    if (!target) throw routeError(404, "user_not_found", "User not found");
-    if (!target.email) {
-      throw routeError(400, "no_email_for_purge", "Cannot purge a user with no email address");
-    }
-
-    // Validate confirmation strings
-    const expectedConfirmation = `PURGE ${target.email}`;
-    if (body.confirmation !== expectedConfirmation) {
-      throw routeError(400, "invalid_confirmation", `Confirmation must be "${expectedConfirmation}"`);
-    }
-    if (body.adminEmail.toLowerCase() !== (adminEmail ?? "").toLowerCase()) {
-      throw routeError(400, "invalid_admin_email", "Admin email does not match");
-    }
-
-    // Last-admin guard is enforced atomically inside hardPurgeUser transaction
-
-    // Check for active jobs
-    const hasJobs = await app.persistence.hasActiveJobs(id);
-    if (hasJobs) {
-      throw routeError(409, "active_jobs_blocked", "User has active background jobs — wait for completion before purging");
-    }
-
-    await app.persistence.hardPurgeUser(id, {
-      actorUserId: sessionUserId,
-      ipAddress,
-    });
-    reply.code(204);
-    return null;
-  });
-
-  app.get("/admin/invites", async (req) => {
-    const query = req.query as Record<string, string | undefined>;
-    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
-    return app.persistence.listInvites({
-      page,
-      limit,
-      status: z.enum(["pending", "used", "expired", "revoked"]).optional().parse(query.status || undefined),
-      email: query.email,
-    });
-  });
-
-  app.get("/admin/audit-log", async (req) => {
-    const query = req.query as Record<string, string | undefined>;
-    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
-    return app.persistence.listAuditLog({
-      page,
-      limit,
-      actorUserId: query.actorUserId,
-      targetUserId: query.targetUserId,
-      actions: query.action ? query.action.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
-      fromDate: query.fromDate,
-      toDate: query.toDate,
-    });
-  });
+  // ── Admin portal routes (KZO-144 / KZO-142) ───────────────────────────────
+  await app.register(adminRoutes, { prefix: "/admin" });
 
   registerSSERoute(app, requireSessionUserId);
-}
-
-// ── Admin route helpers (KZO-144) ───────────────────────────────────────────
-
-function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
-  const sessionUserId = requireSessionUserId(req);
-  return {
-    sessionUserId,
-    ipAddress: req.ip,
-    email: req.authContext?.email ?? null,
-  };
-}
-
-function assertNotSelf(sessionUserId: string, targetUserId: string): void {
-  if (targetUserId === sessionUserId) {
-    throw routeError(403, "self_operation_blocked", "Cannot perform this action on your own account");
-  }
 }
 
 // assertNotLastAdmin moved to persistence layer (assertNotLastAdminTx) for atomic check+mutation

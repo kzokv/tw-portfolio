@@ -54,4 +54,16 @@ export class AdminEndpoint extends BaseEndpoint {
       })}`),
       headers ? { headers } : {},
     );
+
+  getAdminSettings = (headers?: Record<string, string>): Promise<APIResponse> =>
+    this.request.get(apiUrl("/admin/settings"), headers ? { headers } : {});
+
+  patchAdminSettings = (
+    body: { repairCooldownMinutes: number | null },
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.patch(apiUrl("/admin/settings"), {
+      data: body,
+      ...(headers ? { headers } : {}),
+    });
 }

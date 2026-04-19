@@ -227,6 +227,9 @@ export class MemoryPersistence implements Persistence {
   private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
+  /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
+   *  construction so a fresh MemoryPersistence always has a non-null value. */
+  private _appConfigUpdatedAt: string = new Date().toISOString();
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
@@ -1795,6 +1798,20 @@ export class MemoryPersistence implements Persistence {
 
   async getRepairCooldownMinutes(): Promise<number | null> {
     return this._repairCooldownMinutes;
+  }
+
+  async getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }> {
+    return {
+      repairCooldownMinutes: this._repairCooldownMinutes,
+      updatedAt: this._appConfigUpdatedAt,
+    };
+  }
+
+  async setRepairCooldownMinutes(value: number | null): Promise<void> {
+    this._repairCooldownMinutes = value;
+    const prevMs = Date.parse(this._appConfigUpdatedAt);
+    const nextMs = Math.max(Date.now(), Number.isFinite(prevMs) ? prevMs + 1 : Date.now());
+    this._appConfigUpdatedAt = new Date(nextMs).toISOString();
   }
 
   /** Test-only: override the in-memory repair cooldown (null = use env fallback). */

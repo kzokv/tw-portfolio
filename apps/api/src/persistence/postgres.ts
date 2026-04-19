@@ -5253,6 +5253,29 @@ export class PostgresPersistence implements Persistence {
     return r.rows[0].repair_cooldown_minutes;
   }
 
+  async getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }> {
+    const r = await this.pool.query<{ repair_cooldown_minutes: number | null; updated_at: Date | string }>(
+      "SELECT repair_cooldown_minutes, updated_at FROM public.app_config WHERE id = 1",
+    );
+    if (r.rowCount === 0) {
+      console.warn("[app_config] row missing — falling back to env REPAIR_COOLDOWN_MINUTES");
+      return { repairCooldownMinutes: null, updatedAt: new Date(0).toISOString() };
+    }
+    const row = r.rows[0];
+    const rawUpdatedAt = row.updated_at;
+    const updatedAt = rawUpdatedAt instanceof Date ? rawUpdatedAt.toISOString() : new Date(rawUpdatedAt).toISOString();
+    return { repairCooldownMinutes: row.repair_cooldown_minutes, updatedAt };
+  }
+
+  async setRepairCooldownMinutes(value: number | null): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, repair_cooldown_minutes, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET repair_cooldown_minutes = $1, updated_at = NOW()`,
+      [value],
+    );
+  }
+
   async upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
     const client = await this.pool.connect();
     try {

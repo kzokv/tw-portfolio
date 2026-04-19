@@ -1,0 +1,237 @@
+import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import { z } from "zod";
+import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import { routeError } from "../lib/routeError.js";
+import { requireAdminRole } from "../lib/routeGuards.js";
+import { getEffectiveRepairCooldownMinutes } from "../services/market-data/repairCooldown.js";
+import {
+  requireSessionUserId,
+  userRoleSchema,
+  userScopedIdSchema,
+} from "./registerRoutes.js";
+
+export const patchAdminSettingsSchema = z.object({
+  repairCooldownMinutes: z.union([z.number().int().min(1).max(10080), z.null()]),
+});
+
+function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
+  const sessionUserId = requireSessionUserId(req);
+  return {
+    sessionUserId,
+    ipAddress: req.ip,
+    email: req.authContext?.email ?? null,
+  };
+}
+
+function assertNotSelf(sessionUserId: string, targetUserId: string): void {
+  if (targetUserId === sessionUserId) {
+    throw routeError(403, "self_operation_blocked", "Cannot perform this action on your own account");
+  }
+}
+
+async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
+  const [config, effective] = await Promise.all([
+    app.persistence.getAppConfig(),
+    getEffectiveRepairCooldownMinutes(app.persistence),
+  ]);
+  return {
+    repairCooldownMinutes: config.repairCooldownMinutes,
+    effectiveRepairCooldownMinutes: effective,
+    updatedAt: config.updatedAt,
+  };
+}
+
+export const adminRoutes: FastifyPluginAsync = async (app) => {
+  app.get("/users", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listUsers({
+      page,
+      limit,
+      search: query.search,
+      role: query.role ? userRoleSchema.parse(query.role) : undefined,
+      status: z.enum(["active", "disabled", "deleted"]).optional().parse(query.status || undefined),
+    });
+  });
+
+  app.patch("/users/:id/role", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({ role: userRoleSchema }).parse(req.body);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside changeUserRole transaction
+
+    const result = await app.persistence.changeUserRole(id, body.role, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+
+    // Force logout when removing admin role
+    if (target.role === "admin" && body.role !== "admin") {
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "session_force_logout",
+        targetUserId: id,
+        ipAddress,
+        metadata: { targetEmail: target.email, reason: "admin_role_change" },
+      });
+    }
+
+    return result;
+  });
+
+  app.post("/users/:id/disable", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside disableUser transaction
+    await app.persistence.disableUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.post("/users/:id/enable", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    await app.persistence.enableUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.delete("/users/:id", async (req) => {
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+
+    // Last-admin guard is enforced atomically inside softDeleteUser transaction
+    await app.persistence.softDeleteUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    return { status: "ok" };
+  });
+
+  app.delete("/users/:id/purge", async (req, reply) => {
+    const { sessionUserId, ipAddress, email: adminEmail } = resolveAdminContext(req, app);
+    const { id } = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      confirmation: z.string(),
+      adminEmail: z.string().email(),
+    }).parse(req.body);
+
+    assertNotSelf(sessionUserId, id);
+
+    const target = await app.persistence.getAuthUserById(id);
+    if (!target) throw routeError(404, "user_not_found", "User not found");
+    if (!target.email) {
+      throw routeError(400, "no_email_for_purge", "Cannot purge a user with no email address");
+    }
+
+    // Validate confirmation strings
+    const expectedConfirmation = `PURGE ${target.email}`;
+    if (body.confirmation !== expectedConfirmation) {
+      throw routeError(400, "invalid_confirmation", `Confirmation must be "${expectedConfirmation}"`);
+    }
+    if (body.adminEmail.toLowerCase() !== (adminEmail ?? "").toLowerCase()) {
+      throw routeError(400, "invalid_admin_email", "Admin email does not match");
+    }
+
+    // Last-admin guard is enforced atomically inside hardPurgeUser transaction
+
+    // Check for active jobs
+    const hasJobs = await app.persistence.hasActiveJobs(id);
+    if (hasJobs) {
+      throw routeError(409, "active_jobs_blocked", "User has active background jobs — wait for completion before purging");
+    }
+
+    await app.persistence.hardPurgeUser(id, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
+    reply.code(204);
+    return null;
+  });
+
+  app.get("/invites", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listInvites({
+      page,
+      limit,
+      status: z.enum(["pending", "used", "expired", "revoked"]).optional().parse(query.status || undefined),
+      email: query.email,
+    });
+  });
+
+  app.get("/audit-log", async (req) => {
+    const query = req.query as Record<string, string | undefined>;
+    const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50));
+    return app.persistence.listAuditLog({
+      page,
+      limit,
+      actorUserId: query.actorUserId,
+      targetUserId: query.targetUserId,
+      actions: query.action ? query.action.split(",").map((a) => a.trim()).filter(Boolean) : undefined,
+      fromDate: query.fromDate,
+      toDate: query.toDate,
+    });
+  });
+
+  // ── Admin settings (KZO-142) ───────────────────────────────────────────────
+
+  app.get("/settings", async (req): Promise<AppConfigDto> => {
+    requireAdminRole(req);
+    return loadAppConfigDto(app);
+  });
+
+  app.patch("/settings", async (req): Promise<AppConfigDto> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const body = patchAdminSettingsSchema.parse(req.body);
+
+    const current = await app.persistence.getAppConfig();
+    if (body.repairCooldownMinutes === current.repairCooldownMinutes) {
+      return loadAppConfigDto(app);
+    }
+
+    await app.persistence.setRepairCooldownMinutes(body.repairCooldownMinutes);
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "app_config_updated",
+      metadata: {
+        before: { repairCooldownMinutes: current.repairCooldownMinutes },
+        after: { repairCooldownMinutes: body.repairCooldownMinutes },
+      },
+      ipAddress,
+    });
+
+    return loadAppConfigDto(app);
+  });
+};

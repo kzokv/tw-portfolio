@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, Mail, Users } from "lucide-react";
+import { ClipboardList, Mail, Settings, Users } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface AdminNavItem {
@@ -16,6 +16,7 @@ const adminNavItems: AdminNavItem[] = [
   { id: "users", href: "/admin/users", label: "Users", icon: Users },
   { id: "invites", href: "/admin/invites", label: "Invites", icon: Mail },
   { id: "audit-log", href: "/admin/audit-log", label: "Audit Log", icon: ClipboardList },
+  { id: "settings", href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 export function AdminSidebar() {

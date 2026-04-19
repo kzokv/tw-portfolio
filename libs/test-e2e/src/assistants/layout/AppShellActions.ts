@@ -190,4 +190,26 @@ export class AppShellActions extends AppBaseActions {
   async confirmDialog(): Promise<void> {
     await this.uiActions.click.perform(this.page.getByTestId("confirm-dialog-confirm"));
   }
+
+  // ── Admin settings actions ────────────────────────────────────────────────
+
+  @Step()
+  async toggleAdminSettingsOverride(enable: boolean): Promise<void> {
+    const toggle = this.page.getByTestId("admin-settings-override-toggle");
+    if (enable) {
+      await toggle.check();
+    } else {
+      await toggle.uncheck();
+    }
+  }
+
+  @Step()
+  async fillAdminSettingsMinutes(value: string): Promise<void> {
+    await this.mxFill(this.page.getByTestId("admin-settings-minutes-input"), value);
+  }
+
+  @Step()
+  async clickAdminSettingsSave(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("admin-settings-save-button"));
+  }
 }

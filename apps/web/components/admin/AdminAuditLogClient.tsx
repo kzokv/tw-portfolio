@@ -27,6 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   user_promoted_to_admin: "Promoted to admin",
   user_linked_identity: "Linked identity",
   user_login: "User login",
+  app_config_updated: "Updated settings",
 };
 
 const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
@@ -49,6 +50,10 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
   {
     label: "Session",
     actions: ["session_force_logout", "user_login", "user_linked_identity"],
+  },
+  {
+    label: "Settings",
+    actions: ["app_config_updated"],
   },
 ];
 

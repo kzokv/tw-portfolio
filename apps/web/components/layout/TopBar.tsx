@@ -29,7 +29,7 @@ interface TopBarProps {
   email?: string | null;
   role?: string;
   isDemo?: boolean;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onToggleNavigation?: () => void;
   navigationOpen?: boolean;
   onToggleDesktopNavigation?: () => void;
@@ -37,7 +37,7 @@ interface TopBarProps {
   productName: string;
   title: string;
   titleTooltip: string;
-  openSettingsLabel: string;
+  openSettingsLabel?: string;
   sharingLabel: string;
   signOutLabel: string;
   signOutHref: string;
