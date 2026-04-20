@@ -21,6 +21,7 @@ describe("catalog sync worker", () => {
     const persistence = {
       upsertInstrumentCatalog: vi.fn(),
       getAllMonitoredTickers: vi.fn(),
+      createRefreshBatch: vi.fn(),
     };
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 3, delisted: 1 });
@@ -59,6 +60,7 @@ describe("catalog sync worker", () => {
     const persistence = {
       upsertInstrumentCatalog: vi.fn(),
       getAllMonitoredTickers: vi.fn(),
+      createRefreshBatch: vi.fn(),
     };
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const runCatalogSyncFn = vi.fn().mockRejectedValue(new Error("catalog exploded"));
@@ -87,6 +89,7 @@ describe("catalog sync worker", () => {
     const persistence = {
       upsertInstrumentCatalog: vi.fn(),
       getAllMonitoredTickers: vi.fn(),
+      createRefreshBatch: vi.fn(),
     };
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const runCatalogSyncFn = vi.fn();

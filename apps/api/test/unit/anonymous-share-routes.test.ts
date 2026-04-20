@@ -8,7 +8,7 @@ async function seedUser(app: AppInstance, email: string) {
     email,
     emailVerified: true,
     name: "Owner Name",
-    picture: null,
+    picture: undefined,
   };
   const result = await app.persistence.resolveOrCreateUser("google", `sub-${email}`, claims);
   return result.userId;

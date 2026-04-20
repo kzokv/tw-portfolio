@@ -465,7 +465,7 @@ describe("SSE infrastructure", () => {
           if (args.length > 0 && typeof args[0] === "object" && args[0] !== null) {
             logEntries.push(args[0] as Record<string, unknown>);
           }
-          return originalInfo(...args);
+          return (originalInfo as (...args: unknown[]) => void)(...args);
         };
         return child;
       });

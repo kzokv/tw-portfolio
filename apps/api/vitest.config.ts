@@ -11,6 +11,7 @@ export default defineConfig({
     // (not `app.persistence`), so CI (no `.env.local` → default "postgres") would
     // otherwise 404 on /__e2e/seed-* even when buildApp is passed memory.
     env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test", PERSISTENCE_BACKEND: "memory" },
+    // @ts-expect-error globalTeardown is supported at runtime but missing from InlineConfig in this Vitest version
     globalTeardown: "./test/globalTeardown.ts",
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
     //   npm run test:html  → vitest-report/ (view: npx vite preview --outDir vitest-report)

@@ -579,7 +579,7 @@ describe("self-operation block — 403 on all admin endpoints", () => {
   const selfId = "user-1";
   const selfHeaders = { "x-user-id": selfId, "x-user-role": "admin" };
 
-  const selfTargetedRoutes: Array<{ method: "PATCH" | "POST" | "DELETE"; path: string; payload?: unknown }> = [
+  const selfTargetedRoutes: Array<{ method: "PATCH" | "POST" | "DELETE"; path: string; payload?: Record<string, unknown> }> = [
     { method: "PATCH", path: `/admin/users/${selfId}/role`, payload: { role: "member" } },
     { method: "POST", path: `/admin/users/${selfId}/disable` },
     { method: "POST", path: `/admin/users/${selfId}/enable` },

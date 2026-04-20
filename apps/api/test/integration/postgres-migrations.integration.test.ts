@@ -1411,6 +1411,8 @@ describePostgres("postgres migrations", () => {
         receivedStockQuantity: 0,
         postingStatus: "posted",
         reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
         bookedAt: "2026-08-10T09:00:00.000Z",
       },
       {
@@ -1424,6 +1426,8 @@ describePostgres("postgres migrations", () => {
         receivedStockQuantity: 0,
         postingStatus: "expected",
         reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
         bookedAt: "2026-07-16T09:00:00.000Z",
       },
     ];
@@ -1663,6 +1667,8 @@ describePostgres("postgres migrations", () => {
         receivedStockQuantity: 0,
         postingStatus: "expected",
         reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
       },
       {
         id: "dividend-ledger-kzo34-duplicate-2",
@@ -1675,6 +1681,8 @@ describePostgres("postgres migrations", () => {
         receivedStockQuantity: 0,
         postingStatus: "expected",
         reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
       },
     ];
 

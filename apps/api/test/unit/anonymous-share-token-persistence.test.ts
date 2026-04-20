@@ -14,7 +14,7 @@ async function seedUser(persistence: MemoryPersistence, email: string) {
     email,
     emailVerified: true,
     name: "Owner Name",
-    picture: null,
+    picture: undefined,
   };
   const result = await persistence.resolveOrCreateUser("google", `sub-${email}`, claims);
   return result.userId;
