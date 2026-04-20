@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
 import type { CatalogInstrument, DelistingRecord } from "../../src/persistence/types.js";
+import type { InstrumentDef } from "../../src/types/store.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import { buildApp } from "../../src/app.js";
 

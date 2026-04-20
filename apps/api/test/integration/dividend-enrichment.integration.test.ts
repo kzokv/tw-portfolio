@@ -197,6 +197,6 @@ describePostgres("dividend enrichment columns", () => {
     expect(enriched!.announcementDate).toBe("2025-05-01");
     expect(enriched!.totalDistributionShares).toBe(25933632588);
     // rawProviderData is NOT on DividendEvent (skip in loadStore)
-    expect((enriched as Record<string, unknown>).rawProviderData).toBeUndefined();
+    expect((enriched as unknown as Record<string, unknown>).rawProviderData).toBeUndefined();
   });
 });

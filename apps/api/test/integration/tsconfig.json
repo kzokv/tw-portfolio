@@ -1,10 +1,10 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
     "module": "NodeNext",
     "moduleResolution": "NodeNext"
   },
-  "include": ["http/**/*.ts", "globalTeardown.ts"]
+  "include": ["**/*.ts", "../../src/**/*.d.ts"]
 }

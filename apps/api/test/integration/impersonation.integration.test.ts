@@ -99,7 +99,7 @@ describe("admin impersonation — integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().userId).toBe(adminUserId);
-    expect(setCookieHeaderValue(response)).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
+    expect(setCookieHeaderValue({ headers: response.headers as Record<string, string | string[] | undefined> })).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
 
     const auditLog = await app.persistence.listAuditLog({
       page: 1,
@@ -137,7 +137,7 @@ describe("admin impersonation — integration", () => {
     });
 
     expect(response.statusCode).toBe(401);
-    const setCookie = setCookieHeaderValue(response);
+    const setCookie = setCookieHeaderValue({ headers: response.headers as Record<string, string | string[] | undefined> });
     expect(setCookie).toContain(`${SESSION_COOKIE_NAME}=;`);
     expect(setCookie).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
   });
@@ -323,7 +323,7 @@ describe("admin impersonation — integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().userId).toBe(secondAdminUserId);
-    expect(setCookieHeaderValue(response)).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
+    expect(setCookieHeaderValue({ headers: response.headers as Record<string, string | string[] | undefined> })).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
 
     const auditLog = await app.persistence.listAuditLog({
       page: 1,
@@ -361,7 +361,7 @@ describe("admin impersonation — integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().userId).toBe(adminUserId);
-    expect(setCookieHeaderValue(response)).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
+    expect(setCookieHeaderValue({ headers: response.headers as Record<string, string | string[] | undefined> })).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
 
     const auditLog = await app.persistence.listAuditLog({
       page: 1,
@@ -398,7 +398,7 @@ describe("admin impersonation — integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().userId).toBe(adminUserId);
-    expect(setCookieHeaderValue(response)).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
+    expect(setCookieHeaderValue({ headers: response.headers as Record<string, string | string[] | undefined> })).toContain(`${IMPERSONATION_COOKIE_NAME}=;`);
 
     const auditLog = await app.persistence.listAuditLog({
       page: 1,

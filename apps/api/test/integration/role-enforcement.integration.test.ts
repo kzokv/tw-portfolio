@@ -25,7 +25,7 @@ describe("requireWriterRole — viewer 403 on mutation endpoints", () => {
     if (app) await app.close();
   });
 
-  const writerGatedRoutes: Array<{ method: "POST" | "PATCH" | "DELETE" | "PUT"; url: string; payload?: unknown }> = [
+  const writerGatedRoutes: Array<{ method: "POST" | "PATCH" | "DELETE" | "PUT"; url: string; payload?: Record<string, unknown> }> = [
     { method: "POST", url: "/portfolio/transactions", payload: {} },
     { method: "PATCH", url: "/settings", payload: {} },
     { method: "POST", url: "/fee-profiles", payload: {} },
