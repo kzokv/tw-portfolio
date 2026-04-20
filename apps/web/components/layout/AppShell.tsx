@@ -32,6 +32,10 @@ import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
 import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 import { useNotifications } from "../../hooks/useNotifications";
 import { fetchSharingPageData } from "../../features/sharing/service";
+import {
+  extractSharingNotificationDetail,
+  isRevokedSharingNotification,
+} from "../../lib/sharing-notification-matcher";
 import type { InboundShareCardItem } from "../../features/sharing/types";
 import { DividendsSection } from "../dashboard/DividendsSection";
 import { ActionCenterSection } from "../dashboard/ActionCenterSection";
@@ -406,15 +410,15 @@ export function AppShell({
     (notification: { title: string; detail: unknown }) => {
       void refreshSwitcherData();
 
-      const detail = notification.detail as {
-        ownerUserId?: string;
-        ownerDisplayName?: string | null;
-        ownerEmail?: string | null;
-      } | null;
-      const ownerUserId = typeof detail?.ownerUserId === "string" ? detail.ownerUserId : null;
+      const detail = extractSharingNotificationDetail(notification.detail);
+      const ownerUserId = detail?.ownerUserId ?? null;
       const ownerLabel = detail?.ownerDisplayName || detail?.ownerEmail || dict.switcher.self;
 
-      if (notification.title === "Portfolio access revoked" && ownerUserId && ownerUserId === currentContextOwnerId) {
+      if (
+        isRevokedSharingNotification(notification) &&
+        ownerUserId &&
+        ownerUserId === currentContextOwnerId
+      ) {
         clearContextCookie();
         setContextMessage(
           dict.switcher.revokedFallbackOwner.replace("{owner}", ownerLabel),

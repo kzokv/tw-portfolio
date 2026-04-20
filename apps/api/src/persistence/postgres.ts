@@ -42,6 +42,7 @@ import type {
   AdminUserListResponse,
   InstrumentCatalogItemDto,
   InviteListStatus,
+  LocaleCode,
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
@@ -267,11 +268,13 @@ function buildShareGrantedNotification(
   shareId: string,
   owner: { id: string; email: string | null; display_name: string | null },
   granteeUserId: string,
+  granteeLocale: LocaleCode,
 ) {
   return buildShareGrantedNotificationShared(
     shareId,
     { id: owner.id, email: owner.email, displayName: owner.display_name },
     granteeUserId,
+    granteeLocale,
   );
 }
 
@@ -279,11 +282,13 @@ function buildShareRevokedNotification(
   shareId: string,
   owner: { id: string; email: string | null; display_name: string | null },
   granteeUserId: string,
+  granteeLocale: LocaleCode,
 ) {
   return buildShareRevokedNotificationShared(
     shareId,
     { id: owner.id, email: owner.email, displayName: owner.display_name },
     granteeUserId,
+    granteeLocale,
   );
 }
 
@@ -740,8 +745,9 @@ export class PostgresPersistence implements Persistence {
         id: string;
         email: string | null;
         display_name: string | null;
+        locale: LocaleCode;
       }>(
-        `SELECT id, email, display_name
+        `SELECT id, email, display_name, locale
          FROM users
          WHERE id = ANY($1::text[])`,
         [[input.ownerUserId, input.granteeUserId]],
@@ -798,7 +804,10 @@ export class PostgresPersistence implements Persistence {
           targetUserId: input.granteeUserId,
           metadata: buildShareAuditMetadata(share.id, owner, grantee),
         });
-        await this.createNotificationTx(client, buildShareGrantedNotification(share.id, owner, input.granteeUserId));
+        await this.createNotificationTx(
+          client,
+          buildShareGrantedNotification(share.id, owner, input.granteeUserId, grantee.locale),
+        );
       } else {
         const existing = await client.query<{
           id: string;
@@ -860,6 +869,7 @@ export class PostgresPersistence implements Persistence {
         grantee_user_id: string;
         grantee_email: string | null;
         grantee_display_name: string | null;
+        grantee_locale: LocaleCode;
         revoked_at: string | null;
       }>(
         `SELECT ps.id,
@@ -869,6 +879,7 @@ export class PostgresPersistence implements Persistence {
                 ps.grantee_user_id,
                 grantee.email AS grantee_email,
                 grantee.display_name AS grantee_display_name,
+                grantee.locale AS grantee_locale,
                 ps.revoked_at::text AS revoked_at
          FROM portfolio_shares ps
          JOIN users owner ON owner.id = ps.owner_user_id
@@ -920,6 +931,7 @@ export class PostgresPersistence implements Persistence {
               display_name: share.owner_display_name,
             },
             share.grantee_user_id,
+            share.grantee_locale,
           ),
         );
       }
@@ -1289,8 +1301,9 @@ export class PostgresPersistence implements Persistence {
         id: string;
         email: string | null;
         display_name: string | null;
+        locale: LocaleCode;
       }>(
-        `SELECT id, email, display_name
+        `SELECT id, email, display_name, locale
          FROM users
          WHERE id = $1`,
         [input.userId],
@@ -1312,7 +1325,7 @@ export class PostgresPersistence implements Persistence {
                 owner.email AS owner_email,
                 owner.display_name AS owner_display_name
          FROM invites i
-         LEFT JOIN users owner ON owner.id = i.share_owner_user_id
+         JOIN users owner ON owner.id = i.share_owner_user_id
          WHERE i.email = $1
            AND i.share_owner_user_id IS NOT NULL
            AND i.used_at IS NULL
@@ -1404,6 +1417,7 @@ export class PostgresPersistence implements Persistence {
               display_name: invite.owner_display_name,
             },
             input.userId,
+            grantee.locale,
           ),
         );
         materialized.push(mapShareGrantRow(share));
