@@ -6,11 +6,16 @@
  * native row types (MemoryUser, PG row) at call sites.
  */
 
+import type { LocaleCode } from "@tw-portfolio/shared-types";
+import { shareNotificationStrings } from "./shareNotificationStrings.js";
+
 export interface ShareUser {
   id: string;
   email: string | null;
   displayName: string | null;
 }
+
+export type ShareNotificationKind = "share_granted" | "share_revoked";
 
 export interface ShareNotificationInput {
   userId: string;
@@ -20,6 +25,7 @@ export interface ShareNotificationInput {
   title: string;
   body: string;
   detail: {
+    kind: ShareNotificationKind;
     ownerUserId: string;
     ownerEmail: string | null;
     ownerDisplayName: string | null;
@@ -43,20 +49,37 @@ export function buildShareAuditMetadata(
   };
 }
 
+function resolveStrings(granteeLocale: LocaleCode) {
+  return shareNotificationStrings[granteeLocale] ?? shareNotificationStrings.en;
+}
+
+function resolveOwnerLabel(owner: ShareUser, anonymousFallback: string): string {
+  return owner.displayName || owner.email || anonymousFallback;
+}
+
+function interpolateOwnerLabel(template: string, ownerLabel: string): string {
+  // Function replacement bypasses $-token interpretation (e.g. "$&", "$$", "$1")
+  // that String.prototype.replace applies to string replacements.
+  return template.replace("{ownerLabel}", () => ownerLabel);
+}
+
 export function buildShareGrantedNotification(
   shareId: string,
   owner: ShareUser,
   granteeUserId: string,
+  granteeLocale: LocaleCode,
 ): ShareNotificationInput {
-  const ownerLabel = owner.displayName || owner.email || "Someone";
+  const strings = resolveStrings(granteeLocale);
+  const ownerLabel = resolveOwnerLabel(owner, strings.anonymousOwnerFallback);
   return {
     userId: granteeUserId,
     severity: "info",
     source: "sharing",
     sourceRef: shareId,
-    title: "Portfolio shared with you",
-    body: `${ownerLabel} shared their portfolio with you. Open the switcher to view.`,
+    title: strings.shareGranted.title,
+    body: interpolateOwnerLabel(strings.shareGranted.body, ownerLabel),
     detail: {
+      kind: "share_granted",
       ownerUserId: owner.id,
       ownerEmail: owner.email,
       ownerDisplayName: owner.displayName,
@@ -69,16 +92,19 @@ export function buildShareRevokedNotification(
   shareId: string,
   owner: ShareUser,
   granteeUserId: string,
+  granteeLocale: LocaleCode,
 ): ShareNotificationInput {
-  const ownerLabel = owner.displayName || owner.email || "Someone";
+  const strings = resolveStrings(granteeLocale);
+  const ownerLabel = resolveOwnerLabel(owner, strings.anonymousOwnerFallback);
   return {
     userId: granteeUserId,
     severity: "info",
     source: "sharing",
     sourceRef: shareId,
-    title: "Portfolio access revoked",
-    body: `${ownerLabel} revoked your access to their portfolio.`,
+    title: strings.shareRevoked.title,
+    body: interpolateOwnerLabel(strings.shareRevoked.body, ownerLabel),
     detail: {
+      kind: "share_revoked",
       ownerUserId: owner.id,
       ownerEmail: owner.email,
       ownerDisplayName: owner.displayName,

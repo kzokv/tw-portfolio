@@ -479,7 +479,10 @@ export class MemoryPersistence implements Persistence {
       targetUserId: input.granteeUserId,
       metadata: buildShareAuditMetadata(share.id, owner, grantee),
     });
-    await this.createNotification(buildShareGrantedNotification(share.id, owner, grantee.id));
+    const granteeLocale = this.stores.get(grantee.id)?.settings.locale ?? "en";
+    await this.createNotification(
+      buildShareGrantedNotification(share.id, owner, grantee.id, granteeLocale),
+    );
 
     return toShareGrantRecord(share, owner, grantee);
   }
@@ -512,7 +515,10 @@ export class MemoryPersistence implements Persistence {
       targetUserId: share.granteeUserId,
       metadata: buildShareAuditMetadata(share.id, owner, grantee),
     });
-    await this.createNotification(buildShareRevokedNotification(share.id, owner, grantee.id));
+    const granteeLocale = this.stores.get(share.granteeUserId)?.settings.locale ?? "en";
+    await this.createNotification(
+      buildShareRevokedNotification(share.id, owner, grantee.id, granteeLocale),
+    );
     return { granteeUserId: share.granteeUserId };
   }
 
@@ -741,7 +747,10 @@ export class MemoryPersistence implements Persistence {
         targetUserId: input.userId,
         metadata: buildShareAuditMetadata(share.id, owner, grantee),
       });
-      await this.createNotification(buildShareGrantedNotification(share.id, owner, input.userId));
+      const granteeLocale = this.stores.get(input.userId)?.settings.locale ?? "en";
+      await this.createNotification(
+        buildShareGrantedNotification(share.id, owner, input.userId, granteeLocale),
+      );
 
       materialized.push(toShareGrantRecord(share, owner, grantee));
     }
