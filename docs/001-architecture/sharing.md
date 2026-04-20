@@ -183,9 +183,13 @@ Notifications reuse the existing notification store:
 - `sourceRef = share.id`
 - `severity = "info"`
 
-Expected titles:
-- share granted: "Portfolio shared with you"
-- share revoked: "Portfolio access revoked"
+Notification titles and bodies are localized at emit time using the grantee's stored locale:
+- Postgres backend: `users.locale` column, folded into existing JOINs (`grantee.locale AS grantee_locale`)
+- Memory backend: `stores.get(userId)?.settings.locale ?? "en"`
+
+Localized strings are defined in `apps/api/src/persistence/shareNotificationStrings.ts` (en + zh-TW dictionary; string-template values with `{placeholder}` interpolation). Builders: `buildShareGrantedNotification` / `buildShareRevokedNotification` in `apps/api/src/persistence/shareHelpers.ts` — each accepts `granteeLocale: LocaleCode` (`"en" | "zh-TW"`) with a defensive fallback to `shareNotificationStrings.en` for unknown locales.
+
+Frontend handlers (e.g. the revoke-teardown in `AppShell.tsx`) must discriminate on `detail.kind: "share_granted" | "share_revoked"` — not on title strings, which vary by locale. Canonical helper: `apps/web/lib/sharing-notification-matcher.ts` (exports `isRevokedSharingNotification`).
 
 The notification center remains the primary inbox. KZO-146 also relies on the revoke notification SSE payload to trigger client-side shared-context fallback. Sharing and admin flows continue to expose stable `data-testid` hooks for HTTP/E2E coverage.
 
