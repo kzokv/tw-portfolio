@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-19, KZO-147 pre-PR)
+## Completed tickets (as of 2026-04-21, KZO-152 pre-PR)
 
 ### Market Data Platform (epic)
 | Ticket | Title | Completed |
@@ -47,11 +47,12 @@ type: project
 | KZO-147 | Anonymous share tokens — public read-only route | Complete (merged to dev) |
 | KZO-149 | Hard-purge cascade extension — anonymous_share_tokens cascade | Complete 2026-04-19 |
 | KZO-142 | Admin settings UI — GET/PATCH /admin/settings + settings tab | Complete 2026-04-19 |
-| KZO-148 | Admin impersonation — support-debug mode | Scoped, not started |
+| KZO-148 | Admin impersonation — support-debug mode | Complete 2026-04-20 (docs landed `ebfb149`) |
+| KZO-151 | Sharing notifications i18n + detail.kind discriminator | Complete 2026-04-20 (`7c9a92a`, `dd478ab`, `80fd2fb`) |
+| KZO-152 | Cron: prune terminal anonymous_share_tokens (90d retention) | Complete 2026-04-21 (pre-PR, this worktree) |
 
 ## Next up
 
-- KZO-148 admin impersonation (unblocked by KZO-146's `isSharedContext` flag; will pair with a future `isImpersonating` flag; must also block `POST /share-tokens`)
 - Notification preferences UI (mute by source, snooze escalation)
 - Email digest of unread failure notifications
 - Backup/restore script for market_data (ADR §5-6 gap, still unscoped)
@@ -60,6 +61,5 @@ type: project
 
 - **Backup/restore**: ADR describes post-ingest backup automation (pg_dump, auto-restore to dev, manual scp to local) — no ticket scopes it. Needs a separate ops ticket.
 - **Legacy test drift** under `apps/api/test/{integration,unit}/` (~14 pre-existing type errors surfaced when the new test tsconfig was briefly widened) — cleanup ticket pending.
-- **Notification i18n**: server emits English-only titles/bodies; zh-TW users see English. Deferred — belongs with a repo-wide notification-localization pass.
-- **Rate-limit bucket eviction**: `anonymousShareRateBuckets` (KZO-147) and `inviteStatusBuckets` (KZO-143) grow unbounded per IP. Cross-cutting follow-up candidate.
-- **Long-tail revoked-token cleanup**: `anonymous_share_tokens` rows with `revoked_at < NOW() - 90d` accumulate indefinitely. Future cron candidate.
+- **Notification i18n**: partially addressed by KZO-151 for sharing notifications; remaining notification surfaces still emit English-only. Repo-wide localization pass still open.
+- **Rate-limit bucket eviction**: `anonymousShareRateBuckets` (KZO-147) and `inviteStatusBuckets` (KZO-143) grow unbounded per IP. KZO-150 shipped `sweepSlidingWindowBucket` as the eviction primitive; integration into the existing buckets still open.
