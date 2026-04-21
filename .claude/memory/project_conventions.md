@@ -21,7 +21,7 @@ Full definition lives in `.claude/rules/full-test-suite.md` — 8 suites must al
 - Integration tests use `describePostgres` gating with `RUN_POSTGRES_INTEGRATION=1` and `TWP_MANAGED_CI_STACK=1`.
 
 ## Migration Conventions
-- Numbered: `NNN_short_description.sql` (next: 034)
+- Numbered: `NNN_short_description.sql` (next: 036)
 - `IF NOT EXISTS` / `IF EXISTS` guards for idempotency
 - PL/pgSQL `DO $$` blocks for conditional changes
 - Backfill with `UPDATE ... WHERE ... IS NULL`

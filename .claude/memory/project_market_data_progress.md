@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-21, KZO-152 + KZO-153 pre-PR)
+## Completed tickets (as of 2026-04-21, KZO-155 complete)
 
 ### Market Data Platform (epic)
 | Ticket | Title | Completed |
@@ -49,8 +49,9 @@ type: project
 | KZO-142 | Admin settings UI — GET/PATCH /admin/settings + settings tab | Complete 2026-04-19 |
 | KZO-148 | Admin impersonation — support-debug mode | Complete 2026-04-20 (docs landed `ebfb149`) |
 | KZO-151 | Sharing notifications i18n + detail.kind discriminator | Complete 2026-04-20 (`7c9a92a`, `dd478ab`, `80fd2fb`) |
-| KZO-152 | Cron: prune terminal anonymous_share_tokens (90d retention) | Complete 2026-04-21 (pre-PR) |
-| KZO-153 | Deferred admin CLI integration tests + migration 030 collision detection | Complete 2026-04-21 (pre-PR, this worktree) |
+| KZO-152 | Cron: prune terminal anonymous_share_tokens (90d retention) | Complete 2026-04-21 (`508360b`) |
+| KZO-153 | Deferred admin CLI integration tests + migration 030 collision detection | Complete 2026-04-21 (`34e6737`) |
+| KZO-155 | Extract sliding-window rate limiters into apps/api/src/lib/ | Complete 2026-04-21 (this worktree) |
 
 ## Next up
 
@@ -63,4 +64,4 @@ type: project
 - **Backup/restore**: ADR describes post-ingest backup automation (pg_dump, auto-restore to dev, manual scp to local) — no ticket scopes it. Needs a separate ops ticket.
 - **Legacy test drift** under `apps/api/test/{integration,unit}/` (~14 pre-existing type errors surfaced when the new test tsconfig was briefly widened) — cleanup ticket pending.
 - **Notification i18n**: partially addressed by KZO-151 for sharing notifications; remaining notification surfaces still emit English-only. Repo-wide localization pass still open.
-- **Rate-limit bucket eviction**: `anonymousShareRateBuckets` (KZO-147) and `inviteStatusBuckets` (KZO-143) grow unbounded per IP. KZO-150 shipped `sweepSlidingWindowBucket` as the eviction primitive; integration into the existing buckets still open.
+- **Rate-limit bucket eviction**: ~~open~~ — closed by KZO-155. Both buckets now evict via `registerInviteStatusEviction` + `registerAnonymousShareEviction` helpers.
