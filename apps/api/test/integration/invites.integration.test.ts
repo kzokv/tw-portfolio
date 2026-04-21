@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
-import { _resetInviteStatusBuckets } from "../../src/routes/registerRoutes.js";
+import { _resetInviteStatusBuckets } from "../../src/lib/inviteStatusRateLimit.js";
 import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
 
 const testOAuthConfig: GoogleOAuthConfig = {

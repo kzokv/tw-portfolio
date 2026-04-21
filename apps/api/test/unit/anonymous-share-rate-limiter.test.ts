@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetAnonymousShareRateBuckets,
   assertAnonymousShareRateLimit,
-} from "../../src/routes/registerRoutes.js";
+} from "../../src/lib/anonymousShareRateLimit.js";
 import { routeError } from "../../src/lib/routeError.js";
 
 describe("assertAnonymousShareRateLimit", () => {

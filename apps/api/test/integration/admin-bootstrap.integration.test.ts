@@ -16,7 +16,7 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 });
 
 const { buildApp } = await import("../../src/app.js");
-const { _resetInviteStatusBuckets } = await import("../../src/routes/registerRoutes.js");
+const { _resetInviteStatusBuckets } = await import("../../src/lib/inviteStatusRateLimit.js");
 type BuiltApp = Awaited<ReturnType<typeof buildApp>>;
 
 const testOAuthConfig = {

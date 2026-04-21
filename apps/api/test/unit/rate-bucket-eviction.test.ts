@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sweepSlidingWindowBucket } from "../../src/routes/registerRoutes.js";
+import { sweepSlidingWindowBucket } from "../../src/lib/slidingWindowBucket.js";
 
 describe("sweepSlidingWindowBucket", () => {
   const t0 = 1_700_000_000_000;

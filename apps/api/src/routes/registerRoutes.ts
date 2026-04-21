@@ -70,6 +70,8 @@ import {
   ANONYMOUS_SHARE_TOKEN_REGEX,
   generateAnonymousShareToken,
 } from "../lib/anonymousShareToken.js";
+import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../lib/inviteStatusRateLimit.js";
+import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 
@@ -411,14 +413,6 @@ const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "DELETE /admin/impersonation",
 ]);
 const IMPERSONATION_BLOCKED_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const inviteStatusBuckets = new Map<string, number[]>();
-const INVITE_STATUS_WINDOW_MS = 60_000;
-const INVITE_STATUS_LIMIT = 20;
-
-// KZO-147: per-IP rate limit on GET /share/:token. Counts invalid tokens too
-// (enumeration resistance). Checked BEFORE DB lookup so brute-forcers cannot
-// burn persistence throughput. See docs/004-notes/kzo-147/ Q4.
-const anonymousShareRateBuckets = new Map<string, number[]>();
 
 type ResolvedRequestIdentity = {
   sessionUserId: string;
@@ -927,50 +921,6 @@ export async function enforceRouteRole(req: FastifyRequest): Promise<void> {
   }
 }
 
-function assertInviteStatusRateLimit(req: FastifyRequest): void {
-  const now = Date.now();
-  const recent = (inviteStatusBuckets.get(req.ip) ?? []).filter((timestamp) => now - timestamp < INVITE_STATUS_WINDOW_MS);
-  if (recent.length >= INVITE_STATUS_LIMIT) {
-    throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
-  }
-  recent.push(now);
-  inviteStatusBuckets.set(req.ip, recent);
-}
-
-export function _resetInviteStatusBuckets(): void {
-  inviteStatusBuckets.clear();
-}
-
-export function assertAnonymousShareRateLimit(ip: string): void {
-  const now = Date.now();
-  const windowMs = Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS;
-  const limit = Env.ANONYMOUS_SHARE_RATE_LIMIT_MAX;
-  const recent = (anonymousShareRateBuckets.get(ip) ?? []).filter(
-    (timestamp) => now - timestamp < windowMs,
-  );
-  if (recent.length >= limit) {
-    throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
-  }
-  recent.push(now);
-  anonymousShareRateBuckets.set(ip, recent);
-}
-
-export function _resetAnonymousShareRateBuckets(): void {
-  anonymousShareRateBuckets.clear();
-}
-
-export function sweepSlidingWindowBucket(
-  bucket: Map<string, number[]>,
-  windowMs: number,
-  now = Date.now(),
-): void {
-  for (const [ip, timestamps] of bucket) {
-    if (timestamps.every((ts) => now - ts >= windowMs)) {
-      bucket.delete(ip);
-    }
-  }
-}
-
 /** Guard for `/__e2e/reset` — allowed in development and test with dev_bypass + memory, blocked in production. */
 function assertE2EResetEnabled(): void {
   if ((Env.NODE_ENV !== "development" && Env.NODE_ENV !== "test") || Env.AUTH_MODE !== "dev_bypass" || Env.PERSISTENCE_BACKEND !== "memory") {
@@ -1174,18 +1124,8 @@ export function _resetDemoRateBuckets(): void {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  const inviteEvictionTimer = setInterval(
-    () => sweepSlidingWindowBucket(inviteStatusBuckets, INVITE_STATUS_WINDOW_MS),
-    INVITE_STATUS_WINDOW_MS,
-  );
-  app.addHook("onClose", async () => { clearInterval(inviteEvictionTimer); });
-
-  const anonShareWindowMs = Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS;
-  const anonEvictionTimer = setInterval(
-    () => sweepSlidingWindowBucket(anonymousShareRateBuckets, anonShareWindowMs),
-    anonShareWindowMs,
-  );
-  app.addHook("onClose", async () => { clearInterval(anonEvictionTimer); });
+  registerInviteStatusEviction(app);
+  registerAnonymousShareEviction(app);
 
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
@@ -1415,7 +1355,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2ESeedEnabled();
     const body = z.object({ ip: z.string().trim().min(1).optional() }).parse(req.body ?? {});
     if (body.ip) {
-      anonymousShareRateBuckets.delete(body.ip);
+      deleteAnonymousShareRateBucket(body.ip);
     } else {
       _resetAnonymousShareRateBuckets();
     }
@@ -1591,7 +1531,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/invites/:code/status", async (req) => {
-    assertInviteStatusRateLimit(req);
+    assertInviteStatusRateLimit(req.ip);
     const params = z.object({
       code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
     }).parse(req.params);
