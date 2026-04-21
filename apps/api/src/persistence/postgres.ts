@@ -1673,6 +1673,16 @@ export class PostgresPersistence implements Persistence {
     return Number(result.rows[0]?.count ?? "0");
   }
 
+  async purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM anonymous_share_tokens
+       WHERE (revoked_at IS NOT NULL AND revoked_at < NOW() - ($1 || ' milliseconds')::interval)
+          OR (revoked_at IS NULL AND expires_at < NOW() - ($1 || ' milliseconds')::interval)`,
+      [olderThanMs],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async loadStore(userId: string): Promise<Store> {
     await this.ensureDefaultPortfolioData(userId);
     // Batch 1: all queries with no inter-query dependencies

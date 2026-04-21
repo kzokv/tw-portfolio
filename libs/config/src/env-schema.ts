@@ -18,6 +18,9 @@ export const envSchema = z.object({
   // (enumeration resistance). See docs/004-notes/kzo-147/ Q4.
   ANONYMOUS_SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
   ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(300_000),
+  // Daily purge retention for terminal anonymous_share_tokens. Must be ≥ 30
+  // (ANONYMOUS_SHARE_TOKEN_RETENTION_MS in days) to preserve the UI visibility guarantee.
+  ANONYMOUS_SHARE_TOKEN_PURGE_DAYS: z.coerce.number().int().min(30).default(90),
   // Fallback default (minutes) used when `app_config.repair_cooldown_minutes` is NULL or
   // the singleton row is missing. When the DB value is set, it is authoritative. See KZO-133.
   REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
