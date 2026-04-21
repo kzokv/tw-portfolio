@@ -518,6 +518,12 @@ export interface Persistence {
   revokeAnonymousShareToken(input: RevokeAnonymousShareTokenInput): Promise<RevokeAnonymousShareTokenResult>;
   /** Count active (non-revoked, non-expired) tokens for the owner. */
   countActiveAnonymousShareTokensForOwner(ownerUserId: string): Promise<number>;
+  /**
+   * Delete terminal (revoked or expired) anonymous_share_tokens whose
+   * terminality is older than `olderThanMs`. Returns the number of rows
+   * deleted. Memory backend is a no-op (returns 0).
+   */
+  purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number>;
   loadStore(userId: string): Promise<Store>;
   saveStore(store: Store): Promise<void>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;

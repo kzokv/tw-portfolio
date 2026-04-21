@@ -6,6 +6,11 @@ import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js
 import { FinMindClient } from "../services/market-data/finmindClient.js";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
+import {
+  ANONYMOUS_SHARE_TOKEN_PURGE_CRON,
+  ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE,
+  registerAnonymousShareTokenPurgeWorker,
+} from "../services/registerAnonymousShareTokenPurgeWorker.js";
 import { handleBatchComplete } from "../services/notificationService.js";
 import type { AppInstance } from "../app.js";
 
@@ -72,6 +77,14 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   await registerBackfillWorker(app, boss, workerDeps);
   await registerCatalogSyncWorker(app, boss, workerDeps);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
+
+  const purgeCutoffMs = Env.ANONYMOUS_SHARE_TOKEN_PURGE_DAYS * 24 * 60 * 60 * 1000;
+  await registerAnonymousShareTokenPurgeWorker(app, boss, {
+    persistence: app.persistence,
+    cutoffMs: purgeCutoffMs,
+    log: app.log,
+  });
+  await boss.schedule(ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE, ANONYMOUS_SHARE_TOKEN_PURGE_CRON, {});
 
   app.boss = boss;
 

@@ -872,6 +872,10 @@ export class MemoryPersistence implements Persistence {
     return this._countActiveAnonymousShareTokens(ownerUserId);
   }
 
+  async purgeTerminalAnonymousShareTokens(_olderThanMs: number): Promise<number> {
+    return 0;
+  }
+
   private _countActiveAnonymousShareTokens(ownerUserId: string): number {
     const now = Date.now();
     return this.anonymousShareTokens.filter(

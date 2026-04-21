@@ -1336,4 +1336,4 @@ If a deployment needs "disable also revokes tokens" semantics, add a revocation 
 
 - If a user reports "my public link stopped working", check (in order): `revoked_at`, `expires_at`, owner `deactivated_at` / `deleted_at`, and `/admin/audit-log` for matching `share_token_revoked`.
 - Cap breach: `SELECT COUNT(*) FROM anonymous_share_tokens WHERE owner_user_id = $1 AND revoked_at IS NULL AND expires_at > NOW();` should never exceed 20 — the advisory lock prevents concurrent creates from racing past the cap.
-- Retention cleanup: revoked/expired rows older than 30 days are filtered from the owner list but remain in the table indefinitely. A long-tail cleanup cron is a future candidate; no immediate pressure.
+- Retention cleanup (KZO-152): terminal rows are purged daily at 04:00 UTC by the `anonymous-share-token-purge` pg-boss singleton. Rows persist ≥ `ANONYMOUS_SHARE_TOKEN_PURGE_DAYS` (default 90) days past their terminality (revocation or expiration). Observe via structured log `anonymous_share_token_purge_completed` (success, `{ deleted, cutoffMs }`) / `anonymous_share_token_purge_failed` (error, rethrown for pg-boss retry).

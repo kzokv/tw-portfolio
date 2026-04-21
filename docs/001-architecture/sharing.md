@@ -327,6 +327,16 @@ No notifications are emitted — the audience is unauthenticated by definition.
 - `ANONYMOUS_SHARE_RATE_LIMIT_MAX` (default 30) + `ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS` (default 300_000) — sliding window per `req.ip`
 - bucket is in-process (`anonymousShareRateBuckets`); shared with `inviteStatusBuckets` as a "bucket grows unbounded" concern. Eviction is a cross-cutting follow-up, not a KZO-147 fix.
 
+### Purge and Retention
+
+The owner list's 30-day terminal-row filter is an application-layer display filter — it does not delete rows from the table. A daily pg-boss cron hard-deletes terminal rows once their **terminality** is older than the configured threshold. Terminality is defined as `revoked_at` for revoked tokens and `expires_at` for expired-but-not-revoked tokens; `created_at` is not the yardstick. A long-lived token revoked yesterday is retained for 90 days from that revocation event, not from token creation — preserving the 30-day UI visibility window by a comfortable margin.
+
+**Env var:** `ANONYMOUS_SHARE_TOKEN_PURGE_DAYS` — Zod `int().min(30).default(90)`. The `.min(30)` is the schema-level invariant that prevents the purge window from undercutting the 30-day UI visibility guarantee (`ANONYMOUS_SHARE_TOKEN_RETENTION_MS` in `apps/api/src/lib/anonymousShareToken.ts`).
+
+**Cron:** `0 4 * * *` (04:00 UTC daily), pg-boss queue `anonymous-share-token-purge`, `policy: "singleton"`.
+
+**Observability:** structured log `anonymous_share_token_purge_completed` on success (`{ deleted, cutoffMs }`) and `anonymous_share_token_purge_failed` on error (`{ error, cutoffMs }`, rethrown for pg-boss retry). No audit log entry is written — purge is a system maintenance operation with no user-visible side effect. See the [Runbook §16 operational checks](../002-operations/runbook.md) for the retention-cleanup monitoring entry.
+
 ### Interactions With Other Features
 
 - **KZO-146 switcher.** Write-context guard blocks token create/revoke while the owner is switched into a shared portfolio.
