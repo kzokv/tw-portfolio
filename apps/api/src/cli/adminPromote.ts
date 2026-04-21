@@ -1,17 +1,30 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createPersistence } from "../persistence/index.js";
 
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 
-async function main(): Promise<void> {
-  const emailArg = process.argv[2];
+export async function main(argv: string[]): Promise<void> {
+  const emailArg = argv[2];
   if (!emailArg) {
     console.error("Usage: npm run admin:promote -- email@example.com");
     process.exitCode = 1;
     return;
   }
 
-  const email = emailSchema.parse(emailArg);
+  let email: string;
+  try {
+    email = emailSchema.parse(emailArg);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      console.error(`invalid email: ${emailArg}`);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
+
   const persistence = createPersistence();
   await persistence.init();
 
@@ -29,4 +42,6 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  void main(process.argv);
+}

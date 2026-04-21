@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Env } from "@tw-portfolio/config";
 import { createPersistence } from "../persistence/index.js";
@@ -5,9 +7,9 @@ import { createPersistence } from "../persistence/index.js";
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());
 const roleSchema = z.enum(["admin", "member", "viewer"]);
 
-async function main(): Promise<void> {
-  const emailArg = process.argv[2];
-  const roleArg = process.argv[3];
+export async function main(argv: string[]): Promise<void> {
+  const emailArg = argv[2];
+  const roleArg = argv[3];
 
   if (!emailArg || !roleArg) {
     console.error("Usage: npm run admin:bootstrap-invite -- email@example.com admin");
@@ -15,8 +17,30 @@ async function main(): Promise<void> {
     return;
   }
 
-  const email = emailSchema.parse(emailArg);
-  const role = roleSchema.parse(roleArg);
+  let email: string;
+  try {
+    email = emailSchema.parse(emailArg);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      console.error(`invalid email: ${emailArg}`);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
+
+  let role: z.infer<typeof roleSchema>;
+  try {
+    role = roleSchema.parse(roleArg);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      console.error(`invalid role: ${roleArg}`);
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
+
   const persistence = createPersistence();
   await persistence.init();
 
@@ -43,4 +67,6 @@ async function main(): Promise<void> {
   }
 }
 
-void main();
+if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  void main(process.argv);
+}
