@@ -551,6 +551,66 @@ describePostgres("postgres migrations", () => {
     expect(migrationLedger.rows.map((row) => row.name)).toEqual(manifest.numberedMigrations);
   });
 
+  it("migration 030 rejects duplicate lowercase emails", async () => {
+    // beforeEach seeded legacy users via 001 — reset to a clean slate and apply only up to 029.
+    const pre030 = await getNumberedMigrationsBefore("030_kzo143_auth_foundations.sql");
+    await resetDatabase();
+    await applyMigrationFiles(pre030);
+
+    // Seed two users whose emails collide only after lowercasing.
+    // Explicitly list all NOT NULL columns present after migrations through 029:
+    //   locale, cost_basis_method, quote_poll_interval_seconds — defaults exist but explicit is clear
+    //   is_demo — added in migration 015 with DEFAULT false
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds, is_demo)
+       VALUES
+         ('u1', 'Foo@example.com', 'en', 'WEIGHTED_AVERAGE', 10, false),
+         ('u2', 'foo@example.com', 'en', 'WEIGHTED_AVERAGE', 10, false)`,
+    );
+
+    // Migration 030's DO $$ guard detects the collision and RAISE EXCEPTIONs.
+    // The subsequent DDL (ALTER TABLE, CREATE TABLE, DROP INDEX, etc.) never executes.
+    await expect(
+      applyMigrationFiles(["030_kzo143_auth_foundations.sql"]),
+    ).rejects.toThrow(/KZO-143 migration aborted: duplicate lowercase emails require manual cleanup/);
+
+    // Positive assertions — pre-030 state is preserved (effective rollback of the DO $$ statement):
+    const emails = await pool.query<{ email: string }>("SELECT email FROM users ORDER BY id");
+    expect(emails.rows).toEqual([
+      { email: "Foo@example.com" },
+      { email: "foo@example.com" },
+    ]);
+
+    const uxIdx = await pool.query(
+      "SELECT indexname FROM pg_indexes WHERE tablename = 'users' AND indexname = 'ux_users_email'",
+    );
+    expect(uxIdx.rows).toHaveLength(1);
+
+    // Negative assertions — post-030 artifacts must be absent:
+    const roleCol = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role'`,
+    );
+    expect(roleCol.rows).toHaveLength(0);
+
+    const lowerIdx = await pool.query(
+      "SELECT indexname FROM pg_indexes WHERE indexname = 'ux_users_email_lower'",
+    );
+    expect(lowerIdx.rows).toHaveLength(0);
+
+    const invitesTable = await pool.query(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'invites'`,
+    );
+    expect(invitesTable.rows).toHaveLength(0);
+
+    const auditTable = await pool.query(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'audit_log'`,
+    );
+    expect(auditTable.rows).toHaveLength(0);
+  });
+
   it("keeps the baseline schema in parity with the numbered upgrade path", async () => {
     await resetDatabase();
 
