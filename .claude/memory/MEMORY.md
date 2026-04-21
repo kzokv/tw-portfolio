@@ -26,7 +26,7 @@
 - [project_api_surface.md](project_api_surface.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + `registerRoutes.ts`; route sets are authoritative
 
 ## Market data platform
-- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-21; KZO-141 epic: 143–149, 151, 152 complete (152 pre-PR); backup/restore + rate-limit bucket eviction gaps still open
+- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-21; KZO-141 epic: 143–149, 151, 152, 153 complete (152+153 pre-PR); backup/restore + rate-limit bucket eviction gaps still open
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
