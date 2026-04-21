@@ -4,7 +4,7 @@ description: Ticket completion state, ordering decisions, and identified gaps fo
 type: project
 ---
 
-## Completed tickets (as of 2026-04-21, KZO-152 pre-PR)
+## Completed tickets (as of 2026-04-21, KZO-152 + KZO-153 pre-PR)
 
 ### Market Data Platform (epic)
 | Ticket | Title | Completed |
@@ -49,7 +49,8 @@ type: project
 | KZO-142 | Admin settings UI — GET/PATCH /admin/settings + settings tab | Complete 2026-04-19 |
 | KZO-148 | Admin impersonation — support-debug mode | Complete 2026-04-20 (docs landed `ebfb149`) |
 | KZO-151 | Sharing notifications i18n + detail.kind discriminator | Complete 2026-04-20 (`7c9a92a`, `dd478ab`, `80fd2fb`) |
-| KZO-152 | Cron: prune terminal anonymous_share_tokens (90d retention) | Complete 2026-04-21 (pre-PR, this worktree) |
+| KZO-152 | Cron: prune terminal anonymous_share_tokens (90d retention) | Complete 2026-04-21 (pre-PR) |
+| KZO-153 | Deferred admin CLI integration tests + migration 030 collision detection | Complete 2026-04-21 (pre-PR, this worktree) |
 
 ## Next up
 

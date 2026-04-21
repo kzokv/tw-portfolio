@@ -1,6 +1,6 @@
 # Vitest Configuration Patterns
 
-Three Vitest configuration pitfalls discovered during test framework migration.
+Four Vitest configuration pitfalls discovered during test framework migration and KZO-153 admin CLI integration work.
 
 ---
 
@@ -59,6 +59,50 @@ describe("demo auth rate limiter", () => {
 Whenever a module defines persistent state (rate buckets, caches, pools, etc.), export a `_reset*` helper function and document its use in tests.
 
 **Why:** Discovered in KZO-114. Demo rate limiter state persisted between tests, causing unexpected 429 responses.
+
+---
+
+## Mocking Env Methods, Not Just Fields
+
+`Env` exposes both scalar fields (`AUTH_MODE`, `DB_URL`, `REDIS_URL`, ...) and methods (`getDatabaseUrl()`, `getRedisUrl()`). The methods close over the module-level `Env` symbol — so a `vi.mock("@tw-portfolio/config")` that only replaces scalar fields is silently ineffective for any code path that calls the method form.
+
+`createPersistence()` is the canonical case: it calls `Env.getDatabaseUrl()` / `Env.getRedisUrl()`, not the raw fields.
+
+```ts
+// ❌ Wrong — createPersistence() still reads the original URLs
+vi.mock("@tw-portfolio/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+  return {
+    ...original,
+    Env: {
+      ...original.Env,
+      PERSISTENCE_BACKEND: "postgres" as const,
+      DB_URL: process.env.POSTGRES_TEST_DB_URL ?? original.Env.DB_URL,
+      REDIS_URL: process.env.POSTGRES_TEST_REDIS_URL ?? original.Env.REDIS_URL,
+    },
+  };
+});
+
+// ✅ Correct — also replace the method closures
+vi.mock("@tw-portfolio/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+  return {
+    ...original,
+    Env: {
+      ...original.Env,
+      PERSISTENCE_BACKEND: "postgres" as const,
+      DB_URL: process.env.POSTGRES_TEST_DB_URL ?? original.Env.DB_URL,
+      REDIS_URL: process.env.POSTGRES_TEST_REDIS_URL ?? original.Env.REDIS_URL,
+      getDatabaseUrl() { return process.env.POSTGRES_TEST_DB_URL ?? original.Env.DB_URL ?? ""; },
+      getRedisUrl()    { return process.env.POSTGRES_TEST_REDIS_URL ?? original.Env.REDIS_URL ?? ""; },
+    },
+  };
+});
+```
+
+**Why:** Discovered in KZO-153 while wiring `apps/api/test/integration/admin-cli.integration.test.ts`. The CLI's `createPersistence()` call reached through to the real `Env.getDatabaseUrl()` despite a field-level mock, pointing at the dev DB instead of the managed test stack. The pattern generalizes — any `Env.get*()` method call through the mocked module behaves the same way.
+
+**How to apply:** Any time a test mocks `@tw-portfolio/config` AND the code under test calls `Env.getDatabaseUrl()`, `Env.getRedisUrl()`, or any other `Env.get*()` accessor. When in doubt, include the method replacements — they're free insurance against closure-scoped reads.
 
 ---
 
