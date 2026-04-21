@@ -26,6 +26,28 @@ Pick the smallest tier that fits. Over-tiering small tasks wastes coordination o
 - Default: **3 iterations**. The Architect may extend to 5 before hard-escalating to the user.
 - **Architect self-check:** if the same area fails two consecutive iterations, re-evaluate the design before the Fixer runs again. Same-area repeated failure is a design-level signal, not a fix-level one.
 
+## Tier 2 — Phase 1 and Phase 2 run in parallel
+
+At Tier 2, the QA and Implementer tasks are created together at launch. Phase 1 is not "implementation first, then QA" — it is a single merged wave where both teammates work simultaneously. The Phase 3 gate is "both Task #1 (Implementer) AND Task #2 (QA) completed," not a sequential handoff.
+
+**Architect briefing must say this explicitly.** When briefing the Dispatcher at launch:
+
+- Create BOTH Task #1 (Implementer) AND Task #2 (QA) at Phase 1 start.
+- QA writes tests against the locked scope; files are TDD-red until the Implementer lands source.
+- The Phase 3 [GO] fires only when both tasks are complete.
+
+**Why (incident-learned — KZO-152):** The Architect briefed a sequential Phase 1 → Phase 2 flow. The Dispatcher had already pre-created Task #2 alongside Task #1 per Tier 2 protocol, which forced a reconciliation round-trip. Net effect: wasted one coordination cycle. The correct Tier 2 default is the parallel one — it is encoded in the `/team` skill's role definitions.
+
+**How to apply:** Applies to every Tier 2 (Squad) run. Does NOT apply to Tier 3 (Full Team), where QA runs a two-phase plan → execute ceremony and the checkpoint review happens between those phases.
+
+## Task description amplification (both Implementer and QA)
+
+When a scope-todo cites a "precedent file to mirror" but is vague on exact type signatures (e.g. "handler takes a Job" vs the precedent's `JobWithMetadata<T>[]`), the Architect must call out the precedent explicitly in BOTH the Implementer's and QA's task descriptions. Both teammates will converge independently on the precedent shape, which is the correct outcome — but only if they both know to look at it.
+
+**Why (KZO-152):** The scope-todo loosely described `createAnonymousShareTokenPurgeHandler(deps)` without pinning the job argument type. The Implementer and QA both independently arrived at `JobWithMetadata<Record<string, never>>[]` because both read `registerCatalogSyncWorker.ts` as precedent. No reconciliation needed. This is the right pattern — enforce it by naming the precedent in both task descriptions, not just one.
+
+**How to apply:** Any task description whose source spec cites a precedent file. Name the precedent file + line numbers in both Implementer and QA task descriptions.
+
 ## Validator gating (incident-learned — KZO-74)
 
 The Validator runs **only** after the Architect sends an explicit `[GO]` signal, confirming all blocking tasks are complete. The Validator **must NOT self-activate** based on task completion events.

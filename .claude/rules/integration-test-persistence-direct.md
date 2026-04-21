@@ -98,3 +98,34 @@ Memory-backed unit tests in sibling `describe` blocks can continue to use hardco
 - Companion rule: `test-placement-persistence-backend.md` documents the memory-vs-Postgres FK enforcement gap.
 
 **How to apply:** Any new integration test that needs `describePostgres`. Always pick the patterns above — do not invent a new init path. Also applies when adding new Postgres-only describe blocks to existing test files that currently use memory-backed `buildApp`.
+
+## Testing retention / purge crons — raw INSERT with SQL interval literals
+
+Retention and purge logic (any DELETE predicate based on `NOW() - interval`) is untestable through the public persistence API alone — `createAnonymousShareToken`, `createAuditEntry`, etc. stamp `created_at` / `expires_at` from `NOW()`, so you cannot produce old rows through them. Seed these rows via raw `pool.query` with SQL interval literals instead:
+
+```ts
+await pool.query(
+  `INSERT INTO anonymous_share_tokens
+     (id, owner_user_id, token_hash, created_at, expires_at, revoked_at)
+   VALUES
+     ('id-old-revoked',    $1, 'hasholdrevokedAAAAAAAA',  NOW() - INTERVAL '120 days', NOW() + INTERVAL '30 days', NOW() - INTERVAL '100 days'),
+     ('id-old-expired',    $1, 'hasholdexpiredAAAAAAAA',  NOW() - INTERVAL '120 days', NOW() - INTERVAL '100 days', NULL),
+     ('id-recent-revoked', $1, 'hashrecentrevokedAAAA',   NOW() - INTERVAL '10 days',  NOW() + INTERVAL '20 days',  NOW() - INTERVAL '10 days'),
+     ('id-active-old',     $1, 'hashactiveoldAAAAAAAAA',  NOW() - INTERVAL '120 days', NOW() + INTERVAL '30 days', NULL)`,
+  [ownerUserId],
+);
+```
+
+**Mandatory patterns:**
+1. **Deterministic ids** (`'id-old-revoked'`, not UUIDs) so `ORDER BY id` assertions are stable.
+2. **Terminality regression guard row.** If the SQL filters on "terminality older than N days," include a row with OLD `created_at` but FUTURE `expires_at` and `revoked_at IS NULL` — it must be PRESERVED. This catches any regression that uses `created_at` instead of revocation/expiration as the purge yardstick.
+3. **Token-hash shape compliance** — if the column has a CHECK constraint (e.g. `^[A-Za-z0-9]{22}$`), pad literal strings to the exact length.
+4. **Seed FK parents first.** Use `persistence.resolveOrCreateUser(...)` (or equivalent) before INSERTing rows that reference `users`, then pass the UUID via parameterized `$1` — never a hardcoded string.
+
+**Sibling memory no-op in the same file.** Retention methods that are Postgres-only (MemoryPersistence returns 0 as documented no-op) need a second `describe` block OUTSIDE `describePostgres` so it always runs. Seed via the public API (since `createAnonymousShareToken` etc. work on MemoryPersistence), call the purge method with `olderThanMs: 0`, assert returns 0 and token count unchanged.
+
+Canonical reference: `apps/api/test/integration/anonymous-share-token-purge.integration.test.ts` (KZO-152).
+
+**Why:** Discovered in KZO-152 for the `anonymous_share_tokens` 90-day purge cron. The regression guard row caught an early draft of the DELETE SQL that used `created_at < NOW() - interval` — it would have deleted active tokens with old creation dates. The pattern generalizes to any retention/purge cron this repo ships (rate-limit bucket eviction, notification archival, audit-log TTL, etc.).
+
+**How to apply:** Any integration test asserting a retention/purge DELETE predicate. Use raw INSERT with SQL interval literals; include the terminality regression guard row; always pair with a memory no-op `it`.
