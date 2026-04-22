@@ -623,14 +623,43 @@ export interface Persistence {
   // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
   getRepairCooldownMinutes(): Promise<number | null>;
 
-  // App config (KZO-142) — read the raw DB override + updatedAt stamp. Routes
-  // combine this with getEffectiveRepairCooldownMinutes() to expose the full
-  // AppConfigDto to clients.
-  getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }>;
+  // App config (KZO-142 / KZO-159) — read the raw DB overrides + updatedAt
+  // stamp. Routes combine this with getEffectiveRepairCooldownMinutes() and
+  // the 3-tier range resolver to expose the full AppConfigDto to clients.
+  getAppConfig(): Promise<{
+    repairCooldownMinutes: number | null;
+    dashboardPerformanceRanges: string[] | null;
+    updatedAt: string;
+  }>;
 
   // App config (KZO-142) — set (or clear) the repair cooldown override and
   // stamp the `updated_at` column. The route layer wraps this in an audit log.
   setRepairCooldownMinutes(value: number | null): Promise<void>;
+
+  // App config (KZO-159 / 158A) — set (or clear, when `null`) the admin
+  // override for the user-facing dashboard timeframe picker. The route layer
+  // validates the list shape via `dashboardPerformanceRangesSchema` from
+  // `@tw-portfolio/shared-types` and wraps this in an `app_config_updated`
+  // audit entry (see adminRoutes.ts).
+  setDashboardPerformanceRanges(value: string[] | null): Promise<void>;
+
+  // User preferences (KZO-159 / 158A) — per-user JSONB preferences row.
+  // `getUserPreferences` returns `{}` when no row exists (lazy — no insert
+  // on read). `setUserPreferencePatch` performs a single-UPDATE top-level
+  // merge: non-null keys replace existing values, `null` deletes the key.
+  // Implementations must be atomic (INSERT ... ON CONFLICT DO UPDATE on
+  // Postgres; equivalent guarantee on memory). See design doc D3 for the
+  // canonical Postgres SQL shape.
+  getUserPreferences(userId: string): Promise<Record<string, unknown>>;
+  setUserPreferencePatch(
+    userId: string,
+    patch: Record<string, unknown | null>,
+  ): Promise<Record<string, unknown>>;
+
+  // Test-only helper — used by POST /__e2e/seed-user-preferences to seed a
+  // full preferences object for a user. Must never be called from production
+  // code paths. Guarded at the route layer by `assertE2ESeedEnabled()`.
+  _setUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<void>;
 
   // Monitored tickers
   // KZO-133: persistence returns DTOs without `repairAvailableAt` — route layer

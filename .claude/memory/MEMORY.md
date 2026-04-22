@@ -30,11 +30,5 @@
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
-## Persistence layer
-- [project_memory_persistence_shared_daily_bars.md](project_memory_persistence_shared_daily_bars.md) — `_seedDailyBars` is a process-global array; specs must pick unique tickers or collide (bit KZO-147 twice)
-
-## SSE / streaming
-- [project_buffered_eventbus_scaling.md](project_buffered_eventbus_scaling.md) — BufferedEventBus uses local EventEmitter; extend inner bus for horizontal scaling (KZO-121)
-
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis

@@ -1,6 +1,10 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import {
+  DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
+  dashboardPerformanceRangesSchema,
+} from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import { signImpersonationCookie } from "../auth/googleOAuth.js";
 import { routeError } from "../lib/routeError.js";
@@ -14,9 +18,16 @@ import {
   userScopedIdSchema,
 } from "./registerRoutes.js";
 
-export const patchAdminSettingsSchema = z.object({
-  repairCooldownMinutes: z.union([z.number().int().min(1).max(10080), z.null()]),
-});
+export const patchAdminSettingsSchema = z
+  .object({
+    repairCooldownMinutes: z.union([z.number().int().min(1).max(10080), z.null()]).optional(),
+    // KZO-159 (158A): admin override for the user-facing timeframe picker.
+    // `null` clears the override (falls back to the hardcoded default list).
+    dashboardPerformanceRanges: z
+      .union([dashboardPerformanceRangesSchema, z.null()])
+      .optional(),
+  })
+  .strict();
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
   const sessionUserId = requireSessionUserId(req);
@@ -33,6 +44,15 @@ function assertNotSelf(sessionUserId: string, targetUserId: string): void {
   }
 }
 
+function resolveEffectiveDashboardPerformanceRanges(
+  override: string[] | null,
+): string[] {
+  if (Array.isArray(override) && override.length > 0) {
+    return [...override];
+  }
+  return [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
+}
+
 async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
   const [config, effective] = await Promise.all([
     app.persistence.getAppConfig(),
@@ -41,6 +61,10 @@ async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
   return {
     repairCooldownMinutes: config.repairCooldownMinutes,
     effectiveRepairCooldownMinutes: effective,
+    dashboardPerformanceRanges: config.dashboardPerformanceRanges,
+    effectiveDashboardPerformanceRanges: resolveEffectiveDashboardPerformanceRanges(
+      config.dashboardPerformanceRanges,
+    ),
     updatedAt: config.updatedAt,
   };
 }
@@ -306,18 +330,47 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const body = patchAdminSettingsSchema.parse(req.body);
 
     const current = await app.persistence.getAppConfig();
-    if (body.repairCooldownMinutes === current.repairCooldownMinutes) {
+
+    // KZO-159 (158A): diff each tracked field independently — a PATCH may
+    // carry one, the other, both, or neither. `undefined` means "no change",
+    // `null` means "clear override", array means "set override".
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+
+    if (
+      body.repairCooldownMinutes !== undefined
+      && body.repairCooldownMinutes !== current.repairCooldownMinutes
+    ) {
+      before.repairCooldownMinutes = current.repairCooldownMinutes;
+      after.repairCooldownMinutes = body.repairCooldownMinutes;
+      await app.persistence.setRepairCooldownMinutes(body.repairCooldownMinutes);
+    }
+
+    if (body.dashboardPerformanceRanges !== undefined) {
+      const currentList = current.dashboardPerformanceRanges;
+      const nextList = body.dashboardPerformanceRanges;
+      // Treat [a,b,c] vs [a,b,c] as equal (same length, same elements).
+      const unchanged =
+        currentList === nextList
+        || (Array.isArray(currentList)
+          && Array.isArray(nextList)
+          && currentList.length === nextList.length
+          && currentList.every((v, i) => v === nextList[i]));
+      if (!unchanged) {
+        before.dashboardPerformanceRanges = currentList;
+        after.dashboardPerformanceRanges = nextList;
+        await app.persistence.setDashboardPerformanceRanges(nextList);
+      }
+    }
+
+    if (Object.keys(after).length === 0) {
       return loadAppConfigDto(app);
     }
 
-    await app.persistence.setRepairCooldownMinutes(body.repairCooldownMinutes);
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
       action: "app_config_updated",
-      metadata: {
-        before: { repairCooldownMinutes: current.repairCooldownMinutes },
-        after: { repairCooldownMinutes: body.repairCooldownMinutes },
-      },
+      metadata: { before, after },
       ipAddress,
     });
 

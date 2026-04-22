@@ -5278,18 +5278,34 @@ export class PostgresPersistence implements Persistence {
     return r.rows[0].repair_cooldown_minutes;
   }
 
-  async getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }> {
-    const r = await this.pool.query<{ repair_cooldown_minutes: number | null; updated_at: Date | string }>(
-      "SELECT repair_cooldown_minutes, updated_at FROM public.app_config WHERE id = 1",
+  async getAppConfig(): Promise<{
+    repairCooldownMinutes: number | null;
+    dashboardPerformanceRanges: string[] | null;
+    updatedAt: string;
+  }> {
+    const r = await this.pool.query<{
+      repair_cooldown_minutes: number | null;
+      dashboard_performance_ranges: string[] | null;
+      updated_at: Date | string;
+    }>(
+      "SELECT repair_cooldown_minutes, dashboard_performance_ranges, updated_at FROM public.app_config WHERE id = 1",
     );
     if (r.rowCount === 0) {
       console.warn("[app_config] row missing — falling back to env REPAIR_COOLDOWN_MINUTES");
-      return { repairCooldownMinutes: null, updatedAt: new Date(0).toISOString() };
+      return {
+        repairCooldownMinutes: null,
+        dashboardPerformanceRanges: null,
+        updatedAt: new Date(0).toISOString(),
+      };
     }
     const row = r.rows[0];
     const rawUpdatedAt = row.updated_at;
     const updatedAt = rawUpdatedAt instanceof Date ? rawUpdatedAt.toISOString() : new Date(rawUpdatedAt).toISOString();
-    return { repairCooldownMinutes: row.repair_cooldown_minutes, updatedAt };
+    return {
+      repairCooldownMinutes: row.repair_cooldown_minutes,
+      dashboardPerformanceRanges: row.dashboard_performance_ranges,
+      updatedAt,
+    };
   }
 
   async setRepairCooldownMinutes(value: number | null): Promise<void> {
@@ -5298,6 +5314,69 @@ export class PostgresPersistence implements Persistence {
        VALUES (1, $1, NOW())
        ON CONFLICT (id) DO UPDATE SET repair_cooldown_minutes = $1, updated_at = NOW()`,
       [value],
+    );
+  }
+
+  async setDashboardPerformanceRanges(value: string[] | null): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, dashboard_performance_ranges, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id) DO UPDATE SET dashboard_performance_ranges = $1::jsonb, updated_at = NOW()`,
+      [value === null ? null : JSON.stringify(value)],
+    );
+  }
+
+  async getUserPreferences(userId: string): Promise<Record<string, unknown>> {
+    const r = await this.pool.query<{ preferences: Record<string, unknown> | null }>(
+      "SELECT preferences FROM public.user_preferences WHERE user_id = $1",
+      [userId],
+    );
+    if (r.rowCount === 0) {
+      return {};
+    }
+    return r.rows[0].preferences ?? {};
+  }
+
+  async setUserPreferencePatch(
+    userId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    // Split the patch into two arms:
+    //  - non-null keys → merged into the JSONB via `||`
+    //  - null-valued keys → removed via `- $3::text[]`
+    // This matches the memory backend's top-level merge semantics (D3).
+    const mergeObj: Record<string, unknown> = {};
+    const deleteKeys: string[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null) {
+        deleteKeys.push(k);
+      } else {
+        mergeObj[k] = v;
+      }
+    }
+    const r = await this.pool.query<{ preferences: Record<string, unknown> }>(
+      `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET preferences = (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+             updated_at = NOW()
+       RETURNING preferences`,
+      [userId, JSON.stringify(mergeObj), deleteKeys],
+    );
+    return r.rows[0]?.preferences ?? {};
+  }
+
+  /**
+   * Test-only helper — directly sets the full preferences JSON for a user.
+   * Used by POST /__e2e/seed-user-preferences; never invoked from prod code paths.
+   */
+  async _setUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+         SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
+      [userId, JSON.stringify(preferences)],
     );
   }
 

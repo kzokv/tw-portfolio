@@ -851,6 +851,58 @@ Write path:
 - replaced per trade by `savePostedTrade`
 - full delete/reinsert by `saveAccountingStoreTx`
 
+#### `app_config` (KZO-133 / KZO-159)
+
+Purpose:
+- single-row global configuration table (one row, `id = 1`)
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `id` | `INT DEFAULT 1` | PK, `CHECK (id = 1)` | enforces singleton row |
+| `repair_cooldown_minutes` | `INT NULL` | `CHECK (value IS NULL OR value > 0)` | monitored-ticker repair cooldown override; `null` = use hardcoded default |
+| `dashboard_performance_ranges` | `JSONB NULL` | nullable (added migration `036`) | admin override for dashboard timeframe list; `null` = use `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` |
+| `updated_at` | `TIMESTAMPTZ DEFAULT NOW()` | `NOT NULL` | last modification time |
+
+Read/write path:
+- `getAppConfig()` — returns the singleton row including `dashboardPerformanceRanges` (null when unset) and derived `effectiveDashboardPerformanceRanges`
+- `setRepairCooldownMinutes(value)` — updates `repair_cooldown_minutes`
+- `setDashboardPerformanceRanges(value)` — updates `dashboard_performance_ranges`; both setters also bump `updated_at`
+- read by `GET /admin/settings`; written by `PATCH /admin/settings`; `app_config_updated` audit entry on every change
+
+Finding:
+- the `dashboard_performance_ranges` column is nullable by design — a `null` value means "use the hardcoded default" and is distinct from an empty array (which the validator rejects). Only the admin UI can write non-null values.
+
+#### `user_preferences` (KZO-159)
+
+Purpose:
+- per-user JSONB preferences store (one row per user, created lazily on first PATCH)
+
+Fields:
+
+| Column | Type / default | Constraints | Notes |
+| --- | --- | --- | --- |
+| `user_id` | `TEXT` | PK, FK → `users.id` `ON DELETE CASCADE` | TEXT to match `users.id` PK type (see design D1) |
+| `preferences` | `JSONB DEFAULT '{}'` | `NOT NULL` | opaque preferences bag; top-level keys are allowlisted at the route layer |
+| `created_at` | `TIMESTAMPTZ DEFAULT NOW()` | `NOT NULL` | row creation time |
+| `updated_at` | `TIMESTAMPTZ DEFAULT NOW()` | `NOT NULL` | last modification time |
+
+Currently recognized top-level preference keys:
+- `dashboardPerformanceRanges` (`string[] | null`) — user's saved timeframe list; validated against `dashboardPerformanceRangesSchema`
+- `card_order` (`object | null`) — reserved for KZO-161 card reorder; accepted at write time, not yet surfaced in UI
+
+Read/write path:
+- `getUserPreferences(userId)` — returns `{}` when no row (lazy: no insert on read)
+- `setUserPreferencePatch(userId, patch)` — atomic top-level merge: non-null keys replace, `null` keys delete. Postgres: single `INSERT ... ON CONFLICT DO UPDATE` with `||` jsonb-concat + `- $3::text[]` null-deletes. Memory: equivalent semantics, no FK enforcement.
+- `_setUserPreferences(userId, prefs)` — test-only full-replace; not callable from production code
+- read by `GET /user-preferences`; written by `PATCH /user-preferences`
+- `ON DELETE CASCADE` — row automatically removed when the owning user is deleted
+
+Finding:
+- User prefs are not audited. The route uses `requireSessionUserId` (session owner's prefs, never the viewed portfolio's) rather than `contextUserId`.
+- 8 KB cap enforced per-route at `PATCH /user-preferences` via Fastify `bodyLimit: 8192`.
+
 #### `schema_migrations`
 
 Purpose:
@@ -885,6 +937,7 @@ Current numbered migration inventory:
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities` table with `UNIQUE(provider, provider_subject)`; makes `users.email` nullable with partial unique index
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing
 - `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
+- `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` for admin-configurable dashboard timeframe defaults (KZO-159)
 
 ### Persistence write-path map
 
@@ -1267,6 +1320,34 @@ Finding:
 
 Invite consumption happens inside the OAuth callback — not via a dedicated endpoint. See [Auth and Session — Invite-Gated Signup](./auth-and-session.md#invite-gated-signup-kzo-143).
 
+#### Admin settings (KZO-142 / KZO-159)
+
+| Method | Path | Request shape | Response shape | Dependencies | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/admin/settings` | none | `AppConfigDto` | `requireAdminRole`, `getAppConfig` | Returns current admin config including `dashboardPerformanceRanges` (null or list) and `effectiveDashboardPerformanceRanges` (resolved list) |
+| `PATCH` | `/admin/settings` | `{ repairCooldownMinutes?: number \| null, dashboardPerformanceRanges?: string[] \| null }` | updated `AppConfigDto` | `requireAdminRole`, `setRepairCooldownMinutes`, `setDashboardPerformanceRanges` | Validates range list via `dashboardPerformanceRangesSchema`; emits `app_config_updated` audit entry on any change with `before`/`after` diff in metadata |
+
+Key validation:
+- `repairCooldownMinutes` must be a positive integer or null
+- `dashboardPerformanceRanges` must be a non-empty list of ≤12 case-sensitive range strings matching the grammar (`YTD`, `ALL`, `nM` with n ≤ 240, `nY` with n ≤ 50), no duplicates; or null to reset to default
+
+#### User preferences (KZO-159)
+
+| Method | Path | Request shape | Response shape | Dependencies | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/user-preferences` | none | `{ preferences: Record<string, unknown> }` | `requireSessionUserId` | Returns `{ preferences: {} }` when no row exists (lazy — no insert on read) |
+| `PATCH` | `/user-preferences` | `{ dashboard_performance_ranges?: string[] \| null, card_order?: object \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list` |
+| `GET` | `/user-preferences/effective-ranges` | none | `{ ranges: string[], source: "user" \| "admin" \| "default" }` | `requireSessionUserId`, `resolveEffectiveRanges` | 3-tier resolution: user prefs (pruned to admin-allowed) → admin override → hardcoded `["1M","3M","YTD","1Y"]`. Never rewrites stored prefs. |
+
+Effective-ranges resolution detail:
+- Tier 1 (user): user's stored `dashboardPerformanceRanges` validated against `dashboardPerformanceRangesSchema`; pruned to admin-allowed set if an admin override is active. Non-empty result → `source = "user"`.
+- Tier 2 (admin): `app_config.dashboard_performance_ranges` if non-null → `source = "admin"`.
+- Tier 3 (default): hardcoded `DEFAULT_DASHBOARD_PERFORMANCE_RANGES = ["1M","3M","YTD","1Y"]` → `source = "default"`.
+
+Finding:
+- All three routes use `requireSessionUserId` — prefs belong to the session owner, never the viewed portfolio (i.e. not `contextUserId`). This matters for future sharing/impersonation scenarios.
+- The `PATCH /dashboard/performance?range=X` route validates `range` against the caller's resolved effective-ranges list (dynamic `z.enum`) rather than the previous static union. Out-of-list values → `400 invalid_range`.
+
 #### Sharing (KZO-145/KZO-146)
 
 | Method | Path | Request shape | Response shape | Dependencies | Notes |
@@ -1450,6 +1531,9 @@ Shipped web code currently calls:
 - `GET /auth/logout` (sign-out)
 - `POST /auth/demo/start` (demo mode entry)
 - `GET /events/stream` (via `useEventStream` hook)
+- `GET /admin/settings` (admin settings page — admin role only)
+- `PATCH /admin/settings` (admin settings save — admin role only)
+- `GET /user-preferences/effective-ranges` (AppShell bootstrap, feeds dashboard timeframe picker)
 
 Defined server routes not currently called by the shipped web app:
 - both health endpoints
@@ -1464,7 +1548,8 @@ Defined server routes not currently called by the shipped web app:
 - `GET /portfolio/transactions` (not used by shipped UI; used in tests)
 - `GET /quotes/latest`
 - both AI endpoints
-- both E2E endpoints (`/__e2e/oauth-session`, `/__e2e/reset`)
+- `GET /user-preferences` and `PATCH /user-preferences` (user-facing UI deferred to KZO-161 / 158C)
+- E2E endpoints (`/__e2e/oauth-session`, `/__e2e/reset`, `/__e2e/seed-user-preferences`)
 - `POST /__test/publish-event` (test/dev only, blocked in production)
 
 Finding:
@@ -1570,8 +1655,15 @@ POST /portfolio/dividends/postings
     - `portfolio.ts`
     - `dividends.ts`
     - `recompute.ts`
+    - `userPreferences.ts` (KZO-159) — `resolveEffectiveRanges` for effective-ranges endpoint and dynamic `/dashboard/performance` validator
   - depends on persistence interface methods
   - depends on `marketData.ts` for quote fetch fallback
+  - depends on `@tw-portfolio/shared-types` for `dashboardPerformanceRangesSchema` and `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (KZO-159)
+
+- `adminRoutes.ts`
+  - depends on `requireAdminRole` and `appendAuditLog`
+  - depends on persistence `getAppConfig`, `setRepairCooldownMinutes`, `setDashboardPerformanceRanges` (KZO-159)
+  - depends on `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types` (KZO-159)
 
 #### Service layer
 
@@ -1586,6 +1678,12 @@ POST /portfolio/dividends/postings
 - `recompute.ts`
   - depends on `@tw-portfolio/domain` fee calculators
   - depends on `accountingStore.ts` trade lookup and cash entry replacement
+
+- `userPreferences.ts` (KZO-159)
+  - pure resolution helper, no side effects
+  - `resolveEffectiveRanges(persistence, userId)` → reads `getUserPreferences` + `getAppConfig` concurrently and applies 3-tier resolution
+  - consumed by `GET /user-preferences/effective-ranges` and the dynamic `z.enum` validator in `GET /dashboard/performance`
+  - depends on `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` and `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types`
 
 - `accountingStore.ts`
   - pure store mutation and projection helpers
@@ -1603,6 +1701,21 @@ POST /portfolio/dividends/postings
   - depends on `createStore`
   - mimics persistence API but skips SQL/Redis
 
+#### Shared libraries
+
+- `@tw-portfolio/domain` (`libs/domain/src/`)
+  - Pure business logic, no persistence or framework imports.
+  - `performanceRange.ts` (KZO-159) — `parsePerformanceRange(str) → ParsedRange | null`, `resolveRangeBounds(rangeString, asOf, earliestTradeDate?) → { startDate, endDate }`, `isValidPerformanceRange(str)`. Grammar: `YTD`, `ALL`, `nM` (n ≤ 240), `nY` (n ≤ 50), case-sensitive. Re-exported from `@tw-portfolio/shared-types` so frontend code can import from one package.
+  - Fee calculators (`fee.ts`): `calculateBuyFees`, `calculateSellFees`.
+  - Lot algorithms: FIFO allocation helpers consumed by `accountingStore.ts`.
+
+- `@tw-portfolio/shared-types` (`libs/shared-types/src/`)
+  - Shared TypeScript types and Zod schemas for API contracts.
+  - `DashboardPerformanceRange` (KZO-159) — widened from closed union to `string`; runtime-validated via `dashboardPerformanceRangesSchema`.
+  - `dashboardPerformanceRangesSchema` (KZO-159) — `z.array(z.string()).min(1).max(12).refine(...)`. Single source of truth for range-list validation in admin settings, user preferences PATCH, and front-end AdminSettingsClient.
+  - `DEFAULT_DASHBOARD_PERFORMANCE_RANGES = ["1M","3M","YTD","1Y"] as const` (KZO-159) — hardcoded fallback for the 3-tier resolver.
+  - `AppConfigDto` (KZO-142 / KZO-159) — includes `dashboardPerformanceRanges: string[] | null` and `effectiveDashboardPerformanceRanges: string[]`.
+
 ### Cross-cutting findings summary
 
 - The backend is organized around an in-memory `Store`/`AccountingStore` model that is mutated first and persisted second.
@@ -1610,3 +1723,4 @@ POST /portfolio/dividends/postings
 - Everything else important, including settings save, recompute, AI confirm, dividend-event creation, and corporate-action creation, goes through broad rewrite paths.
 - The canonical accounting model and runtime storage are now aligned on `trade_events` plus relational booked fee snapshots.
 - API breadth exceeds current UI consumption. The implemented route surface contains admin-like and workflow endpoints not currently exercised by the shipped web app.
+- Dashboard timeframe ranges are now admin-configurable (`app_config.dashboard_performance_ranges`) and user-overridable (KZO-161 / 158C); `GET /dashboard/performance?range=X` validates dynamically against the caller's resolved effective list rather than a static enum. (KZO-159)

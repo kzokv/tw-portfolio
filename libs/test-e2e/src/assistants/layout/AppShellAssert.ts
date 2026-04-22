@@ -349,6 +349,93 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.page.getByTestId("admin-settings-save-button")).toBeDisabled();
   }
 
+  // ── KZO-159 — Admin timeframe defaults section assertions ─────────────────
+  //
+  // The active-vs-available state is encoded on the button's `data-active`
+  // attribute. "Active" chips (`data-active="true"`) are the saved/pending
+  // ranges; "Available" chips (`data-active="false"`) are predefined chips
+  // not currently selected.
+
+  @Step()
+  async adminTimeframeSectionIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-defaults-section")).toBeVisible();
+  }
+
+  @Step()
+  async adminTimeframeChipIsActive(range: string): Promise<void> {
+    const chip = this.page.getByTestId(`timeframe-chip-${range}`);
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("data-active", "true");
+  }
+
+  @Step()
+  async adminTimeframeChipIsInactive(range: string): Promise<void> {
+    // Either the chip is rendered as an "available" predefined chip
+    // (`data-active="false"`), or it is not rendered at all — both
+    // satisfy "not in the active list."
+    const chip = this.page.getByTestId(`timeframe-chip-${range}`);
+    const count = await chip.count();
+    if (count === 0) return;
+    await expect(chip).toHaveAttribute("data-active", "false");
+  }
+
+  @Step()
+  async adminTimeframeChipIsAbsent(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-chip-${range}`)).toHaveCount(0);
+  }
+
+  @Step()
+  async adminTimeframeChipsInOrder(expected: string[]): Promise<void> {
+    // Read the rendered order of ACTIVE chips by filtering on data-active="true".
+    const activeChips = this.page
+      .getByTestId("timeframe-defaults-section")
+      .locator('[data-testid^="timeframe-chip-"][data-active="true"]');
+    const count = await activeChips.count();
+    const actual: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const testId = await activeChips.nth(i).getAttribute("data-testid");
+      if (testId?.startsWith("timeframe-chip-")) {
+        actual.push(testId.slice("timeframe-chip-".length));
+      }
+    }
+    expect(actual, "active timeframe chip order").toEqual(expected);
+  }
+
+  @Step()
+  async adminTimeframeValidationErrorIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-validation-error")).toBeVisible();
+  }
+
+  @Step()
+  async adminTimeframeValidationErrorIsHidden(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-validation-error")).toHaveCount(0);
+  }
+
+  @Step()
+  async adminTimeframeSaveButtonIsEnabled(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-save-button")).toBeEnabled();
+  }
+
+  @Step()
+  async adminTimeframeSaveButtonIsDisabled(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-save-button")).toBeDisabled();
+  }
+
+  @Step()
+  async adminTimeframeSaveSuccessIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-save-success")).toBeVisible();
+  }
+
+  @Step()
+  async adminTimeframeChipUpButtonIsDisabled(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-chip-up-${range}`)).toBeDisabled();
+  }
+
+  @Step()
+  async adminTimeframeChipDownButtonIsDisabled(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-chip-down-${range}`)).toBeDisabled();
+  }
+
   // ── Sharing surface assertions ────────────────────────────────────────────
 
   @Step()
@@ -396,5 +483,45 @@ export class AppShellAssert extends BaseAssert {
   @Step()
   async pageContainsText(text: string): Promise<void> {
     await expect(this.page.getByText(text).first()).toBeVisible();
+  }
+
+  // ── KZO-159 — Dashboard performance range button assertions ──────────────
+  //
+  // The dashboard renders range buttons in TWO surfaces:
+  //   • AppShell hero row:    `dashboard-hero-range-${range.toLowerCase()}`
+  //   • PortfolioTrendCard:   `dashboard-performance-range-${range.toLowerCase()}`
+  //
+  // Both surfaces source their list from the `effectiveRanges` state in
+  // AppShell, which is populated from `GET /user-preferences/effective-ranges`
+  // (3-tier resolver: user → admin → default). These helpers let E2E tests
+  // verify that the admin-configured or user-configured list actually drives
+  // the rendered buttons — guarding against accidental re-hardcoding.
+
+  @Step()
+  async dashboardHeroRangeButtonIsVisible(range: string): Promise<void> {
+    await expect(
+      this.page.getByTestId(`dashboard-hero-range-${range.toLowerCase()}`),
+    ).toBeVisible();
+  }
+
+  @Step()
+  async dashboardHeroRangeButtonIsAbsent(range: string): Promise<void> {
+    await expect(
+      this.page.getByTestId(`dashboard-hero-range-${range.toLowerCase()}`),
+    ).toHaveCount(0);
+  }
+
+  @Step()
+  async dashboardPerformanceRangeButtonIsVisible(range: string): Promise<void> {
+    await expect(
+      this.page.getByTestId(`dashboard-performance-range-${range.toLowerCase()}`),
+    ).toBeVisible();
+  }
+
+  @Step()
+  async dashboardPerformanceRangeButtonIsAbsent(range: string): Promise<void> {
+    await expect(
+      this.page.getByTestId(`dashboard-performance-range-${range.toLowerCase()}`),
+    ).toHaveCount(0);
   }
 }

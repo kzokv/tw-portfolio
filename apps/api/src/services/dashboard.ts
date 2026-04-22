@@ -9,7 +9,7 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
-import { roundToDecimal } from "@tw-portfolio/domain";
+import { resolveRangeBounds, roundToDecimal } from "@tw-portfolio/domain";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
@@ -330,8 +330,11 @@ function buildSyntheticPerformance(
   asOf: string,
   quotes: QuoteSnapshot[],
 ): DashboardPerformancePointDto[] {
-  const { startDate, endDate } = resolveRangeBounds(range, asOf);
   const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
+  // KZO-159: pass earliestTradeDate so "ALL" range resolves to the true start
+  // of trade history (otherwise the domain resolver collapses to `asOf..asOf`).
+  const earliestTradeDate = sortedTrades.length > 0 ? sortedTrades[0].tradeDate : undefined;
+  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
   const positions = new Map<string, { quantity: number; costBasisAmount: number }>();
   const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const points: DashboardPerformancePointDto[] = [];
@@ -438,27 +441,6 @@ function compareTradesForPerformance(
     || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
     || left.id.localeCompare(right.id)
   );
-}
-
-function resolveRangeBounds(range: DashboardPerformanceRange, asOf: string): { startDate: string; endDate: string } {
-  const end = new Date(asOf);
-  const endDate = end.toISOString().slice(0, 10);
-  const start = new Date(`${endDate}T00:00:00.000Z`);
-
-  if (range === "1M") {
-    start.setUTCMonth(start.getUTCMonth() - 1);
-  } else if (range === "3M") {
-    start.setUTCMonth(start.getUTCMonth() - 3);
-  } else if (range === "1Y") {
-    start.setUTCFullYear(start.getUTCFullYear() - 1);
-  } else {
-    start.setUTCMonth(0, 1);
-  }
-
-  return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate,
-  };
 }
 
 function addUtcDays(date: Date, days: number): Date {

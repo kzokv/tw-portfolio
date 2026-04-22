@@ -3,11 +3,12 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type {
-  DashboardPerformanceRange,
-  InstrumentOptionDto,
-  LocaleCode,
-  SnapshotsGeneratedEvent,
+import {
+  type DashboardPerformanceRange,
+  type InstrumentOptionDto,
+  type LocaleCode,
+  type SnapshotsGeneratedEvent,
+  DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
 } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -18,7 +19,7 @@ import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { API_PUBLIC, postJson } from "../../lib/api";
+import { API_PUBLIC, getJson, postJson } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
@@ -106,6 +107,15 @@ export function AppShell({
   const [viewportMode, setViewportMode] = useState<ViewportMode>("wide");
   const [desktopNavPreference, setDesktopNavPreference] = useState<boolean | null>(null);
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  // KZO-159 (158A) — Effective dashboard performance ranges resolved through the
+  // 3-tier user → admin → default precedence (see apps/api/src/services/userPreferences.ts).
+  // Seeded with the hardcoded defaults so the buttons render immediately on first
+  // paint; the fetch below upgrades the list once the resolver responds.
+  // Fetch failures (non-2xx, network error, abort) silently retain the defaults
+  // so dashboard UX is never blocked by an effective-ranges hiccup.
+  const [effectiveRanges, setEffectiveRanges] = useState<DashboardPerformanceRange[]>(
+    () => [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES],
+  );
   const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
   const [switcherLoaded, setSwitcherLoaded] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
@@ -185,6 +195,29 @@ export function AppShell({
 
   useEffect(() => {
     setIsClientReady(true);
+  }, []);
+
+  // KZO-159 (158A): fetch the resolved effective ranges (3-tier resolver) once
+  // on mount. Only render-relevant on the dashboard hero, but the call is
+  // cheap and lets the trend card pre-populate as well. On any error
+  // (network, 4xx/5xx, schema drift) keep the seeded defaults — never block.
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<{ ranges: string[]; source: "user" | "admin" | "default" }>(
+      "/user-preferences/effective-ranges",
+    )
+      .then((res) => {
+        if (cancelled) return;
+        if (Array.isArray(res?.ranges) && res.ranges.length > 0) {
+          setEffectiveRanges(res.ranges);
+        }
+      })
+      .catch(() => {
+        // Silent fallback: defaults are already in state.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -774,6 +807,7 @@ export function AppShell({
                 performance,
                 performanceRange,
                 setPerformanceRange,
+                effectiveRanges,
                 recentTransactions,
                 transactionSubmission,
                 recomputeAction,
@@ -822,6 +856,7 @@ function renderSection({
   performance,
   performanceRange,
   setPerformanceRange,
+  effectiveRanges,
   recentTransactions,
   transactionSubmission,
   recomputeAction,
@@ -838,6 +873,7 @@ function renderSection({
   performance: ReturnType<typeof useDashboardPerformance>;
   performanceRange: DashboardPerformanceRange;
   setPerformanceRange: (range: DashboardPerformanceRange) => void;
+  effectiveRanges: DashboardPerformanceRange[];
   recentTransactions: ReturnType<typeof useRecentTransactions>;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
@@ -1043,7 +1079,7 @@ function renderSection({
         ]}
         actions={(
           <div className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-            {(["1M", "3M", "YTD", "1Y"] as DashboardPerformanceRange[]).map((item) => (
+            {effectiveRanges.map((item) => (
               <Button
                 key={item}
                 variant={item === performanceRange ? "default" : "secondary"}
@@ -1062,7 +1098,9 @@ function renderSection({
                     ? dict.dashboardHome.range3MLabel
                     : item === "YTD"
                       ? dict.dashboardHome.rangeYtdLabel
-                      : dict.dashboardHome.range1YLabel}
+                      : item === "1Y"
+                        ? dict.dashboardHome.range1YLabel
+                        : item}
               </Button>
             ))}
           </div>
@@ -1073,6 +1111,7 @@ function renderSection({
         <PortfolioTrendCard
           data={performance.data}
           range={performanceRange}
+          ranges={effectiveRanges}
           currency={dashboard.summary.totalCostCurrency}
           locale={locale}
           dict={dict}

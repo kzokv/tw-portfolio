@@ -24,6 +24,8 @@ import {
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import { dashboardPerformanceRangesSchema } from "@tw-portfolio/shared-types";
+import { resolveEffectiveRanges } from "../services/userPreferences.js";
 import type { ImpersonationDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
@@ -1194,6 +1196,25 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { status: "seeded", id };
   });
 
+  // KZO-159 (158A): test-only helper that lets E2E/integration suites drop
+  // a fully-formed preferences row onto the active user (or a specific user
+  // when provided). Uses `_setUserPreferences` which bypasses the merge
+  // semantics and replaces the entire preferences object. Gated behind the
+  // seed guard (NODE_ENV + PERSISTENCE_BACKEND=memory) per KZO-132 pattern.
+  app.post("/__e2e/seed-user-preferences", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z
+      .object({
+        userId: userScopedIdSchema.optional(),
+        preferences: z.record(z.string(), z.unknown()),
+      })
+      .parse(req.body);
+    const targetUserId = body.userId
+      ?? resolveUserId(req, app.oauthConfig?.sessionSecret).userId;
+    await app.persistence._setUserPreferences(targetUserId, body.preferences);
+    return { status: "seeded", userId: targetUserId };
+  });
+
   app.post("/__e2e/seed-daily-bars", async (req) => {
     assertE2ESeedEnabled();
     const body = z
@@ -1788,6 +1809,77 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireSessionUserId(req);
     const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
     return app.persistence.updateProfileEmail(userId, body.email);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // User preferences (KZO-159 / 158A) — per-session identity. Keys other than
+  // `dashboardPerformanceRanges` are accepted as opaque values (forward-compat
+  // for 158C/158B). Null deletes a key. PATCH body is capped at 8 KiB to cap
+  // JSONB bloat; anything larger rejects with `payload_too_large`.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const USER_PREFERENCES_MAX_BYTES = 8192;
+
+  // Strict per-key validation: every known top-level key gets an explicit
+  // schema here. Unknown keys are rejected (`.strict()`). When 158B/158C add
+  // a new preference, extend this schema.
+  const userPreferencePatchSchema = z
+    .object({
+      dashboardPerformanceRanges: z
+        .union([dashboardPerformanceRangesSchema, z.null()])
+        .optional(),
+    })
+    .strict();
+
+  app.get("/user-preferences", async (req) => {
+    const userId = requireSessionUserId(req);
+    const preferences = await app.persistence.getUserPreferences(userId);
+    return { preferences };
+  });
+
+  app.patch("/user-preferences", {
+    bodyLimit: USER_PREFERENCES_MAX_BYTES,
+  }, async (req) => {
+    const userId = requireSessionUserId(req);
+    // Enforce the byte budget explicitly here even though Fastify's bodyLimit
+    // rejects at parse time — serializing the parsed body again gives a tight
+    // upper bound and a predictable error shape for clients (Fastify's own
+    // rejection surfaces as a 413 from the runtime, not a `routeError`).
+    const rawBytes = Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8");
+    if (rawBytes > USER_PREFERENCES_MAX_BYTES) {
+      throw routeError(
+        413,
+        "payload_too_large",
+        `Request body exceeds ${USER_PREFERENCES_MAX_BYTES} bytes`,
+      );
+    }
+    const parsed = userPreferencePatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const code = issue?.message === "ranges_list_too_short"
+        || issue?.message === "ranges_list_too_long"
+        || issue?.message === "ranges_list_invalid_element"
+        || issue?.message === "ranges_list_duplicate"
+        ? "invalid_range_list"
+        : "invalid_preference";
+      throw routeError(400, code, issue?.message ?? "Invalid preference patch");
+    }
+
+    // Convert `undefined` → skip, `null` → delete. Pass only defined keys.
+    const patch: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.data)) {
+      if (value !== undefined) {
+        patch[key] = value;
+      }
+    }
+    const preferences = await app.persistence.setUserPreferencePatch(userId, patch);
+    return { preferences };
+  });
+
+  app.get("/user-preferences/effective-ranges", async (req) => {
+    const userId = requireSessionUserId(req);
+    const result = await resolveEffectiveRanges(app.persistence, userId);
+    return result;
   });
 
   app.get("/shares", async (req) => {
@@ -2628,8 +2720,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/dashboard/performance", async (req) => {
+    // KZO-159 (158A): validate `range` against the per-user effective list
+    // (user pref → admin → hardcoded default). Requests with a `range` value
+    // that's not in the effective list are rejected with 400.
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { ranges } = await resolveEffectiveRanges(app.persistence, userId);
+    const rangeEnumValues = ranges as [string, ...string[]];
     const query = z.object({
-      range: z.enum(["1M", "3M", "YTD", "1Y"]).default("1M"),
+      range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
     }).parse(req.query);
     const { store } = await loadUserStore(app, req);
     const symbols = [...new Set(

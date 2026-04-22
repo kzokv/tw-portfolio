@@ -227,9 +227,16 @@ export class MemoryPersistence implements Persistence {
   private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
+  /** App config: admin override for dashboard performance ranges (KZO-159 / 158A).
+   *  null = unset, callers fall back to the hardcoded DEFAULT list. */
+  private _dashboardPerformanceRanges: string[] | null = null;
   /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
    *  construction so a fresh MemoryPersistence always has a non-null value. */
   private _appConfigUpdatedAt: string = new Date().toISOString();
+  /** KZO-159 / 158A: per-user preferences keyed by user id. Lazy — absent key
+   *  == empty preferences. Top-level merge semantics mirror the Postgres
+   *  `||` / `- key[]` update shape (see design D3). */
+  private readonly userPreferences = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
@@ -1814,15 +1821,33 @@ export class MemoryPersistence implements Persistence {
     return this._repairCooldownMinutes;
   }
 
-  async getAppConfig(): Promise<{ repairCooldownMinutes: number | null; updatedAt: string }> {
+  async getAppConfig(): Promise<{
+    repairCooldownMinutes: number | null;
+    dashboardPerformanceRanges: string[] | null;
+    updatedAt: string;
+  }> {
     return {
       repairCooldownMinutes: this._repairCooldownMinutes,
+      dashboardPerformanceRanges: this._dashboardPerformanceRanges
+        ? [...this._dashboardPerformanceRanges]
+        : null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
 
   async setRepairCooldownMinutes(value: number | null): Promise<void> {
     this._repairCooldownMinutes = value;
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  async setDashboardPerformanceRanges(value: string[] | null): Promise<void> {
+    // KZO-159 (158A) — sibling setter per D6. Route layer validates the
+    // list shape via `dashboardPerformanceRangesSchema` before calling.
+    this._dashboardPerformanceRanges = value ? [...value] : null;
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  private _bumpAppConfigUpdatedAt(): void {
     const prevMs = Date.parse(this._appConfigUpdatedAt);
     const nextMs = Math.max(Date.now(), Number.isFinite(prevMs) ? prevMs + 1 : Date.now());
     this._appConfigUpdatedAt = new Date(nextMs).toISOString();
@@ -1831,6 +1856,42 @@ export class MemoryPersistence implements Persistence {
   /** Test-only: override the in-memory repair cooldown (null = use env fallback). */
   _setRepairCooldownMinutes(n: number | null): void {
     this._repairCooldownMinutes = n;
+  }
+
+  // --- User preferences (KZO-159 / 158A) ---
+
+  async getUserPreferences(userId: string): Promise<Record<string, unknown>> {
+    const row = this.userPreferences.get(userId);
+    // Lazy: never insert on read, return an empty object when unset.
+    return row ? { ...row } : {};
+  }
+
+  async setUserPreferencePatch(
+    userId: string,
+    patch: Record<string, unknown | null>,
+  ): Promise<Record<string, unknown>> {
+    // Top-level merge with explicit null-delete semantics — mirrors the
+    // canonical Postgres shape in design D3:
+    //   (user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+    // Non-null keys replace existing values (arrays/objects assigned whole).
+    // Null-valued keys are dropped from the merged object.
+    const current = this.userPreferences.get(userId) ?? {};
+    const next: Record<string, unknown> = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === undefined) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+    }
+    this.userPreferences.set(userId, next);
+    return { ...next };
+  }
+
+  /** Test-only: full-replace the preferences row for a user (used by the
+   *  `/__e2e/seed-user-preferences` endpoint; bypasses merge semantics). */
+  async _setUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<void> {
+    this.userPreferences.set(userId, { ...preferences });
   }
 
   // --- Monitored Tickers ---
