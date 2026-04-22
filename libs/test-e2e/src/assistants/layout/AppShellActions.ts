@@ -212,4 +212,49 @@ export class AppShellActions extends AppBaseActions {
   async clickAdminSettingsSave(): Promise<void> {
     await this.uiActions.click.perform(this.page.getByTestId("admin-settings-save-button"));
   }
+
+  // ── KZO-159 — Admin timeframe defaults section actions ────────────────────
+  //
+  // Each active range is rendered as three buttons in a row:
+  //   • `timeframe-chip-${range}`       — toggle-off (clicking removes it)
+  //   • `timeframe-chip-up-${range}`    — reorder up
+  //   • `timeframe-chip-down-${range}`  — reorder down
+  //
+  // Predefined chips not in the active list appear in the "Available" row
+  // with the same `timeframe-chip-${range}` testid but `data-active="false"`.
+
+  @Step()
+  async clickAdminTimeframeChip(range: string): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-${range}`));
+  }
+
+  @Step()
+  async clickAdminTimeframeChipUp(range: string): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-up-${range}`));
+  }
+
+  @Step()
+  async clickAdminTimeframeChipDown(range: string): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-down-${range}`));
+  }
+
+  @Step()
+  async fillAdminTimeframeAddInput(value: string): Promise<void> {
+    await this.mxFill(this.page.getByTestId("timeframe-add-input"), value);
+  }
+
+  @Step()
+  async clickAdminTimeframeAddButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-add-button"));
+  }
+
+  @Step()
+  async clickAdminTimeframeReset(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-reset-button"));
+  }
+
+  @Step()
+  async clickAdminTimeframeSave(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-save-button"));
+  }
 }

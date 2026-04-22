@@ -1,17 +1,29 @@
 "use client";
 
-import type { CurrencyCode, DashboardPerformanceDto, DashboardPerformancePointDto, DashboardPerformanceRange, LocaleCode } from "@tw-portfolio/shared-types";
+import {
+  type CurrencyCode,
+  type DashboardPerformanceDto,
+  type DashboardPerformancePointDto,
+  type DashboardPerformanceRange,
+  type LocaleCode,
+  DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
+} from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
 
-const RANGE_ITEMS: DashboardPerformanceRange[] = ["1M", "3M", "YTD", "1Y"];
+const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 
 interface PortfolioTrendCardProps {
   data: DashboardPerformanceDto | null;
   range: DashboardPerformanceRange;
+  // KZO-159 (158A): optional override list resolved through the 3-tier
+  // user → admin → default precedence. When omitted, falls back to the
+  // hardcoded DEFAULT_DASHBOARD_PERFORMANCE_RANGES so older callers and
+  // tests keep working.
+  ranges?: DashboardPerformanceRange[];
   currency: CurrencyCode;
   locale: LocaleCode;
   dict: AppDictionary;
@@ -23,6 +35,7 @@ interface PortfolioTrendCardProps {
 export function PortfolioTrendCard({
   data,
   range,
+  ranges,
   currency,
   locale,
   dict,
@@ -30,6 +43,7 @@ export function PortfolioTrendCard({
   errorMessage,
   onRangeChange,
 }: PortfolioTrendCardProps) {
+  const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
   const points = data?.points ?? [];
   const latestPoint = points.at(-1) ?? null;
   const latestMarketValuePoint = [...points].reverse().find((point) => point.marketValueAmount !== null) ?? null;
@@ -50,7 +64,7 @@ export function PortfolioTrendCard({
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.performanceDescription}</p>
         </div>
         <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-          {RANGE_ITEMS.map((item) => (
+          {rangeItems.map((item) => (
             <Button
               key={item}
               variant={item === range ? "default" : "secondary"}
@@ -315,5 +329,10 @@ function resolveRangeLabel(dict: AppDictionary, range: DashboardPerformanceRange
   if (range === "1M") return dict.dashboardHome.range1MLabel;
   if (range === "3M") return dict.dashboardHome.range3MLabel;
   if (range === "YTD") return dict.dashboardHome.rangeYtdLabel;
-  return dict.dashboardHome.range1YLabel;
+  if (range === "1Y") return dict.dashboardHome.range1YLabel;
+  // KZO-159 (158A): for admin/user-extended ranges (e.g. 5Y, 10Y, 18M)
+  // there is no localized i18n key — render the raw range token. This
+  // keeps the four hardcoded labels intact while making the broader
+  // chip palette readable.
+  return range;
 }

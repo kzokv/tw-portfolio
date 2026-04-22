@@ -1,4 +1,25 @@
-export * from "./events.js";
+import { z } from "zod";
+
+// `events.ts` is a pure type-declaration module. Marking this re-export as
+// `type *` lets Turbopack erase it at compile time, avoiding the
+// "./events.js" resolution failure when a value consumer (e.g.
+// `AdminSettingsClient.tsx`, `AppShell.tsx`) pulls this barrel into the
+// client bundle. See `docs/004-notes/kzo-158/` for the incident context.
+export type * from "./events.js";
+
+// KZO-159 (158A) — Re-export the range parser + bounds resolver from
+// `@tw-portfolio/domain` so consumers (frontend AdminSettingsClient, API
+// routes) can import them alongside `dashboardPerformanceRangesSchema` from
+// a single package.
+export {
+  parsePerformanceRange,
+  resolveRangeBounds,
+  isValidPerformanceRange,
+  PERFORMANCE_RANGE_REGEX,
+  PERFORMANCE_RANGE_MAX_MONTHS,
+  PERFORMANCE_RANGE_MAX_YEARS,
+  type ParsedRange,
+} from "@tw-portfolio/domain";
 
 export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type LocaleCode = "en" | "zh-TW";
@@ -149,7 +170,66 @@ export interface DashboardOverviewDto {
   feeProfileBindings: FeeProfileBindingDto[];
 }
 
-export type DashboardPerformanceRange = "1M" | "3M" | "YTD" | "1Y";
+// KZO-159 (158A): `DashboardPerformanceRange` widened from the closed
+// union `"1M" | "3M" | "YTD" | "1Y"` to `string` so that admin + user
+// pref plumbing can extend the default list at runtime. Every consumer
+// already validates via `parsePerformanceRange` (libs/domain) or the
+// `dashboardPerformanceRangesSchema` below — the compile-time alias
+// remains only for call-site clarity.
+export type DashboardPerformanceRange = string;
+
+/**
+ * Hardcoded fallback timeframe list used when no admin override is set and
+ * the user has no override either (see the 3-tier resolver in
+ * `apps/api/src/services/userPreferences.ts`).
+ */
+export const DEFAULT_DASHBOARD_PERFORMANCE_RANGES = [
+  "1M",
+  "3M",
+  "YTD",
+  "1Y",
+] as const;
+
+/**
+ * Shared zod validator for a list of dashboard performance ranges.
+ *
+ * Rules:
+ *   - min length 1, max length 12
+ *   - each element matches the case-sensitive grammar
+ *     `^YTD$|^ALL$|^([1-9]\d*)(M|Y)$` with bounds `M ≤ 240`, `Y ≤ 50`
+ *   - no duplicates (case-sensitive)
+ *
+ * Regex and bounds duplicate `libs/domain/src/performanceRange.ts` on
+ * purpose — the grammar is design-locked (KZO-159 D9) and avoiding an
+ * import cycle (shared-types ← → domain) is worth the 6 lines of dupe.
+ */
+const DASHBOARD_PERFORMANCE_RANGE_ELEMENT = /^YTD$|^ALL$|^([1-9]\d*)(M|Y)$/;
+const MAX_MONTHS = 240;
+const MAX_YEARS = 50;
+
+function validateRangeElement(value: string): boolean {
+  const match = DASHBOARD_PERFORMANCE_RANGE_ELEMENT.exec(value);
+  if (!match) return false;
+  if (value === "YTD" || value === "ALL") return true;
+  const n = Number(match[1]);
+  const unit = match[2];
+  if (!Number.isInteger(n) || n <= 0) return false;
+  if (unit === "M") return n <= MAX_MONTHS;
+  return n <= MAX_YEARS;
+}
+
+export const dashboardPerformanceRangesSchema: z.ZodType<string[]> = z
+  .array(z.string())
+  .min(1, { message: "ranges_list_too_short" })
+  .max(12, { message: "ranges_list_too_long" })
+  .refine(
+    (arr) => arr.every(validateRangeElement),
+    { message: "ranges_list_invalid_element" },
+  )
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "ranges_list_duplicate" },
+  );
 
 export interface DashboardPerformancePointDto {
   date: string;
@@ -332,11 +412,17 @@ export interface AdminAuditLogResponse {
   limit: number;
 }
 
-// ── Admin settings (KZO-142) ────────────────────────────────────────────────
+// ── Admin settings (KZO-142 / KZO-159) ─────────────────────────────────────
 
 export interface AppConfigDto {
   repairCooldownMinutes: number | null;
   effectiveRepairCooldownMinutes: number;
+  // KZO-159 (158A): admin override for the user-facing dashboard timeframe
+  // picker. `null` = use the hardcoded DEFAULT_DASHBOARD_PERFORMANCE_RANGES.
+  dashboardPerformanceRanges: string[] | null;
+  // KZO-159 (158A): fully-resolved list after admin fallback — what the
+  // admin UI should render as the authoritative "current" list.
+  effectiveDashboardPerformanceRanges: string[];
   updatedAt: string;
 }
 

@@ -59,7 +59,10 @@ export class AdminEndpoint extends BaseEndpoint {
     this.request.get(apiUrl("/admin/settings"), headers ? { headers } : {});
 
   patchAdminSettings = (
-    body: { repairCooldownMinutes: number | null },
+    body: {
+      repairCooldownMinutes?: number | null;
+      dashboardPerformanceRanges?: string[] | null;
+    },
     headers?: Record<string, string>,
   ): Promise<APIResponse> =>
     this.request.patch(apiUrl("/admin/settings"), {

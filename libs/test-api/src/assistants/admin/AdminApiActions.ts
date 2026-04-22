@@ -37,14 +37,22 @@ export class AdminApiActions extends ApiBaseActions {
   }
 
   @Step()
-  async patchAdminSettings(body: { repairCooldownMinutes: number | null }): Promise<APIResponse> {
+  async patchAdminSettings(
+    body: {
+      repairCooldownMinutes?: number | null;
+      dashboardPerformanceRanges?: string[] | null;
+    },
+  ): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, this.authHeaders);
   }
 
   @Step()
   async patchAdminSettingsForCookie(
     cookie: string,
-    body: { repairCooldownMinutes: number | null },
+    body: {
+      repairCooldownMinutes?: number | null;
+      dashboardPerformanceRanges?: string[] | null;
+    },
   ): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, headersForCookie(cookie));
   }

@@ -1156,6 +1156,7 @@ Current numbered migration inventory:
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities`; makes `users.email` nullable with partial unique index.
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing.
 - `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`.
+- `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs, `user_id TEXT PK` with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` (null = use hardcoded default). Idempotent — `CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`. No audit_log changes; no backfill needed.
 
 ---
 
@@ -1330,10 +1331,67 @@ If a deployment needs "disable also revokes tokens" semantics, add a revocation 
 
 ### Rate-limit bucket memory growth
 
-`anonymousShareRateBuckets` (in-process `Map<ip, timestamps[]>`) grows with the set of distinct IPs that have ever hit `/share/:token`. Same class as `inviteStatusBuckets` (KZO-143). Not bounded in this release; flagged for a cross-cutting eviction follow-up. For a single-instance deployment this is only a concern if the public URL is exposed to scrapers at scale.
+`anonymousShareRateBuckets` (in-process `Map<ip, timestamps[]>`) is periodically swept by `registerAnonymousShareEviction(app)` (KZO-155), which runs `sweepSlidingWindowBucket` on a `windowMs` interval via `setInterval` + `onClose` cleanup. The bucket is bounded to IPs active within the current sliding window. For a single-instance deployment this is not a concern under normal load; under heavy scraper traffic the bucket is self-pruning.
 
 ### Operational checks
 
 - If a user reports "my public link stopped working", check (in order): `revoked_at`, `expires_at`, owner `deactivated_at` / `deleted_at`, and `/admin/audit-log` for matching `share_token_revoked`.
 - Cap breach: `SELECT COUNT(*) FROM anonymous_share_tokens WHERE owner_user_id = $1 AND revoked_at IS NULL AND expires_at > NOW();` should never exceed 20 — the advisory lock prevents concurrent creates from racing past the cap.
 - Retention cleanup (KZO-152): terminal rows are purged daily at 04:00 UTC by the `anonymous-share-token-purge` pg-boss singleton. Rows persist ≥ `ANONYMOUS_SHARE_TOKEN_PURGE_DAYS` (default 90) days past their terminality (revocation or expiration). Observe via structured log `anonymous_share_token_purge_completed` (success, `{ deleted, cutoffMs }`) / `anonymous_share_token_purge_failed` (error, rethrown for pg-boss retry).
+
+---
+
+## 17. KZO-159 deploy notes
+
+### Migration
+
+`036_kzo158a_user_preferences.sql` adds:
+- `user_preferences` table: `user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE`, `preferences JSONB NOT NULL DEFAULT '{}'`, `created_at`, `updated_at`. Stores per-user JSONB preferences with lazy insert semantics (no row created on read; created on first PATCH).
+- `app_config.dashboard_performance_ranges JSONB NULL` column: `null` = fall back to hardcoded `["1M","3M","YTD","1Y"]` default.
+
+Both operations are idempotent (`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`). No backfill, no data rewrite. Safe to re-run on an already-migrated database.
+
+**No `audit_log_action_check` change.** User-pref edits are not audited. Admin changes to `dashboard_performance_ranges` reuse the existing `app_config_updated` action already in the CHECK constraint (added by migration `034`).
+
+**Rollback impact.** Removing the column requires a manual `ALTER TABLE app_config DROP COLUMN dashboard_performance_ranges` and `DROP TABLE user_preferences`. API images prior to KZO-159 are unaware of these additions and will ignore them cleanly — the column is nullable, the table is unreferenced by old code.
+
+### Admin Settings — Dashboard Timeframe Defaults
+
+Admins can configure the default dashboard timeframe list at **`/admin` → Settings → Dashboard Timeframe Defaults**. The section:
+- Shows chip toggles for the active ranges plus a custom range text input.
+- Save = `PATCH /admin/settings { dashboardPerformanceRanges: string[] | null }`. `null` resets to the hardcoded default `["1M","3M","YTD","1Y"]`.
+- Each chip must match the grammar `^YTD$|^ALL$|^([1-9]\d*)(M|Y)$` (case-sensitive), min 1, max 12, no duplicates. Invalid input disables the Save button.
+- The admin setting becomes the default for all users who have not saved their own preference (KZO-161 / 158C for user-facing UI).
+
+### `user_preferences` table lifecycle
+
+- Rows are created lazily on first `PATCH /user-preferences`. `GET /user-preferences` returns `{ preferences: {} }` for users with no row — no insert on read.
+- `user_id` is TEXT to match `users.id` PK type. `ON DELETE CASCADE` cleans up on user deletion; no manual purge needed.
+- No audit log. Prefs are user-owned settings, not admin-auditable actions.
+- 8 KB JSONB cap enforced at the route layer (Fastify `bodyLimit: 8192` per-route + hard re-check after parse). Oversized bodies → `413 payload_too_large`.
+- Currently recognized top-level keys: `dashboard_performance_ranges` (`string[] | null`), `card_order` (`object | null`). Unknown top-level keys → `400 unknown_preference_key`. **KZO-161 (158C)** will extend the recognized key set.
+
+### `GET /user-preferences/effective-ranges`
+
+Three-tier resolution — returns `{ ranges: string[], source: "user" | "admin" | "default" }`:
+
+1. **User tier**: user's stored `preferences.dashboardPerformanceRanges`, pruned against the admin list (elements not in the admin list are silently dropped). Non-empty intersection → `source = "user"`.
+2. **Admin tier**: `app_config.dashboard_performance_ranges` if non-null → `source = "admin"`.
+3. **Default tier**: hardcoded `["1M","3M","YTD","1Y"]` → `source = "default"`.
+
+Auto-prune happens **at resolve time** — stored user preferences are never rewritten. If an admin removes a range that a user had saved, the user's stored value is preserved but silently excluded from the resolved list until they save again.
+
+### Dashboard performance range validator
+
+`GET /dashboard/performance?range=X` now validates `range` against the caller's `effectiveRanges` list (resolved per the 3-tier chain above) rather than the static `z.enum(["1M","3M","YTD","1Y"])`. Out-of-list values → `400 invalid_range`. This means users with custom admin or user overrides (after 158C ships) can query non-standard ranges.
+
+### E2E seed endpoint
+
+`POST /__e2e/seed-user-preferences` is a test-only endpoint guarded by `assertE2ESeedEnabled()` (requires `NODE_ENV !== "production"` + `PERSISTENCE_BACKEND=memory`). Body: `{ userId?: string, preferences: Record<string, unknown> }`. Performs a full-replace write (bypasses merge semantics). Not available in production.
+
+### Operational checks
+
+- To see a user's stored prefs: `SELECT preferences FROM user_preferences WHERE user_id = '<uuid>';`
+- To see the admin timeframe override: `SELECT dashboard_performance_ranges FROM app_config WHERE id = 1;`
+- To reset admin override to default: `UPDATE app_config SET dashboard_performance_ranges = NULL, updated_at = NOW() WHERE id = 1;` (or use the admin UI "Reset to defaults" button).
+- `dashboard_performance_ranges` changes emit `app_config_updated` audit entries (visible in `/admin/audit-log`).

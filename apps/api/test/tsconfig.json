@@ -6,5 +6,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext"
   },
-  "include": ["http/**/*.ts", "globalTeardown.ts"]
+  "include": [
+    "http/**/*.ts",
+    "globalTeardown.ts",
+    "integration/user-preferences.integration.test.ts"
+  ]
 }
