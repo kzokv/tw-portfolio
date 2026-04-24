@@ -1,8 +1,15 @@
 import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
 
 // NOTE: seedDailyBars appends to a global (non-per-user) array in MemoryPersistence.
-// Tests that seed bars for the same ticker accumulate entries across tests.
-// TC5 uses "0050" (not "2330") to avoid cross-contamination with TC1-TC4.
+// Use a unique synthetic ticker per charted case so snapshot walks do not inherit
+// bars seeded by earlier tests in this file or the rest of the bypass suite.
+
+function isoDateDaysAgo(daysAgo: number): string {
+  const date = new Date();
+  date.setUTCHours(12, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
 
 test.describe("portfolio snapshots", () => {
   test.beforeEach(async ({ appShell }) => {
@@ -12,11 +19,17 @@ test.describe("portfolio snapshots", () => {
   test("generate flow: click button → loading → SSE → charts populate", async ({
     dashboard,
   }) => {
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+    const tickerId = "8201";
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 100,
+      unitPrice: 500,
+      tradeDate: isoDateDaysAgo(12),
+    });
     await dashboard.arrange.seedDailyBars([
-      { ticker: "2330", barDate: "2026-01-15", open: 495, high: 505, low: 490, close: 500, volume: 1000 },
-      { ticker: "2330", barDate: "2026-01-16", open: 500, high: 515, low: 498, close: 510, volume: 1100 },
-      { ticker: "2330", barDate: "2026-01-17", open: 510, high: 525, low: 508, close: 520, volume: 1200 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(12), open: 495, high: 505, low: 490, close: 500, volume: 1000 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(6), open: 500, high: 515, low: 498, close: 510, volume: 1100 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(1), open: 510, high: 525, low: 508, close: 520, volume: 1200 },
     ]);
 
     await dashboard.actions.navigateToDashboard();
@@ -46,11 +59,17 @@ test.describe("portfolio snapshots", () => {
     dashboard,
     ticker,
   }) => {
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+    const tickerId = "8202";
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 100,
+      unitPrice: 500,
+      tradeDate: isoDateDaysAgo(12),
+    });
     await dashboard.arrange.seedDailyBars([
-      { ticker: "2330", barDate: "2026-01-15", open: 495, high: 505, low: 490, close: 500, volume: 1000 },
-      { ticker: "2330", barDate: "2026-01-16", open: 500, high: 515, low: 498, close: 510, volume: 1100 },
-      { ticker: "2330", barDate: "2026-01-17", open: 510, high: 525, low: 508, close: 520, volume: 1200 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(12), open: 495, high: 505, low: 490, close: 500, volume: 1000 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(6), open: 500, high: 515, low: 498, close: 510, volume: 1100 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(1), open: 510, high: 525, low: 508, close: 520, volume: 1200 },
     ]);
 
     // Generate snapshots to establish baseline
@@ -60,7 +79,7 @@ test.describe("portfolio snapshots", () => {
     await dashboard.assert.performanceChartHasData();
 
     // Edit trade: change quantity
-    await ticker.actions.navigateToTicker("2330");
+    await ticker.actions.navigateToTicker(tickerId);
     await ticker.actions.clickEditOnFirstRow();
     await ticker.actions.fillEditQuantity("200");
     await ticker.actions.saveEdit();
@@ -85,15 +104,26 @@ test.describe("portfolio snapshots", () => {
     dashboard,
     ticker,
   }) => {
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500, tradeDate: "2026-01-10" });
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 50, unitPrice: 550, tradeDate: "2026-01-15" });
+    const tickerId = "8203";
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 100,
+      unitPrice: 500,
+      tradeDate: isoDateDaysAgo(20),
+    });
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 50,
+      unitPrice: 550,
+      tradeDate: isoDateDaysAgo(10),
+    });
     await dashboard.arrange.seedDailyBars([
-      { ticker: "2330", barDate: "2026-01-10", open: 495, high: 505, low: 490, close: 500, volume: 1000 },
-      { ticker: "2330", barDate: "2026-01-13", open: 500, high: 510, low: 498, close: 505, volume: 1100 },
-      { ticker: "2330", barDate: "2026-01-14", open: 505, high: 515, low: 503, close: 510, volume: 1200 },
-      { ticker: "2330", barDate: "2026-01-15", open: 510, high: 520, low: 508, close: 515, volume: 1300 },
-      { ticker: "2330", barDate: "2026-01-16", open: 515, high: 525, low: 513, close: 520, volume: 1400 },
-      { ticker: "2330", barDate: "2026-01-17", open: 520, high: 530, low: 518, close: 525, volume: 1500 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(20), open: 495, high: 505, low: 490, close: 500, volume: 1000 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(15), open: 500, high: 510, low: 498, close: 505, volume: 1100 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(10), open: 505, high: 515, low: 503, close: 510, volume: 1200 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(7), open: 510, high: 520, low: 508, close: 515, volume: 1300 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(3), open: 515, high: 525, low: 513, close: 520, volume: 1400 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(1), open: 520, high: 530, low: 518, close: 525, volume: 1500 },
     ]);
 
     // Generate snapshots first
@@ -102,7 +132,7 @@ test.describe("portfolio snapshots", () => {
     await dashboard.actions.generateSnapshotsAndWait();
 
     // Open delete dialog on the second trade
-    await ticker.actions.navigateToTicker("2330");
+    await ticker.actions.navigateToTicker(tickerId);
     await ticker.actions.clickDeleteOnRow("550");
 
     await ticker.assert.deleteDialogIsVisible();
@@ -117,15 +147,27 @@ test.describe("portfolio snapshots", () => {
     dashboard,
     ticker,
   }) => {
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500, tradeDate: "2026-01-10" });
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 50, unitPrice: 550, tradeDate: "2026-01-15" });
+    test.slow();
+    const tickerId = "8204";
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 100,
+      unitPrice: 500,
+      tradeDate: isoDateDaysAgo(20),
+    });
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 50,
+      unitPrice: 550,
+      tradeDate: isoDateDaysAgo(10),
+    });
     await dashboard.arrange.seedDailyBars([
-      { ticker: "2330", barDate: "2026-01-10", open: 495, high: 505, low: 490, close: 500, volume: 1000 },
-      { ticker: "2330", barDate: "2026-01-13", open: 500, high: 510, low: 498, close: 505, volume: 1100 },
-      { ticker: "2330", barDate: "2026-01-14", open: 505, high: 515, low: 503, close: 510, volume: 1200 },
-      { ticker: "2330", barDate: "2026-01-15", open: 510, high: 520, low: 508, close: 515, volume: 1300 },
-      { ticker: "2330", barDate: "2026-01-16", open: 515, high: 525, low: 513, close: 520, volume: 1400 },
-      { ticker: "2330", barDate: "2026-01-17", open: 520, high: 530, low: 518, close: 525, volume: 1500 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(20), open: 495, high: 505, low: 490, close: 500, volume: 1000 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(15), open: 500, high: 510, low: 498, close: 505, volume: 1100 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(10), open: 505, high: 515, low: 503, close: 510, volume: 1200 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(7), open: 510, high: 520, low: 508, close: 515, volume: 1300 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(3), open: 515, high: 525, low: 513, close: 520, volume: 1400 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(1), open: 520, high: 530, low: 518, close: 525, volume: 1500 },
     ]);
 
     // Generate snapshots
@@ -134,7 +176,7 @@ test.describe("portfolio snapshots", () => {
     await dashboard.actions.generateSnapshotsAndWait();
 
     // Delete the second trade
-    await ticker.actions.navigateToTicker("2330");
+    await ticker.actions.navigateToTicker(tickerId);
     await ticker.assert.rowCountIs(2);
     await ticker.actions.clickDeleteOnRow("550");
     await ticker.assert.deleteDialogIsVisible();
@@ -164,7 +206,7 @@ test.describe("portfolio snapshots", () => {
     // making tradingDays.length > 0 and causing the provisional branch to be skipped.
     // "9999" is registered as a provisional STOCK via ensureInstrumentDefinition
     // when the trade is booked (type=STOCK from DEFAULT_PROVISIONAL_TYPE → trade accepted).
-    await dashboard.arrange.seedTrade({ ticker: "9999", quantity: 100, unitPrice: 100, tradeDate: "2026-01-15" });
+    await dashboard.arrange.seedTrade({ ticker: "9999", quantity: 100, unitPrice: 100, tradeDate: isoDateDaysAgo(12) });
     // NO daily bars seeded and none exist from other specs — all snapshots provisional (market_value=NULL).
 
     await dashboard.actions.navigateToDashboard();
@@ -191,11 +233,17 @@ test.describe("portfolio snapshots", () => {
   test("two chart cards: amounts and return % render with data", async ({
     dashboard,
   }) => {
-    await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500, tradeDate: "2026-01-15" });
+    const tickerId = "8206";
+    await dashboard.arrange.seedTrade({
+      ticker: tickerId,
+      quantity: 100,
+      unitPrice: 500,
+      tradeDate: isoDateDaysAgo(12),
+    });
     await dashboard.arrange.seedDailyBars([
-      { ticker: "2330", barDate: "2026-01-15", open: 495, high: 505, low: 490, close: 500, volume: 1000 },
-      { ticker: "2330", barDate: "2026-01-16", open: 500, high: 515, low: 498, close: 510, volume: 1100 },
-      { ticker: "2330", barDate: "2026-01-17", open: 510, high: 525, low: 508, close: 520, volume: 1200 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(12), open: 495, high: 505, low: 490, close: 500, volume: 1000 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(6), open: 500, high: 515, low: 498, close: 510, volume: 1100 },
+      { ticker: tickerId, barDate: isoDateDaysAgo(1), open: 510, high: 525, low: 508, close: 520, volume: 1200 },
     ]);
 
     await dashboard.actions.navigateToDashboard();

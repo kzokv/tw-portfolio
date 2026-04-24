@@ -54,6 +54,9 @@ import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
+import { FinMindClient } from "../services/market-data/finmindClient.js";
+import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js";
+import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { routeError } from "../lib/routeError.js";
 import {
   requireAdminRole,
@@ -74,8 +77,10 @@ import {
 } from "../lib/anonymousShareToken.js";
 import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../lib/inviteStatusRateLimit.js";
 import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
+import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
+import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
 
 export const userScopedIdSchema = z
   .string()
@@ -1118,6 +1123,107 @@ function requireAccount(store: Store, accountId: string) {
   return account;
 }
 
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysBeforeIsoDate(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() - days);
+  return value.toISOString().slice(0, 10);
+}
+
+function isWeekendIsoDate(date: string): boolean {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function findMostRecentBar(bars: DailyBar[], requestedDate: string): DailyBar | null {
+  const eligible = bars.filter((bar) => bar.barDate <= requestedDate);
+  return eligible.at(-1) ?? null;
+}
+
+function buildPriceLookupResponse(bar: DailyBar, requestedDate: string) {
+  if (bar.barDate === requestedDate) {
+    return {
+      close: bar.close,
+      date: bar.barDate,
+      source: bar.source,
+      match: "exact" as const,
+    };
+  }
+
+  return {
+    close: bar.close,
+    date: bar.barDate,
+    source: bar.source,
+    match: "previous" as const,
+    reason: isWeekendIsoDate(requestedDate) ? "weekend" as const : "no_bar" as const,
+  };
+}
+
+// Provider-fallback responses always carry match: "previous" — even when the
+// returned bar's date matches the requested date — so the client treats every
+// FinMind hit as "we filled a gap" rather than "the DB had it." This is the
+// scope-locked behavior from KZO-160 §F2 step 4 (refined scope-todo).
+function buildFetchedPriceLookupResponse(bar: DailyBar, requestedDate: string) {
+  return {
+    close: bar.close,
+    date: bar.barDate,
+    source: bar.source,
+    match: "previous" as const,
+    reason: isWeekendIsoDate(requestedDate) ? "weekend" as const : "no_bar" as const,
+  };
+}
+
+async function opportunisticUpsertDailyBars(
+  persistence: FastifyInstance["persistence"],
+  bars: DailyBar[],
+): Promise<void> {
+  if (bars.length === 0) return;
+
+  if ("getPool" in persistence && typeof persistence.getPool === "function") {
+    await upsertDailyBars(
+      persistence.getPool(),
+      bars.map((bar) => ({
+        ticker: bar.ticker,
+        barDate: bar.barDate,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+      })),
+    );
+    return;
+  }
+
+  if ("_seedDailyBars" in persistence && typeof persistence._seedDailyBars === "function") {
+    persistence._seedDailyBars(bars);
+  }
+}
+
+function resolveTransactionFeeProfile(
+  store: Store,
+  accountId: string,
+  ticker: string,
+  marketCode: string,
+): FeeProfile {
+  const override = store.feeProfileBindings.find(
+    (binding) =>
+      binding.accountId === accountId &&
+      binding.ticker === ticker &&
+      (binding.marketCode === undefined || binding.marketCode === marketCode),
+  );
+
+  if (override) {
+    return requireProfile(store, override.feeProfileId);
+  }
+
+  const account = requireAccount(store, accountId);
+  return requireProfile(store, account.feeProfileId);
+}
+
 const demoRateBuckets = new Map<string, { count: number; windowStartedAt: number }>();
 
 /** @internal — test-only helper to reset the demo rate limiter between test runs. */
@@ -1128,6 +1234,7 @@ export function _resetDemoRateBuckets(): void {
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerInviteStatusEviction(app);
   registerAnonymousShareEviction(app);
+  registerMarketDataPriceEviction(app);
 
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
@@ -2317,7 +2424,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = z
       .object({
         name: z.string().trim().min(1).max(80).optional(),
-        feeProfileId: userScopedIdSchema,
+        feeProfileId: userScopedIdSchema.optional(),
+      })
+      .refine((value) => value.name !== undefined || value.feeProfileId !== undefined, {
+        message: "at least one field required",
       })
       .parse(req.body);
 
@@ -2326,9 +2436,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const account = store.accounts.find((item) => item.id === params.id);
     if (!account) throw routeError(404, "account_not_found", `Account ${params.id} was not found.`);
 
-    requireProfile(store, body.feeProfileId);
-
-    account.feeProfileId = body.feeProfileId;
+    if (body.feeProfileId !== undefined) {
+      requireProfile(store, body.feeProfileId);
+      account.feeProfileId = body.feeProfileId;
+    }
     if (body.name) account.name = body.name;
     await app.persistence.saveStore(store);
     return account;
@@ -2411,6 +2522,53 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return store.feeProfileBindings;
   });
 
+  app.get("/market-data/price", async (req) => {
+    // Authenticate-only: this route has no per-user state. The resolveUserId
+    // call throws on missing/invalid auth in oauth mode, then we discard the id.
+    resolveUserId(req, app.oauthConfig?.sessionSecret);
+    assertMarketDataPriceRateLimit(req.ip);
+
+    const query = z.object({
+      ticker: tickerSchema,
+      date: isoDateSchema,
+    }).parse(req.query);
+
+    if (query.date > todayIsoDate()) {
+      throw routeError(400, "invalid_date", "date must not be in the future");
+    }
+
+    const lookbackStartDate = daysBeforeIsoDate(query.date, 7);
+    const storedBars = await app.persistence.getDailyBarsForTicker(query.ticker, lookbackStartDate, query.date);
+    const storedMatch = findMostRecentBar(storedBars, query.date);
+    if (storedMatch) {
+      return buildPriceLookupResponse(storedMatch, query.date);
+    }
+
+    const finmind = Env.FINMIND_API_TOKEN ? new FinMindClient() : new MockFinMindClient();
+    let fetchedBars: DailyBar[];
+    try {
+      const rawBars = await finmind.fetchDailyBars(query.ticker, lookbackStartDate, query.date);
+      fetchedBars = rawBars
+        .filter((bar) => bar.barDate >= lookbackStartDate && bar.barDate <= query.date)
+        .sort((left, right) => left.barDate.localeCompare(right.barDate))
+        .map((bar) => ({
+          ...bar,
+          source: "finmind",
+          ingestedAt: new Date().toISOString(),
+        }));
+    } catch {
+      throw routeError(404, "price_not_found", "price not found");
+    }
+
+    const fetchedMatch = findMostRecentBar(fetchedBars, query.date);
+    if (!fetchedMatch) {
+      throw routeError(404, "price_not_found", "price not found");
+    }
+
+    await opportunisticUpsertDailyBars(app.persistence, fetchedBars);
+    return buildFetchedPriceLookupResponse(fetchedMatch, query.date);
+  });
+
   app.post("/portfolio/transactions", async (req) => {
     const body = transactionSchema.parse(req.body);
 
@@ -2471,6 +2629,45 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return tx;
+  });
+
+  app.post("/portfolio/transactions/estimate", async (req) => {
+    const body = z.object({
+      ticker: tickerSchema,
+      quantity: z.number().int().positive(),
+      unitPrice: z.number().positive().multipleOf(0.01),
+      type: z.enum(["BUY", "SELL"]),
+      isDayTrade: z.boolean().default(false),
+      accountId: userScopedIdSchema,
+    }).parse(req.body);
+
+    const { store } = await loadUserStore(app, req);
+    const account = store.accounts.find((item) => item.id === body.accountId);
+    if (!account) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+
+    const instrument = await app.persistence.getInstrument(body.ticker);
+    const marketCode = instrument?.marketCode ?? "TW";
+    const instrumentType: InstrumentType = instrument?.instrumentType ?? "STOCK";
+    const profile = resolveTransactionFeeProfile(store, account.id, body.ticker, marketCode);
+    const tradeCurrency = profile.commissionCurrency ?? "TWD";
+    const tradeValueAmount = roundToDecimal(body.quantity * body.unitPrice, 2);
+
+    const fees = body.type === "BUY"
+      ? calculateBuyFees(profile, tradeValueAmount, tradeCurrency)
+      : calculateSellFees(profile, {
+          tradeValueAmount,
+          tradeCurrency,
+          instrumentType,
+          isDayTrade: body.isDayTrade,
+          marketCode,
+        });
+
+    return {
+      commissionAmount: fees.commissionAmount,
+      taxAmount: fees.taxAmount,
+    };
   });
 
   // --- Transaction Mutation Routes (KZO-114) ---

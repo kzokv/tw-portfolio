@@ -1,5 +1,5 @@
 import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
-import { putJson } from "../../../lib/api";
+import { patchJson, putJson } from "../../../lib/api";
 import type { SaveSettingsRequest } from "../types/settingsUi";
 
 export interface SaveSettingsResponse {
@@ -7,6 +7,10 @@ export interface SaveSettingsResponse {
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
+}
+
+export async function renameAccount(accountId: string, name: string): Promise<AccountDto> {
+  return patchJson<AccountDto>(`/accounts/${encodeURIComponent(accountId)}`, { name });
 }
 
 export async function saveFullSettings(request: SaveSettingsRequest): Promise<SaveSettingsResponse> {

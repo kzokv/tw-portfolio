@@ -1,19 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
+import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
-import { AddTransactionCard } from "../portfolio/AddTransactionCard";
+import { AddTransactionCard, type TransactionAccountOption } from "../portfolio/AddTransactionCard";
 import type { TransactionInput } from "../portfolio/types";
 
 interface QuickTransactionSectionProps {
   value: TransactionInput;
-  accountOptions: Array<{ id: string; name: string }>;
+  accountOptions: TransactionAccountOption[];
   pending: boolean;
   onChange: (next: TransactionInput) => void;
+  onUnitPriceEdited?: () => void;
   onSubmit: () => Promise<void>;
   dict: AppDictionary;
+  locale: LocaleCode;
+  priceHint: TransactionPriceHint | null;
+  showPriceUnavailableHint: boolean;
+  feeEstimate: TransactionEstimateResponse | null;
 }
 
 export function QuickTransactionSection({
@@ -21,8 +29,13 @@ export function QuickTransactionSection({
   accountOptions,
   pending,
   onChange,
+  onUnitPriceEdited,
   onSubmit,
   dict,
+  locale,
+  priceHint,
+  showPriceUnavailableHint,
+  feeEstimate,
 }: QuickTransactionSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const typeLabel = value.type === "BUY" ? dict.transactions.typeBuy : dict.transactions.typeSell;
@@ -57,9 +70,14 @@ export function QuickTransactionSection({
               accountOptions={accountOptions}
               pending={pending}
               onChange={onChange}
+              onUnitPriceEdited={onUnitPriceEdited}
               onSubmit={onSubmit}
               dict={dict}
+              locale={locale}
               framed={false}
+              priceHint={priceHint}
+              showPriceUnavailableHint={showPriceUnavailableHint}
+              feeEstimate={feeEstimate}
             />
           </div>
         ) : null}

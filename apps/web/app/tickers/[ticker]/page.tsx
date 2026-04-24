@@ -97,6 +97,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           isDemo={session.isDemo}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
+          feeProfiles={dashboard.feeProfiles}
+          feeProfileBindings={dashboard.feeProfileBindings}
           statsBar={statsBar}
         />
       </AppShell>

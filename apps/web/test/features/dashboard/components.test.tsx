@@ -1,6 +1,7 @@
-import React from "react";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
   DashboardPerformanceDto,
   DashboardOverviewHoldingDto,
@@ -98,7 +99,32 @@ const performance: DashboardPerformanceDto = {
   ],
 };
 
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+function input(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  if (!setter) {
+    throw new Error("HTMLInputElement.value setter is unavailable");
+  }
+  act(() => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 describe("dashboard components", () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  afterEach(() => {
+    act(() => root?.unmount());
+    root = null;
+    container?.remove();
+    container = null;
+  });
+
   it("renders summary cards in the requested order", () => {
     const html = renderToStaticMarkup(<SummarySection summary={summary} dict={dict} locale="en" />);
 
@@ -180,18 +206,72 @@ describe("dashboard components", () => {
           type: "BUY",
           isDayTrade: false,
         }}
-        accountOptions={[{ id: "acc-1", name: "Primary" }]}
+        accountOptions={[{ id: "acc-1", name: "Primary", feeProfileName: "Default Broker" }]}
         pending={false}
         onChange={() => undefined}
         onSubmit={async () => undefined}
         dict={dict}
+        locale="en"
         framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
       />,
     );
 
     expect(html).toContain("data-testid=\"tx-ticker-combobox\"");
     expect(html).toContain("placeholder=\"Search by ticker or name...\"");
     expect(html).toContain("value=\"0050\"");
+    expect(html).toContain("Primary — Default Broker");
     expect(html).not.toContain("data-testid=\"tx-ticker-select\"");
+  });
+
+  it("marks manual unit-price edits only from the unit-price input handler", () => {
+    const onChange = vi.fn();
+    const onUnitPriceEdited = vi.fn();
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root!.render(
+        <AddTransactionCard
+          value={{
+            accountId: "acc-1",
+            ticker: "0050",
+            quantity: 1,
+            unitPrice: 100,
+            priceCurrency: "TWD",
+            tradeDate: "2026-03-13",
+            type: "BUY",
+            isDayTrade: false,
+          }}
+          accountOptions={[{ id: "acc-1", name: "Primary", feeProfileName: "Default Broker" }]}
+          pending={false}
+          onChange={onChange}
+          onUnitPriceEdited={onUnitPriceEdited}
+          onSubmit={async () => undefined}
+          dict={dict}
+          locale="en"
+          framed={false}
+          priceHint={null}
+          showPriceUnavailableHint={false}
+          feeEstimate={null}
+        />,
+      );
+    });
+
+    const quantityInput = container.querySelector('[data-testid="tx-quantity-input"]') as HTMLInputElement | null;
+    const unitPriceInput = container.querySelector('[data-testid="unit-price-input"]') as HTMLInputElement | null;
+
+    expect(quantityInput).not.toBeNull();
+    expect(unitPriceInput).not.toBeNull();
+
+    input(quantityInput!, "2");
+    expect(onUnitPriceEdited).not.toHaveBeenCalled();
+
+    input(unitPriceInput!, "101");
+    expect(onUnitPriceEdited).toHaveBeenCalledTimes(1);
   });
 });

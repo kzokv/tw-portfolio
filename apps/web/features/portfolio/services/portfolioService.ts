@@ -15,6 +15,28 @@ export interface TransactionInstrumentCatalogResponse {
   instruments: InstrumentCatalogItemDto[];
 }
 
+export interface MarketDataPriceResponse {
+  close: number;
+  date: string;
+  source: string;
+  match: "exact" | "previous";
+  reason?: "weekend" | "no_bar";
+}
+
+export interface TransactionEstimateInput {
+  ticker: string;
+  quantity: number;
+  unitPrice: number;
+  type: "BUY" | "SELL";
+  isDayTrade: boolean;
+  accountId: string;
+}
+
+export interface TransactionEstimateResponse {
+  commissionAmount: number;
+  taxAmount: number;
+}
+
 export async function submitTransaction(input: TransactionInput): Promise<void> {
   await postJson("/portfolio/transactions", {
     ...input,
@@ -49,6 +71,33 @@ export async function fetchTransactionHistory(filters: {
 
 export async function fetchTransactionInstrumentCatalog(): Promise<TransactionInstrumentCatalogResponse> {
   return getJson<TransactionInstrumentCatalogResponse>("/instruments");
+}
+
+export async function fetchMarketDataPrice(
+  ticker: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<MarketDataPriceResponse> {
+  const query = new URLSearchParams({
+    ticker: ticker.trim().toUpperCase(),
+    date,
+  });
+  return getJson<MarketDataPriceResponse>(`/market-data/price?${query.toString()}`, { signal });
+}
+
+export async function estimateTransaction(
+  input: TransactionEstimateInput,
+  signal?: AbortSignal,
+): Promise<TransactionEstimateResponse> {
+  return postJson<TransactionEstimateResponse>(
+    "/portfolio/transactions/estimate",
+    {
+      ...input,
+      ticker: input.ticker.trim().toUpperCase(),
+    },
+    undefined,
+    { signal },
+  );
 }
 
 export async function previewRecompute(): Promise<RecomputePreviewResponse> {

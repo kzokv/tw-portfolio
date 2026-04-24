@@ -83,6 +83,11 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.profile.emailSavedIndicator).toBeVisible();
   }
 
+  @Step()
+  async accountNameLabelContains(text: string | RegExp, index = 0): Promise<void> {
+    await expect(this.page.getByTestId("account-name-label").nth(index)).toContainText(text);
+  }
+
   // --- Monitored Symbols ---
 
   @Step()

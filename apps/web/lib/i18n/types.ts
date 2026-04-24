@@ -394,6 +394,10 @@ export interface AppDictionary {
     profileBondEtfTaxLabel: string;
     accountFallbackSectionTitle: string;
     accountFallbackSectionDescription: string;
+    accountRenameSave: string;
+    accountRenamePlaceholder: string;
+    accountRenameError: string;
+    accountRenameIconLabel: string;
     bindingSectionTitle: string;
     bindingSectionDescription: string;
     bindingEmptyState: string;
@@ -709,6 +713,18 @@ export interface AppDictionary {
     recentLedgerTitle: string;
     recentLedgerDescription: string;
     recentLedgerEmpty: string;
+    commissionEstimateTitle: string;
+    taxEstimateTitle: string;
+    estimatedLabel: string;
+    overrideAmountPlaceholder: string;
+  };
+  priceHint: {
+    exact: string;
+    previous: {
+      weekend: string;
+      no_bar: string;
+    };
+    unavailable: string;
   };
   holdings: {
     title: string;
