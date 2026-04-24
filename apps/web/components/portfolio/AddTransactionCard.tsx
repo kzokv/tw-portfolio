@@ -1,22 +1,61 @@
 "use client";
 
+import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import { formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { fieldClassName } from "../ui/fieldStyles";
 import type { TransactionInput } from "./types";
 import { InstrumentCombobox } from "./InstrumentCombobox";
+import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
+import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";
+
+export interface TransactionAccountOption {
+  id: string;
+  name: string;
+  feeProfileName: string;
+}
 
 interface AddTransactionCardProps {
   value: TransactionInput;
-  accountOptions: Array<{ id: string; name: string }>;
+  accountOptions: TransactionAccountOption[];
   pending: boolean;
   onChange: (next: TransactionInput) => void;
+  onUnitPriceEdited?: () => void;
   onSubmit: () => Promise<void>;
   dict: AppDictionary;
+  locale: LocaleCode;
   framed?: boolean;
   tickerReadOnly?: boolean;
+  priceHint: TransactionPriceHint | null;
+  showPriceUnavailableHint: boolean;
+  feeEstimate: TransactionEstimateResponse | null;
+}
+
+function formatAccountOptionLabel(account: TransactionAccountOption): string {
+  if (!account.feeProfileName.trim()) {
+    return account.name;
+  }
+  return `${account.name} — ${account.feeProfileName}`;
+}
+
+function parseOptionalNumber(raw: string): number | undefined {
+  if (!raw.trim()) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function resolvePriceHintCopy(dict: AppDictionary, locale: LocaleCode, hint: TransactionPriceHint): string {
+  const formattedDate = formatDateLabel(hint.date, locale);
+  if (hint.message === "exact") {
+    return dict.priceHint.exact.replace("{date}", formattedDate);
+  }
+  if (hint.reason === "weekend") {
+    return dict.priceHint.previous.weekend.replace("{date}", formattedDate);
+  }
+  return dict.priceHint.previous.no_bar.replace("{date}", formattedDate);
 }
 
 export function AddTransactionCard({
@@ -24,17 +63,23 @@ export function AddTransactionCard({
   accountOptions,
   pending,
   onChange,
+  onUnitPriceEdited,
   onSubmit,
   dict,
+  locale,
   framed = true,
   tickerReadOnly = false,
+  priceHint,
+  showPriceUnavailableHint,
+  feeEstimate,
 }: AddTransactionCardProps) {
   function setField<K extends keyof TransactionInput>(key: K, nextValue: TransactionInput[K]) {
     onChange({ ...value, [key]: nextValue });
   }
 
-  const selectedAccount = accountOptions.find((a) => a.id === value.accountId);
-  const accountSelectTitle = selectedAccount ? `${selectedAccount.name} (${selectedAccount.id})` : "";
+  const selectedAccount = accountOptions.find((account) => account.id === value.accountId);
+  const accountSelectTitle = selectedAccount ? formatAccountOptionLabel(selectedAccount) : "";
+
   const content = (
     <>
       <div className="mb-5 min-w-0">
@@ -43,7 +88,7 @@ export function AddTransactionCard({
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="min-w-0 space-y-2 text-sm">
+        <label className="min-w-0 space-y-2 text-sm" data-testid="account-selector">
           <span className="flex min-w-0 flex-wrap items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
             <span className="min-w-0">{dict.transactions.accountTerm}</span>
             <TooltipInfo
@@ -62,7 +107,7 @@ export function AddTransactionCard({
           >
             {accountOptions.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name} ({account.id})
+                {formatAccountOptionLabel(account)}
               </option>
             ))}
           </select>
@@ -143,10 +188,23 @@ export function AddTransactionCard({
             min="0.01"
             step="0.01"
             value={value.unitPrice}
-            onChange={(event) => setField("unitPrice", Number(event.target.value))}
+            onChange={(event) => {
+              onUnitPriceEdited?.();
+              setField("unitPrice", Number(event.target.value));
+            }}
             className={fieldClassName}
-            data-testid="tx-price-input"
+            data-testid="unit-price-input"
           />
+          {priceHint ? (
+            <p className="text-[11px] text-slate-500" data-testid="price-source-hint">
+              {resolvePriceHintCopy(dict, locale, priceHint)}
+            </p>
+          ) : null}
+          {showPriceUnavailableHint ? (
+            <p className="text-[11px] text-rose-600" data-testid="price-unavailable-hint">
+              {dict.priceHint.unavailable}
+            </p>
+          ) : null}
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">
@@ -211,6 +269,56 @@ export function AddTransactionCard({
           </select>
         </label>
       </div>
+
+      {feeEstimate ? (
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <section className="space-y-3 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4" data-testid="commission-estimate-section">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.transactions.commissionEstimateTitle}</p>
+              <p className="text-sm font-medium text-slate-900" data-testid="commission-estimate-value">
+                {dict.transactions.estimatedLabel.replace(
+                  "{amount}",
+                  formatCurrencyAmount(feeEstimate.commissionAmount, value.priceCurrency, locale),
+                )}
+              </p>
+            </div>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={value.commissionAmount ?? ""}
+              onChange={(event) => setField("commissionAmount", parseOptionalNumber(event.target.value))}
+              className={fieldClassName}
+              placeholder={dict.transactions.overrideAmountPlaceholder}
+              data-testid="commission-override-input"
+            />
+          </section>
+
+          {value.type === "SELL" ? (
+            <section className="space-y-3 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4" data-testid="tax-estimate-section">
+              <div className="space-y-1">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.transactions.taxEstimateTitle}</p>
+                <p className="text-sm font-medium text-slate-900" data-testid="tax-estimate-value">
+                  {dict.transactions.estimatedLabel.replace(
+                    "{amount}",
+                    formatCurrencyAmount(feeEstimate.taxAmount, value.priceCurrency, locale),
+                  )}
+                </p>
+              </div>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={value.taxAmount ?? ""}
+                onChange={(event) => setField("taxAmount", parseOptionalNumber(event.target.value))}
+                className={fieldClassName}
+                placeholder={dict.transactions.overrideAmountPlaceholder}
+                data-testid="tax-override-input"
+              />
+            </section>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-6 flex min-w-0 justify-end">
         <Button onClick={() => onSubmit()} disabled={pending} data-testid="tx-submit-button" className="w-full whitespace-normal text-center sm:w-auto">

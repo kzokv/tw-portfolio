@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Wrench } from "lucide-react";
-import type { LocaleCode, TransactionHistoryItemDto, AccountDto, InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type {
+  LocaleCode,
+  TransactionHistoryItemDto,
+  AccountDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  InstrumentCatalogItemDto,
+} from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
@@ -23,6 +30,7 @@ import { RepairModal, type RepairModalValue } from "../../../features/settings/c
 import { requestRepair } from "../../../features/settings/services/repairService";
 import { getCooldownRemainingMinutes } from "../../../features/settings/utils/cooldown";
 import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
+import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -31,6 +39,8 @@ interface TickerHistoryClientProps {
   ticker: string;
   accountId: string;
   accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
   statsBar: React.ReactNode;
   instrument: InstrumentCatalogItemDto | null;
   isDemo: boolean;
@@ -55,6 +65,8 @@ export function TickerHistoryClient({
   ticker,
   accountId,
   accounts,
+  feeProfiles,
+  feeProfileBindings,
   statsBar,
   instrument,
   isDemo,
@@ -92,17 +104,25 @@ export function TickerHistoryClient({
 
   const mutations = useTransactionMutations({ locale, dict, refresh });
 
-  const defaultCurrency = transactions[0]?.priceCurrency ?? "TWD";
-  const initialTransaction: TransactionInput = {
-    accountId,
-    ticker,
-    quantity: 1000,
-    unitPrice: 100,
-    priceCurrency: defaultCurrency,
-    tradeDate: new Date().toISOString().slice(0, 10),
-    type: "BUY",
-    isDayTrade: false,
-  };
+  const initialTransaction = useMemo<TransactionInput>(
+    () =>
+      resolveTransactionDraftAccount(
+        {
+          accountId,
+          ticker,
+          quantity: 1000,
+          unitPrice: 100,
+          priceCurrency: transactions[0]?.priceCurrency ?? "TWD",
+          tradeDate: new Date().toISOString().slice(0, 10),
+          type: "BUY",
+          isDayTrade: false,
+        },
+        accounts,
+        feeProfiles,
+        feeProfileBindings,
+      ),
+    [accountId, accounts, feeProfileBindings, feeProfiles, ticker, transactions],
+  );
 
   const submission = useTransactionSubmission({
     initialValue: initialTransaction,
@@ -117,12 +137,29 @@ export function TickerHistoryClient({
 
   const handleDraftChange = useCallback(
     (next: TransactionInput) => {
-      submission.setDraftTransaction({ ...next, ticker, accountId });
+      submission.setDraftTransaction(
+        resolveTransactionDraftAccount(
+          { ...next, ticker, accountId },
+          accounts,
+          feeProfiles,
+          feeProfileBindings,
+        ),
+      );
     },
-    [ticker, accountId, submission],
+    [accountId, accounts, feeProfileBindings, feeProfiles, submission, ticker],
   );
 
-  const lockedAccountOptions = accounts.filter((account) => account.id === accountId).map((account) => ({ id: account.id, name: account.name }));
+  const lockedAccountOptions = useMemo(
+    () =>
+      accounts
+        .filter((account) => account.id === accountId)
+        .map((account) => ({
+          id: account.id,
+          name: account.name,
+          feeProfileName: feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+        })),
+    [accountId, accounts, feeProfiles],
+  );
 
   const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.repairAvailableAt), [instrumentState]);
   const isBackfillBusy = instrumentState?.barsBackfillStatus === "pending" || instrumentState?.barsBackfillStatus === "backfilling";
@@ -274,6 +311,7 @@ export function TickerHistoryClient({
         onOpenChange={setIsRecordDialogOpen}
         value={submission.draftTransaction}
         onChange={handleDraftChange}
+        onUnitPriceEdited={submission.markUnitPriceEdited}
         onSubmit={submission.submit}
         pending={submission.isSubmitting}
         accountOptions={lockedAccountOptions}
@@ -281,7 +319,11 @@ export function TickerHistoryClient({
         errorMessage={submission.errorMessage}
         title={dict.tickerHistory.recordTransaction}
         dict={dict}
+        locale={locale}
         tickerReadOnly
+        priceHint={submission.priceHint}
+        showPriceUnavailableHint={submission.showPriceUnavailableHint}
+        feeEstimate={submission.feeEstimate}
       />
 
       <RepairModal

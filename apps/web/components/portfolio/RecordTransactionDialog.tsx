@@ -1,23 +1,31 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
+import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
+import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";
 import type { TransactionInput } from "./types";
-import { AddTransactionCard } from "./AddTransactionCard";
+import { AddTransactionCard, type TransactionAccountOption } from "./AddTransactionCard";
 
 interface RecordTransactionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   value: TransactionInput;
   onChange: (next: TransactionInput) => void;
+  onUnitPriceEdited?: () => void;
   onSubmit: () => Promise<void>;
   pending: boolean;
-  accountOptions: Array<{ id: string; name: string }>;
+  accountOptions: TransactionAccountOption[];
   message: string;
   errorMessage: string;
   title: string;
   dict: AppDictionary;
+  locale: LocaleCode;
   tickerReadOnly?: boolean;
+  priceHint: TransactionPriceHint | null;
+  showPriceUnavailableHint: boolean;
+  feeEstimate: TransactionEstimateResponse | null;
 }
 
 export function RecordTransactionDialog({
@@ -25,6 +33,7 @@ export function RecordTransactionDialog({
   onOpenChange,
   value,
   onChange,
+  onUnitPriceEdited,
   onSubmit,
   pending,
   accountOptions,
@@ -32,7 +41,11 @@ export function RecordTransactionDialog({
   errorMessage,
   title,
   dict,
+  locale,
   tickerReadOnly = false,
+  priceHint,
+  showPriceUnavailableHint,
+  feeEstimate,
 }: RecordTransactionDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -48,10 +61,15 @@ export function RecordTransactionDialog({
             accountOptions={accountOptions}
             pending={pending}
             onChange={onChange}
+            onUnitPriceEdited={onUnitPriceEdited}
             onSubmit={onSubmit}
             dict={dict}
+            locale={locale}
             framed={false}
             tickerReadOnly={tickerReadOnly}
+            priceHint={priceHint}
+            showPriceUnavailableHint={showPriceUnavailableHint}
+            feeEstimate={feeEstimate}
           />
           {message && (
             <p role="status" aria-live="polite" className="mt-3 text-sm text-emerald-700">{message}</p>

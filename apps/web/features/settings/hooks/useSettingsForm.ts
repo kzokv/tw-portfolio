@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { toSettingsFormModel } from "../mappers/settingsMappers";
@@ -42,9 +42,21 @@ export function useSettingsForm({
   const [validationError, setValidationError] = useState("");
   const [discardNotice, setDiscardNotice] = useState("");
   const [showCloseWarning, setShowCloseWarning] = useState(false);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (!open || !settings) {
+      if (!open) {
+        wasOpenRef.current = false;
+      }
+      return;
+    }
+
+    // Only seed the draft on the closed→open transition. While the drawer is
+    // open, external snapshot updates (e.g. dashboard.refresh after an inline
+    // account rename) must not clobber in-progress user edits to fee profiles
+    // or bindings.
+    if (wasOpenRef.current) {
       return;
     }
 
@@ -56,6 +68,7 @@ export function useSettingsForm({
     setDiscardNotice("");
     setShowCloseWarning(false);
     setTab("general");
+    wasOpenRef.current = true;
   }, [accounts, feeProfileBindings, feeProfiles, open, settings]);
 
   const isDirty = useMemo(() => {

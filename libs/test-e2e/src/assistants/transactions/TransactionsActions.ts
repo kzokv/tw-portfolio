@@ -24,6 +24,26 @@ export class TransactionsActions extends AppBaseActions {
   }
 
   @Step()
+  async selectTransactionType(type: "BUY" | "SELL"): Promise<void> {
+    await this.uiActions.select.perform(this.el.transactionForm.elements.typeSelect, type);
+  }
+
+  @Step()
+  async fillQuantity(quantity: number): Promise<void> {
+    await this.uiActions.fill.perform(this.el.transactionForm.elements.quantityInput, String(quantity));
+  }
+
+  @Step()
+  async fillUnitPrice(unitPrice: number): Promise<void> {
+    await this.uiActions.fill.perform(this.el.transactionForm.elements.unitPriceInput, String(unitPrice));
+  }
+
+  @Step()
+  async fillTradeDate(date: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.transactionForm.elements.tradeDateInput, date);
+  }
+
+  @Step()
   async openTickerCombobox(): Promise<void> {
     await this.el.transactionForm.elements.tickerCombobox.focus();
   }
@@ -70,6 +90,20 @@ export class TransactionsActions extends AppBaseActions {
         r.request().method() === "GET" &&
         r.url().includes("/portfolio/transactions?limit=6") &&
         r.ok(),
+    );
+  }
+
+  @Step()
+  async waitForPriceLookup(): Promise<import("@playwright/test").Response> {
+    return this.page.waitForResponse(
+      (r) => r.request().method() === "GET" && r.url().includes("/market-data/price"),
+    );
+  }
+
+  @Step()
+  async waitForFeeEstimate(): Promise<import("@playwright/test").Response> {
+    return this.page.waitForResponse(
+      (r) => r.request().method() === "POST" && r.url().includes("/portfolio/transactions/estimate"),
     );
   }
 }

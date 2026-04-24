@@ -4,7 +4,8 @@ source: scope-grill
 created: 2026-04-22
 tickets: [KZO-158, KZO-159, KZO-160, KZO-161]
 required_reading: [kzo-158-ui-mockups.png, .worklog/kzo-158-ui-mockups.html]
-superseded_by: null
+superseded_by:
+  KZO-160: docs/004-notes/kzo-158/scope-todo-202604231100-kzo-160-refined.md
 ---
 
 # Todo: KZO-158 UI Enhancements — 3-Ticket Split

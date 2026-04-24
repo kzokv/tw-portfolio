@@ -32,6 +32,7 @@ interface SettingsDrawerProps {
   isSaving: boolean;
   errorMessage: string;
   onSave: (draft: SettingsDraft) => Promise<void>;
+  onRenameAccount: (accountId: string, name: string) => Promise<void>;
   dict: AppDictionary;
 }
 
@@ -47,6 +48,7 @@ export function SettingsDrawer({
   isSaving,
   errorMessage,
   onSave,
+  onRenameAccount,
   dict,
 }: SettingsDrawerProps) {
   const form = useSettingsForm({
@@ -202,6 +204,7 @@ export function SettingsDrawer({
                         bindings={form.draft.accounts}
                         profiles={form.draft.feeProfiles}
                         onUpdateAccountProfile={form.updateAccountProfile}
+                        onRenameAccount={onRenameAccount}
                         dict={dict}
                       />
                       <SecurityBindingsSection

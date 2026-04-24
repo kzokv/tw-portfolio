@@ -30,6 +30,7 @@ import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentT
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
+import { renameAccount } from "../../features/settings/services/settingsService";
 import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 import { useNotifications } from "../../hooks/useNotifications";
 import { fetchSharingPageData } from "../../features/sharing/service";
@@ -473,6 +474,19 @@ export function AppShell({
     refresh: dashboard.refresh,
     closeDrawer: () => setDrawerOpen(false),
   });
+  const transactionAccountOptions = useMemo(
+    () =>
+      dashboard.accounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        feeProfileName: dashboard.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+      })),
+    [dashboard.accounts, dashboard.feeProfiles],
+  );
+  const handleRenameAccount = useCallback(async (accountId: string, name: string) => {
+    await renameAccount(accountId, name);
+    await dashboard.refresh();
+  }, [dashboard.refresh]);
 
   const isI18nReady = !!dashboard.settings || !!localeOverride;
   const hasCustomChildren = children !== undefined;
@@ -810,6 +824,7 @@ export function AppShell({
                 effectiveRanges,
                 recentTransactions,
                 transactionSubmission,
+                transactionAccountOptions,
                 recomputeAction,
                 setDrawerOpen,
                 recomputingSymbols: mutations.recomputingSymbols,
@@ -842,6 +857,7 @@ export function AppShell({
         isSaving={settingsSave.isSaving}
         errorMessage={settingsSave.errorMessage}
         onSave={settingsSave.save}
+        onRenameAccount={handleRenameAccount}
         dict={uiDict}
       />
     </div>
@@ -859,6 +875,7 @@ function renderSection({
   effectiveRanges,
   recentTransactions,
   transactionSubmission,
+  transactionAccountOptions,
   recomputeAction,
   setDrawerOpen,
   recomputingSymbols,
@@ -876,6 +893,7 @@ function renderSection({
   effectiveRanges: DashboardPerformanceRange[];
   recentTransactions: ReturnType<typeof useRecentTransactions>;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
+  transactionAccountOptions: Array<{ id: string; name: string; feeProfileName: string }>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   setDrawerOpen: (open: boolean) => void;
   recomputingSymbols: Set<string>;
@@ -977,14 +995,19 @@ function renderSection({
             ) : (
               <AddTransactionCard
                 value={transactionSubmission.draftTransaction}
-                accountOptions={dashboard.accounts.map((account) => ({ id: account.id, name: account.name }))}
+                accountOptions={transactionAccountOptions}
                 pending={transactionSubmission.isSubmitting}
                 onChange={(next) => {
                   transactionSubmission.setMessage("");
                   transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
                 }}
+                onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
                 onSubmit={transactionSubmission.submit}
                 dict={dict}
+                locale={locale}
+                priceHint={transactionSubmission.priceHint}
+                showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
+                feeEstimate={transactionSubmission.feeEstimate}
               />
             )}
           </div>

@@ -5,7 +5,15 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
   const original = await importOriginal<typeof import("@tw-portfolio/config")>();
   return {
     ...original,
-    Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const },
+    Env: {
+      ...original.Env,
+      AUTH_MODE: "dev_bypass" as const,
+      REDIS_URL: process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL,
+      getRedisUrl: () =>
+        process.env.POSTGRES_TEST_REDIS_URL ??
+        process.env.REDIS_URL ??
+        original.Env.getRedisUrl(),
+    },
   };
 });
 
@@ -14,6 +22,7 @@ import { _resetConnectionCounts } from "../../src/routes/sseRoute.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let baseUrl: string;
+const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 
 /**
  * Parse SSE frames from a raw response body chunk.
@@ -666,14 +675,14 @@ describe("SSE infrastructure", () => {
   });
 });
 
-// ─── RedisEventBus (conditional on REDIS_URL) ──────────────────────────
+// ─── RedisEventBus (conditional on configured Redis URL) ─────────────────
 
-describe.skipIf(!process.env.REDIS_URL)("RedisEventBus", () => {
+describe.skipIf(!redisUrl)("RedisEventBus", () => {
   let redisApp: Awaited<ReturnType<typeof buildApp>>;
 
   beforeEach(async () => {
     _resetConnectionCounts();
-    redisApp = await buildApp({ persistenceBackend: "postgres" });
+    redisApp = await buildApp({ persistenceBackend: "memory", eventBusBackend: "postgres" });
   });
 
   afterEach(async () => {
@@ -703,6 +712,6 @@ describe.skipIf(!process.env.REDIS_URL)("RedisEventBus", () => {
     await expect(redisApp.eventBus.close()).resolves.toBeUndefined();
 
     // Rebuild for afterEach
-    redisApp = await buildApp({ persistenceBackend: "postgres" });
+    redisApp = await buildApp({ persistenceBackend: "memory", eventBusBackend: "postgres" });
   });
 });

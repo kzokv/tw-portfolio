@@ -23,7 +23,7 @@ export function formatRecomputeMessage(locale: LocaleCode, status: string, items
   return `Recompute ${localizedStatus}, items: ${itemsCount}`;
 }
 
-export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recompute" | "transactions" | "holdings" | "feeProfiles"> & {
+export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recompute" | "transactions" | "priceHint" | "holdings" | "feeProfiles"> & {
   tooltips: Pick<
     AppDictionary["tooltips"],
     | "recomputeTitle"
@@ -84,6 +84,18 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       recentLedgerTitle: "Recent Transactions",
       recentLedgerDescription: "Keep the newest ledger entries close to the form for fast operational review.",
       recentLedgerEmpty: "Recent transactions will appear here after the first trade is recorded.",
+      commissionEstimateTitle: "Commission",
+      taxEstimateTitle: "Securities Tax",
+      estimatedLabel: "Estimated: {amount}",
+      overrideAmountPlaceholder: "Override amount (optional)",
+    },
+    priceHint: {
+      exact: "Closing price • {date}",
+      previous: {
+        weekend: "Previous close • {date}",
+        no_bar: "Previous close • {date}",
+      },
+      unavailable: "Price unavailable for this date — enter manually.",
     },
     holdings: {
       title: "Holdings",
@@ -161,6 +173,18 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       recentLedgerTitle: "最近交易",
       recentLedgerDescription: "把最新帳本紀錄放在表單旁邊，方便輸入後立即核對。",
       recentLedgerEmpty: "新增第一筆交易後，最近交易會顯示在這裡。",
+      commissionEstimateTitle: "手續費",
+      taxEstimateTitle: "證交稅",
+      estimatedLabel: "預估：{amount}",
+      overrideAmountPlaceholder: "覆寫金額（選填）",
+    },
+    priceHint: {
+      exact: "收盤價 • {date}",
+      previous: {
+        weekend: "前一個收盤價 • {date}",
+        no_bar: "前一個收盤價 • {date}",
+      },
+      unavailable: "此日期查無價格，請手動輸入。",
     },
     holdings: {
       title: "持倉",

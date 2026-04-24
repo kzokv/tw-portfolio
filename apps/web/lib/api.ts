@@ -282,10 +282,15 @@ async function throwApiError<T>(res: Response, path: string): Promise<T> {
   throw error;
 }
 
-export async function getJson<T>(path: string): Promise<T> {
+interface JsonRequestOptions {
+  signal?: AbortSignal;
+}
+
+export async function getJson<T>(path: string, options: JsonRequestOptions = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     cache: "no-store",
     credentials: "include",
+    signal: options.signal,
     headers: await getAuthHeaders(),
   });
   handleContextFallback(res);
@@ -293,10 +298,16 @@ export async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function postJson<T>(path: string, body: unknown, headers?: Record<string, string>): Promise<T> {
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  headers?: Record<string, string>,
+  options: JsonRequestOptions = {},
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     credentials: "include",
+    signal: options.signal,
     headers: {
       "content-type": "application/json",
       ...(headers ?? {}),
@@ -309,10 +320,11 @@ export async function postJson<T>(path: string, body: unknown, headers?: Record<
   return res.json() as Promise<T>;
 }
 
-export async function patchJson<T>(path: string, body: unknown): Promise<T> {
+export async function patchJson<T>(path: string, body: unknown, options: JsonRequestOptions = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PATCH",
     credentials: "include",
+    signal: options.signal,
     headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
@@ -321,10 +333,11 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function putJson<T>(path: string, body: unknown): Promise<T> {
+export async function putJson<T>(path: string, body: unknown, options: JsonRequestOptions = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
     credentials: "include",
+    signal: options.signal,
     headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });

@@ -64,4 +64,49 @@ export class TransactionsAssert extends BaseAssert {
   async comboboxIsEmpty(text: string | RegExp): Promise<void> {
     await expect(this.el.transactionForm.elements.tickerEmptyState).toContainText(text);
   }
+
+  @Step()
+  async selectedAccountOptionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.selectedAccountOption).toContainText(text);
+  }
+
+  @Step()
+  async selectedAccountOptionExcludes(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.selectedAccountOption).not.toContainText(text);
+  }
+
+  @Step()
+  async unitPriceValueEquals(value: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.unitPriceInput).toHaveValue(value);
+  }
+
+  @Step()
+  async priceSourceHintIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.elements.priceSourceHint).toBeVisible();
+  }
+
+  @Step()
+  async priceUnavailableHintIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.elements.priceUnavailableHint).toBeVisible();
+  }
+
+  @Step()
+  async commissionEstimateContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.commissionEstimateValue).toContainText(text);
+  }
+
+  @Step()
+  async commissionEstimateIsHidden(): Promise<void> {
+    await expect(this.el.transactionForm.elements.commissionEstimateSection).toBeHidden();
+  }
+
+  @Step()
+  async taxEstimateContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.elements.taxEstimateValue).toContainText(text);
+  }
+
+  @Step()
+  async taxEstimateIsHidden(): Promise<void> {
+    await expect(this.el.transactionForm.elements.taxEstimateSection).toBeHidden();
+  }
 }
