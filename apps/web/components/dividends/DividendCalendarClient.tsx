@@ -377,8 +377,10 @@ function DividendRowCard({
   const canEdit = row.ledgerEntry !== null;
 
   return (
-    <Card className="rounded-[24px] border border-slate-200 bg-white/92 p-5 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
-      <div data-testid={`dividend-row-${row.event.id}`} />
+    <Card
+      className="rounded-[24px] border border-slate-200 bg-white/92 p-5 shadow-[0_16px_36px_rgba(148,163,184,0.12)]"
+      data-testid={`dividend-row-${row.event.id}`}
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
