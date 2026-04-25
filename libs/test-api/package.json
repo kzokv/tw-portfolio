@@ -63,7 +63,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@playwright/test": "^1.51.1",
+    "@playwright/test": "^1.53.0",
     "@tw-portfolio/config": "0.1.0",
     "@tw-portfolio/test-framework": "0.1.0"
   },
