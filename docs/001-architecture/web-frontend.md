@@ -152,9 +152,9 @@ useTransactionMutations
 
 ---
 
-## Dashboard Card Layout (KZO-161)
+## Card Layout (KZO-161 / KZO-162)
 
-The dashboard renders its cards through a single `<SortableCardGrid>` (`components/layout/SortableCardGrid.tsx`) — a page-agnostic dnd-kit primitive that:
+The dashboard, transactions section, and portfolio section all render through a shared `<SortableCardGrid>` (`components/layout/SortableCardGrid.tsx`) — a page-agnostic dnd-kit primitive that:
 
 - Reads canonical card metadata (`{ slug, fullWidth }[]`) from the consumer.
 - Fetches the user's saved order via `GET /user-preferences` on mount and merges it with the canonical list (`mergeCardOrder` — unknown slugs dropped, new canonical slugs appended at the tail).
@@ -162,26 +162,30 @@ The dashboard renders its cards through a single `<SortableCardGrid>` (`componen
 - Persists order changes via `PATCH /user-preferences { cardOrder: { [orderKey]: [...slugs] } }`, debounced 250 ms after `onDragEnd`. Multiple drags within the window coalesce to one PATCH.
 - Optimistic UI: `displayOrder` updates immediately on drag; on PATCH failure the grid reverts to `serverConfirmedOrderRef.current` (the last successful PATCH), not pre-drag — multiple drags inside a debounce window share one rollback baseline.
 
-Canonical dashboard list (`components/dashboard/cards.ts`):
+### Page wiring
 
-```ts
-export const DASHBOARD_CARDS = [
-  { slug: "portfolio-trend",     fullWidth: false },
-  { slug: "allocation-snapshot", fullWidth: false },
-  { slug: "return-percent",      fullWidth: false },
-  { slug: "holdings-table",      fullWidth: true  },
-  { slug: "dividends-section",   fullWidth: true  },
-  { slug: "action-center",       fullWidth: true  },
-] as const;
-```
+| Surface | `orderKey` | Cards | Layout |
+|---|---|---|---|
+| Dashboard (`/dashboard`) | `dashboard` | `portfolio-trend`, `allocation-snapshot`, `return-percent`, `holdings-table` (full), `dividends-section` (full), `action-center` (full) | Inside the dashboard column; cards canonical list lives in `components/dashboard/cards.ts` |
+| Transactions (`/transactions`) | `transactions` | `transactions-add` (full), `transactions-status` (full), `transactions-recent` (full) | All three cards are reorderable in one grid; the `transactions-add` slot renders `AddTransactionCard` normally and a read-only notice in shared context. All slugs `fullWidth: true` so they stack vertically. |
+| Portfolio (`/portfolio`) | `portfolio` | `holdings-table` (full), `dividends-section` (full) | Replaces the previous `<HoldingsTable>` + `<DividendsSection>` block. Slugs reused from `DASHBOARD_CARDS` — same React components, different `cardOrder.{key}` namespace, no collision. |
 
-Heterogeneous card props (each card takes different data) are wired inline in `AppShell.tsx` via a `switch (slug)` block inside the grid's render-prop child — no shared abstraction is needed at the metadata level. Adding a new card is `{ slug, fullWidth }` here plus a matching `case` in the switch; `mergeCardOrder` appends it at the tail of any saved-order array automatically.
+The transactions and portfolio `cards` arrays are inlined at the AppShell call site (no per-page `cards.ts` file) since each has only two entries. Each call site has a one-line "to add a card" comment pointing at the matching `switch` case below it.
 
-Layout: `grid grid-cols-1 xl:grid-cols-2 gap-6 [grid-auto-flow:dense]`. Full-width cards apply `xl:col-span-2`. The `RouteHeroPanel` stays above the sortable grid (fixed); there are no longer fixed cards below the grid — `ActionCenterSection` joined the draggable list as a `fullWidth: true` slug.
+Heterogeneous card props (each card takes different data) are wired inline via a `switch (slug)` block inside the grid's render-prop child — no shared abstraction is needed at the metadata level. Adding a new card is `{ slug, fullWidth }` here plus a matching `case` in the switch; `mergeCardOrder` appends it at the tail of any saved-order array automatically.
 
 Drag handle UX: each card cell renders a `⠿` button at the top-left of the wrapper (`absolute -left-2 -top-2`, 28×28 px). The negative offset places the handle slightly outside the card's top-left corner so it does not overlap the card title or eyebrow text. The `card-drag-handle-{slug}` testid is the dnd-kit drag handle for both unit and E2E tests.
 
-Reset: the Display tab (`SettingsDrawer` → Display tab → Layout section) exposes a "Reset Layout" button that PATCHes `{ cardOrder: null }` and bumps a `cardLayoutResetCount` key on the grid, forcing a remount + re-fetch.
+### Reset Layout (KZO-162)
+
+The Display tab (`SettingsDrawer` → Display tab → Layout section) exposes **four always-visible buttons**:
+
+- `reset-dashboard-layout-btn` → `PATCH /user-preferences { cardOrder: { dashboard: null } }`
+- `reset-transactions-layout-btn` → `PATCH /user-preferences { cardOrder: { transactions: null } }`
+- `reset-portfolio-layout-btn` → `PATCH /user-preferences { cardOrder: { portfolio: null } }`
+- `reset-all-layouts-btn` → `PATCH /user-preferences { cardOrder: null }` (atomic global clear)
+
+Per-page resets bump only the relevant counter inside `cardLayoutResetCounts: { dashboard, transactions, portfolio }` on AppShell, which keys the matching `<SortableCardGrid>` instance and remounts only that surface. The global "Reset all layouts" bumps every counter atomically. Server-side, the JSONB merge in `setUserPreferencePatch` deep-merges `cardOrder` with sub-key null deletion — `{ cardOrder: { dashboard: null } }` removes only the `dashboard` sub-key while preserving siblings. Postgres uses `jsonb_set(...) || jsonb_strip_nulls(...)`; Memory uses an explicit per-sub-key delete loop.
 
 The same `<SortableRangeList>` primitive (`components/settings/SortableRangeList.tsx`) is used for the per-row drag-reorder UI in two surfaces: the F4 user "Customize ranges" popover (gear icon on `<PortfolioTrendCard>`), and the F4a admin "Dashboard Timeframe Defaults" section. Single source of drag mechanics, two consumers — see the scope-todo at `docs/004-notes/kzo-158/scope-todo-202604241500-kzo-161-refined.md` for the full F4/F4a/F5 contract.
 

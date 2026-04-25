@@ -8,47 +8,63 @@ import { CustomizeRangesPopover } from "./CustomizeRangesPopover";
 
 /**
  * KZO-161 — Settings drawer "Display" tab body (design §9).
- *
- * Two sections, both rendered unconditionally per locked decision 4:
- *   1. `display-timeframes-section` — inlined `<CustomizeRangesPopover variant="inline">`.
- *   2. `display-layout-section` — Reset Layout button that PATCHes
- *      `{ cardOrder: null }` and bumps a `resetCount` on success so the
- *      parent can remount `<SortableCardGrid>` via a key bump.
+ * KZO-162 — Layout section grew from 1 to 4 always-visible reset buttons:
+ * three per-page resets (dashboard / transactions / portfolio) plus a
+ * global "Reset all layouts" button. Per-page resets PATCH per-key null;
+ * the global reset PATCHes `cardOrder: null`.
  */
+
+export type ReorderablePage = "dashboard" | "transactions" | "portfolio";
 
 export interface DisplayTabSectionProps {
   dict: AppDictionary;
   /** Called after a successful timeframe save so AppShell refetches effective ranges. */
   onTimeframesSaved: () => void;
-  /** Called after a successful Reset Layout PATCH so AppShell remounts the grid. */
+  /** Called after a successful global "Reset all layouts" PATCH. */
   onLayoutReset: () => void;
+  /** Called after a successful per-page reset PATCH (KZO-162). */
+  onPageLayoutReset: (page: ReorderablePage) => void;
 }
 
 export function DisplayTabSection({
   dict,
   onTimeframesSaved,
   onLayoutReset,
+  onPageLayoutReset,
 }: DisplayTabSectionProps): JSX.Element {
-  const [resetting, setResetting] = useState(false);
+  const [resetting, setResetting] = useState<ReorderablePage | "all" | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
 
-  const handleResetLayout = useCallback(async () => {
-    setResetting(true);
-    setResetMessage(null);
-    setResetError(null);
-    try {
-      await patchJson("/user-preferences", { cardOrder: null });
-      setResetMessage(dict.settings.resetLayoutSuccess);
-      onLayoutReset();
-    } catch (err) {
-      if (err instanceof ApiError) setResetError(err.message);
-      else if (err instanceof Error) setResetError(err.message);
-      else setResetError(dict.settings.resetLayoutError);
-    } finally {
-      setResetting(false);
-    }
-  }, [dict.settings.resetLayoutSuccess, dict.settings.resetLayoutError, onLayoutReset]);
+  const runReset = useCallback(
+    async (target: ReorderablePage | "all"): Promise<void> => {
+      setResetting(target);
+      setResetMessage(null);
+      setResetError(null);
+      try {
+        if (target === "all") {
+          await patchJson("/user-preferences", { cardOrder: null });
+          onLayoutReset();
+        } else {
+          await patchJson("/user-preferences", { cardOrder: { [target]: null } });
+          onPageLayoutReset(target);
+        }
+        setResetMessage(dict.settings.resetLayoutSuccess);
+      } catch (err) {
+        if (err instanceof ApiError) setResetError(err.message);
+        else if (err instanceof Error) setResetError(err.message);
+        else setResetError(dict.settings.resetLayoutError);
+      } finally {
+        setResetting(null);
+      }
+    },
+    [
+      dict.settings.resetLayoutSuccess,
+      dict.settings.resetLayoutError,
+      onLayoutReset,
+      onPageLayoutReset,
+    ],
+  );
 
   return (
     <div className="space-y-6" data-testid="display-tab-content">
@@ -119,13 +135,42 @@ export function DisplayTabSection({
           </p>
         ) : null}
 
-        <Button
-          onClick={() => void handleResetLayout()}
-          disabled={resetting}
-          data-testid="reset-layout-btn"
-        >
-          {dict.settings.resetLayoutButton}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => void runReset("dashboard")}
+            disabled={resetting !== null}
+            data-testid="reset-dashboard-layout-btn"
+          >
+            {dict.settings.resetDashboardLayoutButton}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void runReset("transactions")}
+            disabled={resetting !== null}
+            data-testid="reset-transactions-layout-btn"
+          >
+            {dict.settings.resetTransactionsLayoutButton}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void runReset("portfolio")}
+            disabled={resetting !== null}
+            data-testid="reset-portfolio-layout-btn"
+          >
+            {dict.settings.resetPortfolioLayoutButton}
+          </Button>
+        </div>
+
+        <div className="border-t border-slate-200 pt-3">
+          <Button
+            onClick={() => void runReset("all")}
+            disabled={resetting !== null}
+            data-testid="reset-all-layouts-btn"
+          >
+            {dict.settings.resetAllLayoutsButton}
+          </Button>
+        </div>
       </section>
     </div>
   );

@@ -460,7 +460,11 @@ export interface AppDictionary {
     displayTimeframesDescription: string;
     displayLayoutTitle: string;
     displayLayoutDescription: string;
-    resetLayoutButton: string;
+    // KZO-162 — per-page reset buttons (4 always-visible buttons in Display tab).
+    resetAllLayoutsButton: string;
+    resetDashboardLayoutButton: string;
+    resetTransactionsLayoutButton: string;
+    resetPortfolioLayoutButton: string;
     resetLayoutSuccess: string;
     resetLayoutError: string;
     customizeRangesTitle: string;

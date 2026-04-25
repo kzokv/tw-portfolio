@@ -618,9 +618,26 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.page.getByTestId("display-layout-section")).toBeVisible();
   }
 
+  // KZO-162 — per-page Reset buttons (4 always-visible buttons in Display tab).
+
   @Step()
-  async resetLayoutButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("reset-layout-btn")).toBeVisible();
+  async resetAllLayoutsButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("reset-all-layouts-btn")).toBeVisible();
+  }
+
+  @Step()
+  async resetDashboardLayoutButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("reset-dashboard-layout-btn")).toBeVisible();
+  }
+
+  @Step()
+  async resetTransactionsLayoutButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("reset-transactions-layout-btn")).toBeVisible();
+  }
+
+  @Step()
+  async resetPortfolioLayoutButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("reset-portfolio-layout-btn")).toBeVisible();
   }
 
   // ── KZO-161 — Card reorder assertions (F5) ───────────────────────────────

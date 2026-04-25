@@ -5345,23 +5345,50 @@ export class PostgresPersistence implements Persistence {
     //  - non-null keys → merged into the JSONB via `||`
     //  - null-valued keys → removed via `- $3::text[]`
     // This matches the memory backend's top-level merge semantics (D3).
+    //
+    // KZO-162: `cardOrder` is special-cased so a partial PATCH like
+    // `{cardOrder:{transactions:[...]}}` does not wipe `cardOrder.dashboard`.
+    // The sub-key merge happens via a dedicated CASE branch below; null
+    // sub-key values (`{cardOrder:{transactions:null}}`) are dropped via
+    // `jsonb_strip_nulls()`. Top-level `{cardOrder:null}` still routes
+    // through the delete-keys arm and removes the entire `cardOrder` key.
     const mergeObj: Record<string, unknown> = {};
     const deleteKeys: string[] = [];
+    let cardOrderPatch: Record<string, unknown> | null = null;
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) {
         deleteKeys.push(k);
+      } else if (k === "cardOrder" && typeof v === "object" && !Array.isArray(v)) {
+        cardOrderPatch = v as Record<string, unknown>;
       } else {
         mergeObj[k] = v;
       }
     }
     const r = await this.pool.query<{ preferences: Record<string, unknown> }>(
       `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
-       VALUES ($1, $2::jsonb, NOW())
+       VALUES ($1, jsonb_strip_nulls(COALESCE($2::jsonb, '{}'::jsonb) || COALESCE(jsonb_build_object('cardOrder', $4::jsonb), '{}'::jsonb)), NOW())
        ON CONFLICT (user_id) DO UPDATE
-         SET preferences = (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
-             updated_at = NOW()
+         SET preferences = CASE
+           WHEN $4::jsonb IS NOT NULL THEN
+             jsonb_set(
+               (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+               '{cardOrder}',
+               jsonb_strip_nulls(
+                 COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                 || $4::jsonb
+               )
+             )
+           ELSE
+             (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+         END,
+         updated_at = NOW()
        RETURNING preferences`,
-      [userId, JSON.stringify(mergeObj), deleteKeys],
+      [
+        userId,
+        JSON.stringify(mergeObj),
+        deleteKeys,
+        cardOrderPatch === null ? null : JSON.stringify(cardOrderPatch),
+      ],
     );
     return r.rows[0]?.preferences ?? {};
   }

@@ -17,7 +17,7 @@ import { UnsavedChangesFooter } from "../../features/settings/components/Unsaved
 import { useSettingsForm } from "../../features/settings/hooks/useSettingsForm";
 import { useMonitoredTickers } from "../../features/settings/hooks/useMonitoredTickers";
 import type { SettingsFormModel } from "../../features/settings/types/settingsUi";
-import { DisplayTabSection } from "./DisplayTabSection";
+import { DisplayTabSection, type ReorderablePage } from "./DisplayTabSection";
 
 export type SettingsDraft = SettingsFormModel;
 
@@ -37,8 +37,10 @@ interface SettingsDrawerProps {
   dict: AppDictionary;
   // KZO-161 (158C) — Display tab callbacks. Default no-ops keep existing
   // call sites working until they wire the new behavior.
+  // KZO-162 — onPageLayoutReset added for the per-page Reset buttons.
   onTimeframesSaved?: () => void;
   onLayoutReset?: () => void;
+  onPageLayoutReset?: (page: ReorderablePage) => void;
 }
 
 export function SettingsDrawer({
@@ -57,6 +59,7 @@ export function SettingsDrawer({
   dict,
   onTimeframesSaved,
   onLayoutReset,
+  onPageLayoutReset,
 }: SettingsDrawerProps) {
   const form = useSettingsForm({
     open,
@@ -197,6 +200,7 @@ export function SettingsDrawer({
                   dict={dict}
                   onTimeframesSaved={onTimeframesSaved ?? (() => undefined)}
                   onLayoutReset={onLayoutReset ?? (() => undefined)}
+                  onPageLayoutReset={onPageLayoutReset ?? (() => undefined)}
                 />
               </div>
             </div>
