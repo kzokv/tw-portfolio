@@ -16,6 +16,16 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - name: No new AAA ESLint disables
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          if git diff --unified=0 "origin/${{ github.base_ref }}...HEAD" -- libs/test-e2e/src/assistants/ | grep -E '^\+.*eslint-disable.*aaa/' >/tmp/aaa-disable-additions.txt; then
+            cat /tmp/aaa-disable-additions.txt
+            echo "::error::Do not add new eslint-disable comments for AAA rules; migrate through page objects instead."
+            exit 1
+          fi
       - run: npm run lint
 
   build-and-typecheck:
