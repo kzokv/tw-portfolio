@@ -8,7 +8,6 @@ import {
   type InstrumentOptionDto,
   type LocaleCode,
   type SnapshotsGeneratedEvent,
-  DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
 } from "@tw-portfolio/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -19,7 +18,7 @@ import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { API_PUBLIC, getJson, postJson } from "../../lib/api";
+import { API_PUBLIC, postJson } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
@@ -45,6 +44,10 @@ import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
 import { ReturnPercentCard } from "../dashboard/ReturnPercentCard";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
+import { DASHBOARD_CARDS } from "../dashboard/cards";
+import { SortableCardGrid } from "./SortableCardGrid";
+import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
+import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { PortfolioSwitcher } from "./PortfolioSwitcher";
 import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
@@ -108,15 +111,19 @@ export function AppShell({
   const [viewportMode, setViewportMode] = useState<ViewportMode>("wide");
   const [desktopNavPreference, setDesktopNavPreference] = useState<boolean | null>(null);
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
-  // KZO-159 (158A) — Effective dashboard performance ranges resolved through the
-  // 3-tier user → admin → default precedence (see apps/api/src/services/userPreferences.ts).
-  // Seeded with the hardcoded defaults so the buttons render immediately on first
-  // paint; the fetch below upgrades the list once the resolver responds.
-  // Fetch failures (non-2xx, network error, abort) silently retain the defaults
-  // so dashboard UX is never blocked by an effective-ranges hiccup.
-  const [effectiveRanges, setEffectiveRanges] = useState<DashboardPerformanceRange[]>(
-    () => [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES],
-  );
+  // KZO-159 (158A) / KZO-161 (158C) — Effective dashboard performance ranges
+  // resolved through the 3-tier user → admin → default precedence. Hook
+  // extracted in KZO-161 so the gear popover + Display tab can trigger a
+  // refetch after saving without remounting AppShell. See
+  // apps/web/hooks/useEffectiveRanges.ts and design §7.
+  const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
+  // KZO-161 (158C) F5 — Reset Layout bumps this counter to force a remount of
+  // `<SortableCardGrid>` after a PATCH `{ cardOrder: null }` succeeds. The
+  // grid re-fetches its initial order on mount, so a key-bump is the
+  // simplest way to reflect the reset without plumbing imperative refs.
+  const [cardLayoutResetCount, setCardLayoutResetCount] = useState(0);
+  // KZO-161 (158C) F4 — gear icon → customize-ranges popover open state.
+  const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
   const [switcherLoaded, setSwitcherLoaded] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
@@ -198,28 +205,16 @@ export function AppShell({
     setIsClientReady(true);
   }, []);
 
-  // KZO-159 (158A): fetch the resolved effective ranges (3-tier resolver) once
-  // on mount. Only render-relevant on the dashboard hero, but the call is
-  // cheap and lets the trend card pre-populate as well. On any error
-  // (network, 4xx/5xx, schema drift) keep the seeded defaults — never block.
+  // KZO-161 (158C): range-snap guard. When the effective list changes (user
+  // removes their current range from the popover, admin config changes, etc.)
+  // snap `performanceRange` to `effectiveRanges[0]` so the dashboard never
+  // requests a range the backend's dynamic validator will 400.
   useEffect(() => {
-    let cancelled = false;
-    void getJson<{ ranges: string[]; source: "user" | "admin" | "default" }>(
-      "/user-preferences/effective-ranges",
-    )
-      .then((res) => {
-        if (cancelled) return;
-        if (Array.isArray(res?.ranges) && res.ranges.length > 0) {
-          setEffectiveRanges(res.ranges);
-        }
-      })
-      .catch(() => {
-        // Silent fallback: defaults are already in state.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (effectiveRanges.length === 0) return;
+    if (!effectiveRanges.includes(performanceRange)) {
+      setPerformanceRange(effectiveRanges[0]);
+    }
+  }, [effectiveRanges, performanceRange]);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -822,6 +817,7 @@ export function AppShell({
                 performanceRange,
                 setPerformanceRange,
                 effectiveRanges,
+                refetchEffectiveRanges,
                 recentTransactions,
                 transactionSubmission,
                 transactionAccountOptions,
@@ -831,6 +827,9 @@ export function AppShell({
                 generateSnapshots,
                 isGeneratingSnapshots,
                 isSharedContext,
+                customizeRangesOpen,
+                setCustomizeRangesOpen,
+                cardLayoutResetCount,
               })
             )}
           </main>
@@ -859,6 +858,8 @@ export function AppShell({
         onSave={settingsSave.save}
         onRenameAccount={handleRenameAccount}
         dict={uiDict}
+        onTimeframesSaved={refetchEffectiveRanges}
+        onLayoutReset={() => setCardLayoutResetCount((count) => count + 1)}
       />
     </div>
   );
@@ -873,6 +874,7 @@ function renderSection({
   performanceRange,
   setPerformanceRange,
   effectiveRanges,
+  refetchEffectiveRanges,
   recentTransactions,
   transactionSubmission,
   transactionAccountOptions,
@@ -882,6 +884,9 @@ function renderSection({
   generateSnapshots,
   isGeneratingSnapshots,
   isSharedContext,
+  customizeRangesOpen,
+  setCustomizeRangesOpen,
+  cardLayoutResetCount,
 }: {
   section: AppSection;
   dashboard: ReturnType<typeof useDashboardData>;
@@ -891,6 +896,7 @@ function renderSection({
   performanceRange: DashboardPerformanceRange;
   setPerformanceRange: (range: DashboardPerformanceRange) => void;
   effectiveRanges: DashboardPerformanceRange[];
+  refetchEffectiveRanges: () => void;
   recentTransactions: ReturnType<typeof useRecentTransactions>;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   transactionAccountOptions: Array<{ id: string; name: string; feeProfileName: string }>;
@@ -900,6 +906,9 @@ function renderSection({
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
   isSharedContext: boolean;
+  customizeRangesOpen: boolean;
+  setCustomizeRangesOpen: (open: boolean) => void;
+  cardLayoutResetCount: number;
 }) {
   const largestHolding = dashboard.holdings[0] ?? null;
   const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -1100,79 +1109,121 @@ function renderSection({
             detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,
           },
         ]}
-        actions={(
-          <div className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-            {effectiveRanges.map((item) => (
-              <Button
-                key={item}
-                variant={item === performanceRange ? "default" : "secondary"}
-                size="sm"
-                className={cn(
-                  "rounded-full border-transparent px-3 text-[11px] font-semibold uppercase tracking-[0.16em]",
-                  item !== performanceRange && "bg-transparent shadow-none",
-                )}
-                data-testid={`dashboard-hero-range-${item.toLowerCase()}`}
-                onClick={() => setPerformanceRange(item)}
-                aria-pressed={item === performanceRange}
-              >
-                {item === "1M"
-                  ? dict.dashboardHome.range1MLabel
-                  : item === "3M"
-                    ? dict.dashboardHome.range3MLabel
-                    : item === "YTD"
-                      ? dict.dashboardHome.rangeYtdLabel
-                      : item === "1Y"
-                        ? dict.dashboardHome.range1YLabel
-                        : item}
-              </Button>
-            ))}
-          </div>
-        )}
+        // KZO-161 (158C) F4: hero pill row removed — `PortfolioTrendCard` is
+        // now the sole pill surface. `actions` stays typed for future use.
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.22fr)_minmax(0,0.78fr)]">
-        <PortfolioTrendCard
-          data={performance.data}
-          range={performanceRange}
-          ranges={effectiveRanges}
-          currency={dashboard.summary.totalCostCurrency}
-          locale={locale}
-          dict={dict}
-          isLoading={performance.isLoading}
-          errorMessage={performance.errorMessage}
-          onRangeChange={setPerformanceRange}
-        />
-        <AllocationSnapshotCard holdings={dashboard.holdings} locale={locale} dict={dict} />
-      </div>
+      {/*
+        KZO-161 (158C) F5: dashboard cards rendered as one flat
+        `<SortableCardGrid>`. Render order is canonical ⋈ user-preference
+        `cardOrder.dashboard` (unknown slugs dropped, new slugs appended).
+        `ActionCenterSection` is also draggable (full-width slot at end of
+        canonical list). `key` bumps on Reset Layout to re-fetch.
+      */}
+      <SortableCardGrid
+        key={`card-grid-${cardLayoutResetCount}`}
+        cards={DASHBOARD_CARDS}
+        orderKey="dashboard"
+      >
+        {(slug) => {
+          switch (slug) {
+            case "portfolio-trend":
+              return (
+                <PortfolioTrendCard
+                  data={performance.data}
+                  range={performanceRange}
+                  ranges={effectiveRanges}
+                  currency={dashboard.summary.totalCostCurrency}
+                  locale={locale}
+                  dict={dict}
+                  isLoading={performance.isLoading}
+                  errorMessage={performance.errorMessage}
+                  onRangeChange={setPerformanceRange}
+                  onOpenCustomize={() => setCustomizeRangesOpen(true)}
+                />
+              );
+            case "allocation-snapshot":
+              return (
+                <AllocationSnapshotCard
+                  holdings={dashboard.holdings}
+                  locale={locale}
+                  dict={dict}
+                />
+              );
+            case "return-percent":
+              return (
+                <ReturnPercentCard
+                  data={performance.data}
+                  locale={locale}
+                  dict={dict}
+                  isLoading={performance.isLoading}
+                  errorMessage={performance.errorMessage}
+                />
+              );
+            case "holdings-table":
+              return (
+                <HoldingsTable
+                  holdings={dashboard.holdings}
+                  dict={dict}
+                  locale={locale}
+                  recomputingSymbols={recomputingSymbols}
+                />
+              );
+            case "dividends-section":
+              return (
+                <DividendsSection
+                  upcoming={dashboard.dividends.upcoming}
+                  recent={dashboard.dividends.recent}
+                  dict={dict}
+                  locale={locale}
+                />
+              );
+            case "action-center":
+              return (
+                <ActionCenterSection
+                  locale={locale}
+                  settings={dashboard.settings}
+                  integrityIssue={dashboard.actions.integrityIssue}
+                  pending={recomputeAction.isRunning}
+                  onRecompute={recomputeAction.runRecompute}
+                  onGenerateSnapshots={generateSnapshots}
+                  isGeneratingSnapshots={isGeneratingSnapshots}
+                  onOpenSettings={() => setDrawerOpen(true)}
+                  dict={dict}
+                  readOnly={isSharedContext}
+                  readOnlyMessage={dict.switcher.readonlyDescription}
+                />
+              );
+            default:
+              return null;
+          }
+        }}
+      </SortableCardGrid>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)]">
-        <ReturnPercentCard
-          data={performance.data}
-          locale={locale}
-          dict={dict}
-          isLoading={performance.isLoading}
-          errorMessage={performance.errorMessage}
+      {customizeRangesOpen ? (
+        <CustomizeRangesPopover
+          variant="popover"
+          onClose={() => setCustomizeRangesOpen(false)}
+          onSaved={refetchEffectiveRanges}
+          copy={{
+            title: dict.settings.customizeRangesTitle,
+            activeSectionLabel: dict.settings.customizeRangesActiveLabel,
+            addCustomLabel: dict.settings.customizeRangesAddCustomLabel,
+            addCustomPlaceholder: dict.settings.customizeRangesAddPlaceholder,
+            addCustomHint: dict.settings.customizeRangesAddHint,
+            saveLabel: dict.settings.customizeRangesSaveLabel,
+            savingLabel: dict.settings.customizeRangesSavingLabel,
+            resetLabel: dict.settings.customizeRangesResetLabel,
+            saveSuccess: dict.settings.customizeRangesSaveSuccess,
+            saveError: dict.settings.customizeRangesSaveError,
+            closeLabel: dict.settings.customizeRangesCloseLabel,
+            toggleOnLabel: (range) =>
+              dict.settings.customizeRangesToggleOnLabel.replace("{range}", range),
+            toggleOffLabel: (range) =>
+              dict.settings.customizeRangesToggleOffLabel.replace("{range}", range),
+          }}
         />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
-        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} recomputingSymbols={recomputingSymbols} />
-        <ActionCenterSection
-          locale={locale}
-          settings={dashboard.settings}
-          integrityIssue={dashboard.actions.integrityIssue}
-          pending={recomputeAction.isRunning}
-          onRecompute={recomputeAction.runRecompute}
-          onGenerateSnapshots={generateSnapshots}
-          isGeneratingSnapshots={isGeneratingSnapshots}
-          onOpenSettings={() => setDrawerOpen(true)}
-          dict={dict}
-          readOnly={isSharedContext}
-          readOnlyMessage={dict.switcher.readonlyDescription}
-        />
-      </div>
-
-      <DividendsSection upcoming={dashboard.dividends.upcoming} recent={dashboard.dividends.recent} dict={dict} locale={locale} />
+      ) : null}
     </div>
   );
 }

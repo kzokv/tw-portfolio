@@ -454,6 +454,28 @@ export interface AppDictionary {
     repairRequestPartial: string;
     repairRequestSuccess: string;
     repairRequestError: string;
+    // KZO-161 (158C) — Display tab (dashboard timeframes + layout reset)
+    tabDisplay: string;
+    displayTimeframesTitle: string;
+    displayTimeframesDescription: string;
+    displayLayoutTitle: string;
+    displayLayoutDescription: string;
+    resetLayoutButton: string;
+    resetLayoutSuccess: string;
+    resetLayoutError: string;
+    customizeRangesTitle: string;
+    customizeRangesActiveLabel: string;
+    customizeRangesAddCustomLabel: string;
+    customizeRangesAddPlaceholder: string;
+    customizeRangesAddHint: string;
+    customizeRangesSaveLabel: string;
+    customizeRangesSavingLabel: string;
+    customizeRangesResetLabel: string;
+    customizeRangesSaveSuccess: string;
+    customizeRangesSaveError: string;
+    customizeRangesCloseLabel: string;
+    customizeRangesToggleOnLabel: string;
+    customizeRangesToggleOffLabel: string;
   };
   dividends: {
     pageTitle: string;

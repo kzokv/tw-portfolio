@@ -36,7 +36,7 @@ export interface SettingsFormModel {
   feeProfileBindings: SettingsSecurityBindingModel[];
 }
 
-export type SettingsTab = "profile" | "general" | "fees" | "tickers";
+export type SettingsTab = "profile" | "general" | "fees" | "tickers" | "display";
 
 export interface SaveSettingsRequest {
   settings: {

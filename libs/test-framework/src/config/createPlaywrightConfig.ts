@@ -76,7 +76,8 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
   };
 
   const webServer = {
-    command: "bash scripts/reclaim-e2e-server.sh web && npm run dev -w @tw-portfolio/web",
+    command:
+      "bash scripts/reclaim-e2e-server.sh web && cd apps/web && NODE_ENV=test PORT=${WEB_PORT:-3333} node .next/standalone/apps/web/server.js",
     cwd: repoRoot,
     url: `http://${host}:${webPort}`,
     timeout: 60_000,
@@ -89,6 +90,8 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
     },
     env: TestEnv.webServerEnv({
       NEXT_PUBLIC_AUTH_MODE: authMode,
+      SESSION_COOKIE_NAME: TestEnv.sessionCookieName,
+      SESSION_SECRET: TestEnv.oauth.sessionSecret,
       ...webEnvOverrides,
     }),
   };

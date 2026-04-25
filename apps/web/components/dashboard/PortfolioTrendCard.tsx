@@ -30,6 +30,10 @@ interface PortfolioTrendCardProps {
   isLoading: boolean;
   errorMessage: string;
   onRangeChange: (range: DashboardPerformanceRange) => void;
+  // KZO-161 (158C): optional click handler for the "Customize ranges" gear
+  // icon. When omitted, the gear is hidden entirely so this card stays
+  // usable in non-dashboard contexts (e.g. the shared-portfolio view).
+  onOpenCustomize?: () => void;
 }
 
 export function PortfolioTrendCard({
@@ -42,6 +46,7 @@ export function PortfolioTrendCard({
   isLoading,
   errorMessage,
   onRangeChange,
+  onOpenCustomize,
 }: PortfolioTrendCardProps) {
   const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
   const points = data?.points ?? [];
@@ -63,23 +68,36 @@ export function PortfolioTrendCard({
           <h2 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{dict.dashboardHome.performanceTitle}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{dict.dashboardHome.performanceDescription}</p>
         </div>
-        <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
-          {rangeItems.map((item) => (
-            <Button
-              key={item}
-              variant={item === range ? "default" : "secondary"}
-              size="sm"
-              className={cn(
-                "rounded-full border-transparent px-3 text-[11px] font-semibold uppercase tracking-[0.16em]",
-                item !== range && "bg-transparent shadow-none",
-              )}
-              data-testid={`dashboard-performance-range-${item.toLowerCase()}`}
-              onClick={() => onRangeChange(item)}
-              aria-pressed={item === range}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
+            {rangeItems.map((item) => (
+              <Button
+                key={item}
+                variant={item === range ? "default" : "secondary"}
+                size="sm"
+                className={cn(
+                  "rounded-full border-transparent px-3 text-[11px] font-semibold uppercase tracking-[0.16em]",
+                  item !== range && "bg-transparent shadow-none",
+                )}
+                data-testid={`dashboard-performance-range-${item.toLowerCase()}`}
+                onClick={() => onRangeChange(item)}
+                aria-pressed={item === range}
+              >
+                {resolveRangeLabel(dict, item)}
+              </Button>
+            ))}
+          </div>
+          {onOpenCustomize ? (
+            <button
+              type="button"
+              onClick={onOpenCustomize}
+              aria-label={dict.settings.customizeRangesTitle ?? "Customize timeframes"}
+              data-testid="timeframe-gear-btn"
+              className="hidden h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 lg:inline-flex"
             >
-              {resolveRangeLabel(dict, item)}
-            </Button>
-          ))}
+              <span aria-hidden="true" className="text-sm leading-none">⚙</span>
+            </button>
+          ) : null}
         </div>
       </div>
 

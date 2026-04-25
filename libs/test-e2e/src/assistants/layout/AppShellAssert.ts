@@ -130,6 +130,11 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
+  async clientApiErrorIsAbsent(): Promise<void> {
+    await expect(this.page.getByTestId("client-api-error")).toHaveCount(0);
+  }
+
+  @Step()
   async avatarMenuShowsSettingsAndSignOut(): Promise<void> {
     await expect(this.el.topBar.elements.avatarMenuSettings).toBeVisible();
     await expect(this.el.topBar.elements.avatarMenuSignOut).toBeVisible();
@@ -427,14 +432,29 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
-  async adminTimeframeChipUpButtonIsDisabled(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-chip-up-${range}`)).toBeDisabled();
+  async adminTimeframeDragHandleIsEnabled(range: string): Promise<void> {
+    // Waits for the dnd-kit SortableRangeList to fully hydrate on the client.
+    // Pre-mount (SSR fallback) renders the drag handle as `disabled`; post-mount
+    // (isMounted=true) renders it as enabled with live dnd-kit listeners.
+    await expect(this.page.getByTestId(`timeframe-drag-handle-${range}`)).toBeEnabled();
   }
 
   @Step()
-  async adminTimeframeChipDownButtonIsDisabled(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-chip-down-${range}`)).toBeDisabled();
+  async adminTimeframeFirstActiveChipIs(range: string): Promise<void> {
+    // Polls until the first active chip in the list has the expected data-testid.
+    // Used after a drag to confirm React committed the reorder before asserting Save.
+    await expect(
+      this.page
+        .getByTestId("timeframe-defaults-section")
+        .locator('[data-testid^="timeframe-chip-"][data-active="true"]')
+        .first(),
+    ).toHaveAttribute("data-testid", `timeframe-chip-${range}`);
   }
+
+  // NOTE: adminTimeframeChipUpButtonIsDisabled / adminTimeframeChipDownButtonIsDisabled
+  // removed in KZO-161 — the ↑↓ buttons were replaced by dnd-kit drag handles
+  // in F4a; [timeframe-H] test dropped. Drag handle visibility is asserted via
+  // `timeframeDragHandleIsVisible` below.
 
   // ── Sharing surface assertions ────────────────────────────────────────────
 
@@ -485,31 +505,19 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.page.getByText(text).first()).toBeVisible();
   }
 
-  // ── KZO-159 — Dashboard performance range button assertions ──────────────
+  // ── KZO-159 → KZO-161 — Dashboard performance range button assertions ──────
   //
-  // The dashboard renders range buttons in TWO surfaces:
-  //   • AppShell hero row:    `dashboard-hero-range-${range.toLowerCase()}`
-  //   • PortfolioTrendCard:   `dashboard-performance-range-${range.toLowerCase()}`
+  // KZO-161 (F4) removed the hero pill row from RouteHeroPanel. The sole range
+  // pill surface is now PortfolioTrendCard: `dashboard-performance-range-${range}`.
   //
-  // Both surfaces source their list from the `effectiveRanges` state in
-  // AppShell, which is populated from `GET /user-preferences/effective-ranges`
-  // (3-tier resolver: user → admin → default). These helpers let E2E tests
-  // verify that the admin-configured or user-configured list actually drives
-  // the rendered buttons — guarding against accidental re-hardcoding.
-
-  @Step()
-  async dashboardHeroRangeButtonIsVisible(range: string): Promise<void> {
-    await expect(
-      this.page.getByTestId(`dashboard-hero-range-${range.toLowerCase()}`),
-    ).toBeVisible();
-  }
-
-  @Step()
-  async dashboardHeroRangeButtonIsAbsent(range: string): Promise<void> {
-    await expect(
-      this.page.getByTestId(`dashboard-hero-range-${range.toLowerCase()}`),
-    ).toHaveCount(0);
-  }
+  // `dashboardHeroRangeButtonIsVisible` / `dashboardHeroRangeButtonIsAbsent`
+  // have been deleted — those testids no longer exist in the DOM.
+  //
+  // The `effectiveRanges` state in AppShell is populated from
+  // `GET /user-preferences/effective-ranges` (3-tier resolver: user → admin →
+  // default). These helpers let E2E tests verify that the admin-configured or
+  // user-configured list actually drives the rendered buttons — guarding against
+  // accidental re-hardcoding to DEFAULT_DASHBOARD_PERFORMANCE_RANGES.
 
   @Step()
   async dashboardPerformanceRangeButtonIsVisible(range: string): Promise<void> {
@@ -523,5 +531,140 @@ export class AppShellAssert extends BaseAssert {
     await expect(
       this.page.getByTestId(`dashboard-performance-range-${range.toLowerCase()}`),
     ).toHaveCount(0);
+  }
+
+  // ── KZO-161 — User timeframe customize popover assertions ─────────────────
+
+  @Step()
+  async timeframeGearButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-gear-btn")).toBeVisible();
+  }
+
+  @Step()
+  async timeframeCustomizePopoverIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-customize-popover")).toBeVisible();
+  }
+
+  @Step()
+  async timeframeCustomizePopoverIsHidden(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-customize-popover")).toHaveCount(0);
+  }
+
+  @Step()
+  async timeframeCustomizeRowIsVisible(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-customize-row-${range}`)).toBeVisible();
+  }
+
+  @Step()
+  async timeframeCustomizeRowIsAbsent(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-customize-row-${range}`)).toHaveCount(0);
+  }
+
+  @Step()
+  async timeframeDragHandleIsVisible(range: string): Promise<void> {
+    await expect(this.page.getByTestId(`timeframe-drag-handle-${range}`)).toBeVisible();
+  }
+
+  @Step()
+  async timeframeSaveButtonIsEnabled(): Promise<void> {
+    await expect(this.page.getByTestId("timeframe-save-btn")).toBeEnabled();
+  }
+
+  @Step()
+  async timeframeToggleIsEnabled(range: string): Promise<void> {
+    const toggle = this.page.getByTestId(`timeframe-toggle-${range}`);
+    await expect(toggle).toBeVisible();
+    // Toggle is "enabled" = checked/active
+    await expect(toggle).toHaveAttribute("data-active", "true");
+  }
+
+  @Step()
+  async timeframeToggleIsDisabled(range: string): Promise<void> {
+    const toggle = this.page.getByTestId(`timeframe-toggle-${range}`);
+    await expect(toggle).toBeVisible();
+    // Toggle is "disabled" = unchecked/inactive
+    await expect(toggle).toHaveAttribute("data-active", "false");
+  }
+
+  @Step()
+  async timeframeCustomizeRowsInOrder(expected: string[]): Promise<void> {
+    const popover = this.page.getByTestId("timeframe-customize-popover");
+    const rows = popover.locator('[data-testid^="timeframe-customize-row-"]');
+    const count = await rows.count();
+    const actual: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const testId = await rows.nth(i).getAttribute("data-testid");
+      if (testId?.startsWith("timeframe-customize-row-")) {
+        actual.push(testId.slice("timeframe-customize-row-".length));
+      }
+    }
+    expect(actual, "timeframe customize row order").toEqual(expected);
+  }
+
+  // ── KZO-161 — Settings Drawer Display tab assertions ──────────────────────
+
+  @Step()
+  async settingsDisplayTabIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("settings-tab-display")).toBeVisible();
+  }
+
+  @Step()
+  async displayTimeframesSectionIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("display-timeframes-section")).toBeVisible();
+  }
+
+  @Step()
+  async displayLayoutSectionIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("display-layout-section")).toBeVisible();
+  }
+
+  @Step()
+  async resetLayoutButtonIsVisible(): Promise<void> {
+    await expect(this.page.getByTestId("reset-layout-btn")).toBeVisible();
+  }
+
+  // ── KZO-161 — Card reorder assertions (F5) ───────────────────────────────
+
+  @Step()
+  async cardIsVisible(slug: string): Promise<void> {
+    await expect(this.page.getByTestId(`card-${slug}`)).toBeVisible();
+  }
+
+  @Step()
+  async cardDragHandleIsVisible(slug: string): Promise<void> {
+    await expect(this.page.getByTestId(`card-drag-handle-${slug}`)).toBeVisible();
+  }
+
+  /**
+   * Assert that the cards appear in the given order based on their DOM
+   * position (vertical order by bounding box top coordinate).
+   */
+  @Step()
+  async cardsAreInOrder(expectedSlugs: string[]): Promise<void> {
+    const cards = await Promise.all(
+      expectedSlugs.map(async (slug) => {
+        const el = this.page.getByTestId(`card-${slug}`);
+        const box = await el.boundingBox();
+        return { slug, top: box?.y ?? 0 };
+      }),
+    );
+    const sorted = [...cards].sort((a, b) => a.top - b.top);
+    const actualOrder = sorted.map((c) => c.slug);
+    expect(actualOrder, "card render order").toEqual(expectedSlugs);
+  }
+
+  /**
+   * Assert a card is rendered with xl:col-span-2 (full-width) by checking
+   * that its bounding box width is wider than a half-width card would be.
+   * This is a heuristic check only valid at xl viewport (≥1280px).
+   * Uses computed style instead to check the span directly.
+   */
+  @Step()
+  async cardIsFullWidth(slug: string): Promise<void> {
+    const gridColSpan = await this.page.getByTestId(`card-${slug}`).evaluate((el) => {
+      return getComputedStyle(el).gridColumn;
+    });
+    // xl:col-span-2 resolves to "span 2 / span 2" or similar
+    expect(gridColSpan, `card-${slug} grid-column`).toMatch(/span\s*2/);
   }
 }

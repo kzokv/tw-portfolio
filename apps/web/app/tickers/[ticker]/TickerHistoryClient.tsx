@@ -80,6 +80,7 @@ export function TickerHistoryClient({
   const [repairError, setRepairError] = useState("");
   const [repairInProgress, setRepairInProgress] = useState(false);
   const [instrumentState, setInstrumentState] = useState<InstrumentCatalogItemDto | null>(instrument);
+  const [displayTransactions, setDisplayTransactions] = useState(transactions);
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
     startDate: "",
     endDate: "",
@@ -98,11 +99,24 @@ export function TickerHistoryClient({
     setInstrumentState(instrument);
   }, [instrument]);
 
+  useEffect(() => {
+    setDisplayTransactions(transactions);
+  }, [transactions]);
+
   const refresh = useCallback(async () => {
     router.refresh();
   }, [router]);
 
-  const mutations = useTransactionMutations({ locale, dict, refresh });
+  const handleDeleteAccepted = useCallback((transactionId: string) => {
+    setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
+  }, []);
+
+  const mutations = useTransactionMutations({
+    locale,
+    dict,
+    refresh,
+    onDeleteAccepted: handleDeleteAccepted,
+  });
 
   const initialTransaction = useMemo<TransactionInput>(
     () =>
@@ -340,7 +354,7 @@ export function TickerHistoryClient({
 
       <div className="mt-6">
         <TransactionHistoryTable
-          transactions={transactions}
+          transactions={displayTransactions}
           dict={dict}
           locale={locale}
           onDeleteRequest={isSharedContext ? undefined : mutations.startDelete}

@@ -31,6 +31,7 @@ interface UseTransactionMutationsOptions {
   dict: AppDictionary;
   refresh: () => Promise<void>;
   onSnapshotsGenerated?: (event: SnapshotsGeneratedEvent) => void;
+  onDeleteAccepted?: (transactionId: string) => void;
 }
 
 export interface UseTransactionMutationsResult {
@@ -78,6 +79,7 @@ export function useTransactionMutations({
   dict,
   refresh,
   onSnapshotsGenerated,
+  onDeleteAccepted,
 }: UseTransactionMutationsOptions): UseTransactionMutationsResult {
   // Delete flow state
   const [deleteTarget, setDeleteTarget] = useState<TransactionHistoryItemDto | null>(null);
@@ -116,6 +118,8 @@ export function useTransactionMutations({
   dictRef.current = dict;
   const onSnapshotsGeneratedRef = useRef(onSnapshotsGenerated);
   onSnapshotsGeneratedRef.current = onSnapshotsGenerated;
+  const onDeleteAcceptedRef = useRef(onDeleteAccepted);
+  onDeleteAcceptedRef.current = onDeleteAccepted;
 
   const sseDeliveredRef = useRef(false);
   const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,6 +191,7 @@ export function useTransactionMutations({
 
     try {
       const result = await deleteTransaction(deleteTarget.id);
+      onDeleteAcceptedRef.current?.(deleteTarget.id);
       addRecomputing(deleteTarget.id, result.accountId, result.ticker);
       setEditingId(null);
     } catch (err: unknown) {
