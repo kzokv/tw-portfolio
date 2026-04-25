@@ -1933,10 +1933,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   //
   // KZO-161 (158C) adds `cardOrder` — JSONB sub-object keyed by page slug. The
   // canonical JSONB key is camelCase (`cardOrder`), matching the existing
-  // `dashboardPerformanceRanges`. Null clears the key.
+  // `dashboardPerformanceRanges`. Null at the top level clears the entire
+  // `cardOrder` sub-object; null at any sub-key clears just that page's
+  // saved order while preserving the others (KZO-162).
+  const cardOrderSlugListSchema = z.union([
+    z.array(z.string().min(1).max(64)).max(50),
+    z.null(),
+  ]);
   const cardOrderSchema = z
     .object({
-      dashboard: z.array(z.string().min(1).max(64)).max(50),
+      dashboard: cardOrderSlugListSchema.optional(),
+      transactions: cardOrderSlugListSchema.optional(),
+      portfolio: cardOrderSlugListSchema.optional(),
     })
     .strict();
   const userPreferencePatchSchema = z

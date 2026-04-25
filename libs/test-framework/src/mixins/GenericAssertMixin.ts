@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { deepStrictEqual } from "node:assert/strict";
 import { Step } from "../decorators/Step.js";
 import type { Constructor } from "../core/types.js";
 
@@ -17,6 +18,16 @@ export function GenericAssertMixin<TBase extends Constructor<object>>(Base: TBas
     @Step("Assert Equal")
     async mxAssertEqual<T>(actual: T, expected: T, label = "value"): Promise<void> {
       expect(actual, `${label} should equal expected value`).toBe(expected);
+    }
+
+    @Step("Assert Deep Equal")
+    async mxAssertDeepEqual<T>(actual: T, expected: T, label = "value"): Promise<void> {
+      try {
+        deepStrictEqual(actual, expected);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${label} should deep equal expected value: ${message}`);
+      }
     }
 
     @Step("Assert Not Equal")

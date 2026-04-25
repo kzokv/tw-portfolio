@@ -1,6 +1,5 @@
 import { expect } from "@playwright/test";
 import type { APIResponse } from "@playwright/test";
-import { deepStrictEqual } from "node:assert/strict";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import type { Constructor } from "@tw-portfolio/test-framework/core";
 import { GenericAssertMixin } from "@tw-portfolio/test-framework/mixins";
@@ -23,15 +22,8 @@ export function ApiAssertMixin<TBase extends Constructor<object>>(Base: TBase) {
       await this.mxAssertTruthy(response.ok(), label);
     }
 
-    @Step()
-    async mxAssertDeepEqual<T>(actual: T, expected: T, label = "value"): Promise<void> {
-      try {
-        deepStrictEqual(actual, expected);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`${label} should deep equal expected value: ${message}`);
-      }
-    }
+    // KZO-162 — `mxAssertDeepEqual` was promoted to GenericAssertMixin so that
+    // E2E AAA specs can use it through any assistant. Inherited from Mixed.
 
     @Step()
     async mxAssertArray(value: unknown, label = "value"): Promise<void> {

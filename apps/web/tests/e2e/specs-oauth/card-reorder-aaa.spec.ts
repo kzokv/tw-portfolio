@@ -89,6 +89,30 @@ async function mintSessionCookie(options: {
 }
 
 /**
+ * Seed preferences for the BROWSER's currently-authenticated user. The
+ * fixture's OAuth session resolves to a different user than `testUser.userId`
+ * (the fixture e2eUserId is not the same as the default `e2e-ci-google-sub-001`
+ * resolved-user). When a test needs the browser to OBSERVE the seeded state,
+ * seed via the browser's session cookie so the data lands on the same user
+ * the browser will GET back.
+ */
+async function seedAsBrowser(
+  page: Page,
+  preferences: Record<string, unknown>,
+): Promise<void> {
+  const cookieHeader = await getTestUserCookieHeader(page);
+  await withFreshContext(async (ctx) => {
+    const response = await ctx.post(apiPath("/__e2e/seed-user-preferences"), {
+      headers: { cookie: cookieHeader },
+      data: { preferences },
+    });
+    if (!response.ok()) {
+      throw new Error(`seed-user-preferences (browser) failed: ${response.status()} ${await response.text()}`);
+    }
+  });
+}
+
+/**
  * Seed user preferences using an isolated context.
  * Passes testUser.userId so owner-scoped state is seeded for the correct user.
  */
@@ -250,12 +274,12 @@ test.describe("card reorder (KZO-161 F5)", () => {
     await appShell.assert.settingsDisplayTabIsVisible();
     await appShell.actions.clickSettingsDisplayTab();
 
-    // Assert — Reset Layout button visible in the Layout section.
+    // Assert — Reset all layouts button visible in the Layout section.
     await appShell.assert.displayLayoutSectionIsVisible();
-    await appShell.assert.resetLayoutButtonIsVisible();
+    await appShell.assert.resetAllLayoutsButtonIsVisible();
 
-    // Actions — click Reset Layout.
-    await appShell.actions.clickResetLayoutButton();
+    // Actions — click "Reset all layouts" (global atomic clear, KZO-162).
+    await appShell.actions.clickResetAllLayoutsButton();
 
     // Assert — cardOrder is null/undefined after PATCH.
     await expect
@@ -343,6 +367,61 @@ test.describe("card reorder (KZO-161 F5)", () => {
     // Assert — no persistent state change (cardOrder still null).
     const savedOrder = await getCardOrder(session.cookieHeader);
     await appShell.assert.mxAssertEqual(savedOrder, null, "cardOrder is null after rollback");
+  });
+
+  // KZO-162 — global "Reset all layouts" clears every page's cardOrder atomically.
+  test("[card-D]: Display tab → Reset all layouts → cardOrder cleared for every page", async ({
+    appShell,
+    page,
+  }) => {
+    // The OAuth fixture pre-installs the session cookie on page.context()
+    // before the test body runs, so we can read the cookie header without
+    // navigating first. Seed via the BROWSER's cookie so the data lands on
+    // the same user the browser will GET back (the fixture's
+    // `e2e-ci-google-sub-001` resolved-user, NOT testUser.userId).
+    const testUserCookieHeader = await getTestUserCookieHeader(page);
+
+    // Arrange — seed a cardOrder for all three pages on the browser's user.
+    await seedAsBrowser(page, {
+      cardOrder: {
+        dashboard: ["holdings-table", "portfolio-trend"],
+        transactions: ["transactions-recent", "transactions-status"],
+        portfolio: ["dividends-section", "holdings-table"],
+      },
+    });
+
+    await appShell.actions.navigateToRoute("/dashboard");
+
+    // Actions — open Display tab → click "Reset all layouts".
+    await appShell.actions.openSettingsDrawer();
+    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.assert.displayLayoutSectionIsVisible();
+    await appShell.assert.resetAllLayoutsButtonIsVisible();
+    await appShell.actions.clickResetAllLayoutsButton();
+
+    // Assert — cardOrder is null/absent (atomic global clear). State assertion
+    // only; per-page primitive remount is covered by per-page specs.
+    await expect
+      .poll(
+        async () => {
+          const ctx = await apiRequest.newContext();
+          try {
+            const response = await ctx.get(apiPath("/user-preferences"), {
+              headers: { cookie: testUserCookieHeader },
+            });
+            const body = await response.json() as {
+              preferences: { cardOrder?: Record<string, unknown> };
+            };
+            const cardOrder = body.preferences.cardOrder;
+            if (cardOrder === undefined || cardOrder === null) return true;
+            return Object.keys(cardOrder).length === 0;
+          } finally {
+            await ctx.dispose();
+          }
+        },
+        { timeout: 3000, intervals: [300, 500, 700] },
+      )
+      .toBe(true);
   });
 
   test("[card-A-fullwidth]: full-width cards span both columns at xl viewport", async ({

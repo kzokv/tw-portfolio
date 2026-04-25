@@ -233,6 +233,76 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
     });
   });
 
+  // KZO-162 — cardOrder sub-key clear semantics. A partial PATCH like
+  // `{cardOrder:{transactions:[...]}}` must NOT wipe `cardOrder.dashboard`,
+  // and `{cardOrder:{dashboard:null}}` must remove only that sub-key.
+  describe("setUserPreferencePatch — cardOrder sub-key merge (KZO-162)", () => {
+    it("merges a partial cardOrder patch without wiping other sub-keys", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: {
+          dashboard: ["holdings-table", "portfolio-trend"],
+          portfolio: ["holdings-table", "dividends-section"],
+        },
+      });
+      const merged = await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: { transactions: ["transactions-recent", "transactions-status"] },
+      });
+      expect(merged).toEqual({
+        cardOrder: {
+          dashboard: ["holdings-table", "portfolio-trend"],
+          portfolio: ["holdings-table", "dividends-section"],
+          transactions: ["transactions-recent", "transactions-status"],
+        },
+      });
+    });
+
+    it("clears a single cardOrder sub-key when its value is null (sibling sub-keys preserved)", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: {
+          dashboard: ["a", "b"],
+          transactions: ["c", "d"],
+          portfolio: ["e", "f"],
+        },
+      });
+      const cleared = await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: { dashboard: null },
+      });
+      expect(cleared.cardOrder).toEqual({
+        transactions: ["c", "d"],
+        portfolio: ["e", "f"],
+      });
+      // The dashboard key must be ABSENT (not null) — round-trip regression
+      // guard against null-storage drift.
+      expect(cleared.cardOrder).not.toHaveProperty("dashboard");
+
+      // GET sees the same shape.
+      const read = await persistence!.getUserPreferences(userId);
+      expect((read.cardOrder as Record<string, unknown>)).not.toHaveProperty("dashboard");
+    });
+
+    it("clears the entire cardOrder when the top-level value is null", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: { dashboard: ["x"], transactions: ["y"] },
+        dashboardPerformanceRanges: ["1M"],
+      });
+      const cleared = await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: null,
+      });
+      expect(cleared).not.toHaveProperty("cardOrder");
+      expect(cleared.dashboardPerformanceRanges).toEqual(["1M"]);
+    });
+
+    it("supports mixed-op cardOrder patch (one sub-key set, another cleared)", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: { dashboard: ["a"], transactions: ["b"] },
+      });
+      const result = await persistence!.setUserPreferencePatch(userId, {
+        cardOrder: { dashboard: ["x", "y"], transactions: null },
+      });
+      expect(result.cardOrder).toEqual({ dashboard: ["x", "y"] });
+    });
+  });
+
   describe("_setUserPreferences — full-replace (test-only seed helper)", () => {
     it("overwrites the entire preferences object", async () => {
       await persistence!.setUserPreferencePatch(userId, { a: 1, b: 2 });
@@ -524,5 +594,54 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
     const result = await resolveEffectiveRanges(persistence, userId);
     expect(result.source).toBe("default");
     expect(result.ranges).toEqual([...DEFAULT_DASHBOARD_PERFORMANCE_RANGES]);
+  });
+
+  // KZO-162 — cardOrder sub-key merge parity with Postgres.
+  it("M9 — cardOrder patch merges partial sub-keys without wiping siblings", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: ["a"], portfolio: ["b"] },
+    });
+    const merged = await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { transactions: ["c"] },
+    });
+    expect(merged.cardOrder).toEqual({
+      dashboard: ["a"],
+      portfolio: ["b"],
+      transactions: ["c"],
+    });
+  });
+
+  it("M10 — cardOrder sub-key null clears just that sub-key (siblings preserved, key absent)", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: ["a"], transactions: ["b"], portfolio: ["c"] },
+    });
+    const cleared = await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: null },
+    });
+    expect(cleared.cardOrder).toEqual({ transactions: ["b"], portfolio: ["c"] });
+    expect(cleared.cardOrder).not.toHaveProperty("dashboard");
+
+    const read = await persistence.getUserPreferences(userId);
+    expect((read.cardOrder as Record<string, unknown>)).not.toHaveProperty("dashboard");
+  });
+
+  it("M11 — top-level cardOrder null clears the entire key", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: ["a"], transactions: ["b"] },
+      dashboardPerformanceRanges: ["1M"],
+    });
+    const cleared = await persistence.setUserPreferencePatch(userId, { cardOrder: null });
+    expect(cleared).not.toHaveProperty("cardOrder");
+    expect(cleared.dashboardPerformanceRanges).toEqual(["1M"]);
+  });
+
+  it("M12 — mixed cardOrder patch (set one sub-key, null another)", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: ["a"], transactions: ["b"] },
+    });
+    const result = await persistence.setUserPreferencePatch(userId, {
+      cardOrder: { dashboard: ["x", "y"], transactions: null },
+    });
+    expect(result.cardOrder).toEqual({ dashboard: ["x", "y"] });
   });
 });

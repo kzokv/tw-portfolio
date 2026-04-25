@@ -348,12 +348,41 @@ export class AppShellActions extends AppBaseActions {
   }
 
   /**
-   * Click the Reset Layout button in the Display tab → Layout section.
-   * Sends PATCH /user-preferences { cardOrder: null }.
+   * KZO-162 — Click the global "Reset all layouts" button in the Display tab.
+   * Sends PATCH /user-preferences { cardOrder: null } (clears every page's
+   * saved order atomically).
    */
   @Step()
-  async clickResetLayoutButton(): Promise<void> {
-    await this.uiActions.click.perform(this.page.getByTestId("reset-layout-btn"));
+  async clickResetAllLayoutsButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("reset-all-layouts-btn"));
+  }
+
+  /**
+   * KZO-162 — Click the per-page "Reset dashboard layout" button. Sends
+   * PATCH /user-preferences { cardOrder: { dashboard: null } } (clears just
+   * the dashboard sub-key while preserving the others).
+   */
+  @Step()
+  async clickResetDashboardLayoutButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("reset-dashboard-layout-btn"));
+  }
+
+  /**
+   * KZO-162 — Click the per-page "Reset transactions layout" button. Sends
+   * PATCH /user-preferences { cardOrder: { transactions: null } }.
+   */
+  @Step()
+  async clickResetTransactionsLayoutButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("reset-transactions-layout-btn"));
+  }
+
+  /**
+   * KZO-162 — Click the per-page "Reset portfolio layout" button. Sends
+   * PATCH /user-preferences { cardOrder: { portfolio: null } }.
+   */
+  @Step()
+  async clickResetPortfolioLayoutButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("reset-portfolio-layout-btn"));
   }
 
   // ── KZO-161 — Card reorder actions (F5) ──────────────────────────────────

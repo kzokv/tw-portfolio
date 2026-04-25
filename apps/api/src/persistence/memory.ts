@@ -203,6 +203,10 @@ interface MemoryUser {
   demoExpiresAt?: Date;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
@@ -1875,11 +1879,31 @@ export class MemoryPersistence implements Persistence {
     //   (user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
     // Non-null keys replace existing values (arrays/objects assigned whole).
     // Null-valued keys are dropped from the merged object.
+    //
+    // KZO-162: `cardOrder` is special-cased — it is sub-key-merged so that
+    // PATCH `{cardOrder:{transactions:[...]}}` does not wipe `cardOrder.dashboard`.
+    // A null sub-key value (e.g. `{cardOrder:{transactions:null}}`) deletes
+    // just that sub-key; the empty `cardOrder` object is preserved (caller
+    // can still PATCH `{cardOrder:null}` to clear the whole top-level key).
     const current = this.userPreferences.get(userId) ?? {};
     const next: Record<string, unknown> = { ...current };
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === undefined) {
         delete next[key];
+      } else if (
+        key === "cardOrder"
+        && isPlainObject(value)
+      ) {
+        const currentCardOrder = isPlainObject(next.cardOrder) ? next.cardOrder : {};
+        const merged: Record<string, unknown> = { ...currentCardOrder };
+        for (const [subKey, subValue] of Object.entries(value)) {
+          if (subValue === null || subValue === undefined) {
+            delete merged[subKey];
+          } else {
+            merged[subKey] = subValue;
+          }
+        }
+        next.cardOrder = merged;
       } else {
         next[key] = value;
       }

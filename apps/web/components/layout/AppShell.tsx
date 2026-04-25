@@ -117,11 +117,17 @@ export function AppShell({
   // refetch after saving without remounting AppShell. See
   // apps/web/hooks/useEffectiveRanges.ts and design §7.
   const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
-  // KZO-161 (158C) F5 — Reset Layout bumps this counter to force a remount of
-  // `<SortableCardGrid>` after a PATCH `{ cardOrder: null }` succeeds. The
-  // grid re-fetches its initial order on mount, so a key-bump is the
-  // simplest way to reflect the reset without plumbing imperative refs.
-  const [cardLayoutResetCount, setCardLayoutResetCount] = useState(0);
+  // KZO-161 (158C) F5 / KZO-162 — Per-page remount counter map. Each
+  // <SortableCardGrid> instance keys on its own counter, so a per-page reset
+  // remounts only that surface. "Reset all layouts" bumps every counter
+  // atomically. The grid re-fetches its initial order on mount, so a
+  // key-bump is the simplest way to reflect the reset without plumbing
+  // imperative refs.
+  const [cardLayoutResetCounts, setCardLayoutResetCounts] = useState<{
+    dashboard: number;
+    transactions: number;
+    portfolio: number;
+  }>({ dashboard: 0, transactions: 0, portfolio: 0 });
   // KZO-161 (158C) F4 — gear icon → customize-ranges popover open state.
   const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   const [inboundShares, setInboundShares] = useState<InboundShareCardItem[]>([]);
@@ -829,7 +835,7 @@ export function AppShell({
                 isSharedContext,
                 customizeRangesOpen,
                 setCustomizeRangesOpen,
-                cardLayoutResetCount,
+                cardLayoutResetCounts,
               })
             )}
           </main>
@@ -859,7 +865,19 @@ export function AppShell({
         onRenameAccount={handleRenameAccount}
         dict={uiDict}
         onTimeframesSaved={refetchEffectiveRanges}
-        onLayoutReset={() => setCardLayoutResetCount((count) => count + 1)}
+        onLayoutReset={() =>
+          setCardLayoutResetCounts((counts) => ({
+            dashboard: counts.dashboard + 1,
+            transactions: counts.transactions + 1,
+            portfolio: counts.portfolio + 1,
+          }))
+        }
+        onPageLayoutReset={(page) =>
+          setCardLayoutResetCounts((counts) => ({
+            ...counts,
+            [page]: counts[page] + 1,
+          }))
+        }
       />
     </div>
   );
@@ -886,7 +904,7 @@ function renderSection({
   isSharedContext,
   customizeRangesOpen,
   setCustomizeRangesOpen,
-  cardLayoutResetCount,
+  cardLayoutResetCounts,
 }: {
   section: AppSection;
   dashboard: ReturnType<typeof useDashboardData>;
@@ -908,7 +926,7 @@ function renderSection({
   isSharedContext: boolean;
   customizeRangesOpen: boolean;
   setCustomizeRangesOpen: (open: boolean) => void;
-  cardLayoutResetCount: number;
+  cardLayoutResetCounts: { dashboard: number; transactions: number; portfolio: number };
 }) {
   const largestHolding = dashboard.holdings[0] ?? null;
   const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -954,8 +972,47 @@ function renderSection({
             },
           ]}
         />
-        <HoldingsTable holdings={dashboard.holdings} dict={dict} locale={locale} recomputingSymbols={recomputingSymbols} />
-        <DividendsSection upcoming={dashboard.dividends.upcoming} recent={dashboard.dividends.recent} dict={dict} locale={locale} />
+        {/*
+          KZO-162 — Portfolio cards rendered as a SortableCardGrid. Slugs
+          `holdings-table` and `dividends-section` are intentionally reused
+          from `DASHBOARD_CARDS` — same components, different `cardOrder.{key}`
+          namespace, so dashboard reorder and portfolio reorder are isolated.
+          To add a card here, append a `{slug, fullWidth}` entry AND add a
+          `case` to the switch below.
+        */}
+        <SortableCardGrid
+          key={`card-grid-portfolio-${cardLayoutResetCounts.portfolio}`}
+          orderKey="portfolio"
+          cards={[
+            { slug: "holdings-table", fullWidth: true },
+            { slug: "dividends-section", fullWidth: true },
+          ]}
+        >
+          {(slug) => {
+            switch (slug) {
+              case "holdings-table":
+                return (
+                  <HoldingsTable
+                    holdings={dashboard.holdings}
+                    dict={dict}
+                    locale={locale}
+                    recomputingSymbols={recomputingSymbols}
+                  />
+                );
+              case "dividends-section":
+                return (
+                  <DividendsSection
+                    upcoming={dashboard.dividends.upcoming}
+                    recent={dashboard.dividends.recent}
+                    dict={dict}
+                    locale={locale}
+                  />
+                );
+              default:
+                return null;
+            }
+          }}
+        </SortableCardGrid>
       </div>
     );
   }
@@ -992,67 +1049,94 @@ function renderSection({
           ]}
         />
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-          <div className="min-w-0">
-            {isSharedContext ? (
-              <Card
-                className="border border-rose-200 bg-rose-50/90 text-rose-700"
-                data-testid="transactions-readonly"
-              >
-                <p role="status" aria-live="polite">{dict.switcher.readonlyDescription}</p>
-              </Card>
-            ) : (
-              <AddTransactionCard
-                value={transactionSubmission.draftTransaction}
-                accountOptions={transactionAccountOptions}
-                pending={transactionSubmission.isSubmitting}
-                onChange={(next) => {
-                  transactionSubmission.setMessage("");
-                  transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
-                }}
-                onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
-                onSubmit={transactionSubmission.submit}
-                dict={dict}
-                locale={locale}
-                priceHint={transactionSubmission.priceHint}
-                showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
-                feeEstimate={transactionSubmission.feeEstimate}
-              />
-            )}
-          </div>
-
-          <div className="grid min-w-0 gap-6">
-            <StatusStripCard
-              eyebrow={dict.navigation.transactionsLabel}
-              title={dict.transactions.verificationTitle}
-              description={dict.transactions.verificationDescription}
-              metrics={[
-                {
-                  label: dict.dashboardHome.marketValueLabel,
-                  value: dashboard.summary.marketValueAmount !== null
-                    ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.totalCostCurrency, locale)
-                    : dict.dashboardHome.noMarketValue,
-                },
-                {
-                  label: dict.dashboardHome.totalCostLabel,
-                  value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.totalCostCurrency, locale),
-                },
-                {
-                  label: dict.dashboardHome.holdingCountLabel,
-                  value: formatNumber(dashboard.summary.holdingCount, locale),
-                },
-              ]}
-              testId="transactions-verification-panel"
-            />
-            <RecentTransactionsCard
-              items={recentTransactions.items}
-              locale={locale}
-              dict={dict}
-              isLoading={recentTransactions.isLoading}
-              errorMessage={recentTransactions.errorMessage}
-            />
-          </div>
-        </div>
+        {/*
+          KZO-162 — All three transactions cards (form/readonly + status + recent)
+          render through one SortableCardGrid. All slugs declare
+          `fullWidth: true` so they stack vertically and any can be reordered
+          to any position. The `transactions-add` slot renders the
+          AddTransactionCard normally and a read-only notice in shared context;
+          either way the slot stays in the saved order so a user's preferred
+          position survives context switches.
+          To add a card here, append a `{slug, fullWidth}` entry AND add a
+          `case` to the switch below.
+        */}
+        <SortableCardGrid
+          key={`card-grid-transactions-${cardLayoutResetCounts.transactions}`}
+          orderKey="transactions"
+          cards={[
+            { slug: "transactions-add", fullWidth: true },
+            { slug: "transactions-status", fullWidth: true },
+            { slug: "transactions-recent", fullWidth: true },
+          ]}
+        >
+          {(slug) => {
+            switch (slug) {
+              case "transactions-add":
+                return isSharedContext ? (
+                  <Card
+                    className="border border-rose-200 bg-rose-50/90 text-rose-700"
+                    data-testid="transactions-readonly"
+                  >
+                    <p role="status" aria-live="polite">{dict.switcher.readonlyDescription}</p>
+                  </Card>
+                ) : (
+                  <AddTransactionCard
+                    value={transactionSubmission.draftTransaction}
+                    accountOptions={transactionAccountOptions}
+                    pending={transactionSubmission.isSubmitting}
+                    onChange={(next) => {
+                      transactionSubmission.setMessage("");
+                      transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
+                    }}
+                    onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
+                    onSubmit={transactionSubmission.submit}
+                    dict={dict}
+                    locale={locale}
+                    priceHint={transactionSubmission.priceHint}
+                    showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
+                    feeEstimate={transactionSubmission.feeEstimate}
+                  />
+                );
+              case "transactions-status":
+                return (
+                  <StatusStripCard
+                    eyebrow={dict.navigation.transactionsLabel}
+                    title={dict.transactions.verificationTitle}
+                    description={dict.transactions.verificationDescription}
+                    metrics={[
+                      {
+                        label: dict.dashboardHome.marketValueLabel,
+                        value: dashboard.summary.marketValueAmount !== null
+                          ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.totalCostCurrency, locale)
+                          : dict.dashboardHome.noMarketValue,
+                      },
+                      {
+                        label: dict.dashboardHome.totalCostLabel,
+                        value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.totalCostCurrency, locale),
+                      },
+                      {
+                        label: dict.dashboardHome.holdingCountLabel,
+                        value: formatNumber(dashboard.summary.holdingCount, locale),
+                      },
+                    ]}
+                    testId="transactions-verification-panel"
+                  />
+                );
+              case "transactions-recent":
+                return (
+                  <RecentTransactionsCard
+                    items={recentTransactions.items}
+                    locale={locale}
+                    dict={dict}
+                    isLoading={recentTransactions.isLoading}
+                    errorMessage={recentTransactions.errorMessage}
+                  />
+                );
+              default:
+                return null;
+            }
+          }}
+        </SortableCardGrid>
       </div>
     );
   }
@@ -1121,7 +1205,7 @@ function renderSection({
         canonical list). `key` bumps on Reset Layout to re-fetch.
       */}
       <SortableCardGrid
-        key={`card-grid-${cardLayoutResetCount}`}
+        key={`card-grid-dashboard-${cardLayoutResetCounts.dashboard}`}
         cards={DASHBOARD_CARDS}
         orderKey="dashboard"
       >
