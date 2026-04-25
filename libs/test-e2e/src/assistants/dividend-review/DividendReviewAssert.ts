@@ -76,15 +76,13 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async tableHasAtLeastRows(minCount: number): Promise<void> {
-    const rows = this.page.locator('[data-testid^="review-row-"]');
-    const count = await rows.count();
+    const count = await this.el.rows.count();
     expect(count).toBeGreaterThanOrEqual(minCount);
   }
 
   @Step()
   async tableRowCount(exactCount: number): Promise<void> {
-    const rows = this.page.locator('[data-testid^="review-row-"]');
-    await expect(rows).toHaveCount(exactCount);
+    await expect(this.el.rows).toHaveCount(exactCount);
   }
 
   @Step()
@@ -94,10 +92,7 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async rowStatusContains(ledgerEntryId: string, text: string | RegExp): Promise<void> {
-    // Status badge is inside the row — look for the badge span
-    const row = this.el.row(ledgerEntryId);
-    const badge = row.locator("span.inline-flex");
-    await expect(badge).toContainText(text);
+    await expect(this.el.rowStatusBadge(ledgerEntryId)).toContainText(text);
   }
 
   @Step()
@@ -112,19 +107,17 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async allRowsContainText(text: string | RegExp): Promise<void> {
-    const rows = this.page.locator('[data-testid^="review-row-"]');
-    const count = await rows.count();
+    const count = await this.el.rows.count();
     for (let i = 0; i < count; i++) {
-      await expect(rows.nth(i)).toContainText(text);
+      await expect(this.el.rows.nth(i)).toContainText(text);
     }
   }
 
   @Step()
   async noRowContainsText(text: string | RegExp): Promise<void> {
-    const rows = this.page.locator('[data-testid^="review-row-"]');
-    const count = await rows.count();
+    const count = await this.el.rows.count();
     for (let i = 0; i < count; i++) {
-      await expect(rows.nth(i)).not.toContainText(text);
+      await expect(this.el.rows.nth(i)).not.toContainText(text);
     }
   }
 
@@ -132,11 +125,7 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async sortIndicatorOnColumn(field: string): Promise<void> {
-    // SortHeader renders as <th> with "↑" or "↓" when active
-    const th = this.el.table.locator("thead th").filter({
-      has: this.page.locator(`text=/${field}/i`),
-    });
-    await expect(th.first()).toContainText(/[↑↓]/);
+    await expect(this.el.tableHeader(field).first()).toContainText(/[↑↓]/);
   }
 
   // ─── Pagination assertions ───────────────────────────────────────────────
@@ -167,31 +156,24 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async chartHasAreaSeries(): Promise<void> {
-    const areas = this.el.chartsContainer.locator(".recharts-area");
-    const count = await areas.count();
+    const count = await this.el.chartsAreaPaths.count();
     expect(count).toBeGreaterThan(0);
   }
 
   @Step()
   async chartHasBarSeries(): Promise<void> {
-    const bars = this.el.chartsContainer.locator(".recharts-bar");
-    const count = await bars.count();
+    const count = await this.el.chartsBars.count();
     expect(count).toBeGreaterThan(0);
   }
 
   @Step()
   async chartHasNoBarSeries(): Promise<void> {
-    const bars = this.el.chartsContainer.locator(".recharts-bar");
-    await expect(bars).toHaveCount(0);
+    await expect(this.el.chartsBars).toHaveCount(0);
   }
 
   @Step()
   async granularityIsActive(level: string): Promise<void> {
-    // Active granularity button has bg-sky-100 class
-    const button = this.el.granularityToggle.locator("button").filter({
-      has: this.page.locator(`text=/${level}/i`),
-    });
-    await expect(button.first()).toHaveClass(/bg-sky-100/);
+    await expect(this.el.chartGranularityButton(level).first()).toHaveClass(/bg-sky-100/);
   }
 
   @Step()
@@ -232,17 +214,17 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async drawerIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.dialog).toBeVisible();
+    await expect(this.el.drawer.dialog).toBeVisible();
   }
 
   @Step()
   async drawerIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.dialog).not.toBeVisible();
+    await expect(this.el.drawer.dialog).not.toBeVisible();
   }
 
   @Step()
   async drawerContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.drawer.elements.dialog).toContainText(text);
+    await expect(this.el.drawer.dialog).toContainText(text);
   }
 
   // ─── NHI Rollup (KZO-134) ──────────────────────────────────────────────

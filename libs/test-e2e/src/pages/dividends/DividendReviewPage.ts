@@ -1,8 +1,8 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
-import { DividendPostingDrawerComponent } from "./DividendPostingDrawerComponent.js";
+import { BasePage, type TElementLocatorHelpers } from "@tw-portfolio/test-framework/core";
+import { DividendPostingDrawerComponent, type TDividendPostingDrawerElements } from "./DividendPostingDrawerComponent.js";
 
-export interface TDividendReviewElements {
+export interface TDividendReviewElements extends TElementLocatorHelpers {
   // Root
   page: Locator;
 
@@ -32,7 +32,14 @@ export interface TDividendReviewElements {
 
   // Table (desktop)
   table: Locator;
+  rows: Locator;
+  tableHeader: (field: string) => Locator;
+  chartGranularityButton: (level: string) => Locator;
+  chartsAreaPaths: Locator;
+  chartsBars: Locator;
+  pendingLink: Locator;
   row: (id: string) => Locator;
+  rowStatusBadge: (id: string) => Locator;
   markMatchedButton: (id: string) => Locator;
 
   // Pagination
@@ -44,7 +51,7 @@ export interface TDividendReviewElements {
   cardGrid: Locator;
 
   // Drawer (reused from KZO-32)
-  drawer: DividendPostingDrawerComponent;
+  drawer: TDividendPostingDrawerElements;
 
   // NHI rollup section (KZO-134)
   nhiRollupSection: Locator;
@@ -56,6 +63,7 @@ export interface TDividendReviewElements {
 export class DividendReviewPage extends BasePage<TDividendReviewElements> {
   protected initializeElements(): void {
     this._elements = {
+      ...this.locatorHelpers(),
       // Root
       page: this.locate("dividend-review-page", "Dividend Review Page"),
 
@@ -85,7 +93,41 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
 
       // Table (desktop)
       table: this.locate("review-table", "Dividend Review Table"),
+      rows: this.withDescription(
+        this.scope.locator('[data-testid^="review-row-"]'),
+        "Dividend Review Rows",
+      ),
+      tableHeader: (field: string) =>
+        this.withDescription(
+          this.locate("review-table").locator("thead th").filter({ hasText: new RegExp(field, "i") }),
+          `Dividend Review ${field} Header`,
+        ),
+      chartGranularityButton: (level: string) =>
+        this.withDescription(
+          this.locate("chart-granularity-toggle").locator("button").filter({ hasText: new RegExp(level, "i") }),
+          `Chart Granularity ${level}`,
+        ),
+      chartsAreaPaths: this.withinByCss(
+        this.locate("dividend-review-charts"),
+        ".recharts-area",
+        "Dividend Review Chart Areas",
+      ),
+      chartsBars: this.withinByCss(
+        this.locate("dividend-review-charts"),
+        ".recharts-bar",
+        "Dividend Review Chart Bars",
+      ),
+      pendingLink: this.locateByRole("link", {
+        name: /View all dividends|查看所有股利/i,
+        description: "View All Dividends Link",
+      }),
       row: (id: string) => this.locate(`review-row-${id}`, `Row ${id}`),
+      rowStatusBadge: (id: string) =>
+        this.withinByCss(
+          this.locate(`review-row-${id}`),
+          "span.inline-flex",
+          `Row ${id} Status Badge`,
+        ),
       markMatchedButton: (id: string) => this.locate(`mark-matched-${id}`, `Mark Matched ${id}`),
 
       // Pagination
@@ -97,7 +139,7 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       cardGrid: this.locate("review-card-grid", "Card Grid"),
 
       // Drawer (reused from KZO-32)
-      drawer: new DividendPostingDrawerComponent(this.page),
+      drawer: new DividendPostingDrawerComponent(this.page).elements,
 
       // NHI rollup section (KZO-134)
       nhiRollupSection: this.locate("nhi-rollup-section", "NHI Rollup Section"),

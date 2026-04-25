@@ -17,10 +17,7 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async navigateToTicker(ticker: string): Promise<void> {
-    await this.page.goto(
-      new URL(`/tickers/${ticker}`, TestEnv.appBaseUrl).href,
-      { waitUntil: "domcontentloaded" },
-    );
+    await this.mxGotoUrl(new URL(`/tickers/${ticker}`, TestEnv.appBaseUrl).href);
     await this.mxWaitForShellClientReady();
     await this.waitForClientReady();
     await expect(this.el.tickerHistorySection).toBeVisible({ timeout: 20_000 });
@@ -35,10 +32,10 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async confirmDelete(): Promise<import("@playwright/test").Response> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "DELETE",
     );
-    await this.uiActions.click.perform(this.el.deleteDialog.elements.confirmButton);
+    await this.uiActions.click.perform(this.el.deleteDialog.confirmButton);
     return responsePromise;
   }
 
@@ -58,57 +55,57 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async fillEditQuantity(value: string): Promise<void> {
-    await this.mxFill(this.el.editForm.elements.quantityInput, value);
+    await this.mxFill(this.el.editForm.quantityInput, value);
   }
 
   @Step()
   async fillEditPrice(value: string): Promise<void> {
-    await this.mxFill(this.el.editForm.elements.priceInput, value);
+    await this.mxFill(this.el.editForm.priceInput, value);
   }
 
   @Step()
   async selectEditSide(value: "BUY" | "SELL"): Promise<void> {
-    await this.mxSelectOption(this.el.editForm.elements.sideSelect, value);
+    await this.mxSelectOption(this.el.editForm.sideSelect, value);
   }
 
   @Step()
   async saveEdit(): Promise<import("@playwright/test").Response> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "PATCH",
     );
-    await this.uiActions.click.perform(this.el.editForm.elements.saveButton);
+    await this.uiActions.click.perform(this.el.editForm.saveButton);
     return responsePromise;
   }
 
   @Step()
   async submitEditForPreview(): Promise<void> {
-    await this.uiActions.click.perform(this.el.editForm.elements.saveButton);
+    await this.uiActions.click.perform(this.el.editForm.saveButton);
   }
 
   @Step()
   async cancelEdit(): Promise<void> {
-    await this.uiActions.click.perform(this.el.editForm.elements.inlineCancelButton);
+    await this.uiActions.click.perform(this.el.editForm.inlineCancelButton);
   }
 
   @Step()
   async openRecordDialog(): Promise<void> {
     await this.waitForClientReady();
-    await this.uiActions.click.perform(this.el.recordDialog.elements.recordTransactionButton);
-    await expect(this.el.recordDialog.elements.recordTransactionDialog).toBeVisible();
+    await this.uiActions.click.perform(this.el.recordDialog.recordTransactionButton);
+    await expect(this.el.recordDialog.recordTransactionDialog).toBeVisible();
   }
 
   @Step()
   async fillRecordPrice(value: string): Promise<void> {
-    await this.mxFill(this.el.recordDialog.elements.priceInput, value);
+    await this.mxFill(this.el.recordDialog.priceInput, value);
   }
 
   @Step()
   async submitRecord(): Promise<import("@playwright/test").Response> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (r) => r.url().includes("/portfolio/transactions") && r.request().method() === "POST",
     );
     await this.uiActions.click.perform(
-      this.el.recordDialog.elements.recordTransactionDialog
+      this.el.recordDialog.recordTransactionDialog
         .getByTestId("tx-submit-button"),
     );
     return responsePromise;
@@ -116,12 +113,12 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async cancelDelete(): Promise<void> {
-    await this.uiActions.click.perform(this.el.deleteDialog.elements.cancelButton);
+    await this.uiActions.click.perform(this.el.deleteDialog.cancelButton);
   }
 
   @Step()
   async cancelEditConfirmation(): Promise<void> {
-    await this.uiActions.click.perform(this.el.editForm.elements.dialogCancelButton);
+    await this.uiActions.click.perform(this.el.editForm.dialogCancelButton);
   }
 
   @Step()
@@ -155,7 +152,7 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async submitRepair(): Promise<import("@playwright/test").Response> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (r) => r.url().includes("/backfill/repair") && r.request().method() === "POST",
     );
     await this.uiActions.click.perform(this.el.repairSubmitButton);

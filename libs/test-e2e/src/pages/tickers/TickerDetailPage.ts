@@ -1,9 +1,9 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
 
-import { TransactionFormComponent } from "../shared/TransactionFormComponent.js";
-import { DeleteDialogComponent } from "./DeleteDialogComponent.js";
-import { EditFormComponent } from "./EditFormComponent.js";
+import { TransactionFormComponent, type TTransactionFormElements } from "../shared/TransactionFormComponent.js";
+import { DeleteDialogComponent, type TDeleteDialogElements } from "./DeleteDialogComponent.js";
+import { EditFormComponent, type TEditFormElements } from "./EditFormComponent.js";
 
 export interface TTickerDetailElements {
   clientReady: Locator;
@@ -25,9 +25,9 @@ export interface TTickerDetailElements {
   repairErrorToast: Locator;
   transactionRows: Locator;
   mutationStatus: Locator;
-  deleteDialog: DeleteDialogComponent;
-  editForm: EditFormComponent;
-  recordDialog: TransactionFormComponent;
+  deleteDialog: TDeleteDialogElements;
+  editForm: TEditFormElements;
+  recordDialog: TTransactionFormElements;
 }
 
 export class TickerDetailPage extends BasePage<TTickerDetailElements> {
@@ -88,9 +88,9 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
         this.page.getByTestId("mutation-status").first(),
         "Mutation Status",
       ),
-      deleteDialog: new DeleteDialogComponent(this.page),
-      editForm: new EditFormComponent(this.page),
-      recordDialog: new TransactionFormComponent(this.page),
+      deleteDialog: new DeleteDialogComponent(this.page).elements,
+      editForm: new EditFormComponent(this.page).elements,
+      recordDialog: new TransactionFormComponent(this.page).elements,
     };
   }
 }

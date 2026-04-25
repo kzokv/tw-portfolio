@@ -28,7 +28,7 @@ export class AuthErrorAssert extends BaseAssert {
 
   @Step()
   async pageContains(text: string | RegExp): Promise<void> {
-    await expect(this.page.getByText(text)).toBeVisible();
+    await expect(this.el.text(text, "Auth Error Page Text")).toBeVisible();
   }
 
   @Step()

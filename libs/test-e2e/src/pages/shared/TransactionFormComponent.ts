@@ -12,6 +12,7 @@ export interface TTransactionFormElements {
   tickerOption: (ticker: string) => Locator;
   accountSelector: Locator;
   accountSelect: Locator;
+  accountOption: (index: number) => Locator;
   selectedAccountOption: Locator;
   typeSelect: Locator;
   quantityInput: Locator;
@@ -47,6 +48,8 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
       tickerOption: (ticker: string) => this.locate(`tx-ticker-option-${ticker}`, `Ticker Option ${ticker}`),
       accountSelector: this.locate("account-selector", "Account Selector"),
       accountSelect,
+      accountOption: (index: number) =>
+        this.withDescription(accountSelect.locator("option").nth(index), `Account Option ${index}`),
       selectedAccountOption: this.withDescription(accountSelect.locator("option:checked"), "Selected Account Option"),
       typeSelect: this.locate("tx-type-select", "Transaction Type Select"),
       quantityInput: this.locate("tx-quantity-input", "Quantity Input"),

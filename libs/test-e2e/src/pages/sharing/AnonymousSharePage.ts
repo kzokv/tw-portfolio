@@ -1,7 +1,7 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
+import { BasePage, type TElementLocatorHelpers } from "@tw-portfolio/test-framework/core";
 
-export interface TAnonymousShareElements {
+export interface TAnonymousShareElements extends TElementLocatorHelpers {
   root: Locator;
   header: Locator;
   ownerName: Locator;
@@ -14,11 +14,16 @@ export interface TAnonymousShareElements {
   holdingsEmpty: Locator;
   notFoundState: Locator;
   disclosure: Locator;
+  robotsNoIndexMeta: Locator;
+  body: Locator;
+  holding: (ticker: string) => Locator;
+  totalByCurrency: (currency: string) => Locator;
 }
 
 export class AnonymousSharePage extends BasePage<TAnonymousShareElements> {
   protected initializeElements(): void {
     this._elements = {
+      ...this.locatorHelpers(),
       root: this.locate("public-share-root", "Public share root"),
       header: this.locate("public-share-header", "Public share header"),
       ownerName: this.locate("public-share-owner-name", "Public share owner display name"),
@@ -31,6 +36,15 @@ export class AnonymousSharePage extends BasePage<TAnonymousShareElements> {
       holdingsEmpty: this.locate("public-share-empty", "Public share holdings empty state"),
       notFoundState: this.locate("public-share-not-found", "Public share not-found state"),
       disclosure: this.locate("public-share-disclosure", "Public share disclosure"),
+      robotsNoIndexMeta: this.withDescription(
+        this.scope.locator('meta[name="robots"][content="noindex, nofollow"]'),
+        "Robots Noindex Meta",
+      ),
+      body: this.withDescription(this.scope.locator("body"), "Public Share Body"),
+      holding: (ticker: string) =>
+        this.locate(`public-share-holding-${ticker}`, `Public Share Holding ${ticker}`),
+      totalByCurrency: (currency: string) =>
+        this.locate(`public-share-total-${currency}`, `Public Share Total ${currency}`),
     };
   }
 }

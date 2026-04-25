@@ -1,7 +1,7 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
+import { BasePage, type TElementLocatorHelpers } from "@tw-portfolio/test-framework/core";
 
-export interface TSettingsDrawerElements {
+export interface TSettingsDrawerElements extends TElementLocatorHelpers {
   drawer: Locator;
   tabs: {
     profile: Locator;
@@ -17,6 +17,10 @@ export interface TSettingsDrawerElements {
     localeTooltipContent: Locator;
     costBasisTooltipTrigger: Locator;
     costBasisTooltipContent: Locator;
+  };
+  unsavedChangesDialog: {
+    cancel: Locator;
+    keepEditing: Locator;
   };
   fees: {
     addProfileButton: Locator;
@@ -46,6 +50,7 @@ export interface TSettingsDrawerElements {
     repairCancelButton: Locator;
     repairContinueButton: Locator;
     repairCheckboxRow: (ticker: string) => Locator;
+    repairSelection: (ticker: string) => Locator;
     repairCooldownHint: (ticker: string) => Locator;
   };
   repairModal: {
@@ -68,6 +73,7 @@ export interface TSettingsDrawerElements {
     filterEtf: Locator;
     filterBondEtf: Locator;
     item: (ticker: string) => Locator;
+    itemCheckbox: (ticker: string) => Locator;
   };
   footer: {
     saveButton: Locator;
@@ -81,6 +87,7 @@ export interface TSettingsDrawerElements {
 export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
   protected initializeElements(): void {
     this._elements = {
+      ...this.locatorHelpers(),
       drawer: this.locate("settings-drawer", "Settings Drawer"),
       tabs: {
         profile: this.locate("settings-tab-profile", "Profile Tab"),
@@ -96,6 +103,16 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         localeTooltipContent: this.locate("tooltip-settings-locale-content", "Locale Tooltip Content"),
         costBasisTooltipTrigger: this.locate("tooltip-settings-cost-basis-trigger", "Cost Basis Tooltip Trigger"),
         costBasisTooltipContent: this.locate("tooltip-settings-cost-basis-content", "Cost Basis Tooltip Content"),
+      },
+      unsavedChangesDialog: {
+        cancel: this.locateByRole("button", {
+          name: /Cancel|取消/,
+          description: "Unsaved Changes Cancel Button",
+        }),
+        keepEditing: this.locateByRole("button", {
+          name: /Keep Editing|繼續編輯/,
+          description: "Unsaved Changes Keep Editing Button",
+        }),
       },
       fees: {
         addProfileButton: this.locate("settings-add-profile-button", "Add Fee Profile Button"),
@@ -153,6 +170,8 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
             this.page.getByTestId(`repair-row-${ticker}`),
             `Repair Checkbox Row ${ticker}`,
           ),
+        repairSelection: (ticker: string) =>
+          this.locate(`repair-selection-${ticker}`, `Repair Selection ${ticker}`),
         repairCooldownHint: (ticker: string) =>
           this.withDescription(
             this.page.getByTestId(`repair-cooldown-hint-${ticker}`),
@@ -204,6 +223,12 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         filterBondEtf: this.locate("catalog-filter-bond_etf", "Catalog Filter Bond ETF"),
         item: (ticker: string) =>
           this.locate(`catalog-item-${ticker}`, `Catalog Item ${ticker}`),
+        itemCheckbox: (ticker: string) =>
+          this.withinByCss(
+            this.locate(`catalog-item-${ticker}`),
+            "input[type=checkbox]",
+            `Catalog Item Checkbox ${ticker}`,
+          ),
       },
       footer: {
         saveButton: this.locate("settings-save-button", "Save Settings Button"),

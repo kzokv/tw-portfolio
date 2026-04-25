@@ -9,10 +9,8 @@ export class AnonymousShareActions extends AppBaseActions {
   @Step()
   async navigateToPublicShare(token: string, clearCookies: boolean = true): Promise<void> {
     if (clearCookies) {
-      await this.page.context().clearCookies();
+      await this.mxClearCookies();
     }
-    await this.page.goto(new URL(`/share/${token}`, TestEnv.appBaseUrl).href, {
-      waitUntil: "domcontentloaded",
-    });
+    await this.mxGotoUrl(new URL(`/share/${token}`, TestEnv.appBaseUrl).href);
   }
 }

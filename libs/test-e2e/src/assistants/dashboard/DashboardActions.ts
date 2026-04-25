@@ -27,14 +27,14 @@ export class DashboardActions extends AppBaseActions {
 
   @Step()
   async waitForRecomputePreview(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/recompute/preview") && r.ok(),
     );
   }
 
   @Step()
   async waitForRecomputeConfirm(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/recompute/confirm") && r.ok(),
     );
   }
@@ -46,7 +46,7 @@ export class DashboardActions extends AppBaseActions {
 
   @Step()
   async waitForSnapshotGeneration(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/snapshots/generate") && r.status() === 202,
     );
   }

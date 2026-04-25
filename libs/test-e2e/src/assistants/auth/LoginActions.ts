@@ -16,22 +16,17 @@ export class LoginActions extends AppBaseActions {
     if (await this.el.demoSignInButton.count() > 0) {
       await this.uiActions.wait.perform(this.el.demoSignInButton);
     }
-    await this.page.waitForLoadState("networkidle").catch(() => undefined);
   }
 
   @Step()
   async navigateToLogin(): Promise<void> {
-    await this.page.goto(new URL("/login", TestEnv.appBaseUrl).href, {
-      waitUntil: "domcontentloaded",
-    });
+    await this.mxGotoUrl(new URL("/login", TestEnv.appBaseUrl).href);
     await this.waitForLoginPageReady();
   }
 
   @Step()
   async navigateToLoginWithQuery(query: string): Promise<void> {
-    await this.page.goto(new URL(`/login${query}`, TestEnv.appBaseUrl).href, {
-      waitUntil: "domcontentloaded",
-    });
+    await this.mxGotoUrl(new URL(`/login${query}`, TestEnv.appBaseUrl).href);
     await this.waitForLoginPageReady();
   }
 
@@ -71,6 +66,6 @@ export class LoginActions extends AppBaseActions {
 
   @Step()
   async waitForDemoStartResponse(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse((res) => res.url().includes("/api/demo/start"));
+    return await this.mxWaitForResponse((res) => res.url().includes("/api/demo/start"));
   }
 }

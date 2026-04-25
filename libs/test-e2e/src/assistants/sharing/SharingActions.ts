@@ -23,7 +23,7 @@ export class SharingActions extends AppBaseActions {
 
   @Step()
   async enterGrantEmail(email: string): Promise<void> {
-    await this.el.grantEmailInput.fill(email);
+    await this.mxFill(this.el.grantEmailInput, email);
   }
 
   @Step()
@@ -53,26 +53,25 @@ export class SharingActions extends AppBaseActions {
 
   @Step()
   async clickRevokeOnRow(rowId: string): Promise<void> {
-    await this.mxClick(this.page.getByTestId(`sharing-revoke-${rowId}`));
+    await this.mxClick(this.el.outboundRevokeButton(rowId));
   }
 
   @Step()
   async clickCopyUrlOnRow(rowId: string): Promise<void> {
-    await this.mxClick(this.page.getByTestId(`sharing-copy-url-${rowId}`));
+    await this.mxClick(this.el.outboundCopyUrlButton(rowId));
   }
 
   @Step()
   async clickReshareOnRow(rowId: string): Promise<void> {
-    await this.mxClick(this.page.getByTestId(`sharing-reshare-${rowId}`));
+    await this.mxClick(this.el.outboundReshareButton(rowId));
   }
 
   @Step()
   async confirmRevoke(): Promise<void> {
     // Scope to the open <dialog> element — multiple confirm-dialog elements may be
     // present in the DOM simultaneously (portfolio revoke + anonymous link revoke).
-    const dialog = this.page.locator('[data-testid="confirm-dialog"][open]');
-    await dialog.waitFor({ state: "visible" });
-    await this.mxClick(dialog.getByTestId("confirm-dialog-confirm"));
+    await this.el.openConfirmDialog.waitFor({ state: "visible" });
+    await this.mxClick(this.el.openConfirmButton);
   }
 
   // ---------- Section C: Public (anonymous) share links ----------
@@ -95,7 +94,7 @@ export class SharingActions extends AppBaseActions {
             : this.el.createPublicLinkOptionCustom;
     await this.mxClick(target);
     if (value === "custom" && customDays !== undefined) {
-      await this.el.createPublicLinkCustomInput.fill(customDays);
+      await this.mxFill(this.el.createPublicLinkCustomInput, customDays);
     }
   }
 
@@ -118,19 +117,18 @@ export class SharingActions extends AppBaseActions {
 
   @Step()
   async copyPublicLinkUrl(tokenId: string): Promise<void> {
-    await this.mxClick(this.page.getByTestId(`sharing-public-link-copy-${tokenId}`));
+    await this.mxClick(this.el.publicLinkCopyButton(tokenId));
   }
 
   @Step()
   async clickRevokePublicLink(tokenId: string): Promise<void> {
-    await this.mxClick(this.page.getByTestId(`sharing-public-link-revoke-${tokenId}`));
+    await this.mxClick(this.el.publicLinkRevokeButton(tokenId));
   }
 
   @Step()
   async revokePublicLink(tokenId: string): Promise<void> {
     await this.clickRevokePublicLink(tokenId);
-    const dialog = this.page.locator('[data-testid="confirm-dialog"][open]');
-    await dialog.waitFor({ state: "visible" });
-    await this.mxClick(dialog.getByTestId("confirm-dialog-confirm"));
+    await this.el.openConfirmDialog.waitFor({ state: "visible" });
+    await this.mxClick(this.el.openConfirmButton);
   }
 }

@@ -29,24 +29,24 @@ export class DividendsActions extends AppBaseActions {
 
   @Step()
   async fillReceivedCash(value: number): Promise<void> {
-    await this.uiActions.fill.perform(this.el.drawer.elements.receivedCashInput, String(value));
+    await this.uiActions.fill.perform(this.el.drawer.receivedCashInput, String(value));
   }
 
   @Step()
   async fillReceivedStock(value: number): Promise<void> {
-    await this.uiActions.fill.perform(this.el.drawer.elements.receivedStockInput, String(value));
+    await this.uiActions.fill.perform(this.el.drawer.receivedStockInput, String(value));
   }
 
   @Step()
   async addSourceLine(amount: number, bucket = "DIVIDEND_INCOME"): Promise<void> {
-    await this.uiActions.click.perform(this.el.drawer.elements.sourceLines.elements.addButton);
-    await this.uiActions.select.perform(this.el.drawer.elements.sourceLines.elements.bucketSelect(0), bucket);
-    await this.uiActions.fill.perform(this.el.drawer.elements.sourceLines.elements.amountInput(0), String(amount));
+    await this.uiActions.click.perform(this.el.drawer.sourceLines.addButton);
+    await this.uiActions.select.perform(this.el.drawer.sourceLines.bucketSelect(0), bucket);
+    await this.uiActions.fill.perform(this.el.drawer.sourceLines.amountInput(0), String(amount));
   }
 
   @Step()
   async toggleUnknownSourceDisclosure(enabled?: boolean): Promise<void> {
-    const toggle = this.el.drawer.elements.sourceLines.elements.unknownToggle;
+    const toggle = this.el.drawer.sourceLines.unknownToggle;
     const isChecked = await toggle.isChecked();
     if (enabled === undefined || isChecked !== enabled) {
       await this.uiActions.click.perform(toggle);
@@ -55,12 +55,12 @@ export class DividendsActions extends AppBaseActions {
 
   @Step()
   async clickSaveButton(): Promise<void> {
-    await this.uiActions.click.perform(this.el.drawer.elements.saveButton);
+    await this.uiActions.click.perform(this.el.drawer.saveButton);
   }
 
   @Step()
   async submitPostingForm(): Promise<Response> {
-    const postingResponsePromise = this.page.waitForResponse(
+    const postingResponsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "POST"
         && response.url().includes("/portfolio/dividends/postings"),
@@ -72,7 +72,7 @@ export class DividendsActions extends AppBaseActions {
 
   @Step()
   async clickMarkMatchedInline(eventId: string): Promise<Response> {
-    const patchResponsePromise = this.page.waitForResponse(
+    const patchResponsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "PATCH"
         && response.url().includes("/portfolio/dividends/postings/")
@@ -85,35 +85,35 @@ export class DividendsActions extends AppBaseActions {
 
   @Step()
   async selectReconcileStatus(status: "open" | "matched" | "explained" | "resolved"): Promise<void> {
-    await this.uiActions.select.perform(this.el.drawer.elements.reconcileStatusSelect, status);
+    await this.uiActions.select.perform(this.el.drawer.reconcileStatusSelect, status);
   }
 
   @Step()
   async fillReconcileNote(note: string): Promise<void> {
-    await this.uiActions.fill.perform(this.el.drawer.elements.reconcileNote, note);
+    await this.uiActions.fill.perform(this.el.drawer.reconcileNote, note);
   }
 
   @Step()
   async submitReconciliationForm(): Promise<Response> {
-    const patchResponsePromise = this.page.waitForResponse(
+    const patchResponsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "PATCH"
         && response.url().includes("/portfolio/dividends/postings/")
         && response.url().includes("/reconciliation"),
     );
 
-    await this.uiActions.click.perform(this.el.drawer.elements.reconcileSaveButton);
+    await this.uiActions.click.perform(this.el.drawer.reconcileSaveButton);
     return await patchResponsePromise;
   }
 
   @Step()
   async clickReconcileSaveButton(): Promise<void> {
-    await this.uiActions.click.perform(this.el.drawer.elements.reconcileSaveButton);
+    await this.uiActions.click.perform(this.el.drawer.reconcileSaveButton);
   }
 
   @Step()
   async clickSourceCompositionToggle(): Promise<void> {
-    await this.uiActions.click.perform(this.el.drawer.elements.sourceCompositionToggle);
+    await this.uiActions.click.perform(this.el.drawer.sourceCompositionToggle);
   }
 
   @Step()

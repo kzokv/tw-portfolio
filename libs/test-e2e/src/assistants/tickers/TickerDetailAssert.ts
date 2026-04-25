@@ -4,6 +4,8 @@ import { BaseAssert } from "@tw-portfolio/test-framework/mixins";
 
 import type { TickerDetailPage } from "../../pages/tickers/TickerDetailPage.js";
 
+const MUTATION_REFRESH_TIMEOUT_MS = 20_000;
+
 export class TickerDetailAssert extends BaseAssert {
   declare protected readonly _instance: TickerDetailPage;
 
@@ -13,7 +15,7 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async rowCountIs(count: number): Promise<void> {
-    await expect(this.el.transactionRows).toHaveCount(count);
+    await expect(this.el.transactionRows).toHaveCount(count, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
@@ -36,77 +38,77 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async deleteDialogIsVisible(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.confirmationDialog).toBeVisible();
+    await expect(this.el.deleteDialog.confirmationDialog).toBeVisible();
   }
 
   @Step()
   async deleteDialogIsHidden(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.confirmationDialog).toBeHidden();
+    await expect(this.el.deleteDialog.confirmationDialog).toBeHidden();
   }
 
   @Step()
   async deleteTradeSummaryContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.deleteDialog.elements.tradeSummary).toContainText(text);
+    await expect(this.el.deleteDialog.tradeSummary).toContainText(text);
   }
 
   @Step()
   async deleteImpactCountsAreVisible(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.impactCounts).toBeVisible();
+    await expect(this.el.deleteDialog.impactCounts).toBeVisible();
   }
 
   @Step()
   async deleteSnapshotImpactIsVisible(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.snapshotImpact).toBeVisible({ timeout: 5_000 });
+    await expect(this.el.deleteDialog.snapshotImpact).toBeVisible({ timeout: 5_000 });
   }
 
   @Step()
   async deleteConfirmButtonIsHidden(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.confirmButton).toBeHidden();
+    await expect(this.el.deleteDialog.confirmButton).toBeHidden();
   }
 
   @Step()
   async deleteNegativeLotsWarningIsVisible(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.negativeLotsWarning).toBeVisible({ timeout: 10_000 });
+    await expect(this.el.deleteDialog.negativeLotsWarning).toBeVisible({ timeout: 10_000 });
   }
 
   @Step()
   async deleteNegativeLotsWarningIsHidden(): Promise<void> {
-    await expect(this.el.deleteDialog.elements.negativeLotsWarning).toBeHidden();
+    await expect(this.el.deleteDialog.negativeLotsWarning).toBeHidden();
   }
 
   @Step()
   async editableRowIsVisible(): Promise<void> {
-    await expect(this.el.editForm.elements.editableRow).toBeVisible({ timeout: 5_000 });
+    await expect(this.el.editForm.editableRow).toBeVisible({ timeout: 5_000 });
   }
 
   @Step()
   async editableRowIsHidden(): Promise<void> {
-    await expect(this.el.editForm.elements.editableRow).toBeHidden();
+    await expect(this.el.editForm.editableRow).toBeHidden();
   }
 
   @Step()
   async editConfirmDialogIsVisible(): Promise<void> {
-    await expect(this.el.editForm.elements.confirmationDialog).toBeVisible({ timeout: 10_000 });
+    await expect(this.el.editForm.confirmationDialog).toBeVisible({ timeout: 10_000 });
   }
 
   @Step()
   async editConfirmDialogIsHidden(): Promise<void> {
-    await expect(this.el.editForm.elements.confirmationDialog).toBeHidden();
+    await expect(this.el.editForm.confirmationDialog).toBeHidden();
   }
 
   @Step()
   async editNegativeLotsWarningIsVisible(): Promise<void> {
-    await expect(this.el.editForm.elements.negativeLotsWarning).toBeVisible();
+    await expect(this.el.editForm.negativeLotsWarning).toBeVisible();
   }
 
   @Step()
   async editNegativeLotsWarningContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.editForm.elements.negativeLotsWarning).toContainText(text);
+    await expect(this.el.editForm.negativeLotsWarning).toContainText(text);
   }
 
   @Step()
   async editCancelButtonIsVisible(): Promise<void> {
-    await expect(this.el.editForm.elements.dialogCancelButton).toBeVisible();
+    await expect(this.el.editForm.dialogCancelButton).toBeVisible();
   }
 
   @Step()
@@ -129,7 +131,7 @@ export class TickerDetailAssert extends BaseAssert {
     for (const text of texts) {
       locator = locator.filter({ hasText: text });
     }
-    await expect(locator).toHaveCount(count);
+    await expect(locator).toHaveCount(count, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
@@ -156,41 +158,43 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async quantityStatContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.tickerQuantityStat).toContainText(text);
+    await expect(this.el.tickerQuantityStat).toContainText(text, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async avgCostStatContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.tickerAvgCostStat).toContainText(text);
+    await expect(this.el.tickerAvgCostStat).toContainText(text, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async avgCostStatNotContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.tickerAvgCostStat).not.toContainText(text);
+    await expect(this.el.tickerAvgCostStat).not.toContainText(text, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async firstRowContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.transactionRows.first()).toContainText(text);
+    await expect(this.el.transactionRows.first()).toContainText(text, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async rowContainingTextContains(rowText: string, expected: string | RegExp): Promise<void> {
-    await expect(this.el.transactionRows.filter({ hasText: rowText })).toContainText(expected);
+    await expect(this.el.transactionRows.filter({ hasText: rowText })).toContainText(expected, {
+      timeout: MUTATION_REFRESH_TIMEOUT_MS,
+    });
   }
 
   @Step()
   async recordDialogIsHidden(): Promise<void> {
-    await expect(this.el.recordDialog.elements.recordTransactionDialog).toBeHidden({ timeout: 10_000 });
+    await expect(this.el.recordDialog.recordTransactionDialog).toBeHidden({ timeout: 10_000 });
   }
 
   @Step()
   async recordDialogFieldValueIs(field: "ticker" | "account" | "quantity" | "tradeDate", expected: string): Promise<void> {
     const fields = {
-      ticker: this.el.recordDialog.elements.tickerCombobox,
-      account: this.el.recordDialog.elements.accountSelect,
-      quantity: this.el.recordDialog.elements.quantityInput,
-      tradeDate: this.el.recordDialog.elements.tradeDateInput,
+      ticker: this.el.recordDialog.tickerCombobox,
+      account: this.el.recordDialog.accountSelect,
+      quantity: this.el.recordDialog.quantityInput,
+      tradeDate: this.el.recordDialog.tradeDateInput,
     };
     if (field === "ticker") {
       await expect(fields[field]).toHaveValue(new RegExp(expected));
@@ -206,20 +210,20 @@ export class TickerDetailAssert extends BaseAssert {
     expected: string | RegExp,
   ): Promise<void> {
     const fields = {
-      price: this.el.recordDialog.elements.priceInput,
-      quantity: this.el.recordDialog.elements.quantityInput,
+      price: this.el.recordDialog.priceInput,
+      quantity: this.el.recordDialog.quantityInput,
     };
     await expect(fields[field]).toHaveAttribute(name, expected);
   }
 
   @Step()
   async editPriceInputIsVisible(): Promise<void> {
-    await expect(this.el.editForm.elements.priceInput).toBeVisible();
+    await expect(this.el.editForm.priceInput).toBeVisible();
   }
 
   @Step()
   async recordDialogTickerIsReadOnly(): Promise<void> {
-    await expect(this.el.recordDialog.elements.tickerCombobox).toHaveAttribute("readonly", "");
+    await expect(this.el.recordDialog.tickerCombobox).toHaveAttribute("readonly", "");
   }
 
   @Step()

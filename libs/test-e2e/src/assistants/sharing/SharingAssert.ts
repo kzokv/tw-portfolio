@@ -84,24 +84,24 @@ export class SharingAssert extends BaseAssert {
 
   @Step()
   async outboundRowVisibleWithEmail(rowId: string, email: string): Promise<void> {
-    const row = this.page.getByTestId(`sharing-outbound-row-${rowId}`);
+    const row = this.el.outboundRow(rowId);
     await expect(row).toBeVisible();
     await expect(row).toContainText(email);
   }
 
   @Step()
   async outboundRowHidden(rowId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-outbound-row-${rowId}`)).toBeHidden();
+    await expect(this.el.outboundRow(rowId)).toBeHidden();
   }
 
   @Step()
   async inboundCardVisible(shareId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-inbound-card-${shareId}`)).toBeVisible();
+    await expect(this.el.inboundCard(shareId)).toBeVisible();
   }
 
   @Step()
   async openDashboardButtonIsVisible(shareId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-open-dashboard-${shareId}`)).toBeVisible();
+    await expect(this.el.inboundOpenDashboardButton(shareId)).toBeVisible();
   }
 
   @Step()
@@ -116,8 +116,7 @@ export class SharingAssert extends BaseAssert {
 
   @Step()
   async statusBadgeOnRow(rowId: string, label: string): Promise<void> {
-    const row = this.page.getByTestId(`sharing-outbound-row-${rowId}`);
-    await expect(row).toContainText(label);
+    await expect(this.el.outboundRow(rowId)).toContainText(label);
   }
 
   /**
@@ -148,30 +147,27 @@ export class SharingAssert extends BaseAssert {
 
   @Step()
   async publicLinkRowVisible(tokenId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-public-link-row-${tokenId}`)).toBeVisible();
+    await expect(this.el.publicLinkRow(tokenId)).toBeVisible();
   }
 
   @Step()
   async publicLinkRowHidden(tokenId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-public-link-row-${tokenId}`)).toBeHidden();
+    await expect(this.el.publicLinkRow(tokenId)).toBeHidden();
   }
 
   @Step()
   async publicLinkRowStatus(tokenId: string, label: string): Promise<void> {
-    const row = this.page.getByTestId(`sharing-public-link-row-${tokenId}`);
-    await expect(row).toContainText(label);
+    await expect(this.el.publicLinkRow(tokenId)).toContainText(label);
   }
 
   @Step()
   async publicLinkNewBadgeVisible(tokenId: string): Promise<void> {
-    await expect(
-      this.page.getByTestId(`sharing-public-link-new-badge-${tokenId}`),
-    ).toBeVisible();
+    await expect(this.el.publicLinkNewBadge(tokenId)).toBeVisible();
   }
 
   @Step()
   async publicLinkNewBadgeAutoDismissed(tokenId: string): Promise<void> {
-    await expect(this.page.getByTestId(`sharing-public-link-new-badge-${tokenId}`)).toHaveCount(0);
+    await expect(this.el.publicLinkNewBadge(tokenId)).toHaveCount(0);
   }
 
   @Step()
@@ -214,26 +210,22 @@ export class SharingAssert extends BaseAssert {
 
   @Step()
   async firstPublicLinkRowIsVisible(): Promise<void> {
-    await expect(
-      this.page.locator('[data-testid^="sharing-public-link-row-"]').first(),
-    ).toBeVisible();
+    await expect(this.el.firstPublicLinkRow).toBeVisible();
   }
 
   @Step()
   async firstPublicLinkRowHasCopyButton(): Promise<void> {
-    const firstRow = this.page.locator('[data-testid^="sharing-public-link-row-"]').first();
-    await expect(firstRow.locator('[data-testid^="sharing-public-link-copy-"]')).toBeVisible();
+    await expect(this.el.firstPublicLinkCopyButton).toBeVisible();
   }
 
   @Step()
   async firstPublicLinkRowHasNewBadge(): Promise<void> {
-    const firstRow = this.page.locator('[data-testid^="sharing-public-link-row-"]').first();
-    await expect(firstRow.locator('[data-testid^="sharing-public-link-new-badge-"]')).toBeVisible();
+    await expect(this.el.firstPublicLinkNewBadge).toBeVisible();
   }
 
   @Step()
   async publicShareNotFoundIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("public-share-not-found")).toBeVisible();
+    await expect(this.el.testId("public-share-not-found", "Public Share Not Found")).toBeVisible();
   }
 
   @Step()

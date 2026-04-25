@@ -67,7 +67,7 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async submitTickerFilter(): Promise<void> {
-    await this.el.tickerInput.press("Enter");
+    await this.mxPressKey("Enter");
   }
 
   // ─── Filter bar — dropdowns ──────────────────────────────────────────────
@@ -91,11 +91,7 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async clickGranularity(level: "month" | "quarter" | "year"): Promise<void> {
-    // Granularity buttons are inside the toggle container, identified by their text content
-    const button = this.el.granularityToggle.locator("button").filter({
-      has: this.page.locator(`text=/${level}/i`),
-    });
-    await this.uiActions.click.perform(button);
+    await this.uiActions.click.perform(this.el.chartGranularityButton(level));
   }
 
   @Step()
@@ -107,12 +103,7 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async clickColumnHeader(field: string): Promise<void> {
-    // SortHeader renders as a <th> with onClick — locate by the field name
-    // The table header contains the label text and uses onClick(field)
-    const th = this.el.table.locator("thead th").filter({
-      has: this.page.locator(`text=/${field}/i`),
-    });
-    await this.uiActions.click.perform(th.first());
+    await this.uiActions.click.perform(this.el.tableHeader(field).first());
   }
 
   @Step()
@@ -122,7 +113,7 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async clickMarkMatched(ledgerEntryId: string): Promise<Response> {
-    const patchResponsePromise = this.page.waitForResponse(
+    const patchResponsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "PATCH"
         && response.url().includes("/portfolio/dividends/postings/")
@@ -154,8 +145,7 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async clickViewAllDividendsLink(): Promise<void> {
-    const link = this.page.getByRole("link", { name: /View all dividends|查看所有股利/i });
-    await this.uiActions.click.perform(link);
+    await this.uiActions.click.perform(this.el.pendingLink);
     await this.mxWaitForAppReady();
   }
 }

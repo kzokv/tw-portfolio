@@ -22,7 +22,7 @@ export class DividendsAssert extends BaseAssert {
 
   @Step()
   async rowContains(eventId: string, text: string | RegExp): Promise<void> {
-    await expect(this.el.row(eventId).locator("..")).toContainText(text);
+    await expect(this.el.row(eventId)).toContainText(text);
   }
 
   @Step()
@@ -32,27 +32,27 @@ export class DividendsAssert extends BaseAssert {
 
   @Step()
   async drawerIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.dialog).toBeVisible();
+    await expect(this.el.drawer.dialog).toBeVisible();
   }
 
   @Step()
   async drawerIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.dialog).not.toBeVisible();
+    await expect(this.el.drawer.dialog).not.toBeVisible();
   }
 
   @Step()
   async sourceLineAmountInputIsVisible(index: number): Promise<void> {
-    await expect(this.el.drawer.elements.sourceLines.elements.amountInput(index)).toBeVisible();
+    await expect(this.el.drawer.sourceLines.amountInput(index)).toBeVisible();
   }
 
   @Step()
   async sourceLineAmountInputIsHidden(index: number): Promise<void> {
-    await expect(this.el.drawer.elements.sourceLines.elements.amountInput(index)).not.toBeVisible();
+    await expect(this.el.drawer.sourceLines.amountInput(index)).not.toBeVisible();
   }
 
   @Step()
   async formErrorContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.drawer.elements.errorBanner).toContainText(text);
+    await expect(this.el.drawer.errorBanner).toContainText(text);
   }
 
   /** KZO-32: edit button is now enabled for all posted rows including stock/mixed. */
@@ -63,73 +63,73 @@ export class DividendsAssert extends BaseAssert {
 
   @Step()
   async reconcileSectionIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.reconcileSection).toBeVisible();
+    await expect(this.el.drawer.reconcileSection).toBeVisible();
   }
 
   @Step()
   async reconcileSectionIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.reconcileSection).not.toBeVisible();
+    await expect(this.el.drawer.reconcileSection).not.toBeVisible();
   }
 
   @Step()
   async amountsFormIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.form).not.toBeVisible();
+    await expect(this.el.drawer.form).not.toBeVisible();
   }
 
   @Step()
   async amountsFormIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.form).toBeVisible();
+    await expect(this.el.drawer.form).toBeVisible();
   }
 
   @Step()
   async stockEditDisabledLabelIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.stockEditDisabledLabel).toBeVisible();
+    await expect(this.el.drawer.stockEditDisabledLabel).toBeVisible();
   }
 
   @Step()
   async reconcileErrorContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.drawer.elements.reconcileError).toContainText(text);
+    await expect(this.el.drawer.reconcileError).toContainText(text);
   }
 
   // ─── Source Composition Tab (KZO-134) ─────────────────────────────────────
 
   @Step()
   async sourceCompositionToggleIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionToggle).toBeVisible();
+    await expect(this.el.drawer.sourceCompositionToggle).toBeVisible();
   }
 
   @Step()
   async sourceCompositionToggleIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionToggle).not.toBeVisible();
+    await expect(this.el.drawer.sourceCompositionToggle).not.toBeVisible();
   }
 
   @Step()
   async sourceCompositionTabIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionTab).toBeVisible();
+    await expect(this.el.drawer.sourceCompositionTab).toBeVisible();
   }
 
   @Step()
   async sourceCompositionEstimateWarningIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionEstimateWarning).toBeVisible();
+    await expect(this.el.drawer.sourceCompositionEstimateWarning).toBeVisible();
   }
 
   @Step()
   async sourceCompositionEstimateWarningIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionEstimateWarning).not.toBeVisible();
+    await expect(this.el.drawer.sourceCompositionEstimateWarning).not.toBeVisible();
   }
 
   @Step()
   async sourceCompositionNhiSubtotalContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.drawer.elements.sourceCompositionNhiSubtotal).toContainText(text);
+    await expect(this.el.drawer.sourceCompositionNhiSubtotal).toContainText(text);
   }
 
   @Step()
   async nhiEstimateWarningIsVisible(): Promise<void> {
-    await expect(this.el.drawer.elements.nhiEstimateWarning).toBeVisible();
+    await expect(this.el.drawer.nhiEstimateWarning).toBeVisible();
   }
 
   @Step()
   async nhiEstimateWarningIsHidden(): Promise<void> {
-    await expect(this.el.drawer.elements.nhiEstimateWarning).not.toBeVisible();
+    await expect(this.el.drawer.nhiEstimateWarning).not.toBeVisible();
   }
 }

@@ -1,7 +1,7 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
-import { DeductionSubFormComponent } from "./DeductionSubFormComponent.js";
-import { SourceLineSubFormComponent } from "./SourceLineSubFormComponent.js";
+import { DeductionSubFormComponent, type TDeductionSubFormElements } from "./DeductionSubFormComponent.js";
+import { SourceLineSubFormComponent, type TSourceLineSubFormElements } from "./SourceLineSubFormComponent.js";
 
 export interface TDividendPostingDrawerElements {
   dialog: Locator;
@@ -13,8 +13,8 @@ export interface TDividendPostingDrawerElements {
   saveButton: Locator;
   cancelButton: Locator;
   errorBanner: Locator;
-  deductions: DeductionSubFormComponent;
-  sourceLines: SourceLineSubFormComponent;
+  deductions: TDeductionSubFormElements;
+  sourceLines: TSourceLineSubFormElements;
   // Reconciliation section elements (KZO-32)
   reconcileSection: Locator;
   reconcileStatusSelect: Locator;
@@ -42,8 +42,8 @@ export class DividendPostingDrawerComponent extends BasePage<TDividendPostingDra
       saveButton: this.locate("dividend-save", "Save Dividend Posting"),
       cancelButton: this.locate("dividend-cancel", "Cancel Dividend Posting"),
       errorBanner: this.locate("dividend-form-error", "Dividend Form Error"),
-      deductions: new DeductionSubFormComponent(this.page),
-      sourceLines: new SourceLineSubFormComponent(this.page),
+      deductions: new DeductionSubFormComponent(this.page).elements,
+      sourceLines: new SourceLineSubFormComponent(this.page).elements,
       // Reconciliation section (KZO-32)
       reconcileSection: this.locate("dividend-reconcile-section", "Dividend Reconcile Section"),
       reconcileStatusSelect: this.locate("dividend-reconcile-status-select", "Dividend Reconcile Status Select"),

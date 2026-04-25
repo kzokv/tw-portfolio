@@ -1,20 +1,20 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
+import { BasePage, type TElementLocatorHelpers } from "@tw-portfolio/test-framework/core";
 
 import { SHARED_TEST_IDS } from "../constants.js";
-import { SearchComponent } from "./SearchComponent.js";
-import { SideNavigationComponent } from "./SideNavigationComponent.js";
-import { TopBarComponent } from "./TopBarComponent.js";
+import { SearchComponent, type TSearchElements } from "./SearchComponent.js";
+import { SideNavigationComponent, type TSideNavigationElements } from "./SideNavigationComponent.js";
+import { TopBarComponent, type TTopBarElements } from "./TopBarComponent.js";
 
-export interface TAppShellElements {
+export interface TAppShellElements extends TElementLocatorHelpers {
   appReady: Locator;
   globalError: Locator;
   impersonationBanner: Locator;
   impersonationCountdown: Locator;
   clientApiErrorToast: Locator;
-  topBar: TopBarComponent;
-  sideNavigation: SideNavigationComponent;
-  search: SearchComponent;
+  topBar: TTopBarElements;
+  sideNavigation: TSideNavigationElements;
+  search: TSearchElements;
   mobileNavToggle: Locator;
   mobileSidebar: Locator;
   desktopSidebar: Locator;
@@ -25,19 +25,26 @@ export interface TAppShellElements {
     costBasisValue: Locator;
     quotePollValue: Locator;
   };
+  avatarImage: Locator;
+  avatarInitials: Locator;
+  adminOwnDisabledActionButton: Locator;
+  adminActiveTimeframeChips: Locator;
+  adminFirstActiveTimeframeChip: Locator;
+  timeframeCustomizeRows: Locator;
 }
 
 export class AppShellPage extends BasePage<TAppShellElements> {
   protected initializeElements(): void {
     this._elements = {
+      ...this.locatorHelpers(),
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
       globalError: this.locate(SHARED_TEST_IDS.globalErrorBanner, "Global Error Banner"),
       impersonationBanner: this.locate("impersonation-banner", "Impersonation Banner"),
       impersonationCountdown: this.locate("impersonation-countdown", "Impersonation Countdown"),
       clientApiErrorToast: this.locate("client-api-error", "API Client Error Toast"),
-      topBar: new TopBarComponent(this.page),
-      sideNavigation: new SideNavigationComponent(this.page),
-      search: new SearchComponent(this.page),
+      topBar: new TopBarComponent(this.page).elements,
+      sideNavigation: new SideNavigationComponent(this.page).elements,
+      search: new SearchComponent(this.page).elements,
       mobileNavToggle: this.locate("mobile-nav-toggle", "Mobile Nav Toggle"),
       mobileSidebar: this.locate("mobile-sidebar", "Mobile Sidebar"),
       desktopSidebar: this.locate("desktop-sidebar", "Desktop Sidebar"),
@@ -48,6 +55,35 @@ export class AppShellPage extends BasePage<TAppShellElements> {
         costBasisValue: this.locate("settings-cost-basis-value", "Cost Basis Summary Value"),
         quotePollValue: this.locate("settings-quote-poll-value", "Quote Poll Summary Value"),
       },
+      avatarImage: this.withinByCss(this.locate("avatar-button"), "img", "Avatar Image"),
+      avatarInitials: this.withinByCss(
+        this.locate("avatar-button"),
+        "span[aria-hidden='true']",
+        "Avatar Initials",
+      ),
+      adminOwnDisabledActionButton: this.withDescription(
+        this.locate("users-table")
+          .locator("tr", { has: this.locate("you-badge") })
+          .locator("button[disabled]")
+          .first(),
+        "Current User Disabled Admin Action",
+      ),
+      adminActiveTimeframeChips: this.withDescription(
+        this.locate("timeframe-defaults-section")
+          .locator('[data-testid^="timeframe-chip-"][data-active="true"]'),
+        "Admin Active Timeframe Chips",
+      ),
+      adminFirstActiveTimeframeChip: this.withDescription(
+        this.locate("timeframe-defaults-section")
+          .locator('[data-testid^="timeframe-chip-"][data-active="true"]')
+          .first(),
+        "First Admin Active Timeframe Chip",
+      ),
+      timeframeCustomizeRows: this.withDescription(
+        this.locate("timeframe-customize-popover")
+          .locator('[data-testid^="timeframe-customize-row-"]'),
+        "Timeframe Customize Rows",
+      ),
     };
   }
 }

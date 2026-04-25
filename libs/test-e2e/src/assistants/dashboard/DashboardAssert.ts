@@ -43,28 +43,22 @@ export class DashboardAssert extends BaseAssert {
 
   @Step()
   async summaryDailyChangeIsSubdued(): Promise<void> {
-    const dailyChangeCard = this.el.summarySection
-      .locator(".glass-inset")
-      .filter({ hasText: /daily change/i });
-    await expect(dailyChangeCard.locator("p.text-slate-400")).toBeVisible();
+    await expect(this.el.dailyChangeSubduedText).toBeVisible();
   }
 
   @Step()
   async holdingsTableHasDailyChangeColumn(): Promise<void> {
-    await expect(this.el.holdingsTable.locator("thead th")).toContainText([/daily change/i]);
+    await expect(this.el.holdingsHeaderCells).toContainText([/daily change/i]);
   }
 
   @Step()
   async holdingRowContainsText(ticker: string, text: string | RegExp): Promise<void> {
-    const row = this.el.holdingsTable.locator("tbody tr").filter({ hasText: ticker });
-    await expect(row).toContainText(text);
+    await expect(this.el.holdingRow(ticker)).toContainText(text);
   }
 
   @Step()
   async holdingRowHasColorClass(ticker: string, colorClass: string): Promise<void> {
-    const row = this.el.holdingsTable.locator("tbody tr").filter({ hasText: ticker });
-    const dailyChangeCell = row.locator("td").nth(5);
-    await expect(dailyChangeCell).toHaveClass(new RegExp(colorClass));
+    await expect(this.el.holdingDailyChangeCell(ticker)).toHaveClass(new RegExp(colorClass));
   }
 
   @Step()
@@ -121,9 +115,7 @@ export class DashboardAssert extends BaseAssert {
 
   @Step()
   async performanceChartHasData(): Promise<void> {
-    // Chart SVG has at least one <path> with a non-empty d attribute (data lines rendered)
-    const paths = this.el.performanceChart.locator("path[d]");
-    await expect(paths.first()).toBeVisible();
+    await expect(this.el.performanceChartDataPath.first()).toBeVisible();
   }
 
   @Step()
@@ -143,8 +135,7 @@ export class DashboardAssert extends BaseAssert {
 
   @Step()
   async returnPercentChartHasData(): Promise<void> {
-    const paths = this.el.returnPercentChart.locator("path[d]");
-    await expect(paths.first()).toBeVisible();
+    await expect(this.el.returnPercentChartDataPath.first()).toBeVisible();
   }
 
   @Step()

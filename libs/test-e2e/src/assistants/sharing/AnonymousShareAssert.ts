@@ -42,12 +42,12 @@ export class AnonymousShareAssert extends BaseAssert {
 
   @Step()
   async holdingRowVisible(ticker: string): Promise<void> {
-    await expect(this.page.getByTestId(`public-share-holding-${ticker}`)).toBeVisible();
+    await expect(this.el.holding(ticker)).toBeVisible();
   }
 
   @Step()
   async holdingRowHidden(ticker: string): Promise<void> {
-    await expect(this.page.getByTestId(`public-share-holding-${ticker}`)).toHaveCount(0);
+    await expect(this.el.holding(ticker)).toHaveCount(0);
   }
 
   @Step()
@@ -72,18 +72,18 @@ export class AnonymousShareAssert extends BaseAssert {
 
   @Step()
   async robotsMetaIsNoIndexNoFollow(): Promise<void> {
-    await expect(this.page.locator('meta[name="robots"][content="noindex, nofollow"]')).toHaveCount(1);
+    await expect(this.el.robotsNoIndexMeta).toHaveCount(1);
   }
 
   @Step()
   async domDoesNotContainCostBasis(): Promise<void> {
     // The disclosure text legitimately says "No cost basis …"; we only want to reject
     // a numeric cost-basis value leaking into the page (e.g. "Cost basis: NT$50,071").
-    await expect(this.page.locator("body")).not.toContainText(/cost[\s-]?basis[\s:：]+[\d$NT]/i);
+    await expect(this.el.body).not.toContainText(/cost[\s-]?basis[\s:：]+[\d$NT]/i);
   }
 
   @Step()
   async totalValueByCurrencyIsVisible(currency: string): Promise<void> {
-    await expect(this.page.getByTestId(`public-share-total-${currency}`)).toBeVisible();
+    await expect(this.el.totalByCurrency(currency)).toBeVisible();
   }
 }

@@ -22,8 +22,7 @@ export class CashLedgerActions extends AppBaseActions {
 
   @Step()
   async closeDrawer(): Promise<void> {
-    // Press Escape to close the drawer
-    await this.page.keyboard.press("Escape");
+    await this.mxPressKey("Escape");
   }
 
   @Step()
@@ -45,7 +44,6 @@ export class CashLedgerActions extends AppBaseActions {
 
   @Step()
   async clickColumnHeader(field: string): Promise<void> {
-    const header = this.el.table.locator("th").filter({ hasText: new RegExp(field, "i") });
-    await this.uiActions.click.perform(header);
+    await this.uiActions.click.perform(this.el.columnHeader(field));
   }
 }

@@ -25,7 +25,7 @@ export class SessionActions extends AppBaseActions {
 
   @Step()
   async navigateToAppPath(path: string): Promise<void> {
-    await this.page.goto(appUrl(path), { waitUntil: "domcontentloaded" });
+    await this.mxGotoUrl(appUrl(path));
   }
 
   @Step()
@@ -49,7 +49,7 @@ export class SessionActions extends AppBaseActions {
             sameSite: "Lax" as const,
           };
 
-    await this.page.context().addCookies([cookie]);
+    await this.mxAddCookies([cookie]);
   }
 
   @Step()
@@ -177,9 +177,8 @@ export class SessionActions extends AppBaseActions {
 
   @Step()
   async logoutViaApi(): Promise<void> {
-    await this.page.goto(
+    await this.mxGotoUrl(
       `http://${TestEnv.host}:${TestEnv.ports.api}/auth/logout`,
-      { waitUntil: "domcontentloaded" },
     ).catch(() => undefined);
   }
 
