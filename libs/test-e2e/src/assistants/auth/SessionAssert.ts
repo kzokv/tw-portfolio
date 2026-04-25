@@ -6,6 +6,10 @@ import type { BrowserSessionPage } from "../../pages/auth/BrowserSessionPage.js"
 export class SessionAssert extends BaseAssert {
   declare protected readonly _instance: BrowserSessionPage;
 
+  private get el() {
+    return this._instance.elements;
+  }
+
   @Step()
   async responseStatusIs(response: { status(): number }, expectedStatus: number): Promise<void> {
     await this.mxAssertEqual(response.status(), expectedStatus, "response status");
@@ -112,6 +116,6 @@ export class SessionAssert extends BaseAssert {
 
   @Step()
   async noGlobalErrorBanner(): Promise<void> {
-    await this.mxAssertHidden(this._instance.elements.globalErrorBanner, 10_000);
+    await this.mxAssertHidden(this.el.globalErrorBanner, 10_000);
   }
 }

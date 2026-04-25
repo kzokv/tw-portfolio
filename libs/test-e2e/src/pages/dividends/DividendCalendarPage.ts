@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { BasePage } from "@tw-portfolio/test-framework/core";
-import { DividendPostingDrawerComponent } from "./DividendPostingDrawerComponent.js";
+import { DividendPostingDrawerComponent, type TDividendPostingDrawerElements } from "./DividendPostingDrawerComponent.js";
 
 export interface TDividendCalendarElements {
   calendarPage: Locator;
@@ -10,7 +10,7 @@ export interface TDividendCalendarElements {
   postButton: (eventId: string) => Locator;
   editButton: (eventId: string) => Locator;
   markMatchedButton: (eventId: string) => Locator;
-  drawer: DividendPostingDrawerComponent;
+  drawer: TDividendPostingDrawerElements;
 }
 
 export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
@@ -23,7 +23,7 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
       postButton: (eventId: string) => this.locate(`dividend-post-${eventId}`, `Post Dividend Button ${eventId}`),
       editButton: (eventId: string) => this.locate(`dividend-edit-${eventId}`, `Edit Dividend Button ${eventId}`),
       markMatchedButton: (eventId: string) => this.locate(`dividend-mark-matched-${eventId}`, `Mark Dividend Matched Button ${eventId}`),
-      drawer: new DividendPostingDrawerComponent(this.page),
+      drawer: new DividendPostingDrawerComponent(this.page).elements,
     };
   }
 }

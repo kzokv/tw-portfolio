@@ -13,7 +13,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async topBarTitleContains(text: string): Promise<void> {
-    await expect(this.el.topBar.elements.title).toContainText(text);
+    await expect(this.el.topBar.title).toContainText(text);
   }
 
   @Step()
@@ -49,12 +49,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async desktopSearchIsVisible(): Promise<void> {
-    await expect(this.el.search.elements.desktopSearch).toBeVisible();
+    await expect(this.el.search.desktopSearch).toBeVisible();
   }
 
   @Step()
   async desktopSearchPaddingLeftAtLeast(expectedMinimum: number): Promise<void> {
-    const paddingLeft = await this.el.search.elements.desktopSearch.evaluate(
+    const paddingLeft = await this.el.search.desktopSearch.evaluate(
       (input) => Number.parseFloat(getComputedStyle(input).paddingLeft),
     );
     await this.mxAssertGreaterThanOrEqual(paddingLeft, expectedMinimum, "desktop search left padding");
@@ -62,12 +62,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async searchResultsAreVisible(): Promise<void> {
-    await expect(this.el.search.elements.desktopResults).toBeVisible();
+    await expect(this.el.search.desktopResults).toBeVisible();
   }
 
   @Step()
   async quickSearchTickerIsVisible(symbol: string): Promise<void> {
-    await expect(this.el.search.elements.desktopResults.getByRole("button", { name: new RegExp(symbol) })).toBeVisible();
+    await expect(this.el.search.desktopResults.getByRole("button", { name: new RegExp(symbol) })).toBeVisible();
   }
 
   @Step()
@@ -77,12 +77,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async mobileSearchButtonIsVisible(): Promise<void> {
-    await expect(this.el.search.elements.mobileSearchButton).toBeVisible();
+    await expect(this.el.search.mobileSearchButton).toBeVisible();
   }
 
   @Step()
   async mobileSearchSheetIsVisible(): Promise<void> {
-    await expect(this.el.search.elements.mobileSheet).toBeVisible();
+    await expect(this.el.search.mobileSheet).toBeVisible();
   }
 
   @Step()
@@ -96,7 +96,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async avatarButtonIsFocused(): Promise<void> {
-    await expect(this.el.topBar.elements.avatarButton).toBeFocused();
+    await expect(this.el.topBar.avatarButton).toBeFocused();
   }
 
   @Step()
@@ -106,7 +106,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async statusToastContains(text: string | RegExp): Promise<void> {
-    await expect(this.page.getByTestId("context-status")).toContainText(text);
+    await expect(this.el.testId("context-status")).toContainText(text);
   }
 
   @Step()
@@ -131,167 +131,162 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async clientApiErrorIsAbsent(): Promise<void> {
-    await expect(this.page.getByTestId("client-api-error")).toHaveCount(0);
+    await expect(this.el.testId("client-api-error")).toHaveCount(0);
   }
 
   @Step()
   async avatarMenuShowsSettingsAndSignOut(): Promise<void> {
-    await expect(this.el.topBar.elements.avatarMenuSettings).toBeVisible();
-    await expect(this.el.topBar.elements.avatarMenuSignOut).toBeVisible();
+    await expect(this.el.topBar.avatarMenuSettings).toBeVisible();
+    await expect(this.el.topBar.avatarMenuSignOut).toBeVisible();
   }
 
   @Step()
   async avatarIdentityContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.topBar.elements.avatarMenuIdentity).toContainText(text);
+    await expect(this.el.topBar.avatarMenuIdentity).toContainText(text);
   }
 
   @Step()
   async avatarImageSourceContains(text: string): Promise<void> {
-    const image = this.el.topBar.elements.avatarButton.locator("img");
-    await expect(image).toBeVisible();
-    expect(await image.getAttribute("src")).toContain(text);
+    await expect(this.el.avatarImage).toBeVisible();
+    expect(await this.el.avatarImage.getAttribute("src")).toContain(text);
   }
 
   @Step()
   async avatarShowsNoImage(): Promise<void> {
-    await expect(this.el.topBar.elements.avatarButton.locator("img")).toHaveCount(0);
+    await expect(this.el.avatarImage).toHaveCount(0);
   }
 
   @Step()
   async avatarInitialsMatch(expected: RegExp): Promise<void> {
-    await expect(
-      this.el.topBar.elements.avatarButton.locator("span[aria-hidden='true']"),
-    ).toHaveText(expected);
+    await expect(this.el.avatarInitials).toHaveText(expected);
   }
 
   @Step()
   async notificationBellIsVisible(): Promise<void> {
-    await expect(this.el.topBar.elements.notificationBell).toBeVisible();
+    await expect(this.el.topBar.notificationBell).toBeVisible();
   }
 
   @Step()
   async notificationBadgeIsHidden(): Promise<void> {
-    await expect(this.el.topBar.elements.notificationBadge).toBeHidden();
+    await expect(this.el.topBar.notificationBadge).toBeHidden();
   }
 
   @Step()
   async notificationBadgeCountIs(expected: number): Promise<void> {
-    await expect(this.el.topBar.elements.notificationBadge).toBeVisible();
-    await expect(this.el.topBar.elements.notificationBadge).toHaveText(String(expected));
+    await expect(this.el.topBar.notificationBadge).toBeVisible();
+    await expect(this.el.topBar.notificationBadge).toHaveText(String(expected));
   }
 
   @Step()
   async notificationDropdownIsVisible(): Promise<void> {
-    await expect(this.el.topBar.elements.notificationDropdown).toBeVisible();
+    await expect(this.el.topBar.notificationDropdown).toBeVisible();
   }
 
   @Step()
   async notificationDropdownIsHidden(): Promise<void> {
-    await expect(this.el.topBar.elements.notificationDropdown).toBeHidden();
+    await expect(this.el.topBar.notificationDropdown).toBeHidden();
   }
 
   @Step()
   async notificationEmptyStateIsVisible(): Promise<void> {
-    await expect(this.el.topBar.elements.notificationEmpty).toBeVisible();
+    await expect(this.el.topBar.notificationEmpty).toBeVisible();
   }
 
   @Step()
   async notificationItemIsVisible(notificationId: string): Promise<void> {
-    await expect(this.page.getByTestId(`notification-item-${notificationId}`)).toBeVisible();
+    await expect(this.el.testId(`notification-item-${notificationId}`)).toBeVisible();
   }
 
   @Step()
   async notificationItemIsHidden(notificationId: string): Promise<void> {
-    await expect(this.page.getByTestId(`notification-item-${notificationId}`)).toBeHidden();
+    await expect(this.el.testId(`notification-item-${notificationId}`)).toBeHidden();
   }
 
   @Step()
   async notificationUnreadDotIsVisible(notificationId: string): Promise<void> {
-    await expect(this.page.getByTestId(`notification-unread-${notificationId}`)).toBeVisible();
+    await expect(this.el.testId(`notification-unread-${notificationId}`)).toBeVisible();
   }
 
   @Step()
   async notificationUnreadDotIsHidden(notificationId: string): Promise<void> {
-    await expect(this.page.getByTestId(`notification-unread-${notificationId}`)).toBeHidden();
+    await expect(this.el.testId(`notification-unread-${notificationId}`)).toBeHidden();
   }
 
   // ── Admin portal assertions ───────────────────────────────────────────────
 
   @Step()
   async adminUsersPageIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-users-page")).toBeVisible();
+    await expect(this.el.testId("admin-users-page")).toBeVisible();
   }
 
   @Step()
   async adminInvitesPageIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-invites-page")).toBeVisible();
+    await expect(this.el.testId("admin-invites-page")).toBeVisible();
   }
 
   @Step()
   async adminAuditLogPageIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-audit-log-page")).toBeVisible();
+    await expect(this.el.testId("admin-audit-log-page")).toBeVisible();
   }
 
   @Step()
   async adminUsersTableIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("users-table")).toBeVisible();
+    await expect(this.el.testId("users-table")).toBeVisible();
   }
 
   @Step()
   async adminInvitesTableIsVisible(): Promise<void> {
     // Fresh test users may have zero invites — accept either the table or the empty state
-    const table = this.page.getByTestId("invites-table");
-    const empty = this.page.getByText("No invites found.");
+    const table = this.el.testId("invites-table");
+    const empty = this.el.text("No invites found.");
     await expect(table.or(empty)).toBeVisible();
   }
 
   @Step()
   async adminAuditLogTableIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("audit-log-table")).toBeVisible();
+    await expect(this.el.testId("audit-log-table")).toBeVisible();
   }
 
   @Step()
   async adminYouBadgeIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("you-badge")).toBeVisible();
+    await expect(this.el.testId("you-badge")).toBeVisible();
   }
 
   @Step()
   async adminOwnRowHasDisabledActions(): Promise<void> {
-    const youBadge = this.page.getByTestId("you-badge");
-    const ownRow = youBadge.locator("xpath=ancestor::tr").first();
-    await expect(ownRow.locator("button[disabled]").first()).toBeVisible();
+    await expect(this.el.adminOwnDisabledActionButton).toBeVisible();
   }
 
   @Step()
   async adminInviteFormSuccessIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("invite-form-success")).toBeVisible();
+    await expect(this.el.testId("invite-form-success")).toBeVisible();
   }
 
   @Step()
   async adminInviteStatusBadgeIsVisible(status: string): Promise<void> {
-    await expect(this.page.getByTestId(`status-badge-${status}`).first()).toBeVisible();
+    await expect(this.el.testId(`status-badge-${status}`).first()).toBeVisible();
   }
 
   @Step()
   async adminConfirmDialogIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("confirm-dialog")).toBeVisible();
+    await expect(this.el.testId("confirm-dialog")).toBeVisible();
   }
 
   @Step()
   async avatarMenuAdminLinkIsVisible(): Promise<void> {
-    await expect(this.el.topBar.elements.avatarMenuAdmin).toBeVisible();
+    await expect(this.el.topBar.avatarMenuAdmin).toBeVisible();
   }
 
   // ── Admin settings assertions ─────────────────────────────────────────────
 
   @Step()
   async adminSettingsPageIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-page")).toBeVisible();
+    await expect(this.el.testId("admin-settings-page")).toBeVisible();
   }
 
   @Step()
   async adminSettingsSidebarLinkIsCurrent(): Promise<void> {
-    await expect(this.page.getByTestId("admin-sidebar-link-settings").first()).toHaveAttribute(
+    await expect(this.el.testId("admin-sidebar-link-settings").first()).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -299,7 +294,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminSettingsOverrideToggleChecked(checked: boolean): Promise<void> {
-    const toggle = this.page.getByTestId("admin-settings-override-toggle");
+    const toggle = this.el.testId("admin-settings-override-toggle");
     if (checked) {
       await expect(toggle).toBeChecked();
     } else {
@@ -309,49 +304,49 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminSettingsEnvDefaultBadgeIsVisible(): Promise<void> {
-    const badge = this.page.getByTestId("admin-settings-env-default-badge");
+    const badge = this.el.testId("admin-settings-env-default-badge");
     await expect(badge).toBeVisible();
     await expect(badge).toContainText(/Using env default/i);
   }
 
   @Step()
   async adminSettingsEnvDefaultBadgeIsHidden(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-env-default-badge")).toHaveCount(0);
+    await expect(this.el.testId("admin-settings-env-default-badge")).toHaveCount(0);
   }
 
   @Step()
   async adminSettingsMinutesInputIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-minutes-input")).toBeVisible();
+    await expect(this.el.testId("admin-settings-minutes-input")).toBeVisible();
   }
 
   @Step()
   async adminSettingsMinutesInputIsHidden(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-minutes-input")).toHaveCount(0);
+    await expect(this.el.testId("admin-settings-minutes-input")).toHaveCount(0);
   }
 
   @Step()
   async adminSettingsMinutesInputHasValue(value: string): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-minutes-input")).toHaveValue(value);
+    await expect(this.el.testId("admin-settings-minutes-input")).toHaveValue(value);
   }
 
   @Step()
   async adminSettingsSaveSuccessIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-save-success")).toBeVisible();
+    await expect(this.el.testId("admin-settings-save-success")).toBeVisible();
   }
 
   @Step()
   async adminSettingsLastUpdatedIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-last-updated")).toBeVisible();
+    await expect(this.el.testId("admin-settings-last-updated")).toBeVisible();
   }
 
   @Step()
   async adminSettingsValidationErrorIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-validation-error")).toBeVisible();
+    await expect(this.el.testId("admin-settings-validation-error")).toBeVisible();
   }
 
   @Step()
   async adminSettingsSaveButtonIsDisabled(): Promise<void> {
-    await expect(this.page.getByTestId("admin-settings-save-button")).toBeDisabled();
+    await expect(this.el.testId("admin-settings-save-button")).toBeDisabled();
   }
 
   // ── KZO-159 — Admin timeframe defaults section assertions ─────────────────
@@ -363,12 +358,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeSectionIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-defaults-section")).toBeVisible();
+    await expect(this.el.testId("timeframe-defaults-section")).toBeVisible();
   }
 
   @Step()
   async adminTimeframeChipIsActive(range: string): Promise<void> {
-    const chip = this.page.getByTestId(`timeframe-chip-${range}`);
+    const chip = this.el.testId(`timeframe-chip-${range}`);
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute("data-active", "true");
   }
@@ -378,7 +373,7 @@ export class AppShellAssert extends BaseAssert {
     // Either the chip is rendered as an "available" predefined chip
     // (`data-active="false"`), or it is not rendered at all — both
     // satisfy "not in the active list."
-    const chip = this.page.getByTestId(`timeframe-chip-${range}`);
+    const chip = this.el.testId(`timeframe-chip-${range}`);
     const count = await chip.count();
     if (count === 0) return;
     await expect(chip).toHaveAttribute("data-active", "false");
@@ -386,19 +381,15 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeChipIsAbsent(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-chip-${range}`)).toHaveCount(0);
+    await expect(this.el.testId(`timeframe-chip-${range}`)).toHaveCount(0);
   }
 
   @Step()
   async adminTimeframeChipsInOrder(expected: string[]): Promise<void> {
-    // Read the rendered order of ACTIVE chips by filtering on data-active="true".
-    const activeChips = this.page
-      .getByTestId("timeframe-defaults-section")
-      .locator('[data-testid^="timeframe-chip-"][data-active="true"]');
-    const count = await activeChips.count();
+    const count = await this.el.adminActiveTimeframeChips.count();
     const actual: string[] = [];
     for (let i = 0; i < count; i += 1) {
-      const testId = await activeChips.nth(i).getAttribute("data-testid");
+      const testId = await this.el.adminActiveTimeframeChips.nth(i).getAttribute("data-testid");
       if (testId?.startsWith("timeframe-chip-")) {
         actual.push(testId.slice("timeframe-chip-".length));
       }
@@ -408,27 +399,27 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeValidationErrorIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-validation-error")).toBeVisible();
+    await expect(this.el.testId("timeframe-validation-error")).toBeVisible();
   }
 
   @Step()
   async adminTimeframeValidationErrorIsHidden(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-validation-error")).toHaveCount(0);
+    await expect(this.el.testId("timeframe-validation-error")).toHaveCount(0);
   }
 
   @Step()
   async adminTimeframeSaveButtonIsEnabled(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-save-button")).toBeEnabled();
+    await expect(this.el.testId("timeframe-save-button")).toBeEnabled();
   }
 
   @Step()
   async adminTimeframeSaveButtonIsDisabled(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-save-button")).toBeDisabled();
+    await expect(this.el.testId("timeframe-save-button")).toBeDisabled();
   }
 
   @Step()
   async adminTimeframeSaveSuccessIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-save-success")).toBeVisible();
+    await expect(this.el.testId("timeframe-save-success")).toBeVisible();
   }
 
   @Step()
@@ -436,19 +427,13 @@ export class AppShellAssert extends BaseAssert {
     // Waits for the dnd-kit SortableRangeList to fully hydrate on the client.
     // Pre-mount (SSR fallback) renders the drag handle as `disabled`; post-mount
     // (isMounted=true) renders it as enabled with live dnd-kit listeners.
-    await expect(this.page.getByTestId(`timeframe-drag-handle-${range}`)).toBeEnabled();
+    await expect(this.el.testId(`timeframe-drag-handle-${range}`)).toBeEnabled();
   }
 
   @Step()
   async adminTimeframeFirstActiveChipIs(range: string): Promise<void> {
-    // Polls until the first active chip in the list has the expected data-testid.
-    // Used after a drag to confirm React committed the reorder before asserting Save.
-    await expect(
-      this.page
-        .getByTestId("timeframe-defaults-section")
-        .locator('[data-testid^="timeframe-chip-"][data-active="true"]')
-        .first(),
-    ).toHaveAttribute("data-testid", `timeframe-chip-${range}`);
+    await expect(this.el.adminFirstActiveTimeframeChip)
+      .toHaveAttribute("data-testid", `timeframe-chip-${range}`);
   }
 
   // NOTE: adminTimeframeChipUpButtonIsDisabled / adminTimeframeChipDownButtonIsDisabled
@@ -460,49 +445,49 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async avatarMenuSharingLinkIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("avatar-menu-sharing")).toBeVisible();
+    await expect(this.el.testId("avatar-menu-sharing")).toBeVisible();
   }
 
   @Step()
   async sharingPageIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("sharing-page")).toBeVisible();
+    await expect(this.el.testId("sharing-page")).toBeVisible();
   }
 
   @Step()
   async sharingGrantButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("sharing-grant-button")).toBeVisible();
+    await expect(this.el.testId("sharing-grant-button")).toBeVisible();
   }
 
   @Step()
   async sharingOutboundSectionIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("sharing-outbound-section")).toBeVisible();
+    await expect(this.el.testId("sharing-outbound-section")).toBeVisible();
   }
 
   @Step()
   async sharingInboundSectionIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("sharing-inbound-section")).toBeVisible();
+    await expect(this.el.testId("sharing-inbound-section")).toBeVisible();
   }
 
   @Step()
   async sharingGrantDialogIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("grant-share-dialog")).toBeVisible();
+    await expect(this.el.testId("grant-share-dialog")).toBeVisible();
   }
 
   @Step()
   async sharingGrantEmailInputIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("grant-share-email-input")).toBeVisible();
+    await expect(this.el.testId("grant-share-email-input")).toBeVisible();
   }
 
   @Step()
   async adminAuditLogTableContains(text: string): Promise<void> {
-    const table = this.page.getByTestId("audit-log-table");
+    const table = this.el.testId("audit-log-table");
     await expect(table).toBeVisible();
     await expect(table).toContainText(text);
   }
 
   @Step()
   async pageContainsText(text: string): Promise<void> {
-    await expect(this.page.getByText(text).first()).toBeVisible();
+    await expect(this.el.text(text).first()).toBeVisible();
   }
 
   // ── KZO-159 → KZO-161 — Dashboard performance range button assertions ──────
@@ -522,14 +507,14 @@ export class AppShellAssert extends BaseAssert {
   @Step()
   async dashboardPerformanceRangeButtonIsVisible(range: string): Promise<void> {
     await expect(
-      this.page.getByTestId(`dashboard-performance-range-${range.toLowerCase()}`),
+      this.el.testId(`dashboard-performance-range-${range.toLowerCase()}`),
     ).toBeVisible();
   }
 
   @Step()
   async dashboardPerformanceRangeButtonIsAbsent(range: string): Promise<void> {
     await expect(
-      this.page.getByTestId(`dashboard-performance-range-${range.toLowerCase()}`),
+      this.el.testId(`dashboard-performance-range-${range.toLowerCase()}`),
     ).toHaveCount(0);
   }
 
@@ -537,42 +522,42 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async timeframeGearButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-gear-btn")).toBeVisible();
+    await expect(this.el.testId("timeframe-gear-btn")).toBeVisible();
   }
 
   @Step()
   async timeframeCustomizePopoverIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-customize-popover")).toBeVisible();
+    await expect(this.el.testId("timeframe-customize-popover")).toBeVisible();
   }
 
   @Step()
   async timeframeCustomizePopoverIsHidden(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-customize-popover")).toHaveCount(0);
+    await expect(this.el.testId("timeframe-customize-popover")).toHaveCount(0);
   }
 
   @Step()
   async timeframeCustomizeRowIsVisible(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-customize-row-${range}`)).toBeVisible();
+    await expect(this.el.testId(`timeframe-customize-row-${range}`)).toBeVisible();
   }
 
   @Step()
   async timeframeCustomizeRowIsAbsent(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-customize-row-${range}`)).toHaveCount(0);
+    await expect(this.el.testId(`timeframe-customize-row-${range}`)).toHaveCount(0);
   }
 
   @Step()
   async timeframeDragHandleIsVisible(range: string): Promise<void> {
-    await expect(this.page.getByTestId(`timeframe-drag-handle-${range}`)).toBeVisible();
+    await expect(this.el.testId(`timeframe-drag-handle-${range}`)).toBeVisible();
   }
 
   @Step()
   async timeframeSaveButtonIsEnabled(): Promise<void> {
-    await expect(this.page.getByTestId("timeframe-save-btn")).toBeEnabled();
+    await expect(this.el.testId("timeframe-save-btn")).toBeEnabled();
   }
 
   @Step()
   async timeframeToggleIsEnabled(range: string): Promise<void> {
-    const toggle = this.page.getByTestId(`timeframe-toggle-${range}`);
+    const toggle = this.el.testId(`timeframe-toggle-${range}`);
     await expect(toggle).toBeVisible();
     // Toggle is "enabled" = checked/active
     await expect(toggle).toHaveAttribute("data-active", "true");
@@ -580,7 +565,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async timeframeToggleIsDisabled(range: string): Promise<void> {
-    const toggle = this.page.getByTestId(`timeframe-toggle-${range}`);
+    const toggle = this.el.testId(`timeframe-toggle-${range}`);
     await expect(toggle).toBeVisible();
     // Toggle is "disabled" = unchecked/inactive
     await expect(toggle).toHaveAttribute("data-active", "false");
@@ -588,12 +573,10 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async timeframeCustomizeRowsInOrder(expected: string[]): Promise<void> {
-    const popover = this.page.getByTestId("timeframe-customize-popover");
-    const rows = popover.locator('[data-testid^="timeframe-customize-row-"]');
-    const count = await rows.count();
+    const count = await this.el.timeframeCustomizeRows.count();
     const actual: string[] = [];
     for (let i = 0; i < count; i++) {
-      const testId = await rows.nth(i).getAttribute("data-testid");
+      const testId = await this.el.timeframeCustomizeRows.nth(i).getAttribute("data-testid");
       if (testId?.startsWith("timeframe-customize-row-")) {
         actual.push(testId.slice("timeframe-customize-row-".length));
       }
@@ -605,51 +588,51 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async settingsDisplayTabIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("settings-tab-display")).toBeVisible();
+    await expect(this.el.testId("settings-tab-display")).toBeVisible();
   }
 
   @Step()
   async displayTimeframesSectionIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("display-timeframes-section")).toBeVisible();
+    await expect(this.el.testId("display-timeframes-section")).toBeVisible();
   }
 
   @Step()
   async displayLayoutSectionIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("display-layout-section")).toBeVisible();
+    await expect(this.el.testId("display-layout-section")).toBeVisible();
   }
 
   // KZO-162 — per-page Reset buttons (4 always-visible buttons in Display tab).
 
   @Step()
   async resetAllLayoutsButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("reset-all-layouts-btn")).toBeVisible();
+    await expect(this.el.testId("reset-all-layouts-btn")).toBeVisible();
   }
 
   @Step()
   async resetDashboardLayoutButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("reset-dashboard-layout-btn")).toBeVisible();
+    await expect(this.el.testId("reset-dashboard-layout-btn")).toBeVisible();
   }
 
   @Step()
   async resetTransactionsLayoutButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("reset-transactions-layout-btn")).toBeVisible();
+    await expect(this.el.testId("reset-transactions-layout-btn")).toBeVisible();
   }
 
   @Step()
   async resetPortfolioLayoutButtonIsVisible(): Promise<void> {
-    await expect(this.page.getByTestId("reset-portfolio-layout-btn")).toBeVisible();
+    await expect(this.el.testId("reset-portfolio-layout-btn")).toBeVisible();
   }
 
   // ── KZO-161 — Card reorder assertions (F5) ───────────────────────────────
 
   @Step()
   async cardIsVisible(slug: string): Promise<void> {
-    await expect(this.page.getByTestId(`card-${slug}`)).toBeVisible();
+    await expect(this.el.testId(`card-${slug}`)).toBeVisible();
   }
 
   @Step()
   async cardDragHandleIsVisible(slug: string): Promise<void> {
-    await expect(this.page.getByTestId(`card-drag-handle-${slug}`)).toBeVisible();
+    await expect(this.el.testId(`card-drag-handle-${slug}`)).toBeVisible();
   }
 
   /**
@@ -660,7 +643,7 @@ export class AppShellAssert extends BaseAssert {
   async cardsAreInOrder(expectedSlugs: string[]): Promise<void> {
     const cards = await Promise.all(
       expectedSlugs.map(async (slug) => {
-        const el = this.page.getByTestId(`card-${slug}`);
+        const el = this.el.testId(`card-${slug}`);
         const box = await el.boundingBox();
         return { slug, top: box?.y ?? 0 };
       }),
@@ -678,7 +661,7 @@ export class AppShellAssert extends BaseAssert {
    */
   @Step()
   async cardIsFullWidth(slug: string): Promise<void> {
-    const gridColSpan = await this.page.getByTestId(`card-${slug}`).evaluate((el) => {
+    const gridColSpan = await this.el.testId(`card-${slug}`).evaluate((el) => {
       return getComputedStyle(el).gridColumn;
     });
     // xl:col-span-2 resolves to "span 2 / span 2" or similar

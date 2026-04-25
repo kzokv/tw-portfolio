@@ -12,10 +12,6 @@ export class SettingsActions extends AppBaseActions {
     return this._instance.elements;
   }
 
-  private repairCheckboxForTicker(ticker: string) {
-    return this.page.getByTestId(`repair-selection-${ticker}`);
-  }
-
   @Step()
   async getQuotePollValue(): Promise<string> {
     return await this.el.general.quotePollInput.inputValue();
@@ -33,12 +29,12 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async focusLocaleTooltip(): Promise<void> {
-    await this.el.general.localeTooltipTrigger.focus();
+    await this.mxFocus(this.el.general.localeTooltipTrigger);
   }
 
   @Step()
   async focusCostBasisTooltip(): Promise<void> {
-    await this.el.general.costBasisTooltipTrigger.focus();
+    await this.mxFocus(this.el.general.costBasisTooltipTrigger);
   }
 
   @Step()
@@ -80,7 +76,7 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async saveProfileEmail(): Promise<Response> {
-    const patchPromise = this.page.waitForResponse(
+    const patchPromise = this.mxWaitForResponse(
       (response) => {
         const pathname = new URL(response.url()).pathname;
         return response.request().method() === "PATCH"
@@ -93,17 +89,17 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async closeWithEscape(): Promise<void> {
-    await this.page.keyboard.press("Escape");
+    await this.mxPressKey("Escape");
   }
 
   @Step()
   async cancel(): Promise<void> {
-    await this.page.getByRole("button", { name: /Cancel|取消/ }).click();
+    await this.mxClick(this.el.unsavedChangesDialog.cancel);
   }
 
   @Step()
   async keepEditing(): Promise<void> {
-    await this.page.getByRole("button", { name: /Keep Editing|繼續編輯/ }).click();
+    await this.mxClick(this.el.unsavedChangesDialog.keepEditing);
   }
 
   @Step()
@@ -140,7 +136,7 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async toggleCatalogItem(ticker: string): Promise<void> {
-    await this.el.catalog.item(ticker).locator("input[type=checkbox]").click();
+    await this.mxClick(this.el.catalog.itemCheckbox(ticker));
   }
 
   @Step()
@@ -161,7 +157,7 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async saveTickers(): Promise<void> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "PUT"
         && response.url().includes("/monitored-tickers")
@@ -190,7 +186,7 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async selectTickerForRepair(ticker: string): Promise<void> {
-    await this.uiActions.click.perform(this.repairCheckboxForTicker(ticker));
+    await this.uiActions.click.perform(this.el.tickers.repairSelection(ticker));
   }
 
   @Step()
@@ -233,7 +229,7 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async submitRepair(): Promise<void> {
-    const responsePromise = this.page.waitForResponse(
+    const responsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "POST"
         && response.url().includes("/backfill/repair"),

@@ -12,11 +12,7 @@ export class CashLedgerAssert extends BaseAssert {
 
   @Step()
   async pageLoaded(): Promise<void> {
-    // Either the table or the empty state should be visible
-    const tableOrEmpty = this.page.locator(
-      '[data-testid="cash-ledger-table"], [data-testid="cash-ledger-empty"]',
-    );
-    await expect(tableOrEmpty.first()).toBeVisible();
+    await expect(this.el.tableOrEmpty.first()).toBeVisible();
   }
 
   @Step()
@@ -26,14 +22,12 @@ export class CashLedgerAssert extends BaseAssert {
 
   @Step()
   async tableHasRows(count: number): Promise<void> {
-    const rows = this.page.locator('[data-testid^="cash-ledger-row-"]');
-    await expect(rows).toHaveCount(count);
+    await expect(this.el.rows).toHaveCount(count);
   }
 
   @Step()
   async tableHasAtLeastRows(minCount: number): Promise<void> {
-    const rows = this.page.locator('[data-testid^="cash-ledger-row-"]');
-    const count = await rows.count();
+    const count = await this.el.rows.count();
     expect(count).toBeGreaterThanOrEqual(minCount);
   }
 
@@ -64,9 +58,7 @@ export class CashLedgerAssert extends BaseAssert {
 
   @Step()
   async navLinkVisible(): Promise<void> {
-    await expect(
-      this.page.getByTestId("desktop-sidebar").getByTestId("sidebar-link-cash-ledger"),
-    ).toBeVisible();
+    await expect(this.el.navLink).toBeVisible();
   }
 
   @Step()
@@ -106,9 +98,7 @@ export class CashLedgerAssert extends BaseAssert {
 
   @Step()
   async sortIndicatorOnColumn(field: string): Promise<void> {
-    const header = this.el.table.locator("th").filter({ hasText: new RegExp(field, "i") });
-    // Sort indicator: ↑ or ↓ or data-sort attribute
-    await expect(header).toContainText(/[↑↓▲▼]/);
+    await expect(this.el.columnHeader(field)).toContainText(/[↑↓▲▼]/);
   }
 
   @Step()

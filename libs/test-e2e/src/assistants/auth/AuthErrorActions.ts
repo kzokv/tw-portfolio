@@ -8,8 +8,6 @@ export class AuthErrorActions extends AppBaseActions {
 
   @Step()
   async navigateToAuthError(reason: string): Promise<void> {
-    await this.page.goto(new URL(`/auth/error?reason=${reason}`, TestEnv.appBaseUrl).href, {
-      waitUntil: "domcontentloaded",
-    });
+    await this.mxGotoUrl(new URL(`/auth/error?reason=${reason}`, TestEnv.appBaseUrl).href);
   }
 }

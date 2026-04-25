@@ -11,10 +11,6 @@ export class SettingsAssert extends BaseAssert {
     return this._instance.elements;
   }
 
-  private repairCheckboxForTicker(ticker: string) {
-    return this.page.getByTestId(`repair-selection-${ticker}`);
-  }
-
   @Step()
   async drawerIsClosed(): Promise<void> {
     await this.mxAssertUrlNotMatches("drawer=settings");
@@ -85,7 +81,7 @@ export class SettingsAssert extends BaseAssert {
 
   @Step()
   async accountNameLabelContains(text: string | RegExp, index = 0): Promise<void> {
-    await expect(this.page.getByTestId("account-name-label").nth(index)).toContainText(text);
+    await expect(this.el.testId("account-name-label", "Account Name Label").nth(index)).toContainText(text);
   }
 
   // --- Monitored Symbols ---
@@ -122,7 +118,7 @@ export class SettingsAssert extends BaseAssert {
 
   @Step()
   async catalogItemIsChecked(ticker: string): Promise<void> {
-    await expect(this.el.catalog.item(ticker).locator("input[type=checkbox]")).toBeChecked();
+    await expect(this.el.catalog.itemCheckbox(ticker)).toBeChecked();
   }
 
   @Step()
@@ -184,11 +180,11 @@ export class SettingsAssert extends BaseAssert {
 
   @Step()
   async repairSelectionCheckboxIsDisabled(ticker: string): Promise<void> {
-    await expect(this.repairCheckboxForTicker(ticker)).toBeDisabled();
+    await expect(this.el.tickers.repairSelection(ticker)).toBeDisabled();
   }
 
   @Step()
   async repairSelectionCheckboxIsEnabled(ticker: string): Promise<void> {
-    await expect(this.repairCheckboxForTicker(ticker)).toBeEnabled();
+    await expect(this.el.tickers.repairSelection(ticker)).toBeEnabled();
   }
 }

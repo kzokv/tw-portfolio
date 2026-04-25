@@ -33,11 +33,11 @@ export class PortfolioAssert extends BaseAssert {
 
   @Step()
   async firstHoldingRowIsVisible(): Promise<void> {
-    await expect(this.el.holdingsTable.locator("tbody tr").first()).toBeVisible({ timeout: 10_000 });
+    await expect(this.el.firstHoldingRow).toBeVisible({ timeout: 10_000 });
   }
 
   @Step()
   async holdingLinkIsVisible(symbol: string): Promise<void> {
-    await expect(this.el.holdingsTable.getByRole("link", { name: symbol })).toBeVisible();
+    await expect(this.el.holdingLink(symbol)).toBeVisible();
   }
 }

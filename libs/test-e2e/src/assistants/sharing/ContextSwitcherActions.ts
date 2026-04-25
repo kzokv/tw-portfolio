@@ -43,7 +43,7 @@ export class ContextSwitcherActions extends AppBaseActions {
    */
   @Step()
   async switchTo(ownerUserId: string): Promise<void> {
-    await this.page.context().addCookies([
+    await this.mxAddCookies([
       {
         name: CONTEXT_COOKIE_NAME,
         value: ownerUserId,
@@ -52,12 +52,12 @@ export class ContextSwitcherActions extends AppBaseActions {
         sameSite: "Lax",
       },
     ]);
-    await this.page.reload();
+    await this.mxReloadPage();
   }
 
   @Step()
   async switchToSelf(): Promise<void> {
-    await this.page.context().clearCookies({ name: CONTEXT_COOKIE_NAME });
-    await this.page.reload();
+    await this.mxClearCookie(CONTEXT_COOKIE_NAME);
+    await this.mxReloadPage();
   }
 }

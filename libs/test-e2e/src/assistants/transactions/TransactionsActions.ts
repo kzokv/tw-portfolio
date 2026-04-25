@@ -17,75 +17,75 @@ export class TransactionsActions extends AppBaseActions {
 
   @Step()
   async selectFirstAccount(): Promise<void> {
-    const accountSelect = this.el.transactionForm.elements.accountSelect;
-    const firstOption = accountSelect.locator("option").first();
+    const accountSelect = this.el.transactionForm.accountSelect;
+    const firstOption = this.el.transactionForm.accountOption(0);
     const firstAccountId = await firstOption.getAttribute("value");
     await this.uiActions.select.perform(accountSelect, firstAccountId ?? "acc-1");
   }
 
   @Step()
   async selectTransactionType(type: "BUY" | "SELL"): Promise<void> {
-    await this.uiActions.select.perform(this.el.transactionForm.elements.typeSelect, type);
+    await this.uiActions.select.perform(this.el.transactionForm.typeSelect, type);
   }
 
   @Step()
   async fillQuantity(quantity: number): Promise<void> {
-    await this.uiActions.fill.perform(this.el.transactionForm.elements.quantityInput, String(quantity));
+    await this.uiActions.fill.perform(this.el.transactionForm.quantityInput, String(quantity));
   }
 
   @Step()
   async fillUnitPrice(unitPrice: number): Promise<void> {
-    await this.uiActions.fill.perform(this.el.transactionForm.elements.unitPriceInput, String(unitPrice));
+    await this.uiActions.fill.perform(this.el.transactionForm.unitPriceInput, String(unitPrice));
   }
 
   @Step()
   async fillTradeDate(date: string): Promise<void> {
-    await this.uiActions.fill.perform(this.el.transactionForm.elements.tradeDateInput, date);
+    await this.uiActions.fill.perform(this.el.transactionForm.tradeDateInput, date);
   }
 
   @Step()
   async openTickerCombobox(): Promise<void> {
-    await this.el.transactionForm.elements.tickerCombobox.focus();
+    await this.mxFocus(this.el.transactionForm.tickerCombobox);
   }
 
   @Step()
   async typeInTickerSearch(query: string): Promise<void> {
     await this.openTickerCombobox();
-    await this.mxFill(this.el.transactionForm.elements.tickerCombobox, query);
+    await this.mxFill(this.el.transactionForm.tickerCombobox, query);
   }
 
   @Step()
   async selectTickerOption(ticker: string): Promise<void> {
-    await this.uiActions.click.perform(this.el.transactionForm.elements.tickerOption(ticker));
+    await this.uiActions.click.perform(this.el.transactionForm.tickerOption(ticker));
   }
 
   @Step()
   async submitTransaction(): Promise<void> {
-    await this.uiActions.click.perform(this.el.transactionForm.elements.submitButton);
+    await this.uiActions.click.perform(this.el.transactionForm.submitButton);
   }
 
   @Step()
   async focusAccountTooltip(): Promise<void> {
-    await this.el.tooltipAccountTrigger.focus();
+    await this.mxFocus(this.el.tooltipAccountTrigger);
   }
 
   @Step()
   async waitForTransactionPost(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/transactions") && r.ok(),
     );
   }
 
   @Step()
   async waitForDashboardRefresh(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "GET" && r.url().includes("/dashboard/overview") && r.ok(),
     );
   }
 
   @Step()
   async waitForLedgerRefresh(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) =>
         r.request().method() === "GET" &&
         r.url().includes("/portfolio/transactions?limit=6") &&
@@ -95,14 +95,14 @@ export class TransactionsActions extends AppBaseActions {
 
   @Step()
   async waitForPriceLookup(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "GET" && r.url().includes("/market-data/price"),
     );
   }
 
   @Step()
   async waitForFeeEstimate(): Promise<import("@playwright/test").Response> {
-    return this.page.waitForResponse(
+    return await this.mxWaitForResponse(
       (r) => r.request().method() === "POST" && r.url().includes("/portfolio/transactions/estimate"),
     );
   }
