@@ -1,4 +1,5 @@
 import type {
+  BrowserContext,
   APIRequestContext,
   Locator,
   Page,
@@ -29,6 +30,14 @@ export interface TFillAction {
   perform(locator: Locator, value: string, options?: TFillActionOptions): Promise<void>;
 }
 
+export interface THoverAction {
+  perform(locator: Locator, options?: Parameters<Locator["hover"]>[0]): Promise<void>;
+}
+
+export interface TKeyboardPressAction {
+  perform(page: Page, key: string, options?: Parameters<Page["keyboard"]["press"]>[1]): Promise<void>;
+}
+
 export interface TSelectAction {
   perform(
     locator: Locator,
@@ -47,8 +56,18 @@ export interface TWaitForVisibleAction {
 export interface TUIActions {
   click: TClickAction;
   fill: TFillAction;
+  hover: THoverAction;
+  keyboardPress: TKeyboardPressAction;
   select: TSelectAction;
   wait: TWaitForVisibleAction;
+}
+
+export type TBrowserCookie = Parameters<BrowserContext["addCookies"]>[0][number];
+
+export interface TElementLocatorHelpers {
+  css: (selector: string, description?: string) => Locator;
+  testId: (testId: string, description?: string) => Locator;
+  text: (text: string | RegExp, description?: string) => Locator;
 }
 
 export interface TTestAAAOptions<TInstance = unknown> {
@@ -74,6 +93,6 @@ export type TAssistantFactory<TInstance, TAssistant> = (
 export type TResponsePredicate = (response: Response) => boolean | Promise<boolean>;
 
 export type TLocatorWithDescribe = Locator & {
-  describe?: (description: string) => Locator;
+  describe: (description: string) => Locator;
   description?: () => string;
 };
