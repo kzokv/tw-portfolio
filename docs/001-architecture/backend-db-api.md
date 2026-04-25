@@ -889,8 +889,8 @@ Fields:
 | `updated_at` | `TIMESTAMPTZ DEFAULT NOW()` | `NOT NULL` | last modification time |
 
 Currently recognized top-level preference keys:
-- `dashboardPerformanceRanges` (`string[] | null`) — user's saved timeframe list; validated against `dashboardPerformanceRangesSchema`
-- `card_order` (`object | null`) — reserved for KZO-161 card reorder; accepted at write time, not yet surfaced in UI
+- `dashboardPerformanceRanges` (`string[] | null`) — user's saved timeframe list; validated against `dashboardPerformanceRangesSchema`. Read by `useEffectiveRanges` and the `<CustomizeRangesPopover>` (KZO-161 F4).
+- `cardOrder` (`{ [pageSlug]: string[] } | null`) — per-page card display order; persisted by `<SortableCardGrid>` debounced 250ms after `onDragEnd` (KZO-161 F5). Currently the only consumer is the dashboard (`cardOrder.dashboard`); the JSONB sub-object shape lets future pages add their own slugs without a schema change. Each slug array is capped at 50 entries per the `cardOrderSchema` in `registerRoutes.ts`.
 
 Read/write path:
 - `getUserPreferences(userId)` — returns `{}` when no row (lazy: no insert on read)
@@ -1336,7 +1336,7 @@ Key validation:
 | Method | Path | Request shape | Response shape | Dependencies | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/user-preferences` | none | `{ preferences: Record<string, unknown> }` | `requireSessionUserId` | Returns `{ preferences: {} }` when no row exists (lazy — no insert on read) |
-| `PATCH` | `/user-preferences` | `{ dashboard_performance_ranges?: string[] \| null, card_order?: object \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list` |
+| `PATCH` | `/user-preferences` | `{ dashboardPerformanceRanges?: string[] \| null, cardOrder?: { dashboard?: string[] } \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list`. `cardOrder.dashboard` capped at 50 slugs (`cardOrderSchema`) |
 | `GET` | `/user-preferences/effective-ranges` | none | `{ ranges: string[], source: "user" \| "admin" \| "default" }` | `requireSessionUserId`, `resolveEffectiveRanges` | 3-tier resolution: user prefs (pruned to admin-allowed) → admin override → hardcoded `["1M","3M","YTD","1Y"]`. Never rewrites stored prefs. |
 
 Effective-ranges resolution detail:

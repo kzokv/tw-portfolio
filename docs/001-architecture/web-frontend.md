@@ -152,6 +152,41 @@ useTransactionMutations
 
 ---
 
+## Dashboard Card Layout (KZO-161)
+
+The dashboard renders its cards through a single `<SortableCardGrid>` (`components/layout/SortableCardGrid.tsx`) — a page-agnostic dnd-kit primitive that:
+
+- Reads canonical card metadata (`{ slug, fullWidth }[]`) from the consumer.
+- Fetches the user's saved order via `GET /user-preferences` on mount and merges it with the canonical list (`mergeCardOrder` — unknown slugs dropped, new canonical slugs appended at the tail).
+- Wraps the rendered cells in `<DndContext>` + `<SortableContext>` with three sensors: `PointerSensor` (mouse/pen), `KeyboardSensor` (keyboard reorder), and `TouchSensor` with a 250 ms long-press activation delay (mobile).
+- Persists order changes via `PATCH /user-preferences { cardOrder: { [orderKey]: [...slugs] } }`, debounced 250 ms after `onDragEnd`. Multiple drags within the window coalesce to one PATCH.
+- Optimistic UI: `displayOrder` updates immediately on drag; on PATCH failure the grid reverts to `serverConfirmedOrderRef.current` (the last successful PATCH), not pre-drag — multiple drags inside a debounce window share one rollback baseline.
+
+Canonical dashboard list (`components/dashboard/cards.ts`):
+
+```ts
+export const DASHBOARD_CARDS = [
+  { slug: "portfolio-trend",     fullWidth: false },
+  { slug: "allocation-snapshot", fullWidth: false },
+  { slug: "return-percent",      fullWidth: false },
+  { slug: "holdings-table",      fullWidth: true  },
+  { slug: "dividends-section",   fullWidth: true  },
+  { slug: "action-center",       fullWidth: true  },
+] as const;
+```
+
+Heterogeneous card props (each card takes different data) are wired inline in `AppShell.tsx` via a `switch (slug)` block inside the grid's render-prop child — no shared abstraction is needed at the metadata level. Adding a new card is `{ slug, fullWidth }` here plus a matching `case` in the switch; `mergeCardOrder` appends it at the tail of any saved-order array automatically.
+
+Layout: `grid grid-cols-1 xl:grid-cols-2 gap-6 [grid-auto-flow:dense]`. Full-width cards apply `xl:col-span-2`. The `RouteHeroPanel` stays above the sortable grid (fixed); there are no longer fixed cards below the grid — `ActionCenterSection` joined the draggable list as a `fullWidth: true` slug.
+
+Drag handle UX: each card cell renders a `⠿` button at the top-left of the wrapper (`absolute -left-2 -top-2`, 28×28 px). The negative offset places the handle slightly outside the card's top-left corner so it does not overlap the card title or eyebrow text. The `card-drag-handle-{slug}` testid is the dnd-kit drag handle for both unit and E2E tests.
+
+Reset: the Display tab (`SettingsDrawer` → Display tab → Layout section) exposes a "Reset Layout" button that PATCHes `{ cardOrder: null }` and bumps a `cardLayoutResetCount` key on the grid, forcing a remount + re-fetch.
+
+The same `<SortableRangeList>` primitive (`components/settings/SortableRangeList.tsx`) is used for the per-row drag-reorder UI in two surfaces: the F4 user "Customize ranges" popover (gear icon on `<PortfolioTrendCard>`), and the F4a admin "Dashboard Timeframe Defaults" section. Single source of drag mechanics, two consumers — see the scope-todo at `docs/004-notes/kzo-158/scope-todo-202604241500-kzo-161-refined.md` for the full F4/F4a/F5 contract.
+
+---
+
 ## Demo Mode Components
 
 | Component | Location | Purpose |

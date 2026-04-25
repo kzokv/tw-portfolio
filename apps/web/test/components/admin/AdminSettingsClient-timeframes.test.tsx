@@ -134,33 +134,10 @@ describe("AdminSettingsClient — Dashboard Timeframe Defaults", () => {
     expect(activeChipOrder()).toEqual(["1M", "3M", "YTD", "1Y", "5Y"]);
   });
 
-  it("up arrow swaps the chip with the previous one", () => {
-    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
-    click("timeframe-chip-up-YTD");
-    expect(activeChipOrder()).toEqual(["1M", "YTD", "3M", "1Y"]);
-  });
-
-  it("down arrow swaps the chip with the next one", () => {
-    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
-    click("timeframe-chip-down-1M");
-    expect(activeChipOrder()).toEqual(["3M", "1M", "YTD", "1Y"]);
-  });
-
-  it("up arrow on the first chip is disabled (no-op)", () => {
-    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
-    const upBtn = document.querySelector(
-      "[data-testid='timeframe-chip-up-1M']",
-    ) as HTMLButtonElement;
-    expect(upBtn.disabled).toBe(true);
-  });
-
-  it("down arrow on the last chip is disabled (no-op)", () => {
-    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
-    const downBtn = document.querySelector(
-      "[data-testid='timeframe-chip-down-1Y']",
-    ) as HTMLButtonElement;
-    expect(downBtn.disabled).toBe(true);
-  });
+  // up/down arrow button tests (timeframe-chip-up-*, timeframe-chip-down-*)
+  // were DELETED in KZO-161 (F4a). The F4a retrofit replaced the up/down
+  // buttons with dnd-kit drag handles (timeframe-drag-handle-*). Drag
+  // reorder is covered by the E2E [timeframe-G] spec.
 
   it("invalid custom range shows validation error and disables Add", () => {
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));

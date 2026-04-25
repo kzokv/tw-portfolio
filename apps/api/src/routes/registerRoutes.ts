@@ -1930,10 +1930,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Strict per-key validation: every known top-level key gets an explicit
   // schema here. Unknown keys are rejected (`.strict()`). When 158B/158C add
   // a new preference, extend this schema.
+  //
+  // KZO-161 (158C) adds `cardOrder` — JSONB sub-object keyed by page slug. The
+  // canonical JSONB key is camelCase (`cardOrder`), matching the existing
+  // `dashboardPerformanceRanges`. Null clears the key.
+  const cardOrderSchema = z
+    .object({
+      dashboard: z.array(z.string().min(1).max(64)).max(50),
+    })
+    .strict();
   const userPreferencePatchSchema = z
     .object({
       dashboardPerformanceRanges: z
         .union([dashboardPerformanceRangesSchema, z.null()])
+        .optional(),
+      cardOrder: z
+        .union([cardOrderSchema, z.null()])
         .optional(),
     })
     .strict();

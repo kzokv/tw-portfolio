@@ -17,6 +17,7 @@ import { UnsavedChangesFooter } from "../../features/settings/components/Unsaved
 import { useSettingsForm } from "../../features/settings/hooks/useSettingsForm";
 import { useMonitoredTickers } from "../../features/settings/hooks/useMonitoredTickers";
 import type { SettingsFormModel } from "../../features/settings/types/settingsUi";
+import { DisplayTabSection } from "./DisplayTabSection";
 
 export type SettingsDraft = SettingsFormModel;
 
@@ -34,6 +35,10 @@ interface SettingsDrawerProps {
   onSave: (draft: SettingsDraft) => Promise<void>;
   onRenameAccount: (accountId: string, name: string) => Promise<void>;
   dict: AppDictionary;
+  // KZO-161 (158C) — Display tab callbacks. Default no-ops keep existing
+  // call sites working until they wire the new behavior.
+  onTimeframesSaved?: () => void;
+  onLayoutReset?: () => void;
 }
 
 export function SettingsDrawer({
@@ -50,6 +55,8 @@ export function SettingsDrawer({
   onSave,
   onRenameAccount,
   dict,
+  onTimeframesSaved,
+  onLayoutReset,
 }: SettingsDrawerProps) {
   const form = useSettingsForm({
     open,
@@ -121,6 +128,16 @@ export function SettingsDrawer({
             >
               {dict.settings.tabTickers}
             </Button>
+            <Button
+              type="button"
+              variant={form.tab === "display" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "display" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
+              onClick={() => form.setTab("display")}
+              data-testid="settings-tab-display"
+            >
+              {dict.settings.tabDisplay}
+            </Button>
           </div>
 
           {form.tab === "profile" && (
@@ -169,6 +186,18 @@ export function SettingsDrawer({
                     dict={dict}
                   />
                 )}
+              </div>
+            </div>
+          )}
+
+          {form.tab === "display" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
+                <DisplayTabSection
+                  dict={dict}
+                  onTimeframesSaved={onTimeframesSaved ?? (() => undefined)}
+                  onLayoutReset={onLayoutReset ?? (() => undefined)}
+                />
               </div>
             </div>
           )}

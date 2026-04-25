@@ -13,6 +13,7 @@ import {
 import { patchJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
 
 interface AdminSettingsClientProps {
   initial: AppConfigDto;
@@ -166,16 +167,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
     setTimeframeSaveSuccess(null);
   }
 
-  function moveChip(idx: number, direction: -1 | 1) {
-    setPendingRanges((prev) => {
-      const target = idx + direction;
-      if (target < 0 || target >= prev.length) return prev;
-      const next = [...prev];
-      const tmp = next[idx]!;
-      next[idx] = next[target]!;
-      next[target] = tmp;
-      return next;
-    });
+  function reorderChips(nextOrder: string[]) {
+    setPendingRanges(nextOrder);
     clearTimeframeFeedback();
   }
 
@@ -371,43 +364,27 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             {pendingRanges.length === 0 ? (
               <p className="text-sm text-slate-500">No active timeframes — add at least one.</p>
             ) : (
-              <ul className="space-y-2">
-                {pendingRanges.map((range, idx) => (
-                  <li key={range} className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      aria-label={`Remove ${range} from active timeframes`}
-                      onClick={() => toggleChip(range)}
-                      disabled={timeframeSaving}
-                      className="inline-flex min-w-[3.5rem] items-center justify-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      data-testid={`timeframe-chip-${range}`}
-                      data-active="true"
-                    >
-                      {range}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move ${range} up`}
-                      onClick={() => moveChip(idx, -1)}
-                      disabled={timeframeSaving || idx === 0}
-                      className="rounded p-1 text-slate-500 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-30"
-                      data-testid={`timeframe-chip-up-${range}`}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move ${range} down`}
-                      onClick={() => moveChip(idx, 1)}
-                      disabled={timeframeSaving || idx === pendingRanges.length - 1}
-                      className="rounded p-1 text-slate-500 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-30"
-                      data-testid={`timeframe-chip-down-${range}`}
-                    >
-                      ↓
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              // KZO-161 (158C) F4a: dnd-kit retrofit. Drop-in replacement for
+              // the ↑/↓ arrow buttons — `timeframe-chip-{range}` testid is
+              // preserved (referenced by `[timeframe-A..J]`); `-up/-down` are
+              // intentionally dropped (no dnd-kit boundary-disabled concept).
+              // Remove-from-active happens via a click on the chip itself
+              // (SortableRangeList renders the chip as a button when
+              // `onToggleVisibility` is provided). `toggleTestId` is
+              // intentionally omitted — admin has one toggle affordance, the
+              // chip; the popover variant adds a second dedicated button.
+              <SortableRangeList
+                rows={pendingRanges.map<SortableRangeRow>((range) => ({
+                  range,
+                  active: true,
+                  disabled: timeframeSaving,
+                }))}
+                onReorder={reorderChips}
+                onToggleVisibility={(range) => toggleChip(range)}
+                dragHandleTestId={(r) => `timeframe-drag-handle-${r}`}
+                chipTestId={(r) => `timeframe-chip-${r}`}
+                toggleLabel={(r) => `Remove ${r} from active timeframes`}
+              />
             )}
           </div>
 

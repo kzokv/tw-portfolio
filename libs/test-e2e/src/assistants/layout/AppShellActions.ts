@@ -1,9 +1,29 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { AppShellPage } from "../../pages/layout/AppShellPage.js";
 import type { TSidebarDestination } from "../../pages/layout/SideNavigationComponent.js";
+
+/**
+ * dnd-kit drag helper — uses Playwright's built-in `locator.dragTo()`.
+ *
+ * Design-doc §3 spike confirmed Stage 1 (locator.dragTo) works with dnd-kit
+ * defaults — no mouse.down/move/up workaround needed.
+ *
+ * After `dragTo`, the mouse cursor is left at the target position. dnd-kit's
+ * PointerSensor can briefly retain pointer-capture state for a few ms after
+ * drop, intercepting the next click and preventing the React onClick handler
+ * from firing on subsequent buttons (timeframe-save-button, card buttons,
+ * etc.). The post-drop `page.mouse.move(0, 0)` moves the cursor away to
+ * release any lingering capture before the test continues. Without this
+ * stabilization, [timeframe-G] flakes ~25% of runs even though the assertion
+ * before the click confirms the React state has committed.
+ */
+async function dndKitDrag(source: Locator, target: Locator): Promise<void> {
+  await source.dragTo(target);
+  await target.page().mouse.move(0, 0);
+}
 
 export class AppShellActions extends AppBaseActions {
   declare protected readonly _instance: AppShellPage;
@@ -215,10 +235,13 @@ export class AppShellActions extends AppBaseActions {
 
   // ── KZO-159 — Admin timeframe defaults section actions ────────────────────
   //
-  // Each active range is rendered as three buttons in a row:
-  //   • `timeframe-chip-${range}`       — toggle-off (clicking removes it)
-  //   • `timeframe-chip-up-${range}`    — reorder up
-  //   • `timeframe-chip-down-${range}`  — reorder down
+  // Each active range is rendered as a row:
+  //   • `timeframe-chip-${range}`          — toggle-off (clicking removes it)
+  //   • `timeframe-drag-handle-${range}`   — dnd-kit drag handle (KZO-161 F4a)
+  //
+  // NOTE: `timeframe-chip-up-${range}` and `timeframe-chip-down-${range}`
+  // have been removed — the ↑↓ buttons were replaced by dnd-kit drag handles
+  // in KZO-161 F4a. Use `dragAdminTimeframeChip()` instead.
   //
   // Predefined chips not in the active list appear in the "Available" row
   // with the same `timeframe-chip-${range}` testid but `data-active="false"`.
@@ -228,14 +251,17 @@ export class AppShellActions extends AppBaseActions {
     await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-${range}`));
   }
 
+  /**
+   * Drag a timeframe chip to reorder it in the admin settings list.
+   * Uses the dnd-kit drag handle testid `timeframe-drag-handle-{range}`.
+   * `from` = the range to move; `to` = the range whose position to drop onto.
+   */
   @Step()
-  async clickAdminTimeframeChipUp(range: string): Promise<void> {
-    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-up-${range}`));
-  }
-
-  @Step()
-  async clickAdminTimeframeChipDown(range: string): Promise<void> {
-    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-chip-down-${range}`));
+  async dragAdminTimeframeChip(from: string, to: string): Promise<void> {
+    await dndKitDrag(
+      this.page.getByTestId(`timeframe-drag-handle-${from}`),
+      this.page.getByTestId(`timeframe-drag-handle-${to}`),
+    );
   }
 
   @Step()
@@ -256,5 +282,92 @@ export class AppShellActions extends AppBaseActions {
   @Step()
   async clickAdminTimeframeSave(): Promise<void> {
     await this.uiActions.click.perform(this.page.getByTestId("timeframe-save-button"));
+  }
+
+  // ── KZO-161 — User timeframe customization popover actions ────────────────
+
+  /**
+   * Click the gear button on PortfolioTrendCard to open the customize popover.
+   */
+  @Step()
+  async openTimeframeCustomize(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-gear-btn"));
+    await expect(this.page.getByTestId("timeframe-customize-popover")).toBeVisible();
+  }
+
+  /**
+   * Drag a range row within the customize popover to reorder it.
+   * `from` = the range to move; `to` = the range whose position to drop onto.
+   */
+  @Step()
+  async dragTimeframeRange(from: string, to: string): Promise<void> {
+    await dndKitDrag(
+      this.page.getByTestId(`timeframe-drag-handle-${from}`),
+      this.page.getByTestId(`timeframe-drag-handle-${to}`),
+    );
+  }
+
+  /**
+   * Toggle per-row range visibility inside the customize popover or Display tab.
+   * Clicks the `timeframe-toggle-{range}` checkbox/button.
+   */
+  @Step()
+  async toggleTimeframeRange(range: string): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId(`timeframe-toggle-${range}`));
+  }
+
+  @Step()
+  async fillTimeframeCustomInput(value: string): Promise<void> {
+    await this.mxFill(this.page.getByTestId("timeframe-custom-input"), value);
+  }
+
+  @Step()
+  async clickTimeframeAddButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-add-btn"));
+  }
+
+  /** Save button in the user-facing customize popover / Display tab. */
+  @Step()
+  async clickTimeframeSaveButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-save-btn"));
+  }
+
+  /** Reset button in the user-facing customize popover / Display tab. */
+  @Step()
+  async clickTimeframeResetButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("timeframe-reset-btn"));
+  }
+
+  // ── KZO-161 — Settings Drawer Display tab actions ─────────────────────────
+
+  /** Open the Display tab inside the SettingsDrawer. */
+  @Step()
+  async clickSettingsDisplayTab(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("settings-tab-display"));
+    await expect(this.page.getByTestId("display-timeframes-section")).toBeVisible();
+  }
+
+  /**
+   * Click the Reset Layout button in the Display tab → Layout section.
+   * Sends PATCH /user-preferences { cardOrder: null }.
+   */
+  @Step()
+  async clickResetLayoutButton(): Promise<void> {
+    await this.uiActions.click.perform(this.page.getByTestId("reset-layout-btn"));
+  }
+
+  // ── KZO-161 — Card reorder actions (F5) ──────────────────────────────────
+
+  /**
+   * Drag a dashboard card to a new position.
+   * `from` = slug of the card to move; `to` = slug of the destination card.
+   * Uses `card-drag-handle-{slug}` testids.
+   */
+  @Step()
+  async dragCard(from: string, to: string): Promise<void> {
+    await dndKitDrag(
+      this.page.getByTestId(`card-drag-handle-${from}`),
+      this.page.getByTestId(`card-drag-handle-${to}`),
+    );
   }
 }
