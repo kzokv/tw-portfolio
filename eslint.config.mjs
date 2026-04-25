@@ -22,6 +22,7 @@ import eslint from '@eslint/js';
 import globals from 'globals';
 import playwright from 'eslint-plugin-playwright';
 import tseslint from 'typescript-eslint';
+import aaa from './libs/test-framework/eslint-plugin/index.js';
 
 export default [
   {
@@ -52,6 +53,18 @@ export default [
   {
     files: ['apps/web/tests/e2e/**/*.ts'],
     ...playwright.configs['flat/recommended'],
+  },
+  // AAA assistant classes must resolve UI through page objects and AAA action/mixin wrappers.
+  {
+    files: ['libs/test-e2e/src/assistants/**/*.ts'],
+    plugins: {
+      aaa,
+    },
+    rules: {
+      'aaa/no-page-access': 'error',
+      'aaa/no-element-locator-chain': 'error',
+      'aaa/no-raw-action': 'error',
+    },
   },
   // AAA specs assert through assistants and shared Step-annotated helpers instead of raw expect() calls.
   // Two rules: (1) suppress expect-expect (assertions are in assistant classes, not spec body),
