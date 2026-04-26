@@ -95,6 +95,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           ticker={ticker}
           instrument={instrument}
           isDemo={session.isDemo}
+          transactionAccountFilter={scopedAccountId}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}

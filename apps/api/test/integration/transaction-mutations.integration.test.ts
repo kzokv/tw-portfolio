@@ -79,6 +79,20 @@ async function waitForRecompute(ms = 200) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForEventCount(
+  events: Array<{ type: string; data: unknown }>,
+  type: string,
+  count: number,
+  timeoutMs = 2000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (events.filter((event) => event.type === type).length >= count) return;
+    await waitForRecompute(10);
+  }
+  expect(events.filter((event) => event.type === type)).toHaveLength(count);
+}
+
 // ─── Test Suite ────────────────────────────────────────────────────────
 
 describe("transaction mutations (delete + edit)", () => {
@@ -1160,6 +1174,7 @@ describe("transaction mutations (delete + edit)", () => {
 
   describe("retry path (vi.spyOn fault injection)", () => {
     it("first attempt fails then retry succeeds → recompute_failed then recompute_complete", async () => {
+      const setupEvents = collectBusEvents(app);
       await createTrade(app, { quantity: 10, unitPrice: 100 });
       const trade2 = await createTrade(app, {
         quantity: 20,
@@ -1168,9 +1183,10 @@ describe("transaction mutations (delete + edit)", () => {
       });
 
       // KZO-37 Invariant 5: POST /portfolio/transactions now fires replay
-      // via setImmediate. Drain those pending replays before installing the
+      // via setImmediate. Wait for those pending replays before installing the
       // fault-injection spy so the retry events are solely from the DELETE.
-      await waitForRecompute(50);
+      await waitForEventCount(setupEvents.events, "recompute_complete", 2);
+      setupEvents.unsub();
 
       // Spy on a persistence method used by replayPositionHistory to throw once
       let callCount = 0;
@@ -1205,6 +1221,7 @@ describe("transaction mutations (delete + edit)", () => {
     });
 
     it("both attempts fail → recompute_failed with retriesExhausted: true", async () => {
+      const setupEvents = collectBusEvents(app);
       await createTrade(app, { quantity: 10, unitPrice: 100 });
       const trade2 = await createTrade(app, {
         quantity: 20,
@@ -1214,7 +1231,8 @@ describe("transaction mutations (delete + edit)", () => {
 
       // KZO-37 Invariant 5: drain pending POST-triggered replays before
       // installing the spy so the collected events are solely from DELETE.
-      await waitForRecompute(50);
+      await waitForEventCount(setupEvents.events, "recompute_complete", 2);
+      setupEvents.unsub();
 
       // Spy that always throws
       vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockRejectedValue(

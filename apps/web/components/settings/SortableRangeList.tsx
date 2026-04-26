@@ -98,6 +98,13 @@ export function SortableRangeList({
     onReorder(arrayMove(items, oldIndex, newIndex));
   };
 
+  const handleKeyboardMove = (range: string, delta: -1 | 1) => {
+    const oldIndex = items.indexOf(range);
+    const newIndex = oldIndex + delta;
+    if (oldIndex < 0 || newIndex < 0 || newIndex >= items.length) return;
+    onReorder(arrayMove(items, oldIndex, newIndex));
+  };
+
   if (!isMounted) {
     // Static fallback — same testids + DOM shape as the sortable variant,
     // but without dnd-kit hooks (no hydration-differing aria-describedby).
@@ -137,6 +144,7 @@ export function SortableRangeList({
               toggleTestId={toggleTestId}
               onToggleVisibility={onToggleVisibility}
               toggleLabel={toggleLabel}
+              onKeyboardMove={handleKeyboardMove}
             />
           ))}
         </ul>
@@ -244,6 +252,7 @@ function SortableRangeRowItem({
   toggleTestId,
   onToggleVisibility,
   toggleLabel,
+  onKeyboardMove,
 }: {
   row: SortableRangeRow;
   dragHandleTestId: (range: string) => string;
@@ -252,6 +261,7 @@ function SortableRangeRowItem({
   toggleTestId?: (range: string) => string;
   onToggleVisibility?: (range: string) => void;
   toggleLabel?: (range: string, active: boolean) => string;
+  onKeyboardMove: (range: string, delta: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: row.range, disabled: row.disabled });
@@ -276,6 +286,14 @@ function SortableRangeRowItem({
         {...listeners}
         disabled={row.disabled}
         aria-label={`Drag to reorder ${row.range}`}
+        onKeyDown={(event) => {
+          if (row.disabled) return;
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            event.preventDefault();
+            event.stopPropagation();
+            onKeyboardMove(row.range, event.key === "ArrowUp" ? -1 : 1);
+          }
+        }}
         className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
         data-testid={dragHandleTestId(row.range)}
         style={{ touchAction: "none", cursor: row.disabled ? "not-allowed" : "grab" }}

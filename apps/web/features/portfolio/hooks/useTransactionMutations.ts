@@ -147,6 +147,18 @@ export function useTransactionMutations({
     setRecomputingSymbols(new Set());
   }, []);
 
+  const refreshAndReportSuccess = useCallback((successMessage: string) => {
+    void refreshRef.current()
+      .then(() => {
+        setMessage(successMessage);
+        setErrorMessage("");
+      })
+      .catch((err: unknown) => {
+        setMessage("");
+        setErrorMessage(err instanceof Error ? err.message : "Refresh failed");
+      });
+  }, []);
+
   // Disable guard — check if symbol is recomputing
   const isSymbolRecomputing = useCallback(
     (accountId: string, ticker: string) => recomputingSymbols.has(`${accountId}:${ticker}`),
@@ -336,9 +348,7 @@ export function useTransactionMutations({
 
       if (recomputeEvent.type === "recompute_complete") {
         removeRecomputingBySymbol(key);
-        setMessage(dictRef.current.mutations.recomputeCompleteMessage);
-        setErrorMessage("");
-        void refreshRef.current();
+        refreshAndReportSuccess(dictRef.current.mutations.recomputeCompleteMessage);
       }
 
       if (recomputeEvent.type === "recompute_failed") {
@@ -351,7 +361,7 @@ export function useTransactionMutations({
         }
       }
     },
-    [removeRecomputingBySymbol],
+    [refreshAndReportSuccess, removeRecomputingBySymbol],
   );
 
   useEventStream({
@@ -373,9 +383,7 @@ export function useTransactionMutations({
         symbols: [...recomputingSymbols],
       });
       clearAllRecomputing();
-      setMessage(dictRef.current.mutations.safetyNetMessage);
-      setErrorMessage("");
-      void refreshRef.current();
+      refreshAndReportSuccess(dictRef.current.mutations.safetyNetMessage);
     }, SAFETY_NET_MS);
 
     return () => {
@@ -384,7 +392,7 @@ export function useTransactionMutations({
         safetyNetTimerRef.current = null;
       }
     };
-  }, [recomputingSymbolsKey, clearAllRecomputing]);
+  }, [recomputingSymbolsKey, clearAllRecomputing, refreshAndReportSuccess]);
 
   return {
     deleteTarget,

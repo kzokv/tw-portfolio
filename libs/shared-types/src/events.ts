@@ -131,6 +131,16 @@ export interface SnapshotsGeneratedEvent {
   error?: string;
 }
 
+/**
+ * KZO-165: emitted when the currency wallet snapshot aggregator fails AFTER
+ * `generateHoldingSnapshots` already succeeded. Distinct event so the holding
+ * snapshot success isn't silently masked by the wallet failure.
+ */
+export interface WalletGenerationFailedEvent {
+  type: "wallet_generation_failed";
+  error: string;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -149,7 +159,8 @@ export type SSEEvent =
   | DividendPostedEvent
   | DividendUpdatedEvent
   | DividendReconciliationChangedEvent
-  | SnapshotsGeneratedEvent;
+  | SnapshotsGeneratedEvent
+  | WalletGenerationFailedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -168,5 +179,6 @@ export type SSEDomainEventType =
   | "dividend_posted"
   | "dividend_updated"
   | "dividend_reconciliation_changed"
-  | "snapshots_generated";
+  | "snapshots_generated"
+  | "wallet_generation_failed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

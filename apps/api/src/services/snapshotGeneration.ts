@@ -7,6 +7,7 @@ import type {
   SnapshotDividendInput,
   SnapshotTradeInput,
 } from "../persistence/types.js";
+import { routeError } from "../lib/routeError.js";
 
 export interface SnapshotGenerationOptions {
   generationRunId?: string;
@@ -179,6 +180,27 @@ interface WalkerParams {
 function walkPositionHistory(params: WalkerParams): HoldingSnapshot[] {
   const { userId, accountId, ticker, trades, bars, dividends, generationRunId, generatedAt, fromDate } = params;
 
+  // KZO-165: validate single priceCurrency across all trades for this (account, ticker).
+  // Mixed values are an upstream data bug — an instrument has one quote currency, and the
+  // walker must surface this clearly rather than silently picking the first/last value.
+  // No-op when trades is empty (the loop in generateHoldingSnapshots only enters this
+  // function for groups with at least one trade).
+  if (trades.length === 0) {
+    // Defensive — walker isn't called with empty trades today, but keep the guard so
+    // future callers don't trip over `trades[0]` below.
+    return [];
+  }
+  const nativeCurrency = trades[0].priceCurrency;
+  for (const t of trades) {
+    if (t.priceCurrency !== nativeCurrency) {
+      throw routeError(
+        500,
+        "snapshot_mixed_currency",
+        `Mixed priceCurrency for (account=${accountId}, ticker=${ticker}): saw "${nativeCurrency}" and "${t.priceCurrency}"`,
+      );
+    }
+  }
+
   const barByDate = new Map(bars.map(b => [b.barDate, b]));
   const tradingDays = bars.map(b => b.barDate);
   const hasBars = tradingDays.length > 0;
@@ -235,12 +257,23 @@ function walkPositionHistory(params: WalkerParams): HoldingSnapshot[] {
     if (fromDate !== null && date < fromDate) continue;
 
     const closePrice = bar?.close ?? null;
-    const marketValue = closePrice !== null && quantity > 0
-      ? roundToDecimal(closePrice * quantity, 2)
+    // KZO-165: compute native columns at the precision specified in D9.
+    // value_native: 4-decimal precision (matches close_price * quantity granularity).
+    // cost_basis_native: walker already accumulates in native — assign directly.
+    // unrealized_pnl_native: 2-decimal precision; null when valueNative is null.
+    const valueNative = closePrice !== null && quantity > 0
+      ? roundToDecimal(closePrice * quantity, 4)
       : null;
-    const unrealizedPnl = marketValue !== null ? roundToDecimal(marketValue - costBasis, 2) : null;
+    const costBasisNative = costBasis;
+    const unrealizedPnlNative = valueNative !== null
+      ? roundToDecimal(valueNative - costBasisNative, 2)
+      : null;
+    const providerSource = bar?.source ?? null;
     const isProvisional = closePrice === null;
 
+    // KZO-165 D6: dual-write legacy columns from native source values. For TWD-only
+    // data this is a no-op behavioral change (legacy values were already native);
+    // sets the precedent so KZO-176 can drop the legacy columns cleanly.
     snapshots.push({
       id: randomUUID(),
       userId,
@@ -249,13 +282,19 @@ function walkPositionHistory(params: WalkerParams): HoldingSnapshot[] {
       snapshotDate: date,
       quantity,
       closePrice,
-      marketValue,
-      costBasis,
-      unrealizedPnl,
+      // Dual-write: legacy `marketValue` mirrors `valueNative` exactly until
+      // KZO-176 removes the legacy column.
+      marketValue: valueNative,
+      costBasis: costBasisNative,
+      unrealizedPnl: unrealizedPnlNative,
       cumulativeRealizedPnl,
       cumulativeDividends,
       isProvisional,
-      currency: "TWD",
+      currency: nativeCurrency,
+      valueNative,
+      costBasisNative,
+      unrealizedPnlNative,
+      providerSource,
       generatedAt,
       generationRunId,
     });

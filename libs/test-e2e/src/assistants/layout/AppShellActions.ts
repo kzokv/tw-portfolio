@@ -256,10 +256,37 @@ export class AppShellActions extends AppBaseActions {
    */
   @Step()
   async dragAdminTimeframeChip(from: string, to: string): Promise<void> {
-    await this.dndKitDrag(
-      this.el.testId(`timeframe-drag-handle-${from}`),
-      this.el.testId(`timeframe-drag-handle-${to}`),
-    );
+    const order = await this.adminActiveTimeframeOrder();
+    const fromIndex = order.indexOf(from);
+    const toIndex = order.indexOf(to);
+    expect(fromIndex, `source timeframe ${from} exists in active order`).toBeGreaterThanOrEqual(0);
+    expect(toIndex, `target timeframe ${to} exists in active order`).toBeGreaterThanOrEqual(0);
+    if (fromIndex === toIndex) return;
+
+    const sourceHandle = this.el.testId(`timeframe-drag-handle-${from}`);
+    await this.mxFocus(sourceHandle);
+    await expect(sourceHandle).toBeFocused();
+
+    // Use the handle's ArrowUp/ArrowDown keyboard affordance for this compact
+    // adjacent-row list. Pointer drops can land back on the source row when
+    // handles are close together; the arrow path still exercises onReorder.
+    const key = toIndex > fromIndex ? "ArrowDown" : "ArrowUp";
+    for (let i = 0; i < Math.abs(toIndex - fromIndex); i += 1) {
+      await this.mxPressKey(key);
+    }
+    await this.mxMoveMouse(0, 0);
+  }
+
+  private async adminActiveTimeframeOrder(): Promise<string[]> {
+    const count = await this.el.adminActiveTimeframeChips.count();
+    const order: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const testId = await this.el.adminActiveTimeframeChips.nth(i).getAttribute("data-testid");
+      if (testId?.startsWith("timeframe-chip-")) {
+        order.push(testId.slice("timeframe-chip-".length));
+      }
+    }
+    return order;
   }
 
   @Step()
