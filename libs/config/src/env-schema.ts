@@ -51,6 +51,10 @@ export const envSchema = z.object({
   // FinMind API token — required for market data backfill (KZO-126).
   // Free tier: 600 requests/hour. Obtain from https://finmindtrade.com/
   FINMIND_API_TOKEN: z.string().optional(),
+  // KZO-163: extracted hardcoded base URL + rate-limit budget so providers can be swapped/tuned
+  // without code changes. Defaults match the prior hardcoded values.
+  FINMIND_BASE_URL: z.string().url().default("https://api.finmindtrade.com/api/v4/data"),
+  FINMIND_RATE_LIMIT_PER_HOUR: z.coerce.number().int().positive().default(600),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

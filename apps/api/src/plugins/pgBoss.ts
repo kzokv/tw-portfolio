@@ -1,11 +1,9 @@
 import { PgBoss } from "pg-boss";
 import pg from "pg";
 import { Env } from "@tw-portfolio/config";
-import { RateLimiter } from "../services/market-data/rateLimiter.js";
-import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js";
-import { FinMindClient } from "../services/market-data/finmindClient.js";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
+import { resolveMarketCode } from "../services/market-data/marketResolution.js";
 import {
   ANONYMOUS_SHARE_TOKEN_PURGE_CRON,
   ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE,
@@ -35,15 +33,12 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   // Data pool for backfill worker SQL operations
   const pool = new pg.Pool({ connectionString, max: 2, application_name: "tw-portfolio-backfill" });
 
-  const rateLimiter = new RateLimiter();
-
-  // Use real client if token is configured, mock otherwise
-  const finmind = Env.FINMIND_API_TOKEN ? new FinMindClient() : new MockFinMindClient();
-
-  const workerDeps = {
+  // KZO-163: providers + rate limiters now live inside `app.marketDataRegistry` (built in app.ts).
+  // The backfill worker takes the marketData map; the catalog-sync worker takes the catalog map.
+  const backfillDeps = {
     pool,
-    finmind,
-    rateLimiter,
+    marketDataRegistry: app.marketDataRegistry.marketData,
+    resolveMarketCode,
     eventBus: app.eventBus,
     boss,
     updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>
@@ -70,12 +65,18 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
         log: app.log,
       });
     },
+    log: app.log,
+  };
+
+  const catalogDeps = {
+    boss,
+    catalogRegistry: app.marketDataRegistry.catalog,
     persistence: app.persistence,
     log: app.log,
   };
 
-  await registerBackfillWorker(app, boss, workerDeps);
-  await registerCatalogSyncWorker(app, boss, workerDeps);
+  await registerBackfillWorker(app, boss, backfillDeps);
+  await registerCatalogSyncWorker(app, boss, catalogDeps);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
 
   const purgeCutoffMs = Env.ANONYMOUS_SHARE_TOKEN_PURGE_DAYS * 24 * 60 * 60 * 1000;

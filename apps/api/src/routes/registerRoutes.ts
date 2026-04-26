@@ -54,8 +54,8 @@ import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
-import { FinMindClient } from "../services/market-data/finmindClient.js";
-import { MockFinMindClient } from "../services/market-data/finmindClient.mock.js";
+import { resolveMarketCode } from "../services/market-data/marketResolution.js";
+import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { routeError } from "../lib/routeError.js";
 import {
@@ -1193,6 +1193,10 @@ async function opportunisticUpsertDailyBars(
         low: bar.low,
         close: bar.close,
         volume: bar.volume,
+        // KZO-163 D7: propagate DailyBar.source → RawDailyBar.sourceId so the
+        // upsert preserves provider attribution. Without this the SQL fell back
+        // to 'finmind' for every row, masking future multi-provider sources.
+        sourceId: bar.source,
       })),
     );
     return;
@@ -2542,7 +2546,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return store.feeProfileBindings;
   });
 
-  app.get("/market-data/price", async (req) => {
+  app.get("/market-data/price", async (req, reply) => {
     // Authenticate-only: this route has no per-user state. The resolveUserId
     // call throws on missing/invalid auth in oauth mode, then we discard the id.
     resolveUserId(req, app.oauthConfig?.sessionSecret);
@@ -2564,19 +2568,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return buildPriceLookupResponse(storedMatch, query.date);
     }
 
-    const finmind = Env.FINMIND_API_TOKEN ? new FinMindClient() : new MockFinMindClient();
+    // KZO-163: route through the per-market provider registry. The provider's internal rate
+    // limiter throws RateLimitedError when the shared FinMind budget is exhausted; surface
+    // that as 503 + Retry-After so clients can back off intelligently. Distinct from the
+    // per-IP 429 emitted by `assertMarketDataPriceRateLimit` above. (N8 behavioral delta.)
+    const provider = app.marketDataRegistry.marketData.get(resolveMarketCode(query.ticker));
+    if (!provider) {
+      throw routeError(404, "price_not_found", "price not found");
+    }
+
     let fetchedBars: DailyBar[];
     try {
-      const rawBars = await finmind.fetchDailyBars(query.ticker, lookbackStartDate, query.date);
+      const rawBars = await provider.fetchBars(query.ticker, lookbackStartDate, query.date);
       fetchedBars = rawBars
         .filter((bar) => bar.barDate >= lookbackStartDate && bar.barDate <= query.date)
         .sort((left, right) => left.barDate.localeCompare(right.barDate))
         .map((bar) => ({
           ...bar,
-          source: "finmind",
+          // KZO-163 D7: forward provider's sourceId so KZO-164/170 providers report correctly.
+          // Today every TW bar has sourceId='finmind'; the fallback preserves that behavior.
+          source: bar.sourceId ?? "finmind",
           ingestedAt: new Date().toISOString(),
         }));
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitedError) {
+        reply.header("Retry-After", String(err.retryAfterSeconds));
+        throw routeError(503, "provider_rate_limited", "market data provider rate limit exceeded");
+      }
       throw routeError(404, "price_not_found", "price not found");
     }
 

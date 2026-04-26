@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 
 export async function upsertDailyBars(
   pool: Pool,
-  bars: Array<{ ticker: string; barDate: string; open: number; high: number; low: number; close: number; volume: number }>,
+  bars: Array<{ ticker: string; barDate: string; open: number; high: number; low: number; close: number; volume: number; sourceId?: string }>,
 ): Promise<number> {
   if (bars.length === 0) return 0;
 
@@ -13,6 +13,7 @@ export async function upsertDailyBars(
   const lows: number[] = [];
   const closes: number[] = [];
   const volumes: number[] = [];
+  const sources: string[] = [];
   for (const bar of bars) {
     tickers.push(bar.ticker);
     dates.push(bar.barDate);
@@ -21,20 +22,23 @@ export async function upsertDailyBars(
     lows.push(bar.low);
     closes.push(bar.close);
     volumes.push(bar.volume);
+    // KZO-163: per-row sourceId with 'finmind' fallback. Future-proofs for mixed-provider
+    // batches (e.g. KZO-170 mixing US + TW) without behavioral change today.
+    sources.push(bar.sourceId ?? "finmind");
   }
 
   const result = await pool.query(
     `INSERT INTO market_data.daily_bars (ticker, bar_date, open, high, low, close, volume, source, ingested_at)
      SELECT * FROM unnest(
        $1::text[], $2::date[], $3::numeric[], $4::numeric[], $5::numeric[], $6::numeric[], $7::bigint[],
-       array_fill('finmind'::text, ARRAY[$8::int]),
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int])
+       $8::text[],
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int])
      )
      ON CONFLICT (ticker, bar_date) DO UPDATE SET
        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
        close = EXCLUDED.close, volume = EXCLUDED.volume,
        source = EXCLUDED.source, ingested_at = EXCLUDED.ingested_at`,
-    [tickers, dates, opens, highs, lows, closes, volumes, bars.length],
+    [tickers, dates, opens, highs, lows, closes, volumes, sources, bars.length],
   );
   return result.rowCount ?? 0;
 }
@@ -44,6 +48,7 @@ export function deriveDividendKey(ev: {
   exDividendDate: string;
   cashDividendPerShare: number;
   stockDividendPerShare: number;
+  sourceId?: string;
 }) {
   const eventType =
     ev.cashDividendPerShare > 0 && ev.stockDividendPerShare > 0
@@ -51,7 +56,11 @@ export function deriveDividendKey(ev: {
       : ev.stockDividendPerShare > 0
         ? "STOCK"
         : "CASH";
-  return { eventType, id: `finmind:${ev.ticker}:${ev.exDividendDate}:${eventType}` };
+  // KZO-163: optional per-event sourceId with 'finmind' fallback. Existing TW dividend keys
+  // (e.g. `finmind:00878:2025-01-20:CASH`) preserved because TW events still flow with
+  // sourceId='finmind'.
+  const source = ev.sourceId ?? "finmind";
+  return { eventType, id: `${source}:${ev.ticker}:${ev.exDividendDate}:${eventType}` };
 }
 
 export async function upsertDividendEvents(
@@ -66,6 +75,7 @@ export async function upsertDividendEvents(
     announcementDate?: string;
     totalDistributionShares?: number;
     rawProviderData?: Record<string, unknown>;
+    sourceId?: string;
   }>,
 ): Promise<number> {
   if (events.length === 0) return 0;
@@ -87,6 +97,7 @@ export async function upsertDividendEvents(
   const payDates: string[] = [];
   const cashAmounts: number[] = [];
   const stockAmounts: number[] = [];
+  const sources: string[] = [];
   const fiscalYearPeriods: (string | null)[] = [];
   const announcementDates: (string | null)[] = [];
   const totalDistShares: (number | null)[] = [];
@@ -101,6 +112,7 @@ export async function upsertDividendEvents(
     payDates.push(ev.paymentDate);
     cashAmounts.push(ev.cashDividendPerShare);
     stockAmounts.push(ev.stockDividendPerShare);
+    sources.push(ev.sourceId ?? "finmind");
     fiscalYearPeriods.push(ev.fiscalYearPeriod ?? null);
     announcementDates.push(ev.announcementDate ?? null);
     totalDistShares.push(ev.totalDistributionShares ?? null);
@@ -115,9 +127,9 @@ export async function upsertDividendEvents(
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::date[], $5::date[], $6::numeric[], $7::numeric[],
        array_fill('TWD'::text, ARRAY[$8::int]),
-       array_fill('finmind'::text, ARRAY[$8::int]),
+       $9::text[],
        array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int]),
-       $9::text[], $10::date[], $11::numeric[], $12::jsonb[]
+       $10::text[], $11::date[], $12::numeric[], $13::jsonb[]
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
@@ -129,7 +141,7 @@ export async function upsertDividendEvents(
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data`,
     [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
-     fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
+     sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
   );
   return result.rowCount ?? 0;
 }

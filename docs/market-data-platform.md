@@ -293,15 +293,19 @@ Data flows:
 │  │  +-- Services ----------------------------------------------------+│      │
 │  │  │                                                                ││      │
 │  │  │  market-data/                                                  ││      │
-│  │  │  |-- finmindClient.ts     FinMind HTTP client + mock           ││      │
-│  │  │  |-- rateLimiter.ts       sliding window, 600 req/hr           ││      │
-│  │  │  |-- catalogSync.ts       dedup + classify instruments         ││      │
-│  │  │  |-- runCatalogSync.ts    orchestrator for catalog sync        ││      │
-│  │  │  |-- backfillWorker.ts    polymorphic handler (4 triggers)     ││      │
-│  │  │  |-- upserts.ts           shared upsertDailyBars/DividendEvts  ││      │
-│  │  │  |-- dailyRefreshEnqueue  enqueue per-ticker refresh jobs      ││      │
-│  │  │  |-- registerBackfillWorker.ts    pg-boss worker setup         ││      │
-│  │  │  \-- registerCatalogSyncWorker.ts pg-boss cron + soft chain    ││      │
+│  │  │  |-- registry.ts          buildMarketDataRegistry (KZO-163)   ││      │
+│  │  │  |-- marketResolution.ts  resolveMarketCode(ticker) seam      ││      │
+│  │  │  |-- providers/           per-market provider classes         ││      │
+│  │  │  │   |-- finmind.ts       FinMindMarketDataProvider (TW)      ││      │
+│  │  │  │   \-- mockFinmind.ts   MockFinMindMarketDataProvider       ││      │
+│  │  │  |-- rateLimiter.ts       sliding window, per-provider        ││      │
+│  │  │  |-- catalogSync.ts       dedup + classify instruments        ││      │
+│  │  │  |-- runCatalogSync.ts    orchestrator for catalog sync       ││      │
+│  │  │  |-- backfillWorker.ts    polymorphic handler (4 triggers)    ││      │
+│  │  │  |-- upserts.ts           shared upsertDailyBars/DividendEvts ││      │
+│  │  │  |-- dailyRefreshEnqueue  enqueue per-ticker refresh jobs     ││      │
+│  │  │  |-- registerBackfillWorker.ts    pg-boss worker setup        ││      │
+│  │  │  \-- registerCatalogSyncWorker.ts pg-boss cron + soft chain   ││      │
 │  │  │                                                                ││      │
 │  │  │  accounting/                                                   ││      │
 │  │  │  |-- orderLots.ts         FIFO lot allocation                  ││      │

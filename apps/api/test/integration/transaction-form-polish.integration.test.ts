@@ -16,7 +16,9 @@ import {
   type FeeProfile,
 } from "@tw-portfolio/domain";
 import { buildApp } from "../../src/app.js";
-import { MockFinMindClient } from "../../src/services/market-data/finmindClient.mock.js";
+// KZO-163: provider class lives at providers/mockFinmind.ts; method renamed fetchDailyBars → fetchBars.
+import { MockFinMindMarketDataProvider } from "../../src/services/market-data/providers/index.js";
+import { RateLimitedError } from "../../src/services/market-data/types.js";
 import { _resetMarketDataPriceBuckets } from "../../src/lib/marketDataPriceRateLimit.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -125,7 +127,7 @@ describe("transaction form polish routes", () => {
   });
 
   it("GET /market-data/price falls back to FinMind within the lookback and opportunistically seeds memory", async () => {
-    vi.spyOn(MockFinMindClient.prototype, "fetchDailyBars").mockResolvedValue([
+    vi.spyOn(MockFinMindMarketDataProvider.prototype, "fetchBars").mockResolvedValue([
       {
         ticker: "2330",
         barDate: "2026-01-15",
@@ -164,7 +166,7 @@ describe("transaction form polish routes", () => {
   });
 
   it("GET /market-data/price keeps provider fallback responses in previous-match mode even on exact-date hits", async () => {
-    vi.spyOn(MockFinMindClient.prototype, "fetchDailyBars").mockResolvedValue([
+    vi.spyOn(MockFinMindMarketDataProvider.prototype, "fetchBars").mockResolvedValue([
       {
         ticker: "2330",
         barDate: "2026-01-16",
@@ -193,7 +195,7 @@ describe("transaction form polish routes", () => {
   });
 
   it("GET /market-data/price maps provider misses to 404 price_not_found", async () => {
-    vi.spyOn(MockFinMindClient.prototype, "fetchDailyBars").mockRejectedValue(new Error("FinMind 402"));
+    vi.spyOn(MockFinMindMarketDataProvider.prototype, "fetchBars").mockRejectedValue(new Error("FinMind 402"));
 
     const response = await app.inject({
       method: "GET",
@@ -207,6 +209,26 @@ describe("transaction form polish routes", () => {
         error: "price_not_found",
       }),
     );
+  });
+
+  // QA-owned: N8 behavioral test — 503 + Retry-After when shared FinMind budget exhausted
+  it("GET /market-data/price returns 503 + Retry-After when FinMind rate limit is exhausted", async () => {
+    // Spy on the NEW provider prototype (post-Implementer-Slice-3 rename: fetchDailyBars → fetchBars)
+    vi.spyOn(MockFinMindMarketDataProvider.prototype, "fetchBars").mockRejectedValue(
+      new RateLimitedError({ msUntilAvailable: 30_000 }),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/market-data/price?ticker=2330&date=2026-01-16",
+      headers: authHeaders,
+    });
+
+    expect(response.statusCode).toBe(503);
+    // Retry-After must be ceil(30_000 / 1000) = 30 seconds
+    expect(response.headers["retry-after"]).toBe("30");
+    // Error code from routeError(503, 'provider_rate_limited', ...) → error handler writes it as `error` field
+    expect(response.json()).toMatchObject({ error: "provider_rate_limited" });
   });
 
   it("GET /market-data/price rejects future dates with invalid_date", async () => {
