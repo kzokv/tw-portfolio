@@ -49,6 +49,7 @@ import { applyCorporateAction, createTransaction, listHoldings } from "../servic
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
+import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createStore } from "../services/store.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
@@ -3338,6 +3339,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           dateRange: result.dateRange ?? null,
           generationRunId: result.generationRunId,
         });
+
+        // KZO-165: run the wallet aggregator AFTER the holding snapshots succeed.
+        // Wrap in its own try/catch so a wallet failure does not mask a successful
+        // holding-snapshot generation. Emit a distinct SSE event so the client can
+        // render the wallet-stub failure separately if KZO-176's dashboard reads it.
+        try {
+          await generateCurrencyWalletSnapshots(userId, app.persistence);
+        } catch (walletError) {
+          const walletMessage = walletError instanceof Error ? walletError.message : String(walletError);
+          console.error("[snapshot-generate:wallet] Failed:", walletMessage);
+          try {
+            await app.eventBus.publishEvent(userId, "wallet_generation_failed", {
+              error: walletMessage,
+            });
+          } catch { /* swallow — best effort */ }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error("[snapshot-generate] Failed:", message);
@@ -3433,6 +3450,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           dateRange: result.dateRange ?? null,
           generationRunId: result.generationRunId,
         });
+
+        // KZO-165: wallet aggregator runs sequentially after holding snapshots.
+        // Isolated try/catch — a wallet failure must not mask a successful
+        // holding-snapshot generation.
+        try {
+          await generateCurrencyWalletSnapshots(userId, app.persistence);
+        } catch (walletError) {
+          const walletMessage = walletError instanceof Error ? walletError.message : String(walletError);
+          console.error("[recompute-confirm:wallet] Failed:", walletMessage);
+          try {
+            await app.eventBus.publishEvent(userId, "wallet_generation_failed", {
+              error: walletMessage,
+            });
+          } catch { /* swallow — best effort */ }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error("[recompute-confirm:snapshots] Failed:", message);

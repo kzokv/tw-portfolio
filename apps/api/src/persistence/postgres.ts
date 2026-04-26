@@ -2481,9 +2481,10 @@ export class PostgresPersistence implements Persistence {
       id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
       booking_sequence: number | null; commission_amount: string; tax_amount: string;
+      price_currency: string;
     }>(
       `SELECT id, account_id, ticker, trade_type, quantity, unit_price, trade_date::text,
-              booking_sequence, commission_amount, tax_amount
+              booking_sequence, commission_amount, tax_amount, price_currency
        FROM trade_events
        WHERE ${tradeFilter}
        ORDER BY trade_date ASC, booking_sequence ASC, id ASC`,
@@ -2538,6 +2539,7 @@ export class PostgresPersistence implements Persistence {
         bookingSequence: row.booking_sequence ?? undefined,
         commissionAmount: Number(row.commission_amount),
         taxAmount: Number(row.tax_amount),
+        priceCurrency: row.price_currency,
       })),
       postedDividends: divResult.rows.map(r => ({
         accountId: r.account_id,
@@ -2560,13 +2562,15 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, ticker, snapshot_date, quantity,
            close_price, market_value, cost_basis, unrealized_pnl,
            cumulative_realized_pnl, cumulative_dividends,
-           is_provisional, currency, generated_at, generation_run_id
+           is_provisional, currency, generated_at, generation_run_id,
+           value_native, cost_basis_native, unrealized_pnl_native, provider_source
          )
          SELECT * FROM UNNEST(
            $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[],
            $7::numeric[], $8::numeric[], $9::numeric[], $10::numeric[],
            $11::numeric[], $12::numeric[],
-           $13::boolean[], $14::text[], $15::timestamptz[], $16::text[]
+           $13::boolean[], $14::text[], $15::timestamptz[], $16::text[],
+           $17::numeric[], $18::numeric[], $19::numeric[], $20::text[]
          )
          ON CONFLICT (user_id, account_id, ticker, snapshot_date) DO UPDATE SET
            quantity = EXCLUDED.quantity,
@@ -2579,7 +2583,11 @@ export class PostgresPersistence implements Persistence {
            is_provisional = EXCLUDED.is_provisional,
            currency = EXCLUDED.currency,
            generated_at = EXCLUDED.generated_at,
-           generation_run_id = EXCLUDED.generation_run_id`,
+           generation_run_id = EXCLUDED.generation_run_id,
+           value_native = EXCLUDED.value_native,
+           cost_basis_native = EXCLUDED.cost_basis_native,
+           unrealized_pnl_native = EXCLUDED.unrealized_pnl_native,
+           provider_source = EXCLUDED.provider_source`,
         [
           snapshots.map(s => s.id),
           snapshots.map(s => s.userId),
@@ -2597,6 +2605,10 @@ export class PostgresPersistence implements Persistence {
           snapshots.map(s => s.currency),
           snapshots.map(s => s.generatedAt),
           snapshots.map(s => s.generationRunId),
+          snapshots.map(s => s.valueNative),
+          snapshots.map(s => s.costBasisNative),
+          snapshots.map(s => s.unrealizedPnlNative),
+          snapshots.map(s => s.providerSource),
         ],
       );
       await client.query("COMMIT");
@@ -2687,11 +2699,14 @@ export class PostgresPersistence implements Persistence {
       quantity: string; close_price: string | null; market_value: string | null; cost_basis: string;
       unrealized_pnl: string | null; cumulative_realized_pnl: string; cumulative_dividends: string;
       is_provisional: boolean; currency: string; generated_at: string; generation_run_id: string;
+      value_native: string | null; cost_basis_native: string | null;
+      unrealized_pnl_native: string | null; provider_source: string | null;
     }>(
       `SELECT id, user_id, account_id, ticker, snapshot_date::text,
               quantity, close_price, market_value, cost_basis,
               unrealized_pnl, cumulative_realized_pnl, cumulative_dividends,
-              is_provisional, currency, generated_at::text, generation_run_id
+              is_provisional, currency, generated_at::text, generation_run_id,
+              value_native, cost_basis_native, unrealized_pnl_native, provider_source
        FROM daily_holding_snapshots
        WHERE user_id = $1 AND account_id = $2 AND ticker = $3
          AND snapshot_date >= $4::date AND snapshot_date <= $5::date
@@ -2712,9 +2727,140 @@ export class PostgresPersistence implements Persistence {
       cumulativeRealizedPnl: Number(row.cumulative_realized_pnl),
       cumulativeDividends: Number(row.cumulative_dividends),
       isProvisional: row.is_provisional,
-      currency: row.currency,
+      // CHAR(3) padding: Postgres CHAR returns padded values; trim for safety. The
+      // post-migration column is CHAR(3) so this is a no-op for the common case but
+      // defends against any pre-migration TEXT row that bypassed the LEFT(_, 3) cast.
+      currency: row.currency.trim(),
+      valueNative: row.value_native !== null ? Number(row.value_native) : null,
+      costBasisNative: row.cost_basis_native !== null ? Number(row.cost_basis_native) : 0,
+      unrealizedPnlNative: row.unrealized_pnl_native !== null ? Number(row.unrealized_pnl_native) : null,
+      providerSource: row.provider_source,
       generatedAt: row.generated_at,
       generationRunId: row.generation_run_id,
+    }));
+  }
+
+  // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
+  // Mirrors the unnest-arrays pattern from `bulkUpsertHoldingSnapshots`. PK is
+  // (account_id, currency, date) per D7 — no `user_id` in the conflict target
+  // even though it's denormalized for indexing. KZO-166 will populate
+  // wac_fx_to_usd / realized_fx_pnl_lifetime; KZO-165 always writes null/0 stubs.
+
+  async bulkUpsertCurrencyWalletSnapshots(
+    _userId: string,
+    snapshots: import("./types.js").CurrencyWalletSnapshot[],
+  ): Promise<void> {
+    if (snapshots.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO currency_wallet_snapshots (
+           user_id, account_id, currency, date,
+           balance_native, wac_fx_to_usd, realized_fx_pnl_lifetime, provider_source,
+           generated_at, generation_run_id
+         )
+         SELECT * FROM UNNEST(
+           $1::text[], $2::text[], $3::text[], $4::date[],
+           $5::numeric[], $6::numeric[], $7::numeric[], $8::text[],
+           $9::timestamp[], $10::text[]
+         )
+         ON CONFLICT (account_id, currency, date) DO UPDATE SET
+           user_id = EXCLUDED.user_id,
+           balance_native = EXCLUDED.balance_native,
+           wac_fx_to_usd = EXCLUDED.wac_fx_to_usd,
+           realized_fx_pnl_lifetime = EXCLUDED.realized_fx_pnl_lifetime,
+           provider_source = EXCLUDED.provider_source,
+           generated_at = EXCLUDED.generated_at,
+           generation_run_id = EXCLUDED.generation_run_id`,
+        [
+          snapshots.map((s) => s.userId),
+          snapshots.map((s) => s.accountId),
+          snapshots.map((s) => s.currency),
+          snapshots.map((s) => s.date),
+          snapshots.map((s) => s.balanceNative),
+          snapshots.map((s) => s.wacFxToUsd),
+          snapshots.map((s) => s.realizedFxPnlLifetime),
+          snapshots.map((s) => s.providerSource),
+          snapshots.map((s) => s.generatedAt),
+          snapshots.map((s) => s.generationRunId),
+        ],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteAllCurrencyWalletSnapshots(userId: string): Promise<void> {
+    await this.pool.query(`DELETE FROM currency_wallet_snapshots WHERE user_id = $1`, [userId]);
+  }
+
+  async getCurrencyWalletSnapshotsForAccount(
+    userId: string,
+    accountId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<import("./types.js").CurrencyWalletSnapshot[]> {
+    const result = await this.pool.query<{
+      user_id: string;
+      account_id: string;
+      currency: string;
+      date: string;
+      balance_native: string;
+      wac_fx_to_usd: string | null;
+      realized_fx_pnl_lifetime: string;
+      provider_source: string | null;
+      generated_at: string;
+      generation_run_id: string;
+    }>(
+      `SELECT user_id, account_id, currency, date::text,
+              balance_native, wac_fx_to_usd, realized_fx_pnl_lifetime, provider_source,
+              generated_at::text, generation_run_id
+       FROM currency_wallet_snapshots
+       WHERE user_id = $1 AND account_id = $2
+         AND date >= $3::date AND date <= $4::date
+       ORDER BY date ASC, currency ASC`,
+      [userId, accountId, startDate, endDate],
+    );
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      accountId: row.account_id,
+      // CHAR(3) is space-padded by Postgres on read; trim defensively.
+      currency: row.currency.trim(),
+      date: row.date,
+      balanceNative: Number(row.balance_native),
+      wacFxToUsd: row.wac_fx_to_usd !== null ? Number(row.wac_fx_to_usd) : null,
+      realizedFxPnlLifetime: Number(row.realized_fx_pnl_lifetime),
+      providerSource: row.provider_source,
+      generatedAt: row.generated_at,
+      generationRunId: row.generation_run_id,
+    }));
+  }
+
+  async getCashLedgerEntriesForBalances(
+    userId: string,
+  ): Promise<import("./types.js").CashLedgerEntryForBalance[]> {
+    const result = await this.pool.query<{
+      account_id: string;
+      currency: string;
+      entry_date: string;
+      amount: string;
+    }>(
+      `SELECT account_id, currency, entry_date::text, amount
+       FROM cash_ledger_entries
+       WHERE user_id = $1
+       ORDER BY account_id ASC, currency ASC, entry_date ASC`,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      accountId: row.account_id,
+      currency: row.currency,
+      entryDate: row.entry_date,
+      amount: Number(row.amount),
     }));
   }
 
@@ -6208,6 +6354,10 @@ export class PostgresPersistence implements Persistence {
       if (accountIds.rows.length > 0) {
         const ids = accountIds.rows.map((r) => r.id);
         await client.query("DELETE FROM daily_holding_snapshots WHERE account_id = ANY($1)", [ids]);
+        // KZO-165: composite FK (account_id, user_id) → accounts(id, user_id), so wallet
+        // rows must be deleted before the accounts row below. Delete by account_id (PK
+        // includes account_id, so this is index-supported).
+        await client.query("DELETE FROM currency_wallet_snapshots WHERE account_id = ANY($1)", [ids]);
         await client.query("DELETE FROM cash_ledger_entries WHERE account_id = ANY($1)", [ids]);
         await client.query("DELETE FROM lot_allocations WHERE lot_id IN (SELECT id FROM lots WHERE account_id = ANY($1))", [ids]);
         await client.query("DELETE FROM lots WHERE account_id = ANY($1)", [ids]);

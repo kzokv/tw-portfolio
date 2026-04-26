@@ -27,6 +27,9 @@ export async function cleanupExpiredDemoUsers(pool: Pool): Promise<number> {
     // daily_holding_snapshots). The table still exists in the schema but is
     // effectively dead — cleaning it keeps demo cleanup defensive.
     await client.query(`DELETE FROM daily_holding_snapshots WHERE user_id = ANY($1)`, [userIds]);
+    // KZO-165: composite FK (account_id, user_id) → accounts(id, user_id) — must
+    // be cleared before the accounts row is deleted later in this cascade.
+    await client.query(`DELETE FROM currency_wallet_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM recompute_jobs WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM accounts WHERE user_id = ANY($1)`, [userIds]);

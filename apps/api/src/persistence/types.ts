@@ -330,8 +330,24 @@ export interface CatalogSyncResult {
   delisted: number;
 }
 
-// ── Holding snapshots (KZO-115) ─────────────────────────────────────────────
+// ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
 
+/**
+ * Per-(account, ticker, date) holding snapshot row.
+ *
+ * KZO-165 extensions:
+ * - `currency` is now the **native** currency of the holding (no fallback default).
+ *   Writers must always supply it; the walker derives it from `trades[0].priceCurrency`
+ *   and fails fast on mixed-currency rows for the same (account, ticker).
+ * - `valueNative`, `costBasisNative`, `unrealizedPnlNative` carry the same numeric
+ *   meaning as `marketValue`, `costBasis`, `unrealizedPnl` but in the native currency.
+ *   For TWD-only data they equal the legacy columns by design (dual-write per D6).
+ * - `providerSource` denormalizes the `daily_bars.source` of the bar that supplied
+ *   `closePrice`. NULL on provisional rows.
+ *
+ * The legacy `marketValue`/`costBasis`/`unrealizedPnl` columns are retained and
+ * dual-written pending KZO-176's dashboard rewrite + drop.
+ */
 export interface HoldingSnapshot {
   id: string;
   userId: string;
@@ -347,8 +363,52 @@ export interface HoldingSnapshot {
   cumulativeDividends: number;
   isProvisional: boolean;
   currency: string;
+  /** KZO-165: market value in native currency (4-decimal precision). NULL when closePrice is null. */
+  valueNative: number | null;
+  /** KZO-165: cost basis in native currency (2-decimal precision). */
+  costBasisNative: number;
+  /** KZO-165: unrealized P&L in native currency (2-decimal precision). NULL when valueNative is null. */
+  unrealizedPnlNative: number | null;
+  /** KZO-165: denormalized `daily_bars.source` for the bar that supplied closePrice. NULL on provisional rows. */
+  providerSource: string | null;
   generatedAt: string;
   generationRunId: string;
+}
+
+// ── Currency wallet snapshots (KZO-165) ───────────────────────────────────────
+
+/**
+ * Per-(account, currency, date) cash balance snapshot row.
+ *
+ * KZO-165 ships this as a minimal aggregator stub: rows are emitted for every date
+ * with cash-ledger activity per (account, currency), with `wacFxToUsd = null`,
+ * `realizedFxPnlLifetime = 0`, and `providerSource = null`. The real WAC math +
+ * realized FX P&L crystallization is owned by KZO-166; the read-side dashboard
+ * rewrite is owned by KZO-176.
+ */
+export interface CurrencyWalletSnapshot {
+  userId: string;
+  accountId: string;
+  currency: string;
+  date: string;
+  balanceNative: number;
+  wacFxToUsd: number | null;
+  realizedFxPnlLifetime: number;
+  providerSource: string | null;
+  generatedAt: string;
+  generationRunId: string;
+}
+
+/**
+ * Trimmed cash-ledger row used by the wallet aggregator. We project only the four
+ * fields the aggregator reads — keeps the persistence boundary narrow and avoids
+ * shipping fee-policy snapshots, dividend metadata, etc., that the walker doesn't need.
+ */
+export interface CashLedgerEntryForBalance {
+  accountId: string;
+  currency: string;
+  entryDate: string;
+  amount: number;
 }
 
 export interface AggregatedSnapshotPoint {
@@ -391,6 +451,10 @@ export interface SnapshotTradeInput {
   bookingSequence?: number;
   commissionAmount: number;
   taxAmount: number;
+  /** KZO-165: native currency of the trade. Walker uses trades[0].priceCurrency
+   *  as the holding's native currency and fails fast on mixed values for the
+   *  same (account, ticker). */
+  priceCurrency: string;
 }
 
 export interface SnapshotGenerationInputs {
@@ -724,6 +788,32 @@ export interface Persistence {
   getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]>;
   countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
+
+  // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.
+  /**
+   * Bulk upsert currency wallet snapshot rows. PK is (account_id, currency, date).
+   * Mirrors the unnest-arrays pattern used by `bulkUpsertHoldingSnapshots`.
+   */
+  bulkUpsertCurrencyWalletSnapshots(userId: string, snapshots: CurrencyWalletSnapshot[]): Promise<void>;
+  /** Delete all wallet snapshots for a user. Called before a fresh aggregator run. */
+  deleteAllCurrencyWalletSnapshots(userId: string): Promise<void>;
+  /**
+   * Forward-compatibility scaffolding for KZO-176's dashboard read path. The
+   * KZO-165 scope explicitly adds this reader; its current callers are
+   * integration tests plus the future dashboard rewrite.
+   */
+  getCurrencyWalletSnapshotsForAccount(
+    userId: string,
+    accountId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<CurrencyWalletSnapshot[]>;
+  /**
+   * Trimmed cash-ledger projection used by the wallet aggregator. Returns rows in
+   * (accountId ASC, currency ASC, entryDate ASC) order so the running-balance
+   * walker can stream without an extra sort.
+   */
+  getCashLedgerEntriesForBalances(userId: string): Promise<CashLedgerEntryForBalance[]>;
   getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]>;
   /**
    * Batched variant of getDailyBarsForTicker: fetches bars for N tickers in a

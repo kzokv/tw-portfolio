@@ -302,6 +302,208 @@ describe("recomputeSnapshotsForTicker", () => {
   });
 });
 
+// ── KZO-165: per-currency native columns + provider source ──────────────────
+
+describe("KZO-165 — multi-currency snapshot fields", () => {
+  it("populates *_native columns for a TWD-only setup (D2/D6/D9)", async () => {
+    // Use ticker 2002 (China Steel — locked for KZO-165 per
+    // .claude/rules/e2e-shared-memory-bars-ticker-hygiene.md).
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        quantity: 10,
+        unitPrice: 100,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    persistence._seedDailyBars([
+      makeBar("2002", "2025-01-02", 100),
+      makeBar("2002", "2025-01-03", 105),
+    ]);
+
+    await generateHoldingSnapshots("user-1", persistence);
+    const snapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "2002", "2025-01-01", "2025-12-31",
+    );
+    expect(snapshots).toHaveLength(2);
+
+    // Day 1: closePrice=100 × quantity=10 → valueNative=1000
+    expect(snapshots[0].valueNative).toBe(1000);
+    expect(snapshots[0].costBasisNative).toBe(1000); // 10*100, no fees
+    expect(snapshots[0].unrealizedPnlNative).toBe(0);
+
+    // Day 2: closePrice=105 × quantity=10 → valueNative=1050
+    expect(snapshots[1].valueNative).toBe(1050);
+    expect(snapshots[1].costBasisNative).toBe(1000);
+    expect(snapshots[1].unrealizedPnlNative).toBe(50);
+  });
+
+  it("native-column row currency reflects trades[0].priceCurrency (D2/D4)", async () => {
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        quantity: 10,
+        unitPrice: 100,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    persistence._seedDailyBars([makeBar("2002", "2025-01-02", 100)]);
+
+    await generateHoldingSnapshots("user-1", persistence);
+    const snapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "2002", "2025-01-01", "2025-12-31",
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].currency).toBe("TWD");
+  });
+
+  it("providerSource reflects bar.source on emitted snapshots (D10)", async () => {
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        quantity: 10,
+        unitPrice: 100,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    // Seed bars whose source is the literal string we expect to denormalize.
+    persistence._seedDailyBars([
+      { ...makeBar("2002", "2025-01-02", 100), source: "finmind" },
+      { ...makeBar("2002", "2025-01-03", 105), source: "finmind" },
+    ]);
+
+    await generateHoldingSnapshots("user-1", persistence);
+    const snapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "2002", "2025-01-01", "2025-12-31",
+    );
+
+    expect(snapshots).toHaveLength(2);
+    for (const s of snapshots) {
+      expect(s.providerSource).toBe("finmind");
+    }
+  });
+
+  it("providerSource is null on provisional rows (no bar) per D10", async () => {
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        quantity: 10,
+        unitPrice: 100,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    // No bars seeded → provisional row.
+    await generateHoldingSnapshots("user-1", persistence);
+    const snapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "2002", "2025-01-01", "2025-12-31",
+    );
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].isProvisional).toBe(true);
+    expect(snapshots[0].providerSource).toBeNull();
+    expect(snapshots[0].valueNative).toBeNull();
+    expect(snapshots[0].unrealizedPnlNative).toBeNull();
+  });
+
+  it("dual-write rule (D6): valueNative === marketValue, costBasisNative === costBasis, unrealizedPnlNative === unrealizedPnl", async () => {
+    // Use fractional closes so this catches any accidental 2-decimal rounding
+    // on the legacy marketValue dual-write.
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        type: "BUY",
+        quantity: 3,
+        unitPrice: 100.1234,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    persistence._seedDailyBars([
+      makeBar("2002", "2025-01-02", 100.1234),
+      makeBar("2002", "2025-01-03", 110.5678),
+      makeBar("2002", "2025-01-06", 95.4321),
+    ]);
+
+    await generateHoldingSnapshots("user-1", persistence);
+    const snapshots = await persistence.getHoldingSnapshotsForTicker(
+      "user-1", "acc-1", "2002", "2025-01-01", "2025-12-31",
+    );
+    expect(snapshots.length).toBeGreaterThan(0);
+
+    for (const s of snapshots) {
+      // Dual-write equality across every emitted row, including PnL rows
+      // that swing positive/negative and rows where marketValue is null.
+      expect(s.valueNative).toBe(s.marketValue);
+      expect(s.costBasisNative).toBe(s.costBasis);
+      expect(s.unrealizedPnlNative).toBe(s.unrealizedPnl);
+    }
+  });
+
+  it("mixed-currency trades for the same (account, ticker) → throws snapshot_mixed_currency (D4)", async () => {
+    // The walker must fail-fast when an instrument's trades disagree on
+    // priceCurrency. Same (account, ticker), one TWD and one USD trade.
+    // Per scope-todo Phase 3 + service-error-pattern.md, the throw uses
+    // routeError(500, "snapshot_mixed_currency", ...).
+    const store = await persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "TWD",
+        tradeDate: "2025-01-02",
+        quantity: 10,
+        unitPrice: 100,
+      }),
+      makeTrade({
+        ticker: "2002",
+        priceCurrency: "USD",
+        tradeDate: "2025-01-03",
+        quantity: 5,
+        unitPrice: 50,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    persistence._seedDailyBars([
+      makeBar("2002", "2025-01-02", 100),
+      makeBar("2002", "2025-01-03", 110),
+    ]);
+
+    // The throw should propagate from generateHoldingSnapshots; assert it
+    // matches the routeError shape (Error with `.code === 'snapshot_mixed_currency'`).
+    let thrown: unknown = null;
+    try {
+      await generateHoldingSnapshots("user-1", persistence);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as { code?: string }).code).toBe("snapshot_mixed_currency");
+  });
+});
+
 describe("getAggregatedSnapshots", () => {
   it("aggregates portfolio-level sums by date", async () => {
     const store = await persistence.loadStore("user-1");

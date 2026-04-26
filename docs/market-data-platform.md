@@ -34,6 +34,8 @@
 | `lots` | Weighted-average inventory (account + symbol scoped) |
 | `cash_ledger_entries` | Settlement cash and dividend cash |
 | `daily_portfolio_snapshots` | Materialized portfolio NAV (see Section 4) |
+| `daily_holding_snapshots` | Per-holding valuation snapshots |
+| `currency_wallet_snapshots` | Per-account, per-currency cash balance snapshots |
 
 ### Market-data-owned (`market_data` schema)
 
@@ -112,6 +114,8 @@ FinMind updates at **17:30 TST**. Between market close (13:30) and the FinMind u
 | Dividend event calendar | `market_data.dividend_events` | `market_data` only |
 | Received dividends / P&L | `public.dividend_ledger_entries` JOIN `market_data.dividend_events` | Cross-schema |
 | Valuation-by-date | `public.daily_portfolio_snapshots` lookup | `public` only |
+| Holding snapshot drill-down | `public.daily_holding_snapshots` | `public` only |
+| Currency wallet balances | `public.currency_wallet_snapshots` | `public` only |
 
 ### Portfolio snapshot materialization (Option B)
 
@@ -121,6 +125,12 @@ Value-over-time and valuation-by-date queries read from **materialized `daily_po
 - For each user/account, it reconstructs positions at that date, multiplies by close price, and stores the snapshot row.
 - Phase 1 (single/few users): trivial compute cost.
 - **Migration to lazy/hybrid (Option C) is schema-compatible** — the snapshot table is identical regardless of write strategy. When user count warrants it, switch to compute-on-first-request without schema changes.
+
+### Multi-currency snapshot scaffolding
+
+KZO-165 adds the schema shape for multi-currency reporting without changing the dashboard read model yet. `daily_holding_snapshots.currency` now means the holding's native currency, and the writer dual-writes legacy `cost_basis`, `market_value`, and `unrealized_pnl` from the matching native columns until KZO-176 rewrites the dashboard read path and removes the legacy fields.
+
+`currency_wallet_snapshots` stores one row per `(account_id, currency, date)` with `user_id` denormalized for user/date reads and a composite FK back to `accounts(id, user_id)`. KZO-165's writer is only a cash-ledger running-balance stub: `wac_fx_to_usd` is `NULL`, `realized_fx_pnl_lifetime` is `0`, and `provider_source` is `NULL`. KZO-166 owns WAC FX math and realized FX P&L crystallization.
 
 ---
 

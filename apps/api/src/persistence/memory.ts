@@ -62,6 +62,8 @@ import type {
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
+  CurrencyWalletSnapshot,
+  CashLedgerEntryForBalance,
   ListInboundSharesForGranteeResult,
   ListSharesForOwnerResult,
   MaterializePendingSharesInput,
@@ -224,6 +226,8 @@ export class MemoryPersistence implements Persistence {
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
+  /** KZO-165: currency wallet snapshots (cash balance per account+currency+date). */
+  private readonly currencyWalletSnapshots: CurrencyWalletSnapshot[] = [];
   /** KZO-164: in-memory FX rates keyed by `${date}:${baseCurrency}:${quoteCurrency}`. */
   private readonly fxRates = new Map<string, FxRate>();
   private readonly invites = new Map<string, MemoryInvite>();
@@ -1451,6 +1455,20 @@ export class MemoryPersistence implements Persistence {
   _clearDailyBars(): void { this.dailyBars.length = 0; }
   _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
   _clearHoldingSnapshots(): void { this.holdingSnapshots.length = 0; }
+  _seedCurrencyWalletSnapshots(snapshots: CurrencyWalletSnapshot[]): void {
+    this.currencyWalletSnapshots.push(...snapshots);
+  }
+  _clearCurrencyWalletSnapshots(): void { this.currencyWalletSnapshots.length = 0; }
+  _getCurrencyWalletSnapshotsForUser(userId: string): CurrencyWalletSnapshot[] {
+    return this.currencyWalletSnapshots
+      .filter((snapshot) => snapshot.userId === userId)
+      .slice()
+      .sort((a, b) =>
+        a.accountId.localeCompare(b.accountId)
+        || a.currency.localeCompare(b.currency)
+        || a.date.localeCompare(b.date),
+      );
+  }
 
   // KZO-164: FX rates (Frankfurter v2 ingestion). Memory backend is keyed by
   // `${date}:${baseCurrency}:${quoteCurrency}` so subsequent upserts overwrite
@@ -1544,6 +1562,9 @@ export class MemoryPersistence implements Persistence {
         bookingSequence: t.bookingSequence,
         commissionAmount: t.commissionAmount,
         taxAmount: t.taxAmount,
+        // KZO-165: project the trade's native currency. BookedTradeEvent always
+        // carries a non-null priceCurrency (DB CHECK + TS required field).
+        priceCurrency: t.priceCurrency,
       }));
 
     // Dividends — filter posted, non-reversed, non-superseded; join with events for paymentDate+ticker.
@@ -1650,6 +1671,71 @@ export class MemoryPersistence implements Persistence {
       .filter(s => s.userId === userId && s.accountId === accountId && s.ticker === ticker
         && s.snapshotDate >= startDate && s.snapshotDate <= endDate)
       .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  }
+
+  // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
+  // Memory mirror. Note: MemoryPersistence does NOT enforce the composite FK or
+  // ISO CHECK that Postgres does — those gaps are documented in
+  // `.claude/rules/test-placement-persistence-backend.md` and integration tests
+  // assert them with the Postgres backend.
+
+  async bulkUpsertCurrencyWalletSnapshots(
+    _userId: string,
+    snapshots: CurrencyWalletSnapshot[],
+  ): Promise<void> {
+    for (const s of snapshots) {
+      const idx = this.currencyWalletSnapshots.findIndex(
+        (e) => e.accountId === s.accountId && e.currency === s.currency && e.date === s.date,
+      );
+      if (idx >= 0) {
+        this.currencyWalletSnapshots[idx] = s;
+      } else {
+        this.currencyWalletSnapshots.push(s);
+      }
+    }
+  }
+
+  async deleteAllCurrencyWalletSnapshots(userId: string): Promise<void> {
+    for (let i = this.currencyWalletSnapshots.length - 1; i >= 0; i--) {
+      if (this.currencyWalletSnapshots[i].userId === userId) {
+        this.currencyWalletSnapshots.splice(i, 1);
+      }
+    }
+  }
+
+  async getCurrencyWalletSnapshotsForAccount(
+    userId: string,
+    accountId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<CurrencyWalletSnapshot[]> {
+    return this.currencyWalletSnapshots
+      .filter(
+        (s) =>
+          s.userId === userId
+          && s.accountId === accountId
+          && s.date >= startDate
+          && s.date <= endDate,
+      )
+      .sort((a, b) =>
+        a.date.localeCompare(b.date) || a.currency.localeCompare(b.currency),
+      );
+  }
+
+  async getCashLedgerEntriesForBalances(userId: string): Promise<CashLedgerEntryForBalance[]> {
+    const store = await this.loadStore(userId);
+    return store.accounting.facts.cashLedgerEntries
+      .map((e) => ({
+        accountId: e.accountId,
+        currency: e.currency,
+        entryDate: e.entryDate,
+        amount: e.amount,
+      }))
+      .sort((a, b) =>
+        a.accountId.localeCompare(b.accountId)
+        || a.currency.localeCompare(b.currency)
+        || a.entryDate.localeCompare(b.entryDate),
+      );
   }
 
   async readiness(): Promise<ReadinessStatus> {
@@ -2421,6 +2507,13 @@ export class MemoryPersistence implements Persistence {
     for (const s of snapshotsToRemove) {
       const idx = this.holdingSnapshots.indexOf(s);
       if (idx >= 0) this.holdingSnapshots.splice(idx, 1);
+    }
+
+    // KZO-165: Remove currency wallet snapshots for user (mirrors postgres cascade).
+    for (let i = this.currencyWalletSnapshots.length - 1; i >= 0; i -= 1) {
+      if (this.currencyWalletSnapshots[i].userId === userId) {
+        this.currencyWalletSnapshots.splice(i, 1);
+      }
     }
 
     // Remove owned or grantee share records.

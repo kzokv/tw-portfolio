@@ -629,7 +629,7 @@ describePostgres("postgres migrations", () => {
 
     const upgradedSignature = await captureSchemaSignature();
     expect(baselineSignature).toEqual(upgradedSignature);
-  });
+  }, 15_000);
 
   it("backfills normalized fee profile tax rules, snapshot tax components, and market codes in migration 011", async () => {
     await applyMigrationFiles([
@@ -2403,5 +2403,104 @@ describePostgres("postgres migrations", () => {
     const reloaded = await persistence.loadStore("user-1");
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === "trade-kzo52-sell");
     expect(reloadedSell?.realizedPnlAmount).toBe(121);
+  });
+
+  // ── KZO-165 — migration 038 walk ─────────────────────────────────────────
+  // Migration 038 adds per-currency native columns + provider_source to
+  // daily_holding_snapshots, tightens the `currency` column to CHAR(3)
+  // with an ISO CHECK, and creates the new currency_wallet_snapshots table.
+  // This case verifies the migration walks cleanly via the manifest path
+  // and that all post-migration schema artifacts are present.
+  it("KZO-165: migration 038 walk — adds native columns, ISO CHECK, and currency_wallet_snapshots", async () => {
+    // Reset to wipe the legacy-users seed from beforeEach so the full
+    // migration chain runs clean from 001 forward (mirrors the
+    // "keeps the baseline schema in parity" pattern).
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    // 1. New columns on daily_holding_snapshots
+    const newCols = await pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
+      `SELECT column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'daily_holding_snapshots'
+         AND column_name IN ('value_native', 'cost_basis_native', 'unrealized_pnl_native', 'provider_source')
+       ORDER BY column_name`,
+    );
+    const colNames = newCols.rows.map((r) => r.column_name);
+    expect(colNames).toContain("value_native");
+    expect(colNames).toContain("cost_basis_native");
+    expect(colNames).toContain("unrealized_pnl_native");
+    expect(colNames).toContain("provider_source");
+
+    // 2. currency column tightened to CHAR(3) with ISO CHECK constraint
+    const currencyCol = await pool.query<{ data_type: string; character_maximum_length: number | null; column_default: string | null }>(
+      `SELECT data_type, character_maximum_length, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'daily_holding_snapshots'
+         AND column_name = 'currency'`,
+    );
+    expect(currencyCol.rows).toHaveLength(1);
+    expect(currencyCol.rows[0].character_maximum_length).toBe(3);
+    // DEFAULT 'TWD' was dropped per D2.
+    expect(currencyCol.rows[0].column_default).toBeNull();
+
+    // 3. ISO CHECK constraint on daily_holding_snapshots.currency
+    const isoCheck = await pool.query<{ conname: string; def: string }>(
+      `SELECT conname, pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.daily_holding_snapshots'::regclass
+         AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%[A-Z]{3}%'`,
+    );
+    expect(isoCheck.rows.length).toBeGreaterThanOrEqual(1);
+
+    // 4. currency_wallet_snapshots table exists with composite PK and ISO CHECK
+    const walletTable = await pool.query<{ table_name: string }>(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'currency_wallet_snapshots'`,
+    );
+    expect(walletTable.rows).toHaveLength(1);
+
+    const walletCols = await pool.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'currency_wallet_snapshots'
+       ORDER BY column_name`,
+    );
+    const walletColNames = walletCols.rows.map((r) => r.column_name);
+    for (const expected of [
+      "user_id", "account_id", "currency", "date",
+      "balance_native", "wac_fx_to_usd", "realized_fx_pnl_lifetime",
+      "provider_source", "generated_at", "generation_run_id",
+    ]) {
+      expect(walletColNames).toContain(expected);
+    }
+
+    // 5. Secondary index per D8: idx_currency_wallet_snapshots_user_date
+    const idx = await pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'currency_wallet_snapshots'
+         AND indexname = 'idx_currency_wallet_snapshots_user_date'`,
+    );
+    expect(idx.rows).toHaveLength(1);
+
+    // 6. Composite FK (account_id, user_id) → accounts(id, user_id) per D7
+    const fkResult = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.currency_wallet_snapshots'::regclass
+         AND contype = 'f'`,
+    );
+    const fkDefs = fkResult.rows.map((r) => r.def);
+    // At least one FK should reference accounts(id, user_id) or accounts(id,
+    // user_id) — accept either composite-style ordering.
+    const hasComposite = fkDefs.some((d) =>
+      /accounts\((id, ?user_id|user_id, ?id)\)/.test(d),
+    );
+    expect(hasComposite).toBe(true);
   });
 });

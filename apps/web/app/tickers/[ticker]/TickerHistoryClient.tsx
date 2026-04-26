@@ -25,6 +25,7 @@ import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble"
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
+import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import { useEventStream } from "../../../hooks/useEventStream";
 import { RepairModal, type RepairModalValue } from "../../../features/settings/components/RepairModal";
 import { requestRepair } from "../../../features/settings/services/repairService";
@@ -44,6 +45,7 @@ interface TickerHistoryClientProps {
   statsBar: React.ReactNode;
   instrument: InstrumentCatalogItemDto | null;
   isDemo: boolean;
+  transactionAccountFilter?: string;
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -70,6 +72,7 @@ export function TickerHistoryClient({
   statsBar,
   instrument,
   isDemo,
+  transactionAccountFilter,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   const [isClientReady, setIsClientReady] = useState(false);
@@ -104,8 +107,13 @@ export function TickerHistoryClient({
   }, [transactions]);
 
   const refresh = useCallback(async () => {
+    const nextTransactions = await fetchTransactionHistory({
+      ticker,
+      accountId: transactionAccountFilter,
+    });
+    setDisplayTransactions(nextTransactions);
     router.refresh();
-  }, [router]);
+  }, [router, ticker, transactionAccountFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
