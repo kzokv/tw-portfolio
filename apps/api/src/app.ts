@@ -17,6 +17,7 @@ import {
   shouldStampContextFallback,
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
+import { buildMarketDataRegistry } from "./services/market-data/registry.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
 // If fields ever drift, this line fails to compile and surfaces the problem immediately.
@@ -146,6 +147,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");
   const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
   app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
+  app.marketDataRegistry = buildMarketDataRegistry(Env);
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
   // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.

@@ -1,4 +1,11 @@
-import type { RawDailyBar, DividendRecord, RawInstrumentInfo, RawDelistingRecord, FinMindProvider } from "./types.js";
+import type {
+  RawDailyBar,
+  DividendRecord,
+  RawInstrumentInfo,
+  RawDelistingRecord,
+  MarketDataProvider,
+  InstrumentCatalogProvider,
+} from "../types.js";
 
 /** Generates deterministic fixture bars for testing. */
 function generateMockBars(ticker: string, count: number = 30): RawDailyBar[] {
@@ -16,6 +23,7 @@ function generateMockBars(ticker: string, count: number = 30): RawDailyBar[] {
       low: price - 1,
       close: price + 1,
       volume: 1_000_000 + i * 10_000,
+      sourceId: "finmind",
     });
   }
   return bars;
@@ -30,6 +38,7 @@ function generateMockDividends(ticker: string): DividendRecord[] {
       paymentDate: "2025-07-15",
       cashDividendPerShare: 2.5,
       stockDividendPerShare: 0,
+      sourceId: "finmind",
     },
     {
       ticker,
@@ -37,6 +46,7 @@ function generateMockDividends(ticker: string): DividendRecord[] {
       paymentDate: "2026-01-15",
       cashDividendPerShare: 3.0,
       stockDividendPerShare: 0.5,
+      sourceId: "finmind",
     },
   ];
 }
@@ -67,16 +77,29 @@ const MOCK_DELISTING_HISTORY: RawDelistingRecord[] = [
   { ticker: "6245", name: "立端科技", date: "2026-01-15" },
 ];
 
-export class MockFinMindClient implements FinMindProvider {
-  readonly calls: Array<{ method: string; ticker?: string; startDate?: string; endDate?: string }> = [];
+/**
+ * Mock implementation of `MarketDataProvider` and `InstrumentCatalogProvider` used when
+ * `FINMIND_API_TOKEN` is not configured (dev/test). KZO-163: replaces the legacy
+ * `MockFinMindClient` — preserves the `calls` field and deterministic fixtures used by tests.
+ */
+export class MockFinMindMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
+  readonly calls: Array<{ method: string; ticker?: string; startDate?: string; endDate?: string; n?: number }> = [];
 
-  async fetchDailyBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
-    this.calls.push({ method: "fetchDailyBars", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
+  /**
+   * KZO-163 HIGH-1 fix: mock has no rate limiter, so this is a no-op. We still record the call
+   * so tests can assert worker invocations follow the reserve-then-fetch contract.
+   */
+  reserveCapacity(n: number): void {
+    this.calls.push({ method: "reserveCapacity", n });
+  }
+
+  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+    this.calls.push({ method: "fetchBars", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
     return generateMockBars(ticker);
   }
 
-  async fetchDividendEvents(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
-    this.calls.push({ method: "fetchDividendEvents", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
+  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+    this.calls.push({ method: "fetchDividends", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
     return generateMockDividends(ticker);
   }
 

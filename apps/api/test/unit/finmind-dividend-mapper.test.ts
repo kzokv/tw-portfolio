@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { FinMindClient } from "../../src/services/market-data/finmindClient.js";
+import { FinMindMarketDataProvider } from "../../src/services/market-data/providers/finmind.js";
+import { RateLimiter } from "../../src/services/market-data/rateLimiter.js";
 
 vi.mock("@tw-portfolio/config", () => ({
   Env: { FINMIND_API_TOKEN: "test-token" },
 }));
 
-describe("FinMindClient.fetchDividendEvents mapper", () => {
+function makeProvider(): FinMindMarketDataProvider {
+  return new FinMindMarketDataProvider({
+    token: "test-token",
+    baseUrl: "https://api.finmindtrade.com/api/v4/data",
+    rateLimiter: new RateLimiter(600),
+  });
+}
+
+describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -33,8 +42,8 @@ describe("FinMindClient.fetchDividendEvents mapper", () => {
       }),
     );
 
-    const client = new FinMindClient();
-    const records = await client.fetchDividendEvents("2330");
+    const provider = makeProvider();
+    const records = await provider.fetchDividends("2330");
 
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
@@ -46,6 +55,7 @@ describe("FinMindClient.fetchDividendEvents mapper", () => {
       fiscalYearPeriod: "2024",
       announcementDate: "2025-05-01",
       totalDistributionShares: 25933632588,
+      sourceId: "finmind",
     });
 
     // rawProviderData is the full original row
@@ -77,8 +87,8 @@ describe("FinMindClient.fetchDividendEvents mapper", () => {
       }),
     );
 
-    const client = new FinMindClient();
-    const records = await client.fetchDividendEvents("2330");
+    const provider = makeProvider();
+    const records = await provider.fetchDividends("2330");
 
     expect(records).toHaveLength(1);
     expect(records[0]!.fiscalYearPeriod).toBeUndefined();

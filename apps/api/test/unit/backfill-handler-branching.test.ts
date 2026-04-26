@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
+import type { MarketCode } from "@tw-portfolio/domain";
 import type { RawDailyBar, DividendRecord } from "../../src/services/market-data/types.js";
-import { createBackfillHandler } from "../../src/services/market-data/backfillWorker.js";
+import { RateLimitedError } from "../../src/services/market-data/types.js";
+import { BACKFILL_QUEUE, createBackfillHandler } from "../../src/services/market-data/backfillWorker.js";
 
 function createJob(
   data: Record<string, unknown>,
@@ -27,6 +29,7 @@ function createSuccessBars(): RawDailyBar[] {
       low: 940,
       close: 955,
       volume: 1_000_000,
+      sourceId: "finmind",
     },
   ];
 }
@@ -39,22 +42,28 @@ function createSuccessDividends(): DividendRecord[] {
       paymentDate: "2026-04-10",
       cashDividendPerShare: 4,
       stockDividendPerShare: 0,
+      sourceId: "finmind",
     },
   ];
 }
 
 function createDeps() {
+  // KZO-163: provider mock implements MarketDataProvider; rate-limiter is no longer a worker
+  // dep — it's owned by the provider and signals exhaustion via RateLimitedError. The
+  // `reserveCapacity` mock returns undefined (no-op) by default; tests targeting the pre-flight
+  // starvation guard override it to throw RateLimitedError.
+  const provider = {
+    reserveCapacity: vi.fn(),
+    fetchBars: vi.fn().mockResolvedValue(createSuccessBars()),
+    fetchDividends: vi.fn().mockResolvedValue(createSuccessDividends()),
+  };
+  const marketDataRegistry = new Map<MarketCode, typeof provider>();
+  marketDataRegistry.set("TW", provider);
   return {
     pool: { query: vi.fn().mockResolvedValue({ rowCount: 1 }) },
-    finmind: {
-      fetchDailyBars: vi.fn().mockResolvedValue(createSuccessBars()),
-      fetchDividendEvents: vi.fn().mockResolvedValue(createSuccessDividends()),
-    },
-    rateLimiter: {
-      canConsume: vi.fn().mockReturnValue(true),
-      consume: vi.fn(),
-      msUntilAvailable: vi.fn(),
-    },
+    provider,
+    marketDataRegistry,
+    resolveMarketCode: vi.fn().mockReturnValue("TW" as MarketCode),
     eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
     boss: { send: vi.fn().mockResolvedValue(undefined) },
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
@@ -78,8 +87,8 @@ describe("backfill handler trigger branching", () => {
 
     expect(deps.updateBackfillStatus).toHaveBeenCalledTimes(1);
     expect(deps.updateBackfillStatus).toHaveBeenCalledWith("2330", "ready");
-    const barsCall = deps.finmind.fetchDailyBars.mock.calls[0] ?? [];
-    const dividendsCall = deps.finmind.fetchDividendEvents.mock.calls[0] ?? [];
+    const barsCall = deps.provider.fetchBars.mock.calls[0] ?? [];
+    const dividendsCall = deps.provider.fetchDividends.mock.calls[0] ?? [];
     expect(barsCall[0]).toBe("2330");
     expect(barsCall[1]).toBe("2026-03-24");
     expect(dividendsCall[0]).toBe("2330");
@@ -100,7 +109,7 @@ describe("backfill handler trigger branching", () => {
 
   it("keeps daily refresh failures out of backfill status transitions and notifies monitoring users on the last retry", async () => {
     const deps = createDeps();
-    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("FinMind outage"));
+    deps.provider.fetchBars.mockRejectedValue(new Error("FinMind outage"));
     const handler = createBackfillHandler(deps as never);
 
     await expect(
@@ -131,7 +140,7 @@ describe("backfill handler trigger branching", () => {
 
   it("preserves the existing user-selection failure flow", async () => {
     const deps = createDeps();
-    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("No bars"));
+    deps.provider.fetchBars.mockRejectedValue(new Error("No bars"));
     const handler = createBackfillHandler(deps as never);
 
     await expect(
@@ -161,8 +170,8 @@ describe("backfill handler trigger branching", () => {
 
   it("reschedules rate-limited daily refresh jobs with the refresh priority intact", async () => {
     const deps = createDeps();
-    deps.rateLimiter.canConsume.mockReturnValue(false);
-    deps.rateLimiter.msUntilAvailable.mockReturnValue(30_000);
+    // KZO-163: provider throws RateLimitedError instead of pre-checking rateLimiter.canConsume.
+    deps.provider.fetchBars.mockRejectedValue(new RateLimitedError({ msUntilAvailable: 30_000 }));
     const handler = createBackfillHandler(deps as never);
 
     await handler([
@@ -183,8 +192,8 @@ describe("backfill handler trigger branching", () => {
       { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
       { startAfter: 30, singletonKey: "2330", priority: 10 },
     );
-    expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
-    expect(deps.finmind.fetchDailyBars).not.toHaveBeenCalled();
+    // Status must NOT flip to "failed" on a reschedule.
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
   });
 
   it("repair flow: emits repair lifecycle events and skips backfill status mutations", async () => {
@@ -202,8 +211,8 @@ describe("backfill handler trigger branching", () => {
     ]);
 
     expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
-    expect(deps.finmind.fetchDailyBars).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
-    expect(deps.finmind.fetchDividendEvents).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
+    expect(deps.provider.fetchBars).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
+    expect(deps.provider.fetchDividends).toHaveBeenCalledWith("2330", "2026-03-01", "2026-03-31");
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-repair", "repair_started", { ticker: "2330" });
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
       ticker: "2330",
@@ -227,8 +236,8 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    expect(deps.finmind.fetchDailyBars).not.toHaveBeenCalled();
-    expect(deps.finmind.fetchDividendEvents).toHaveBeenCalledTimes(1);
+    expect(deps.provider.fetchBars).not.toHaveBeenCalled();
+    expect(deps.provider.fetchDividends).toHaveBeenCalledTimes(1);
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
       ticker: "2330",
       barsCount: 0,
@@ -250,8 +259,8 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    expect(deps.finmind.fetchDailyBars).toHaveBeenCalledTimes(1);
-    expect(deps.finmind.fetchDividendEvents).not.toHaveBeenCalled();
+    expect(deps.provider.fetchBars).toHaveBeenCalledTimes(1);
+    expect(deps.provider.fetchDividends).not.toHaveBeenCalled();
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-repair", "repair_complete", {
       ticker: "2330",
       barsCount: 1,
@@ -261,7 +270,7 @@ describe("backfill handler trigger branching", () => {
 
   it("repair flow: on final retry emits repair_failed and never updates backfill status", async () => {
     const deps = createDeps();
-    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("repair bars failed"));
+    deps.provider.fetchBars.mockRejectedValue(new Error("repair bars failed"));
     const handler = createBackfillHandler(deps as never);
 
     await expect(
@@ -312,7 +321,7 @@ describe("backfill handler trigger branching", () => {
 
   it("repair flow: creates persistent error notification on final retry failure", async () => {
     const deps = createDeps();
-    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("FinMind timeout"));
+    deps.provider.fetchBars.mockRejectedValue(new Error("FinMind timeout"));
     const createNotification = vi.fn().mockResolvedValue("notif-2");
     const handler = createBackfillHandler({ ...deps, createNotification } as never);
 
@@ -342,7 +351,7 @@ describe("backfill handler trigger branching", () => {
 
   it("repair flow: skips error notification on non-final retry", async () => {
     const deps = createDeps();
-    deps.finmind.fetchDailyBars.mockRejectedValue(new Error("transient"));
+    deps.provider.fetchBars.mockRejectedValue(new Error("transient"));
     const createNotification = vi.fn().mockResolvedValue("notif-3");
     const handler = createBackfillHandler({ ...deps, createNotification } as never);
 
@@ -363,29 +372,121 @@ describe("backfill handler trigger branching", () => {
     expect(createNotification).not.toHaveBeenCalled();
   });
 
-  it("rate-limiter cost: repair with single dataset consumes one call and preserves job priority on reschedule", async () => {
+  it("re-throws RateLimitedError from the dividend fetch (warn-and-continue path must not swallow it)", async () => {
+    // KZO-163 invariant: the dividend try/catch in backfillWorker must re-throw RateLimitedError
+    // so the outer reschedule path runs. Without this, the rate-limit signal would be lost when
+    // it surfaces during the dividend fetch (as opposed to the bars fetch).
     const deps = createDeps();
-    deps.rateLimiter.canConsume.mockImplementation((cost: number) => cost < 2);
-    deps.rateLimiter.msUntilAvailable.mockReturnValue(20_000);
+    deps.provider.fetchDividends.mockRejectedValue(new RateLimitedError({ msUntilAvailable: 15_000 }));
     const handler = createBackfillHandler(deps as never);
 
     await handler([
-      createJob(
-        {
-          ticker: "2330",
-          userId: "user-repair",
-          trigger: "repair",
-          includeBars: false,
-          includeDividends: true,
-        },
-        0,
-        3,
-        5,
-      ) as never,
+      createJob({
+        ticker: "2330",
+        userId: "user-9",
+        trigger: "user_selection",
+      }) as never,
     ]);
 
-    expect(deps.rateLimiter.canConsume).toHaveBeenCalledWith(1);
-    expect(deps.boss.send).not.toHaveBeenCalled();
-    expect(deps.rateLimiter.consume).toHaveBeenCalledWith(1);
+    // Reschedule, not completion notification
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      "finmind-backfill",
+      { ticker: "2330", userId: "user-9", trigger: "user_selection" },
+      expect.objectContaining({ startAfter: 15, singletonKey: "2330" }),
+    );
+    expect(deps.eventBus.publishEvent).not.toHaveBeenCalledWith(
+      "user-9",
+      "backfill_complete",
+      expect.anything(),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // QA-owned: N8 / D5 behavioral test — reschedule on RateLimitedError from provider.
+  // Asserts: (a) RateLimitedError from provider is the catch contract,
+  // (b) msUntilAvailable drives startAfter, (c) job completes cleanly (no rethrow).
+  // -------------------------------------------------------------------------
+  it("reschedules backfill and completes cleanly when provider throws RateLimitedError", async () => {
+    const deps = createDeps();
+    const provider = deps.marketDataRegistry.get("TW")!;
+    // Make the provider throw RateLimitedError — the new catch contract (replaces pre-call canConsume check)
+    provider.fetchBars.mockRejectedValue(new RateLimitedError({ msUntilAvailable: 45_000 }));
+    const handler = createBackfillHandler(deps as never);
+
+    // Handler must NOT throw — job completes successfully so pg-boss does not retry
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "daily_refresh",
+        startDate: "2026-03-24",
+      }) as never,
+    ]);
+
+    // Reschedule sent with correct startAfter: ceil(45_000 / 1000) = 45
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      expect.objectContaining({ startAfter: 45, singletonKey: "2330" }),
+    );
+    // Status must NOT flip — this is a reschedule, not a failure or success
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
+    // fetchBars was actually called (unlike the old canConsume-false path which blocked before the call)
+    expect(provider.fetchBars).toHaveBeenCalledWith("2330", expect.any(String), undefined);
+  });
+
+  // -------------------------------------------------------------------------
+  // KZO-163 HIGH-1 fix (Codex review) — pre-flight starvation guard.
+  // When `reserveCapacity(2)` throws RateLimitedError BEFORE any fetch runs, the
+  // worker must reschedule with the limiter's full N-slot wait time and skip
+  // both fetches entirely (no wasted bars call that would leave dividends still
+  // rate-limited on the next attempt).
+  // -------------------------------------------------------------------------
+  it("reschedules without fetching when reserveCapacity throws RateLimitedError (HIGH-1 starvation guard)", async () => {
+    const deps = createDeps();
+    const provider = deps.marketDataRegistry.get("TW")!;
+    provider.reserveCapacity.mockImplementation(() => {
+      throw new RateLimitedError({ msUntilAvailable: 90_000 });
+    });
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        trigger: "daily_refresh",
+        startDate: "2026-03-24",
+      }) as never,
+    ]);
+
+    // Reschedule fired with the full 2-slot wait time (90s, not 1s for the next single slot)
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      expect.objectContaining({ startAfter: 90, singletonKey: "2330" }),
+    );
+    // Critical: NEITHER fetch ran — that's the whole point of the pre-flight guard
+    expect(provider.fetchBars).not.toHaveBeenCalled();
+    expect(provider.fetchDividends).not.toHaveBeenCalled();
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
+  });
+
+  // KZO-163 HIGH-1: single-call invocations (includeBars XOR includeDividends) must
+  // skip the reserveCapacity pre-flight — there's no starvation risk with one call.
+  it("skips reserveCapacity for single-call invocations (includeDividends=false)", async () => {
+    const deps = createDeps();
+    const provider = deps.marketDataRegistry.get("TW")!;
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "2330",
+        userId: "user-repair",
+        trigger: "repair",
+        includeBars: true,
+        includeDividends: false,
+      }) as never,
+    ]);
+
+    expect(provider.reserveCapacity).not.toHaveBeenCalled();
+    expect(provider.fetchBars).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,10 +1,9 @@
 import type { Pool } from "pg";
 import type { PgBoss, JobWithMetadata } from "pg-boss";
-import type { BackfillStatus } from "@tw-portfolio/domain";
+import type { BackfillStatus, MarketCode } from "@tw-portfolio/domain";
 import type { BufferedEventBus } from "../../events/index.js";
-import type { FinMindProvider } from "./types.js";
-import type { RateLimiter } from "./rateLimiter.js";
-import { HISTORY_START } from "./types.js";
+import type { MarketDataProvider } from "./types.js";
+import { HISTORY_START, RateLimitedError } from "./types.js";
 import { upsertDailyBars, upsertDividendEvents } from "./upserts.js";
 
 export const BACKFILL_QUEUE = "finmind-backfill";
@@ -22,8 +21,10 @@ export interface BackfillJobData {
 
 export interface BackfillWorkerDeps {
   pool: Pool;
-  finmind: FinMindProvider;
-  rateLimiter: RateLimiter;
+  /** Per-market market-data registry. Replaces the single-provider `finmind` dep (KZO-163). */
+  marketDataRegistry: Map<MarketCode, MarketDataProvider>;
+  /** Resolves a ticker to its market code. Today returns 'TW'; KZO-170 will upgrade. */
+  resolveMarketCode: (ticker: string) => MarketCode;
   eventBus: BufferedEventBus;
   boss: PgBoss;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
@@ -47,18 +48,11 @@ export interface BackfillWorkerDeps {
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
 }
 
-const MAX_CALLS_PER_TICKER = 2;
-
-function computeCallCost(includeBars: boolean, includeDividends: boolean): number {
-  const requestedCalls = (includeBars ? 1 : 0) + (includeDividends ? 1 : 0);
-  return Math.min(MAX_CALLS_PER_TICKER, Math.max(0, requestedCalls));
-}
-
 export function createBackfillHandler(deps: BackfillWorkerDeps) {
   const {
     pool,
-    finmind,
-    rateLimiter,
+    marketDataRegistry,
+    resolveMarketCode,
     eventBus,
     boss,
     updateBackfillStatus,
@@ -78,28 +72,46 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     const shouldSetBackfillingStatus = !isDailyRefresh && !isRepair;
     const shouldSetReadyStatus = !isRepair;
     const shouldSetFailedStatus = !isDailyRefresh && !isRepair;
-    const callCost = computeCallCost(includeBars, includeDividends);
 
-    if (callCost <= 0) {
+    if (!includeBars && !includeDividends) {
       throw new Error("Backfill job must request at least one dataset");
     }
 
-    // 1. Check rate limiter — if budget exhausted, reschedule (not a retry)
-    if (!rateLimiter.canConsume(callCost)) {
-      const delayMs = rateLimiter.msUntilAvailable(callCost);
-      const delaySec = Math.ceil(delayMs / 1000);
-      log.info({ ticker, trigger, callCost, delaySec }, "backfill_rate_limited: rescheduling");
-      await boss.send(BACKFILL_QUEUE, job.data, {
+    const market = resolveMarketCode(ticker);
+    const provider = marketDataRegistry.get(market);
+    if (!provider) {
+      throw new Error(`No market data provider for market ${market}`);
+    }
+
+    // Helper: reschedule the current job after the rate limiter releases capacity. Returns
+    // true once a reschedule is enqueued so the caller can short-circuit cleanly.
+    async function rescheduleAfterRateLimit(err: RateLimitedError): Promise<void> {
+      const delaySec = err.retryAfterSeconds;
+      log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
+      const id = await boss.send(BACKFILL_QUEUE, job.data, {
         startAfter: delaySec,
         singletonKey: ticker,
         priority: job.priority ?? 0,
       });
-      return; // Complete current job successfully — this is NOT a retry
+      // KZO-163 MEDIUM-2: singleton policy returns null when an existing job already covers
+      // this ticker. Log so we can see drops without throwing — the existing job will run.
+      if (id === null) {
+        log.warn({ ticker, trigger, delaySec }, "backfill_rate_limit_reschedule_dropped: existing singleton covers this ticker");
+      }
     }
 
-    rateLimiter.consume(callCost);
-
     try {
+      // KZO-163 HIGH-1 fix: pre-reserve rate-limit slots for the call count this invocation
+      // will make (bars + dividends, optional). Without this, the dominant starvation pattern
+      // is: bars consumes the only newly-freed slot, dividends throws RateLimitedError, the
+      // job reschedules, and the cycle repeats indefinitely under one-slot-at-a-time
+      // replenishment. Pre-reserving throws RateLimitedError upfront with msUntilAvailable
+      // sized for the full call count, so the reschedule waits until ALL slots are free.
+      const callCount = (includeBars ? 1 : 0) + (includeDividends ? 1 : 0);
+      if (callCount > 1) {
+        provider.reserveCapacity(callCount);
+      }
+
       if (shouldSetBackfillingStatus) {
         await updateBackfillStatus(ticker, "backfilling");
       }
@@ -113,27 +125,32 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       let barsCount = 0;
       if (includeBars) {
         log.info({ ticker, trigger, startDate: effectiveStartDate, endDate }, "backfill_fetching_bars");
-        const bars = await finmind.fetchDailyBars(ticker, effectiveStartDate, endDate);
+        const bars = await provider.fetchBars(ticker, effectiveStartDate, endDate);
 
-        // 5. Write bars to market_data.daily_bars (upsert)
+        // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
         log.info({ ticker, barsCount }, "backfill_bars_upserted");
       }
 
-      // 6. Fetch dividend events from FinMind
+      // Fetch dividend events from the provider
       let dividendsCount = 0;
       if (includeDividends) {
         try {
-          const dividends = await finmind.fetchDividendEvents(ticker, effectiveStartDate, endDate);
-          // 7. Write dividend events (dividend failure → log warning, don't fail job)
+          const dividends = await provider.fetchDividends(ticker, effectiveStartDate, endDate);
+          // Write dividend events (dividend failure → log warning, don't fail job)
           dividendsCount = await upsertDividendEvents(pool, dividends);
           log.info({ ticker, dividendsCount }, "backfill_dividends_upserted");
         } catch (divErr) {
+          // KZO-163: must not let the warn-and-continue path swallow RateLimitedError.
+          // The outer catch reschedules; re-throw here so it gets there.
+          if (divErr instanceof RateLimitedError) {
+            throw divErr;
+          }
           log.warn({ ticker, error: divErr }, "backfill_dividend_fetch_failed: continuing without dividends");
         }
       }
 
-      // 8. Update status for non-repair/non-daily-refresh jobs.
+      // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {
         await updateBackfillStatus(ticker, "ready");
       }
@@ -185,6 +202,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         });
       }
     } catch (err) {
+      // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
+      // so the job effectively pauses until the limiter releases.
+      if (err instanceof RateLimitedError) {
+        await rescheduleAfterRateLimit(err);
+        return;
+      }
+
       const isLastRetry = job.retryCount >= job.retryLimit;
       const reason = err instanceof Error ? err.message : String(err);
 
