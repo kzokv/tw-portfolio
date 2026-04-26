@@ -10,7 +10,9 @@ export default defineConfig({
     // local .env.local. `assertE2ESeedEnabled` reads `Env.PERSISTENCE_BACKEND` directly
     // (not `app.persistence`), so CI (no `.env.local` → default "postgres") would
     // otherwise 404 on /__e2e/seed-* even when buildApp is passed memory.
-    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test", PERSISTENCE_BACKEND: "memory" },
+    // KZO-164: FX_PROVIDER_MOCK=true forces the deterministic Frankfurter mock so the
+    // registry never reaches the real Frankfurter API in unit/integration tests.
+    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test", PERSISTENCE_BACKEND: "memory", FX_PROVIDER_MOCK: "true" },
     // @ts-expect-error globalTeardown is supported at runtime but missing from InlineConfig in this Vitest version
     globalTeardown: "./test/globalTeardown.ts",
     // Default: terminal only. Use npm scripts or CLI to generate file reports:

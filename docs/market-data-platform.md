@@ -42,6 +42,7 @@
 | `instruments` | TWSE instrument reference metadata (all ~3,071 unique tickers) |
 | `daily_bars` | Raw OHLCV daily bars (not adjusted) |
 | `dividend_events` | Dividend event reference (ex-date, pay-date, amount-per-unit, source) |
+| `fx_rates` | Daily FX rates for stored currency pairs (Frankfurter-sourced) |
 
 ### Key boundary
 
@@ -59,6 +60,14 @@
 - Datasets: `TaiwanStockPrice` (daily OHLCV, since 1994), `TaiwanStockDividend` (since 2005), `TaiwanStockInfo` (instrument metadata), `TaiwanStockDelisting` (delisted tickers).
 - Rate limit: 600 requests/hour with authentication token.
 - One request returns a symbol's full date range (no pagination needed).
+
+### FX rates
+
+- **Frankfurter v2 default blend** is the sole FX provider for TWD, USD, and AUD rates. FinMind is not used for FX, so FX refreshes do not consume the shared FinMind budget.
+- `market_data.fx_rates` stores one row per `(date, base_currency, quote_currency)` with `NUMERIC(20, 8)` precision, `source='frankfurter'`, and a descending pair/date index for latest-rate lookups.
+- The daily `fx-refresh` pg-boss singleton runs at `0 22 * * *` UTC. Normal operation makes one HTTP call per base currency (`TWD`, `USD`, `AUD`) and stores non-self pairs among those currencies.
+- The first cron run on an empty table seeds the most recent 30-day window. Subsequent cron runs fetch from `MAX(date)+1` through today's UTC date, capped to the latest 30 days after long gaps.
+- Admins can enqueue a manual window with `POST /admin/fx-rates/refresh`. Freshness is visible through `GET /admin/fx-rates/freshness`, which reports latest date and `ageInDays` per pair.
 
 ### Demand-driven backfill
 

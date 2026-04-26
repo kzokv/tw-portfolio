@@ -12,6 +12,7 @@ import {
   type FeeProfileTaxRule,
 } from "@tw-portfolio/domain";
 import type { DailyBar } from "@tw-portfolio/domain";
+import type { FxRate } from "../services/market-data/types.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
   buildAccountingPolicy,
@@ -2409,6 +2410,63 @@ export class PostgresPersistence implements Persistence {
       result.set(row.ticker, list);
     }
     return result;
+  }
+
+  // KZO-164: FX rates (Frankfurter v2 ingestion). Mirrors the `unnest`-arrays bulk upsert
+  // pattern from `services/market-data/upserts.ts:upsertDailyBars`. The `source` field is
+  // column-aligned with NO fallback — provider always stamps `'frankfurter'`. Caller
+  // (worker) MUST filter self-pairs before calling: schema CHECK rejects them and would
+  // crash the entire batch.
+  async upsertFxRates(rates: ReadonlyArray<FxRate>): Promise<number> {
+    if (rates.length === 0) return 0;
+
+    const dates: string[] = [];
+    const bases: string[] = [];
+    const quotes: string[] = [];
+    const rateValues: number[] = [];
+    const sources: string[] = [];
+    for (const r of rates) {
+      dates.push(r.date);
+      bases.push(r.baseCurrency);
+      quotes.push(r.quoteCurrency);
+      rateValues.push(r.rate);
+      sources.push(r.source);
+    }
+
+    const result = await this.pool.query(
+      `INSERT INTO market_data.fx_rates (date, base_currency, quote_currency, rate, source, ingested_at)
+       SELECT * FROM unnest(
+         $1::date[], $2::text[], $3::text[], $4::numeric[], $5::text[],
+         array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$6::int])
+       )
+       ON CONFLICT (date, base_currency, quote_currency) DO UPDATE SET
+         rate = EXCLUDED.rate,
+         source = EXCLUDED.source,
+         ingested_at = EXCLUDED.ingested_at`,
+      [dates, bases, quotes, rateValues, sources, rates.length],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async getLatestFxRateDate(): Promise<string | null> {
+    const result = await this.pool.query<{ max: string | null }>(
+      `SELECT MAX(date)::text AS max FROM market_data.fx_rates`,
+    );
+    return result.rows[0]?.max ?? null;
+  }
+
+  async getFxRateFreshness(): Promise<Array<{ baseCurrency: string; quoteCurrency: string; latestDate: string }>> {
+    const result = await this.pool.query<{ base_currency: string; quote_currency: string; latest_date: string }>(
+      `SELECT base_currency, quote_currency, MAX(date)::text AS latest_date
+       FROM market_data.fx_rates
+       GROUP BY base_currency, quote_currency
+       ORDER BY base_currency ASC, quote_currency ASC`,
+    );
+    return result.rows.map((row) => ({
+      baseCurrency: row.base_currency,
+      quoteCurrency: row.quote_currency,
+      latestDate: row.latest_date,
+    }));
   }
 
   async getSnapshotGenerationInputs(

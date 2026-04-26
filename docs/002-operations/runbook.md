@@ -1395,3 +1395,116 @@ Auto-prune happens **at resolve time** — stored user preferences are never rew
 - To see the admin timeframe override: `SELECT dashboard_performance_ranges FROM app_config WHERE id = 1;`
 - To reset admin override to default: `UPDATE app_config SET dashboard_performance_ranges = NULL, updated_at = NOW() WHERE id = 1;` (or use the admin UI "Reset to defaults" button).
 - `dashboard_performance_ranges` changes emit `app_config_updated` audit entries (visible in `/admin/audit-log`).
+
+---
+
+## 18. KZO-164 deploy notes
+
+### Migration
+
+`037_kzo164_fx_rates.sql` adds `market_data.fx_rates` and extends `audit_log_action_check` with `admin_fx_rates_refresh`.
+
+The FX table stores daily rates by `(date, base_currency, quote_currency)` with:
+
+- `rate NUMERIC(20, 8) NOT NULL`
+- `source TEXT NOT NULL`
+- `CHECK (rate > 0)`
+- uppercase 3-letter currency checks
+- `CHECK (base_currency <> quote_currency)`
+- `idx_fx_rates_pair_date_desc` for latest-rate reads
+
+No destructive rewrite or backfill is performed by the migration.
+
+### Daily refresh
+
+The `fx-refresh` pg-boss singleton runs daily at `22:00 UTC`.
+
+Expected steady-state behavior:
+
+- Queue: `fx-refresh`
+- Cron: `0 22 * * *`
+- Provider: Frankfurter v2 default blend
+- Calls per run: 3 HTTP calls, one each for `TWD`, `USD`, and `AUD`
+- Rows per one-day run: about 6 rows after self-pairs are filtered
+- Success log: `fx_refresh_completed` with `dates_covered`, `rows_upserted`, and `durationMs`
+- Failure log: `fx_refresh_failed`; the handler rethrows so pg-boss retry policy applies
+
+On first deploy with an empty table, the cron path auto-seeds the most recent 30-day window. It does not walk back to each user's earliest cross-currency trade date; KZO-174 owns that historical walk and recompute flow.
+
+### Manual trigger
+
+Admins can enqueue a refresh manually:
+
+```http
+POST /admin/fx-rates/refresh
+Content-Type: application/json
+
+{
+  "startDate": "2026-04-01",
+  "endDate": "2026-04-26",
+  "bases": ["TWD", "USD", "AUD"]
+}
+```
+
+All fields are optional. Missing dates default to today's UTC date; missing `bases` defaults to all three stored bases.
+
+Responses:
+
+- `200 { "status": "queued", "jobId": "..." }` when a job is enqueued.
+- `200 { "status": "skipped_existing_job", "reason": "..." }` when singleton dedup finds an existing job.
+- `503 { "code": "queue_unavailable", ... }` when pg-boss is unavailable, such as memory-backed local mode.
+
+Manual triggers write an `admin_fx_rates_refresh` audit row. Cron refreshes do not write audit rows.
+
+### Freshness check
+
+Admins can inspect stored pair freshness:
+
+```http
+GET /admin/fx-rates/freshness
+```
+
+Response shape:
+
+```json
+{
+  "pairs": [
+    {
+      "baseCurrency": "USD",
+      "quoteCurrency": "TWD",
+      "latestDate": "2026-04-26",
+      "ageInDays": 0
+    }
+  ],
+  "queriedAt": "2026-04-26T22:15:00.000Z"
+}
+```
+
+Interpretation:
+
+- `ageInDays` is calculated against today's UTC date.
+- `ageInDays` of 0-3 is normal around weekends, holidays, or provider forward-fill behavior.
+- `ageInDays > 3` usually means Frankfurter is unavailable, cron did not run, pg-boss is unhealthy, or the worker failed and exhausted retries.
+
+### Operational checks
+
+Check latest rows directly:
+
+```sql
+SELECT base_currency, quote_currency, MAX(date) AS latest_date
+FROM market_data.fx_rates
+GROUP BY 1, 2
+ORDER BY 1, 2;
+```
+
+Check the queue:
+
+```sql
+SELECT name, state, count(*)
+FROM pgboss.job
+WHERE name = 'fx-refresh'
+GROUP BY name, state
+ORDER BY state;
+```
+
+If data is stale, first check API logs for `fx_refresh_failed`, then verify pg-boss is running and Frankfurter is reachable from the API host. A manual refresh for the missing date window is safe; upserts are idempotent on `(date, base_currency, quote_currency)`.

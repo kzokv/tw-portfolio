@@ -3,6 +3,8 @@ import pg from "pg";
 import { Env } from "@tw-portfolio/config";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
+import { FX_REFRESH_CRON, FX_REFRESH_QUEUE } from "../services/market-data/fxRefreshWorker.js";
+import { registerFxRefreshWorker } from "../services/market-data/registerFxRefreshWorker.js";
 import { resolveMarketCode } from "../services/market-data/marketResolution.js";
 import {
   ANONYMOUS_SHARE_TOKEN_PURGE_CRON,
@@ -78,6 +80,18 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   await registerBackfillWorker(app, boss, backfillDeps);
   await registerCatalogSyncWorker(app, boss, catalogDeps);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
+
+  // KZO-164: Frankfurter FX rate ingestion. Singleton policy ensures concurrent
+  // manual triggers (and overlapping cron + manual) coalesce. Cron schedule sends
+  // an empty payload; the worker normalizes that to `trigger='cron'` and re-derives
+  // the date window via `getLatestFxRateDate()`.
+  const fxDeps = {
+    fxProvider: app.marketDataRegistry.fxRate,
+    persistence: app.persistence,
+    log: app.log,
+  };
+  await registerFxRefreshWorker(app, boss, fxDeps);
+  await boss.schedule(FX_REFRESH_QUEUE, FX_REFRESH_CRON, {});
 
   const purgeCutoffMs = Env.ANONYMOUS_SHARE_TOKEN_PURGE_DAYS * 24 * 60 * 60 * 1000;
   await registerAnonymousShareTokenPurgeWorker(app, boss, {

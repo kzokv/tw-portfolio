@@ -1,18 +1,28 @@
 import type { EnvConfig } from "@tw-portfolio/config";
 import type { MarketCode } from "@tw-portfolio/domain";
-import type { InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
+import type { FxRateProvider, InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { RateLimiter } from "./rateLimiter.js";
-import { FinMindMarketDataProvider, MockFinMindMarketDataProvider } from "./providers/index.js";
+import {
+  FinMindMarketDataProvider,
+  FrankfurterFxRateProvider,
+  MockFinMindMarketDataProvider,
+  MockFrankfurterFxRateProvider,
+} from "./providers/index.js";
 
 /**
  * Per-market registry of data + catalog providers. KZO-163 — single composition root that
  * collapses the previous duplicate construction sites in `pgBoss.ts` and `registerRoutes.ts`.
  * Both maps may register the same instance under a single market when one provider class
  * implements both interfaces (FinMind does today).
+ *
+ * KZO-164 — `fxRate` is a singleton field (NOT a per-market Map) because there is one FX
+ * provider for the whole app. A `Map<MarketCode, FxRateProvider>` would be a degenerate
+ * single-entry map.
  */
 export interface MarketDataRegistry {
   marketData: Map<MarketCode, MarketDataProvider>;
   catalog: Map<MarketCode, InstrumentCatalogProvider>;
+  fxRate: FxRateProvider;
 }
 
 /**
@@ -20,6 +30,9 @@ export interface MarketDataRegistry {
  * `Env.FINMIND_API_TOKEN ? real : mock` selection that was duplicated in `pgBoss.ts` and
  * `registerRoutes.ts`. Even when a token is set, the rate limiter and base URL are still
  * threaded through so behavior is uniform across dev/prod.
+ *
+ * KZO-164 — also constructs the singleton `fxRate` provider, branching on
+ * `env.FX_PROVIDER_MOCK` so tests/dev can opt into the deterministic mock.
  */
 export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   const finmindLimiter = new RateLimiter(env.FINMIND_RATE_LIMIT_PER_HOUR);
@@ -39,5 +52,9 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   marketData.set("TW", finmindProvider);
   catalog.set("TW", finmindProvider);
 
-  return { marketData, catalog };
+  const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
+    ? new MockFrankfurterFxRateProvider()
+    : new FrankfurterFxRateProvider({ baseUrl: env.FRANKFURTER_BASE_URL });
+
+  return { marketData, catalog, fxRate };
 }

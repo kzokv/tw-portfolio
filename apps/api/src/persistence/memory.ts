@@ -12,6 +12,7 @@ import type {
   Store,
 } from "../types/store.js";
 import type { DailyBar } from "@tw-portfolio/domain";
+import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -223,6 +224,8 @@ export class MemoryPersistence implements Persistence {
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
+  /** KZO-164: in-memory FX rates keyed by `${date}:${baseCurrency}:${quoteCurrency}`. */
+  private readonly fxRates = new Map<string, FxRate>();
   private readonly invites = new Map<string, MemoryInvite>();
   private readonly portfolioShares: MemoryShare[] = [];
   private readonly anonymousShareTokens: MemoryAnonymousShareToken[] = [];
@@ -1448,6 +1451,51 @@ export class MemoryPersistence implements Persistence {
   _clearDailyBars(): void { this.dailyBars.length = 0; }
   _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
   _clearHoldingSnapshots(): void { this.holdingSnapshots.length = 0; }
+
+  // KZO-164: FX rates (Frankfurter v2 ingestion). Memory backend is keyed by
+  // `${date}:${baseCurrency}:${quoteCurrency}` so subsequent upserts overwrite
+  // prior rows (matches Postgres `ON CONFLICT DO UPDATE` semantics).
+  async upsertFxRates(rates: ReadonlyArray<FxRate>): Promise<number> {
+    let count = 0;
+    for (const r of rates) {
+      // Mirror schema CHECK: callers must filter self-pairs first; defensive guard
+      // keeps the in-memory store from accepting invalid rows that would crash Postgres.
+      if (r.baseCurrency === r.quoteCurrency) continue;
+      const key = `${r.date}:${r.baseCurrency}:${r.quoteCurrency}`;
+      this.fxRates.set(key, { ...r });
+      count++;
+    }
+    return count;
+  }
+
+  async getLatestFxRateDate(): Promise<string | null> {
+    let latest: string | null = null;
+    for (const r of this.fxRates.values()) {
+      if (!latest || r.date > latest) latest = r.date;
+    }
+    return latest;
+  }
+
+  async getFxRateFreshness(): Promise<Array<{ baseCurrency: string; quoteCurrency: string; latestDate: string }>> {
+    const grouped = new Map<string, { baseCurrency: string; quoteCurrency: string; latestDate: string }>();
+    for (const r of this.fxRates.values()) {
+      const key = `${r.baseCurrency}:${r.quoteCurrency}`;
+      const existing = grouped.get(key);
+      if (!existing || r.date > existing.latestDate) {
+        grouped.set(key, { baseCurrency: r.baseCurrency, quoteCurrency: r.quoteCurrency, latestDate: r.date });
+      }
+    }
+    return [...grouped.values()].sort((a, b) =>
+      a.baseCurrency === b.baseCurrency
+        ? a.quoteCurrency.localeCompare(b.quoteCurrency)
+        : a.baseCurrency.localeCompare(b.baseCurrency),
+    );
+  }
+
+  /** KZO-164 test-only — clear all FX rates (`beforeEach` use). */
+  _resetFxRates(): void {
+    this.fxRates.clear();
+  }
 
   async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {
     return this.dailyBars
