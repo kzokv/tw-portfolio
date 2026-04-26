@@ -89,6 +89,50 @@ export interface InstrumentCatalogProvider {
 }
 
 /**
+ * KZO-164: per-pair daily FX rate (e.g. USD→TWD on 2026-04-25). Sourced from Frankfurter v2's
+ * default-blend route (CBC for TWD, RBA for AUD, ECB fallback). `source` is column-aligned
+ * with `market_data.fx_rates.source` (NO fallback in `upsertFxRates` — provider always stamps
+ * `'frankfurter'`). Diverges intentionally from `RawDailyBar.sourceId`'s opt-in shape.
+ */
+export interface FxRate {
+  date: string; // YYYY-MM-DD
+  baseCurrency: string; // ISO 4217 (3 uppercase letters)
+  quoteCurrency: string; // ISO 4217 (3 uppercase letters)
+  rate: number;
+  source: string; // e.g. 'frankfurter'
+}
+
+/**
+ * KZO-164: per-base FX-rate provider. Frankfurter is the only provider for v1 — Frankfurter
+ * has no quota (verified empirically at 400 requests/<60s with 0× HTTP 429), so
+ * `reserveCapacity` is a no-op for the canonical implementation. `quotes` is an optional
+ * client-side filter; the underlying API returns ALL quote currencies for the requested base.
+ */
+export interface FxRateProvider {
+  fetchRatesForBase(
+    base: string,
+    fromDate: string,
+    toDate: string,
+    quotes?: readonly string[],
+  ): Promise<FxRate[]>;
+  /** Same shape as `MarketDataProvider.reserveCapacity`. No-op for Frankfurter (no quota). */
+  reserveCapacity(n: number): void;
+}
+
+/**
+ * KZO-164: pg-boss job payload for the `fx-refresh` queue. The cron schedule sends `{}`
+ * (no body); `deriveFetchWindow` derives the window from `getLatestFxRateDate()` for cron
+ * runs, and reads the body verbatim for manual triggers. `bases` defaults to STORED_QUOTES
+ * (`['TWD','USD','AUD']`).
+ */
+export interface FxRefreshJobData {
+  trigger: "cron" | "manual";
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  bases: readonly ("TWD" | "USD" | "AUD")[];
+}
+
+/**
  * Typed error thrown by a `MarketDataProvider` / `InstrumentCatalogProvider` when its internal
  * rate limiter denies a request. Workers and routes catch this and reschedule (workers via
  * `boss.send` with `startAfter`) or surface 503 + Retry-After (routes).

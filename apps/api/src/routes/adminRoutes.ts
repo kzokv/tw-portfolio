@@ -11,12 +11,37 @@ import { routeError } from "../lib/routeError.js";
 import { requireAdminRole } from "../lib/routeGuards.js";
 import { getEffectiveRepairCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import {
+  FX_REFRESH_QUEUE,
+  STORED_QUOTES,
+} from "../services/market-data/fxRefreshWorker.js";
+import { today_utc } from "../services/market-data/deriveFetchWindow.js";
+import {
   impersonationClearCookieString,
   impersonationSetCookieString,
   requireSessionUserId,
   userRoleSchema,
   userScopedIdSchema,
 } from "./registerRoutes.js";
+
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const fxBaseCurrencySchema = z.enum(["TWD", "USD", "AUD"]);
+
+const fxRefreshBodySchema = z
+  .object({
+    startDate: isoDateSchema.optional(),
+    endDate: isoDateSchema.optional(),
+    bases: z.array(fxBaseCurrencySchema).min(1).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.startDate && value.endDate && value.startDate > value.endDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startDate must be before or equal to endDate",
+        path: ["startDate"],
+      });
+    }
+  });
 
 export const patchAdminSettingsSchema = z
   .object({
@@ -375,5 +400,79 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return loadAppConfigDto(app);
+  });
+
+  // ── KZO-164: FX rates admin surface ───────────────────────────────────────
+  // POST /admin/fx-rates/refresh — manually enqueue an FX refresh job (e.g.
+  //   to backfill a missed window after an outage). Only this path emits
+  //   `admin_fx_rates_refresh` audit; cron runs do NOT (precedent: catalog-sync).
+  //
+  //   AUTH: This route is intentionally NOT in `ADMIN_ROUTE_KEYS`
+  //   (registerRoutes.ts) so the demo-restricted 403 fires before the
+  //   admin-required 403 for non-admin demo callers — see scope-todo §5.1
+  //   "Auth: admin-only; demo blocked" + the [auth]: demo_restricted HTTP/AAA
+  //   spec assertion. The inline `requireAdminRole(req)` below is therefore the
+  //   SOLE admin gate for this route. DO NOT REMOVE without also adding the
+  //   route key to `ADMIN_ROUTE_KEYS` and adjusting the demo-precedence test.
+  app.post("/fx-rates/refresh", async (req) => {
+    if (req.authContext?.isDemo) {
+      throw routeError(403, "demo_restricted", "FX refresh is not available for demo users");
+    }
+    requireAdminRole(req); // sole admin gate — see header comment
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+
+    const body = fxRefreshBodySchema.parse(req.body ?? {});
+    const today = today_utc();
+    const startDate = body.startDate ?? today;
+    const endDate = body.endDate ?? today;
+    const bases = body.bases ?? [...STORED_QUOTES];
+
+    if (!app.boss) {
+      throw routeError(503, "queue_unavailable", "Job queue is not available");
+    }
+
+    const jobId = await app.boss.send(
+      FX_REFRESH_QUEUE,
+      { trigger: "manual" as const, startDate, endDate, bases },
+      { singletonKey: "fx-refresh", priority: 5 },
+    );
+
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "admin_fx_rates_refresh",
+      metadata: { startDate, endDate, bases },
+      ipAddress,
+    });
+
+    if (jobId === null) {
+      // Singleton policy collapsed our send into an existing in-flight job.
+      return {
+        status: "skipped_existing_job" as const,
+        reason: "another fx-refresh job is already enqueued or running (singleton policy)",
+      };
+    }
+    return { status: "queued" as const, jobId };
+  });
+
+  // GET /admin/fx-rates/freshness — read-only freshness summary per (base, quote).
+  // No audit log (read-only). `ageInDays` is computed against today_utc() so
+  // any slow ingestion shows up immediately in the response.
+  app.get("/fx-rates/freshness", async (req) => {
+    requireAdminRole(req);
+    const queriedAt = new Date().toISOString();
+    const today = today_utc();
+    const todayMs = new Date(`${today}T00:00:00Z`).getTime();
+    const rows = await app.persistence.getFxRateFreshness();
+    const pairs = rows.map((row) => {
+      const latestMs = new Date(`${row.latestDate}T00:00:00Z`).getTime();
+      const ageInDays = Math.max(0, Math.round((todayMs - latestMs) / 86_400_000));
+      return {
+        baseCurrency: row.baseCurrency,
+        quoteCurrency: row.quoteCurrency,
+        latestDate: row.latestDate,
+        ageInDays,
+      };
+    });
+    return { pairs, queriedAt };
   });
 };

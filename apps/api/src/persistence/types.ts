@@ -1,6 +1,7 @@
 import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
 import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
+import type { FxRate } from "../services/market-data/types.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -109,7 +110,8 @@ export type AuditLogAction =
   | "impersonation_end"
   | "impersonation_blocked_write"
   | "session_force_logout"
-  | "app_config_updated";
+  | "app_config_updated"
+  | "admin_fx_rates_refresh";
 
 export interface ShareGrantRecord {
   id: string;
@@ -677,6 +679,26 @@ export interface Persistence {
 
   // Catalog sync
   upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
+
+  // KZO-164: FX rates (Frankfurter v2 ingestion). All three methods are required because
+  // `fxRefreshWorker.ts` and the admin routes consume them through the `Persistence`
+  // interface (no direct Postgres pool access — keeps the worker testable on memory).
+  /**
+   * Bulk upsert FX rates. Postgres uses `ON CONFLICT (date, base_currency, quote_currency)
+   * DO UPDATE SET rate, source, ingested_at`. Memory uses `Map<dateKey, FxRate>` keyed
+   * by `${date}:${base}:${quote}`. Returns the row count actually upserted.
+   *
+   * Caller (worker) MUST filter self-pairs (`r.quoteCurrency !== r.baseCurrency`) before
+   * calling — schema CHECK rejects them and would crash the entire batch in Postgres.
+   */
+  upsertFxRates(rates: ReadonlyArray<FxRate>): Promise<number>;
+  /** Returns the maximum `date` across all FX rate rows, or `null` for an empty table. */
+  getLatestFxRateDate(): Promise<string | null>;
+  /**
+   * Per-pair freshness summary — one row per `(baseCurrency, quoteCurrency)` with the
+   * most recent date for that pair. Ordered by base, then quote, ascending.
+   */
+  getFxRateFreshness(): Promise<Array<{ baseCurrency: string; quoteCurrency: string; latestDate: string }>>;
 
   // Notifications (KZO-132)
   createNotification(notification: {

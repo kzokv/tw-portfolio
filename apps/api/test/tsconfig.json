@@ -9,6 +9,11 @@
   "include": [
     "http/**/*.ts",
     "globalTeardown.ts",
-    "integration/user-preferences.integration.test.ts"
+    "integration/user-preferences.integration.test.ts",
+    "integration/fx-rates-postgres.integration.test.ts",
+    "unit/frankfurter-fx-rate-provider.test.ts",
+    "unit/mock-frankfurter-fx-rate-provider.test.ts",
+    "unit/fx-refresh-derive-window.test.ts",
+    "unit/fx-refresh-worker.test.ts"
   ]
 }

@@ -414,6 +414,9 @@ const ADMIN_ROUTE_KEYS = new Set([
   "GET /admin/audit-log",
   "GET /admin/settings",
   "PATCH /admin/settings",
+  // KZO-164: FX rate ingestion admin surface.
+  // POST /admin/fx-rates/refresh has a route-local demo-before-admin guard.
+  "GET /admin/fx-rates/freshness",
 ]);
 const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "POST /admin/users/:id/impersonate",
@@ -1352,6 +1355,40 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     app.persistence._seedDailyBars(body.bars);
     return { status: "seeded", count: body.bars.length };
+  });
+
+  // KZO-164: test-only seed for FX rates. Used by HTTP/AAA + integration suites
+  // to populate `getFxRateFreshness()` and the freshness route without spinning
+  // up the worker / Frankfurter mock.
+  app.post("/__e2e/seed-fx-rates", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z
+      .object({
+        rates: z.array(
+          z.object({
+            date: isoDateSchema,
+            baseCurrency: z.string().regex(/^[A-Z]{3}$/),
+            quoteCurrency: z.string().regex(/^[A-Z]{3}$/),
+            rate: z.number().positive(),
+            source: z.string().default("frankfurter"),
+          }),
+        ),
+      })
+      .parse(req.body);
+
+    const inserted = await app.persistence.upsertFxRates(body.rates);
+    return { inserted };
+  });
+
+  // KZO-164: test-only reset for FX rates. Per-test isolation for HTTP/AAA
+  // freshness specs that share a single in-memory persistence across the
+  // serial worker. Uses `assertE2ESeedEnabled()` (NODE_ENV + memory backend)
+  // so it works under AUTH_MODE=oauth like the seed endpoint.
+  app.post("/__e2e/reset-fx-rates", async () => {
+    assertE2ESeedEnabled();
+    const mem = app.persistence as import("../persistence/memory.js").MemoryPersistence;
+    mem._resetFxRates();
+    return { status: "reset" };
   });
 
   app.post("/__e2e/seed-dividend-event", async (req) => {

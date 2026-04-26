@@ -55,6 +55,11 @@ export const envSchema = z.object({
   // without code changes. Defaults match the prior hardcoded values.
   FINMIND_BASE_URL: z.string().url().default("https://api.finmindtrade.com/api/v4/data"),
   FINMIND_RATE_LIMIT_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // KZO-164: Frankfurter v2 FX-rate ingestion. Frankfurter has no quota — no rate limit knob.
+  // FX_PROVIDER_MOCK enables the deterministic mock provider for tests/dev without changing
+  // the registry call sites; defaults to false so prod always reaches the real provider.
+  FRANKFURTER_BASE_URL: z.string().url().default("https://api.frankfurter.dev/v2"),
+  FX_PROVIDER_MOCK: z.coerce.boolean().default(false),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
