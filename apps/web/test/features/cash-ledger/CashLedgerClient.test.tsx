@@ -10,6 +10,11 @@ import type {
 
 vi.mock("../../../features/cash-ledger/services/cashLedgerService", () => ({
   fetchCashLedgerEntries: vi.fn(),
+  // KZO-167: CashLedgerClient now also calls fetchAccounts() on mount to
+  // build the dropdown chip metadata. Stub it with an empty list so the
+  // pagination tests stay focused on the cash-ledger fetch behavior —
+  // the dropdown falls back to raw account IDs when accountMeta is empty.
+  fetchAccounts: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../../hooks/useEventStream", () => ({

@@ -24,6 +24,7 @@
 ## Database / API reference
 - [project_db_schema.md](project_db_schema.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + migrations; schema moves faster than memory snapshots
 - [project_api_surface.md](project_api_surface.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + `registerRoutes.ts`; route sets are authoritative
+- [project_account_shape.md](project_account_shape.md) — Account-shape extension 4-file checklist (`services/store.ts:67` is the canonical seed, NOT MemoryPersistence) + deterministic `cash-${tx.id}` cash-entry IDs by design
 
 ## Market data platform
 - [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-21; KZO-141 epic: 143–149, 151, 152, 153, 155 complete; backup/restore gap still open; rate-limit eviction closed by KZO-155

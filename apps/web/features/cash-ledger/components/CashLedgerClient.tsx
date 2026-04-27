@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { formatCurrencyAmount, formatDateLabel } from "../../../lib/utils";
 import { useEventStream } from "../../../hooks/useEventStream";
-import { fetchCashLedgerEntries } from "../services/cashLedgerService";
+import { fetchAccounts, fetchCashLedgerEntries } from "../services/cashLedgerService";
+import {
+  formatAccountOption,
+  type AccountOptionInput,
+} from "../utils/accountOptions";
 import type {
   CashLedgerEntryType,
   CashLedgerListResponse,
@@ -72,11 +76,23 @@ function entryTypeLabel(entryType: CashLedgerEntryType, dict: AppDictionary): st
   }
 }
 
+// KZO-167: the account chip / dropdown label uses `formatAccountOption`
+// from `../utils/accountOptions.ts` (extracted so the pure helper can be
+// unit-tested at `apps/web/test/features/cash-ledger/accountOptions.test.ts`
+// per scope-todo Phase 7). The helper lives outside the i18n dictionary
+// per `.claude/rules/nextjs-i18n-serialization.md` — function values
+// cannot cross the Next.js server→client boundary inside dictionaries.
+
 export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClientProps) {
   const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData.entries);
   const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData.summary);
   const [total, setTotal] = useState(initialData.total ?? 0);
   const [drawerEntry, setDrawerEntry] = useState<EnrichedCashLedgerEntry | null>(null);
+
+  // KZO-167: account chip metadata — name, defaultCurrency, accountType.
+  // Empty until the GET /accounts fetch resolves; renders fall back to the
+  // raw account ID until populated.
+  const [accountMeta, setAccountMeta] = useState<Map<string, AccountOptionInput>>(new Map());
 
   // Filters
   const [fromEntryDate, setFromEntryDate] = useState("");
@@ -88,6 +104,40 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<CashLedgerSortColumn>("entryDate");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAccounts()
+      .then((accounts) => {
+        if (cancelled) return;
+        const next = new Map<string, AccountOptionInput>();
+        for (const account of accounts) {
+          next.set(account.id, {
+            name: account.name,
+            defaultCurrency: account.defaultCurrency,
+            accountType: account.accountType,
+          });
+        }
+        setAccountMeta(next);
+      })
+      .catch(() => {
+        // Leave accountMeta empty; dropdown + chips fall back to raw IDs.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const renderAccountLabel = useCallback(
+    (id: string): string => {
+      const meta = accountMeta.get(id);
+      if (!meta) return id;
+      return formatAccountOption(meta, {
+        accountTypeBroker: dict.cashLedger.accountTypeBroker,
+        accountTypeBank: dict.cashLedger.accountTypeBank,
+        accountTypeWallet: dict.cashLedger.accountTypeWallet,
+      });
+    },
+    [accountMeta, dict],
+  );
 
   const fetchData = useCallback(async (opts: {
     pg?: number;
@@ -220,7 +270,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
             >
               <option value="">—</option>
               {accountOptions.map((id) => (
-                <option key={id} value={id}>{id}</option>
+                <option key={id} value={id}>{renderAccountLabel(id)}</option>
               ))}
             </select>
           </div>
@@ -255,7 +305,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm"
             >
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                {s.accountId} / {s.currency}
+                {renderAccountLabel(s.accountId)} / {s.currency}
               </p>
               <p className="mt-1 text-lg font-semibold text-slate-900">
                 {d.summaryTotalLabel}: {formatCurrencyAmount(s.amount, s.currency, locale)}

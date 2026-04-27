@@ -71,11 +71,20 @@ export interface FeeProfileDto {
   commissionChargeMode: "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 }
 
+// KZO-167: per-account currency + account type metadata. Both are added
+// here (not on a separate `Account` interface in apps/api/src/types/store.ts)
+// because KZO-167 collapses the API-internal `Account` interface into this
+// DTO. New value semantics are gated by D7 lockdown at the route layer.
+export type AccountDefaultCurrency = "TWD" | "USD" | "AUD";
+export type AccountType = "broker" | "bank" | "wallet";
+
 export interface AccountDto {
   id: string;
   name: string;
   userId: string;
   feeProfileId: string;
+  defaultCurrency: AccountDefaultCurrency;
+  accountType: AccountType;
 }
 
 export interface FeeProfileBindingDto {

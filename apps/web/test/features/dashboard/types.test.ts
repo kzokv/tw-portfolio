@@ -16,7 +16,7 @@ const transaction: TransactionInput = {
 describe("resolveTransactionDraftAccount", () => {
   it("falls back to the first available account when the current one is missing", () => {
     const next = resolveTransactionDraftAccount(transaction, [
-      { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" },
+      { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1", defaultCurrency: "TWD", accountType: "broker" },
     ], [
       {
         id: "profile-1",
@@ -42,7 +42,7 @@ describe("resolveTransactionDraftAccount", () => {
   it("preserves the selected account when it still exists", () => {
     const previous = { ...transaction, accountId: "account-1" };
     const next = resolveTransactionDraftAccount(previous, [
-      { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" },
+      { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1", defaultCurrency: "TWD", accountType: "broker" },
     ], [
       {
         id: "profile-1",
@@ -69,7 +69,7 @@ describe("resolveTransactionDraftAccount", () => {
     const previous = { ...transaction, accountId: "account-1", ticker: "2330", priceCurrency: "TWD" };
     const next = resolveTransactionDraftAccount(
       previous,
-      [{ id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" }],
+      [{ id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1", defaultCurrency: "TWD", accountType: "broker" }],
       [
         {
           id: "profile-1",

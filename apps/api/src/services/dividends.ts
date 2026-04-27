@@ -4,6 +4,7 @@ import {
   type InstrumentType,
 } from "@tw-portfolio/domain";
 import type {
+  AccountDto,
   DividendSourceBucket,
   DividendSourceLine,
   SourceCompositionStatus,
@@ -18,6 +19,7 @@ import {
   upsertDividendLedgerEntry,
 } from "./accountingStore.js";
 import { listDividendEvents, upsertDividendEvent } from "./marketDataStore.js";
+import { assertCashEntryCurrencyMatchesAccount } from "./cashLedgerService.js";
 import { routeError } from "../lib/routeError.js";
 import type {
   CashLedgerEntry,
@@ -219,7 +221,7 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
   replaceDividendDeductionsForLedger(store, postedEntry.id, deductions);
   replaceDividendSourceLinesForLedger(store, postedEntry.id, sourceComposition.sourceLines);
 
-  const linkedCashLedgerEntries = buildDividendCashLedgerEntries(userId, account.id, dividendEvent, postedEntry, deductions);
+  const linkedCashLedgerEntries = buildDividendCashLedgerEntries(userId, account, dividendEvent, postedEntry, deductions);
   replaceCashLedgerEntriesForDividend(store, postedEntry.id, linkedCashLedgerEntries);
 
   if (postedEntry.receivedStockQuantity > 0) {
@@ -316,7 +318,7 @@ export function preparePostedCashDividendUpdate(
   replaceDividendDeductionsForLedger(store, updatedEntry.id, deductions);
   replaceDividendSourceLinesForLedger(store, updatedEntry.id, sourceComposition.sourceLines);
 
-  const linkedCashLedgerEntries = buildDividendCashLedgerEntries(userId, account.id, dividendEvent, updatedEntry, deductions);
+  const linkedCashLedgerEntries = buildDividendCashLedgerEntries(userId, account, dividendEvent, updatedEntry, deductions);
   replaceCashLedgerEntriesForDividend(store, updatedEntry.id, linkedCashLedgerEntries);
 
   const lots = listInventoryLots(store).filter((lot) => lot.accountId === account.id && lot.ticker === dividendEvent.ticker);
@@ -606,7 +608,7 @@ function buildDividendSourceLines(
 
 function buildDividendCashLedgerEntries(
   userId: string,
-  accountId: string,
+  account: AccountDto,
   dividendEvent: DividendEvent,
   dividendLedgerEntry: DividendLedgerEntry,
   deductions: DividendDeductionEntry[],
@@ -616,10 +618,10 @@ function buildDividendCashLedgerEntries(
   const bookedAt = dividendLedgerEntry.bookedAt ?? new Date(`${entryDate}T00:00:00.000Z`).toISOString();
 
   if (dividendLedgerEntry.receivedCashAmount > 0) {
-    entries.push({
+    const receiptEntry: CashLedgerEntry = {
       id: `${dividendLedgerEntry.id}:receipt`,
       userId,
-      accountId,
+      accountId: account.id,
       entryDate,
       entryType: "DIVIDEND_RECEIPT",
       amount: dividendLedgerEntry.receivedCashAmount,
@@ -628,7 +630,13 @@ function buildDividendCashLedgerEntries(
       source: "dividend_posting",
       sourceReference: dividendLedgerEntry.id,
       bookedAt,
-    });
+    };
+    // KZO-167 path 2: assert each built dividend cash entry's currency
+    // matches the booking account's defaultCurrency. The intra-dividend
+    // deduction-vs-cashDividendCurrency check below stays — it is a
+    // separate invariant.
+    assertCashEntryCurrencyMatchesAccount(receiptEntry, account);
+    entries.push(receiptEntry);
   }
 
   for (const deduction of deductions) {
@@ -636,10 +644,10 @@ function buildDividendCashLedgerEntries(
       throw routeError(400, "currency_mismatch", "Dividend deduction currency must match dividend cash currency");
     }
 
-    entries.push({
+    const deductionEntry: CashLedgerEntry = {
       id: `${dividendLedgerEntry.id}:deduction:${deduction.id}`,
       userId,
-      accountId,
+      accountId: account.id,
       entryDate,
       entryType: "DIVIDEND_DEDUCTION",
       amount: -deduction.amount,
@@ -649,7 +657,10 @@ function buildDividendCashLedgerEntries(
       sourceReference: deduction.sourceReference ?? deduction.id,
       note: deduction.note,
       bookedAt,
-    });
+    };
+    // KZO-167 path 2: also assert each built deduction entry's currency.
+    assertCashEntryCurrencyMatchesAccount(deductionEntry, account);
+    entries.push(deductionEntry);
   }
 
   return entries;

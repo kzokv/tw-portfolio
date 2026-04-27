@@ -14,6 +14,8 @@
     "unit/frankfurter-fx-rate-provider.test.ts",
     "unit/mock-frankfurter-fx-rate-provider.test.ts",
     "unit/fx-refresh-derive-window.test.ts",
-    "unit/fx-refresh-worker.test.ts"
+    "unit/fx-refresh-worker.test.ts",
+    "unit/cashLedgerService.test.ts",
+    "integration/account-currency-change-guard.integration.test.ts"
   ]
 }

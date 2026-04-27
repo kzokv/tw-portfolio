@@ -10,7 +10,9 @@ const settings: UserSettings = {
 };
 
 const accounts: AccountDto[] = [
-  { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1" },
+  // KZO-167: AccountDto now requires defaultCurrency + accountType. Defaults
+  // mirror the auto-seed shape (TWD / broker).
+  { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1", defaultCurrency: "TWD", accountType: "broker" },
 ];
 
 const feeProfiles: FeeProfileDto[] = [

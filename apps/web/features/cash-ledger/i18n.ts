@@ -18,6 +18,12 @@ export const cashLedgerI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "cashLed
       entryTypeDividendDeduction: "Dividend Deduction",
       entryTypeManualAdjustment: "Manual Adjustment",
       entryTypeReversal: "Reversal",
+      // KZO-167: account-type display labels for the dropdown chip and
+      // per-account summary chip. Currency codes (TWD/USD/AUD) render
+      // untranslated by industry convention.
+      accountTypeBroker: "Broker",
+      accountTypeBank: "Bank",
+      accountTypeWallet: "Wallet",
       emptyState: "No cash ledger entries found",
       summaryTotalLabel: "Total",
       filterDateFrom: "From",
@@ -63,6 +69,11 @@ export const cashLedgerI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "cashLed
       entryTypeDividendDeduction: "股利扣款",
       entryTypeManualAdjustment: "手動調整",
       entryTypeReversal: "沖銷",
+      // KZO-167: account-type display labels (zh-TW). Currency codes
+      // remain untranslated by industry convention.
+      accountTypeBroker: "券商",
+      accountTypeBank: "銀行",
+      accountTypeWallet: "錢包",
       emptyState: "找不到現金分類帳紀錄",
       summaryTotalLabel: "合計",
       filterDateFrom: "起始日",
