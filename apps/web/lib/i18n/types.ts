@@ -678,6 +678,12 @@ export interface AppDictionary {
     entryTypeDividendDeduction: string;
     entryTypeManualAdjustment: string;
     entryTypeReversal: string;
+    // KZO-167: account-type display labels. Strings only (per
+    // .claude/rules/nextjs-i18n-serialization.md) — `formatAccountType`
+    // helper lives in the component.
+    accountTypeBroker: string;
+    accountTypeBank: string;
+    accountTypeWallet: string;
     emptyState: string;
     summaryTotalLabel: string;
     filterDateFrom: string;

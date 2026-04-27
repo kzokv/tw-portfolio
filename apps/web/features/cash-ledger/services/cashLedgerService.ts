@@ -1,3 +1,4 @@
+import type { AccountDto } from "@tw-portfolio/shared-types";
 import { getJson } from "../../../lib/api";
 import type { CashLedgerListResponse, CashLedgerQuery } from "../types";
 
@@ -21,4 +22,13 @@ export async function fetchCashLedgerEntries(
 
   const qs = params.toString();
   return getJson<CashLedgerListResponse>(`/portfolio/cash-ledger${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * KZO-167: fetch the user's accounts so the dropdown and summary chips can
+ * render `name (currency · type)` instead of the raw account ID. Falls back
+ * to the raw ID rendering until this resolves.
+ */
+export async function fetchAccounts(): Promise<AccountDto[]> {
+  return getJson<AccountDto[]>("/accounts");
 }

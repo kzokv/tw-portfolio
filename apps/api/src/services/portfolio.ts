@@ -8,7 +8,6 @@ import {
   type Lot,
 } from "@tw-portfolio/domain";
 import {
-  appendCashLedgerEntry,
   appendCorporateAction,
   appendTradeEvent,
   deriveRealizedPnlForTrade,
@@ -18,10 +17,10 @@ import {
   replaceLotAllocationsForTrade,
   replaceInventoryLots,
 } from "./accountingStore.js";
+import { bookCashLedgerEntry, buildTradeSettlementCashEntry } from "./cashLedgerService.js";
 import { routeError } from "../lib/routeError.js";
 import type {
   BookedTradeEvent,
-  CashLedgerEntry,
   CorporateAction,
   LotAllocationProjection,
   Store,
@@ -117,7 +116,10 @@ export function createTransaction(
 
   applyToLots(store, tx);
   appendTradeEvent(store, tx);
-  appendCashLedgerEntry(store, buildTradeSettlementCashEntry(tx));
+  // KZO-167: route through cashLedgerService so the currency-match guard
+  // fires on path 1 (initial trade booking) before delegating to
+  // appendCashLedgerEntry.
+  bookCashLedgerEntry(store, buildTradeSettlementCashEntry(tx));
   return tx;
 }
 
@@ -279,24 +281,6 @@ function assertBookedCharge(value: number | undefined, message: string): void {
   }
 }
 
-function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueAmount = roundToDecimal(tx.quantity * tx.unitPrice, 2);
-  const settlementAmount =
-    tx.type === "BUY"
-      ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)
-      : grossTradeValueAmount - tx.commissionAmount - tx.taxAmount;
-
-  return {
-    id: `cash-${tx.id}`,
-    userId: tx.userId,
-    accountId: tx.accountId,
-    entryDate: tx.tradeDate,
-    entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
-    amount: settlementAmount,
-    currency: tx.priceCurrency,
-    relatedTradeEventId: tx.id,
-    source: "trade_settlement",
-    sourceReference: tx.id,
-    bookedAt: tx.bookedAt,
-  };
-}
+// KZO-167: `buildTradeSettlementCashEntry` lives in `cashLedgerService.ts`
+// and is imported above. The local copy was removed to consolidate the
+// builder shared with `recompute.ts`.

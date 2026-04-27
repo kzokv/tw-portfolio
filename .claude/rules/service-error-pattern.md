@@ -42,3 +42,26 @@ The two guards are sequential, not exclusive — a request that survives the per
 **Why:** Established in KZO-163 for `/market-data/price`. Returning 429 for both per-IP and provider-budget exhaustion would mask the distinction in client logs and alerting. Browsers and HTTP clients commonly auto-handle `Retry-After` on 503 (server overload), which is the desired UX. 429 is typically interpreted as per-client identity throttle.
 
 **How to apply:** When introducing rate-limit branching to a new route or extending an existing one (KZO-164 FX, KZO-170 US, KZO-171 AU all share the same shared-budget pattern), distinguish per-client (429) from upstream provider/budget exhaustion (503 + Retry-After). Route logs and alerting should track these as separate signals.
+
+## JSON envelope shape — `error:` carries the code, NOT `code:`
+
+The Fastify error handler in `apps/api/src/app.ts` standardizes the JSON body produced by `routeError(statusCode, code, message)`:
+
+```json
+{ "error": "currency_change_blocked", "message": "Cannot change ..." }
+```
+
+The field name is `error`; its **value** is the machine-readable code. There is no `code:` field. Any HTTP test that asserts on the machine-readable code must read `body.error`, not `body.code`.
+
+```ts
+// ❌ Wrong — body.code is undefined; assertion fails silently against `expect(undefined).toBe(...)` style chains and burns a Phase 3 cycle
+expect(response.body.code).toBe("currency_change_blocked");
+
+// ✅ Correct
+expect(response.body.error).toBe("currency_change_blocked");
+expect(response.body.message).toMatch(/cannot change/i);
+```
+
+**Why:** Caught in KZO-167 iter 1 — `account-currency-and-type-aaa.http.spec.ts:131` asserted `body.code === "currency_change_blocked"` and the assertion failed in a way that looked like a route bug (the route was correct; only the test's field name was wrong). Cost a full Phase-3 cycle to triage.
+
+**How to apply:** When writing any HTTP test (suite 8) or web-side fetch handler that branches on a 4xx/5xx code from a `routeError`-throwing route, read `body.error` for the code string and `body.message` for the human text.

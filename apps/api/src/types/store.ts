@@ -1,12 +1,5 @@
 import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
-import type { DividendSourceLine, SourceCompositionStatus, UserSettings } from "@tw-portfolio/shared-types";
-
-export interface Account {
-  id: string;
-  name: string;
-  userId: string;
-  feeProfileId: string;
-}
+import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@tw-portfolio/shared-types";
 
 export interface FeeProfileBinding {
   accountId: string;
@@ -254,7 +247,7 @@ export interface AccountingStore {
 export interface Store {
   userId: string;
   settings: UserSettings;
-  accounts: Account[];
+  accounts: AccountDto[];
   feeProfileBindings: FeeProfileBinding[];
   feeProfiles: FeeProfile[];
   accounting: AccountingStore;

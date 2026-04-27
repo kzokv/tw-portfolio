@@ -35,9 +35,9 @@ KZO-165 landed the schema (`currency_wallet_snapshots` with `wac_fx_to_usd`, `re
 
 ## Out of scope (explicit)
 
-- **KZO-167** — `accounts.default_currency` schema and per-user reporting currency resolution. Until then, `getFxRate` consumers pass `'USD'` as the reporting currency parameter.
+- **KZO-167** — `accounts.default_currency` + `account_type` schema, service guardrail for cash-entry currency match, PATCH `/accounts/:id` extension, `/cash-ledger` chip display. Per-user reporting currency resolution is **NOT** in KZO-167 (corrected via KZO-167 scope-grill 2026-04-27); split into **KZO-180** which lands the column (in `user_preferences`, NOT `users`) plus the dashboard / portfolio-summary FX-aware read consumers together. Until KZO-180, `getFxRate` consumers pass `'USD'` as the reporting currency parameter.
 - **KZO-168** — `FX_TRANSFER` cash-entry type, paired-entry linking, UI form, input validation. KZO-166 ships the *consumer side* of `fx_rate_to_usd`; KZO-168 is the *producer side*.
-- **Read-time consumers of `getFxRate`** — no dashboard / portfolio-summary route changes ship in KZO-166. Follow-up ticket (likely after KZO-167) wires reporting-currency-aware reads.
+- **Read-time consumers of `getFxRate`** — no dashboard / portfolio-summary route changes ship in KZO-166. KZO-180 wires reporting-currency-aware reads after KZO-167 + KZO-176 land.
 - **Surgical per-`(account, currency)` wallet replay** — only worth a follow-up ticket if profiling shows the per-user full-replace is a bottleneck.
 - **Performance caching** for `getFxRate` — defer; rely on `idx_fx_rates_pair_date_desc` for now.
 - **Modifications to `replayPositionHistory.ts`** — explicitly off-limits in this ticket.

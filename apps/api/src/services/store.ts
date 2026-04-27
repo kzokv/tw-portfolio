@@ -70,6 +70,11 @@ export function createStore(): Store {
         name: "Main",
         userId: "user-1",
         feeProfileId: seededFeeProfile.id,
+        // KZO-167 D10 — auto-seed defaults. Mirrors the
+        // ensureDefaultPortfolioData literal in apps/api/src/persistence/postgres.ts:430
+        // so MemoryPersistence and PostgresPersistence agree on bootstrap shape.
+        defaultCurrency: "TWD",
+        accountType: "broker",
       },
     ],
     feeProfiles: [seededFeeProfile],

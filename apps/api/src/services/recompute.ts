@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import { routeError } from "../lib/routeError.js";
-import { deriveRealizedPnlForTrade, listTradeEvents, replaceCashLedgerEntryForTrade } from "./accountingStore.js";
-import type { CashLedgerEntry, RecomputeJob, RecomputePreviewItem, Store, Transaction } from "../types/store.js";
+import { deriveRealizedPnlForTrade, listTradeEvents } from "./accountingStore.js";
+import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
+import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 
 interface PreviewInput {
   userId: string;
@@ -81,7 +82,10 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
 
     tx.commissionAmount = item.nextCommissionAmount;
     tx.taxAmount = item.nextTaxAmount;
-    replaceCashLedgerEntryForTrade(store, tx.id, buildTradeSettlementCashEntry(tx));
+    // KZO-167: route through cashLedgerService so the currency-match guard
+    // fires on path 3 (fee-profile recompute single-trade replacement)
+    // before delegating to replaceCashLedgerEntryForTrade.
+    bookTradeSettlementRecompute(store, tx);
 
     if (tx.type === "SELL") {
       tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
@@ -102,24 +106,7 @@ function mustGetProfile(store: Store, profileId: string): FeeProfile {
   return profile;
 }
 
-function buildTradeSettlementCashEntry(tx: Transaction): CashLedgerEntry {
-  const grossTradeValueAmount = roundToDecimal(tx.quantity * tx.unitPrice, 2);
-  const settlementAmount =
-    tx.type === "BUY"
-      ? -(grossTradeValueAmount + tx.commissionAmount + tx.taxAmount)
-      : grossTradeValueAmount - tx.commissionAmount - tx.taxAmount;
-
-  return {
-    id: `cash-${tx.id}`,
-    userId: tx.userId,
-    accountId: tx.accountId,
-    entryDate: tx.tradeDate,
-    entryType: tx.type === "BUY" ? "TRADE_SETTLEMENT_OUT" : "TRADE_SETTLEMENT_IN",
-    amount: settlementAmount,
-    currency: tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD",
-    relatedTradeEventId: tx.id,
-    source: "trade_settlement",
-    sourceReference: tx.id,
-    bookedAt: tx.bookedAt,
-  };
-}
+// KZO-167: `buildTradeSettlementCashEntry` lives in `cashLedgerService.ts`
+// and `bookTradeSettlementRecompute` (imported above) wraps it with the
+// currency-match guard. The local copy was removed to consolidate the
+// builder shared with `portfolio.ts`.

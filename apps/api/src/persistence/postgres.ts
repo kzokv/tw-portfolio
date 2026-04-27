@@ -427,8 +427,8 @@ export class PostgresPersistence implements Persistence {
     );
 
     await this.pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-       VALUES ($1, $2, 'Main', $3)
+      `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+       VALUES ($1, $2, 'Main', $3, 'TWD', 'broker')
        ON CONFLICT (id) DO NOTHING`,
       [accountId, userId, feeProfileId],
     );
@@ -1705,7 +1705,7 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
-        `SELECT id, user_id, name, fee_profile_id
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
          FROM accounts
          WHERE user_id = $1
          ORDER BY id`,
@@ -2079,6 +2079,8 @@ export class PostgresPersistence implements Persistence {
         userId: row.user_id,
         name: row.name,
         feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
       })),
       feeProfileBindings: bindingsResult.rows.map((row) => ({
         accountId: row.account_id,
@@ -2230,14 +2232,16 @@ export class PostgresPersistence implements Persistence {
 
       for (const account of store.accounts) {
         const upsertAccount = await client.query(
-          `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (id)
            DO UPDATE SET
              name = EXCLUDED.name,
-             fee_profile_id = EXCLUDED.fee_profile_id
+             fee_profile_id = EXCLUDED.fee_profile_id,
+             default_currency = EXCLUDED.default_currency,
+             account_type = EXCLUDED.account_type
            WHERE accounts.user_id = EXCLUDED.user_id`,
-          [account.id, account.userId, account.name, account.feeProfileId],
+          [account.id, account.userId, account.name, account.feeProfileId, account.defaultCurrency, account.accountType],
         );
 
         if (upsertAccount.rowCount !== 1) {

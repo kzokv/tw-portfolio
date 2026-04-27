@@ -154,7 +154,17 @@ KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wal
 
 **Migration 039:** `db/migrations/039_kzo166_cash_ledger_fx_rate.sql` adds nullable `fx_rate_to_usd NUMERIC(20, 8)` to `cash_ledger_entries` with `CHECK (fx_rate_to_usd IS NULL OR fx_rate_to_usd > 0)`. Idempotent via `ADD COLUMN IF NOT EXISTS` + `DO $$` constraint guard.
 
-**Consumer status:** No read-time consumer in KZO-166. After KZO-167 (`accounts.default_currency`) lands, a follow-up ticket will JOIN `market_data.fx_rates` on `trade_date` in the dashboard and portfolio-summary route handlers to surface reporting-currency realized P&L. Until then, `getFxRate` consumers pass `'USD'` as the reporting currency.
+**Consumer status:** No read-time consumer in KZO-166. Now that KZO-167 (`accounts.default_currency`) has landed, the next consumer is **KZO-180** — which wires `user_preferences.reporting_currency` and the dashboard/portfolio-summary FX-aware reads together. Until KZO-180 lands, `getFxRate` consumers pass `'USD'` as the reporting currency.
+
+### Per-account currency and account type (KZO-167)
+
+KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`. Two new shared-type unions (`AccountDefaultCurrency`, `AccountType`) are added to `AccountDto` in `@tw-portfolio/shared-types`; the legacy `interface Account` in `apps/api/src/types/store.ts` is removed.
+
+A new service module `apps/api/src/services/cashLedgerService.ts` enforces the cash-entry currency invariant on emission paths 1–3: a mismatch between `entry.currency` and `account.defaultCurrency` throws `routeError(400, "currency_mismatch", ...)`. The full-replay path (path 4, `replayPositionHistory.ts:161`) is explicitly exempt per `replay-position-history-invariants.md`. `PATCH /accounts/:id` adds optional `defaultCurrency` and `accountType` fields; a currency change is blocked with `409 currency_change_blocked` if the account has any existing cash entries or trade events. The `/cash-ledger` page now renders `Name (TWD · Broker)` chips in account dropdowns and summary headers.
+
+**`account_type` is metadata-only in KZO-167** — no behavioral gating on entry types by account type. Behavioral semantics land in downstream tickets (KZO-168 `FX_TRANSFER`, KZO-170/171 US/AU markets).
+
+**Sibling tickets not yet started:** KZO-179 (multi-account creation, `POST /accounts`) and KZO-180 (user-level `user_preferences.reporting_currency` column + dashboard FX-aware reads + settings UI) are both blocked on KZO-167.
 
 ---
 

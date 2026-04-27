@@ -1443,6 +1443,9 @@ describePostgres("postgres migrations", () => {
       userId: "user-1",
       name: "Dividend",
       feeProfileId: store.feeProfiles[0].id,
+      // KZO-167: AccountDto requires defaultCurrency + accountType.
+      defaultCurrency: "TWD",
+      accountType: "broker",
     });
     store.marketData.dividendEvents = [
       {
@@ -2586,5 +2589,168 @@ describePostgres("postgres migrations", () => {
 
     // 6. fx_rate_to_usd = NULL → accepted
     await expect(insertCash("mig039-ok2", null)).resolves.not.toThrow();
+  });
+
+  // ── KZO-167 — migration 040 walk ─────────────────────────────────────────
+  // Migration 040 adds two columns to the `accounts` table:
+  //   default_currency CHAR(3) NOT NULL DEFAULT 'TWD'
+  //   account_type     TEXT    NOT NULL DEFAULT 'broker'
+  // Both have CHECK constraints mirroring the DO $$ guard pattern from 039.
+  // This case verifies clean walk via the manifest path and all post-migration
+  // schema artifacts.
+
+  it("KZO-167: migration 040 walk — accounts.default_currency and accounts.account_type columns with defaults and CHECK constraints", async () => {
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    // ── 1. default_currency column existence, type, NOT NULL, DEFAULT ─────────
+
+    const currencyCol = await pool.query<{
+      column_name: string;
+      data_type: string;
+      character_maximum_length: number | null;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      `SELECT column_name, data_type, character_maximum_length, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'accounts'
+         AND column_name = 'default_currency'`,
+    );
+    expect(currencyCol.rows).toHaveLength(1);
+    // CHAR(3) → Postgres reports 'character' with max_length 3
+    expect(currencyCol.rows[0].data_type).toBe("character");
+    expect(currencyCol.rows[0].character_maximum_length).toBe(3);
+    expect(currencyCol.rows[0].is_nullable).toBe("NO");
+    // DEFAULT 'TWD'
+    expect(currencyCol.rows[0].column_default).toMatch(/TWD/);
+
+    // ── 2. account_type column existence, type, NOT NULL, DEFAULT ────────────
+
+    const typeCol = await pool.query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      `SELECT column_name, data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'accounts'
+         AND column_name = 'account_type'`,
+    );
+    expect(typeCol.rows).toHaveLength(1);
+    expect(typeCol.rows[0].data_type).toBe("text");
+    expect(typeCol.rows[0].is_nullable).toBe("NO");
+    // DEFAULT 'broker'
+    expect(typeCol.rows[0].column_default).toMatch(/broker/);
+
+    // ── 3. CHECK constraint for default_currency ──────────────────────────────
+
+    const currencyCheck = await pool.query<{ conname: string; def: string }>(
+      `SELECT conname, pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.accounts'::regclass
+         AND contype = 'c'
+         AND conname = 'ck_accounts_default_currency'`,
+    );
+    expect(currencyCheck.rows).toHaveLength(1);
+    // The constraint body must enumerate the three allowed currencies
+    const currencyDef = currencyCheck.rows[0].def;
+    expect(currencyDef).toContain("TWD");
+    expect(currencyDef).toContain("USD");
+    expect(currencyDef).toContain("AUD");
+
+    // ── 4. CHECK constraint for account_type ─────────────────────────────────
+
+    const typeCheck = await pool.query<{ conname: string; def: string }>(
+      `SELECT conname, pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.accounts'::regclass
+         AND contype = 'c'
+         AND conname = 'ck_accounts_account_type'`,
+    );
+    expect(typeCheck.rows).toHaveLength(1);
+    const typeDef = typeCheck.rows[0].def;
+    expect(typeDef).toContain("broker");
+    expect(typeDef).toContain("bank");
+    expect(typeDef).toContain("wallet");
+
+    // ── 5. Seed a user + fee profile to support accounts FK dependencies ──────
+
+    await pool.query(`
+      INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+      VALUES ('mig040-u', 'mig040@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+    `);
+    await pool.query(`
+      INSERT INTO fee_profiles (
+        id, user_id, name, commission_rate_bps, commission_discount_bps,
+        minimum_commission_amount, commission_currency, commission_rounding_mode,
+        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
+        commission_discount_percent
+      ) VALUES (
+        'mig040-fp', 'mig040-u', 'Default', 14, 7200,
+        20, 'TWD', 'FLOOR', 'FLOOR',
+        30, 15, 10, 0, 1.425, 28
+      )
+    `);
+
+    // ── 6. DEFAULT values applied: existing INSERT without the new columns ────
+
+    await pool.query(`
+      INSERT INTO accounts (id, user_id, name, fee_profile_id)
+      VALUES ('mig040-acc-default', 'mig040-u', 'Main', 'mig040-fp')
+    `);
+    const defaultRow = await pool.query<{ default_currency: string; account_type: string }>(
+      `SELECT default_currency, account_type FROM accounts WHERE id = 'mig040-acc-default'`,
+    );
+    expect(defaultRow.rows).toHaveLength(1);
+    expect(defaultRow.rows[0].default_currency.trim()).toBe("TWD");
+    expect(defaultRow.rows[0].account_type).toBe("broker");
+
+    // ── 7. Valid custom values accepted by CHECK constraints ──────────────────
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+        VALUES ('mig040-acc-usd-bank', 'mig040-u', 'USD Bank', 'mig040-fp', 'USD', 'bank')
+      `),
+    ).resolves.not.toThrow();
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+        VALUES ('mig040-acc-aud-wallet', 'mig040-u', 'AUD Wallet', 'mig040-fp', 'AUD', 'wallet')
+      `),
+    ).resolves.not.toThrow();
+
+    // ── 8. Invalid default_currency rejected by CHECK constraint ─────────────
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+        VALUES ('mig040-reject-eur', 'mig040-u', 'Bad EUR', 'mig040-fp', 'EUR', 'broker')
+      `),
+    ).rejects.toThrow();
+
+    // ── 9. Invalid account_type rejected by CHECK constraint ─────────────────
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+        VALUES ('mig040-reject-inv', 'mig040-u', 'Bad Type', 'mig040-fp', 'TWD', 'investment')
+      `),
+    ).rejects.toThrow();
+
+    // ── 10. NOT NULL enforcement: explicit NULL rejected ──────────────────────
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+        VALUES ('mig040-reject-null', 'mig040-u', 'Null Cur', 'mig040-fp', NULL, 'broker')
+      `),
+    ).rejects.toThrow();
   });
 });

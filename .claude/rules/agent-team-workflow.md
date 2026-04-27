@@ -65,3 +65,24 @@ The Validator runs **only** after the Architect sends an explicit `[GO]` signal,
 When a design doc or scope-todo lists a verification gate (e.g. "run suites 4+5+admin E2E before declaring Phase 1 done"), it is an enforceable contract, not a suggestion. The Dispatcher (or Architect at Tier 1) should check whether the completing agent's task result notes confirm the gate was satisfied before sending `[GO]` to the Validator. If a required suite is absent from the result notes, treat the phase as incomplete and request the missing run.
 
 **Why:** In KZO-142, the Backend Implementer skipped suite 6 (E2E), reasoning it was "pure-refactor, E2E is QA's scope." QA ran it clean one phase later — no regression. But a broken extraction would only have been caught in QA's next phase, wasting a convergence cycle.
+
+## QA's TDD-red imports can drive helper extraction (Implementer should default to extract)
+
+When QA writes a TDD-red test that imports from a file path the scope-todo never literally named (e.g., `formatAccountOption` from `apps/web/features/cash-ledger/utils/accountOptions.ts` while the scope-todo only said "the dropdown reads `formatType(account.accountType, t)`"), the Implementer's correct call is usually to **extract the helper rather than push back via `[QUESTION]`**.
+
+The scope-todo's silence on a specific extraction path is most often a documentation gap, not an opinion against extraction. Default to extract when ALL of the following hold:
+
+- The helper would be genuinely pure (no React state, no i18n function values, no service-layer side effects).
+- Extraction does not violate any existing rule — in fact, often satisfies one (e.g., `nextjs-i18n-serialization.md`'s "function lives outside the i18n dictionary").
+- Both the scope-todo's wording and QA's import resolve to the same conceptual surface (the call site looks identical from the consumer's perspective).
+- The extraction does not change behavior, only file layout.
+
+If any of those fail (extraction would change behavior, violate a rule, or land at a fundamentally different surface), THAT's when `[QUESTION]` to the Architect is correct.
+
+**Why:** KZO-167 — QA's `accountOptions.test.ts` imported `formatAccountOption` from `utils/accountOptions.ts`, a path the scope-todo never named. The Implementer extracted the helper rather than pushing back, and the result satisfied `nextjs-i18n-serialization.md` cleanly. A `[QUESTION]` round-trip would have stalled the parallel Phase 1+2 launch by a coordination cycle.
+
+**How to apply:**
+- Implementer rule of thumb: when QA's TDD-red import path differs from the scope-todo's wording but the conceptual surface is the same, extract first, ask later.
+- QA rule of thumb: prefer importing from a plausible `utils/` location even if the scope-todo doesn't name it — the Implementer can extract on receipt.
+- Architect rule of thumb: do NOT route this as a finding in Phase 3 if it lands cleanly. The implicit extraction is part of Tier 2's "QA writes scripts proactively" contract.
+- Companion rule: `nextjs-i18n-serialization.md` is the most common destination for this pattern (helpers MUST live outside i18n dicts).

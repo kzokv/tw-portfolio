@@ -158,6 +158,16 @@ export async function replayPositionHistory(
     await persistence.bulkInsertLotAllocations(userId, allAllocations);
   }
   if (allCashEntries.length > 0) {
+    // KZO-167 D8 — Path 4 explicit invariant continuation. The cash-entry
+    // currency-match guard (`assertCashEntryCurrencyMatchesAccount` in
+    // `cashLedgerService.ts`) is intentionally NOT invoked on this replay
+    // path. Replay re-derives entries from already-validated `trade_events`
+    // whose currency was guarded at booking time (Path 1) or recompute time
+    // (Path 3); combined with KZO-167 D7's PATCH /accounts/:id lockdown
+    // (cannot mutate `defaultCurrency` while cash entries or trade events
+    // exist), no source-data drift can introduce a mismatch here.
+    // See `docs/004-notes/kzo-167/scope-todo-202604271700-account-currency-and-type.md`
+    // and `.claude/rules/replay-position-history-invariants.md`.
     await persistence.bulkInsertCashLedgerEntries(userId, allCashEntries);
   }
 

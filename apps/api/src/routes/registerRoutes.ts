@@ -2487,10 +2487,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .object({
         name: z.string().trim().min(1).max(80).optional(),
         feeProfileId: userScopedIdSchema.optional(),
+        // KZO-167: per-account default currency + account type metadata.
+        // Enum values match the migration 040 CHECK constraint.
+        defaultCurrency: z.enum(["TWD", "USD", "AUD"]).optional(),
+        accountType: z.enum(["broker", "bank", "wallet"]).optional(),
       })
-      .refine((value) => value.name !== undefined || value.feeProfileId !== undefined, {
-        message: "at least one field required",
-      })
+      .refine(
+        (value) =>
+          value.name !== undefined ||
+          value.feeProfileId !== undefined ||
+          value.defaultCurrency !== undefined ||
+          value.accountType !== undefined,
+        { message: "at least one field required" },
+      )
       .parse(req.body);
 
     const { store } = await loadUserStore(app, req);
@@ -2503,6 +2512,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       account.feeProfileId = body.feeProfileId;
     }
     if (body.name) account.name = body.name;
+
+    // KZO-167 D7 — defaultCurrency lockdown. Once an account has any cash
+    // ledger entry OR any trade event, mutating defaultCurrency would
+    // invalidate the existing entries against the (now-stricter) currency
+    // guard in cashLedgerService.ts. Reject with 409 currency_change_blocked
+    // and steer the operator toward "open a new account" instead.
+    if (body.defaultCurrency !== undefined && body.defaultCurrency !== account.defaultCurrency) {
+      const hasCashEntries = store.accounting.facts.cashLedgerEntries.some(
+        (entry) => entry.accountId === account.id,
+      );
+      const hasTradeEvents = store.accounting.facts.tradeEvents.some(
+        (event) => event.accountId === account.id,
+      );
+      if (hasCashEntries || hasTradeEvents) {
+        throw routeError(
+          409,
+          "currency_change_blocked",
+          "Cannot change default currency: account has existing cash entries or trade events. Open a new account or contact support.",
+        );
+      }
+      account.defaultCurrency = body.defaultCurrency;
+    }
+    if (body.accountType !== undefined) {
+      // KZO-167 D4 — accountType is metadata-only in this ticket. No
+      // behavioral gating; downstream tickets (KZO-168 / KZO-170 / KZO-171)
+      // will introduce semantics for bank/wallet types.
+      account.accountType = body.accountType;
+    }
     await app.persistence.saveStore(store);
     return account;
   });

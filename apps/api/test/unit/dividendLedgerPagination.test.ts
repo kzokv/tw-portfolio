@@ -20,6 +20,9 @@ async function seedAccount(id: string, name: string): Promise<void> {
     name,
     userId: USER_ID,
     feeProfileId: store.feeProfiles[0]!.id,
+    // KZO-167: AccountDto requires defaultCurrency + accountType.
+    defaultCurrency: "TWD",
+    accountType: "broker",
   });
 }
 
