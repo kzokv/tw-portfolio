@@ -134,18 +134,38 @@ describe("generateCurrencyWalletSnapshots — running balance per (accountId, cu
     expect(usdRows.map((r) => r.date)).toEqual(["2025-01-02", "2025-01-04"]);
   });
 
-  it("FX columns are stubbed null/0/null on every emitted row (D5 + D9)", async () => {
+  it("USD wallet rows carry wacFxToUsd=1.0, realizedFxPnlLifetime=0, providerSource='frankfurter' (D10)", async () => {
+    // USD entries with no fxRateToUsd stamped — USD wallet always gets explicit markers.
+    await seedCashEntries(
+      makeCashEntry({ accountId: "acc-1", currency: "USD", entryDate: "2025-01-02", amount: 100 }),
+      makeCashEntry({ accountId: "acc-1", currency: "USD", entryDate: "2025-01-03", amount: 50 }),
+    );
+
+    await generateCurrencyWalletSnapshots("user-1", persistence);
+    const rows = await getAllWalletSnapshotsForUser("user-1");
+
+    const usdRows = rows.filter((r) => r.currency === "USD");
+    expect(usdRows.length).toBeGreaterThan(0);
+    for (const row of usdRows) {
+      expect(row.wacFxToUsd).toBe(1.0);
+      expect(row.realizedFxPnlLifetime).toBe(0);
+      expect(row.providerSource).toBe("frankfurter");
+    }
+  });
+
+  it("non-USD wallet rows without FX-rate-stamped entries carry null/0/null (D11 backward compat)", async () => {
+    // TWD entries without fxRateToUsd — no WAC can be computed.
     await seedCashEntries(
       makeCashEntry({ accountId: "acc-1", currency: "TWD", entryDate: "2025-01-02", amount: 5000 }),
-      makeCashEntry({ accountId: "acc-1", currency: "USD", entryDate: "2025-01-02", amount: 100 }),
       makeCashEntry({ accountId: "acc-2", currency: "TWD", entryDate: "2025-01-03", amount: 200 }),
     );
 
     await generateCurrencyWalletSnapshots("user-1", persistence);
     const rows = await getAllWalletSnapshotsForUser("user-1");
 
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
+    const twdRows = rows.filter((r) => r.currency === "TWD");
+    expect(twdRows.length).toBeGreaterThan(0);
+    for (const row of twdRows) {
       expect(row.wacFxToUsd).toBeNull();
       expect(row.realizedFxPnlLifetime).toBe(0);
       expect(row.providerSource).toBeNull();

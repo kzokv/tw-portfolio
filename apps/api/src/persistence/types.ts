@@ -1,4 +1,4 @@
-import type { BackfillStatus, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
+import type { BackfillStatus, CurrencyCode, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
 import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type { FxRate } from "../services/market-data/types.js";
@@ -411,6 +411,23 @@ export interface CashLedgerEntryForBalance {
   amount: number;
 }
 
+/**
+ * KZO-166: extended cash-ledger projection for the wallet WAC walker.
+ * Includes fxRateToUsd and reversal-pair fields needed by the WAC engine.
+ * Reversal pairs are filtered out upstream by getCashLedgerEntriesForWalletReplay.
+ */
+export interface CashLedgerEntryForWalletReplay {
+  id: string;
+  accountId: string;
+  currency: string;
+  entryDate: string;
+  amount: number;
+  fxRateToUsd: number | null;
+  entryType: import("../types/store.js").CashLedgerEntryType;
+  reversalOfCashLedgerEntryId?: string;
+  bookedAt?: string;
+}
+
 export interface AggregatedSnapshotPoint {
   date: string;
   totalCostBasis: number;
@@ -763,6 +780,32 @@ export interface Persistence {
    * most recent date for that pair. Ordered by base, then quote, ascending.
    */
   getFxRateFreshness(): Promise<Array<{ baseCurrency: string; quoteCurrency: string; latestDate: string }>>;
+  /**
+   * KZO-166 read helper. Returns the latest FX rate for the (base → quote) pair
+   * with `date <= asOfDate` (forward-fill semantics).
+   *
+   * Self-pair shortcut: when `base === quote`, returns `1.0` without touching the DB.
+   *
+   * Returns `null` when no rate exists for the pair at or before `asOfDate`.
+   *
+   * Backed by `idx_fx_rates_pair_date_desc` for O(log N) lookup.
+   *
+   * Caller contract:
+   *   - Write-path callers (wallet generator) MUST throw
+   *     `MissingFxRateError(base, quote, asOfDate)` on `null`.
+   *   - Read-path callers (future dashboard JOINs) MAY degrade to native-only.
+   */
+  getFxRate(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<number | null>;
+  /**
+   * KZO-166: deterministic cash-ledger projection for the wallet WAC walker.
+   *
+   * Returns entries in `(entry_date ASC, booked_at ASC, id ASC)` order. Both
+   * the reversed entry and its REVERSAL counterpart are filtered out — they
+   * still contribute to `balance_native` via getCashLedgerEntriesForBalances
+   * (which sums them and ends at 0), but they are invisible to the WAC and
+   * realized-FX state.
+   */
+  getCashLedgerEntriesForWalletReplay(userId: string): Promise<CashLedgerEntryForWalletReplay[]>;
 
   // Notifications (KZO-132)
   createNotification(notification: {

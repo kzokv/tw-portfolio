@@ -37,3 +37,19 @@ Canonical reference: `planDividendLedgerRecompute` and `applyDividendLedgerRecom
 **Why:** Discovered during KZO-114 implementation (invariants 1–4). Invariant 5 added in KZO-37: users who retroactively enter a forgotten trade were seeing stale `expected_cash_amount` on posted dividend rows — the variance calculation was meaningless until a manual edit triggered replay. Violating invariant 5 reintroduces this class of bug.
 
 **How to apply:** When writing any new replay or recompute function. Checklist before submitting PR: all five invariants explicitly handled?
+
+---
+
+## Companion: wallet generator inherits invariants 3 + 4 by analogy (KZO-166)
+
+`apps/api/src/services/currencyWalletSnapshotGeneration.ts` is **not** a replay function — it is a per-user wallet snapshot writer that consumes pre-stamped cash-ledger entries and emits one `currency_wallet_snapshots` row per `(account_id, currency, date-with-activity)`. Per scope-todo D15, it inherits two of the five invariants by analogy:
+
+- **Invariant 3 (typed-error enrichment):** `applyEntryToWalletState` throws `InsufficientWalletBalanceError` and `MissingFxRateError` (both extend `WalletAccountingError`) with structured `details` fields (`accountId, currency, available, requested, entryDate, fxRateToUsd` / `base, quote, asOfDate`). Generator does not wrap these in a generic try/catch — they propagate unwrapped to the caller. Per `.claude/rules/typed-transient-error-catch-audit.md`, any future inner try/catch added to the generator MUST re-throw `WalletAccountingError` first.
+
+- **Invariant 4 (zero-amount filter):** Already enforced at the schema layer by `cash_ledger_entries.amount <> 0` CHECK constraint. The wallet generator does not need to filter zero-amount entries inline because the constraint guarantees their absence.
+
+Invariants 1 (no `saveStore`), 2 (`ORDER BY trade_date ASC, booking_sequence ASC`), and 5 (dividend ledger recompute) are **not applicable** — there is no replay function added; aggregation is order-independent for `balance_native` (REVERSAL pairs sum to zero) and the WAC walker sorts by `(entry_date ASC, booked_at ASC, id ASC)` which is the load-bearing axis for determinism.
+
+**How to apply:** Do NOT promote this file to a generic "replay invariants" doc. The five invariants are still about position-history replay. The wallet generator is a distinct write path that mirrors only invariants 3 + 4. If a future ticket adds a new replay-class function, that function inherits all five invariants — the wallet-generator note should NOT be its template.
+
+Reference: `apps/api/src/services/currencyWalletAccounting.ts` and `apps/api/src/services/currencyWalletSnapshotGeneration.ts`.

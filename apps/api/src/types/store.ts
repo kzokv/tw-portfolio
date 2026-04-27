@@ -80,6 +80,13 @@ export interface CashLedgerEntry {
   note?: string;
   reversalOfCashLedgerEntryId?: string;
   bookedAt?: string;
+  /**
+   * KZO-166: USD rate at the moment of FX conversion. Non-null **only** for
+   * cash entries that represent an FX conversion (KZO-168 FX_TRANSFER pair).
+   * MANUAL_ADJUSTMENT entries set by tests may also stamp this field to drive
+   * the WAC engine in the absence of KZO-168.
+   */
+  fxRateToUsd?: number | null;
 }
 
 export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";

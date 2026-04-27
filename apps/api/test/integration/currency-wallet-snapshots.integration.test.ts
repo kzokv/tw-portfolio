@@ -155,10 +155,10 @@ describePostgres("currency_wallet_snapshots — end-to-end + schema regressions"
     expect(Number(rows.rows[1].balance_native)).toBe(7000);
   });
 
-  it("end-to-end: FX columns are stubbed null/0/null on every row written by the aggregator", async () => {
+  it("USD wallet rows carry wacFxToUsd=1.0, realizedFxPnlLifetime=0, providerSource='frankfurter' (D10)", async () => {
     const { userId } = await persistence!.resolveOrCreateUser(
-      "google", "kzo165-walletfx-sub",
-      { email: "kzo165-walletfx@example.com", name: "KZO-165 Wallet FX" },
+      "google", "kzo166-walletfx-usd-sub",
+      { email: "kzo166-walletfx-usd@example.com", name: "KZO-166 Wallet FX USD" },
     );
     const accResult = await pool.query<{ id: string }>(
       `SELECT id FROM accounts WHERE user_id = $1 LIMIT 1`,
@@ -166,8 +166,9 @@ describePostgres("currency_wallet_snapshots — end-to-end + schema regressions"
     );
     const accountId = accResult.rows[0].id;
 
-    await seedCash({ id: "kzo165-fx-1", userId, accountId, entryDate: "2025-01-02", amount: 5000, currency: "TWD" });
-    await seedCash({ id: "kzo165-fx-2", userId, accountId, entryDate: "2025-01-02", amount: 250, currency: "USD" });
+    // USD entries with no fx_rate_to_usd — USD wallet always gets explicit markers.
+    await seedCash({ id: "kzo166-usd-1", userId, accountId, entryDate: "2025-01-02", amount: 250, currency: "USD" });
+    await seedCash({ id: "kzo166-usd-2", userId, accountId, entryDate: "2025-01-03", amount: 100, currency: "USD" });
 
     await generateCurrencyWalletSnapshots(userId, persistence!);
 
@@ -179,7 +180,43 @@ describePostgres("currency_wallet_snapshots — end-to-end + schema regressions"
     }>(
       `SELECT currency, wac_fx_to_usd::text, realized_fx_pnl_lifetime::text, provider_source
        FROM currency_wallet_snapshots
-       WHERE user_id = $1`,
+       WHERE user_id = $1 AND currency = 'USD'`,
+      [userId],
+    );
+    expect(rows.rows.length).toBeGreaterThan(0);
+    for (const row of rows.rows) {
+      expect(Number(row.wac_fx_to_usd)).toBe(1.0);
+      expect(Number(row.realized_fx_pnl_lifetime)).toBe(0);
+      expect(row.provider_source).toBe("frankfurter");
+    }
+  });
+
+  it("non-USD wallet rows without FX-rate-stamped entries carry null/0/null (D11 backward compat)", async () => {
+    const { userId } = await persistence!.resolveOrCreateUser(
+      "google", "kzo166-walletfx-twd-sub",
+      { email: "kzo166-walletfx-twd@example.com", name: "KZO-166 Wallet FX TWD" },
+    );
+    const accResult = await pool.query<{ id: string }>(
+      `SELECT id FROM accounts WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    const accountId = accResult.rows[0].id;
+
+    // TWD entries with no fx_rate_to_usd — no WAC computable.
+    await seedCash({ id: "kzo166-twd-1", userId, accountId, entryDate: "2025-01-02", amount: 5000, currency: "TWD" });
+    await seedCash({ id: "kzo166-twd-2", userId, accountId, entryDate: "2025-01-03", amount: 3000, currency: "TWD" });
+
+    await generateCurrencyWalletSnapshots(userId, persistence!);
+
+    const rows = await pool.query<{
+      currency: string;
+      wac_fx_to_usd: string | null;
+      realized_fx_pnl_lifetime: string;
+      provider_source: string | null;
+    }>(
+      `SELECT currency, wac_fx_to_usd::text, realized_fx_pnl_lifetime::text, provider_source
+       FROM currency_wallet_snapshots
+       WHERE user_id = $1 AND currency = 'TWD'`,
       [userId],
     );
     expect(rows.rows.length).toBeGreaterThan(0);
