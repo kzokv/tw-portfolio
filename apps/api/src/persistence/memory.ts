@@ -1515,6 +1515,51 @@ export class MemoryPersistence implements Persistence {
     this.fxRates.clear();
   }
 
+  async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
+    if (base === quote) return 1.0;
+    let bestDate: string | null = null;
+    let bestRate: number | null = null;
+    for (const r of this.fxRates.values()) {
+      if (r.baseCurrency !== base || r.quoteCurrency !== quote) continue;
+      if (r.date > asOfDate) continue;
+      if (bestDate === null || r.date > bestDate) {
+        bestDate = r.date;
+        bestRate = r.rate;
+      }
+    }
+    return bestRate;
+  }
+
+  async getCashLedgerEntriesForWalletReplay(
+    userId: string,
+  ): Promise<import("./types.js").CashLedgerEntryForWalletReplay[]> {
+    const store = await this.loadStore(userId);
+    const entries = store.accounting.facts.cashLedgerEntries;
+    const reversedIds = new Set<string>();
+    for (const e of entries) {
+      if (e.reversalOfCashLedgerEntryId) reversedIds.add(e.reversalOfCashLedgerEntryId);
+    }
+    return entries
+      .filter((e) => !e.reversalOfCashLedgerEntryId && !reversedIds.has(e.id))
+      .map((e) => ({
+        id: e.id,
+        accountId: e.accountId,
+        currency: e.currency,
+        entryDate: e.entryDate,
+        amount: e.amount,
+        fxRateToUsd: e.fxRateToUsd ?? null,
+        entryType: e.entryType,
+        reversalOfCashLedgerEntryId: e.reversalOfCashLedgerEntryId,
+        bookedAt: e.bookedAt,
+      }))
+      .sort(
+        (a, b) =>
+          a.entryDate.localeCompare(b.entryDate)
+          || (a.bookedAt ?? "").localeCompare(b.bookedAt ?? "")
+          || a.id.localeCompare(b.id),
+      );
+  }
+
   async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {
     return this.dailyBars
       .filter(b => b.ticker === ticker && b.barDate >= startDate && b.barDate <= endDate)

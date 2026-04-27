@@ -2503,4 +2503,88 @@ describePostgres("postgres migrations", () => {
     );
     expect(hasComposite).toBe(true);
   });
+
+  // ── 039: cash_ledger_entries.fx_rate_to_usd column + CHECK ────────────────
+
+  it("migration 039: cash_ledger_entries.fx_rate_to_usd column exists with correct precision and CHECK constraint", async () => {
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    // 1. Column exists, is nullable, numeric(20,8)
+    const col = await pool.query<{
+      column_name: string;
+      data_type: string;
+      numeric_precision: number;
+      numeric_scale: number;
+      is_nullable: string;
+    }>(
+      `SELECT column_name, data_type, numeric_precision, numeric_scale, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'cash_ledger_entries'
+         AND column_name = 'fx_rate_to_usd'`,
+    );
+    expect(col.rows).toHaveLength(1);
+    expect(col.rows[0].data_type).toBe("numeric");
+    expect(col.rows[0].numeric_precision).toBe(20);
+    expect(col.rows[0].numeric_scale).toBe(8);
+    expect(col.rows[0].is_nullable).toBe("YES");
+
+    // 2. CHECK constraint exists
+    const ck = await pool.query<{ conname: string }>(
+      `SELECT conname FROM pg_constraint
+       WHERE conname = 'ck_cash_ledger_fx_rate_positive'
+         AND conrelid = 'cash_ledger_entries'::regclass`,
+    );
+    expect(ck.rows).toHaveLength(1);
+
+    // Seed a user + account + fee profile to satisfy FKs on cash_ledger_entries.
+    await pool.query(`
+      INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+      VALUES ('mig039-u', 'mig039@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+    `);
+    await pool.query(`
+      INSERT INTO fee_profiles (
+        id, user_id, name, commission_rate_bps, commission_discount_bps,
+        minimum_commission_amount, commission_currency, commission_rounding_mode,
+        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
+        commission_discount_percent
+      ) VALUES (
+        'mig039-fp', 'mig039-u', 'Default', 14, 7200,
+        20, 'TWD', 'FLOOR', 'FLOOR',
+        30, 15, 10, 0, 1.425, 28
+      )
+    `);
+    await pool.query(`
+      INSERT INTO accounts (id, user_id, name, fee_profile_id)
+      VALUES ('mig039-acc', 'mig039-u', 'Main', 'mig039-fp')
+    `);
+
+    // Helper to insert a cash_ledger_entries row with a given fx_rate_to_usd.
+    const insertCash = async (id: string, fx: string | null): Promise<void> => {
+      await pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           source, source_reference, booked_at, fx_rate_to_usd
+         ) VALUES (
+           $1, 'mig039-u', 'mig039-acc', '2025-01-02', 'MANUAL_ADJUSTMENT',
+           100, 'TWD', 'mig039_test', $1, NOW(), $2
+         )`,
+        [id, fx],
+      );
+    };
+
+    // 3. fx_rate_to_usd = 0 → rejected
+    await expect(insertCash("mig039-r1", "0")).rejects.toThrow();
+
+    // 4. fx_rate_to_usd = -1 → rejected
+    await expect(insertCash("mig039-r2", "-1")).rejects.toThrow();
+
+    // 5. fx_rate_to_usd = 0.0001 → accepted
+    await expect(insertCash("mig039-ok1", "0.0001")).resolves.not.toThrow();
+
+    // 6. fx_rate_to_usd = NULL → accepted
+    await expect(insertCash("mig039-ok2", null)).resolves.not.toThrow();
+  });
 });

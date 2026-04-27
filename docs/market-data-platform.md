@@ -130,7 +130,31 @@ Value-over-time and valuation-by-date queries read from **materialized `daily_po
 
 KZO-165 adds the schema shape for multi-currency reporting without changing the dashboard read model yet. `daily_holding_snapshots.currency` now means the holding's native currency, and the writer dual-writes legacy `cost_basis`, `market_value`, and `unrealized_pnl` from the matching native columns until KZO-176 rewrites the dashboard read path and removes the legacy fields.
 
-`currency_wallet_snapshots` stores one row per `(account_id, currency, date)` with `user_id` denormalized for user/date reads and a composite FK back to `accounts(id, user_id)`. KZO-165's writer is only a cash-ledger running-balance stub: `wac_fx_to_usd` is `NULL`, `realized_fx_pnl_lifetime` is `0`, and `provider_source` is `NULL`. KZO-166 owns WAC FX math and realized FX P&L crystallization.
+`currency_wallet_snapshots` stores one row per `(account_id, currency, date)` with `user_id` denormalized for user/date reads and a composite FK back to `accounts(id, user_id)`. KZO-165's writer is only a cash-ledger running-balance stub: `wac_fx_to_usd` is `NULL`, `realized_fx_pnl_lifetime` is `0`, and `provider_source` is `NULL`. WAC FX math and realized FX P&L crystallization landed in KZO-166; see [Currency wallet WAC + realized FX P&L (KZO-166)](#currency-wallet-wac--realized-fx-pl-kzo-166) below.
+
+### Currency wallet WAC + realized FX P&L (KZO-166)
+
+KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wallet snapshot scaffold. On every cross-currency cash inflow with a non-null `fx_rate_to_usd`, the WAC walker weights the new FX rate against the running balance × prior WAC. On every cross-currency outflow, it crystallizes realized FX P&L = `(saleRate − wac) × |amountSold|` in USD, signed (gains positive, losses negative), accumulating into `realized_fx_pnl_lifetime`. The engine is **production-inert until KZO-168** ships the `FX_TRANSFER` cash-entry type; tests exercise it via synthetic `MANUAL_ADJUSTMENT` entries with `fx_rate_to_usd` populated.
+
+**Pure math module:** `apps/api/src/services/currencyWalletAccounting.ts` — pure functions `applyEntryToWalletState` and `computeRealizedFxPnl`, plus typed errors `WalletAccountingError` (base) → `InsufficientWalletBalanceError`, `MissingFxRateError`. No I/O imports; testable in isolation.
+
+**Generator wiring:** `apps/api/src/services/currencyWalletSnapshotGeneration.ts` sources entries via `getCashLedgerEntriesForWalletReplay` (deterministic `(entry_date, booked_at, id)` order with REVERSAL-pair filtering), threads a `Map<string, WalletGroupState>` keyed by `(accountId, currency)`, and writes computed values to the snapshot row.
+
+**`getFxRate(base, quote, asOfDate)` persistence helper:** Reads `market_data.fx_rates` with forward-fill (latest rate ≤ `asOfDate`). Self-pair shortcut returns `1.0` without DB access. Returns `null` when no rate exists at all. Backed by `idx_fx_rates_pair_date_desc`. Write-path callers throw `MissingFxRateError`; read-path callers degrade to native-only (D8).
+
+**Cell stamping rules (D10/D11):**
+
+| Wallet | `wac_fx_to_usd` | `realized_fx_pnl_lifetime` | `provider_source` |
+|---|---|---|---|
+| USD | `1.0` | `0` | `'frankfurter'` |
+| Non-USD, WAC computed | rounded to 8dp | accumulated (signed USD) | `'frankfurter'` |
+| Non-USD, no FX-stamped inflow | `NULL` | `0` | `NULL` (KZO-165 compat) |
+
+**REVERSAL handling (D7):** Original FX inflow + REVERSAL pair are filtered out by `getCashLedgerEntriesForWalletReplay` upstream — both invisible to WAC, both still net to zero in `balance_native`.
+
+**Migration 039:** `db/migrations/039_kzo166_cash_ledger_fx_rate.sql` adds nullable `fx_rate_to_usd NUMERIC(20, 8)` to `cash_ledger_entries` with `CHECK (fx_rate_to_usd IS NULL OR fx_rate_to_usd > 0)`. Idempotent via `ADD COLUMN IF NOT EXISTS` + `DO $$` constraint guard.
+
+**Consumer status:** No read-time consumer in KZO-166. After KZO-167 (`accounts.default_currency`) lands, a follow-up ticket will JOIN `market_data.fx_rates` on `trade_date` in the dashboard and portfolio-summary route handlers to surface reporting-currency realized P&L. Until then, `getFxRate` consumers pass `'USD'` as the reporting currency.
 
 ---
 

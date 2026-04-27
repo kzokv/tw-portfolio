@@ -1768,7 +1768,8 @@ export class PostgresPersistence implements Persistence {
       this.pool.query(
         `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
                 related_trade_event_id, related_dividend_ledger_entry_id, source,
-                source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+                source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+                fx_rate_to_usd
          FROM cash_ledger_entries
          WHERE user_id = $1
          ORDER BY entry_date, booked_at, id`,
@@ -1958,6 +1959,7 @@ export class PostgresPersistence implements Persistence {
       note: row.note ?? undefined,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
     }));
 
     const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
@@ -2466,6 +2468,60 @@ export class PostgresPersistence implements Persistence {
       baseCurrency: row.base_currency,
       quoteCurrency: row.quote_currency,
       latestDate: row.latest_date,
+    }));
+  }
+
+  async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
+    if (base === quote) return 1.0;
+    const result = await this.pool.query<{ rate: string }>(
+      `SELECT rate::text
+       FROM market_data.fx_rates
+       WHERE base_currency = $1 AND quote_currency = $2 AND date <= $3
+       ORDER BY date DESC
+       LIMIT 1`,
+      [base, quote, asOfDate],
+    );
+    if (result.rows.length === 0) return null;
+    return Number(result.rows[0].rate);
+  }
+
+  async getCashLedgerEntriesForWalletReplay(
+    userId: string,
+  ): Promise<import("./types.js").CashLedgerEntryForWalletReplay[]> {
+    const result = await this.pool.query<{
+      id: string;
+      account_id: string;
+      currency: string;
+      entry_date: string;
+      amount: string;
+      fx_rate_to_usd: string | null;
+      entry_type: string;
+      reversal_of_cash_ledger_entry_id: string | null;
+      booked_at: string | null;
+    }>(
+      `SELECT id, account_id, currency, entry_date::text, amount::text,
+              fx_rate_to_usd::text, entry_type, reversal_of_cash_ledger_entry_id, booked_at
+       FROM cash_ledger_entries c
+       WHERE user_id = $1
+         AND reversal_of_cash_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM cash_ledger_entries r
+           WHERE r.user_id = c.user_id
+             AND r.reversal_of_cash_ledger_entry_id = c.id
+         )
+       ORDER BY entry_date ASC, booked_at ASC, id ASC`,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      currency: row.currency,
+      entryDate: row.entry_date,
+      amount: Number(row.amount),
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      entryType: row.entry_type as import("../types/store.js").CashLedgerEntryType,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      bookedAt: row.booked_at ?? undefined,
     }));
   }
 
@@ -3027,11 +3083,13 @@ export class PostgresPersistence implements Persistence {
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
-           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+           fx_rate_to_usd
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10,
-           $11, $12, $13, $14
+           $11, $12, $13, $14,
+           $15
          )`,
         [
           cashEntry.id,
@@ -3048,6 +3106,7 @@ export class PostgresPersistence implements Persistence {
           cashEntry.note ?? null,
           cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
           cashEntry.reversalOfCashLedgerEntryId ?? null,
+          cashEntry.fxRateToUsd ?? null,
         ],
       );
 
@@ -3276,11 +3335,13 @@ export class PostgresPersistence implements Persistence {
           `INSERT INTO cash_ledger_entries (
              id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
-             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+             fx_rate_to_usd
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
              $8, $9, $10,
-             $11, $12, $13, $14
+             $11, $12, $13, $14,
+             $15
            )`,
           [
             cashEntry.id,
@@ -3297,6 +3358,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.note ?? null,
             cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
             cashEntry.reversalOfCashLedgerEntryId ?? null,
+            cashEntry.fxRateToUsd ?? null,
           ],
         );
       }
@@ -3672,11 +3734,13 @@ export class PostgresPersistence implements Persistence {
           `INSERT INTO cash_ledger_entries (
              id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
-             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+             fx_rate_to_usd
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
              $8, $9, $10,
-             $11, $12, $13, $14
+             $11, $12, $13, $14,
+             $15
            )`,
           [
             cashEntry.id,
@@ -3693,6 +3757,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.note ?? null,
             cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
             cashEntry.reversalOfCashLedgerEntryId ?? null,
+            cashEntry.fxRateToUsd ?? null,
           ],
         );
       }
@@ -4155,7 +4220,8 @@ export class PostgresPersistence implements Persistence {
     const queryC = `
       SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
-             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+             source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+             fx_rate_to_usd
       FROM cash_ledger_entries ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}, booked_at DESC NULLS LAST, id ASC
       LIMIT $6 OFFSET $7
@@ -4204,6 +4270,7 @@ export class PostgresPersistence implements Persistence {
       note: row.note ?? undefined,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: row.booked_at ? normalizeDateTime(row.booked_at) : undefined,
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
     }));
 
     return { entries, total, summary };
@@ -4908,11 +4975,13 @@ export class PostgresPersistence implements Persistence {
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
-           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+           fx_rate_to_usd
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10,
-           $11, $12, $13, $14
+           $11, $12, $13, $14,
+           $15
          )`,
         [
           entry.id,
@@ -4929,6 +4998,7 @@ export class PostgresPersistence implements Persistence {
           entry.note ?? null,
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
           entry.reversalOfCashLedgerEntryId ?? null,
+          entry.fxRateToUsd ?? null,
         ],
       );
     }
@@ -5359,10 +5429,12 @@ export class PostgresPersistence implements Persistence {
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
-           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+           fx_rate_to_usd
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
-           $8, $9, $10, $11, $12, $13, $14
+           $8, $9, $10, $11, $12, $13, $14,
+           $15
          )`,
         [
           entry.id,
@@ -5379,6 +5451,7 @@ export class PostgresPersistence implements Persistence {
           entry.note ?? null,
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
           entry.reversalOfCashLedgerEntryId ?? null,
+          entry.fxRateToUsd ?? null,
         ],
       );
     }
