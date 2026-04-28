@@ -20,6 +20,7 @@ describe("resolveTransactionDraftAccount", () => {
     ], [
       {
         id: "profile-1",
+        accountId: "account-1",
         name: "Default",
         boardCommissionRate: 1.425,
         commissionDiscountPercent: 60,
@@ -46,6 +47,7 @@ describe("resolveTransactionDraftAccount", () => {
     ], [
       {
         id: "profile-1",
+        accountId: "account-1",
         name: "Default",
         boardCommissionRate: 1.425,
         commissionDiscountPercent: 60,
@@ -73,6 +75,7 @@ describe("resolveTransactionDraftAccount", () => {
       [
         {
           id: "profile-1",
+          accountId: "account-1",
           name: "Default",
           boardCommissionRate: 1.425,
           commissionDiscountPercent: 60,
@@ -88,6 +91,7 @@ describe("resolveTransactionDraftAccount", () => {
         },
         {
           id: "profile-2",
+          accountId: "account-1",
           name: "USD Override",
           boardCommissionRate: 1.425,
           commissionDiscountPercent: 60,

@@ -61,6 +61,11 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     accountId = store.accounts[0]!.id; // "user-1-acc-1"
 
     pool = new Pool({ connectionString: databaseUrl });
+
+    // KZO-183: dividend events seeded below all use USD currency, but the
+    // auto-seeded account defaults to TWD. The dividend market-guard trigger
+    // would reject inserts otherwise. Switch the account to USD before tests.
+    await pool.query(`UPDATE accounts SET default_currency = 'USD' WHERE id = $1`, [accountId]);
   });
 
   afterEach(async () => {
@@ -253,12 +258,38 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
 
   it("IG-08: sortBy=account uses accounts.name", async () => {
     // Seed a second account under user-1 with a name that sorts BEFORE the default one.
+    // KZO-183: each account requires its own owner fee profile (composite FK ownership).
+    // Wrap account + fee_profile insert in a transaction so the deferred FK fires at COMMIT.
     const acc2Id = "user-1-acc-2";
-    await pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-       VALUES ($1, $2, $3, (SELECT id FROM fee_profiles LIMIT 1))`,
-      [acc2Id, userId, "Alpha Broker"],
-    );
+    const acc2ProfileId = "user-1-acc-2-fp-default";
+    {
+      const txClient = await pool.connect();
+      try {
+        await txClient.query("BEGIN");
+        await txClient.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ($1, $2, $3, $4, 'USD', 'broker')`,
+          [acc2Id, userId, "Alpha Broker", acc2ProfileId],
+        );
+        await txClient.query(
+          `INSERT INTO fee_profiles (
+             id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent,
+             commission_discount_bps, minimum_commission_amount, commission_currency,
+             commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+             stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+             commission_charge_mode
+           ) VALUES ($1, $2, 'Alpha Default', 14, 1.425, 0, 10000, 20, 'USD', 'FLOOR', 'FLOOR',
+                     30, 15, 10, 0, 'CHARGED_UPFRONT')`,
+          [acc2ProfileId, acc2Id],
+        );
+        await txClient.query("COMMIT");
+      } catch (err) {
+        await txClient.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        txClient.release();
+      }
+    }
 
     const mainEntryId = await seedFull({
       ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15",
@@ -421,9 +452,42 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
   // ── IG-17..IG-20: Aggregates (Postgres GROUP BY correctness) ──────────────
 
   it("IG-17: aggregates.byMonth groups by to_char(payment_date,'YYYY-MM') × currency", async () => {
+    // KZO-183: TWD dividends require a TWD account. Seed a second account
+    // (with its own owner fee profile per composite-FK ownership invariant).
+    const twdAccountId = "user-1-acc-twd";
+    const twdProfileId = "user-1-acc-twd-fp";
+    {
+      const txClient = await pool.connect();
+      try {
+        await txClient.query("BEGIN");
+        await txClient.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ($1, $2, 'TWD Account', $3, 'TWD', 'broker')`,
+          [twdAccountId, userId, twdProfileId],
+        );
+        await txClient.query(
+          `INSERT INTO fee_profiles (
+             id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent,
+             commission_discount_bps, minimum_commission_amount, commission_currency,
+             commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+             stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+             commission_charge_mode
+           ) VALUES ($1, $2, 'TWD Default', 14, 1.425, 0, 10000, 20, 'TWD', 'FLOOR', 'FLOOR',
+                     30, 15, 10, 0, 'CHARGED_UPFRONT')`,
+          [twdProfileId, twdAccountId],
+        );
+        await txClient.query("COMMIT");
+      } catch (err) {
+        await txClient.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        txClient.release();
+      }
+    }
+
     await seedFull({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-10", expected: 100, received: 90 });
     await seedFull({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-20", expected: 200, received: 180 });
-    await seedFull({ ticker: "2330", currency: "TWD", paymentDate: "2024-03-25", expected: 300, received: 270 });
+    await seedFull({ ticker: "2330", currency: "TWD", paymentDate: "2024-03-25", expected: 300, received: 270, accountId: twdAccountId });
     await seedFull({ ticker: "AAPL", currency: "USD", paymentDate: "2024-04-10", expected: 400, received: 360 });
 
     const result = await persistence.listDividendLedgerEntries(userId, defaultOpts);
@@ -509,6 +573,8 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     const store2 = await persistence.loadStore("user-2");
     const user2Id = store2.userId;
     const user2AccountId = store2.accounts[0]!.id;
+    // KZO-183: switch user-2's auto-seeded account to USD to satisfy the dividend market guard.
+    await pool.query(`UPDATE accounts SET default_currency = 'USD' WHERE id = $1`, [user2AccountId]);
 
     const u2Evt = await insertDividendEvent("AAPL", "USD", "2024-03-01", "2024-03-12");
     const u2EntryId = await insertLedgerEntry({
@@ -550,6 +616,8 @@ describePostgres("PostgresPersistence.listDividendLedgerYears", () => {
     userId = store.userId;
     accountId = store.accounts[0]!.id;
     pool = new Pool({ connectionString: databaseUrl });
+    // KZO-183: dividend events use USD; switch account to USD to satisfy market guard.
+    await pool.query(`UPDATE accounts SET default_currency = 'USD' WHERE id = $1`, [accountId]);
   });
 
   afterEach(async () => {
@@ -661,6 +729,8 @@ describePostgres("PostgresPersistence.listDividendLedgerYears", () => {
     const store2 = await persistence.loadStore("user-2");
     const user2Id = store2.userId;
     const user2AccountId = store2.accounts[0]!.id;
+    // KZO-183: switch user-2's auto-seeded account to USD to satisfy the dividend market guard.
+    await pool.query(`UPDATE accounts SET default_currency = 'USD' WHERE id = $1`, [user2AccountId]);
     const u2Evt = await insertEvent("AAPL", "2099-06-01");
     await insertEntry({ eventId: u2Evt, accountId: user2AccountId });
 

@@ -102,17 +102,21 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       url: "/portfolio/transactions?ticker=qa-test&accountId=acc-1",
     });
     expect(historyResponse.statusCode).toBe(200);
+    // KZO-183 D4: the seeded default profile uses randomUUID() — assert
+    // against the live store's seeded id instead of a literal.
+    const seededStore = await app.persistence.loadStore("user-1");
+    const seededProfileId = seededStore.feeProfiles[0]!.id;
     expect(historyResponse.json()).toEqual([
       expect.objectContaining({
         ticker: "QA-TEST",
         tradeDate: "2026-01-02",
-        feeProfileId: "fp-default",
+        feeProfileId: seededProfileId,
         feeProfileName: "Default Broker",
       }),
       expect.objectContaining({
         ticker: "QA-TEST",
         tradeDate: "2026-01-01",
-        feeProfileId: "fp-default",
+        feeProfileId: seededProfileId,
         feeProfileName: "Default Broker",
       }),
     ]);
@@ -216,7 +220,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const buy = createBuyResponse.json();
     expect(buy.commissionAmount).toBe(7);
     expect(buy.taxAmount).toBe(3);
-    expect(buy.feeSnapshot.id).toBe("fp-default");
+    // KZO-183 D4: seeded profile id is a UUID. Assert via the live store.
+    const seededIdForBuy = (await app.persistence.loadStore("user-1")).feeProfiles[0]!.id;
+    expect(buy.feeSnapshot.id).toBe(seededIdForBuy);
 
     const buyHoldingsResponse = await app.inject({ method: "GET", url: "/portfolio/holdings" });
     expect(buyHoldingsResponse.statusCode).toBe(200);
@@ -385,10 +391,12 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       payload: transactionPayload({ quantity: 10, unitPrice: 200 }),
     });
 
+    // KZO-183 D4: seeded default profile id is a UUID; resolve from store.
+    const seededRecomputeProfile = (await app.persistence.loadStore("user-1")).feeProfiles[0]!.id;
     const preview = await app.inject({
       method: "POST",
       url: "/portfolio/recompute/preview",
-      payload: { profileId: "fp-default" },
+      payload: { profileId: seededRecomputeProfile },
     });
     expect(preview.statusCode).toBe(200);
     const previewBody = preview.json();
@@ -583,6 +591,8 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const persisted = await app.persistence.loadStore("user-1");
     persisted.feeProfiles.push({
       id: "fp-zero",
+      // KZO-183: profile owned by the memory-seeded "acc-1" account.
+      accountId: "acc-1",
       name: "Zero Fee",
       boardCommissionRate: 0,
       commissionDiscountPercent: 0,

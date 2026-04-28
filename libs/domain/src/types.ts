@@ -71,6 +71,8 @@ export interface AppliedTaxComponent extends FeeProfileTaxRule {
 
 export interface FeeProfile {
   id: string;
+  // KZO-183: every profile is owned by exactly one account.
+  accountId: string;
   name: string;
   boardCommissionRate: number;
   commissionDiscountPercent: number;

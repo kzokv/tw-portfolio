@@ -6,7 +6,6 @@ import type {
   AccountDefaultCurrency,
   AccountDto,
   AccountType,
-  FeeProfileDto,
 } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { ApiError } from "../../../lib/api";
@@ -20,16 +19,22 @@ import type { CreateAccountInput } from "../../cash-ledger/services/cashLedgerSe
 
 /**
  * KZO-179 — Add-account form. Lives at the top of the Accounts tab in the
- * settings drawer, above the relocated `AccountsListSection`.
+ * settings drawer, above the per-account expandable cards.
+ *
+ * KZO-183 changes (copy + structure):
+ * - Currency cards now read "Taiwan / United States / Australia" with a
+ *   small `TWD · TWSE` (etc.) subtext. The underlying field stays
+ *   `defaultCurrency` (TWD/USD/AUD) — the route still receives the wire
+ *   value.
+ * - The fee-profile picker (KZO-179 D5 conditional) was removed entirely:
+ *   the route now auto-seeds an account-scoped default profile, so the
+ *   client never sets `feeProfileId`.
  *
  * Visual contract (D13):
  * - Type pills use `lucide-react` icons (Building2 / Landmark / Wallet).
  * - Currency cards are button-style with `ring-2 ring-indigo-300` selected.
  * - Live-preview chip imports `formatAccountOption` from cash-ledger utils
  *   (DO NOT duplicate per `nextjs-i18n-serialization.md`).
- *
- * Picker conditional (D5): the fee-profile dropdown only renders when more
- * than one profile exists; otherwise the route resolves the default silently.
  *
  * Submit flow (D12): `await onCreate(input); onAccountsRefresh(); resetForm();`.
  */
@@ -43,7 +48,6 @@ const TYPE_ICONS: Record<AccountType, typeof Building2> = {
 };
 
 interface AccountCreateFormProps {
-  feeProfiles: FeeProfileDto[];
   // Returns the new account on success; the form ignores the resolved value
   // and signals refresh via `onAccountsRefresh`. Matches the
   // `createAccount` web service shape (`Promise<AccountDto>`).
@@ -53,7 +57,6 @@ interface AccountCreateFormProps {
 }
 
 export function AccountCreateForm({
-  feeProfiles,
   onCreate,
   onAccountsRefresh,
   dict,
@@ -61,13 +64,9 @@ export function AccountCreateForm({
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("broker");
   const [defaultCurrency, setDefaultCurrency] = useState<AccountDefaultCurrency>("TWD");
-  const [feeProfileId, setFeeProfileId] = useState<string>(
-    feeProfiles[0]?.id ?? "",
-  );
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const showProfilePicker = feeProfiles.length > 1;
   const trimmedName = name.trim();
   const submitDisabled = trimmedName.length === 0 || submitting;
 
@@ -105,7 +104,6 @@ export function AccountCreateForm({
     setName("");
     setAccountType("broker");
     setDefaultCurrency("TWD");
-    setFeeProfileId(feeProfiles[0]?.id ?? "");
     setErrorMessage("");
   }
 
@@ -122,9 +120,6 @@ export function AccountCreateForm({
       defaultCurrency,
       accountType,
     };
-    if (showProfilePicker && feeProfileId) {
-      input.feeProfileId = feeProfileId;
-    }
 
     setErrorMessage("");
     setSubmitting(true);
@@ -152,11 +147,11 @@ export function AccountCreateForm({
     ].join(" ");
   }
 
-  function currencyCardClassName(active: boolean): string {
+  function marketCardClassName(active: boolean): string {
     return [
-      "flex flex-col items-center justify-center rounded-[18px] border px-4 py-3 text-sm font-medium transition",
+      "flex flex-col items-start rounded-[18px] border px-3 py-3 text-left transition",
       active
-        ? "border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300"
+        ? "border-indigo-500 bg-indigo-50/40 text-indigo-700 ring-2 ring-indigo-300"
         : "border-slate-200 bg-white/85 text-slate-700 hover:border-slate-300",
     ].join(" ");
   }
@@ -166,6 +161,24 @@ export function AccountCreateForm({
       case "broker": return dict.cashLedger.accountTypeBroker;
       case "bank": return dict.cashLedger.accountTypeBank;
       case "wallet": return dict.cashLedger.accountTypeWallet;
+    }
+  }
+
+  // KZO-183: market label + subtext per currency. Field remains
+  // `defaultCurrency` so the wire shape is unchanged.
+  function marketLabelFor(currency: AccountDefaultCurrency): string {
+    switch (currency) {
+      case "TWD": return dict.settings.accountCreateMarketTaiwan;
+      case "USD": return dict.settings.accountCreateMarketUnitedStates;
+      case "AUD": return dict.settings.accountCreateMarketAustralia;
+    }
+  }
+
+  function marketSubtextFor(currency: AccountDefaultCurrency): string {
+    switch (currency) {
+      case "TWD": return dict.settings.accountCreateMarketTaiwanSubtext;
+      case "USD": return dict.settings.accountCreateMarketUnitedStatesSubtext;
+      case "AUD": return dict.settings.accountCreateMarketAustraliaSubtext;
     }
   }
 
@@ -227,10 +240,10 @@ export function AccountCreateForm({
         </div>
       </fieldset>
 
-      {/* Currency cards */}
+      {/* KZO-183: Market cards (was "Currency"). */}
       <fieldset className="space-y-2">
         <legend className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {dict.settings.accountCreateCurrencyLabel}
+          {dict.settings.accountCreateMarketLabel}
         </legend>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
           {ACCOUNT_CURRENCIES.map((currency) => {
@@ -242,10 +255,15 @@ export function AccountCreateForm({
                 role="radio"
                 aria-checked={active}
                 onClick={() => setDefaultCurrency(currency)}
-                className={currencyCardClassName(active)}
+                className={marketCardClassName(active)}
                 data-testid={`account-create-currency-${currency}`}
               >
-                {currency}
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-slate-700">
+                  {marketLabelFor(currency)}
+                </span>
+                <span className="mt-1.5 font-mono text-[10px] text-slate-500">
+                  {marketSubtextFor(currency)}
+                </span>
               </button>
             );
           })}
@@ -259,27 +277,6 @@ export function AccountCreateForm({
       >
         {dict.settings.accountCreateCurrencyLockBody}
       </p>
-
-      {/* Optional fee-profile picker (D5) */}
-      {showProfilePicker ? (
-        <label className="space-y-1 text-sm">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            {dict.settings.accountCreateFeeProfileLabel}
-          </span>
-          <select
-            value={feeProfileId}
-            onChange={(event) => setFeeProfileId(event.target.value)}
-            className={fieldClassName}
-            data-testid="account-create-fee-profile-select"
-          >
-            {feeProfiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
 
       {/* Live-preview chip */}
       <div className="space-y-1 text-sm">

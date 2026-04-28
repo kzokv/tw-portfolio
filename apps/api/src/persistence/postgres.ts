@@ -400,58 +400,75 @@ export class PostgresPersistence implements Persistence {
     const existing = await this.pool.query(`SELECT 1 FROM fee_profiles WHERE id = $1`, [feeProfileId]);
     if (existing.rows.length > 0) return;
 
-    // Lazy user creation for dev_bypass mode: create placeholder user if not exists.
-    // In OAuth mode, resolveOrCreateUser creates the user first.
-    // Deterministic placeholder email for dev_bypass mode — not used in production.
-    await this.pool.query(
-      `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds, role)
-       VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10, 'member')
-       ON CONFLICT (id) DO NOTHING`,
-      [userId, normalizeEmail(`${userId}@placeholder.local`)],
-    );
+    // KZO-183: the seed rows must be inserted in the same transaction
+    // so the deferred composite FK (accounts_fee_profile_owner_fk) resolves at
+    // COMMIT — pool.query auto-commits each statement individually, which fires
+    // the deferred FK before the fee_profile row exists.
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    const profileResult = await this.pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
-         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
-       ) VALUES (
-         $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
-         20, 'TWD', 'FLOOR', 'FLOOR',
-         30, 15,
-         10, 0, 'CHARGED_UPFRONT'
-       )
-       ON CONFLICT (id) DO NOTHING RETURNING id`,
-      [feeProfileId, userId],
-    );
+      // Lazy user creation for dev_bypass mode: create placeholder user if not exists.
+      // In OAuth mode, resolveOrCreateUser creates the user first.
+      // Deterministic placeholder email for dev_bypass mode — not used in production.
+      await client.query(
+        `INSERT INTO users (id, email, display_name, locale, cost_basis_method, quote_poll_interval_seconds, role)
+         VALUES ($1, $2, NULL, 'en', 'WEIGHTED_AVERAGE', 10, 'member')
+         ON CONFLICT (id) DO NOTHING`,
+        [userId, normalizeEmail(`${userId}@placeholder.local`)],
+      );
 
-    await this.pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-       VALUES ($1, $2, 'Main', $3, 'TWD', 'broker')
-       ON CONFLICT (id) DO NOTHING`,
-      [accountId, userId, feeProfileId],
-    );
+      await client.query(
+        `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+         VALUES ($1, $2, 'Main', $3, 'TWD', 'broker')
+         ON CONFLICT (id) DO NOTHING`,
+        [accountId, userId, feeProfileId],
+      );
 
-    // Only seed tax rules when the fee profile was actually created;
-    // avoids a destructive DELETE+INSERT race when concurrent requests
-    // both call ensureDefaultPortfolioData for the same user.
-    if (profileResult.rowCount && profileResult.rowCount > 0) {
-      await ensureFeeProfileTaxRules(this.pool, userId, {
-        id: feeProfileId,
-        name: "Default Broker",
-        boardCommissionRate: 1.425,
-        commissionDiscountPercent: 0,
-        minimumCommissionAmount: 20,
-        commissionCurrency: "TWD",
-        commissionRoundingMode: "FLOOR",
-        taxRoundingMode: "FLOOR",
-        stockSellTaxRateBps: 30,
-        stockDayTradeTaxRateBps: 15,
-        etfSellTaxRateBps: 10,
-        bondEtfSellTaxRateBps: 0,
-        commissionChargeMode: "CHARGED_UPFRONT",
-      });
+      const profileResult = await client.query(
+        `INSERT INTO fee_profiles (
+           id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
+           minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+           stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+           etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
+         ) VALUES (
+           $1, $2, 'Default Broker', 14, 1.425, 0, 10000,
+           20, 'TWD', 'FLOOR', 'FLOOR',
+           30, 15,
+           10, 0, 'CHARGED_UPFRONT'
+         )
+         ON CONFLICT (id) DO NOTHING RETURNING id`,
+        [feeProfileId, accountId],
+      );
+
+      // Only seed tax rules when the fee profile was actually created;
+      // avoids a destructive DELETE+INSERT race when concurrent requests
+      // both call ensureDefaultPortfolioData for the same user.
+      if (profileResult.rowCount && profileResult.rowCount > 0) {
+        await ensureFeeProfileTaxRules(client, {
+          id: feeProfileId,
+          accountId,
+          name: "Default Broker",
+          boardCommissionRate: 1.425,
+          commissionDiscountPercent: 0,
+          minimumCommissionAmount: 20,
+          commissionCurrency: "TWD",
+          commissionRoundingMode: "FLOOR",
+          taxRoundingMode: "FLOOR",
+          stockSellTaxRateBps: 30,
+          stockDayTradeTaxRateBps: 15,
+          etfSellTaxRateBps: 10,
+          bondEtfSellTaxRateBps: 0,
+          commissionChargeMode: "CHARGED_UPFRONT",
+        });
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
   }
 
@@ -1711,15 +1728,20 @@ export class PostgresPersistence implements Persistence {
          ORDER BY id`,
         [userId],
       ),
+      // KZO-183: fee_profiles is account-scoped. user_id was dropped in
+      // migration 042; ownership flows fee_profiles.account_id → accounts →
+      // users. Filter via JOIN through accounts.
       this.pool.query(
-        `SELECT id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps, minimum_commission_amount,
-                commission_currency,
-                commission_rounding_mode, tax_rounding_mode,
-                stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, commission_charge_mode,
-                etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps
-         FROM fee_profiles
-         WHERE user_id = $1
-         ORDER BY id`,
+        `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+                fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+                fp.commission_currency,
+                fp.commission_rounding_mode, fp.tax_rounding_mode,
+                fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+                fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+         FROM fee_profiles fp
+         JOIN accounts a ON a.id = fp.account_id
+         WHERE a.user_id = $1
+         ORDER BY fp.id`,
         [userId],
       ),
       this.pool.query(
@@ -1818,12 +1840,14 @@ export class PostgresPersistence implements Persistence {
             [feePolicySnapshotIds],
           )
         : Promise.resolve({ rows: [] }),
+      // KZO-183: market_code column dropped from account_fee_profile_overrides
+      // in migration 042. PK is now (account_id, ticker).
       accountIds.length
         ? this.pool.query(
-            `SELECT account_id, ticker, market_code, fee_profile_id
+            `SELECT account_id, ticker, fee_profile_id
              FROM account_fee_profile_overrides
              WHERE account_id = ANY($1)
-             ORDER BY account_id, market_code, ticker`,
+             ORDER BY account_id, ticker`,
             [accountIds],
           )
         : Promise.resolve({ rows: [] }),
@@ -2085,7 +2109,6 @@ export class PostgresPersistence implements Persistence {
       feeProfileBindings: bindingsResult.rows.map((row) => ({
         accountId: row.account_id,
         ticker: row.ticker,
-        marketCode: row.market_code,
         feeProfileId: row.fee_profile_id,
       })),
       feeProfiles,
@@ -2162,11 +2185,46 @@ export class PostgresPersistence implements Persistence {
       );
 
       const feeProfileIds = store.feeProfiles.map((item) => item.id);
+      const accountIds = store.accounts.map((item) => item.id);
 
+      // KZO-183: persistence order is now (1) accounts → (2) fee_profiles →
+      // (3) overrides. fee_profiles.account_id has a regular FK to accounts,
+      // so accounts must be upserted first. accounts.fee_profile_id has a
+      // composite FK to fee_profiles(id, account_id) that is DEFERRABLE
+      // INITIALLY DEFERRED — so an account can transiently reference a
+      // not-yet-inserted profile within the transaction.
+      //
+      // Constraint check defers to COMMIT time. The trailing DELETE FROM
+      // fee_profiles does NOT need user_id filtering anymore (fee_profiles
+      // has no user_id column post-rescope) — instead it's scoped via
+      // account_id ∈ this user's accounts.
+
+      // Step 1: UPSERT accounts.
+      for (const account of store.accounts) {
+        const upsertAccount = await client.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (id)
+           DO UPDATE SET
+             name = EXCLUDED.name,
+             fee_profile_id = EXCLUDED.fee_profile_id,
+             default_currency = EXCLUDED.default_currency,
+             account_type = EXCLUDED.account_type
+           WHERE accounts.user_id = EXCLUDED.user_id`,
+          [account.id, account.userId, account.name, account.feeProfileId, account.defaultCurrency, account.accountType],
+        );
+
+        if (upsertAccount.rowCount !== 1) {
+          throw new Error(`Account id conflict for id=${account.id}`);
+        }
+      }
+
+      // Step 2: UPSERT fee_profiles. Each profile.account_id must reference
+      // an account that exists post-step-1.
       for (const profile of store.feeProfiles) {
         const upsertProfile = await client.query(
           `INSERT INTO fee_profiles (
-             id, user_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
+             id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent, commission_discount_bps,
              minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
              stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
              bond_etf_sell_tax_rate_bps, commission_charge_mode
@@ -2192,10 +2250,10 @@ export class PostgresPersistence implements Persistence {
              etf_sell_tax_rate_bps = EXCLUDED.etf_sell_tax_rate_bps,
              bond_etf_sell_tax_rate_bps = EXCLUDED.bond_etf_sell_tax_rate_bps,
              commission_charge_mode = EXCLUDED.commission_charge_mode
-           WHERE fee_profiles.user_id = EXCLUDED.user_id`,
+           WHERE fee_profiles.account_id = EXCLUDED.account_id`,
           [
             profile.id,
-            store.userId,
+            profile.accountId,
             profile.name,
             legacyCommissionRateBps(profile.boardCommissionRate),
             profile.boardCommissionRate,
@@ -2217,10 +2275,14 @@ export class PostgresPersistence implements Persistence {
           throw new Error(`Fee profile id conflict for id=${profile.id}`);
         }
 
-        await replaceFeeProfileTaxRules(client, store.userId, profile);
+        await replaceFeeProfileTaxRules(client, profile);
       }
 
-      const accountIds = store.accounts.map((item) => item.id);
+      // Step 3: DELETE old accounts not in store. Cascades to fee_profiles
+      // via accounts.fee_profile_id ON DELETE CASCADE (composite FK from
+      // accounts is the deferred owner-of-profile FK; the regular FK on
+      // fee_profiles.account_id → accounts(id) cascades when an account is
+      // deleted).
       if (accountIds.length) {
         await client.query(
           `DELETE FROM accounts
@@ -2228,34 +2290,19 @@ export class PostgresPersistence implements Persistence {
              AND id <> ALL($2)`,
           [store.userId, accountIds],
         );
+      } else {
+        await client.query(`DELETE FROM accounts WHERE user_id = $1`, [store.userId]);
       }
 
-      for (const account of store.accounts) {
-        const upsertAccount = await client.query(
-          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (id)
-           DO UPDATE SET
-             name = EXCLUDED.name,
-             fee_profile_id = EXCLUDED.fee_profile_id,
-             default_currency = EXCLUDED.default_currency,
-             account_type = EXCLUDED.account_type
-           WHERE accounts.user_id = EXCLUDED.user_id`,
-          [account.id, account.userId, account.name, account.feeProfileId, account.defaultCurrency, account.accountType],
-        );
-
-        if (upsertAccount.rowCount !== 1) {
-          throw new Error(`Account id conflict for id=${account.id}`);
-        }
-      }
-
+      // Step 4: UPSERT account_fee_profile_overrides. Per migration 042,
+      // overrides no longer carry market_code; PK is (account_id, ticker).
       if (accountIds.length) {
         await client.query(`DELETE FROM account_fee_profile_overrides WHERE account_id = ANY($1)`, [accountIds]);
         for (const binding of store.feeProfileBindings) {
           await client.query(
-            `INSERT INTO account_fee_profile_overrides (account_id, ticker, market_code, fee_profile_id)
-             VALUES ($1, $2, $3, $4)`,
-            [binding.accountId, binding.ticker, binding.marketCode ?? "TW", binding.feeProfileId],
+            `INSERT INTO account_fee_profile_overrides (account_id, ticker, fee_profile_id)
+             VALUES ($1, $2, $3)`,
+            [binding.accountId, binding.ticker, binding.feeProfileId],
           );
         }
       }
@@ -2271,15 +2318,22 @@ export class PostgresPersistence implements Persistence {
       await this.saveMarketDataTx(client, store.marketData);
       await this.saveAccountingStoreTx(client, store.userId, store.accounting, accountIds);
 
+      // Step 5: DELETE stale fee_profiles. fee_profiles has no user_id
+      // post-KZO-183 — scope deletes to profiles owned by accounts of the
+      // current user that weren't included in the save set.
       if (feeProfileIds.length) {
         await client.query(
           `DELETE FROM fee_profiles
-           WHERE user_id = $1
+           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1)
              AND id <> ALL($2)`,
           [store.userId, feeProfileIds],
         );
       } else {
-        await client.query(`DELETE FROM fee_profiles WHERE user_id = $1`, [store.userId]);
+        await client.query(
+          `DELETE FROM fee_profiles
+           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1)`,
+          [store.userId],
+        );
       }
 
       for (const job of store.recomputeJobs) {
@@ -4501,6 +4555,8 @@ export class PostgresPersistence implements Persistence {
         return this.isMigration012Reflected(client);
       case "013_symbol_sync_metadata.sql":
         return this.isMigration013Reflected(client);
+      case "042_kzo183_account_scoped_fee_profiles.sql":
+        return this.isMigration042Reflected(client);
       default:
         return false;
     }
@@ -4588,7 +4644,14 @@ export class PostgresPersistence implements Persistence {
             OR (table_schema = 'market_data' AND table_name = 'instruments' AND column_name = 'market_code')
        ) AS exists`,
     );
-    return hasTradeEventMarketCode && Boolean(symbolOrInstrument.rows[0]?.exists) && hasBindingMarketCode;
+    // KZO-183 drops account_fee_profile_overrides.market_code via migration 042.
+    // If 042 has already been applied, the binding column is intentionally absent — still counts as 012 reflected.
+    const migration042Applied = await this.isMigration042Reflected(client);
+    return (
+      hasTradeEventMarketCode &&
+      Boolean(symbolOrInstrument.rows[0]?.exists) &&
+      (hasBindingMarketCode || migration042Applied)
+    );
   }
 
   private async isMigration013Reflected(client: PoolClient): Promise<boolean> {
@@ -4599,6 +4662,14 @@ export class PostgresPersistence implements Persistence {
          AND column_name IN ('is_provisional', 'last_synced_at')`,
     );
     return parseInt(result.rows[0]?.count ?? "0", 10) >= 2;
+  }
+
+  private async isMigration042Reflected(client: PoolClient): Promise<boolean> {
+    const [hasFeeProfileAccountId, hasFeeProfileUserId] = await Promise.all([
+      this.columnExists(client, "fee_profiles", "account_id"),
+      this.columnExists(client, "fee_profiles", "user_id"),
+    ]);
+    return hasFeeProfileAccountId && !hasFeeProfileUserId;
   }
 
   private async hasUserTables(client: PoolClient): Promise<boolean> {
@@ -6459,8 +6530,10 @@ export class PostgresPersistence implements Persistence {
 
       // 3. User-scoped data
       await client.query("DELETE FROM user_external_identities WHERE user_id = $1", [userId]);
-      // fee_profile_tax_rules cascades from fee_profiles (ON DELETE CASCADE)
-      await client.query("DELETE FROM fee_profiles WHERE user_id = $1", [userId]);
+      // KZO-183: fee_profiles has no user_id post-migration-042. Profiles
+      // cascade via fee_profiles.account_id → accounts(id) ON DELETE CASCADE
+      // when the accounts row was deleted in step 2 above. Tax rules cascade
+      // through fee_profiles.
       await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM refresh_batches WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM recompute_jobs WHERE user_id = $1", [userId]);
@@ -6737,23 +6810,36 @@ function validateStoreInvariants(store: Store): void {
     throw new Error("store user id is required");
   }
 
-  const profilesById = new Set(store.feeProfiles.map((profile) => profile.id));
+  // KZO-183: profilesById carries the full profile so we can enforce the
+  // account-ownership invariant (profile.accountId === account.id) rather
+  // than only checking id existence.
+  const profilesById = new Map(store.feeProfiles.map((profile) => [profile.id, profile]));
   if (profilesById.size === 0) {
     throw new Error("at least one fee profile is required");
   }
+
+  const accountIds = new Set(store.accounts.map((account) => account.id));
 
   for (const account of store.accounts) {
     if (account.userId !== store.userId) {
       throw new Error(`account ${account.id} belongs to unexpected user`);
     }
 
-    if (!profilesById.has(account.feeProfileId)) {
+    const profile = profilesById.get(account.feeProfileId);
+    if (!profile) {
       throw new Error(`account ${account.id} references missing fee profile ${account.feeProfileId}`);
+    }
+    if (profile.accountId !== account.id) {
+      throw new Error(
+        `account ${account.id} references fee profile ${profile.id} owned by account ${profile.accountId}`,
+      );
     }
   }
 
-  const accountIds = new Set(store.accounts.map((account) => account.id));
   for (const profile of store.feeProfiles) {
+    if (!accountIds.has(profile.accountId)) {
+      throw new Error(`fee profile ${profile.id} owned by unknown account ${profile.accountId}`);
+    }
     if (profile.commissionDiscountPercent < 0 || profile.commissionDiscountPercent > 100) {
       throw new Error(`fee profile ${profile.id} has invalid commission discount percent`);
     }
@@ -6773,14 +6859,17 @@ function validateStoreInvariants(store: Store): void {
     if (!accountIds.has(binding.accountId)) {
       throw new Error(`fee profile binding references unknown account ${binding.accountId}`);
     }
-    if (!profilesById.has(binding.feeProfileId)) {
+    const bindingProfile = profilesById.get(binding.feeProfileId);
+    if (!bindingProfile) {
       throw new Error(`fee profile binding references unknown profile ${binding.feeProfileId}`);
+    }
+    if (bindingProfile.accountId !== binding.accountId) {
+      throw new Error(
+        `fee profile binding (${binding.accountId},${binding.ticker}) references profile ${bindingProfile.id} owned by account ${bindingProfile.accountId}`,
+      );
     }
     if (!/^[A-Za-z0-9]{1,16}$/.test(binding.ticker)) {
       throw new Error(`fee profile binding has invalid ticker ${binding.ticker}`);
-    }
-    if (binding.marketCode && !/^[A-Z]{2,8}$/.test(binding.marketCode)) {
-      throw new Error(`fee profile binding has invalid market code ${binding.marketCode}`);
     }
   }
 }
@@ -7158,7 +7247,8 @@ function isCurrencyCode(value: string): boolean {
 }
 
 function hydrateEditableFeeProfile(row: Record<string, unknown>, taxRuleRows: Record<string, unknown>[]): FeeProfile {
-  const base = buildFeeProfileFromRow(row, "id", "name");
+  // KZO-183: editable fee_profiles rows carry account_id directly.
+  const base = buildFeeProfileFromRow(row, "id", "name", String(row.account_id));
   const taxRules = hydrateTaxRulesFromRows(taxRuleRows, base);
   const legacyTaxFields = projectLegacyFeeProfileTaxFields(taxRules);
   return {
@@ -7169,7 +7259,16 @@ function hydrateEditableFeeProfile(row: Record<string, unknown>, taxRuleRows: Re
 }
 
 function hydrateTradeFeeSnapshot(row: Record<string, unknown>, taxRuleRows: Record<string, unknown>[]): FeeProfile {
-  const base = buildFeeProfileFromRow(row, "profile_id_at_booking", "profile_name_at_booking");
+  // KZO-183: snapshot rows do NOT carry account_id (profile_id_at_booking is
+  // intentionally left dangling — see migration 042 header). The owning
+  // account is the trade event's own account_id; this row already contains
+  // trade_event.account_id from the JOIN in loadStore.
+  const base = buildFeeProfileFromRow(
+    row,
+    "profile_id_at_booking",
+    "profile_name_at_booking",
+    String(row.account_id),
+  );
   const taxRules = hydrateTaxRulesFromRows(taxRuleRows, base);
   const legacyTaxFields = projectLegacyFeeProfileTaxFields(taxRules);
   return {
@@ -7183,9 +7282,11 @@ function buildFeeProfileFromRow(
   row: Record<string, unknown>,
   idKey: string,
   nameKey: string,
+  accountId: string,
 ): FeeProfile {
   return {
     id: String(row[idKey]),
+    accountId,
     name: String(row[nameKey]),
     boardCommissionRate: Number(row.board_commission_rate ?? Number(row.commission_rate_bps) / 10),
     commissionDiscountPercent:
@@ -7243,24 +7344,25 @@ function groupRowsByKey(rows: Record<string, unknown>[], key: string): Map<strin
 
 async function replaceFeeProfileTaxRules(
   client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
-  userId: string,
   profile: FeeProfile,
 ): Promise<void> {
+  // KZO-183: fee_profile_tax_rules.user_id was dropped in migration 042.
+  // Tax rules cascade through fee_profiles via FK; ownership is implicit
+  // through fee_profile_id → fee_profiles.account_id → accounts.user_id.
   const taxRules = materializeFeeProfileTaxRules(profile);
   await client.query(`DELETE FROM fee_profile_tax_rules WHERE fee_profile_id = $1`, [profile.id]);
 
   for (const rule of taxRules) {
     await client.query(
       `INSERT INTO fee_profile_tax_rules (
-         id, user_id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+         id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
          tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7,
-         $8, $9, $10, $11, $12, $13
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11, $12
        )`,
       [
         rule.id,
-        userId,
         profile.id,
         rule.marketCode,
         rule.tradeSide,
@@ -7280,24 +7382,24 @@ async function replaceFeeProfileTaxRules(
 /** Idempotent insert of default tax rules — safe under concurrent calls. */
 async function ensureFeeProfileTaxRules(
   client: { query: (text: string, params?: unknown[]) => Promise<unknown> },
-  userId: string,
   profile: FeeProfile,
 ): Promise<void> {
+  // KZO-183: user_id column dropped from fee_profile_tax_rules in migration
+  // 042. Ownership is implicit through fee_profile_id → fee_profiles → accounts.
   const taxRules = materializeFeeProfileTaxRules(profile);
 
   for (const rule of taxRules) {
     await client.query(
       `INSERT INTO fee_profile_tax_rules (
-         id, user_id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+         id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
          tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7,
-         $8, $9, $10, $11, $12, $13
+         $1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, $11, $12
        )
        ON CONFLICT (id) DO NOTHING`,
       [
         rule.id,
-        userId,
         profile.id,
         rule.marketCode,
         rule.tradeSide,

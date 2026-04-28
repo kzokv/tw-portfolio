@@ -155,20 +155,9 @@ describePostgres("account currency-change guard — D7 lockdown (postgres integr
   });
 
   it("D7 after seeding a cash entry: count = 1 (lockdown would block PATCH)", async () => {
-    // Seed a real fee_profile FK dependency first
-    const feeProfileId = "guard-fp";
-    await pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode,
-         tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-         commission_discount_percent
-       ) VALUES (
-         $1, $2, 'Guard FP', 14, 7200, 20, 'TWD', 'FLOOR', 'FLOOR', 30, 15, 10, 0, 1.425, 28
-       ) ON CONFLICT (id) DO NOTHING`,
-      [feeProfileId, userId],
-    );
+    // KZO-183: cash_ledger_entries has no fee_profile FK dependency, so we don't
+    // need to seed a fee_profile here. The auto-seeded "Default Broker" profile
+    // covers any future FK additions.
 
     // Seed a cash ledger entry for this account
     await pool.query(
@@ -190,20 +179,13 @@ describePostgres("account currency-change guard — D7 lockdown (postgres integr
   });
 
   it("D7 after seeding a trade event (no cash entry): trade_events count = 1 (lockdown would block PATCH)", async () => {
-    // Seed a fee_profile for FK dependency (profile_id_at_booking reference)
-    const feeProfileId = "guard-fp2";
-    await pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode,
-         tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-         commission_discount_percent
-       ) VALUES (
-         $1, $2, 'Guard FP2', 14, 7200, 20, 'TWD', 'FLOOR', 'FLOOR', 30, 15, 10, 0, 1.425, 28
-       ) ON CONFLICT (id) DO NOTHING`,
-      [feeProfileId, userId],
+    // KZO-183: profile_id_at_booking is intentionally left dangling per scope item 15.
+    // Use the auto-seeded fee profile as the snapshot's display id.
+    const { rows: profileRows } = await pool.query<{ id: string }>(
+      `SELECT id FROM fee_profiles WHERE account_id = $1 LIMIT 1`,
+      [accountId],
     );
+    const feeProfileId = profileRows[0]?.id ?? "guard-fp2-display-id";
 
     // Seed a fee policy snapshot (required NOT NULL FK for trade_events)
     const feePolicySnapshotId = "guard-trade-fp-snapshot";

@@ -14,8 +14,8 @@ function createModel(): SettingsFormModel {
     costBasisMethod: "WEIGHTED_AVERAGE",
     quotePollIntervalSeconds: 10,
     feeProfiles: [
-      createDraftProfile(1),
-      { ...createDraftProfile(2), id: "profile-2", name: "Secondary" },
+      createDraftProfile(1, "account-1"),
+      { ...createDraftProfile(2, "account-1"), id: "profile-2", name: "Secondary" },
     ],
     accounts: [{ id: "account-1", feeProfileId: "tmp-1" }],
     feeProfileBindings: [{ accountId: "account-1", ticker: " 2330 ", feeProfileId: "tmp-1" }],

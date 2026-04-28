@@ -68,6 +68,8 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   // ── Act ───────────────────────────────────────────────────────────────────
   await settings.actions.fillAccountCreateName("USD Brokerage");
   await settings.actions.selectAccountCreateType("bank");
+  // KZO-183 E3: currency cards now use market labels (Taiwan / United States / Australia).
+  // The testid "account-create-currency-USD" is unchanged; only the visible label changed.
   await settings.actions.selectAccountCreateCurrency("USD");
   await settings.assert.accountCreatePreviewContains(/USD Brokerage/);
   await settings.assert.accountCreatePreviewContains(/USD/);
@@ -87,26 +89,13 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   await settings.assert.accountNameLabelContains(/USD Brokerage/i, 1);
 
   // KZO-182: the merge-on-grow effect must wire the new account into
-  // form.draft.accounts so its per-row fee-profile <select> binds a real
-  // value. Before the fix, AccountsListSection rendered the <select> with
-  // value="" — the user could never persist a fee-profile assignment.
+  // form.draft.accounts so the per-account default-profile <select> binds a
+  // real value. Before the KZO-182 fix, AccountsListSection rendered the
+  // <select> with value="" — the user could never persist a fee-profile
+  // assignment. KZO-183: the <select> now lives inside the per-account
+  // expandable card body; expand the card before asserting.
+  await settings.actions.expandAccountCard(newAccount.id);
   await settings.assert.accountFeeProfileSelectHasNonEmptyValue(newAccount.id);
-
-  // KZO-182: switch to the Fees tab and confirm SecurityBindingsSection's
-  // Add-Override account dropdown enumerates the new account.
-  await settings.arrange.openFeesTab();
-  await settings.actions.addBinding();
-  await settings.assert.bindingAccountSelectIncludesAccount(0, newAccount.id);
-
-  // The Add-Override click left the form dirty (new binding in draft).
-  // Discard so the close-with-Escape below does not trigger the unsaved
-  // warning. Discard resets draft to baseline — which already includes the
-  // merged new account — so the round-trip assertion still passes.
-  await settings.actions.discardChanges();
-
-  // Return to Accounts tab so the round-trip assertion below runs against
-  // the same surface as before.
-  await settings.arrange.openAccountsTab();
 
   // ── Act: close drawer + navigate to /cash-ledger ──────────────────────────
   await settings.actions.closeWithEscape();

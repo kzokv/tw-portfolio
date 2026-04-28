@@ -104,6 +104,30 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.accountCreate.nameInput).toHaveValue("");
   }
 
+  // KZO-183: assert the market badge for a specific account card.
+  @Step()
+  async accountMarketBadgeContains(accountId: string, text: string | RegExp): Promise<void> {
+    await expect(this.el.accountsList.marketBadge(accountId)).toContainText(text);
+  }
+
+  // KZO-183: assert a card's toggle reports aria-expanded="true".
+  @Step()
+  async accountCardIsExpanded(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.cardToggle(accountId)).toHaveAttribute("aria-expanded", "true");
+  }
+
+  // KZO-183: assert a card's toggle reports aria-expanded="false".
+  @Step()
+  async accountCardIsCollapsed(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.cardToggle(accountId)).toHaveAttribute("aria-expanded", "false");
+  }
+
+  // KZO-183: count the profile rows inside an account card.
+  @Step()
+  async accountProfileCountIs(accountId: string, count: number): Promise<void> {
+    await expect(this.el.accountsList.profileRows(accountId)).toHaveCount(count);
+  }
+
   // KZO-182: the per-account fee-profile <select> in AccountsListSection
   // binds its `value` to `draft.accounts.find(a => a.id === account.id)
   // ?.feeProfileId ?? ""`. A non-empty value proves the merge-on-grow effect
@@ -114,15 +138,6 @@ export class SettingsAssert extends BaseAssert {
     const select = this.el.accountsList.accountProfileSelect(accountId);
     await expect(select).toBeVisible();
     await expect(select).not.toHaveValue("");
-  }
-
-  // KZO-182: clicking "Add Override" in the Fees tab creates a new binding
-  // row whose <select> options enumerate the LIVE `accounts` prop. The new
-  // account appears as a selectable <option> by id.
-  @Step()
-  async bindingAccountSelectIncludesAccount(rowIndex: number, accountId: string): Promise<void> {
-    await expect(this.el.fees.bindingAccountSelect(rowIndex)).toBeVisible();
-    await expect(this.el.fees.bindingAccountOption(rowIndex, accountId)).toHaveCount(1);
   }
 
   // --- Monitored Symbols ---

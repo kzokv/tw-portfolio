@@ -21,11 +21,6 @@ export class SettingsArrange extends BaseArrange {
   }
 
   @Step()
-  async openFeesTab(): Promise<void> {
-    await this.uiActions.click.perform(this.el.tabs.fees);
-  }
-
-  @Step()
   async openAccountsTab(): Promise<void> {
     await this.uiActions.click.perform(this.el.tabs.accounts);
   }

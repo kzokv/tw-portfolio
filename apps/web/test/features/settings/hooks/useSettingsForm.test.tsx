@@ -44,6 +44,7 @@ function buildSettings(): UserSettings {
 function buildFeeProfile(overrides: Partial<FeeProfileDto> = {}): FeeProfileDto {
   return {
     id: "fp-default",
+    accountId: "acc-1",
     name: "Default Broker",
     boardCommissionRate: 1.425,
     commissionDiscountPercent: 28,
@@ -147,21 +148,32 @@ describe("useSettingsForm — KZO-182 merge-on-grow", () => {
 
     const grown = [
       ...initialAccounts,
-      buildAccount({ id: "acc-2", name: "USD Brokerage", feeProfileId: "fp-default", defaultCurrency: "USD" }),
+      buildAccount({ id: "acc-2", name: "USD Brokerage", feeProfileId: "fp-usd", defaultCurrency: "USD" }),
     ];
+    const usdProfile = buildFeeProfile({
+      id: "fp-usd",
+      accountId: "acc-2",
+      name: "USD Default",
+      commissionCurrency: "USD",
+    });
 
     render({
       open: true,
       settings,
       accounts: grown,
-      feeProfiles: [profile],
+      feeProfiles: [profile, usdProfile],
       feeProfileBindings: [],
     });
 
     // Draft grew by one and contains the new id with its persisted feeProfileId.
     expect(latest!.draft!.accounts).toHaveLength(2);
     const merged = latest!.draft!.accounts.find((a) => a.id === "acc-2");
-    expect(merged).toEqual({ id: "acc-2", feeProfileId: "fp-default" });
+    expect(merged).toEqual({ id: "acc-2", feeProfileId: "fp-usd" });
+    expect(latest!.draft!.feeProfiles.find((p) => p.id === "fp-usd")).toMatchObject({
+      accountId: "acc-2",
+      name: "USD Default",
+      commissionCurrency: "USD",
+    });
 
     // Baseline tracked the merge — no spurious dirty flag from the additive update.
     expect(latest!.isDirty).toBe(false);
@@ -190,7 +202,7 @@ describe("useSettingsForm — KZO-182 merge-on-grow", () => {
     // A new account arrives via dashboard.refresh while the drawer is open.
     const grown = [
       ...initialAccounts,
-      buildAccount({ id: "acc-2", name: "USD Brokerage", feeProfileId: "fp-default" }),
+      buildAccount({ id: "acc-2", name: "USD Brokerage", feeProfileId: "fp-usd", defaultCurrency: "USD" }),
     ];
     render({
       open: true,
@@ -205,8 +217,67 @@ describe("useSettingsForm — KZO-182 merge-on-grow", () => {
     // Account merged in.
     expect(latest!.draft!.accounts).toHaveLength(2);
     expect(latest!.draft!.accounts.some((a) => a.id === "acc-2")).toBe(true);
+    expect(latest!.draft!.feeProfiles.find((p) => p.id === "fp-usd")).toMatchObject({
+      accountId: "acc-2",
+      commissionCurrency: "USD",
+    });
     // Still dirty because of the rename — not because of the merge.
     expect(latest!.isDirty).toBe(true);
+  });
+
+  it("replaces untouched auto-seed stubs when the real profile payload arrives while open", () => {
+    const settings = buildSettings();
+    const profile = buildFeeProfile();
+    const initialAccounts = [buildAccount({ id: "acc-1", feeProfileId: "fp-default" })];
+    const grown = [
+      ...initialAccounts,
+      buildAccount({ id: "acc-2", name: "USD Brokerage", feeProfileId: "fp-usd", defaultCurrency: "USD" }),
+    ];
+
+    render({
+      open: true,
+      settings,
+      accounts: initialAccounts,
+      feeProfiles: [profile],
+      feeProfileBindings: [],
+    });
+
+    render({
+      open: true,
+      settings,
+      accounts: grown,
+      feeProfiles: [profile],
+      feeProfileBindings: [],
+    });
+
+    expect(latest!.draft!.feeProfiles.find((p) => p.id === "fp-usd")).toMatchObject({
+      accountId: "acc-2",
+      name: "Default Broker",
+      commissionCurrency: "USD",
+    });
+
+    const realUsdProfile = buildFeeProfile({
+      id: "fp-usd",
+      accountId: "acc-2",
+      name: "Server USD Profile",
+      commissionDiscountPercent: 15,
+      commissionCurrency: "USD",
+    });
+    render({
+      open: true,
+      settings,
+      accounts: grown,
+      feeProfiles: [profile, realUsdProfile],
+      feeProfileBindings: [],
+    });
+
+    expect(latest!.draft!.feeProfiles.find((p) => p.id === "fp-usd")).toMatchObject({
+      accountId: "acc-2",
+      name: "Server USD Profile",
+      commissionDiscountPercent: 15,
+      commissionCurrency: "USD",
+    });
+    expect(latest!.isDirty).toBe(false);
   });
 
   it("is a no-op when accounts prop changes but contains no new ids", () => {

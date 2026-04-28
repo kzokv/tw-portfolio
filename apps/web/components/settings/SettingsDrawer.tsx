@@ -6,11 +6,9 @@ import type { FormEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { GeneralSettingsSection } from "../../features/settings/components/GeneralSettingsSection";
-import { FeeProfilesSection } from "../../features/settings/components/FeeProfilesSection";
 import { AccountsListSection } from "../../features/settings/components/AccountsListSection";
 import { AccountCreateForm } from "../../features/settings/components/AccountCreateForm";
 import { createAccount } from "../../features/cash-ledger/services/cashLedgerService";
-import { SecurityBindingsSection } from "../../features/settings/components/SecurityBindingsSection";
 import { ProfileSection } from "../../features/settings/components/ProfileSection";
 import { MonitoredTickersSection } from "../../features/settings/components/MonitoredTickersSection";
 import { InstrumentCatalogSheet } from "../../features/settings/components/InstrumentCatalogSheet";
@@ -96,13 +94,11 @@ export function SettingsDrawer({
         <p className="text-sm text-slate-300">{dict.feedback.loadingSettings}</p>
       ) : (
         <>
-          {/* KZO-179 iter-2 LOW fix — `flex-wrap` so the 6-tab strip wraps to
-              two rows at narrow viewports (e.g. iPhone 14 Pro / 390px) instead
-              of overflowing off-screen. The pre-existing 5-tab strip happened
-              to fit common widths without wrap; the 6th tab dropped the
-              overflow threshold below 390px. Desktop (≥md) still renders
-              single-row. `rounded-full` retained — verified acceptable when
-              the wrapped row pill stacks tightly under the first row. */}
+          {/* KZO-183: tab strip drops to 5 (Profile / General / Accounts /
+              Tickers / Display) — Fees tab removed; per-account fee-profile
+              UX moved into the Accounts tab. `flex-wrap` retained from the
+              KZO-179 iter-2 LOW fix so the strip wraps gracefully on narrow
+              viewports. */}
           <div className="mb-3 inline-flex w-fit flex-wrap gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1 md:mb-4">
             <Button
               type="button"
@@ -123,16 +119,6 @@ export function SettingsDrawer({
               data-testid="settings-tab-general"
             >
               {dict.settings.tabGeneral}
-            </Button>
-            <Button
-              type="button"
-              variant={form.tab === "fees" ? "default" : "secondary"}
-              size="sm"
-              className={form.tab !== "fees" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
-              onClick={() => form.setTab("fees")}
-              data-testid="settings-tab-fees"
-            >
-              {dict.settings.tabFeeProfiles}
             </Button>
             <Button
               type="button"
@@ -229,75 +215,78 @@ export function SettingsDrawer({
             </div>
           )}
 
-          {/* KZO-179 H1 fix — Accounts tab is a sibling render block (mirrors
-              profile / tickers / display container shape). It is NOT inside
-              the outer settings-save <form>, so:
-                - Enter inside `account-create-name-input` does NOT trigger
-                  the settings save.
-                - UnsavedChangesFooter (settings-save context) does not render.
-              AccountCreateForm has its own internal <form> for Enter-key
-              submit UX. AccountsListSection's binding-profile <select> still
-              mutates form.draft via form.updateAccountProfile — those edits
-              surface in the UnsavedChangesFooter when the user navigates
-              back to General / Fees. Rename is immediate (its own API). */}
+          {/* KZO-179 / KZO-183 — Accounts tab. AccountCreateForm has its own
+              internal <form> for Enter-key submit UX, so this section MUST NOT
+              wrap its content in a <form>. The UnsavedChangesFooter is rendered
+              here so users can save profile/binding edits from the Accounts tab
+              without navigating to General; the save button uses a click
+              handler (no submit) to avoid HTML nested-form issues. */}
           {form.tab === "accounts" && (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
-                <AccountCreateForm
-                  feeProfiles={feeProfiles}
-                  onCreate={createAccount}
-                  onAccountsRefresh={onAccountsRefresh}
-                  dict={dict}
-                />
-                <AccountsListSection
-                  accounts={accounts}
-                  bindings={form.draft.accounts}
-                  profiles={form.draft.feeProfiles}
-                  onUpdateAccountProfile={form.updateAccountProfile}
-                  onRenameAccount={onRenameAccount}
-                  dict={dict}
-                />
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
+                  <AccountCreateForm
+                    onCreate={createAccount}
+                    onAccountsRefresh={onAccountsRefresh}
+                    dict={dict}
+                  />
+                  <AccountsListSection
+                    accounts={accounts}
+                    accountDrafts={form.draft.accounts}
+                    profiles={form.draft.feeProfiles}
+                    feeProfileBindings={form.draft.feeProfileBindings}
+                    activeLocale={settings?.locale ?? "en"}
+                    onUpdateAccountProfile={form.updateAccountProfile}
+                    onRenameAccount={onRenameAccount}
+                    onAddProfileForAccount={form.addProfileForAccount}
+                    onUpdateProfileField={form.updateProfileField}
+                    onRemoveProfileFromAccount={form.removeProfileFromAccount}
+                    onDuplicateProfilesFromAccount={form.duplicateProfilesFromAccount}
+                    onAddBinding={form.addBinding}
+                    onUpdateBinding={form.updateBinding}
+                    onRemoveBinding={form.removeBinding}
+                    dict={dict}
+                  />
+                </div>
               </div>
+
+              <UnsavedChangesFooter
+                isDirty={form.isDirty}
+                showCloseWarning={form.showCloseWarning}
+                validationError={form.validationError}
+                errorMessage={errorMessage}
+                discardNotice={form.discardNotice}
+                isSaving={isSaving}
+                onKeepEditing={() => form.setShowCloseWarning(false)}
+                onCancel={() => form.handleOpenChange(false)}
+                onCloseWithoutSaving={() => {
+                  form.setShowCloseWarning(false);
+                  onOpenChange(false);
+                }}
+                onDiscardChanges={form.resetToBaseline}
+                onSaveClick={() => void form.handleSubmit()}
+                dict={dict}
+              />
             </div>
           )}
 
-          {(form.tab === "general" || form.tab === "fees") && (
-            <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+          {form.tab === "general" && (
+            // KZO-183: noValidate so the JS validator (validateSettingsForm) is
+            // the sole source of truth — HTML5 constraint validation on the
+            // number input (min={1}) would otherwise block submission and
+            // hide the localized validation message.
+            <form className="flex min-h-0 flex-1 flex-col" noValidate onSubmit={handleSubmit}>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
-                  {form.tab === "general" && (
-                    <GeneralSettingsSection
-                      locale={form.draft.locale}
-                      costBasisMethod={form.draft.costBasisMethod}
-                      quotePollInterval={form.quotePollInterval}
-                      onLocaleChange={(locale) => form.updateField("locale", locale)}
-                      onCostBasisChange={(costBasisMethod) => form.updateField("costBasisMethod", costBasisMethod)}
-                      onQuotePollIntervalChange={form.setQuotePollInterval}
-                      dict={dict}
-                    />
-                  )}
-
-                  {form.tab === "fees" && (
-                    <>
-                      <FeeProfilesSection
-                        profiles={form.draft.feeProfiles}
-                        activeLocale={settings?.locale ?? "en"}
-                        onAddProfile={form.addProfile}
-                        onRemoveProfile={form.removeProfile}
-                        onUpdateProfileField={form.updateProfileField}
-                        dict={dict}
-                      />
-                      <SecurityBindingsSection
-                        accounts={accounts}
-                        profiles={form.draft.feeProfiles}
-                        bindings={form.draft.feeProfileBindings}
-                        onAddBinding={form.addBinding}
-                        onUpdateBinding={form.updateBinding}
-                        onRemoveBinding={form.removeBinding}
-                        dict={dict}
-                      />
-                    </>
-                  )}
+                  <GeneralSettingsSection
+                    locale={form.draft.locale}
+                    costBasisMethod={form.draft.costBasisMethod}
+                    quotePollInterval={form.quotePollInterval}
+                    onLocaleChange={(locale) => form.updateField("locale", locale)}
+                    onCostBasisChange={(costBasisMethod) => form.updateField("costBasisMethod", costBasisMethod)}
+                    onQuotePollIntervalChange={form.setQuotePollInterval}
+                    dict={dict}
+                  />
                 </div>
               </div>
 

@@ -32,9 +32,10 @@ export async function cleanupExpiredDemoUsers(pool: Pool): Promise<number> {
     await client.query(`DELETE FROM currency_wallet_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM daily_portfolio_snapshots WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM recompute_jobs WHERE user_id = ANY($1)`, [userIds]);
+    // KZO-183: fee_profiles + fee_profile_tax_rules no longer carry user_id.
+    // Both cascade through accounts via fee_profiles.account_id ON DELETE
+    // CASCADE → fee_profile_tax_rules.fee_profile_id ON DELETE CASCADE.
     await client.query(`DELETE FROM accounts WHERE user_id = ANY($1)`, [userIds]);
-    await client.query(`DELETE FROM fee_profile_tax_rules WHERE user_id = ANY($1)`, [userIds]);
-    await client.query(`DELETE FROM fee_profiles WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM user_external_identities WHERE user_id = ANY($1)`, [userIds]);
     await client.query(`DELETE FROM users WHERE id = ANY($1)`, [userIds]);
 

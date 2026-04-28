@@ -1142,6 +1142,38 @@ Current support policy for numbered migrations:
 - Existing databases created before the baseline flow still require the numbered files as the supported upgrade path.
 - Do not delete or rewrite numbered migrations unless the team explicitly drops support for upgrading legacy databases from those states.
 
+### 9.5 Migration `042_kzo183_account_scoped_fee_profiles.sql` dry-run gate
+
+Migration `042` is a strict-rollout schema change. It aborts when pre-existing data violates the new account-market or fee-profile ownership rules. Do not run a dev or production deploy until the dry-run gate passes.
+
+Required operator procedure:
+
+1. Build or update the worktree on the deployment host so `scripts/migrate/042-dry-run.sh` and migration `042` are present.
+2. Run the dry-run script against the target environment database before any deploy that could apply `042`.
+3. Capture the output in the deploy notes or PR evidence so the reviewer can confirm the gate was checked.
+4. If the script reports any violation rows, stop. Fix or delete the offending data first, then rerun the dry-run until it reports zero violations.
+
+Suggested commands:
+
+```bash
+# Local / host-routed database
+bash scripts/migrate/042-dry-run.sh
+
+# Explicit target database URL if needed
+DB_URL=postgres://... bash scripts/migrate/042-dry-run.sh
+```
+
+Expected dry-run checks:
+- fan-out count for fee profiles currently referenced by more than one account
+- pre-flight violation count for `trade_events` whose `market_code` does not match the market derived from `accounts.default_currency`
+- pre-flight violation count for `dividend_ledger_entries` whose posting account does not match the dividend event market implied by the account currency
+- human-readable summary showing whether the migration is safe to apply
+
+Interpretation:
+- fan-out rows are informational; they show how many new account-owned fee profiles migration `042` will create
+- any non-zero market-alignment violation is blocking
+- the migration does not backfill `trade_fee_policy_snapshots.profile_id_at_booking`; that field remains audit-only metadata after the rescope
+
 Current numbered migration inventory:
 - `001_init.sql`: original base schema with users, fee profiles, accounts, transactions, lots, and recompute tables.
 - `002_cost_basis_weighted_average.sql`: normalizes all users to `WEIGHTED_AVERAGE` and enforces the new invariant.
@@ -1157,6 +1189,8 @@ Current numbered migration inventory:
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing.
 - `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`.
 - `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs, `user_id TEXT PK` with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` (null = use hardcoded default). Idempotent — `CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS`. No audit_log changes; no backfill needed.
+- `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to stabilize account ordering and migration backfill naming.
+- `042_kzo183_account_scoped_fee_profiles.sql`: moves `fee_profiles` to account ownership, drops `account_fee_profile_overrides.market_code`, adds strict pre-flight market checks, and enforces same-account fee-profile ownership with composite foreign keys.
 
 ---
 

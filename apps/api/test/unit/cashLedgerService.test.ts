@@ -47,6 +47,9 @@ function makeCashEntry(overrides: Partial<CashLedgerEntry> = {}): CashLedgerEntr
 
 const defaultFeeSnapshot = {
   id: "fp-default",
+  // KZO-183: fee profiles are account-scoped. Tests must declare the owning
+  // account; "acc-1" matches the default account in makeStore() below.
+  accountId: "acc-1",
   name: "Default Broker",
   boardCommissionRate: 1.425,
   commissionDiscountPercent: 0,

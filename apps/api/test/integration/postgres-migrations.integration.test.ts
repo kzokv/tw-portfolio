@@ -72,6 +72,63 @@ describePostgres("postgres migrations", () => {
     }
   }
 
+  /**
+   * KZO-183 helper: seed an account + its owner fee_profile under the post-042
+   * schema (fee_profiles has account_id, no user_id). Uses a transaction to defer
+   * the composite FK on accounts.fee_profile_id until COMMIT so we can insert
+   * accounts before the matching fee_profile row exists.
+   *
+   * Caller must have already inserted the user row.
+   */
+  async function seedAccountWithFeeProfilePost042(input: {
+    userId: string;
+    accountId: string;
+    accountName: string;
+    feeProfileId: string;
+    feeProfileName?: string;
+    defaultCurrency?: string;
+    accountType?: string;
+  }): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          input.accountId,
+          input.userId,
+          input.accountName,
+          input.feeProfileId,
+          input.defaultCurrency ?? "TWD",
+          input.accountType ?? "broker",
+        ],
+      );
+      await client.query(
+        `INSERT INTO fee_profiles (
+           id, account_id, name, commission_rate_bps, commission_discount_bps,
+           minimum_commission_amount, commission_currency, commission_rounding_mode,
+           tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+           etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
+           commission_discount_percent, commission_charge_mode
+         ) VALUES (
+           $1, $2, $3, 14, 7200,
+           20, 'TWD', 'FLOOR', 'FLOOR',
+           30, 15, 10, 0, 1.425, 28, 'CHARGED_UPFRONT'
+         )
+         ON CONFLICT (id) DO NOTHING`,
+        [input.feeProfileId, input.accountId, input.feeProfileName ?? "Default"],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async function applyNumberedMigrations(): Promise<void> {
     const manifest = await migrationManifestPromise;
     await applyMigrationFiles(manifest.numberedMigrations);
@@ -289,27 +346,42 @@ describePostgres("postgres migrations", () => {
        ON CONFLICT (id) DO NOTHING`,
       [input.userId, `${input.userId}@example.com`],
     );
-    await pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, commission_discount_bps,
-         minimum_commission_amount, commission_rounding_mode, tax_rounding_mode,
-         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
-         bond_etf_sell_tax_rate_bps
-       ) VALUES (
-         $1, $2, 'Default Broker', 14, 7200,
-         20, 'FLOOR', 'FLOOR',
-         30, 15, 10,
-         0
-       )
-       ON CONFLICT (id) DO NOTHING`,
-      [feeProfileId, input.userId],
-    );
-    await pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-       VALUES ($1, $2, 'Main', $3)
-       ON CONFLICT (id) DO NOTHING`,
-      [input.accountId, input.userId, feeProfileId],
-    );
+
+    // KZO-183: post-042 schema requires accounts row to exist before fee_profiles
+    // (fee_profiles.account_id has a regular FK to accounts(id)). The reverse FK
+    // accounts.fee_profile_id is DEFERRABLE INITIALLY DEFERRED, so wrap both
+    // INSERTs in a transaction to defer constraint checks until COMMIT.
+    const seedClient = await pool.connect();
+    try {
+      await seedClient.query("BEGIN");
+      await seedClient.query(
+        `INSERT INTO accounts (id, user_id, name, fee_profile_id)
+         VALUES ($1, $2, 'Main', $3)
+         ON CONFLICT (id) DO NOTHING`,
+        [input.accountId, input.userId, feeProfileId],
+      );
+      await seedClient.query(
+        `INSERT INTO fee_profiles (
+           id, account_id, name, commission_rate_bps, commission_discount_bps,
+           minimum_commission_amount, commission_rounding_mode, tax_rounding_mode,
+           stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
+           bond_etf_sell_tax_rate_bps
+         ) VALUES (
+           $1, $2, 'Default Broker', 14, 7200,
+           20, 'FLOOR', 'FLOOR',
+           30, 15, 10,
+           0
+         )
+         ON CONFLICT (id) DO NOTHING`,
+        [feeProfileId, input.accountId],
+      );
+      await seedClient.query("COMMIT");
+    } catch (err) {
+      await seedClient.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      seedClient.release();
+    }
 
     const feePolicySnapshotId = `trade-fee-snapshot:${input.id}`;
     await pool.query(
@@ -886,7 +958,10 @@ describePostgres("postgres migrations", () => {
     expect(Number(feeProfile.rows[0]?.commission_discount_percent)).toBe(28);
   });
 
-  it("applies accounting schema objects including dividend alignment", async () => {
+  // KZO-183: bump to 30s — migration 042 adds 200+ lines (pre-flight CHECKs, fan-out
+  // backfill, function/trigger creation) which can push a cold init() past the
+  // default 5s vitest timeout under host load.
+  it("applies accounting schema objects including dividend alignment", { timeout: 30_000 }, async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
       redisUrl: redisUrl!,
@@ -1438,11 +1513,24 @@ describePostgres("postgres migrations", () => {
     await persistence.init();
 
     const store = await persistence.loadStore("user-1");
+    // KZO-183: each account must own its own fee profile (composite-FK ownership
+    // invariant). Add a new fee profile pinned to acc-2 instead of reusing acc-1's.
+    // Strip taxRules from the source spread — those rule ids would collide with
+    // the original profile's tax-rule rows under fee_profile_tax_rules_pkey.
+    const acc2ProfileId = "user-1-acc-2-fp-default";
+    const sourceProfile = { ...store.feeProfiles[0]! };
+    delete sourceProfile.taxRules;
+    store.feeProfiles.push({
+      ...sourceProfile,
+      id: acc2ProfileId,
+      accountId: "user-1-acc-2",
+      name: "Dividend Default",
+    });
     store.accounts.push({
       id: "user-1-acc-2",
       userId: "user-1",
       name: "Dividend",
-      feeProfileId: store.feeProfiles[0].id,
+      feeProfileId: acc2ProfileId,
       // KZO-167: AccountDto requires defaultCurrency + accountType.
       defaultCurrency: "TWD",
       accountType: "broker",
@@ -2546,23 +2634,12 @@ describePostgres("postgres migrations", () => {
       INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
       VALUES ('mig039-u', 'mig039@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
     `);
-    await pool.query(`
-      INSERT INTO fee_profiles (
-        id, user_id, name, commission_rate_bps, commission_discount_bps,
-        minimum_commission_amount, commission_currency, commission_rounding_mode,
-        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-        commission_discount_percent
-      ) VALUES (
-        'mig039-fp', 'mig039-u', 'Default', 14, 7200,
-        20, 'TWD', 'FLOOR', 'FLOOR',
-        30, 15, 10, 0, 1.425, 28
-      )
-    `);
-    await pool.query(`
-      INSERT INTO accounts (id, user_id, name, fee_profile_id)
-      VALUES ('mig039-acc', 'mig039-u', 'Main', 'mig039-fp')
-    `);
+    await seedAccountWithFeeProfilePost042({
+      userId: "mig039-u",
+      accountId: "mig039-acc",
+      accountName: "Main",
+      feeProfileId: "mig039-fp",
+    });
 
     // Helper to insert a cash_ledger_entries row with a given fx_rate_to_usd.
     const insertCash = async (id: string, fx: string | null): Promise<void> => {
@@ -2683,26 +2760,15 @@ describePostgres("postgres migrations", () => {
       INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
       VALUES ('mig040-u', 'mig040@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
     `);
-    await pool.query(`
-      INSERT INTO fee_profiles (
-        id, user_id, name, commission_rate_bps, commission_discount_bps,
-        minimum_commission_amount, commission_currency, commission_rounding_mode,
-        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-        commission_discount_percent
-      ) VALUES (
-        'mig040-fp', 'mig040-u', 'Default', 14, 7200,
-        20, 'TWD', 'FLOOR', 'FLOOR',
-        30, 15, 10, 0, 1.425, 28
-      )
-    `);
+    await seedAccountWithFeeProfilePost042({
+      userId: "mig040-u",
+      accountId: "mig040-acc-default",
+      accountName: "Main",
+      feeProfileId: "mig040-fp",
+    });
 
     // ── 6. DEFAULT values applied: existing INSERT without the new columns ────
 
-    await pool.query(`
-      INSERT INTO accounts (id, user_id, name, fee_profile_id)
-      VALUES ('mig040-acc-default', 'mig040-u', 'Main', 'mig040-fp')
-    `);
     const defaultRow = await pool.query<{ default_currency: string; account_type: string }>(
       `SELECT default_currency, account_type FROM accounts WHERE id = 'mig040-acc-default'`,
     );
@@ -2711,19 +2777,28 @@ describePostgres("postgres migrations", () => {
     expect(defaultRow.rows[0].account_type).toBe("broker");
 
     // ── 7. Valid custom values accepted by CHECK constraints ──────────────────
+    // KZO-183: each new account needs its own owner fee profile (composite FK).
 
     await expect(
-      pool.query(`
-        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-        VALUES ('mig040-acc-usd-bank', 'mig040-u', 'USD Bank', 'mig040-fp', 'USD', 'bank')
-      `),
+      seedAccountWithFeeProfilePost042({
+        userId: "mig040-u",
+        accountId: "mig040-acc-usd-bank",
+        accountName: "USD Bank",
+        feeProfileId: "mig040-fp-usd-bank",
+        defaultCurrency: "USD",
+        accountType: "bank",
+      }),
     ).resolves.not.toThrow();
 
     await expect(
-      pool.query(`
-        INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-        VALUES ('mig040-acc-aud-wallet', 'mig040-u', 'AUD Wallet', 'mig040-fp', 'AUD', 'wallet')
-      `),
+      seedAccountWithFeeProfilePost042({
+        userId: "mig040-u",
+        accountId: "mig040-acc-aud-wallet",
+        accountName: "AUD Wallet",
+        feeProfileId: "mig040-fp-aud-wallet",
+        defaultCurrency: "AUD",
+        accountType: "wallet",
+      }),
     ).resolves.not.toThrow();
 
     // ── 8. Invalid default_currency rejected by CHECK constraint ─────────────
@@ -2816,24 +2891,12 @@ describePostgres("postgres migrations", () => {
       INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
       VALUES ('mig041-u', 'mig041@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
     `);
-    await pool.query(`
-      INSERT INTO fee_profiles (
-        id, user_id, name, commission_rate_bps, commission_discount_bps,
-        minimum_commission_amount, commission_currency, commission_rounding_mode,
-        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-        commission_discount_percent
-      ) VALUES (
-        'mig041-fp', 'mig041-u', 'Default', 14, 7200,
-        20, 'TWD', 'FLOOR', 'FLOOR',
-        30, 15, 10, 0, 1.425, 28
-      )
-    `);
-
-    await pool.query(`
-      INSERT INTO accounts (id, user_id, name, fee_profile_id)
-      VALUES ('mig041-acc-1', 'mig041-u', 'Main', 'mig041-fp')
-    `);
+    await seedAccountWithFeeProfilePost042({
+      userId: "mig041-u",
+      accountId: "mig041-acc-1",
+      accountName: "Main",
+      feeProfileId: "mig041-fp",
+    });
     const createdAtRow = await pool.query<{ created_at: Date | null }>(
       `SELECT created_at FROM accounts WHERE id = 'mig041-acc-1'`,
     );
@@ -2855,33 +2918,25 @@ describePostgres("postgres migrations", () => {
       INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
       VALUES ('mig041-u2', 'mig041-u2@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
     `);
-    await pool.query(`
-      INSERT INTO fee_profiles (
-        id, user_id, name, commission_rate_bps, commission_discount_bps,
-        minimum_commission_amount, commission_currency, commission_rounding_mode,
-        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
-        commission_discount_percent
-      ) VALUES (
-        'mig041-fp2', 'mig041-u2', 'Default', 14, 7200,
-        20, 'TWD', 'FLOOR', 'FLOOR',
-        30, 15, 10, 0, 1.425, 28
-      )
-    `);
     await expect(
-      pool.query(`
-        INSERT INTO accounts (id, user_id, name, fee_profile_id)
-        VALUES ('mig041-acc-other', 'mig041-u2', 'Main', 'mig041-fp2')
-      `),
+      seedAccountWithFeeProfilePost042({
+        userId: "mig041-u2",
+        accountId: "mig041-acc-other",
+        accountName: "Main",
+        feeProfileId: "mig041-fp2",
+      }),
     ).resolves.not.toThrow();
 
     // ── 6. Same user, different name → accepted (case-sensitive uniqueness) ─
+    // KZO-183: needs its own owner fee profile.
 
     await expect(
-      pool.query(`
-        INSERT INTO accounts (id, user_id, name, fee_profile_id)
-        VALUES ('mig041-acc-2', 'mig041-u', 'main', 'mig041-fp')
-      `),
+      seedAccountWithFeeProfilePost042({
+        userId: "mig041-u",
+        accountId: "mig041-acc-2",
+        accountName: "main",
+        feeProfileId: "mig041-fp-acc-2",
+      }),
     ).resolves.not.toThrow();
   });
 });

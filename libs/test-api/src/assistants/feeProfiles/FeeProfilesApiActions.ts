@@ -12,6 +12,11 @@ export class FeeProfilesApiActions extends ApiBaseActions {
   }
 
   @Step()
+  async listFeeProfilesForAccount(accountId: string): Promise<APIResponse> {
+    return this._instance.list(this.authHeaders, { accountId });
+  }
+
+  @Step()
   async listFeeProfilesForCookie(cookie: string): Promise<APIResponse> {
     return this._instance.list(headersForCookie(cookie));
   }

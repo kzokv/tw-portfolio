@@ -7,15 +7,15 @@ import { getJson, postJson } from "../../../lib/api";
 import type { CashLedgerListResponse, CashLedgerQuery } from "../types";
 
 /**
- * KZO-179: request body for `POST /accounts`. Mirrors the Zod schema in
- * `apps/api/src/routes/registerRoutes.ts`. `feeProfileId` is optional —
- * the route resolves it via the cascade in scope-todo D5 when omitted.
+ * KZO-179 / KZO-183: request body for `POST /accounts`. Mirrors the Zod
+ * schema in `apps/api/src/routes/registerRoutes.ts`. `feeProfileId` was
+ * dropped in KZO-183 — the route auto-seeds an account-scoped default
+ * profile in the same transaction (per design D7 / scope decision 31).
  */
 export interface CreateAccountInput {
   name: string;
   defaultCurrency: AccountDefaultCurrency;
   accountType: AccountType;
-  feeProfileId?: string;
 }
 
 export async function fetchCashLedgerEntries(

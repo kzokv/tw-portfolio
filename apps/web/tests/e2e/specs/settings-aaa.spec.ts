@@ -32,17 +32,21 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
 });
 
+// KZO-183: the legacy Fees tab + cross-account FeeProfilesSection were
+// removed. The "invalid settings keep the drawer open + surface validation"
+// behavior is now exercised through a General-tab-reachable validation
+// (non-positive quote-poll interval), which the form save path enforces
+// regardless of which tab the user was on when entering the drawer.
 test("invalid settings keep the drawer open and surface validation", async ({
   appShell,
   settings,
 }) => {
   await appShell.actions.navigateToRoute("/transactions");
   await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openFeesTab();
 
-  await settings.actions.addFeeProfile();
-  const profileCount = await settings.actions.getProfileCount();
-  await settings.actions.setProfileName(profileCount - 1, "");
+  // Quote poll must be a positive integer — `0` triggers
+  // `validationQuotePoll`, which is the General-tab-rooted path.
+  await settings.actions.changeQuotePollInterval("0");
   await settings.actions.save();
 
   await appShell.assert.isOnRoute("drawer=settings");

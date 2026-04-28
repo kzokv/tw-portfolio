@@ -222,7 +222,7 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 ### Canonical Fields
 
 - `id`
-- `userId`
+- `accountId`
 - `name`
 - `boardCommissionRate`
 - `commissionDiscount`
@@ -243,6 +243,7 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 
 ### Invariants
 
+- every fee profile belongs to exactly one account and cannot be shared across accounts
 - board commission rate, broker discount, and minimum commission remain separate values
 - commission defaults are user-visible for transparency, but sell-tax defaults are regulated settings rather than ordinary broker preferences
 - normalized tax rules carry the canonical sell-tax identity through market, instrument type, day-trade scope, component code, and calculation method
@@ -253,6 +254,7 @@ Represents broker fee policy and regulated sell-tax defaults used to derive book
 
 - current runtime model stores legacy integer `commissionRateBps`, decimal `boardCommissionRate`, decimal `commissionDiscountPercent` (`% off`), `minimumCommissionAmount`, and `commissionCurrency`
 - current runtime persists normalized tax rows in `fee_profile_tax_rules` while still projecting Taiwan compatibility fields for existing settings and API contracts
+- current runtime ownership root is `fee_profiles.account_id`; `accounts.fee_profile_id` is only the default selection pointer inside that owned set
 - current runtime precision is still insufficient for exact `1.425‰`
 - runtime naming is already currency-normalized for minimum commission
 
@@ -277,7 +279,9 @@ Represents an account-and-symbol mapping from a tradable instrument to the fee p
 
 - account default fee profile is the fallback
 - account and symbol binding wins over the account default
+- binding and referenced fee profile must belong to the same account
 - at most one active binding exists per `(accountId, symbol)`
+- market selection is derived from the account, not stored on the binding
 
 ### Current Mapping
 
@@ -641,6 +645,7 @@ Represents a canonical derived inventory unit used to preserve tax-lot or parcel
 
 - `FeeProfileBinding` points an account and symbol to a `FeeProfile`
 - `TradeEvent` resolves fee policy from account default, then account and symbol binding
+- `TradeEvent.marketCode` must match the market derived from the account currency before the fee profile resolution step runs
 - `TradeEvent` persists booked charges plus the fee policy snapshot used at booking time
 - `TradeEvent` may create one or more `CashLedgerEntry` records
 - `DividendEvent` may create zero or more `DividendLedgerEntry` records
@@ -682,8 +687,8 @@ The following rules constrain follow-on implementation work:
 
 | Entity | Immutable after posting | Derived or source | Key validation |
 | --- | --- | --- | --- |
-| `FeeProfile` | No, reference config | Reference | exact board rate default, separated broker fee assumptions, regulated tax defaults |
-| `FeeProfileBinding` | No, reference config | Reference | one active binding per account and symbol |
+| `FeeProfile` | No, reference config | Reference | exact board rate default, separated broker fee assumptions, regulated tax defaults, one owning account only |
+| `FeeProfileBinding` | No, reference config | Reference | one active binding per account and symbol; referenced profile must belong to the same account |
 | `TradeEvent` | Yes, except reversal flow | Source fact | positive quantity, explicit booking order, non-negative booked charges |
 | `CashLedgerEntry` | Yes, except reversal flow | Source fact | valid sign by entry type, no invalid orphan references |
 | `DividendEvent` | Reference update allowed | Reference fact | instrument, date, and declared amount validity |
@@ -761,6 +766,7 @@ Input facts:
   - boardCommissionRate: `1.425‰`
   - commissionDiscount: `100%`
   - minimumCommissionAmount: `20`
+- account market derived from `defaultCurrency = TWD`, therefore market `TW`
 - `FeeProfileBinding`
   - account: `broker-a`
   - symbol: `2330`
@@ -770,6 +776,7 @@ Input facts:
 
 Expected outcomes:
 
+- the trade is valid only because symbol `2330` is booked into the same Taiwan-market account
 - the symbol override fee profile is used instead of the account default
 - booked commission becomes `513.00` instead of `855.00` when the override discount is applied
 - the posted trade persists the override fee policy snapshot

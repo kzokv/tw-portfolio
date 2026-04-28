@@ -2,6 +2,11 @@ import type { CostBasisMethod, CurrencyCode, LocaleCode } from "@tw-portfolio/sh
 
 export interface SettingsProfileModel {
   id: string;
+  // KZO-183: every fee profile is owned by exactly one account. The form
+  // model carries the discriminator flat (mirrors the wire DTO) and the
+  // per-account expandable cards filter on it. Backend B2 lands the same
+  // field on `FeeProfileDto`; until then the mapper casts at the boundary.
+  accountId: string;
   name: string;
   boardCommissionRate: number;
   commissionDiscountPercent: number;
@@ -36,8 +41,9 @@ export interface SettingsFormModel {
   feeProfileBindings: SettingsSecurityBindingModel[];
 }
 
-// KZO-179: "accounts" tab added between Fees and Tickers (locked decision D1).
-export type SettingsTab = "profile" | "general" | "fees" | "accounts" | "tickers" | "display";
+// KZO-183: "fees" tab removed; per-account fee-profile UX moves into the
+// Accounts tab.
+export type SettingsTab = "profile" | "general" | "accounts" | "tickers" | "display";
 
 export interface SaveSettingsRequest {
   settings: {
@@ -53,6 +59,7 @@ export interface SaveSettingsRequest {
         tempId: string;
       } & Omit<SettingsProfileModel, "id">)
   >;
+  // KZO-183: profile→account ownership flows through the wire shape too.
   accounts: Array<{
     id: string;
     feeProfileRef: string;

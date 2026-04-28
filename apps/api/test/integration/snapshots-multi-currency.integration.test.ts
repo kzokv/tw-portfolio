@@ -222,23 +222,37 @@ describePostgres("KZO-165 migration 038 — backfill correctness", () => {
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds, is_demo)
        VALUES ('kzo165-iso-user', 'kzo165iso@example.com', 'en', 'WEIGHTED_AVERAGE', 10, false)`,
     );
-    await pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, commission_discount_bps,
-         minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
-         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
-         bond_etf_sell_tax_rate_bps, board_commission_rate, commission_discount_percent
-       ) VALUES (
-         'kzo165-iso-fp', 'kzo165-iso-user', 'Default', 14, 7200,
-         20, 'TWD', 'FLOOR', 'FLOOR',
-         30, 15, 10,
-         0, 1.425, 28
-       )`,
-    );
-    await pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-       VALUES ('kzo165-iso-acc', 'kzo165-iso-user', 'Main', 'kzo165-iso-fp')`,
-    );
+    // KZO-183: post-042 schema. Account first (deferred FK), fee_profile second,
+    // wrapped in a transaction so the deferred composite FK fires at COMMIT.
+    {
+      const txClient = await pool.connect();
+      try {
+        await txClient.query("BEGIN");
+        await txClient.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ('kzo165-iso-acc', 'kzo165-iso-user', 'Main', 'kzo165-iso-fp', 'TWD', 'broker')`,
+        );
+        await txClient.query(
+          `INSERT INTO fee_profiles (
+             id, account_id, name, commission_rate_bps, commission_discount_bps,
+             minimum_commission_amount, commission_currency, commission_rounding_mode, tax_rounding_mode,
+             stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps,
+             bond_etf_sell_tax_rate_bps, board_commission_rate, commission_discount_percent
+           ) VALUES (
+             'kzo165-iso-fp', 'kzo165-iso-acc', 'Default', 14, 7200,
+             20, 'TWD', 'FLOOR', 'FLOOR',
+             30, 15, 10,
+             0, 1.425, 28
+           )`,
+        );
+        await txClient.query("COMMIT");
+      } catch (err) {
+        await txClient.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        txClient.release();
+      }
+    }
 
     // Lowercase 'twd' must violate the ISO CHECK regex '^[A-Z]{3}$'.
     await expect(

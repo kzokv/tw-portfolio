@@ -18,6 +18,7 @@ const accounts: AccountDto[] = [
 const feeProfiles: FeeProfileDto[] = [
   {
     id: "profile-1",
+    accountId: "account-1",
     name: "Default",
     boardCommissionRate: 1.425,
     commissionDiscountPercent: 60,

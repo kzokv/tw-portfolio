@@ -104,6 +104,12 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.appReady).toBeAttached({ timeout: 30_000 });
   }
 
+  // KZO-183: assert the global error banner contains the given text/pattern.
+  @Step()
+  async globalErrorContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.globalError).toContainText(text);
+  }
+
   @Step()
   async statusToastContains(text: string | RegExp): Promise<void> {
     await expect(this.el.testId("context-status")).toContainText(text);

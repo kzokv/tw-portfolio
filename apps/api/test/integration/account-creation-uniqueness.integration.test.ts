@@ -208,12 +208,23 @@ describePostgres("account-creation uniqueness — KZO-179 (postgres integration)
 
   it("saveStore propagates the unique violation when a duplicate-name account is pushed", async () => {
     const store = await persistence!.loadStore(userId);
-    // Push a second account with the same name as the auto-seeded "Main".
+    // KZO-183: Push a second account with the same name AND its own owner profile
+    // (composite-FK ownership invariant requires the profile to be owned by the new
+    // account). We expect the duplicate (user_id, name) on accounts to violate the
+    // unique index — this should fire BEFORE the composite FK is checked.
+    const newAccountId = randomUUID();
+    const newProfileId = randomUUID();
+    store.feeProfiles.push({
+      ...store.feeProfiles[0]!,
+      id: newProfileId,
+      accountId: newAccountId,
+      name: "Duplicate Account Profile",
+    });
     store.accounts.push({
-      id: randomUUID(),
+      id: newAccountId,
       userId,
       name: "Main",
-      feeProfileId,
+      feeProfileId: newProfileId,
       defaultCurrency: "USD",
       accountType: "bank",
     });
@@ -239,20 +250,50 @@ describePostgres("account-creation uniqueness — KZO-179 (postgres integration)
   // ── Concurrent race ────────────────────────────────────────────────────────
 
   it("two concurrent INSERTs of (userId, 'USD Brokerage') resolve to exactly one survivor", async () => {
+    // KZO-183: composite-FK ownership requires a per-account fee profile. Create
+    // both candidate fee profiles upfront (same account_id as the corresponding
+    // candidate account) — only one will match its account at COMMIT, since the
+    // unique violation on accounts will roll back the other transaction.
     const idA = randomUUID();
     const idB = randomUUID();
+    const profileA = randomUUID();
+    const profileB = randomUUID();
+
+    const insertWithProfile = async (
+      accountId: string,
+      profileId: string,
+    ): Promise<void> => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+           VALUES ($1, $2, 'USD Brokerage', $3, 'USD', 'bank')`,
+          [accountId, userId, profileId],
+        );
+        await client.query(
+          `INSERT INTO fee_profiles (
+             id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent,
+             commission_discount_bps, minimum_commission_amount, commission_currency,
+             commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+             stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+             commission_charge_mode
+           ) VALUES ($1, $2, 'Concurrent USD', 14, 1.425, 0, 10000, 20, 'USD', 'FLOOR', 'FLOOR',
+                     0, 0, 0, 0, 'CHARGED_UPFRONT')`,
+          [profileId, accountId],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        client.release();
+      }
+    };
 
     const results = await Promise.allSettled([
-      pool.query(
-        `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-         VALUES ($1, $2, 'USD Brokerage', $3, 'USD', 'bank')`,
-        [idA, userId, feeProfileId],
-      ),
-      pool.query(
-        `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-         VALUES ($1, $2, 'USD Brokerage', $3, 'USD', 'bank')`,
-        [idB, userId, feeProfileId],
-      ),
+      insertWithProfile(idA, profileA),
+      insertWithProfile(idB, profileB),
     ]);
 
     const fulfilled = results.filter((result) => result.status === "fulfilled");
@@ -275,12 +316,36 @@ describePostgres("account-creation uniqueness — KZO-179 (postgres integration)
   // ── Happy path (positive control) ──────────────────────────────────────────
 
   it("a fresh distinct-name account inserts cleanly with created_at stamped", async () => {
+    // KZO-183: insert account + its own fee profile in a single transaction so the
+    // composite ownership FK is satisfied at COMMIT.
     const newAccountId = randomUUID();
-    await pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
-       VALUES ($1, $2, 'AUD Wallet', $3, 'AUD', 'wallet')`,
-      [newAccountId, userId, feeProfileId],
-    );
+    const newProfileId = randomUUID();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+         VALUES ($1, $2, 'AUD Wallet', $3, 'AUD', 'wallet')`,
+        [newAccountId, userId, newProfileId],
+      );
+      await client.query(
+        `INSERT INTO fee_profiles (
+           id, account_id, name, commission_rate_bps, board_commission_rate, commission_discount_percent,
+           commission_discount_bps, minimum_commission_amount, commission_currency,
+           commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+           stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+           commission_charge_mode
+         ) VALUES ($1, $2, 'AUD Wallet Default', 14, 1.425, 0, 10000, 20, 'AUD', 'FLOOR', 'FLOOR',
+                   0, 0, 0, 0, 'CHARGED_UPFRONT')`,
+        [newProfileId, newAccountId],
+      );
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
 
     const { rows } = await pool.query<{
       name: string;

@@ -25,12 +25,12 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
       throw routeError(404, "account_not_found", `Account not found for transaction ${tx.id}`);
     }
 
+    // KZO-183: bindings no longer carry `marketCode` — the market is derived
+    // from the binding's account.defaultCurrency. Resolution is keyed solely
+    // by (accountId, ticker).
     const symbolBinding = input.useFallbackBindings
       ? store.feeProfileBindings.find(
-          (binding) =>
-            binding.accountId === tx.accountId &&
-            binding.ticker === tx.ticker &&
-            (binding.marketCode === undefined || binding.marketCode === (tx.marketCode ?? "TW")),
+          (binding) => binding.accountId === tx.accountId && binding.ticker === tx.ticker,
         )
       : undefined;
     const fallbackProfileId = selectedProfile?.id ?? account.feeProfileId;

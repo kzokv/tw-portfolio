@@ -436,15 +436,40 @@ CREATE TABLE IF NOT EXISTS recompute_job_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);
-CREATE INDEX IF NOT EXISTS idx_fee_profiles_user_id ON fee_profiles(user_id);
-CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_user_id
-  ON fee_profile_tax_rules(user_id);
+-- KZO-183 drops fee_profiles.user_id and fee_profile_tax_rules.user_id.
+-- Guard these index creations so the baseline remains safe when applied on
+-- top of an already-migrated schema (e.g. applyNumberedMigrations + init()).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'fee_profiles' AND column_name = 'user_id'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_fee_profiles_user_id ON fee_profiles(user_id);
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'fee_profile_tax_rules' AND column_name = 'user_id'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_user_id
+      ON fee_profile_tax_rules(user_id);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_fee_profile_tax_rules_fee_profile_id
   ON fee_profile_tax_rules(fee_profile_id, market_code, instrument_type, day_trade_scope, sort_order);
 CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_id
   ON account_fee_profile_overrides(account_id);
-CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_ticker
-  ON account_fee_profile_overrides(account_id, market_code, ticker);
+-- KZO-183 drops account_fee_profile_overrides.market_code.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'account_fee_profile_overrides' AND column_name = 'market_code'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_account_fee_profile_overrides_account_market_ticker
+      ON account_fee_profile_overrides(account_id, market_code, ticker);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_lots_account_ticker ON lots(account_id, ticker);
 CREATE INDEX IF NOT EXISTS idx_recompute_jobs_user_id ON recompute_jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_trade_fee_policy_snapshots_user_id

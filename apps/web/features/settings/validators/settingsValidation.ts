@@ -10,11 +10,17 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
     return dict.settings.validationAtLeastOneProfile;
   }
 
-  const profileIds = new Set(model.feeProfiles.map((profile) => profile.id));
+  const profilesById = new Map(model.feeProfiles.map((profile) => [profile.id, profile]));
+  const accountIds = new Set(model.accounts.map((account) => account.id));
 
   for (const profile of model.feeProfiles) {
     if (!profile.name.trim()) {
       return dict.settings.validationProfileName;
+    }
+
+    // KZO-183: profile must be owned by an account in the form.
+    if (!accountIds.has(profile.accountId)) {
+      return dict.settings.validationAccountProfile;
     }
 
     if (!/^[A-Z]{3}$/.test(profile.commissionCurrency)) {
@@ -40,7 +46,10 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
   }
 
   for (const account of model.accounts) {
-    if (!profileIds.has(account.feeProfileId)) {
+    const profile = profilesById.get(account.feeProfileId);
+    // KZO-183: every account's default profile must exist AND be owned by
+    // that same account (mirrors the composite-FK invariant in Postgres).
+    if (!profile || profile.accountId !== account.id) {
       return dict.settings.validationAccountProfile;
     }
   }
@@ -50,11 +59,14 @@ export function validateSettingsForm(model: SettingsFormModel, dict: AppDictiona
       return dict.settings.validationBindingTicker;
     }
 
-    if (!model.accounts.some((account) => account.id === binding.accountId)) {
+    if (!accountIds.has(binding.accountId)) {
       return dict.settings.validationBindingAccount;
     }
 
-    if (!profileIds.has(binding.feeProfileId)) {
+    const profile = profilesById.get(binding.feeProfileId);
+    // KZO-183: per-symbol overrides must point at a profile owned by the
+    // binding's account.
+    if (!profile || profile.accountId !== binding.accountId) {
       return dict.settings.validationBindingProfile;
     }
   }

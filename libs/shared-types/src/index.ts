@@ -55,8 +55,13 @@ export interface UserSettings {
   quotePollIntervalSeconds: number;
 }
 
+// KZO-183: account-scoped fee profiles. `accountId` replaces the previous
+// `userId` field — every profile is owned by exactly one account. `taxRules?`
+// stays internal to `libs/domain.FeeProfile` and is NOT promoted to the wire
+// (decision D2 — wire shape stays shallow).
 export interface FeeProfileDto {
   id: string;
+  accountId: string;
   name: string;
   boardCommissionRate: number;
   commissionDiscountPercent: number;
@@ -87,6 +92,40 @@ export interface AccountDto {
   accountType: AccountType;
 }
 
+// KZO-183: closed-set market code derived from an account's defaultCurrency.
+// Currency ↔ market is a 1:1 mapping (TWD↔TW, USD↔US, AUD↔AU). Both helpers
+// throw on any unsupported input.
+export type MarketCode = "TW" | "US" | "AU";
+
+export const MARKET_CURRENCY_PAIRS = {
+  TWD: "TW",
+  USD: "US",
+  AUD: "AU",
+} as const satisfies Record<AccountDefaultCurrency, MarketCode>;
+
+const MARKET_TO_CURRENCY = {
+  TW: "TWD",
+  US: "USD",
+  AU: "AUD",
+} as const satisfies Record<MarketCode, AccountDefaultCurrency>;
+
+export function marketCodeFor(currency: string): MarketCode {
+  if (currency in MARKET_CURRENCY_PAIRS) {
+    return MARKET_CURRENCY_PAIRS[currency as AccountDefaultCurrency];
+  }
+  throw new Error(`unsupported_currency_for_market: ${currency}`);
+}
+
+export function currencyFor(market: string): AccountDefaultCurrency {
+  if (market in MARKET_TO_CURRENCY) {
+    return MARKET_TO_CURRENCY[market as MarketCode];
+  }
+  throw new Error(`unsupported_market_for_currency: ${market}`);
+}
+
+// KZO-183: `marketCode` removed — the market is now derived from
+// `accounts.defaultCurrency` for the binding's account, not stored alongside
+// the binding.
 export interface FeeProfileBindingDto {
   accountId: string;
   ticker: string;
