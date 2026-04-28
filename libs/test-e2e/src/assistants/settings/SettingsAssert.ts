@@ -104,6 +104,27 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.accountCreate.nameInput).toHaveValue("");
   }
 
+  // KZO-182: the per-account fee-profile <select> in AccountsListSection
+  // binds its `value` to `draft.accounts.find(a => a.id === account.id)
+  // ?.feeProfileId ?? ""`. A non-empty value proves the merge-on-grow effect
+  // wired the new account into form.draft.accounts so the user can save a
+  // fee-profile assignment.
+  @Step()
+  async accountFeeProfileSelectHasNonEmptyValue(accountId: string): Promise<void> {
+    const select = this.el.accountsList.accountProfileSelect(accountId);
+    await expect(select).toBeVisible();
+    await expect(select).not.toHaveValue("");
+  }
+
+  // KZO-182: clicking "Add Override" in the Fees tab creates a new binding
+  // row whose <select> options enumerate the LIVE `accounts` prop. The new
+  // account appears as a selectable <option> by id.
+  @Step()
+  async bindingAccountSelectIncludesAccount(rowIndex: number, accountId: string): Promise<void> {
+    await expect(this.el.fees.bindingAccountSelect(rowIndex)).toBeVisible();
+    await expect(this.el.fees.bindingAccountOption(rowIndex, accountId)).toHaveCount(1);
+  }
+
   // --- Monitored Symbols ---
 
   @Step()

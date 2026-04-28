@@ -38,6 +38,13 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     profileCards: Locator;
     profileName: (index: number) => Locator;
     removeProfile: (index: number) => Locator;
+    addBindingButton: Locator;
+    bindingRow: (index: number) => Locator;
+    bindingAccountSelect: (index: number) => Locator;
+    bindingAccountOption: (index: number, accountId: string) => Locator;
+  };
+  accountsList: {
+    accountProfileSelect: (accountId: string) => Locator;
   };
   profile: {
     section: Locator;
@@ -157,6 +164,27 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.locate(`settings-profile-name-${index}`, `Fee Profile Name ${index}`),
         removeProfile: (index: number) =>
           this.locate(`settings-remove-profile-${index}`, `Remove Fee Profile ${index}`),
+        addBindingButton: this.locate("settings-add-binding-button", "Add Override Button"),
+        bindingRow: (index: number) =>
+          this.locate(`settings-binding-row-${index}`, `Binding Row ${index}`),
+        bindingAccountSelect: (index: number) =>
+          this.locate(
+            `settings-binding-account-${index}`,
+            `Binding Account Select ${index}`,
+          ),
+        bindingAccountOption: (index: number, accountId: string) =>
+          this.withinByCss(
+            this.locate(`settings-binding-account-${index}`),
+            `option[value="${accountId}"]`,
+            `Binding ${index} Option (${accountId})`,
+          ),
+      },
+      accountsList: {
+        accountProfileSelect: (accountId: string) =>
+          this.locate(
+            `settings-account-profile-${accountId}`,
+            `Account Profile Select (${accountId})`,
+          ),
       },
       profile: {
         section: this.locate("profile-section", "Profile Section"),

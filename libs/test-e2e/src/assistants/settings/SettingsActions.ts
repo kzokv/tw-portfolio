@@ -134,6 +134,13 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.accountCreate.currencyCard(currency));
   }
 
+  // KZO-182: click "Add Override" in the Fees tab to append a fresh
+  // SecurityBinding row whose account dropdown lists every live account.
+  @Step()
+  async addBinding(): Promise<void> {
+    await this.uiActions.click.perform(this.el.fees.addBindingButton);
+  }
+
   @Step()
   async submitAccountCreate(): Promise<Response> {
     const responsePromise = this.mxWaitForResponse(
