@@ -2753,4 +2753,135 @@ describePostgres("postgres migrations", () => {
       `),
     ).rejects.toThrow();
   });
+
+  // ── KZO-179 — migration 041 walk ─────────────────────────────────────────
+  // Migration 041 adds:
+  //   accounts.created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()  (forensic floor)
+  //   ux_accounts_user_id_name UNIQUE INDEX ON accounts(user_id, name)
+  //
+  // Per KZO-179 D2, no audit_log entry is written on POST /accounts; created_at
+  // is the recoverability replacement. Per D3, the unique index is the
+  // TOCTOU safety net (clean 409 UX is delivered by the route's pre-check).
+
+  it("KZO-179: migration 041 walk — accounts.created_at column + ux_accounts_user_id_name unique index", async () => {
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    // ── 1. created_at column existence, type, NOT NULL, DEFAULT now() ────────
+
+    const createdAtCol = await pool.query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>(
+      `SELECT column_name, data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'accounts'
+         AND column_name = 'created_at'`,
+    );
+    expect(createdAtCol.rows).toHaveLength(1);
+    expect(createdAtCol.rows[0].data_type).toBe("timestamp with time zone");
+    expect(createdAtCol.rows[0].is_nullable).toBe("NO");
+    // Postgres normalizes DEFAULT NOW() to "now()". Match either form.
+    expect(createdAtCol.rows[0].column_default).toMatch(/now\(\)/i);
+
+    // ── 2. ux_accounts_user_id_name unique index existence + columns ─────────
+
+    const indexRow = await pool.query<{
+      indexname: string;
+      indexdef: string;
+      is_unique: boolean;
+    }>(
+      `SELECT
+         i.relname AS indexname,
+         pg_get_indexdef(ix.indexrelid) AS indexdef,
+         ix.indisunique AS is_unique
+       FROM pg_class i
+       JOIN pg_index ix ON ix.indexrelid = i.oid
+       JOIN pg_class t ON t.oid = ix.indrelid
+       WHERE t.relname = 'accounts'
+         AND i.relname = 'ux_accounts_user_id_name'`,
+    );
+    expect(indexRow.rows).toHaveLength(1);
+    expect(indexRow.rows[0].is_unique).toBe(true);
+    // The index definition must reference both user_id and name columns.
+    expect(indexRow.rows[0].indexdef).toMatch(/user_id/);
+    expect(indexRow.rows[0].indexdef).toMatch(/name/);
+
+    // ── 3. Seed FK parents and verify created_at is auto-populated ───────────
+
+    await pool.query(`
+      INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+      VALUES ('mig041-u', 'mig041@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+    `);
+    await pool.query(`
+      INSERT INTO fee_profiles (
+        id, user_id, name, commission_rate_bps, commission_discount_bps,
+        minimum_commission_amount, commission_currency, commission_rounding_mode,
+        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
+        commission_discount_percent
+      ) VALUES (
+        'mig041-fp', 'mig041-u', 'Default', 14, 7200,
+        20, 'TWD', 'FLOOR', 'FLOOR',
+        30, 15, 10, 0, 1.425, 28
+      )
+    `);
+
+    await pool.query(`
+      INSERT INTO accounts (id, user_id, name, fee_profile_id)
+      VALUES ('mig041-acc-1', 'mig041-u', 'Main', 'mig041-fp')
+    `);
+    const createdAtRow = await pool.query<{ created_at: Date | null }>(
+      `SELECT created_at FROM accounts WHERE id = 'mig041-acc-1'`,
+    );
+    expect(createdAtRow.rows).toHaveLength(1);
+    expect(createdAtRow.rows[0].created_at).not.toBeNull();
+
+    // ── 4. Per-user uniqueness enforced: same user, same name → rejected ─────
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id)
+        VALUES ('mig041-acc-dup', 'mig041-u', 'Main', 'mig041-fp')
+      `),
+    ).rejects.toThrow();
+
+    // ── 5. Per-user uniqueness scoped: different user, same name → accepted ──
+
+    await pool.query(`
+      INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+      VALUES ('mig041-u2', 'mig041-u2@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+    `);
+    await pool.query(`
+      INSERT INTO fee_profiles (
+        id, user_id, name, commission_rate_bps, commission_discount_bps,
+        minimum_commission_amount, commission_currency, commission_rounding_mode,
+        tax_rounding_mode, stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+        etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, board_commission_rate,
+        commission_discount_percent
+      ) VALUES (
+        'mig041-fp2', 'mig041-u2', 'Default', 14, 7200,
+        20, 'TWD', 'FLOOR', 'FLOOR',
+        30, 15, 10, 0, 1.425, 28
+      )
+    `);
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id)
+        VALUES ('mig041-acc-other', 'mig041-u2', 'Main', 'mig041-fp2')
+      `),
+    ).resolves.not.toThrow();
+
+    // ── 6. Same user, different name → accepted (case-sensitive uniqueness) ─
+
+    await expect(
+      pool.query(`
+        INSERT INTO accounts (id, user_id, name, fee_profile_id)
+        VALUES ('mig041-acc-2', 'mig041-u', 'main', 'mig041-fp')
+      `),
+    ).resolves.not.toThrow();
+  });
 });

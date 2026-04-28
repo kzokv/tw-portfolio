@@ -36,7 +36,8 @@ export interface SettingsFormModel {
   feeProfileBindings: SettingsSecurityBindingModel[];
 }
 
-export type SettingsTab = "profile" | "general" | "fees" | "tickers" | "display";
+// KZO-179: "accounts" tab added between Fees and Tickers (locked decision D1).
+export type SettingsTab = "profile" | "general" | "fees" | "accounts" | "tickers" | "display";
 
 export interface SaveSettingsRequest {
   settings: {

@@ -859,6 +859,11 @@ export function AppShell({
         feeProfileBindings={dashboard.feeProfileBindings}
         profile={profileData.profile}
         onProfileUpdate={profileData.refresh}
+        // KZO-179 — re-fetch dashboard.accounts after a POST /accounts from
+        // the new Accounts tab. dashboard.refresh() triggers a snapshot
+        // refetch which re-pulls accounts + feeProfiles + bindings (see
+        // useDashboardData.refresh).
+        onAccountsRefresh={dashboard.refresh}
         isSaving={settingsSave.isSaving}
         errorMessage={settingsSave.errorMessage}
         onSave={settingsSave.save}

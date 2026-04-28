@@ -6691,7 +6691,12 @@ export class PostgresPersistence implements Persistence {
   }
 }
 
-function isUniqueViolation(error: unknown): error is Error & { code: string } {
+// Exported for KZO-179 — POST /accounts uses this in the saveStore catch
+// block as the TOCTOU safety net for the per-user account-name unique index
+// (`ux_accounts_user_id_name`). Other routes that wrap saveStore in a
+// try/catch may also import from here. Internal callers in postgres.ts
+// continue to use the same identifier.
+export function isUniqueViolation(error: unknown): error is Error & { code: string } {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "23505");
 }
 

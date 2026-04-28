@@ -51,7 +51,8 @@ import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { seedDemoTransactions } from "../services/demoData.js";
-import { createStore } from "../services/store.js";
+import { createStore, defaultFeeProfileIdFor } from "../services/store.js";
+import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
@@ -80,7 +81,7 @@ import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../li
 import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
 import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
-import type { AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
+import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
 
 export const userScopedIdSchema = z
@@ -344,6 +345,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PUT /settings/full",
   "PUT /settings/fee-config",
   "PATCH /profile",
+  "POST /accounts",
   "PATCH /accounts/:id",
   "POST /fee-profiles",
   "PATCH /fee-profiles/:id",
@@ -381,6 +383,7 @@ const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
   "PATCH /settings",
   "PUT /settings/full",
   "PUT /settings/fee-config",
+  "POST /accounts",
   "PATCH /accounts/:id",
   "POST /fee-profiles",
   "PATCH /fee-profiles/:id",
@@ -2479,6 +2482,77 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/accounts", async (req) => {
     const { store } = await loadUserStore(app, req);
     return store.accounts;
+  });
+
+  // KZO-179 — multi-account creation. Mirrors POST /fee-profiles persistence
+  // pattern (push + saveStore). Per scope-todo:
+  //   D2 — no audit_log entry; the new accounts.created_at column (migration
+  //        041) is the forensic floor.
+  //   D3 — name uniqueness via explicit pre-check (clean 409 UX) AND
+  //        try/catch isUniqueViolation (TOCTOU safety net wrapping saveStore
+  //        — backed by ux_accounts_user_id_name unique index).
+  //   D5 — fee-profile resolution cascade: body → user's default
+  //        (`${userId}-fp-default`) → store.feeProfiles[0].id (always
+  //        non-empty per `must_keep_one_profile`).
+  //   D7 — bare AccountDto response (no envelope; mirrors POST /fee-profiles).
+  //   D9 — no new persistence interface method; saveStore handles INSERT.
+  //   D10 — registered in BOTH WRITER_ROLE_ROUTE_KEYS and
+  //         WRITE_CONTEXT_GUARD_ROUTE_KEYS.
+  app.post("/accounts", async (req) => {
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(80),
+        // Enum values match migration 040's CHECK constraints.
+        defaultCurrency: z.enum(["TWD", "USD", "AUD"]),
+        accountType: z.enum(["broker", "bank", "wallet"]),
+        feeProfileId: userScopedIdSchema.optional(),
+      })
+      .parse(req.body);
+
+    const { store } = await loadUserStore(app, req);
+
+    // Pre-check (clean 409 UX before TOCTOU safety net). The unique index
+    // ux_accounts_user_id_name is the actual enforcement; this just delivers
+    // a cleaner error before saveStore runs.
+    if (store.accounts.some((account) => account.name === body.name)) {
+      throw routeError(409, "account_name_in_use", "An account with that name already exists.");
+    }
+
+    // Validate explicit feeProfileId if the body provided one.
+    if (body.feeProfileId !== undefined) {
+      requireProfile(store, body.feeProfileId);
+    }
+
+    // Resolve fee-profile per D5 cascade.
+    const resolvedFeeProfileId =
+      body.feeProfileId !== undefined
+        ? body.feeProfileId
+        : (store.feeProfiles.find((profile) => profile.id === defaultFeeProfileIdFor(store.userId))?.id ??
+          store.feeProfiles[0]?.id);
+    if (!resolvedFeeProfileId) {
+      throw routeError(500, "no_fee_profile_available", "No fee profile available for the user.");
+    }
+
+    const account: AccountDto = {
+      id: randomUUID(),
+      userId: store.userId,
+      name: body.name,
+      feeProfileId: resolvedFeeProfileId,
+      defaultCurrency: body.defaultCurrency,
+      accountType: body.accountType,
+    };
+    store.accounts.push(account);
+
+    try {
+      await app.persistence.saveStore(store);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw routeError(409, "account_name_in_use", "An account with that name already exists.");
+      }
+      throw error;
+    }
+
+    return account;
   });
 
   app.patch("/accounts/:id", async (req) => {

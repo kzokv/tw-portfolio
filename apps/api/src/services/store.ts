@@ -23,6 +23,25 @@ function createDefaultFeeProfile(): FeeProfile {
   return { ...defaultFeeProfile };
 }
 
+/**
+ * Deterministic id for a user's default-seeded fee profile in the Postgres
+ * backend (see `PostgresPersistence.defaultFeeProfileId` — same shape).
+ *
+ * KZO-179 D5 — used by the POST /accounts route's fee-profile resolution
+ * cascade: if the body omits `feeProfileId` the route looks up
+ * `defaultFeeProfileIdFor(userId)` in the store, then falls back to
+ * `store.feeProfiles[0].id` (always non-empty per the
+ * `must_keep_one_profile` invariant). Exposing this helper keeps the magic
+ * string in one place rather than re-deriving it inside the route handler.
+ *
+ * The in-memory backend seeds with id `fp-default` (no user prefix). The
+ * cascade tolerates this — the lookup returns undefined and the route falls
+ * back to `store.feeProfiles[0].id`.
+ */
+export function defaultFeeProfileIdFor(userId: string): string {
+  return `${userId}-fp-default`;
+}
+
 export function instrumentDefToRef(def: InstrumentDef): InstrumentRef {
   return {
     ticker: def.ticker,

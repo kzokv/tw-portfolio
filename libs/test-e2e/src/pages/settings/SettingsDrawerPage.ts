@@ -7,7 +7,18 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     profile: Locator;
     general: Locator;
     fees: Locator;
+    accounts: Locator;
     tickers: Locator;
+  };
+  accountCreate: {
+    form: Locator;
+    nameInput: Locator;
+    typePill: (type: "broker" | "bank" | "wallet") => Locator;
+    currencyCard: (currency: "TWD" | "USD" | "AUD") => Locator;
+    feeProfileSelect: Locator;
+    previewChip: Locator;
+    submit: Locator;
+    error: Locator;
   };
   general: {
     localeSelect: Locator;
@@ -93,7 +104,29 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         profile: this.locate("settings-tab-profile", "Profile Tab"),
         general: this.locate("settings-tab-general", "General Tab"),
         fees: this.locate("settings-tab-fees", "Fees Tab"),
+        accounts: this.locate("settings-tab-accounts", "Accounts Tab"),
         tickers: this.locate("settings-tab-tickers", "Tickers Tab"),
+      },
+      accountCreate: {
+        form: this.locate("account-create-form", "Account Create Form"),
+        nameInput: this.locate("account-create-name-input", "Account Create Name Input"),
+        typePill: (type: "broker" | "bank" | "wallet") =>
+          this.locate(`account-create-type-${type}`, `Account Create Type Pill (${type})`),
+        currencyCard: (currency: "TWD" | "USD" | "AUD") =>
+          this.locate(
+            `account-create-currency-${currency}`,
+            `Account Create Currency Card (${currency})`,
+          ),
+        feeProfileSelect: this.locate(
+          "account-create-fee-profile-select",
+          "Account Create Fee Profile Select",
+        ),
+        previewChip: this.locate(
+          "account-create-preview-chip",
+          "Account Create Preview Chip",
+        ),
+        submit: this.locate("account-create-submit", "Account Create Submit"),
+        error: this.locate("account-create-error", "Account Create Inline Error"),
       },
       general: {
         localeSelect: this.locate("settings-locale-select", "Locale Select"),

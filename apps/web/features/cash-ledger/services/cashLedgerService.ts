@@ -1,6 +1,22 @@
-import type { AccountDto } from "@tw-portfolio/shared-types";
-import { getJson } from "../../../lib/api";
+import type {
+  AccountDefaultCurrency,
+  AccountDto,
+  AccountType,
+} from "@tw-portfolio/shared-types";
+import { getJson, postJson } from "../../../lib/api";
 import type { CashLedgerListResponse, CashLedgerQuery } from "../types";
+
+/**
+ * KZO-179: request body for `POST /accounts`. Mirrors the Zod schema in
+ * `apps/api/src/routes/registerRoutes.ts`. `feeProfileId` is optional —
+ * the route resolves it via the cascade in scope-todo D5 when omitted.
+ */
+export interface CreateAccountInput {
+  name: string;
+  defaultCurrency: AccountDefaultCurrency;
+  accountType: AccountType;
+  feeProfileId?: string;
+}
 
 export async function fetchCashLedgerEntries(
   query: CashLedgerQuery = {},
@@ -31,4 +47,20 @@ export async function fetchCashLedgerEntries(
  */
 export async function fetchAccounts(): Promise<AccountDto[]> {
   return getJson<AccountDto[]>("/accounts");
+}
+
+/**
+ * KZO-179: create a new account via `POST /accounts`. Returns the bare
+ * `AccountDto` (per scope-todo D7). The route validates name uniqueness
+ * (per-user, case-sensitive) and resolves the fee profile when omitted.
+ *
+ * Caller is expected to surface inline errors:
+ * - 409 `account_name_in_use` → "An account with that name already exists."
+ * - 500 / generic → "Could not create account. Please try again."
+ *
+ * The shared `postJson` helper throws `ApiError` for non-2xx responses;
+ * callers should `.catch` and read `error.code` / `error.status`.
+ */
+export async function createAccount(input: CreateAccountInput): Promise<AccountDto> {
+  return postJson<AccountDto>("/accounts", input);
 }

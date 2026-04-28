@@ -12,7 +12,9 @@ test("[transactions settings]: rename account inline → selector shows renamed 
   await transactions.assert.selectedAccountOptionContains(/Main/i);
 
   await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openFeesTab();
+  // KZO-179: AccountsListSection (which hosts the rename-account UI)
+  // relocated from Fees → Accounts tab per scope-todo D1.
+  await settings.arrange.openAccountsTab();
 
   await settings.assert.accountNameLabelContains(/Main/i);
   await page.getByTestId("account-rename-icon").first().click();

@@ -7,7 +7,9 @@ import type { AppDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { GeneralSettingsSection } from "../../features/settings/components/GeneralSettingsSection";
 import { FeeProfilesSection } from "../../features/settings/components/FeeProfilesSection";
-import { AccountFallbackSection } from "../../features/settings/components/AccountFallbackSection";
+import { AccountsListSection } from "../../features/settings/components/AccountsListSection";
+import { AccountCreateForm } from "../../features/settings/components/AccountCreateForm";
+import { createAccount } from "../../features/cash-ledger/services/cashLedgerService";
 import { SecurityBindingsSection } from "../../features/settings/components/SecurityBindingsSection";
 import { ProfileSection } from "../../features/settings/components/ProfileSection";
 import { MonitoredTickersSection } from "../../features/settings/components/MonitoredTickersSection";
@@ -30,6 +32,9 @@ interface SettingsDrawerProps {
   feeProfileBindings: FeeProfileBindingDto[];
   profile: ProfileDto | null;
   onProfileUpdate: () => void;
+  // KZO-179 — re-fetch dashboard.accounts after a successful POST /accounts
+  // from the new Accounts tab. Mirrors the onProfileUpdate prop shape.
+  onAccountsRefresh: () => void;
   isSaving: boolean;
   errorMessage: string;
   onSave: (draft: SettingsDraft) => Promise<void>;
@@ -52,6 +57,7 @@ export function SettingsDrawer({
   feeProfileBindings,
   profile,
   onProfileUpdate,
+  onAccountsRefresh,
   isSaving,
   errorMessage,
   onSave,
@@ -90,7 +96,14 @@ export function SettingsDrawer({
         <p className="text-sm text-slate-300">{dict.feedback.loadingSettings}</p>
       ) : (
         <>
-          <div className="mb-3 inline-flex w-fit gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1 md:mb-4">
+          {/* KZO-179 iter-2 LOW fix — `flex-wrap` so the 6-tab strip wraps to
+              two rows at narrow viewports (e.g. iPhone 14 Pro / 390px) instead
+              of overflowing off-screen. The pre-existing 5-tab strip happened
+              to fit common widths without wrap; the 6th tab dropped the
+              overflow threshold below 390px. Desktop (≥md) still renders
+              single-row. `rounded-full` retained — verified acceptable when
+              the wrapped row pill stacks tightly under the first row. */}
+          <div className="mb-3 inline-flex w-fit flex-wrap gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1 md:mb-4">
             <Button
               type="button"
               variant={form.tab === "profile" ? "default" : "secondary"}
@@ -120,6 +133,16 @@ export function SettingsDrawer({
               data-testid="settings-tab-fees"
             >
               {dict.settings.tabFeeProfiles}
+            </Button>
+            <Button
+              type="button"
+              variant={form.tab === "accounts" ? "default" : "secondary"}
+              size="sm"
+              className={form.tab !== "accounts" ? "border-transparent bg-transparent shadow-none" : "rounded-full"}
+              onClick={() => form.setTab("accounts")}
+              data-testid="settings-tab-accounts"
+            >
+              {dict.settings.tabAccounts}
             </Button>
             <Button
               type="button"
@@ -206,6 +229,38 @@ export function SettingsDrawer({
             </div>
           )}
 
+          {/* KZO-179 H1 fix — Accounts tab is a sibling render block (mirrors
+              profile / tickers / display container shape). It is NOT inside
+              the outer settings-save <form>, so:
+                - Enter inside `account-create-name-input` does NOT trigger
+                  the settings save.
+                - UnsavedChangesFooter (settings-save context) does not render.
+              AccountCreateForm has its own internal <form> for Enter-key
+              submit UX. AccountsListSection's binding-profile <select> still
+              mutates form.draft via form.updateAccountProfile — those edits
+              surface in the UnsavedChangesFooter when the user navigates
+              back to General / Fees. Rename is immediate (its own API). */}
+          {form.tab === "accounts" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex-1 space-y-4 overflow-y-auto pr-1 md:space-y-5" data-testid="settings-content-scroll">
+                <AccountCreateForm
+                  feeProfiles={feeProfiles}
+                  onCreate={createAccount}
+                  onAccountsRefresh={onAccountsRefresh}
+                  dict={dict}
+                />
+                <AccountsListSection
+                  accounts={accounts}
+                  bindings={form.draft.accounts}
+                  profiles={form.draft.feeProfiles}
+                  onUpdateAccountProfile={form.updateAccountProfile}
+                  onRenameAccount={onRenameAccount}
+                  dict={dict}
+                />
+              </div>
+            </div>
+          )}
+
           {(form.tab === "general" || form.tab === "fees") && (
             <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -230,14 +285,6 @@ export function SettingsDrawer({
                         onAddProfile={form.addProfile}
                         onRemoveProfile={form.removeProfile}
                         onUpdateProfileField={form.updateProfileField}
-                        dict={dict}
-                      />
-                      <AccountFallbackSection
-                        accounts={accounts}
-                        bindings={form.draft.accounts}
-                        profiles={form.draft.feeProfiles}
-                        onUpdateAccountProfile={form.updateAccountProfile}
-                        onRenameAccount={onRenameAccount}
                         dict={dict}
                       />
                       <SecurityBindingsSection
