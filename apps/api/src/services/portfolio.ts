@@ -7,6 +7,8 @@ import {
   type FeeProfile,
   type Lot,
 } from "@tw-portfolio/domain";
+import { marketCodeFor } from "@tw-portfolio/shared-types";
+import type { AccountDto } from "@tw-portfolio/shared-types";
 import {
   appendCorporateAction,
   appendTradeEvent,
@@ -26,6 +28,39 @@ import type {
   Store,
   Transaction,
 } from "../types/store.js";
+
+// KZO-183: trade market guard — every trade booking must hit an instrument
+// whose market matches the booking account's market (derived from
+// account.defaultCurrency). 1:1 currency↔market mapping. The DB-level
+// trigger on `trade_events` is defense-in-depth; this is the user-facing
+// surface that produces the 400 error envelope.
+export function assertTradeMarketMatchesAccount(
+  account: Pick<AccountDto, "id" | "defaultCurrency">,
+  tradeMarketCode: string,
+): void {
+  // marketCodeFor throws a plain Error if account.defaultCurrency falls outside
+  // the closed TWD/USD/AUD set. Catch it here so callers see a stable 400
+  // routeError envelope instead of a 500 (CHECK constraint on
+  // accounts.default_currency makes this branch unreachable in practice; this
+  // is defense-in-depth per service-error-pattern.md).
+  let expected: string;
+  try {
+    expected = marketCodeFor(account.defaultCurrency);
+  } catch {
+    throw routeError(
+      400,
+      "trade_market_mismatch",
+      `Account ${account.id} has unsupported defaultCurrency ${account.defaultCurrency}`,
+    );
+  }
+  if (tradeMarketCode !== expected) {
+    throw routeError(
+      400,
+      "trade_market_mismatch",
+      `Trade market ${tradeMarketCode} does not match account ${account.id} market ${expected}`,
+    );
+  }
+}
 
 export interface CreateTransactionInput {
   id: string;
@@ -62,11 +97,15 @@ export function createTransaction(
   const instrument = store.instruments.find((item) => item.ticker === input.ticker);
   if (!instrument) throw routeError(400, "unsupported_ticker", "Unsupported ticker");
   if (instrument.type === null) throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
+  // KZO-183: enforce account market binding BEFORE running fee resolution
+  // or any side effects. The instrument's market_code must match the
+  // market derived from the booking account's defaultCurrency.
+  assertTradeMarketMatchesAccount(account, instrument.marketCode ?? "TW");
+
   const profile = resolveFeeProfileForTransaction(
     store,
     account.id,
     input.ticker,
-    instrument.marketCode ?? "TW",
     account.feeProfileId,
   );
   if (input.priceCurrency !== profile.commissionCurrency) {
@@ -161,14 +200,13 @@ function resolveFeeProfileForTransaction(
   store: Store,
   accountId: string,
   ticker: string,
-  marketCode: string,
   fallbackProfileId: string,
 ): FeeProfile {
+  // KZO-183: bindings no longer carry `marketCode` — resolution is keyed
+  // solely by (accountId, ticker). Market enforcement happens at the trade
+  // booking guard, not in fee-profile resolution.
   const symbolBinding = store.feeProfileBindings.find(
-    (binding) =>
-      binding.accountId === accountId &&
-      binding.ticker === ticker &&
-      (binding.marketCode === undefined || binding.marketCode === marketCode),
+    (binding) => binding.accountId === accountId && binding.ticker === ticker,
   );
 
   if (symbolBinding) {

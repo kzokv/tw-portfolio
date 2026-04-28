@@ -61,7 +61,6 @@ erDiagram
   users ||--o{ invites : issuer_or_share_owner
   users ||--o{ audit_log : actor_or_target
   users ||--o{ portfolio_shares : owner_or_grantee
-  users ||--o{ fee_profiles : owns
   users ||--o{ accounts : owns
   users ||--o{ trade_events : owns
   users ||--o{ cash_ledger_entries : owns
@@ -70,6 +69,7 @@ erDiagram
   users ||--o{ daily_portfolio_snapshots : owns
   users ||--o{ reconciliation_records : owns
 
+  accounts ||--o{ fee_profiles : owned_profile
   fee_profiles ||--o{ accounts : default_profile
   fee_profiles ||--o{ account_fee_profile_overrides : override_profile
 
@@ -106,7 +106,6 @@ users
   -> portfolio_shares.owner_user_id
   -> portfolio_shares.grantee_user_id
   -> portfolio_shares.revoked_by_user_id
-  -> fee_profiles.user_id
   -> accounts.user_id
   -> trade_events.user_id
   -> cash_ledger_entries.user_id
@@ -117,10 +116,12 @@ users
   -> reconciliation_records.reviewer_id
 
 fee_profiles
+  -> fee_profiles.account_id
   -> accounts.fee_profile_id
   -> account_fee_profile_overrides.fee_profile_id
 
 accounts
+  -> fee_profiles.account_id
   -> account_fee_profile_overrides.account_id
   -> lots.account_id
   -> corporate_actions.account_id
@@ -939,6 +940,8 @@ Current numbered migration inventory:
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing
 - `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
 - `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` for admin-configurable dashboard timeframe defaults (KZO-159)
+- `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to support account ordering and migration backfill naming
+- `042_kzo183_account_scoped_fee_profiles.sql`: rescope `fee_profiles` from user-owned to account-owned, drop `account_fee_profile_overrides.market_code`, enforce same-account ownership with composite FKs, and add market-alignment guards for `trade_events` and `dividend_ledger_entries`
 
 ### Persistence write-path map
 
@@ -1048,13 +1051,15 @@ replayPositionHistory (KZO-114)
 
 In addition to SQL constraints, `validateStoreInvariants` and `validateAccountingStoreInvariants` enforce:
 - every account belongs to the active store user
-- every account references an existing fee profile
-- every fee-profile binding points to an existing account and profile
+- every account references an existing fee profile owned by that same account
+- every fee-profile binding points to an existing account and a profile owned by that same account
 - `accounting.policy.inventoryModel` must remain `LOT_CAPABLE`
 - `accounting.policy.disposalPolicy` must remain `WEIGHTED_AVERAGE`
 - booking sequences must be unique per `accountId + tradeDate`
 - lot opened sequences must be unique per `accountId + symbol + openedAt`
+- every trade event market must match the market derived from `accounts.default_currency`
 - every dividend ledger row must reference an existing dividend event and valid account
+- every dividend ledger posting market must match the market derived from `accounts.default_currency`
 - `expected` dividend rows must remain reconciliation-open
 - only one active dividend ledger row may exist for `(accountId, dividendEventId)`
 - every lot allocation must reference a known trade and lot
@@ -1363,8 +1368,8 @@ Finding:
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/settings` | none | `UserSettings` | `loadStore` | yes |
 | `PATCH` | `/settings` | partial `{ locale?, costBasisMethod?, quotePollIntervalSeconds? }` | updated `UserSettings` | `loadStore`, `saveStore` | not used by shipped UI |
-| `PUT` | `/settings/full` | `{ settings, feeProfiles, accounts, feeProfileBindings }` | `{ settings, accounts, feeProfiles, feeProfileBindings }` | draft merge, `saveStore` | yes |
-| `GET` | `/settings/fee-config` | none | `{ accounts, feeProfiles, feeProfileBindings, integrityIssue }` | `loadStore`, integrity check | yes |
+| `PUT` | `/settings/full` | `{ settings, feeProfiles, accounts, feeProfileBindings }` where each `feeProfile` carries `accountId` | `{ settings, accounts, feeProfiles, feeProfileBindings }` | draft merge, `saveStore` | yes |
+| `GET` | `/settings/fee-config` | none | `{ accounts, feeProfiles, feeProfileBindings, integrityIssue }` with flat `feeProfiles[]` plus `accountId` discriminator | `loadStore`, integrity check | yes |
 | `PUT` | `/settings/fee-config` | `{ accounts, feeProfileBindings }` | `{ accounts, feeProfileBindings }` | `loadStore`, validation, `saveStore` | not used by shipped UI |
 
 Key validation:
@@ -1372,6 +1377,8 @@ Key validation:
 - quote poll interval must be `1..86400`
 - `settings/full` accepts temp profile ids and resolves them to persisted ids
 - at least one fee profile must remain
+- every `accounts[].feeProfileId` must resolve to a fee profile whose `accountId` matches the account being saved
+- every `feeProfileBindings[]` row must resolve to a fee profile whose `accountId` matches `binding.accountId`
 - bindings are deduped by `accountId:symbol`
 
 #### Accounts, fee profiles, and bindings
@@ -1379,8 +1386,8 @@ Key validation:
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/accounts` | none | `Account[]` | `loadStore` | indirect via fee-config payload instead |
-| `PATCH` | `/accounts/:id` | `{ name?, feeProfileId }` | updated `Account` | `loadStore`, `saveStore` | not used by shipped UI |
-| `GET` | `/fee-profiles` | none | `FeeProfile[]` | `loadStore` | not used directly by shipped UI |
+| `PATCH` | `/accounts/:id` | `{ name?, feeProfileId }` where `feeProfileId` must belong to the same account | updated `Account` | `loadStore`, `saveStore` | not used by shipped UI |
+| `GET` | `/fee-profiles` | none | flat `FeeProfile[]` where each row carries `accountId` | `loadStore` | not used directly by shipped UI |
 | `POST` | `/fee-profiles` | fee profile payload | created `FeeProfile` | `loadStore`, `saveStore` | not used directly by shipped UI |
 | `PATCH` | `/fee-profiles/:id` | fee profile payload | updated `FeeProfile` | `loadStore`, `saveStore` | not used directly by shipped UI |
 | `DELETE` | `/fee-profiles/:id` | none | `{ deletedId }` | `loadStore`, `listTradeEvents`, `saveStore` | not used directly by shipped UI |
@@ -1392,6 +1399,12 @@ Delete protections for fee profiles:
 - cannot delete a profile still used by any account
 - cannot delete a profile referenced by any symbol override
 - cannot delete a profile embedded in any historical trade fee snapshot
+
+KZO-183 ownership model:
+- `fee_profiles.account_id` is the ownership root; user-scoped sharing is removed
+- `accounts.fee_profile_id` means "default profile within this account's profile list"
+- `account_fee_profile_overrides` stays account-scoped and drops `market_code`; its primary key becomes `(account_id, ticker)`
+- the database enforces same-account ownership with composite foreign keys on `(fee_profile_id, account_id)`
 
 #### Portfolio trades and holdings
 
@@ -1405,7 +1418,9 @@ Delete protections for fee profiles:
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
 Trade posting behavior:
-- resolves account default fee profile, then per-symbol override if present
+- derives the account market from `accounts.default_currency` (`TWD -> TW`, `USD -> US`, `AUD -> AU`)
+- rejects the request when `trade.marketCode` does not match the derived account market
+- resolves the account default fee profile first, then a same-account per-symbol override if present
 - looks up instrument type from `symbols`
 - calculates fees unless booked commission/tax is explicitly supplied
 - enforces trade timestamp date alignment
@@ -1423,6 +1438,28 @@ Transaction mutation behavior (KZO-114):
 
 Finding:
 - `/portfolio/transactions` uses the incremental persistence path with Redis-backed idempotency, while AI-confirmed trades do not.
+
+### Fee-profile ownership and resolution flow
+
+```mermaid
+flowchart TD
+  A[Incoming trade or dividend request] --> B[Load account]
+  B --> C[Derive market from account.default_currency]
+  C --> D{Request market matches?}
+  D -- no --> E[Reject with routeError 400 trade_market_mismatch or dividend_market_mismatch]
+  D -- yes --> F[Resolve account default fee profile]
+  F --> G{Same-account symbol override exists?}
+  G -- yes --> H[Use override fee profile]
+  G -- no --> I[Use account default fee profile]
+  H --> J[Book trade fee snapshot or dividend posting]
+  I --> J
+```
+
+Resolution order and guards:
+- the account owns all eligible fee profiles through `fee_profiles.account_id`
+- `accounts.fee_profile_id` selects the default profile inside that owned set
+- `account_fee_profile_overrides(account_id, ticker)` can replace the default for one symbol, but only with another fee profile owned by the same account
+- `trade_fee_policy_snapshots.profile_id_at_booking` remains audit-only metadata; migration `042` intentionally does not backfill it to the new account-owned ids
 - DELETE and PATCH use a focused mutation path (KZO-114) with async cascade recompute — no loadStore round-trip, no full-store rewrite.
 
 #### Dividends and corporate actions
@@ -1608,13 +1645,14 @@ flowchart TD
   B --> C[loadStore]
   C --> D[build draft store]
   D --> E[resolve temp fee profile refs]
-  E --> F[validate accounts and bindings]
-  F --> G[assert store integrity]
-  G --> H[saveStore]
-  H --> I[users/fee_profiles/accounts/account_fee_profile_overrides]
-  H --> J[recompute_jobs]
-  H --> K[saveAccountingStoreTx full rewrite]
-  K --> L[trade_events/cash/dividend/lot/snapshot mirror tables]
+  E --> F[validate feeProfiles.accountId ownership]
+  F --> G[validate accounts and bindings]
+  G --> H[assert store integrity]
+  H --> I[saveStore]
+  I --> J[users/fee_profiles/accounts/account_fee_profile_overrides]
+  I --> K[recompute_jobs]
+  I --> L[saveAccountingStoreTx full rewrite]
+  L --> M[trade_events/cash/dividend/lot/snapshot mirror tables]
 ```
 
 Key effect:

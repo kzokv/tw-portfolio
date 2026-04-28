@@ -6,7 +6,6 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
   tabs: {
     profile: Locator;
     general: Locator;
-    fees: Locator;
     accounts: Locator;
     tickers: Locator;
   };
@@ -15,7 +14,6 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     nameInput: Locator;
     typePill: (type: "broker" | "bank" | "wallet") => Locator;
     currencyCard: (currency: "TWD" | "USD" | "AUD") => Locator;
-    feeProfileSelect: Locator;
     previewChip: Locator;
     submit: Locator;
     error: Locator;
@@ -33,18 +31,28 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     cancel: Locator;
     keepEditing: Locator;
   };
-  fees: {
-    addProfileButton: Locator;
-    profileCards: Locator;
-    profileName: (index: number) => Locator;
-    removeProfile: (index: number) => Locator;
-    addBindingButton: Locator;
-    bindingRow: (index: number) => Locator;
-    bindingAccountSelect: (index: number) => Locator;
-    bindingAccountOption: (index: number, accountId: string) => Locator;
-  };
+  // KZO-183: per-account expandable cards. The legacy `fees` section
+  // (FeeProfilesSection + SecurityBindingsSection) was deleted; profile
+  // CRUD + per-symbol overrides now live inline within each account card.
   accountsList: {
+    searchInput: Locator;
+    card: (accountId: string) => Locator;
+    cardToggle: (accountId: string) => Locator;
+    marketBadge: (accountId: string) => Locator;
     accountProfileSelect: (accountId: string) => Locator;
+    addProfile: (accountId: string) => Locator;
+    duplicateCta: (accountId: string) => Locator;
+    addOverride: (accountId: string) => Locator;
+    duplicatePicker: Locator;
+    duplicateSourceSelect: Locator;
+    duplicateConfirm: Locator;
+    duplicateCancel: Locator;
+    duplicateCheckbox: (profileId: string) => Locator;
+    profileRows: (accountId: string) => Locator;
+    profileRow: (accountId: string, profileId: string) => Locator;
+    profileEditButton: (profileId: string) => Locator;
+    profileNameInput: (profileId: string) => Locator;
+    profileEditDoneButton: (profileId: string) => Locator;
   };
   profile: {
     section: Locator;
@@ -110,7 +118,6 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
       tabs: {
         profile: this.locate("settings-tab-profile", "Profile Tab"),
         general: this.locate("settings-tab-general", "General Tab"),
-        fees: this.locate("settings-tab-fees", "Fees Tab"),
         accounts: this.locate("settings-tab-accounts", "Accounts Tab"),
         tickers: this.locate("settings-tab-tickers", "Tickers Tab"),
       },
@@ -122,12 +129,8 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         currencyCard: (currency: "TWD" | "USD" | "AUD") =>
           this.locate(
             `account-create-currency-${currency}`,
-            `Account Create Currency Card (${currency})`,
+            `Account Create Market Card (${currency})`,
           ),
-        feeProfileSelect: this.locate(
-          "account-create-fee-profile-select",
-          "Account Create Fee Profile Select",
-        ),
         previewChip: this.locate(
           "account-create-preview-chip",
           "Account Create Preview Chip",
@@ -154,37 +157,71 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           description: "Unsaved Changes Keep Editing Button",
         }),
       },
-      fees: {
-        addProfileButton: this.locate("settings-add-profile-button", "Add Fee Profile Button"),
-        profileCards: this.withDescription(
-          this.page.locator('[data-testid^="settings-profile-name-"]'),
-          "Fee Profile Name Fields",
-        ),
-        profileName: (index: number) =>
-          this.locate(`settings-profile-name-${index}`, `Fee Profile Name ${index}`),
-        removeProfile: (index: number) =>
-          this.locate(`settings-remove-profile-${index}`, `Remove Fee Profile ${index}`),
-        addBindingButton: this.locate("settings-add-binding-button", "Add Override Button"),
-        bindingRow: (index: number) =>
-          this.locate(`settings-binding-row-${index}`, `Binding Row ${index}`),
-        bindingAccountSelect: (index: number) =>
-          this.locate(
-            `settings-binding-account-${index}`,
-            `Binding Account Select ${index}`,
-          ),
-        bindingAccountOption: (index: number, accountId: string) =>
-          this.withinByCss(
-            this.locate(`settings-binding-account-${index}`),
-            `option[value="${accountId}"]`,
-            `Binding ${index} Option (${accountId})`,
-          ),
-      },
       accountsList: {
+        searchInput: this.locate("accounts-tab-search", "Accounts Tab Search Input"),
+        card: (accountId: string) =>
+          this.locate(`accounts-card-${accountId}`, `Accounts Card (${accountId})`),
+        cardToggle: (accountId: string) =>
+          this.locate(`accounts-card-${accountId}-toggle`, `Accounts Card Toggle (${accountId})`),
+        marketBadge: (accountId: string) =>
+          this.locate(
+            `accounts-card-${accountId}-market-badge`,
+            `Accounts Card Market Badge (${accountId})`,
+          ),
         accountProfileSelect: (accountId: string) =>
           this.locate(
             `settings-account-profile-${accountId}`,
             `Account Profile Select (${accountId})`,
           ),
+        addProfile: (accountId: string) =>
+          this.locate(
+            `accounts-card-${accountId}-add-profile`,
+            `Add Profile Button (${accountId})`,
+          ),
+        duplicateCta: (accountId: string) =>
+          this.locate(
+            `accounts-card-${accountId}-duplicate-cta`,
+            `Duplicate-from-another-account CTA (${accountId})`,
+          ),
+        addOverride: (accountId: string) =>
+          this.locate(
+            `accounts-card-${accountId}-add-override`,
+            `Add Override Button (${accountId})`,
+          ),
+        duplicatePicker: this.locate("accounts-duplicate-picker", "Duplicate Profile Picker"),
+        duplicateSourceSelect: this.locate(
+          "accounts-duplicate-source-select",
+          "Duplicate Source Account Select",
+        ),
+        duplicateConfirm: this.locate(
+          "accounts-duplicate-confirm",
+          "Duplicate Confirm Button",
+        ),
+        duplicateCancel: this.locate(
+          "accounts-duplicate-cancel",
+          "Duplicate Cancel Button",
+        ),
+        duplicateCheckbox: (profileId: string) =>
+          this.locate(
+            `accounts-duplicate-checkbox-${profileId}`,
+            `Duplicate Profile Checkbox (${profileId})`,
+          ),
+        profileRows: (accountId: string) =>
+          this.withDescription(
+            this.page.locator(`[data-testid^="accounts-card-${accountId}-profile-"]`),
+            `Profile Rows (${accountId})`,
+          ),
+        profileRow: (accountId: string, profileId: string) =>
+          this.locate(
+            `accounts-card-${accountId}-profile-${profileId}`,
+            `Profile Row (${accountId}/${profileId})`,
+          ),
+        profileEditButton: (profileId: string) =>
+          this.locate(`accounts-profile-edit-${profileId}`, `Profile Edit Button (${profileId})`),
+        profileNameInput: (profileId: string) =>
+          this.locate(`accounts-profile-name-input-${profileId}`, `Profile Name Input (${profileId})`),
+        profileEditDoneButton: (profileId: string) =>
+          this.locate(`accounts-profile-edit-done-${profileId}`, `Profile Edit Done (${profileId})`),
       },
       profile: {
         section: this.locate("profile-section", "Profile Section"),

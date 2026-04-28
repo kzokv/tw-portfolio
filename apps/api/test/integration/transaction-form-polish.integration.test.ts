@@ -250,6 +250,8 @@ describe("transaction form polish routes", () => {
     const store = await app.persistence.loadStore("user-1");
     const overrideProfile: FeeProfile = {
       id: "fp-override",
+      // KZO-183: profile owned by the memory-seeded "acc-1" account.
+      accountId: "acc-1",
       name: "Override Profile",
       boardCommissionRate: 0.001425,
       commissionDiscountPercent: 40,
@@ -303,6 +305,8 @@ describe("transaction form polish routes", () => {
     const store = await app.persistence.loadStore("user-1");
     const customProfile: FeeProfile = {
       id: "fp-stock-fallback",
+      // KZO-183: profile owned by the memory-seeded "acc-1" account.
+      accountId: "acc-1",
       name: "Stock Fallback",
       boardCommissionRate: 0.001425,
       commissionDiscountPercent: 0,
@@ -379,6 +383,8 @@ describe("transaction form polish routes", () => {
     const store = await app.persistence.loadStore("user-1");
     const usdProfile: FeeProfile = {
       id: "fp-usd",
+      // KZO-183: profile owned by the memory-seeded "acc-1" account.
+      accountId: "acc-1",
       name: "USD Profile",
       boardCommissionRate: 0.001,
       commissionDiscountPercent: 0,

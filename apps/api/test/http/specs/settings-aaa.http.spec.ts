@@ -161,6 +161,7 @@ test.describe("settings", () => {
         ...feeProfiles.map((profile) => ({ ...profile })),
         {
           tempId: "tmp-new-profile",
+          accountId: accounts[0]!.id,
           name: "Temp Profile",
           boardCommissionRate: 1.425,
           commissionDiscountPercent: 60,

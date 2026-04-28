@@ -15,6 +15,15 @@ interface UnsavedChangesFooterProps {
   onCancel: () => void;
   onCloseWithoutSaving: () => void;
   onDiscardChanges: () => void;
+  /**
+   * Optional click handler for the save button. When provided, the save button
+   * is rendered as `type="button"` and invokes this callback (used in the
+   * Accounts tab where we cannot wrap the section in a `<form>` because
+   * AccountCreateForm already has its own internal form). When omitted, the
+   * save button stays as `type="submit"` and submits the enclosing form
+   * (General tab).
+   */
+  onSaveClick?: () => void;
   dict: AppDictionary;
 }
 
@@ -29,6 +38,7 @@ export function UnsavedChangesFooter({
   onCancel,
   onCloseWithoutSaving,
   onDiscardChanges,
+  onSaveClick,
   dict,
 }: UnsavedChangesFooterProps) {
   return (
@@ -86,7 +96,12 @@ export function UnsavedChangesFooter({
         <Button type="button" variant="secondary" onClick={onCancel} disabled={isSaving}>
           {dict.actions.cancel}
         </Button>
-        <Button type="submit" disabled={isSaving || !isDirty} data-testid="settings-save-button">
+        <Button
+          type={onSaveClick ? "button" : "submit"}
+          onClick={onSaveClick}
+          disabled={isSaving || !isDirty}
+          data-testid="settings-save-button"
+        >
           {isSaving ? dict.actions.savingSettings : dict.actions.saveSettings}
         </Button>
       </div>

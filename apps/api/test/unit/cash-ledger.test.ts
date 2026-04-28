@@ -38,6 +38,8 @@ function makeTradeEvent(overrides: Partial<BookedTradeEvent> = {}): BookedTradeE
     isDayTrade: false,
     feeSnapshot: {
       id: "fp-default",
+      // KZO-183: fee profiles are account-scoped.
+      accountId: "acc-1",
       name: "Default Broker",
       boardCommissionRate: 1.425,
       commissionDiscountPercent: 0,

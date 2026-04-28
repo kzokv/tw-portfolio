@@ -1,17 +1,18 @@
 /**
- * KZO-179 — Web-unit tests for AccountCreateForm.
+ * KZO-179 / KZO-183 — Web-unit tests for AccountCreateForm.
  *
- * Verifies:
- *   - Renders 4 base fields (name, type pills, currency cards, callout) when
- *     `feeProfiles.length === 1`. Picker hidden per D5.
- *   - Renders fee-profile picker when `feeProfiles.length > 1`.
+ * Verifies (post KZO-183):
+ *   - Renders 4 base fields (name, type pills, market cards, callout). The
+ *     fee-profile picker was removed entirely — the route auto-seeds a
+ *     default profile, so the client never sets `feeProfileId`.
  *   - Live-preview chip updates as inputs change (reuses
  *     `formatAccountOption` per D13 / `nextjs-i18n-serialization.md`).
  *   - Submit button disabled when name is empty (or whitespace-only).
- *   - Submit calls `onCreate` with the resolved input AND `onAccountsRefresh`
- *     after success (D12).
+ *   - Submit calls `onCreate` with `{name, defaultCurrency, accountType}` —
+ *     NO `feeProfileId` — and `onAccountsRefresh` after success (D12).
  *   - Inline 409 error rendering uses `accountCreateNameInUseError` text.
  *   - Inline generic error rendering uses `accountCreateGenericError` text.
+ *   - Market labels render Taiwan / United States / Australia per E3.
  *
  * Pattern mirrors `apps/web/test/features/cash-ledger/CashLedgerClient.test.tsx`
  * (react-dom/client + act() — not RTL — to match the project's existing
@@ -21,7 +22,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { FeeProfileDto } from "@tw-portfolio/shared-types";
 import { AccountCreateForm } from "../../../../features/settings/components/AccountCreateForm";
 import { ApiError } from "../../../../lib/api";
 import { getDictionary } from "../../../../lib/i18n";
@@ -31,25 +31,6 @@ beforeAll(() => {
 });
 
 const dict = getDictionary("en");
-
-function buildFeeProfile(overrides: Partial<FeeProfileDto> = {}): FeeProfileDto {
-  return {
-    id: overrides.id ?? "fp-default",
-    name: overrides.name ?? "Default Broker",
-    boardCommissionRate: 1.425,
-    commissionDiscountPercent: 28,
-    minimumCommissionAmount: 20,
-    commissionCurrency: "TWD",
-    commissionRoundingMode: "FLOOR",
-    taxRoundingMode: "FLOOR",
-    stockSellTaxRateBps: 30,
-    stockDayTradeTaxRateBps: 15,
-    etfSellTaxRateBps: 10,
-    bondEtfSellTaxRateBps: 0,
-    commissionChargeMode: "CHARGED_UPFRONT",
-    ...overrides,
-  };
-}
 
 function buildAccountDto(overrides: Record<string, unknown> = {}) {
   return {
@@ -80,14 +61,13 @@ describe("AccountCreateForm", () => {
 
   // ── Render shape ───────────────────────────────────────────────────────────
 
-  it("renders 4 base fields and hides fee-profile picker when feeProfiles.length === 1", () => {
+  it("renders the 4 base sections (name, type pills, market cards, callout) with no fee-profile picker", () => {
     const onCreate = vi.fn();
     const onAccountsRefresh = vi.fn();
 
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={onCreate}
           onAccountsRefresh={onAccountsRefresh}
           dict={dict}
@@ -103,10 +83,16 @@ describe("AccountCreateForm", () => {
     expect(container.querySelector('[data-testid="account-create-type-bank"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="account-create-type-wallet"]')).toBeTruthy();
 
-    // Currency cards (3) — TWD, USD, AUD.
-    expect(container.querySelector('[data-testid="account-create-currency-TWD"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="account-create-currency-USD"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="account-create-currency-AUD"]')).toBeTruthy();
+    // Market cards (3) — TWD, USD, AUD; labels read country names per E3.
+    const tw = container.querySelector('[data-testid="account-create-currency-TWD"]');
+    const us = container.querySelector('[data-testid="account-create-currency-USD"]');
+    const au = container.querySelector('[data-testid="account-create-currency-AUD"]');
+    expect(tw).toBeTruthy();
+    expect(us).toBeTruthy();
+    expect(au).toBeTruthy();
+    expect(tw!.textContent).toContain(dict.settings.accountCreateMarketTaiwan);
+    expect(us!.textContent).toContain(dict.settings.accountCreateMarketUnitedStates);
+    expect(au!.textContent).toContain(dict.settings.accountCreateMarketAustralia);
 
     // Currency-lock callout.
     const callout = container.querySelector('[data-testid="account-create-currency-lock"]');
@@ -117,33 +103,8 @@ describe("AccountCreateForm", () => {
     expect(container.querySelector('[data-testid="account-create-submit"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="account-create-preview-chip"]')).toBeTruthy();
 
-    // Picker NOT rendered (D5 — hidden when only one profile).
+    // KZO-183: fee-profile picker removed.
     expect(container.querySelector('[data-testid="account-create-fee-profile-select"]')).toBeNull();
-  });
-
-  it("renders fee-profile picker when feeProfiles.length > 1 (D5)", () => {
-    const profiles = [
-      buildFeeProfile({ id: "fp-default", name: "Default Broker" }),
-      buildFeeProfile({ id: "fp-alt", name: "Alt" }),
-    ];
-
-    act(() =>
-      root.render(
-        <AccountCreateForm
-          feeProfiles={profiles}
-          onCreate={vi.fn()}
-          onAccountsRefresh={vi.fn()}
-          dict={dict}
-        />,
-      ),
-    );
-
-    const picker = container.querySelector('[data-testid="account-create-fee-profile-select"]');
-    expect(picker).toBeTruthy();
-    const options = picker!.querySelectorAll("option");
-    expect(options).toHaveLength(2);
-    expect(options[0].textContent).toContain("Default Broker");
-    expect(options[1].textContent).toContain("Alt");
   });
 
   // ── Live-preview chip updates ──────────────────────────────────────────────
@@ -152,7 +113,6 @@ describe("AccountCreateForm", () => {
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={vi.fn()}
           onAccountsRefresh={vi.fn()}
           dict={dict}
@@ -181,7 +141,7 @@ describe("AccountCreateForm", () => {
     const bankPill = container.querySelector('[data-testid="account-create-type-bank"]') as HTMLButtonElement;
     await act(async () => bankPill.click());
 
-    // Click USD currency card.
+    // Click USD market card.
     const usdCard = container.querySelector('[data-testid="account-create-currency-USD"]') as HTMLButtonElement;
     await act(async () => usdCard.click());
 
@@ -197,7 +157,6 @@ describe("AccountCreateForm", () => {
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={vi.fn()}
           onAccountsRefresh={vi.fn()}
           dict={dict}
@@ -242,7 +201,6 @@ describe("AccountCreateForm", () => {
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={onCreate}
           onAccountsRefresh={onAccountsRefresh}
           dict={dict}
@@ -273,7 +231,8 @@ describe("AccountCreateForm", () => {
     ) as HTMLButtonElement;
     await act(async () => submit.click());
 
-    // onCreate received the trimmed name + chosen type/currency.
+    // KZO-183: onCreate received only the trimmed name + chosen type/currency
+    // — feeProfileId is no longer on the input shape.
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate).toHaveBeenCalledWith({
       name: "USD Brokerage",
@@ -287,65 +246,6 @@ describe("AccountCreateForm", () => {
     expect(nameInput.value).toBe("");
   });
 
-  it("includes feeProfileId in onCreate input when picker is shown", async () => {
-    const onCreate = vi.fn().mockResolvedValue(buildAccountDto());
-    const profiles = [
-      buildFeeProfile({ id: "fp-default", name: "Default Broker" }),
-      buildFeeProfile({ id: "fp-alt", name: "Alt" }),
-    ];
-
-    act(() =>
-      root.render(
-        <AccountCreateForm
-          feeProfiles={profiles}
-          onCreate={onCreate}
-          onAccountsRefresh={vi.fn()}
-          dict={dict}
-        />,
-      ),
-    );
-
-    // Type a name.
-    const nameInput = container.querySelector(
-      '[data-testid="account-create-name-input"]',
-    ) as HTMLInputElement;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(nameInput, "Alt Account");
-      nameInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-
-    // Pick the Alt profile via the <select>.
-    const picker = container.querySelector(
-      '[data-testid="account-create-fee-profile-select"]',
-    ) as HTMLSelectElement;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(picker, "fp-alt");
-      picker.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    // Submit.
-    const submit = container.querySelector(
-      '[data-testid="account-create-submit"]',
-    ) as HTMLButtonElement;
-    await act(async () => submit.click());
-
-    expect(onCreate).toHaveBeenCalledTimes(1);
-    expect(onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "Alt Account",
-        feeProfileId: "fp-alt",
-      }),
-    );
-  });
-
   // ── Inline error rendering ────────────────────────────────────────────────
 
   it("renders accountCreateNameInUseError on a 409 ApiError; does NOT call onAccountsRefresh", async () => {
@@ -357,7 +257,6 @@ describe("AccountCreateForm", () => {
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={onCreate}
           onAccountsRefresh={onAccountsRefresh}
           dict={dict}
@@ -398,7 +297,6 @@ describe("AccountCreateForm", () => {
     act(() =>
       root.render(
         <AccountCreateForm
-          feeProfiles={[buildFeeProfile()]}
           onCreate={onCreate}
           onAccountsRefresh={onAccountsRefresh}
           dict={dict}

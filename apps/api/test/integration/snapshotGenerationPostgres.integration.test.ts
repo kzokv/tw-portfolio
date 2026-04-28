@@ -218,21 +218,35 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
       `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
          VALUES ('user-other', 'other@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
     );
-    await pool.query(
-      `INSERT INTO fee_profiles (
-         id, user_id, name, commission_rate_bps, board_commission_rate,
-         commission_discount_percent, commission_discount_bps,
-         minimum_commission_amount, commission_currency,
-         commission_rounding_mode, tax_rounding_mode,
-         stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
-         etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
-       ) VALUES ('fp-other', 'user-other', 'Other Broker', 14, 1.425, 0, 10000,
-                 20, 'TWD', 'FLOOR', 'FLOOR', 30, 15, 10, 0, 'CHARGED_UPFRONT')`,
-    );
-    await pool.query(
-      `INSERT INTO accounts (id, user_id, name, fee_profile_id)
-         VALUES ('acc-other', 'user-other', 'Main', 'fp-other')`,
-    );
+    // KZO-183: post-042 schema requires account first (with deferred FK), then
+    // fee_profile owned by it. Wrap in a transaction so the deferred FK fires at COMMIT.
+    {
+      const txClient = await pool.connect();
+      try {
+        await txClient.query("BEGIN");
+        await txClient.query(
+          `INSERT INTO accounts (id, user_id, name, fee_profile_id, default_currency, account_type)
+             VALUES ('acc-other', 'user-other', 'Main', 'fp-other', 'TWD', 'broker')`,
+        );
+        await txClient.query(
+          `INSERT INTO fee_profiles (
+             id, account_id, name, commission_rate_bps, board_commission_rate,
+             commission_discount_percent, commission_discount_bps,
+             minimum_commission_amount, commission_currency,
+             commission_rounding_mode, tax_rounding_mode,
+             stock_sell_tax_rate_bps, stock_day_trade_tax_rate_bps,
+             etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps, commission_charge_mode
+           ) VALUES ('fp-other', 'acc-other', 'Other Broker', 14, 1.425, 0, 10000,
+                     20, 'TWD', 'FLOOR', 'FLOOR', 30, 15, 10, 0, 'CHARGED_UPFRONT')`,
+        );
+        await txClient.query("COMMIT");
+      } catch (err) {
+        await txClient.query("ROLLBACK").catch(() => undefined);
+        throw err;
+      } finally {
+        txClient.release();
+      }
+    }
     const otherEventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
     await seedPostedDividend({
       eventId: otherEventId,

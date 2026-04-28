@@ -111,8 +111,10 @@ describePostgres("anonymous share tokens (postgres integration)", () => {
     // resolveOrCreateUser seeds: user_external_identities, fee_profiles, accounts.
     // None of those have ON DELETE CASCADE on users; remove them first so Postgres
     // allows the DELETE. anonymous_share_tokens does use ON DELETE CASCADE.
+    // KZO-183: fee_profiles.account_id has ON DELETE CASCADE on accounts, so
+    // deleting accounts also removes the fee_profiles. fee_profiles.user_id no
+    // longer exists.
     await pool.query(`DELETE FROM accounts WHERE user_id = $1`, [ownerUserId]);
-    await pool.query(`DELETE FROM fee_profiles WHERE user_id = $1`, [ownerUserId]);
     await pool.query(`DELETE FROM user_external_identities WHERE user_id = $1`, [ownerUserId]);
     await pool.query(`DELETE FROM users WHERE id = $1`, [ownerUserId]);
 

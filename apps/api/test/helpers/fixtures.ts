@@ -38,6 +38,10 @@ export function transactionPayload(
 }
 
 const defaultFeeProfile = {
+  // KZO-183: fee profiles are account-scoped. The integration tests
+  // default to the seeded "acc-1" account; specs that use a different
+  // account override `accountId` per call.
+  accountId: "acc-1",
   name: "Test Profile",
   boardCommissionRate: 0,
   commissionDiscountPercent: 0,

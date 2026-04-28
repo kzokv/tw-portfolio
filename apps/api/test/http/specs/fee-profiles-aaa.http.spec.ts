@@ -43,10 +43,20 @@ test.describe("fee-profiles", () => {
   });
 
   test("prevents deleting fee profiles referenced by historical transactions", async ({
+    accountsApi,
     feeProfilesApi,
     settingsApi,
     transactionsApi,
   }) => {
+    const accountsResponse = await accountsApi.actions.listAccounts();
+    await accountsApi.assert.statusIs(accountsResponse, 200);
+    const accounts = await accountsApi.arrange.accounts(accountsResponse);
+    const account = await accountsApi.arrange.firstAccount(accounts);
+    const originalFeeProfileId = account.feeProfileId;
+    if (typeof originalFeeProfileId !== "string") {
+      throw new Error("Expected seeded account feeProfileId to be a string");
+    }
+
     const createdProfileResponse = await feeProfilesApi.actions.createFeeProfile(
       feeProfilePayload({ name: "Tx Profile", boardCommissionRate: 0.2 }),
     );
@@ -66,7 +76,7 @@ test.describe("fee-profiles", () => {
     await transactionsApi.assert.statusIs(transactionResponse, 200);
 
     const restoreDefaultResponse = await settingsApi.actions.updateFeeConfig({
-      accounts: [{ id: "acc-1", feeProfileId: "fp-default" }],
+      accounts: [{ id: "acc-1", feeProfileId: originalFeeProfileId }],
       feeProfileBindings: [],
     });
     await settingsApi.assert.statusIs(restoreDefaultResponse, 200);

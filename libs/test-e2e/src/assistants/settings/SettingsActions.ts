@@ -55,11 +55,6 @@ export class SettingsActions extends AppBaseActions {
   }
 
   @Step()
-  async addFeeProfile(): Promise<void> {
-    await this.uiActions.click.perform(this.el.fees.addProfileButton);
-  }
-
-  @Step()
   async openProfileTab(): Promise<void> {
     await this.uiActions.click.perform(this.el.tabs.profile);
   }
@@ -107,16 +102,6 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.footer.discardButton);
   }
 
-  @Step()
-  async getProfileCount(): Promise<number> {
-    return await this.el.fees.profileCards.count();
-  }
-
-  @Step()
-  async setProfileName(index: number, value: string): Promise<void> {
-    await this.uiActions.fill.perform(this.el.fees.profileName(index), value);
-  }
-
   // --- KZO-179: Account Create form (Accounts tab) ---
 
   @Step()
@@ -134,11 +119,68 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.accountCreate.currencyCard(currency));
   }
 
-  // KZO-182: click "Add Override" in the Fees tab to append a fresh
-  // SecurityBinding row whose account dropdown lists every live account.
+  // KZO-183: per-account "Add override" button. Each account card hosts
+  // its own button so the helper takes the account id explicitly.
   @Step()
-  async addBinding(): Promise<void> {
-    await this.uiActions.click.perform(this.el.fees.addBindingButton);
+  async addOverrideForAccount(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.addOverride(accountId));
+  }
+
+  // KZO-183: expand a per-account card to reveal its inline body (default
+  // profile selector, profiles list, overrides list).
+  @Step()
+  async expandAccountCard(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.cardToggle(accountId));
+  }
+
+  // KZO-183: add a new fee profile to the given account card.
+  @Step()
+  async addFeeProfileToAccount(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.addProfile(accountId));
+  }
+
+  // KZO-183: type into the accounts-tab search input.
+  @Step()
+  async searchAccountsTab(query: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.accountsList.searchInput, query);
+  }
+
+  // KZO-183: clear the accounts-tab search input.
+  @Step()
+  async clearAccountsTabSearch(): Promise<void> {
+    await this.el.accountsList.searchInput.clear();
+  }
+
+  // KZO-183: click the edit pencil, replace the name, confirm.
+  @Step()
+  async editProfileName(profileId: string, name: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.profileEditButton(profileId));
+    await this.uiActions.fill.perform(this.el.accountsList.profileNameInput(profileId), name);
+    await this.uiActions.click.perform(this.el.accountsList.profileEditDoneButton(profileId));
+  }
+
+  // KZO-183: open the "Duplicate from another account" picker for an account.
+  @Step()
+  async clickDuplicateFromAnotherAccount(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.duplicateCta(accountId));
+  }
+
+  // KZO-183: select a source account in the duplicate picker's <select>.
+  @Step()
+  async selectDuplicateSourceAccount(accountId: string): Promise<void> {
+    await this.uiActions.select.perform(this.el.accountsList.duplicateSourceSelect, accountId);
+  }
+
+  // KZO-183: toggle a profile checkbox in the duplicate picker.
+  @Step()
+  async checkDuplicateProfile(profileId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.duplicateCheckbox(profileId));
+  }
+
+  // KZO-183: click the confirm button in the duplicate picker.
+  @Step()
+  async confirmDuplicate(): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.duplicateConfirm);
   }
 
   @Step()

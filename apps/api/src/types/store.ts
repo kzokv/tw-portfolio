@@ -1,10 +1,12 @@
 import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
 import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@tw-portfolio/shared-types";
 
+// KZO-183: `marketCode` removed. Market is now derived from the binding's
+// account.defaultCurrency rather than stored on the binding. Per-symbol
+// override resolution is keyed by (accountId, ticker) only.
 export interface FeeProfileBinding {
   accountId: string;
   ticker: string;
-  marketCode?: MarketCode;
   feeProfileId: string;
 }
 

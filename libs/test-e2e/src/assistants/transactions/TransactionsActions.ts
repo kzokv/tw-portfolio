@@ -23,6 +23,12 @@ export class TransactionsActions extends AppBaseActions {
     await this.uiActions.select.perform(accountSelect, firstAccountId ?? "acc-1");
   }
 
+  // KZO-183: select a specific account by its id value in the account <select>.
+  @Step()
+  async selectAccountById(accountId: string): Promise<void> {
+    await this.uiActions.select.perform(this.el.transactionForm.accountSelect, accountId);
+  }
+
   @Step()
   async selectTransactionType(type: "BUY" | "SELL"): Promise<void> {
     await this.uiActions.select.perform(this.el.transactionForm.typeSelect, type);

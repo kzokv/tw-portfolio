@@ -1,45 +1,33 @@
+import { randomUUID } from "node:crypto";
 import type { FeeProfile, InstrumentRef } from "@tw-portfolio/domain";
 import { buildAccountingPolicy } from "./accountingStore.js";
 import { createDefaultInstruments } from "./instrumentRegistry.js";
 import type { Store, InstrumentDef } from "../types/store.js";
 
-const defaultFeeProfile: FeeProfile = {
-  id: "fp-default",
-  name: "Default Broker",
-  boardCommissionRate: 1.425,
-  commissionDiscountPercent: 0,
-  minimumCommissionAmount: 20,
-  commissionCurrency: "TWD",
-  commissionRoundingMode: "FLOOR",
-  taxRoundingMode: "FLOOR",
-  stockSellTaxRateBps: 30,
-  stockDayTradeTaxRateBps: 15,
-  etfSellTaxRateBps: 10,
-  bondEtfSellTaxRateBps: 0,
-  commissionChargeMode: "CHARGED_UPFRONT",
-};
-
-function createDefaultFeeProfile(): FeeProfile {
-  return { ...defaultFeeProfile };
-}
-
-/**
- * Deterministic id for a user's default-seeded fee profile in the Postgres
- * backend (see `PostgresPersistence.defaultFeeProfileId` — same shape).
- *
- * KZO-179 D5 — used by the POST /accounts route's fee-profile resolution
- * cascade: if the body omits `feeProfileId` the route looks up
- * `defaultFeeProfileIdFor(userId)` in the store, then falls back to
- * `store.feeProfiles[0].id` (always non-empty per the
- * `must_keep_one_profile` invariant). Exposing this helper keeps the magic
- * string in one place rather than re-deriving it inside the route handler.
- *
- * The in-memory backend seeds with id `fp-default` (no user prefix). The
- * cascade tolerates this — the lookup returns undefined and the route falls
- * back to `store.feeProfiles[0].id`.
- */
-export function defaultFeeProfileIdFor(userId: string): string {
-  return `${userId}-fp-default`;
+// KZO-183: fee profiles are now account-scoped. `accountId` is required at
+// creation time. The factory returns a fresh object per call so callers can
+// mutate without touching shared state.
+export function createDefaultFeeProfile(
+  accountId: string,
+  commissionCurrency: FeeProfile["commissionCurrency"] = "TWD",
+  id: string = randomUUID(),
+): FeeProfile {
+  return {
+    id,
+    accountId,
+    name: "Default Broker",
+    boardCommissionRate: 1.425,
+    commissionDiscountPercent: 0,
+    minimumCommissionAmount: 20,
+    commissionCurrency,
+    commissionRoundingMode: "FLOOR",
+    taxRoundingMode: "FLOOR",
+    stockSellTaxRateBps: 30,
+    stockDayTradeTaxRateBps: 15,
+    etfSellTaxRateBps: 10,
+    bondEtfSellTaxRateBps: 0,
+    commissionChargeMode: "CHARGED_UPFRONT",
+  };
 }
 
 export function instrumentDefToRef(def: InstrumentDef): InstrumentRef {
@@ -72,7 +60,11 @@ export function syncInstruments(store: Pick<Store, "marketData" | "instruments">
 }
 
 export function createStore(): Store {
-  const seededFeeProfile = createDefaultFeeProfile();
+  // KZO-183: the seeded fee profile is owned by the seeded "acc-1" account.
+  // Both rows are created together so the composite-FK ownership invariant
+  // (account.feeProfileId references a profile with profile.accountId === account.id)
+  // holds at bootstrap time.
+  const seededFeeProfile = createDefaultFeeProfile("acc-1");
   const seededInstruments = createDefaultInstruments();
 
   return {

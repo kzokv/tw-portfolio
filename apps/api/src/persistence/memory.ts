@@ -924,6 +924,13 @@ export class MemoryPersistence implements Persistence {
   }
 
   async saveStore(store: Store): Promise<void> {
+    // KZO-183: enforce the composite-FK ownership invariant in application
+    // code. Postgres enforces it via the (id, account_id) composite FKs from
+    // accounts and account_fee_profile_overrides; the memory backend cannot
+    // express that declaratively, so this mirror runs on every saveStore so
+    // memory-backed unit tests catch the same class of cross-account
+    // ownership violation that integration tests catch via Postgres.
+    validateMemoryStoreOwnership(store);
     syncInstruments(store);
     this.stores.set(store.userId, store);
   }
@@ -2817,4 +2824,39 @@ function toNotificationDto(n: MemoryNotification): NotificationDto {
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
   };
+}
+
+// KZO-183 — application-layer mirror of the composite-FK ownership invariant
+// that Postgres enforces via FK (fee_profile_id, account_id) → fee_profiles
+// (id, account_id). Run inside `MemoryPersistence.saveStore` so memory-backed
+// tests catch cross-account ownership violations that would be silently
+// allowed by the unscoped FK in `MemoryPersistence` alone.
+function validateMemoryStoreOwnership(store: Store): void {
+  const profilesById = new Map(store.feeProfiles.map((profile) => [profile.id, profile]));
+  for (const account of store.accounts) {
+    const profile = profilesById.get(account.feeProfileId);
+    if (!profile) {
+      throw new Error(
+        `account ${account.id} references missing fee profile ${account.feeProfileId}`,
+      );
+    }
+    if (profile.accountId !== account.id) {
+      throw new Error(
+        `account ${account.id} references fee profile ${profile.id} owned by account ${profile.accountId}`,
+      );
+    }
+  }
+  for (const binding of store.feeProfileBindings) {
+    const profile = profilesById.get(binding.feeProfileId);
+    if (!profile) {
+      throw new Error(
+        `fee profile binding (${binding.accountId},${binding.ticker}) references missing profile ${binding.feeProfileId}`,
+      );
+    }
+    if (profile.accountId !== binding.accountId) {
+      throw new Error(
+        `fee profile binding (${binding.accountId},${binding.ticker}) references profile ${profile.id} owned by account ${profile.accountId}`,
+      );
+    }
+  }
 }

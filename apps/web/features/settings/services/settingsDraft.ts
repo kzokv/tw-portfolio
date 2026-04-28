@@ -26,9 +26,13 @@ export function serializeSettingsForm(input: SettingsFormModel): string {
   });
 }
 
-export function createDraftProfile(seed: number): SettingsProfileModel {
+// KZO-183: profiles now belong to a specific account. Callers pass the
+// owning account id; the legacy single-arg signature is retained as a
+// type-checked fallback so existing call sites compile until they migrate.
+export function createDraftProfile(seed: number, accountId = ""): SettingsProfileModel {
   return {
     id: `tmp-${seed}`,
+    accountId,
     name: "New Fee Profile",
     boardCommissionRate: 1.425,
     commissionDiscountPercent: 100,
@@ -59,16 +63,26 @@ export function normalizeSettingsForm(input: SettingsFormModel): SettingsFormMod
 }
 
 export function removeProfileFromSettingsForm(input: SettingsFormModel, profileId: string): SettingsFormModel {
+  // KZO-183: profiles are account-scoped, so the fallback for an account
+  // whose default got removed must come from another profile owned by the
+  // same account. Per-symbol overrides pointing at the removed profile are
+  // dropped (any account they belonged to no longer has a valid target).
   const remainingProfiles = input.feeProfiles.filter((profile) => profile.id !== profileId);
-  const fallbackProfileId = remainingProfiles[0]?.id ?? "";
+  const fallbackByAccount = new Map<string, string>();
+  for (const profile of remainingProfiles) {
+    if (!fallbackByAccount.has(profile.accountId)) {
+      fallbackByAccount.set(profile.accountId, profile.id);
+    }
+  }
 
   return {
     ...input,
     feeProfiles: remainingProfiles,
-    accounts: input.accounts.map((account) => ({
-      ...account,
-      feeProfileId: account.feeProfileId === profileId ? fallbackProfileId : account.feeProfileId,
-    })),
+    accounts: input.accounts.map((account) => {
+      if (account.feeProfileId !== profileId) return { ...account };
+      const fallback = fallbackByAccount.get(account.id) ?? "";
+      return { ...account, feeProfileId: fallback };
+    }),
     feeProfileBindings: input.feeProfileBindings
       .filter((binding) => binding.feeProfileId !== profileId)
       .map((binding) => ({ ...binding })),

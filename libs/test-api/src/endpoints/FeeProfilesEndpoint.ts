@@ -3,8 +3,19 @@ import { BaseEndpoint } from "@tw-portfolio/test-framework/core";
 import { apiUrl } from "@tw-portfolio/test-framework/shared";
 
 export class FeeProfilesEndpoint extends BaseEndpoint {
-  list = (headers?: Record<string, string>): Promise<APIResponse> =>
-    this.request.get(apiUrl("/fee-profiles"), headers ? { headers } : {});
+  list = (
+    headers?: Record<string, string>,
+    query?: { accountId?: string },
+  ): Promise<APIResponse> => {
+    const params: Record<string, string> = {};
+    if (query?.accountId) {
+      params["account_id"] = query.accountId;
+    }
+    return this.request.get(apiUrl("/fee-profiles"), {
+      ...(headers ? { headers } : {}),
+      ...(Object.keys(params).length ? { params } : {}),
+    });
+  };
 
   create = (data: unknown, headers?: Record<string, string>): Promise<APIResponse> =>
     this.request.post(apiUrl("/fee-profiles"), {

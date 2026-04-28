@@ -354,7 +354,6 @@ export interface AppDictionary {
     title: string;
     description: string;
     tabGeneral: string;
-    tabFeeProfiles: string;
     localeLabel: string;
     costBasisLabel: string;
     quotePollLabel: string;
@@ -377,8 +376,6 @@ export interface AppDictionary {
     closeDrawerAriaLabel: string;
     costBasisGuideTitle: string;
     costBasisGuideBody: string;
-    profileSectionTitle: string;
-    profileSectionDescription: string;
     profileCardTitle: string;
     profileNameLabel: string;
     profileCommissionLabel: string;
@@ -388,6 +385,7 @@ export interface AppDictionary {
     profileCommissionCurrencyLabel: string;
     profileCommissionRoundLabel: string;
     profileTaxRoundLabel: string;
+    profileChargeModeLabel: string;
     profileStockTaxLabel: string;
     profileDayTradeTaxLabel: string;
     profileEtfTaxLabel: string;
@@ -415,9 +413,50 @@ export interface AppDictionary {
     accountCreateSubmit: string;
     accountCreateNameInUseError: string;
     accountCreateGenericError: string;
-    bindingSectionTitle: string;
-    bindingSectionDescription: string;
-    bindingEmptyState: string;
+    // KZO-183: market labels for AccountCreateForm currency cards. Field
+    // stays `defaultCurrency` (TWD/USD/AUD); the cards display country names.
+    accountCreateMarketLabel: string;
+    accountCreateMarketTaiwan: string;
+    accountCreateMarketUnitedStates: string;
+    accountCreateMarketAustralia: string;
+    accountCreateMarketTaiwanSubtext: string;
+    accountCreateMarketUnitedStatesSubtext: string;
+    accountCreateMarketAustraliaSubtext: string;
+    // KZO-183: per-account expandable cards (Accounts tab body).
+    accountsTabSearchLabel: string;
+    accountsTabSearchPlaceholder: string;
+    accountsListMarketBadgeTW: string;
+    accountsListMarketBadgeUS: string;
+    accountsListMarketBadgeAU: string;
+    accountsListAccountTypeBroker: string;
+    accountsListAccountTypeBank: string;
+    accountsListAccountTypeWallet: string;
+    accountsListExpandLabel: string;
+    accountsListCollapseLabel: string;
+    accountsListDefaultProfileLabel: string;
+    accountsListDefaultProfileHint: string;
+    accountsListProfilesSectionLabel: string;
+    accountsListAddProfile: string;
+    accountsListDuplicateFromAnotherCta: string;
+    accountsListDuplicatePickerTitle: string;
+    accountsListDuplicatePickerDescription: string;
+    accountsListDuplicatePickerEmpty: string;
+    accountsListDuplicatePickerSourceLabel: string;
+    accountsListDuplicateConfirm: string;
+    accountsListDuplicateCancel: string;
+    accountsListProfileSummaryFallback: string;
+    accountsListEditProfileLabel: string;
+    accountsListDeleteProfileLabel: string;
+    accountsListSaveProfileEdit: string;
+    accountsListCancelProfileEdit: string;
+    accountsListOverridesSectionLabel: string;
+    accountsListAddOverride: string;
+    accountsListOverridesEmptyState: string;
+    accountsListOverrideRemoveLabel: string;
+    accountsListOverrideTickerPlaceholder: string;
+    accountsListAtLeastOneProfile: string;
+    accountsListNoProfilesYet: string;
+    accountsListAccountSummary: string;
     closeWarning: string;
     tabProfile: string;
     profileDisplayNameLabel: string;

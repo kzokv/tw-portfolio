@@ -51,9 +51,9 @@ import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { seedDemoTransactions } from "../services/demoData.js";
-import { createStore, defaultFeeProfileIdFor } from "../services/store.js";
+import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
-import { ensureInstrumentDefinition, isInstrumentQuoteable } from "../services/instrumentRegistry.js";
+import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { resolveMarketCode } from "../services/market-data/marketResolution.js";
@@ -135,10 +135,15 @@ const feeProfilePayloadSchema = z.object({
   commissionChargeMode: z.enum(["CHARGED_UPFRONT", "CHARGED_UPFRONT_REBATED_LATER"]),
 });
 
+// KZO-183: drafts now carry the owning `accountId` discriminator. The
+// settings bulk-save validates that every draft.accountId resolves to one of
+// the accounts in the body, AND that every account.feeProfileRef resolves
+// to a profile owned by that same account.
 const feeProfileDraftSchema = feeProfilePayloadSchema
   .extend({
     id: userScopedIdSchema.optional(),
     tempId: userScopedIdSchema.optional(),
+    accountId: userScopedIdSchema,
   })
   .refine((value) => Boolean(value.id || value.tempId), {
     message: "id or tempId is required for each fee profile draft",
@@ -1014,18 +1019,29 @@ function getStoreIntegrityIssue(store: Store): IntegrityIssueDto | null {
     };
   }
 
-  const feeProfileIds = new Set(store.feeProfiles.map((profile) => profile.id));
+  // KZO-183: per-account scope check — `account.feeProfileId` must reference
+  // a profile whose `accountId` equals `account.id`. The same ownership check
+  // applies to per-symbol bindings.
+  const profilesById = new Map(store.feeProfiles.map((profile) => [profile.id, profile]));
   for (const account of store.accounts) {
-    if (!account.feeProfileId || !feeProfileIds.has(account.feeProfileId)) {
+    const profile = account.feeProfileId ? profilesById.get(account.feeProfileId) : undefined;
+    if (!profile) {
       return {
         code: "missing_account_profile",
         message: `Account ${account.id} is missing a valid fee profile binding.`,
       };
     }
+    if (profile.accountId !== account.id) {
+      return {
+        code: "missing_account_profile",
+        message: `Account ${account.id} references fee profile ${profile.id} owned by another account.`,
+      };
+    }
   }
 
   for (const binding of store.feeProfileBindings) {
-    if (!feeProfileIds.has(binding.feeProfileId)) {
+    const profile = profilesById.get(binding.feeProfileId);
+    if (!profile) {
       return {
         code: "invalid_fee_profile_binding",
         message: `Fee profile override for ${binding.accountId}/${binding.ticker} references missing profile ${binding.feeProfileId}.`,
@@ -1037,6 +1053,12 @@ function getStoreIntegrityIssue(store: Store): IntegrityIssueDto | null {
       return {
         code: "invalid_fee_profile_binding",
         message: `Fee profile override references missing account ${binding.accountId}.`,
+      };
+    }
+    if (profile.accountId !== binding.accountId) {
+      return {
+        code: "invalid_fee_profile_binding",
+        message: `Fee profile override for ${binding.accountId}/${binding.ticker} references profile ${profile.id} owned by another account.`,
       };
     }
   }
@@ -1102,14 +1124,24 @@ function compareTransactionsForHistory(left: Transaction, right: Transaction): n
 
 function ensureBindingsAreValid(store: Store, bindings: Array<z.infer<typeof feeBindingSchema>>): void {
   const accountIds = new Set(store.accounts.map((account) => account.id));
-  const feeProfileIds = new Set(store.feeProfiles.map((profile) => profile.id));
+  const profilesById = new Map(store.feeProfiles.map((profile) => [profile.id, profile]));
 
   for (const binding of bindings) {
     if (!accountIds.has(binding.accountId)) {
       throw routeError(400, "invalid_account", `Unknown account ${binding.accountId}`);
     }
-    if (!feeProfileIds.has(binding.feeProfileId)) {
+    const profile = profilesById.get(binding.feeProfileId);
+    if (!profile) {
       throw routeError(400, "invalid_fee_profile", `Unknown fee profile ${binding.feeProfileId}`);
+    }
+    // KZO-183: per-account scope check. Override must point at a profile
+    // owned by the binding's account.
+    if (profile.accountId !== binding.accountId) {
+      throw routeError(
+        400,
+        "invalid_fee_profile",
+        `Fee profile ${binding.feeProfileId} is not owned by account ${binding.accountId}`,
+      );
     }
   }
 }
@@ -1218,13 +1250,11 @@ function resolveTransactionFeeProfile(
   store: Store,
   accountId: string,
   ticker: string,
-  marketCode: string,
 ): FeeProfile {
+  // KZO-183: bindings no longer carry marketCode — resolution by (accountId, ticker)
+  // only. Market enforcement is handled separately via the trade booking guard.
   const override = store.feeProfileBindings.find(
-    (binding) =>
-      binding.accountId === accountId &&
-      binding.ticker === ticker &&
-      (binding.marketCode === undefined || binding.marketCode === marketCode),
+    (binding) => binding.accountId === accountId && binding.ticker === ticker,
   );
 
   if (override) {
@@ -2342,12 +2372,36 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const tempIdToProfileId = new Map<string, string>();
     const nextProfiles: FeeProfile[] = [];
 
+    // KZO-183 D7 validation order — step 1: every fee_profile draft.accountId
+    // must resolve to one of body.accounts. Reject early so the user sees a
+    // specific 400 before the rest of the validation chain runs.
+    const bodyAccountIds = new Set(body.accounts.map((a) => a.id));
+    for (const draft of body.feeProfiles) {
+      if (!bodyAccountIds.has(draft.accountId)) {
+        throw routeError(
+          400,
+          "invalid_account",
+          `Fee profile draft references account ${draft.accountId} which is not in the request body.`,
+        );
+      }
+    }
+
     for (const draft of body.feeProfiles) {
       let targetId = draft.id;
       if (!targetId) {
         targetId = randomUUID();
-      } else if (!existingProfilesById.has(targetId)) {
-        throw routeError(404, "fee_profile_not_found", `Fee profile ${targetId} was not found.`);
+      } else {
+        const existingProfile = existingProfilesById.get(targetId);
+        if (!existingProfile) {
+          throw routeError(404, "fee_profile_not_found", `Fee profile ${targetId} was not found.`);
+        }
+        if (existingProfile.accountId !== draft.accountId) {
+          throw routeError(
+            400,
+            "invalid_fee_profile",
+            `Fee profile ${targetId} cannot be reassigned from account ${existingProfile.accountId} to account ${draft.accountId}.`,
+          );
+        }
       }
 
       if (draft.tempId) {
@@ -2359,6 +2413,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
       nextProfiles.push({
         id: targetId,
+        accountId: draft.accountId,
         name: draft.name,
         boardCommissionRate: draft.boardCommissionRate,
         commissionDiscountPercent: draft.commissionDiscountPercent,
@@ -2383,36 +2438,69 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "duplicate_fee_profile_id", "Duplicate fee profile IDs are not allowed.");
     }
 
-    const nextProfileIdSet = new Set(nextProfiles.map((profile) => profile.id));
+    const profilesById = new Map(nextProfiles.map((profile) => [profile.id, profile]));
     const resolveFeeProfileRef = (ref: string): string => {
       const resolved = tempIdToProfileId.get(ref) ?? ref;
-      if (!nextProfileIdSet.has(resolved)) {
+      if (!profilesById.has(resolved)) {
         throw routeError(400, "invalid_fee_profile", `Fee profile reference ${ref} is not valid.`);
       }
       return resolved;
     };
 
     const nextAccounts = draftStore.accounts.map((account) => ({ ...account }));
+    // KZO-183 D7 validation order — step 2: each account.feeProfileRef must
+    // resolve to a profile whose accountId === account.id.
     for (const accountUpdate of body.accounts) {
       const account = nextAccounts.find((item) => item.id === accountUpdate.id);
       if (!account) {
         throw routeError(404, "account_not_found", `Account ${accountUpdate.id} was not found.`);
       }
-      account.feeProfileId = resolveFeeProfileRef(accountUpdate.feeProfileRef);
+      const resolvedId = resolveFeeProfileRef(accountUpdate.feeProfileRef);
+      const resolvedProfile = profilesById.get(resolvedId)!;
+      if (resolvedProfile.accountId !== account.id) {
+        throw routeError(
+          400,
+          "invalid_fee_profile",
+          `Fee profile ${resolvedId} is not owned by account ${account.id}.`,
+        );
+      }
+      account.feeProfileId = resolvedId;
     }
 
-    const nextBindings = normalizeBindings(
-      body.feeProfileBindings.map((binding) => ({
+    // KZO-183 D7 validation order — step 3: binding.accountId must reference
+    // a known account, then binding.feeProfileRef must resolve to a profile
+    // whose accountId === binding.accountId.
+    const knownAccountIds = new Set(nextAccounts.map((account) => account.id));
+    const resolvedBindings = body.feeProfileBindings.map((binding) => {
+      if (!knownAccountIds.has(binding.accountId)) {
+        throw routeError(400, "invalid_account", `Unknown account ${binding.accountId}`);
+      }
+      const resolvedId = resolveFeeProfileRef(binding.feeProfileRef);
+      const resolvedProfile = profilesById.get(resolvedId)!;
+      if (resolvedProfile.accountId !== binding.accountId) {
+        throw routeError(
+          400,
+          "invalid_fee_profile",
+          `Fee profile ${resolvedId} is not owned by account ${binding.accountId} for binding ${binding.ticker}.`,
+        );
+      }
+      return {
         accountId: binding.accountId,
         ticker: binding.ticker,
-        feeProfileId: resolveFeeProfileRef(binding.feeProfileRef),
-      })),
-    );
+        feeProfileId: resolvedId,
+      };
+    });
+
+    const nextBindings = normalizeBindings(resolvedBindings);
 
     draftStore.settings = { ...draftStore.settings, ...body.settings };
     draftStore.feeProfiles = nextProfiles;
     draftStore.accounts = nextAccounts;
-    ensureBindingsAreValid(draftStore, nextBindings);
+    // KZO-183: step 3 above already validates each binding's accountId and
+    // composite-FK ownership; ensureBindingsAreValid would re-check the same
+    // shape and is the validation surface for the other two endpoints
+    // (PUT /settings/fee-config + PUT /fee-profile-bindings) which don't run
+    // the bulk-save step 3.
     draftStore.feeProfileBindings = nextBindings;
 
     assertStoreIntegrity(draftStore);
@@ -2463,6 +2551,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!feeProfileIds.has(update.feeProfileId)) {
         throw routeError(400, "invalid_fee_profile", `Fee profile ${update.feeProfileId} was not found.`);
       }
+      const profile = draftStore.feeProfiles.find((item) => item.id === update.feeProfileId);
+      if (profile?.accountId !== account.id) {
+        throw routeError(
+          400,
+          "invalid_fee_profile",
+          `Fee profile ${update.feeProfileId} is not owned by account ${account.id}.`,
+        );
+      }
       account.feeProfileId = update.feeProfileId;
     }
 
@@ -2484,20 +2580,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return store.accounts;
   });
 
-  // KZO-179 — multi-account creation. Mirrors POST /fee-profiles persistence
-  // pattern (push + saveStore). Per scope-todo:
-  //   D2 — no audit_log entry; the new accounts.created_at column (migration
-  //        041) is the forensic floor.
-  //   D3 — name uniqueness via explicit pre-check (clean 409 UX) AND
-  //        try/catch isUniqueViolation (TOCTOU safety net wrapping saveStore
-  //        — backed by ux_accounts_user_id_name unique index).
-  //   D5 — fee-profile resolution cascade: body → user's default
-  //        (`${userId}-fp-default`) → store.feeProfiles[0].id (always
-  //        non-empty per `must_keep_one_profile`).
-  //   D7 — bare AccountDto response (no envelope; mirrors POST /fee-profiles).
-  //   D9 — no new persistence interface method; saveStore handles INSERT.
-  //   D10 — registered in BOTH WRITER_ROLE_ROUTE_KEYS and
-  //         WRITE_CONTEXT_GUARD_ROUTE_KEYS.
+  // KZO-179 / KZO-183 — multi-account creation with auto-seeded default
+  // fee profile. Per KZO-183 scope item 18 + decision D4:
+  //   - Body NO LONGER accepts `feeProfileId`. Fee profiles are now
+  //     account-scoped, so the only safe creation path is to seed a fresh
+  //     default profile owned by the new account.
+  //   - The auto-seeded profile uses `randomUUID()` (NOT a deterministic id).
+  //     Both rows are pushed in the same saveStore call so the composite-FK
+  //     ownership invariant holds at write time.
+  //   - Name uniqueness via explicit 409 pre-check (KZO-179 D3) + TOCTOU
+  //     safety net via `isUniqueViolation` after saveStore.
+  //   - Bare AccountDto response — flat (no envelope), mirrors POST /fee-profiles.
   app.post("/accounts", async (req) => {
     const body = z
       .object({
@@ -2505,7 +2598,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         // Enum values match migration 040's CHECK constraints.
         defaultCurrency: z.enum(["TWD", "USD", "AUD"]),
         accountType: z.enum(["broker", "bank", "wallet"]),
-        feeProfileId: userScopedIdSchema.optional(),
       })
       .parse(req.body);
 
@@ -2518,29 +2610,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(409, "account_name_in_use", "An account with that name already exists.");
     }
 
-    // Validate explicit feeProfileId if the body provided one.
-    if (body.feeProfileId !== undefined) {
-      requireProfile(store, body.feeProfileId);
-    }
-
-    // Resolve fee-profile per D5 cascade.
-    const resolvedFeeProfileId =
-      body.feeProfileId !== undefined
-        ? body.feeProfileId
-        : (store.feeProfiles.find((profile) => profile.id === defaultFeeProfileIdFor(store.userId))?.id ??
-          store.feeProfiles[0]?.id);
-    if (!resolvedFeeProfileId) {
-      throw routeError(500, "no_fee_profile_available", "No fee profile available for the user.");
-    }
+    // Auto-seed a default fee profile owned by the new account.
+    const newAccountId = randomUUID();
+    const seededProfile = createDefaultFeeProfile(newAccountId, body.defaultCurrency);
 
     const account: AccountDto = {
-      id: randomUUID(),
+      id: newAccountId,
       userId: store.userId,
       name: body.name,
-      feeProfileId: resolvedFeeProfileId,
+      feeProfileId: seededProfile.id,
       defaultCurrency: body.defaultCurrency,
       accountType: body.accountType,
     };
+    store.feeProfiles.push(seededProfile);
     store.accounts.push(account);
 
     try {
@@ -2582,7 +2664,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!account) throw routeError(404, "account_not_found", `Account ${params.id} was not found.`);
 
     if (body.feeProfileId !== undefined) {
-      requireProfile(store, body.feeProfileId);
+      const profile = requireProfile(store, body.feeProfileId);
+      if (profile.accountId !== account.id) {
+        throw routeError(
+          400,
+          "invalid_fee_profile",
+          `Fee profile ${body.feeProfileId} is not owned by account ${account.id}.`,
+        );
+      }
       account.feeProfileId = body.feeProfileId;
     }
     if (body.name) account.name = body.name;
@@ -2619,18 +2708,40 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/fee-profiles", async (req) => {
+    const query = z
+      .object({
+        account_id: userScopedIdSchema.optional(),
+      })
+      .parse(req.query);
     const { store } = await loadUserStore(app, req);
-    return store.feeProfiles;
+    if (!query.account_id) {
+      return store.feeProfiles;
+    }
+    if (!store.accounts.some((account) => account.id === query.account_id)) {
+      throw routeError(404, "account_not_found", `Account ${query.account_id} was not found.`);
+    }
+    return store.feeProfiles.filter((profile) => profile.accountId === query.account_id);
   });
 
   app.post("/fee-profiles", async (req) => {
-    const body = feeProfilePayloadSchema.parse(req.body);
-    const profile: FeeProfile = {
-      id: randomUUID(),
-      ...body,
-    };
+    // KZO-183: fee profiles are now account-scoped — `accountId` is required.
+    const body = feeProfilePayloadSchema
+      .extend({ accountId: userScopedIdSchema })
+      .parse(req.body);
 
     const { store } = await loadUserStore(app, req);
+
+    if (!store.accounts.some((account) => account.id === body.accountId)) {
+      throw routeError(404, "account_not_found", `Account ${body.accountId} was not found.`);
+    }
+
+    const { accountId, ...rest } = body;
+    const profile: FeeProfile = {
+      id: randomUUID(),
+      accountId,
+      ...rest,
+    };
+
     store.feeProfiles.push(profile);
     await app.persistence.saveStore(store);
     return profile;
@@ -2652,8 +2763,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
     const { store } = await loadUserStore(app, req);
 
-    if (store.feeProfiles.length <= 1) {
-      throw routeError(400, "must_keep_one_profile", "At least one fee profile must remain.");
+    const target = store.feeProfiles.find((profile) => profile.id === params.id);
+    if (!target) {
+      throw routeError(404, "fee_profile_not_found", `Fee profile ${params.id} was not found.`);
+    }
+
+    // KZO-183: must_keep_one_profile is now per-account. Each account must
+    // retain at least one profile so the composite-FK ownership invariant
+    // holds.
+    const profilesForAccount = store.feeProfiles.filter((profile) => profile.accountId === target.accountId);
+    if (profilesForAccount.length <= 1) {
+      throw routeError(400, "must_keep_one_profile", "Each account must keep at least one fee profile.");
     }
 
     const isDefaultInUse = store.accounts.some((account) => account.feeProfileId === params.id);
@@ -2667,12 +2787,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
-    const nextProfiles = store.feeProfiles.filter((profile) => profile.id !== params.id);
-    if (nextProfiles.length === store.feeProfiles.length) {
-      throw routeError(404, "fee_profile_not_found", `Fee profile ${params.id} was not found.`);
-    }
-
-    store.feeProfiles = nextProfiles;
+    store.feeProfiles = store.feeProfiles.filter((profile) => profile.id !== params.id);
     await app.persistence.saveStore(store);
     return { deletedId: params.id };
   });
@@ -2768,6 +2883,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const store = await app.persistence.loadStore(userId);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
+
+    // KZO-183: hydrate the persisted instrument catalog into draftStore so the
+    // market guard sees the canonical marketCode (e.g. MSFT="US") rather than
+    // the provisional default of "TW" produced by ensureInstrumentDefinition
+    // when the ticker is missing from store.instruments.
+    const persistedInstrument = await app.persistence.getInstrument(body.ticker);
+    if (persistedInstrument) {
+      setStoreInstruments(
+        draftStore,
+        upsertInstrumentDefinitions(draftStore.instruments, [{
+          ticker: persistedInstrument.ticker,
+          type: persistedInstrument.instrumentType ?? null,
+          marketCode: persistedInstrument.marketCode,
+          isProvisional: persistedInstrument.isProvisional,
+          lastSyncedAt: null,
+        }]),
+      );
+    }
     const ensured = ensureInstrumentDefinition(draftStore, body.ticker);
 
     if (ensured.instrument.type === null) {
@@ -2837,7 +2970,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const instrument = await app.persistence.getInstrument(body.ticker);
     const marketCode = instrument?.marketCode ?? "TW";
     const instrumentType: InstrumentType = instrument?.instrumentType ?? "STOCK";
-    const profile = resolveTransactionFeeProfile(store, account.id, body.ticker, marketCode);
+    const profile = resolveTransactionFeeProfile(store, account.id, body.ticker);
     const tradeCurrency = profile.commissionCurrency ?? "TWD";
     const tradeValueAmount = roundToDecimal(body.quantity * body.unitPrice, 2);
 

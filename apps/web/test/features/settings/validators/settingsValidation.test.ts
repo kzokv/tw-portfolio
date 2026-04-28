@@ -11,6 +11,7 @@ function createValidModel(): SettingsFormModel {
     feeProfiles: [
       {
         id: "profile-1",
+        accountId: "account-1",
         name: "Default Profile",
         boardCommissionRate: 1.425,
         commissionDiscountPercent: 60,

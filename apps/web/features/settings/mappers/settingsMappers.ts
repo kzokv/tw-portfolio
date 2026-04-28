@@ -4,6 +4,9 @@ import type { SaveSettingsRequest, SettingsFormModel, SettingsProfileModel } fro
 export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileModel {
   return {
     id: profile.id,
+    // KZO-183: per-account ownership flows from the wire DTO into the form
+    // model unchanged; the validator + per-account view rely on it.
+    accountId: profile.accountId,
     name: profile.name,
     boardCommissionRate: profile.boardCommissionRate,
     commissionDiscountPercent: profile.commissionDiscountPercent,
@@ -51,6 +54,7 @@ export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsReq
     },
     feeProfiles: model.feeProfiles.map((profile) => {
       const payload = {
+        accountId: profile.accountId,
         name: profile.name,
         boardCommissionRate: profile.boardCommissionRate,
         commissionDiscountPercent: profile.commissionDiscountPercent,

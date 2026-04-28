@@ -11,6 +11,8 @@ let persistence: MemoryPersistence;
 
 const DEFAULT_FEE_SNAPSHOT = {
   id: "fp-default",
+  // KZO-183: fee profiles are account-scoped.
+  accountId: "acc-1",
   name: "Default Broker",
   boardCommissionRate: 1.425,
   commissionDiscountPercent: 0,

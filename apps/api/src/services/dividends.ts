@@ -173,6 +173,23 @@ export function createDividendEvent(store: Store, input: CreateDividendEventInpu
   return dividendEvent;
 }
 
+// KZO-183: dividend market guard — a posted dividend's cashDividendCurrency
+// must equal the booking account's defaultCurrency (1:1 currency↔market).
+// The DB-level trigger on `dividend_ledger_entries` is defense-in-depth;
+// this is the user-facing surface that produces the 400 error envelope.
+export function assertDividendMarketMatchesAccount(
+  account: Pick<AccountDto, "id" | "defaultCurrency">,
+  dividendEvent: Pick<DividendEvent, "id" | "cashDividendCurrency">,
+): void {
+  if (dividendEvent.cashDividendCurrency !== account.defaultCurrency) {
+    throw routeError(
+      400,
+      "dividend_market_mismatch",
+      `Dividend event ${dividendEvent.id} currency ${dividendEvent.cashDividendCurrency} does not match account ${account.id} default currency ${account.defaultCurrency}`,
+    );
+  }
+}
+
 export function postDividend(store: Store, userId: string, input: PostDividendInput): PostDividendResult {
   assertDividendPostingPayload(input);
 
@@ -185,6 +202,9 @@ export function postDividend(store: Store, userId: string, input: PostDividendIn
   if (!dividendEvent) {
     throw routeError(404, "dividend_event_not_found", "Dividend event not found");
   }
+
+  // KZO-183: enforce the dividend market guard before any side effects.
+  assertDividendMarketMatchesAccount(account, dividendEvent);
 
   const activeEntry = findActiveDividendLedgerEntry(store, input.accountId, input.dividendEventId);
   if (activeEntry && activeEntry.postingStatus !== "expected") {
@@ -272,6 +292,11 @@ export function preparePostedCashDividendUpdate(
   if (input.dividendEventId !== dividendEvent.id) {
     throw routeError(400, "dividend_event_mismatch", "Dividend event does not match the existing ledger entry");
   }
+
+  // KZO-183: defense-in-depth — pre-existing posted entries should already
+  // pass this guard, but enforce on every update path so any drift surfaces
+  // here rather than in the DB trigger.
+  assertDividendMarketMatchesAccount(account, dividendEvent);
 
   if (dividendEvent.eventType !== "CASH") {
     throw routeError(

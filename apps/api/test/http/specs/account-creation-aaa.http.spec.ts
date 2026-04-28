@@ -18,16 +18,18 @@
  * `routeError(...)` envelope serialises as `{ error: "<code>", message: "<text>" }`.
  * Reads use `body.error` for the machine-readable code; never `body.code`.
  *
- * Memory backend uses the seeded user with `acc-1` ("Main") + `fp-default`.
+ * KZO-183: account creation auto-seeds a fresh default fee profile owned by
+ * the new account. Tests assert the relationship, not a deterministic id.
  */
 
 import { test } from "../fixtures.js";
 
-test.describe("POST /accounts (KZO-179)", () => {
+test.describe("POST /accounts (KZO-179 / KZO-183)", () => {
   // ── Happy path + DTO shape ─────────────────────────────────────────────────
 
   test("happy path: returns 200 with bare AccountDto and resolves the default fee profile", async ({
     accountsApi,
+    feeProfilesApi,
   }) => {
     const response = await accountsApi.actions.createAccount({
       name: "USD Brokerage",
@@ -42,9 +44,9 @@ test.describe("POST /accounts (KZO-179)", () => {
     await accountsApi.assert.fieldEquals(body, "name", "USD Brokerage");
     await accountsApi.assert.fieldEquals(body, "defaultCurrency", "USD");
     await accountsApi.assert.fieldEquals(body, "accountType", "bank");
-    // Memory backend's default user has profile id "fp-default" (D5 cascade
-    // step 3 — store.feeProfiles[0] when ${userId}-fp-default is absent).
-    await accountsApi.assert.fieldEquals(body, "feeProfileId", "fp-default");
+    if (typeof body.feeProfileId !== "string" || body.feeProfileId.length === 0) {
+      throw new Error(`Expected body.feeProfileId to be a non-empty string; got ${String(body.feeProfileId)}`);
+    }
     // id (uuid) and userId are present.
     if (typeof body.id !== "string" || body.id.length < 16) {
       throw new Error(`Expected body.id to be a uuid string; got ${String(body.id)}`);
@@ -57,54 +59,17 @@ test.describe("POST /accounts (KZO-179)", () => {
     if ("createdAt" in body) {
       throw new Error(`Expected body to NOT include 'createdAt'; received: ${JSON.stringify(body)}`);
     }
-  });
 
-  // ── Default fee-profile resolution (omitted body field) ────────────────────
-
-  test("default fee-profile resolution when feeProfileId is omitted", async ({
-    accountsApi,
-  }) => {
-    const response = await accountsApi.actions.createAccount({
-      name: "TWD Wallet",
-      defaultCurrency: "TWD",
-      accountType: "wallet",
-    });
-    await accountsApi.assert.statusIs(response, 200);
-
-    const body = (await accountsApi.arrange.body(response)) as Record<string, unknown>;
-    await accountsApi.assert.fieldEquals(body, "feeProfileId", "fp-default");
-  });
-
-  // ── Explicit fee-profile resolution ────────────────────────────────────────
-
-  test("explicit feeProfileId in body is honored", async ({
-    accountsApi,
-    feeProfilesApi,
-  }) => {
-    // Arrange — create a second profile via the fee-profiles route.
-    const { feeProfilePayload } = await import("../../helpers/fixtures.js");
-    const createProfileResponse = await feeProfilesApi.actions.createFeeProfile(
-      feeProfilePayload({ name: "Alt" }),
-    );
-    await feeProfilesApi.assert.statusIs(createProfileResponse, 200);
-    const profile = (await feeProfilesApi.arrange.body(createProfileResponse)) as Record<string, unknown>;
-    const altProfileId = profile.id;
-    if (typeof altProfileId !== "string") {
-      throw new Error("Expected new fee profile id to be a string");
+    const profilesResponse = await feeProfilesApi.actions.listFeeProfilesForAccount(body.id);
+    await feeProfilesApi.assert.statusIs(profilesResponse, 200);
+    const profiles = await feeProfilesApi.arrange.feeProfiles(profilesResponse);
+    if (profiles.length !== 1) {
+      throw new Error(`Expected exactly one auto-seeded profile, got ${profiles.length}`);
     }
 
-    // Act
-    const response = await accountsApi.actions.createAccount({
-      name: "AUD Brokerage",
-      defaultCurrency: "AUD",
-      accountType: "broker",
-      feeProfileId: altProfileId,
-    });
-
-    // Assert
-    await accountsApi.assert.statusIs(response, 200);
-    const body = (await accountsApi.arrange.body(response)) as Record<string, unknown>;
-    await accountsApi.assert.fieldEquals(body, "feeProfileId", altProfileId);
+    await feeProfilesApi.assert.fieldEquals(profiles[0]!, "id", body.feeProfileId);
+    await feeProfilesApi.assert.fieldEquals(profiles[0]!, "accountId", body.id);
+    await feeProfilesApi.assert.fieldEquals(profiles[0]!, "commissionCurrency", "USD");
   });
 
   // ── Validation rejections (Zod 400) ────────────────────────────────────────
@@ -151,25 +116,6 @@ test.describe("POST /accounts (KZO-179)", () => {
       accountType: "broker",
     });
     await accountsApi.assert.statusIs(response, 400);
-  });
-
-  test("validation: invalid feeProfileId reference (does not match any user profile) → 404 fee_profile_not_found", async ({
-    accountsApi,
-  }) => {
-    // Memory-seeded user has only "fp-default"; supplying a valid-shape but
-    // non-existent userScopedIdSchema-compatible id triggers `requireProfile`
-    // (registerRoutes.ts:1117) which throws routeError(404,
-    // "fee_profile_not_found", ...). Per `service-error-pattern.md` the body
-    // envelope is `{ error, message }`; we read `body.error`, never `body.code`.
-    const response = await accountsApi.actions.createAccount({
-      name: "Bogus FP",
-      defaultCurrency: "TWD",
-      accountType: "broker",
-      feeProfileId: "fp-does-not-exist",
-    });
-    await accountsApi.assert.statusIs(response, 404);
-    const body = (await accountsApi.arrange.body(response)) as Record<string, unknown>;
-    await accountsApi.assert.fieldEquals(body, "error", "fee_profile_not_found");
   });
 
   // ── Trim semantics (Zod .trim() chain at registerRoutes.ts:2504) ───────────
