@@ -71,6 +71,37 @@ export function useSettingsForm({
     wasOpenRef.current = true;
   }, [accounts, feeProfileBindings, feeProfiles, open, settings]);
 
+  // KZO-182: While the drawer is open, additively merge newly-arrived
+  // accounts (e.g. created via AccountCreateForm → dashboard.refresh) into
+  // both draft and baseline. The closed→open seed guard above protects
+  // in-progress fee-profile / binding edits from being clobbered by snapshot
+  // refreshes; this effect carves out a narrow exception for *new* accounts
+  // so AccountsListSection's per-row fee-profile <select> and the Fees-tab
+  // Add-Override default both pick up the new id. Updating baseline in
+  // lockstep keeps isDirty stable across the merge.
+  useEffect(() => {
+    if (!open || !wasOpenRef.current) {
+      return;
+    }
+
+    const mergeNewAccounts = (model: SettingsFormModel | null) => {
+      if (!model) return model;
+      const known = new Set(model.accounts.map((account) => account.id));
+      const fresh = accounts.filter((account) => !known.has(account.id));
+      if (fresh.length === 0) return model;
+      return {
+        ...model,
+        accounts: [
+          ...model.accounts,
+          ...fresh.map((account) => ({ id: account.id, feeProfileId: account.feeProfileId })),
+        ],
+      };
+    };
+
+    setDraft(mergeNewAccounts);
+    setBaseline(mergeNewAccounts);
+  }, [accounts, open]);
+
   const isDirty = useMemo(() => {
     if (!draft || !baseline) {
       return false;

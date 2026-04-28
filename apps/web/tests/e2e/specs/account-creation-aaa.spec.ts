@@ -73,7 +73,8 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   await settings.assert.accountCreatePreviewContains(/USD/);
   await settings.assert.accountCreatePreviewContains(/Bank/i);
 
-  await settings.actions.submitAccountCreate();
+  const submitResponse = await settings.actions.submitAccountCreate();
+  const newAccount = (await submitResponse.json()) as { id: string };
 
   // ── Assert (drawer) ───────────────────────────────────────────────────────
   // Form resets after submit (D12).
@@ -84,6 +85,28 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   // Order is insertion order (seeded Main first, USD Brokerage second).
   await settings.assert.accountNameLabelContains(/Main/i, 0);
   await settings.assert.accountNameLabelContains(/USD Brokerage/i, 1);
+
+  // KZO-182: the merge-on-grow effect must wire the new account into
+  // form.draft.accounts so its per-row fee-profile <select> binds a real
+  // value. Before the fix, AccountsListSection rendered the <select> with
+  // value="" — the user could never persist a fee-profile assignment.
+  await settings.assert.accountFeeProfileSelectHasNonEmptyValue(newAccount.id);
+
+  // KZO-182: switch to the Fees tab and confirm SecurityBindingsSection's
+  // Add-Override account dropdown enumerates the new account.
+  await settings.arrange.openFeesTab();
+  await settings.actions.addBinding();
+  await settings.assert.bindingAccountSelectIncludesAccount(0, newAccount.id);
+
+  // The Add-Override click left the form dirty (new binding in draft).
+  // Discard so the close-with-Escape below does not trigger the unsaved
+  // warning. Discard resets draft to baseline — which already includes the
+  // merged new account — so the round-trip assertion still passes.
+  await settings.actions.discardChanges();
+
+  // Return to Accounts tab so the round-trip assertion below runs against
+  // the same surface as before.
+  await settings.arrange.openAccountsTab();
 
   // ── Act: close drawer + navigate to /cash-ledger ──────────────────────────
   await settings.actions.closeWithEscape();
