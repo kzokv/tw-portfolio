@@ -16,6 +16,21 @@ export class CashLedgerAssert extends BaseAssert {
   }
 
   @Step()
+  async filterToolbarIsVisible(): Promise<void> {
+    await expect(this.el.filterToolbar).toBeVisible();
+  }
+
+  @Step()
+  async filterAccountSelectIsVisible(): Promise<void> {
+    await expect(this.el.filterAccountSelect).toBeVisible();
+  }
+
+  @Step()
+  async filterAccountSelectContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.filterAccountSelect).toContainText(text);
+  }
+
+  @Step()
   async tableIsVisible(): Promise<void> {
     await expect(this.el.table).toBeVisible();
   }

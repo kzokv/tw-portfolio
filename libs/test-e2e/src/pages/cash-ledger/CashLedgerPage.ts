@@ -5,6 +5,7 @@ export interface TCashLedgerElements extends TElementLocatorHelpers {
   tableOrEmpty: Locator;
   table: Locator;
   filterToolbar: Locator;
+  filterAccountSelect: Locator;
   summary: Locator;
   emptyState: Locator;
   drawer: Locator;
@@ -28,6 +29,10 @@ export class CashLedgerPage extends BasePage<TCashLedgerElements> {
       ),
       table: this.locate("cash-ledger-table", "Cash Ledger Table"),
       filterToolbar: this.locate("cash-ledger-filter-toolbar", "Cash Ledger Filter Toolbar"),
+      filterAccountSelect: this.withDescription(
+        this.locate("cash-ledger-filter-toolbar").locator("select"),
+        "Cash Ledger Filter Account Select",
+      ),
       summary: this.locate("cash-ledger-summary", "Cash Ledger Summary"),
       emptyState: this.locate("cash-ledger-empty", "Cash Ledger Empty State"),
       drawer: this.locate("cash-ledger-drawer", "Cash Ledger Drawer"),

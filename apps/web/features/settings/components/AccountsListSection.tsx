@@ -8,7 +8,10 @@ import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import type { SettingsAccountBindingModel, SettingsProfileModel } from "../types/settingsUi";
 
-interface AccountFallbackSectionProps {
+// KZO-179: renamed from AccountFallbackSection. The component now lives in
+// the Accounts tab (instead of the Fees tab) and represents "your accounts"
+// generically — the "fallback" framing was Fees-tab-scoped.
+interface AccountsListSectionProps {
   accounts: AccountDto[];
   bindings: SettingsAccountBindingModel[];
   profiles: SettingsProfileModel[];
@@ -17,14 +20,14 @@ interface AccountFallbackSectionProps {
   dict: AppDictionary;
 }
 
-export function AccountFallbackSection({
+export function AccountsListSection({
   accounts,
   bindings,
   profiles,
   onUpdateAccountProfile,
   onRenameAccount,
   dict,
-}: AccountFallbackSectionProps) {
+}: AccountsListSectionProps) {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [renameOverrides, setRenameOverrides] = useState<Record<string, string>>({});
@@ -76,8 +79,8 @@ export function AccountFallbackSection({
 
   return (
     <section className="glass-inset space-y-3 rounded-[24px] p-4">
-      <h3 className="text-lg font-semibold text-ink">{dict.settings.accountFallbackSectionTitle}</h3>
-      <p className="text-xs text-slate-400">{dict.settings.accountFallbackSectionDescription}</p>
+      <h3 className="text-lg font-semibold text-ink">{dict.settings.accountsListSectionTitle}</h3>
+      <p className="text-xs text-slate-400">{dict.settings.accountsListSectionDescription}</p>
       {renameError ? <p className="text-xs text-rose-500">{renameError}</p> : null}
 
       <div className="space-y-2">

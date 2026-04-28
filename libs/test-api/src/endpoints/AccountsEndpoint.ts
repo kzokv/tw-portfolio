@@ -15,4 +15,14 @@ export class AccountsEndpoint extends BaseEndpoint {
       data,
       ...(headers ? { headers } : {}),
     });
+
+  // KZO-179 — POST /accounts. Mirrors the FeeProfilesEndpoint.create shape.
+  create = (
+    data: unknown,
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.post(apiUrl("/accounts"), {
+      data,
+      ...(headers ? { headers } : {}),
+    });
 }

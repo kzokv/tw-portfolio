@@ -15,4 +15,10 @@ export class AccountsApiActions extends ApiBaseActions {
   async patchAccount(accountId: string, data: unknown): Promise<APIResponse> {
     return this._instance.patch(accountId, data, this.authHeaders);
   }
+
+  // KZO-179 — POST /accounts driver for HTTP suite tests.
+  @Step()
+  async createAccount(data: unknown): Promise<APIResponse> {
+    return this._instance.create(data, this.authHeaders);
+  }
 }

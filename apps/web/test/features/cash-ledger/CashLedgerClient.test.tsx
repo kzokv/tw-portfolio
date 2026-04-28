@@ -15,6 +15,12 @@ vi.mock("../../../features/cash-ledger/services/cashLedgerService", () => ({
   // pagination tests stay focused on the cash-ledger fetch behavior —
   // the dropdown falls back to raw account IDs when accountMeta is empty.
   fetchAccounts: vi.fn().mockResolvedValue([]),
+  // KZO-179: cashLedgerService now exports createAccount (used by the
+  // settings drawer's Accounts tab). CashLedgerClient does NOT call it,
+  // but vitest's mock factory must enumerate every export consumed by any
+  // file in the test's module graph — see
+  // `.claude/rules/implementer-qa-test-ownership.md`.
+  createAccount: vi.fn(),
 }));
 
 vi.mock("../../../hooks/useEventStream", () => ({

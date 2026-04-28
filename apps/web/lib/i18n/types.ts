@@ -392,12 +392,29 @@ export interface AppDictionary {
     profileDayTradeTaxLabel: string;
     profileEtfTaxLabel: string;
     profileBondEtfTaxLabel: string;
-    accountFallbackSectionTitle: string;
-    accountFallbackSectionDescription: string;
+    // KZO-179: section moved from Fees tab to Accounts tab and renamed
+    // (was accountFallbackSection*).
+    accountsListSectionTitle: string;
+    accountsListSectionDescription: string;
     accountRenameSave: string;
     accountRenamePlaceholder: string;
     accountRenameError: string;
     accountRenameIconLabel: string;
+    // KZO-179: Accounts tab + create-account form (en + zh-TW). Strings only
+    // per .claude/rules/nextjs-i18n-serialization.md — `formatAccountOption`
+    // helper lives in apps/web/features/cash-ledger/utils/accountOptions.ts.
+    tabAccounts: string;
+    accountCreateTitle: string;
+    accountCreateNameLabel: string;
+    accountCreateNamePlaceholder: string;
+    accountCreateTypeLabel: string;
+    accountCreateCurrencyLabel: string;
+    accountCreateFeeProfileLabel: string;
+    accountCreateCurrencyLockBody: string;
+    accountCreatePreviewLabel: string;
+    accountCreateSubmit: string;
+    accountCreateNameInUseError: string;
+    accountCreateGenericError: string;
     bindingSectionTitle: string;
     bindingSectionDescription: string;
     bindingEmptyState: string;

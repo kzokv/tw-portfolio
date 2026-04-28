@@ -267,6 +267,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               value={accountId}
               onChange={(e) => handleAccountChange(e.target.value)}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              data-testid="cash-ledger-account-select"
             >
               <option value="">—</option>
               {accountOptions.map((id) => (

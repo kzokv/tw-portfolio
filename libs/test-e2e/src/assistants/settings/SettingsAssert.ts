@@ -84,6 +84,26 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.testId("account-name-label", "Account Name Label").nth(index)).toContainText(text);
   }
 
+  @Step()
+  async accountNameLabelCountIs(expected: number): Promise<void> {
+    await expect(this.el.testId("account-name-label", "Account Name Label")).toHaveCount(expected);
+  }
+
+  @Step()
+  async accountCreateFormIsVisible(): Promise<void> {
+    await expect(this.el.accountCreate.form).toBeVisible();
+  }
+
+  @Step()
+  async accountCreatePreviewContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.accountCreate.previewChip).toContainText(text);
+  }
+
+  @Step()
+  async accountCreateNameInputIsEmpty(): Promise<void> {
+    await expect(this.el.accountCreate.nameInput).toHaveValue("");
+  }
+
   // --- Monitored Symbols ---
 
   @Step()

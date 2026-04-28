@@ -47,12 +47,29 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       profileDayTradeTaxLabel: "Day Trade Tax Bps",
       profileEtfTaxLabel: "ETF Sell Tax Bps",
       profileBondEtfTaxLabel: "Bond ETF Tax Bps",
-      accountFallbackSectionTitle: "Account Fallback Profile",
-      accountFallbackSectionDescription: "Each account must have a default profile used when no ticker override exists.",
+      // KZO-179: section moved to Accounts tab; renamed from accountFallbackSection*.
+      // Framing shifted from "fallback" to "your accounts" — the section is
+      // no longer Fees-tab-scoped (D11 + iter 1 CR M2).
+      accountsListSectionTitle: "Your accounts",
+      accountsListSectionDescription: "Rename an account or pick the fee profile that applies when no ticker override exists.",
       accountRenameSave: "Save",
       accountRenamePlaceholder: "Account name",
       accountRenameError: "Failed to rename account.",
       accountRenameIconLabel: "Rename account",
+      // KZO-179: Accounts tab + create-account form copy.
+      tabAccounts: "Accounts",
+      accountCreateTitle: "Add account",
+      accountCreateNameLabel: "Name",
+      accountCreateNamePlaceholder: "e.g. USD Brokerage",
+      accountCreateTypeLabel: "Type",
+      accountCreateCurrencyLabel: "Currency",
+      accountCreateFeeProfileLabel: "Fee profile",
+      accountCreateCurrencyLockBody:
+        "Each account holds one currency. To move money between currencies later, you'll use the FX Transfer flow.",
+      accountCreatePreviewLabel: "Preview",
+      accountCreateSubmit: "Add account",
+      accountCreateNameInUseError: "An account with that name already exists.",
+      accountCreateGenericError: "Could not create account. Please try again.",
       bindingSectionTitle: "Per-Security Overrides",
       bindingSectionDescription: "Route a specific ticker to a different profile. Otherwise fallback profile is used.",
       bindingEmptyState: "No overrides configured. Account fallback profile will be applied automatically.",
@@ -187,12 +204,29 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       profileDayTradeTaxLabel: "當沖稅基點",
       profileEtfTaxLabel: "ETF 賣出稅基點",
       profileBondEtfTaxLabel: "債券 ETF 稅基點",
-      accountFallbackSectionTitle: "帳戶預設費率",
-      accountFallbackSectionDescription: "每個帳戶都需指定預設費率，當代號未覆寫時會自動套用。",
+      // KZO-179: section moved to Accounts tab; renamed from accountFallbackSection*.
+      // Framing shifted from "fallback" to "your accounts" — the section is
+      // no longer Fees-tab-scoped (D11 + iter 1 CR M2).
+      accountsListSectionTitle: "你的帳戶",
+      accountsListSectionDescription: "重新命名帳戶，或選擇代號未覆寫時要套用的預設費率。",
       accountRenameSave: "儲存",
       accountRenamePlaceholder: "帳戶名稱",
       accountRenameError: "帳戶重新命名失敗。",
       accountRenameIconLabel: "重新命名帳戶",
+      // KZO-179: Accounts tab + create-account form copy.
+      tabAccounts: "帳戶",
+      accountCreateTitle: "新增帳戶",
+      accountCreateNameLabel: "名稱",
+      accountCreateNamePlaceholder: "例：美元券商",
+      accountCreateTypeLabel: "類型",
+      accountCreateCurrencyLabel: "幣別",
+      accountCreateFeeProfileLabel: "費率組合",
+      accountCreateCurrencyLockBody:
+        "每個帳戶使用單一幣別。日後若要在幣別之間移動資金，請使用 FX Transfer 流程。",
+      accountCreatePreviewLabel: "預覽",
+      accountCreateSubmit: "新增帳戶",
+      accountCreateNameInUseError: "已有相同名稱的帳戶。",
+      accountCreateGenericError: "無法新增帳戶，請再試一次。",
       bindingSectionTitle: "單一證券覆寫",
       bindingSectionDescription: "可將特定代號改用其他費率；未覆寫時會回退到帳戶預設費率。",
       bindingEmptyState: "目前沒有覆寫設定，系統將自動使用帳戶預設費率。",

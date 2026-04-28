@@ -117,6 +117,36 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.fill.perform(this.el.fees.profileName(index), value);
   }
 
+  // --- KZO-179: Account Create form (Accounts tab) ---
+
+  @Step()
+  async fillAccountCreateName(value: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.accountCreate.nameInput, value);
+  }
+
+  @Step()
+  async selectAccountCreateType(type: "broker" | "bank" | "wallet"): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountCreate.typePill(type));
+  }
+
+  @Step()
+  async selectAccountCreateCurrency(currency: "TWD" | "USD" | "AUD"): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountCreate.currencyCard(currency));
+  }
+
+  @Step()
+  async submitAccountCreate(): Promise<Response> {
+    const responsePromise = this.mxWaitForResponse(
+      (response) =>
+        response.request().method() === "POST"
+        && response.url().endsWith("/accounts")
+        && response.ok(),
+      { timeout: 10_000 },
+    );
+    await this.uiActions.click.perform(this.el.accountCreate.submit);
+    return await responsePromise;
+  }
+
   // --- Monitored Symbols ---
 
   @Step()

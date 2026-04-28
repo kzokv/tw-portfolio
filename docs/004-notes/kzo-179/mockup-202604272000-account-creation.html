@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KZO-179 — Account creation form mockup</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body {
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      .grain {
+        background-image: radial-gradient(
+            circle at 20% 30%,
+            rgba(99, 102, 241, 0.04),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 80% 10%,
+            rgba(16, 185, 129, 0.03),
+            transparent 50%
+          );
+      }
+      .annotation {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body class="grain min-h-screen">
+    <div class="mx-auto max-w-6xl px-6 py-10">
+      <!-- Header banner — meta about the mockup, not part of the actual UI -->
+      <div
+        class="mb-8 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm"
+      >
+        <p
+          class="text-[11px] font-semibold uppercase tracking-wider text-slate-400"
+        >
+          Mockup · KZO-179 scope-grill 2026-04-27
+        </p>
+        <h1 class="mt-1 text-base font-semibold text-slate-900">
+          Settings drawer — new <em>Accounts</em> tab with create form + relocated list
+        </h1>
+        <p class="mt-1 text-sm text-slate-500">
+          Composed against existing Tailwind utilities used in
+          <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">
+            apps/web/components/settings/SettingsDrawer.tsx
+          </code>
+          and
+          <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">
+            apps/web/features/settings/components/AccountFallbackSection.tsx
+          </code>. Visual contract for the live-preview chip mirrors the
+          KZO-167 chip mockup.
+        </p>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- Live region: this is what the user sees inside the settings drawer -->
+      <!-- ============================================================== -->
+
+      <div
+        class="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-sm"
+      >
+        <!-- Drawer top-bar -->
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-900">Settings</h2>
+          <button
+            class="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:text-slate-600"
+            aria-label="Close"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                d="M10 8.586L4.707 3.293 3.293 4.707 8.586 10l-5.293 5.293 1.414 1.414L10 11.414l5.293 5.293 1.414-1.414L11.414 10l5.293-5.293-1.414-1.414z"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Tab strip — 6 tabs now (Profile / General / Fees / Accounts / Tickers / Display) -->
+        <div
+          class="mb-5 inline-flex w-fit gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1"
+        >
+          <button
+            class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none"
+          >
+            Profile
+          </button>
+          <button
+            class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none"
+          >
+            General
+          </button>
+          <button
+            class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none"
+          >
+            Fees
+          </button>
+          <!-- ACTIVE TAB — new in KZO-179 -->
+          <button
+            class="rounded-full border border-indigo-200 bg-white px-3 py-1 text-sm font-semibold text-indigo-700 shadow-sm"
+          >
+            Accounts
+            <span
+              class="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700"
+              >NEW</span
+            >
+          </button>
+          <button
+            class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none"
+          >
+            Tickers
+          </button>
+          <button
+            class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none"
+          >
+            Display
+          </button>
+        </div>
+
+        <!-- ====================================================== -->
+        <!-- Account creation form (top half of the Accounts tab) -->
+        <!-- ====================================================== -->
+        <section
+          class="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/40 p-5"
+        >
+          <div>
+            <h3 class="text-base font-semibold text-slate-900">Add account</h3>
+            <p class="mt-0.5 text-xs text-slate-500">
+              One currency per account. Pick a fee profile for trades.
+            </p>
+          </div>
+
+          <!-- Name input -->
+          <div>
+            <label
+              class="mb-1 block text-xs font-medium text-slate-500"
+              for="acc-name"
+              >Name</label
+            >
+            <input
+              id="acc-name"
+              type="text"
+              value="USD Brokerage"
+              placeholder="e.g. USD Brokerage"
+              class="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+
+          <!-- Type pills -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-500"
+              >Type</label
+            >
+            <div class="flex flex-wrap gap-2">
+              <!-- Broker (unselected) -->
+              <button
+                class="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-300"
+              >
+                <!-- Building2 (lucide) -->
+                <svg
+                  class="h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+                  <path d="M6 12H4a2 2 0 0 0-2 2v8h4" />
+                  <path d="M18 9h2a2 2 0 0 1 2 2v11h-4" />
+                  <path d="M10 6h4" />
+                  <path d="M10 10h4" />
+                  <path d="M10 14h4" />
+                  <path d="M10 18h4" />
+                </svg>
+                Broker
+              </button>
+              <!-- Bank (SELECTED) -->
+              <button
+                class="flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 shadow-[0_0_0_3px_rgb(199_210_254/0.6)]"
+              >
+                <!-- Landmark (lucide) -->
+                <svg
+                  class="h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="3" y1="22" x2="21" y2="22" />
+                  <line x1="6" y1="18" x2="6" y2="11" />
+                  <line x1="10" y1="18" x2="10" y2="11" />
+                  <line x1="14" y1="18" x2="14" y2="11" />
+                  <line x1="18" y1="18" x2="18" y2="11" />
+                  <polygon points="12 2 20 7 4 7" />
+                </svg>
+                Bank
+              </button>
+              <!-- Wallet (unselected) -->
+              <button
+                class="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-300"
+              >
+                <!-- Wallet (lucide) -->
+                <svg
+                  class="h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M21 12V7H5a2 2 0 0 1 0-4h14v4"
+                  />
+                  <path
+                    d="M3 5v14a2 2 0 0 0 2 2h16v-5"
+                  />
+                  <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                </svg>
+                Wallet
+              </button>
+            </div>
+          </div>
+
+          <!-- Currency cards -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-500"
+              >Currency</label
+            >
+            <div class="grid max-w-md grid-cols-3 gap-2">
+              <!-- TWD (unselected) -->
+              <button
+                class="flex flex-col items-start rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-slate-300"
+              >
+                <span
+                  class="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                  >TWD</span
+                >
+                <span class="mt-1.5 text-xs text-slate-500"
+                  >New Taiwan Dollar</span
+                >
+              </button>
+              <!-- USD (SELECTED) -->
+              <button
+                class="flex flex-col items-start rounded-xl border border-indigo-300 bg-indigo-50/40 p-3 text-left ring-2 ring-indigo-300"
+              >
+                <span
+                  class="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-indigo-700"
+                  >USD</span
+                >
+                <span class="mt-1.5 text-xs text-indigo-700"
+                  >US Dollar</span
+                >
+              </button>
+              <!-- AUD (unselected) -->
+              <button
+                class="flex flex-col items-start rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-slate-300"
+              >
+                <span
+                  class="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                  >AUD</span
+                >
+                <span class="mt-1.5 text-xs text-slate-500"
+                  >Australian Dollar</span
+                >
+              </button>
+            </div>
+          </div>
+
+          <!-- Conditional fee-profile picker — shown ONLY when feeProfiles.length > 1 -->
+          <div class="relative">
+            <label
+              class="mb-1 block text-xs font-medium text-slate-500"
+              for="acc-fee-profile"
+              >Fee profile</label
+            >
+            <div class="flex items-center gap-2">
+              <select
+                id="acc-fee-profile"
+                class="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option>Default Broker</option>
+                <option>Alt Broker (US)</option>
+              </select>
+              <span
+                class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500"
+                title="Hidden when the user has only one fee profile (D5)"
+                >shown when ≥ 2</span
+              >
+            </div>
+          </div>
+
+          <!-- Info-blue callout -->
+          <div
+            class="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-700"
+          >
+            <svg
+              class="mt-0.5 h-4 w-4 flex-none"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-11.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM9 9.75A.75.75 0 0 1 9.75 9h.5A.75.75 0 0 1 11 9.75V14h.25a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1 0-1.5H9V10.5h-.25a.75.75 0 0 1-.75-.75Z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <span>
+              Each account holds one currency. To move money between
+              currencies later, you'll use the FX Transfer flow.
+            </span>
+          </div>
+
+          <!-- Live preview row -->
+          <div>
+            <p
+              class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+            >
+              Preview
+            </p>
+            <div
+              class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm"
+            >
+              <span class="font-medium text-slate-900">USD Brokerage</span>
+              <span class="text-slate-300">·</span>
+              <span
+                class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                >USD</span
+              >
+              <span
+                class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                >Bank</span
+              >
+            </div>
+          </div>
+
+          <!-- Submit -->
+          <div class="flex flex-wrap items-center gap-2 pt-2">
+            <button
+              class="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+            >
+              Add account
+            </button>
+            <span class="text-xs text-slate-400"
+              >Disabled until name is non-empty</span
+            >
+          </div>
+        </section>
+
+        <!-- ====================================================== -->
+        <!-- Your accounts (relocated AccountsListSection) -->
+        <!-- ====================================================== -->
+        <section class="mt-6 space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
+          <div>
+            <h3 class="text-base font-semibold text-slate-900">Your accounts</h3>
+            <p class="mt-0.5 text-xs text-slate-500">
+              Rename any account or pick a different fee profile.
+            </p>
+          </div>
+
+          <div class="space-y-2">
+            <!-- Existing Main account -->
+            <div
+              class="grid gap-3 rounded-[18px] border border-slate-200 bg-slate-50/60 p-3 text-sm lg:grid-cols-[1fr_240px]"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-slate-900">Main</span>
+                    <span class="text-slate-300">·</span>
+                    <span
+                      class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                      >TWD</span
+                    >
+                    <span
+                      class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                      >Broker</span
+                    >
+                  </div>
+                  <p class="text-[11px] text-slate-400">acc-1</p>
+                </div>
+                <button
+                  class="rounded-full border border-slate-200 p-1.5 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                  aria-label="Rename"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                </button>
+              </div>
+              <select
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+              >
+                <option>Default Broker</option>
+              </select>
+            </div>
+
+            <!-- Newly-created account (post-submit preview) -->
+            <div
+              class="grid gap-3 rounded-[18px] border border-emerald-200 bg-emerald-50/40 p-3 text-sm lg:grid-cols-[1fr_240px]"
+              title="Just created — appears here after submit (D8/D12)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="space-y-1">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-slate-900">USD Brokerage</span>
+                    <span class="text-slate-300">·</span>
+                    <span
+                      class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                      >USD</span
+                    >
+                    <span
+                      class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                      >Bank</span
+                    >
+                    <span
+                      class="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700"
+                      >just added</span
+                    >
+                  </div>
+                  <p class="text-[11px] text-slate-400">acc-…UUID…</p>
+                </div>
+                <button
+                  class="rounded-full border border-slate-200 p-1.5 text-slate-400 transition hover:border-slate-300 hover:text-slate-600"
+                  aria-label="Rename"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                </button>
+              </div>
+              <select
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
+              >
+                <option>Default Broker</option>
+                <option>Alt Broker (US)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- Annotation legend (not part of UI; for design review) -->
+      <!-- ============================================================== -->
+
+      <div
+        class="annotation mt-12 grid gap-4 rounded-xl border border-slate-200 bg-white p-5 text-xs leading-relaxed text-slate-600 shadow-sm md:grid-cols-2"
+      >
+        <div>
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            Decisions reflected
+          </p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li>
+              <span class="font-medium text-slate-700">D1</span> — new
+              <em>Accounts</em> tab in existing settings drawer (between Fees
+              and Tickers); 6-tab strip total.
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">D5</span> — fee-profile
+              picker is rendered only when the user has ≥ 2 fee profiles.
+              Tagged here with the `shown when ≥ 2` chip for the mockup;
+              production renders without that chip.
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">D6</span> — info-blue
+              callout is plain text, no link to FX Transfer (KZO-168 will wire
+              when ready).
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">D11</span> — relocated
+              "Your accounts" section (formerly
+              <code>AccountFallbackSection</code> in the Fees tab) lands below
+              the form on the same Accounts tab.
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">D13</span> — type pills
+              use lucide icons (Building2 / Landmark / Wallet); currency cards
+              use selected-state ring; live-preview chip mirrors the KZO-167
+              chip-mockup styling.
+            </li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            Out of mockup (per scope)
+          </p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li>
+              No <em>delete</em> affordance on existing accounts — out of scope
+              (deferred until product need).
+            </li>
+            <li>
+              No <em>created at</em> column rendered on the list — column
+              exists in DB after migration 041 but is hidden on
+              <code>AccountDto</code> (D2 / D7).
+            </li>
+            <li>
+              No <em>currency</em> change affordance on existing accounts —
+              already covered by KZO-167's PATCH lockdown (409
+              <code>currency_change_blocked</code> once cash entries / trade
+              events exist).
+            </li>
+            <li>
+              No <em>account type</em> behavioural gating — type is metadata
+              only; bank/wallet accounts continue to accept the same entry
+              types as broker accounts (KZO-167 D4; lifted by KZO-168 / KZO-170
+              / KZO-171).
+            </li>
+            <li>
+              No <em>FX Transfer</em> link target on the callout — KZO-168
+              wires when that surface ships.
+            </li>
+          </ul>
+        </div>
+        <div class="md:col-span-2">
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            Visual contract
+          </p>
+          <p class="mt-2">
+            Reuses
+            <code>formatAccountOption</code> from
+            <code>apps/web/features/cash-ledger/utils/accountOptions.ts</code>
+            (extracted in KZO-167) to render the live-preview chip. Type-pill
+            and currency-card styling composes existing Tailwind utilities — no
+            new design tokens. Tab strip wrap behaviour at narrow viewport is
+            unchanged from the existing 5-tab pattern.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
