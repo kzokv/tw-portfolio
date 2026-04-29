@@ -25,7 +25,11 @@ import {
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { dashboardPerformanceRangesSchema } from "@tw-portfolio/shared-types";
-import { resolveEffectiveRanges } from "../services/userPreferences.js";
+import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
+import {
+  translateOverviewSummary,
+  translatePerformancePoints,
+} from "../services/dashboardReportingCurrency.js";
 import type { ImpersonationDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
@@ -37,7 +41,7 @@ import {
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
-import { buildDashboardOverview, buildDashboardPerformance } from "../services/dashboard.js";
+import { buildDashboardOverview } from "../services/dashboard.js";
 import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
@@ -2030,6 +2034,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       cardOrder: z
         .union([cardOrderSchema, z.null()])
         .optional(),
+      // KZO-180: user-level reporting currency. Stored as a JSONB key (no
+      // migration); enum mirrors `AccountDefaultCurrency` from
+      // `@tw-portfolio/shared-types` (TWD/USD/AUD). `null` clears the key
+      // and the resolver falls back to the `'TWD'` default.
+      reportingCurrency: z
+        .union([z.enum(["TWD", "USD", "AUD"]), z.null()])
+        .optional(),
     })
     .strict();
 
@@ -3227,13 +3238,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .map((holding) => holding.ticker)
         .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
-    const snapshotMap = await resolveQuoteSnapshots(symbols, app.persistence);
+    // KZO-180 review L1: prefs read parallelized with the quote-snapshot fetch
+    // (both are I/O against the same persistence backend; neither depends on
+    // the other). Saves one round-trip on the hot dashboard path.
+    const [snapshotMap, prefs] = await Promise.all([
+      resolveQuoteSnapshots(symbols, app.persistence),
+      app.persistence.getUserPreferences(userId),
+    ]);
     const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
-    return buildDashboardOverview(store, {
+    // KZO-180: build the native overview, then translate the summary KPIs into
+    // the user's reporting currency. Per-holding rows on `holdings[]` and
+    // per-event rows on `dividends.*` stay native (D3) — the UI uses each
+    // holding's own currency for those labels.
+    const overview = buildDashboardOverview(store, {
       integrityIssue: getStoreIntegrityIssue(store),
       quotes,
     });
+    const reportingCurrency = resolveReportingCurrency(prefs);
+    const translatedSummary = await translateOverviewSummary(
+      overview.summary,
+      overview.holdings,
+      overview.dividends,
+      reportingCurrency,
+      overview.summary.asOf,
+      app.persistence,
+    );
+    return { ...overview, summary: translatedSummary };
   });
 
   app.get("/dashboard/performance", async (req) => {
@@ -3241,7 +3272,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // (user pref → admin → hardcoded default). Requests with a `range` value
     // that's not in the effective list are rejected with 400.
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const { ranges } = await resolveEffectiveRanges(app.persistence, userId);
+    // KZO-180 review M2: read prefs once, thread into resolveEffectiveRanges
+    // so the resolver doesn't issue a duplicate row read for the same user.
+    const prefs = await app.persistence.getUserPreferences(userId);
+    const { ranges } = await resolveEffectiveRanges(app.persistence, userId, prefs);
+    const reportingCurrency = resolveReportingCurrency(prefs);
     const rangeEnumValues = ranges as [string, ...string[]];
     const query = z.object({
       range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
@@ -3255,11 +3290,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const snapshotMap = await resolveQuoteSnapshots(symbols, app.persistence);
     const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
-    return buildDashboardPerformance(store, {
-      range: query.range as DashboardPerformanceRange,
+    // KZO-180: replaces `buildDashboardPerformance` with the FX-aware aggregator.
+    // The aggregator reads `daily_holding_snapshots` first (FX-aware via the
+    // persistence method's LATERAL JOIN with D8 self-pair guard), then falls
+    // back to a synthetic FX-aware path when no snapshots exist.
+    const asOf = quotes[0]?.asOf ?? new Date().toISOString();
+    return translatePerformancePoints(
+      userId,
+      query.range as DashboardPerformanceRange,
+      asOf,
+      reportingCurrency,
+      app.persistence,
+      store,
       quotes,
-      persistence: app.persistence,
-    });
+    );
   });
 
   app.get("/dividend-events", async (req) => {

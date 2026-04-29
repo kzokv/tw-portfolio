@@ -1,7 +1,4 @@
 import type {
-  DashboardPerformanceDto,
-  DashboardPerformancePointDto,
-  DashboardPerformanceRange,
   DashboardOverviewDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewRecentDividendDto,
@@ -9,12 +6,11 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@tw-portfolio/shared-types";
-import { resolveRangeBounds, roundToDecimal } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@tw-portfolio/domain";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";
-import type { Persistence } from "../persistence/types.js";
 
 interface BuildDashboardOverviewOptions {
   integrityIssue: IntegrityIssueDto | null;
@@ -26,10 +22,36 @@ interface DashboardOverviewDividends {
   recent: DashboardOverviewRecentDividendDto[];
 }
 
+/**
+ * KZO-180: pre-translation native summary shape — same field set as the wire
+ * `DashboardOverviewSummaryDto` minus the `reportingCurrency` + `fxStatus`
+ * fields. The route handler pipes this through `translateOverviewSummary` to
+ * produce the final wire shape. `buildDashboardOverview` returns this
+ * intermediate shape so callers can still access the native summary directly
+ * (e.g. for tests that don't care about FX translation).
+ */
+export interface RawDashboardOverviewSummary {
+  asOf: string;
+  accountCount: number;
+  holdingCount: number;
+  totalCostAmount: number;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  dailyChangeAmount: number | null;
+  dailyChangePercent: number | null;
+  upcomingDividendCount: number;
+  upcomingDividendAmount: number | null;
+  openIssueCount: number;
+}
+
+export interface RawDashboardOverview extends Omit<DashboardOverviewDto, "summary"> {
+  summary: RawDashboardOverviewSummary;
+}
+
 export function buildDashboardOverview(
   store: Store,
   { integrityIssue, quotes = [] }: BuildDashboardOverviewOptions,
-): DashboardOverviewDto {
+): RawDashboardOverview {
   const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
   const dividends = {
     upcoming: buildUpcomingDividends(store),
@@ -64,6 +86,9 @@ export function buildDashboardOverview(
     }
   }
 
+  // KZO-180: emit a `RawDashboardOverview` (no `reportingCurrency` / `fxStatus`).
+  // The route handler pipes the summary through `translateOverviewSummary` to
+  // produce the final wire shape with FX-translated KPIs.
   return {
     settings: store.settings,
     summary: {
@@ -71,7 +96,6 @@ export function buildDashboardOverview(
       accountCount: store.accounts.length,
       holdingCount: holdings.length,
       totalCostAmount,
-      totalCostCurrency: holdings[0]?.currency ?? "TWD",
       marketValueAmount,
       unrealizedPnlAmount,
       dailyChangeAmount,
@@ -93,30 +117,13 @@ export function buildDashboardOverview(
   };
 }
 
-export async function buildDashboardPerformance(
-  store: Store,
-  {
-    range,
-    quotes = [],
-    asOf = quotes[0]?.asOf ?? new Date().toISOString(),
-    persistence,
-  }: {
-    range: DashboardPerformanceRange;
-    quotes?: QuoteSnapshot[];
-    asOf?: string;
-    persistence: Persistence;
-  },
-): Promise<DashboardPerformanceDto> {
-  const snapshotPoints = await buildPerformanceFromSnapshots(store.userId, range, asOf, persistence);
-  if (snapshotPoints.length > 0) {
-    return { range, points: snapshotPoints };
-  }
-
-  return {
-    range,
-    points: buildSyntheticPerformance(store, range, asOf, quotes),
-  };
-}
+// KZO-180: `buildDashboardPerformance` deleted. The FX-aware replacement lives
+// in `apps/api/src/services/dashboardReportingCurrency.ts` (`translatePerformancePoints`).
+// `buildPerformanceFromSnapshots` and `buildSyntheticPerformance` are deleted
+// alongside; their FX-aware analogs live in the new service file. See
+// `process-refactor-rename-verification.md` — `buildDashboardPerformance`
+// was grep-confirmed to have only the registerRoutes.ts:3258 caller (now
+// rewired) and tests; no other consumers.
 
 function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptionDto | null {
   if (def.type === null) return null;
@@ -303,148 +310,9 @@ function resolveUpcomingStatus(
   return "declared";
 }
 
-async function buildPerformanceFromSnapshots(
-  userId: string,
-  range: DashboardPerformanceRange,
-  asOf: string,
-  persistence: Persistence,
-): Promise<DashboardPerformancePointDto[]> {
-  const { startDate, endDate } = resolveRangeBounds(range, asOf);
-  const aggregated = await persistence.getAggregatedSnapshots(userId, startDate, endDate);
-
-  return aggregated.map((point) => ({
-    date: point.date,
-    totalCostAmount: point.totalCostBasis,
-    marketValueAmount: point.totalMarketValue,
-    unrealizedPnlAmount: point.totalUnrealizedPnl,
-    cumulativeRealizedPnlAmount: point.cumulativeRealizedPnl,
-    cumulativeDividendsAmount: point.cumulativeDividends,
-    totalReturnAmount: point.totalReturnAmount,
-    totalReturnPercent: point.totalReturnPercent,
-  }));
-}
-
-function buildSyntheticPerformance(
-  store: Store,
-  range: DashboardPerformanceRange,
-  asOf: string,
-  quotes: QuoteSnapshot[],
-): DashboardPerformancePointDto[] {
-  const sortedTrades = [...store.accounting.facts.tradeEvents].sort(compareTradesForPerformance);
-  // KZO-159: pass earliestTradeDate so "ALL" range resolves to the true start
-  // of trade history (otherwise the domain resolver collapses to `asOf..asOf`).
-  const earliestTradeDate = sortedTrades.length > 0 ? sortedTrades[0].tradeDate : undefined;
-  const { startDate, endDate } = resolveRangeBounds(range, asOf, earliestTradeDate);
-  const positions = new Map<string, { quantity: number; costBasisAmount: number }>();
-  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
-  const points: DashboardPerformancePointDto[] = [];
-  let tradeIndex = 0;
-
-  while (tradeIndex < sortedTrades.length && sortedTrades[tradeIndex].tradeDate < startDate) {
-    applyTradeToPerformancePosition(positions, sortedTrades[tradeIndex]);
-    tradeIndex += 1;
-  }
-
-  for (let cursor = new Date(`${startDate}T00:00:00.000Z`); cursor <= new Date(`${endDate}T00:00:00.000Z`); cursor = addUtcDays(cursor, 1)) {
-    const currentDate = cursor.toISOString().slice(0, 10);
-
-    while (tradeIndex < sortedTrades.length && sortedTrades[tradeIndex].tradeDate <= currentDate) {
-      applyTradeToPerformancePosition(positions, sortedTrades[tradeIndex]);
-      tradeIndex += 1;
-    }
-
-    const point = summarizePerformancePoint(currentDate, positions, quoteByTicker);
-    if (point.totalCostAmount > 0 || point.marketValueAmount !== null) {
-      points.push(point);
-    }
-  }
-
-  return points;
-}
-
-function summarizePerformancePoint(
-  date: string,
-  positions: Map<string, { quantity: number; costBasisAmount: number }>,
-  quoteByTicker: Map<string, QuoteSnapshot>,
-): DashboardPerformancePointDto {
-  let totalCostAmount = 0;
-  let marketValueAmount = 0;
-  let hasPositions = false;
-  let hasCompleteQuotes = true;
-
-  for (const [positionKey, position] of positions) {
-    if (position.quantity <= 0 || position.costBasisAmount <= 0) continue;
-    hasPositions = true;
-    totalCostAmount += position.costBasisAmount;
-
-    const symbol = positionKey.includes(":")
-      ? positionKey.slice(positionKey.lastIndexOf(":") + 1)
-      : positionKey;
-    const quote = quoteByTicker.get(symbol);
-    if (!quote) {
-      hasCompleteQuotes = false;
-      continue;
-    }
-
-    marketValueAmount += roundToDecimal(quote.close * position.quantity, 2);
-  }
-
-  const resolvedMarketValue = hasPositions && hasCompleteQuotes ? marketValueAmount : null;
-
-  return {
-    date,
-    totalCostAmount,
-    marketValueAmount: resolvedMarketValue,
-    unrealizedPnlAmount: resolvedMarketValue === null ? null : resolvedMarketValue - totalCostAmount,
-  };
-}
-
-function applyTradeToPerformancePosition(
-  positions: Map<string, { quantity: number; costBasisAmount: number }>,
-  trade: Store["accounting"]["facts"]["tradeEvents"][number],
-): void {
-  const key = `${trade.accountId}:${trade.ticker}`;
-  const previous = positions.get(key) ?? { quantity: 0, costBasisAmount: 0 };
-
-  if (trade.type === "BUY") {
-    positions.set(key, {
-      quantity: previous.quantity + trade.quantity,
-      costBasisAmount: previous.costBasisAmount + roundToDecimal(trade.quantity * trade.unitPrice, 2) + trade.commissionAmount + trade.taxAmount,
-    });
-    return;
-  }
-
-  const realizedPnlAmount = trade.realizedPnlAmount ?? 0;
-  const proceedsNet = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
-  const allocatedCostAmount = Math.max(0, proceedsNet - realizedPnlAmount);
-  const nextQuantity = Math.max(0, previous.quantity - trade.quantity);
-  const nextCostBasisAmount = Math.max(0, previous.costBasisAmount - allocatedCostAmount);
-
-  if (nextQuantity === 0) {
-    positions.delete(key);
-    return;
-  }
-
-  positions.set(key, {
-    quantity: nextQuantity,
-    costBasisAmount: nextCostBasisAmount,
-  });
-}
-
-function compareTradesForPerformance(
-  left: Store["accounting"]["facts"]["tradeEvents"][number],
-  right: Store["accounting"]["facts"]["tradeEvents"][number],
-): number {
-  return (
-    left.tradeDate.localeCompare(right.tradeDate)
-    || (left.bookingSequence ?? 0) - (right.bookingSequence ?? 0)
-    || (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
-    || left.id.localeCompare(right.id)
-  );
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
+// KZO-180: `buildPerformanceFromSnapshots`, `buildSyntheticPerformance`,
+// `summarizePerformancePoint`, `applyTradeToPerformancePosition`,
+// `compareTradesForPerformance`, and `addUtcDays` deleted alongside
+// `buildDashboardPerformance`. Their FX-aware analogs live in
+// `apps/api/src/services/dashboardReportingCurrency.ts`
+// (`buildFxAwareSyntheticPerformance` etc.).

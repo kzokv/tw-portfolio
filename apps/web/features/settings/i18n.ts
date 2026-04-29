@@ -173,6 +173,11 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayLayoutTitle: "Layout",
       displayLayoutDescription:
         "Reset card order back to the default arrangement.",
+      // KZO-180 — reporting currency selector
+      displayReportingCurrencyTitle: "Reporting currency",
+      displayReportingCurrencyDescription:
+        "Choose the currency your dashboard totals are rendered in. Per-holding values stay in each account's native currency.",
+      displayReportingCurrencySaved: "Saved",
       resetAllLayoutsButton: "Reset all layouts",
       resetDashboardLayoutButton: "Reset dashboard layout",
       resetTransactionsLayoutButton: "Reset transactions layout",
@@ -365,6 +370,11 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
         "重新排序或切換績效卡上顯示的時間區段膠囊。個人排序會覆蓋管理員預設。",
       displayLayoutTitle: "版面",
       displayLayoutDescription: "將卡片順序還原為預設排列。",
+      // KZO-180 — 報表幣別選單
+      displayReportingCurrencyTitle: "報表幣別",
+      displayReportingCurrencyDescription:
+        "選擇儀表板總計的顯示幣別。各持股仍以該帳戶的原幣顯示。",
+      displayReportingCurrencySaved: "已儲存",
       resetAllLayoutsButton: "重設全部版面",
       resetDashboardLayoutButton: "重設儀表板版面",
       resetTransactionsLayoutButton: "重設交易版面",

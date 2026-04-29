@@ -36,7 +36,7 @@ KZO-167 landed the schema, types, service guard, PATCH lockdown, and `/cash-ledg
 
 ## Out of scope (explicit)
 
-- **KZO-180** — user-level reporting currency: `user_preferences.reporting_currency` column + dashboard / portfolio-summary FX-aware read consumers + settings UI.
+- **KZO-180** — user-level reporting currency: `user_preferences.reportingCurrency` JSONB key + dashboard / portfolio-summary FX-aware read consumers + settings UI.
 - **KZO-181** — `FeeProfile` / `FeeProfileBinding` mirror cleanup investigation.
 - **KZO-168** — FX Transfer producer side (cash-entry type, route, UI). Includes wiring the callout link (D6) when FX Transfer ships.
 - **KZO-170 / KZO-171** — US / AU market broker-account behavioral semantics on `account_type`.

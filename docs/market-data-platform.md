@@ -154,7 +154,7 @@ KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wal
 
 **Migration 039:** `db/migrations/039_kzo166_cash_ledger_fx_rate.sql` adds nullable `fx_rate_to_usd NUMERIC(20, 8)` to `cash_ledger_entries` with `CHECK (fx_rate_to_usd IS NULL OR fx_rate_to_usd > 0)`. Idempotent via `ADD COLUMN IF NOT EXISTS` + `DO $$` constraint guard.
 
-**Consumer status:** No read-time consumer in KZO-166. Now that KZO-167 (`accounts.default_currency`) has landed, the next consumer is **KZO-180** — which wires `user_preferences.reporting_currency` and the dashboard/portfolio-summary FX-aware reads together. Until KZO-180 lands, `getFxRate` consumers pass `'USD'` as the reporting currency.
+**Consumer status:** KZO-180 is the first read-time consumer. Dashboard reads resolve `preferences.reportingCurrency` via `resolveReportingCurrency(...)`, defaulting to TWD for missing or invalid stored values. `/dashboard/overview.summary` translates the five KPI totals through `dashboardReportingCurrency.ts` with one as-of-date `getFxRate` lookup per source currency. `/dashboard/performance.points[]` uses `getAggregatedSnapshotsInReportingCurrency(...)`, a per-snapshot-date translate-then-sum path backed by a `LEFT JOIN LATERAL` forward-fill lookup and an explicit self-pair guard. Missing read-side FX reports `fxStatus` at response level and `fxAvailable` per performance point. KZO-180 v1 translates denormalized `cumulative_realized_pnl` at snapshot-date FX; sale-date-locked attribution remains owned by KZO-176.
 
 ### Per-account currency and account type (KZO-167)
 
@@ -164,7 +164,7 @@ A new service module `apps/api/src/services/cashLedgerService.ts` enforces the c
 
 **`account_type` is metadata-only in KZO-167** — no behavioral gating on entry types by account type. Behavioral semantics land in downstream tickets (KZO-168 `FX_TRANSFER`, KZO-170/171 US/AU markets).
 
-**Sibling tickets not yet started:** KZO-179 (multi-account creation, `POST /accounts`) and KZO-180 (user-level `user_preferences.reporting_currency` column + dashboard FX-aware reads + settings UI) are both blocked on KZO-167.
+**Sibling tickets:** KZO-179 (multi-account creation, `POST /accounts`) and KZO-180 (user-level `preferences.reportingCurrency` JSONB key + dashboard FX-aware reads + settings UI) build on KZO-167.
 
 ---
 

@@ -438,6 +438,17 @@ export interface AggregatedSnapshotPoint {
   totalReturnAmount: number | null;
   totalReturnPercent: number | null;
   isProvisional: boolean;
+  /**
+   * KZO-180: per-snapshot-date FX availability rollup. `true` when every
+   * contributing row's source currency either matches the requested reporting
+   * currency (self-pair shortcut, fx = 1.0) OR has an FX rate at or before the
+   * snapshot date. `false` when at least one contributing row's pair has no
+   * forward-fillable FX rate.
+   *
+   * The legacy `getAggregatedSnapshots(...)` method (no reporting-currency
+   * argument) does not perform FX translation and always emits `true`.
+   */
+  fxAvailable: boolean;
 }
 
 /**
@@ -829,6 +840,36 @@ export interface Persistence {
   deleteHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
   deleteAllHoldingSnapshots(userId: string): Promise<void>;
   getAggregatedSnapshots(userId: string, startDate: string, endDate: string): Promise<AggregatedSnapshotPoint[]>;
+  /**
+   * KZO-180: FX-aware variant of `getAggregatedSnapshots`. Translates each
+   * contributing row's per-currency native columns (`value_native`,
+   * `cost_basis_native`, `unrealized_pnl_native`) plus the legacy
+   * `cumulative_realized_pnl` and `cumulative_dividends` columns into
+   * `reportingCurrency` using the per-snapshot-date FX rate from
+   * `market_data.fx_rates` (forward-fill via `date <= snapshot_date`).
+   *
+   * Self-pair shortcut: rows whose `currency = reportingCurrency` translate
+   * with `fx = 1.0` (no DB JOIN, no NULL propagation). This is the **D8**
+   * SQL guard — without it, every TWD-only row produces NULL aggregates and
+   * silently degrades the entire production user base.
+   *
+   * Convention: translate-then-sum. `fxAvailable` per snapshot date is true
+   * iff every contributing row's pair resolved (or self-pair). When false,
+   * the translated cumulative/total fields are NULL.
+   *
+   * **v1 deviation from KZO-166 D4 / KZO-180 D4:** `cumulative_realized_pnl`
+   * is translated at `snapshot_date` FX, not the original sale-date FX. The
+   * denormalized cumulative column doesn't preserve per-trade sale dates;
+   * strict adherence requires a JOIN-to-trades aggregation owned by KZO-176.
+   * For TWD-only users (today's user base) this is exact. For mixed-currency
+   * users it's an approximation until KZO-176.
+   */
+  getAggregatedSnapshotsInReportingCurrency(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+  ): Promise<AggregatedSnapshotPoint[]>;
   countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
 

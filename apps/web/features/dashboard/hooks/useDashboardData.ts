@@ -28,7 +28,9 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
     accountCount: 0,
     holdingCount: 0,
     totalCostAmount: 0,
-    totalCostCurrency: "TWD",
+    // KZO-180: reportingCurrency replaces broken-by-design totalCostCurrency.
+    reportingCurrency: "TWD",
+    fxStatus: "complete",
     marketValueAmount: null,
     unrealizedPnlAmount: null,
     dailyChangeAmount: null,

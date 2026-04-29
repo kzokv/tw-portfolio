@@ -24,7 +24,7 @@ KZO-167 completes the account-model foundation that KZO-165 (multi-currency snap
 
 This ticket unblocks KZO-170 (US-market broker accounts), KZO-171 (AU-market), KZO-179 (multi-account creation form), and KZO-180 (user-level reporting currency consumer).
 
-**Sibling tickets explicitly out of scope:** KZO-179 (multi-account creation form, `POST /accounts`), KZO-180 (user-level reporting currency consumer: `user_preferences.reporting_currency` + dashboard FX-aware reads + settings UI), and KZO-181 (`FeeProfile`/`FeeProfileBinding` mirror cleanup). None of these ship in this ticket.
+**Sibling tickets explicitly out of scope:** KZO-179 (multi-account creation form, `POST /accounts`), KZO-180 (user-level reporting currency consumer: `user_preferences.reportingCurrency` JSONB key + dashboard FX-aware reads + settings UI), and KZO-181 (`FeeProfile`/`FeeProfileBinding` mirror cleanup). None of these ship in this ticket.
 
 ---
 
@@ -110,7 +110,7 @@ Idempotent. Postgres backfills existing rows to `'TWD'`/`'broker'` automatically
 | Ticket | Blocked on KZO-167? | What it adds |
 |---|---|---|
 | **KZO-179** | Yes | Multi-account creation form, `POST /accounts`, account-creation audit log |
-| **KZO-180** | Yes (+ KZO-176) | `user_preferences.reporting_currency`, dashboard/portfolio-summary FX-aware read consumers, settings UI |
+| **KZO-180** | Yes (+ KZO-176) | `user_preferences.reportingCurrency` JSONB key, dashboard/portfolio-summary FX-aware read consumers, settings UI |
 | **KZO-181** | No | `FeeProfile`/`FeeProfileBinding` mirror divergence investigation and consolidation |
 | **KZO-168** | No | `FX_TRANSFER` cash-entry type (producer side of `fx_rate_to_usd`) |
 | **KZO-170 / KZO-171** | Yes | US / AU market broker account support |

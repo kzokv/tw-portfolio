@@ -24,7 +24,9 @@ const summary: DashboardOverviewSummaryDto = {
   accountCount: 3,
   holdingCount: 7,
   totalCostAmount: 1_200_000,
-  totalCostCurrency: "TWD",
+  // KZO-180: reportingCurrency replaces broken-by-design totalCostCurrency.
+  reportingCurrency: "TWD",
+  fxStatus: "complete",
   marketValueAmount: 1_260_000,
   unrealizedPnlAmount: 60_000,
   dailyChangeAmount: 1_200,
@@ -83,18 +85,27 @@ const transactions: TransactionHistoryItemDto[] = [
 
 const performance: DashboardPerformanceDto = {
   range: "1M",
+  // KZO-180: response-level reporting currency + fxStatus rollup.
+  reportingCurrency: "TWD",
+  fxStatus: "complete",
   points: [
     {
       date: "2026-03-01",
       totalCostAmount: 1_200_000,
       marketValueAmount: 1_210_000,
       unrealizedPnlAmount: 10_000,
+      cumulativeRealizedPnlAmount: 0,
+      cumulativeDividendsAmount: 0,
+      fxAvailable: true,
     },
     {
       date: "2026-03-13",
       totalCostAmount: 1_200_000,
       marketValueAmount: 1_260_000,
       unrealizedPnlAmount: 60_000,
+      cumulativeRealizedPnlAmount: 0,
+      cumulativeDividendsAmount: 0,
+      fxAvailable: true,
     },
   ],
 };
