@@ -41,9 +41,12 @@ interface SettingsDrawerProps {
   // KZO-161 (158C) — Display tab callbacks. Default no-ops keep existing
   // call sites working until they wire the new behavior.
   // KZO-162 — onPageLayoutReset added for the per-page Reset buttons.
+  // KZO-180 — onReportingCurrencySaved added for the new reporting-currency
+  // selector in the Display tab.
   onTimeframesSaved?: () => void;
   onLayoutReset?: () => void;
   onPageLayoutReset?: (page: ReorderablePage) => void;
+  onReportingCurrencySaved?: () => void;
 }
 
 export function SettingsDrawer({
@@ -64,6 +67,7 @@ export function SettingsDrawer({
   onTimeframesSaved,
   onLayoutReset,
   onPageLayoutReset,
+  onReportingCurrencySaved,
 }: SettingsDrawerProps) {
   const form = useSettingsForm({
     open,
@@ -210,6 +214,7 @@ export function SettingsDrawer({
                   onTimeframesSaved={onTimeframesSaved ?? (() => undefined)}
                   onLayoutReset={onLayoutReset ?? (() => undefined)}
                   onPageLayoutReset={onPageLayoutReset ?? (() => undefined)}
+                  onReportingCurrencySaved={onReportingCurrencySaved ?? (() => undefined)}
                 />
               </div>
             </div>

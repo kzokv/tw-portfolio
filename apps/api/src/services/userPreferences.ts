@@ -28,6 +28,7 @@ import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@tw-portfolio/shared-types";
+import type { AccountDefaultCurrency } from "@tw-portfolio/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 export type EffectiveRangesSource = "user" | "admin" | "default";
@@ -43,20 +44,26 @@ export interface EffectiveRangesResult {
  * (e.g. a user preference that was seeded with garbage) fall through to the
  * next tier rather than throwing — the resolver must always return something
  * useful for the UI.
+ *
+ * Optional `prefs` parameter (KZO-180 review M2): callers that already loaded
+ * `getUserPreferences(userId)` for another concern (e.g. resolving the
+ * reporting-currency pref on the same request) can pass it in to avoid a
+ * duplicate read. When omitted, the resolver loads prefs itself.
  */
 export async function resolveEffectiveRanges(
   persistence: Persistence,
   userId: string,
+  prefs?: Record<string, unknown>,
 ): Promise<EffectiveRangesResult> {
-  const [prefs, appConfig] = await Promise.all([
-    persistence.getUserPreferences(userId),
+  const [resolvedPrefs, appConfig] = await Promise.all([
+    prefs !== undefined ? Promise.resolve(prefs) : persistence.getUserPreferences(userId),
     persistence.getAppConfig(),
   ]);
 
   const adminList = appConfig.dashboardPerformanceRanges;
 
   // Tier 1 — user preference, pruned against the admin-allowed set.
-  const userRaw = prefs["dashboardPerformanceRanges"];
+  const userRaw = resolvedPrefs["dashboardPerformanceRanges"];
   if (Array.isArray(userRaw)) {
     const userParsed = dashboardPerformanceRangesSchema.safeParse(userRaw);
     if (userParsed.success) {
@@ -89,4 +96,22 @@ export async function resolveEffectiveRanges(
     ranges: [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES],
     source: "default",
   };
+}
+
+// KZO-180 — Pure resolver for the user-level reporting currency. The pref is
+// validated by `userPreferencePatchSchema` at write time (PATCH
+// /user-preferences); this helper is the read-side belt-and-suspenders guard
+// that copes with legacy/garbage values from any pre-validation seed paths.
+//
+// Defaults to `"TWD"` when:
+//   - the key is absent (lazy `getUserPreferences` returns `{}` for missing rows)
+//   - the value is non-string or a string outside the AccountDefaultCurrency union
+//
+// Sync (no DB call) — caller has prefs already from `getUserPreferences`.
+export function resolveReportingCurrency(
+  prefs: Record<string, unknown>,
+): AccountDefaultCurrency {
+  const v = prefs.reportingCurrency;
+  if (v === "TWD" || v === "USD" || v === "AUD") return v;
+  return "TWD";
 }

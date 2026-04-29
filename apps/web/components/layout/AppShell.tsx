@@ -883,6 +883,14 @@ export function AppShell({
             [page]: counts[page] + 1,
           }))
         }
+        // KZO-180 — when the user changes their reporting currency, the API
+        // re-translates dashboard totals + the perf series at the next read.
+        // Mirror the timeframe-saved wiring: refetch the snapshot AND the
+        // perf data so the labels/values flip in place without a remount.
+        onReportingCurrencySaved={() => {
+          void dashboard.refresh();
+          void performance.refresh();
+        }}
       />
     </div>
   );
@@ -1112,12 +1120,12 @@ function renderSection({
                       {
                         label: dict.dashboardHome.marketValueLabel,
                         value: dashboard.summary.marketValueAmount !== null
-                          ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.totalCostCurrency, locale)
+                          ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
                           : dict.dashboardHome.noMarketValue,
                       },
                       {
                         label: dict.dashboardHome.totalCostLabel,
-                        value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.totalCostCurrency, locale),
+                        value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
                       },
                       {
                         label: dict.dashboardHome.holdingCountLabel,
@@ -1165,7 +1173,7 @@ function renderSection({
           {
             label: dict.dashboardHome.marketValueLabel,
             value: dashboard.summary.marketValueAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.totalCostCurrency, locale)
+              ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
               : dict.dashboardHome.noMarketValue,
             detail: dashboard.summary.asOf ? formatDateLabel(dashboard.summary.asOf, locale) : dict.dashboardHome.asOfLabel,
           },
@@ -1179,14 +1187,14 @@ function renderSection({
           {
             label: dict.dashboardHome.unrealizedPnlLabel,
             value: dashboard.summary.unrealizedPnlAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.unrealizedPnlAmount, dashboard.summary.totalCostCurrency, locale)
+              ? formatCurrencyAmount(dashboard.summary.unrealizedPnlAmount, dashboard.summary.reportingCurrency, locale)
               : dict.dashboardHome.noMarketValue,
-            detail: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.totalCostCurrency, locale),
+            detail: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
           },
           {
             label: dict.dashboardHome.dailyChangeLabel,
             value: dashboard.summary.dailyChangeAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.dailyChangeAmount, dashboard.summary.totalCostCurrency, locale)
+              ? formatCurrencyAmount(dashboard.summary.dailyChangeAmount, dashboard.summary.reportingCurrency, locale)
               : dict.dashboardHome.noMarketValue,
             detail: dashboard.summary.dailyChangePercent !== null
               ? formatPercent(dashboard.summary.dailyChangePercent, locale)
@@ -1222,7 +1230,7 @@ function renderSection({
                   data={performance.data}
                   range={performanceRange}
                   ranges={effectiveRanges}
-                  currency={dashboard.summary.totalCostCurrency}
+                  currency={dashboard.summary.reportingCurrency}
                   locale={locale}
                   dict={dict}
                   isLoading={performance.isLoading}

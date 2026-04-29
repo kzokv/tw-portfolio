@@ -2792,6 +2792,113 @@ export class PostgresPersistence implements Persistence {
         totalReturnAmount,
         totalReturnPercent,
         isProvisional: row.is_provisional,
+        // Legacy method does no FX translation — every row is trivially "available".
+        fxAvailable: true,
+      };
+    });
+  }
+
+  // KZO-180 — FX-aware aggregator. See `Persistence.getAggregatedSnapshotsInReportingCurrency`
+  // doc for v1 deviation + D8 self-pair guard rationale.
+  async getAggregatedSnapshotsInReportingCurrency(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+  ): Promise<AggregatedSnapshotPoint[]> {
+    // D8 self-pair guard — `LEFT JOIN LATERAL ... ON s.currency <> $4`
+    // gates the join so self-pair rows skip the FX lookup entirely. The
+    // multiplication uses `CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END`
+    // so self-pair rows multiply by 1.0 (not NULL). Without this guard, every
+    // TWD-only row's `value_native * fx.rate` evaluates to NULL and the entire
+    // SUM degrades to NULL. The integration test suite asserts this is preserved
+    // (case 1 — TWD-only self-pair).
+    //
+    // We intentionally translate `cost_basis_native`/`value_native`/`unrealized_pnl_native`
+    // (the per-currency columns introduced in KZO-165). The legacy
+    // `cost_basis`/`market_value`/`unrealized_pnl` columns are dual-written for
+    // TWD but undefined for non-TWD; the native columns are authoritative.
+    //
+    // `cumulative_realized_pnl` and `cumulative_dividends` use the legacy
+    // (non-native) columns because they don't have a per-currency split today.
+    // For TWD-only users this is exact; for mixed-currency users this is the
+    // v1 deviation flagged in KZO-180 D4 and owned by KZO-176.
+    const result = await this.pool.query<{
+      snapshot_date: string;
+      total_cost_basis: string;
+      total_market_value: string | null;
+      total_unrealized_pnl: string | null;
+      cumulative_realized_pnl: string;
+      cumulative_dividends: string;
+      is_provisional: boolean;
+      fx_available: boolean;
+    }>(
+      `SELECT s.snapshot_date::text,
+              SUM(s.cost_basis_native      * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS total_cost_basis,
+              CASE WHEN bool_or(s.is_provisional) THEN NULL ELSE
+                SUM(s.value_native           * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END)
+              END AS total_market_value,
+              CASE WHEN bool_or(s.is_provisional) THEN NULL ELSE
+                SUM(s.unrealized_pnl_native  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END)
+              END AS total_unrealized_pnl,
+              SUM(s.cumulative_realized_pnl  * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_realized_pnl,
+              SUM(s.cumulative_dividends     * CASE WHEN s.currency = $4 THEN 1.0 ELSE fx.rate END) AS cumulative_dividends,
+              bool_or(s.is_provisional) AS is_provisional,
+              bool_and(s.currency = $4 OR fx.rate IS NOT NULL) AS fx_available
+         FROM daily_holding_snapshots s
+         LEFT JOIN LATERAL (
+           SELECT rate FROM market_data.fx_rates
+           WHERE base_currency = s.currency
+             AND quote_currency = $4
+             AND date <= s.snapshot_date
+           ORDER BY date DESC LIMIT 1
+         ) fx ON s.currency <> $4
+        WHERE s.user_id = $1
+          AND s.snapshot_date >= $2::date
+          AND s.snapshot_date <= $3::date
+        GROUP BY s.snapshot_date
+        ORDER BY s.snapshot_date ASC`,
+      [userId, startDate, endDate, reportingCurrency],
+    );
+    return result.rows.map(row => {
+      // Postgres `SUM(value * CASE...)` ignores NULL multiplications, so a row
+      // with a self-pair contributor AND a missing-FX contributor produces a
+      // partial sum (only the self-pair half lands). Without explicit zeroing,
+      // the persistence DTO would diverge from the memory backend (which never
+      // accumulates partial sums when `allFxResolved=false`). KZO-180 review
+      // M1: align both backends — when `fx_available=false`, every numeric
+      // contribution is gated. The wire layer (`dashboardReportingCurrency.ts`)
+      // surfaces null externally regardless, but persistence-DTO consumers
+      // (KZO-176, future internal reports) now see the same shape on both
+      // backends.
+      const fxAvailable = row.fx_available;
+      const totalCostBasisRaw = row.total_cost_basis !== null ? Number(row.total_cost_basis) : null;
+      const totalMarketValue = fxAvailable && row.total_market_value !== null ? Number(row.total_market_value) : null;
+      const totalUnrealizedPnl = fxAvailable && row.total_unrealized_pnl !== null ? Number(row.total_unrealized_pnl) : null;
+      const cumulativeRealizedPnlRaw = row.cumulative_realized_pnl !== null ? Number(row.cumulative_realized_pnl) : null;
+      const cumulativeDividendsRaw = row.cumulative_dividends !== null ? Number(row.cumulative_dividends) : null;
+      // Coerce non-nullable persistence-DTO fields to 0 on fx_available=false
+      // (mirrors memory.ts:1776-1780).
+      const totalCostBasis = fxAvailable ? (totalCostBasisRaw ?? 0) : 0;
+      const cumulativeRealizedPnl = fxAvailable ? (cumulativeRealizedPnlRaw ?? 0) : 0;
+      const cumulativeDividends = fxAvailable ? (cumulativeDividendsRaw ?? 0) : 0;
+      const totalReturnAmount = fxAvailable && totalMarketValue !== null
+        ? totalMarketValue + cumulativeRealizedPnl + cumulativeDividends - totalCostBasis
+        : null;
+      const totalReturnPercent = totalReturnAmount !== null && totalCostBasis > 0
+        ? (totalReturnAmount / totalCostBasis) * 100
+        : null;
+      return {
+        date: row.snapshot_date,
+        totalCostBasis,
+        totalMarketValue,
+        totalUnrealizedPnl,
+        cumulativeRealizedPnl,
+        cumulativeDividends,
+        totalReturnAmount,
+        totalReturnPercent,
+        isProvisional: row.is_provisional,
+        fxAvailable,
       };
     });
   }

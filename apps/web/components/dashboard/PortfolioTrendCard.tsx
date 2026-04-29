@@ -56,7 +56,12 @@ export function PortfolioTrendCard({
   const hasPoints = points.length > 0;
   const hasMarketValue = points.some((point) => point.marketValueAmount !== null);
   const hasTotalReturn = points.some((point) => point.totalReturnAmount != null);
-  const hasPartialQuotes = points.some((point) => point.totalCostAmount > 0 && point.marketValueAmount === null);
+  // KZO-180: `totalCostAmount` is nullable when `fxAvailable === false`.
+  // Treat null as "not partial" since the partial-quote warning is about a
+  // missing market quote against a known cost basis, not a missing FX rate.
+  const hasPartialQuotes = points.some(
+    (point) => point.totalCostAmount !== null && point.totalCostAmount > 0 && point.marketValueAmount === null,
+  );
 
   const { totalCostPath, marketValuePath, totalReturnPath, marketValueArea, yLabels, xLabels } = buildChartGeometry(points, locale);
 
@@ -117,7 +122,9 @@ export function PortfolioTrendCard({
         />
         <LegendMetric
           label={dict.dashboardHome.performanceTotalCostSeriesLabel}
-          value={latestPoint ? formatCurrencyAmount(latestPoint.totalCostAmount, currency, locale) : dict.dashboardHome.noMarketValue}
+          value={latestPoint && latestPoint.totalCostAmount !== null
+            ? formatCurrencyAmount(latestPoint.totalCostAmount, currency, locale)
+            : dict.dashboardHome.noMarketValue}
           swatchClassName="bg-slate-400"
         />
         {hasTotalReturn ? (
@@ -192,7 +199,9 @@ export function PortfolioTrendCard({
 
             {latestPoint ? (
               <g>
-                <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.totalCostAmount, points)} r="5" fill="#94a3b8" />
+                {latestPoint.totalCostAmount !== null ? (
+                  <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.totalCostAmount, points)} r="5" fill="#94a3b8" />
+                ) : null}
                 {latestPoint.marketValueAmount !== null ? (
                   <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.marketValueAmount, points)} r="6" fill="#4f46e5" />
                 ) : null}
@@ -236,13 +245,18 @@ function buildChartGeometry(points: DashboardPerformancePointDto[], locale: Loca
   const chartTop = 24;
   const chartWidth = 660;
   const chartHeight = 244;
-  const values = points.flatMap((point) => [
-    point.totalCostAmount,
-    point.marketValueAmount ?? point.totalCostAmount,
-    ...(point.totalReturnAmount != null ? [point.totalReturnAmount] : []),
-  ]);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values, 1);
+  // KZO-180: filter out null values (`fxAvailable === false`) before scaling.
+  const values = points.flatMap((point) => {
+    const cost = point.totalCostAmount;
+    const mv = point.marketValueAmount ?? cost;
+    const out: number[] = [];
+    if (cost !== null) out.push(cost);
+    if (mv !== null) out.push(mv);
+    if (point.totalReturnAmount != null) out.push(point.totalReturnAmount);
+    return out;
+  });
+  const minValue = values.length > 0 ? Math.min(...values) : 0;
+  const maxValue = values.length > 0 ? Math.max(...values, 1) : 1;
   const paddedMin = minValue - Math.abs(minValue) * 0.08;
   const paddedMax = maxValue * 1.06;
   const scaleX = (index: number) => chartLeft + ((chartWidth * index) / Math.max(points.length - 1, 1));
@@ -306,13 +320,18 @@ function buildLinePath(
 }
 
 function resolvePointY(value: number, points: DashboardPerformancePointDto[]): number {
-  const values = points.flatMap((point) => [
-    point.totalCostAmount,
-    point.marketValueAmount ?? point.totalCostAmount,
-    ...(point.totalReturnAmount != null ? [point.totalReturnAmount] : []),
-  ]);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values, 1);
+  // KZO-180: filter null values (`fxAvailable === false`) before scaling.
+  const values = points.flatMap((point) => {
+    const cost = point.totalCostAmount;
+    const mv = point.marketValueAmount ?? cost;
+    const out: number[] = [];
+    if (cost !== null) out.push(cost);
+    if (mv !== null) out.push(mv);
+    if (point.totalReturnAmount != null) out.push(point.totalReturnAmount);
+    return out;
+  });
+  const minValue = values.length > 0 ? Math.min(...values) : 0;
+  const maxValue = values.length > 0 ? Math.max(...values, 1) : 1;
   const paddedMin = minValue - Math.abs(minValue) * 0.08;
   const paddedMax = maxValue * 1.06;
   const chartTop = 24;

@@ -875,7 +875,7 @@ Read/write path:
 Finding:
 - the `dashboard_performance_ranges` column is nullable by design — a `null` value means "use the hardcoded default" and is distinct from an empty array (which the validator rejects). Only the admin UI can write non-null values.
 
-#### `user_preferences` (KZO-159)
+#### `user_preferences` (KZO-159 / KZO-180)
 
 Purpose:
 - per-user JSONB preferences store (one row per user, created lazily on first PATCH)
@@ -892,6 +892,7 @@ Fields:
 Currently recognized top-level preference keys:
 - `dashboardPerformanceRanges` (`string[] | null`) — user's saved timeframe list; validated against `dashboardPerformanceRangesSchema`. Read by `useEffectiveRanges` and the `<CustomizeRangesPopover>` (KZO-161 F4).
 - `cardOrder` (`{ dashboard?: string[] | null, transactions?: string[] | null, portfolio?: string[] | null } | null`) — per-page card display order; persisted by `<SortableCardGrid>` debounced 250ms after `onDragEnd` (KZO-161 F5). Three durably scoped consumers (KZO-162): dashboard, transactions section (all three transactions cards reorderable in one grid — see KZO-162 transition guide for the in-flight scope expansion that replaced the original right-stack-only plan), portfolio section. Each sub-key is independently optional and accepts `null` to clear just that page's order; `cardOrder: null` at the top level clears every page atomically. Each slug array is capped at 50 entries per the `cardOrderSchema` in `registerRoutes.ts`. Adding a fourth page (e.g. `/dividends`, `/cash-ledger`) requires extending `cardOrderSchema` — `cash-ledger` is durably out of scope per KZO-162 Q1.
+- `reportingCurrency` (`"TWD" | "USD" | "AUD" | null`) — user's dashboard reporting currency. The key is JSONB-only; there is no typed `user_preferences` column and no DB CHECK constraint. `resolveReportingCurrency(prefs)` defaults missing, null, or invalid stored values to `"TWD"`. The Display tab selector PATCHes this key immediately on change (KZO-180).
 
 Read/write path:
 - `getUserPreferences(userId)` — returns `{}` when no row (lazy: no insert on read)
@@ -900,6 +901,11 @@ Read/write path:
 - `_setUserPreferences(userId, prefs)` — test-only full-replace; not callable from production code
 - read by `GET /user-preferences`; written by `PATCH /user-preferences`
 - `ON DELETE CASCADE` — row automatically removed when the owning user is deleted
+
+Dashboard reporting-currency read path (KZO-180):
+- `/dashboard/overview` builds the native overview shape, resolves `reportingCurrency`, then passes the summary, holdings, upcoming dividends, and as-of date through `dashboardReportingCurrency.ts`. Only the five summary KPI amounts are translated; holdings and per-event dividend rows stay native.
+- `/dashboard/performance` resolves the same pref and calls `translatePerformancePoints(...)`, which reads `getAggregatedSnapshotsInReportingCurrency(...)` first and falls back to the synthetic trade-replay path when no snapshots exist.
+- `DashboardOverviewSummaryDto` and `DashboardPerformanceDto` carry `reportingCurrency` plus `fxStatus = "complete" | "partial" | "missing"`. Each performance point carries `fxAvailable`; when false, all five point numeric fields are null. `getAggregatedSnapshotsInReportingCurrency(...)` uses snapshot-date FX and an explicit self-pair guard so TWD-only users do not depend on nonexistent TWD/TWD rows.
 
 Finding:
 - User prefs are not audited. The route uses `requireSessionUserId` (session owner's prefs, never the viewed portfolio's) rather than `contextUserId`.
@@ -1337,12 +1343,12 @@ Key validation:
 - `repairCooldownMinutes` must be a positive integer or null
 - `dashboardPerformanceRanges` must be a non-empty list of ≤12 case-sensitive range strings matching the grammar (`YTD`, `ALL`, `nM` with n ≤ 240, `nY` with n ≤ 50), no duplicates; or null to reset to default
 
-#### User preferences (KZO-159)
+#### User preferences (KZO-159 / KZO-180)
 
 | Method | Path | Request shape | Response shape | Dependencies | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/user-preferences` | none | `{ preferences: Record<string, unknown> }` | `requireSessionUserId` | Returns `{ preferences: {} }` when no row exists (lazy — no insert on read) |
-| `PATCH` | `/user-preferences` | `{ dashboardPerformanceRanges?: string[] \| null, cardOrder?: { dashboard?: string[] \| null, transactions?: string[] \| null, portfolio?: string[] \| null } \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. `cardOrder` is sub-key-merged (KZO-162) — null sub-keys delete just that page. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list`. Each `cardOrder.{page}` array capped at 50 slugs (`cardOrderSchema`) |
+| `PATCH` | `/user-preferences` | `{ dashboardPerformanceRanges?: string[] \| null, cardOrder?: { dashboard?: string[] \| null, transactions?: string[] \| null, portfolio?: string[] \| null } \| null, reportingCurrency?: "TWD" \| "USD" \| "AUD" \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. `cardOrder` is sub-key-merged (KZO-162) — null sub-keys delete just that page. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list`; invalid reporting currency → `400 invalid_preference`. Each `cardOrder.{page}` array capped at 50 slugs (`cardOrderSchema`) |
 | `GET` | `/user-preferences/effective-ranges` | none | `{ ranges: string[], source: "user" \| "admin" \| "default" }` | `requireSessionUserId`, `resolveEffectiveRanges` | 3-tier resolution: user prefs (pruned to admin-allowed) → admin override → hardcoded `["1M","3M","YTD","1Y"]`. Never rewrites stored prefs. |
 
 Effective-ranges resolution detail:
@@ -1352,7 +1358,7 @@ Effective-ranges resolution detail:
 
 Finding:
 - All three routes use `requireSessionUserId` — prefs belong to the session owner, never the viewed portfolio (i.e. not `contextUserId`). This matters for future sharing/impersonation scenarios.
-- The `PATCH /dashboard/performance?range=X` route validates `range` against the caller's resolved effective-ranges list (dynamic `z.enum`) rather than the previous static union. Out-of-list values → `400 invalid_range`.
+- The `GET /dashboard/performance?range=X` route validates `range` against the caller's resolved effective-ranges list (dynamic `z.enum`) rather than the previous static union. Out-of-list values → `400 invalid_range`.
 
 #### Sharing (KZO-145/KZO-146)
 
@@ -1694,7 +1700,8 @@ POST /portfolio/dividends/postings
     - `portfolio.ts`
     - `dividends.ts`
     - `recompute.ts`
-    - `userPreferences.ts` (KZO-159) — `resolveEffectiveRanges` for effective-ranges endpoint and dynamic `/dashboard/performance` validator
+    - `userPreferences.ts` (KZO-159 / KZO-180) — `resolveEffectiveRanges` for effective-ranges endpoint and dynamic `/dashboard/performance` validator; `resolveReportingCurrency` for dashboard FX-aware reads
+    - `dashboardReportingCurrency.ts` (KZO-180) — sibling dashboard aggregator translating summary KPIs and performance points into the resolved reporting currency
   - depends on persistence interface methods
   - depends on `marketData.ts` for quote fetch fallback
   - depends on `@tw-portfolio/shared-types` for `dashboardPerformanceRangesSchema` and `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (KZO-159)
@@ -1718,11 +1725,18 @@ POST /portfolio/dividends/postings
   - depends on `@tw-portfolio/domain` fee calculators
   - depends on `accountingStore.ts` trade lookup and cash entry replacement
 
-- `userPreferences.ts` (KZO-159)
+- `userPreferences.ts` (KZO-159 / KZO-180)
   - pure resolution helper, no side effects
   - `resolveEffectiveRanges(persistence, userId)` → reads `getUserPreferences` + `getAppConfig` concurrently and applies 3-tier resolution
+  - `resolveReportingCurrency(prefs)` → returns `"TWD" | "USD" | "AUD"`, defaulting invalid or missing prefs to `"TWD"`
   - consumed by `GET /user-preferences/effective-ranges` and the dynamic `z.enum` validator in `GET /dashboard/performance`
   - depends on `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` and `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types`
+
+- `dashboardReportingCurrency.ts` (KZO-180)
+  - translates `/dashboard/overview.summary` summary totals at the overview as-of date using per-source-currency `getFxRate(...)` calls
+  - translates `/dashboard/performance.points[]` through `getAggregatedSnapshotsInReportingCurrency(...)`, with a synthetic fallback for users without snapshots
+  - exposes `fxStatus`/`fxAvailable` degradation metadata; performance point numeric fields are null when FX is unavailable
+  - v1 translates denormalized `cumulative_realized_pnl` at snapshot-date FX; KZO-176 owns sale-date attribution
 
 - `accountingStore.ts`
   - pure store mutation and projection helpers

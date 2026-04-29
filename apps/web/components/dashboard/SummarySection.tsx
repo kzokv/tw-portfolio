@@ -11,13 +11,13 @@ interface SummarySectionProps {
 
 export function SummarySection({ summary, dict, locale }: SummarySectionProps) {
   const marketValue = summary.marketValueAmount !== null
-    ? formatCurrencyAmount(summary.marketValueAmount, summary.totalCostCurrency, locale)
+    ? formatCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
     : dict.dashboardHome.noMarketValue;
   const unrealizedPnl = summary.unrealizedPnlAmount !== null
-    ? formatCurrencyAmount(summary.unrealizedPnlAmount, summary.totalCostCurrency, locale)
+    ? formatCurrencyAmount(summary.unrealizedPnlAmount, summary.reportingCurrency, locale)
     : dict.dashboardHome.noMarketValue;
   const dailyChangeValue = summary.dailyChangeAmount !== null
-    ? formatCurrencyAmount(summary.dailyChangeAmount, summary.totalCostCurrency, locale)
+    ? formatCurrencyAmount(summary.dailyChangeAmount, summary.reportingCurrency, locale)
     : dict.dashboardHome.noMarketValue;
   const dailyChangeDetail = summary.dailyChangePercent !== null
     ? formatPercent(summary.dailyChangePercent, locale)
@@ -62,12 +62,12 @@ export function SummarySection({ summary, dict, locale }: SummarySectionProps) {
         <MetricCard
           label={dict.dashboardHome.upcomingDividendLabel}
           value={summary.upcomingDividendAmount !== null
-            ? formatCurrencyAmount(summary.upcomingDividendAmount, summary.totalCostCurrency, locale)
+            ? formatCurrencyAmount(summary.upcomingDividendAmount, summary.reportingCurrency, locale)
             : formatNumber(summary.upcomingDividendCount, locale)}
         />
         <MetricCard
           label={dict.dashboardHome.totalCostLabel}
-          value={formatCurrencyAmount(summary.totalCostAmount, summary.totalCostCurrency, locale)}
+          value={formatCurrencyAmount(summary.totalCostAmount, summary.reportingCurrency, locale)}
         />
         <MetricCard label={dict.dashboardHome.holdingCountLabel} value={formatNumber(summary.holdingCount, locale)} />
         <MetricCard label={dict.dashboardHome.accountCountLabel} value={formatNumber(summary.accountCount, locale)} />

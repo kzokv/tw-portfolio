@@ -516,6 +516,10 @@ export interface AppDictionary {
     displayTimeframesDescription: string;
     displayLayoutTitle: string;
     displayLayoutDescription: string;
+    // KZO-180 — reporting currency selector in the Display tab.
+    displayReportingCurrencyTitle: string;
+    displayReportingCurrencyDescription: string;
+    displayReportingCurrencySaved: string;
     // KZO-162 — per-page reset buttons (4 always-visible buttons in Display tab).
     resetAllLayoutsButton: string;
     resetDashboardLayoutButton: string;

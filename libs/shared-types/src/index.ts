@@ -137,12 +137,26 @@ export interface IntegrityIssueDto {
   message: string;
 }
 
+// KZO-180: `totalCostCurrency` removed — its prior value (`holdings[0]?.currency
+// ?? "TWD"`) was broken-by-design for mixed-currency portfolios. Dashboard totals
+// are now translated into the user's chosen reporting currency on the read path
+// (see `apps/api/src/services/dashboardReportingCurrency.ts`); the response
+// carries `reportingCurrency` + `fxStatus` so the UI can pick the label and
+// surface degradation when an FX rate is missing.
 export interface DashboardOverviewSummaryDto {
   asOf: string;
   accountCount: number;
   holdingCount: number;
   totalCostAmount: number;
-  totalCostCurrency: CurrencyCode;
+  /** KZO-180: chosen reporting currency for all translated KPI numerics. */
+  reportingCurrency: AccountDefaultCurrency;
+  /**
+   * KZO-180: rollup of FX availability across the contributing rows.
+   *  - `complete` — every contributing row's FX resolved (or self-pair).
+   *  - `partial`  — some contributing rows resolved, others did not.
+   *  - `missing`  — every contributing row's FX failed.
+   */
+  fxStatus: "complete" | "partial" | "missing";
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
   dailyChangeAmount: number | null;
@@ -279,20 +293,32 @@ export const dashboardPerformanceRangesSchema: z.ZodType<string[]> = z
     { message: "ranges_list_duplicate" },
   );
 
+// KZO-180: 5 numeric fields are now `number | null` (not `number`/optional)
+// so that `fxAvailable === false` cleanly propagates a uniform "no value"
+// shape to the wire. `fxAvailable` is the per-point flag the UI reads to
+// decide whether to render numbers or a "missing FX" placeholder.
 export interface DashboardPerformancePointDto {
   date: string;
-  totalCostAmount: number;
+  totalCostAmount: number | null;
   marketValueAmount: number | null;
   unrealizedPnlAmount: number | null;
-  cumulativeRealizedPnlAmount?: number;
-  cumulativeDividendsAmount?: number;
+  cumulativeRealizedPnlAmount: number | null;
+  cumulativeDividendsAmount: number | null;
   totalReturnAmount?: number | null;
   totalReturnPercent?: number | null;
+  /** KZO-180: false when at least one contributing row's FX did not resolve
+   *  for this snapshot date. When false, the 5 numeric fields above are null. */
+  fxAvailable: boolean;
 }
 
 export interface DashboardPerformanceDto {
   range: DashboardPerformanceRange;
   points: DashboardPerformancePointDto[];
+  /** KZO-180: chosen reporting currency for all translated point numerics. */
+  reportingCurrency: AccountDefaultCurrency;
+  /** KZO-180: rollup of `fxAvailable` across the points list. See
+   *  `DashboardOverviewSummaryDto.fxStatus` for the value semantics. */
+  fxStatus: "complete" | "partial" | "missing";
 }
 
 export interface TransactionHistoryItemDto {

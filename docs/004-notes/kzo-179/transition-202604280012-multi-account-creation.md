@@ -262,7 +262,7 @@ The E2E golden-path spec (suite 6) handles this as Option B: assert the filter t
 | Ticket | What it closes |
 |---|---|
 | KZO-168 | FX Transfer producer side — cash-entry type, route, UI. Will also wire the callout link (D6) in `AccountCreateForm`. |
-| KZO-180 | User-level reporting currency: `user_preferences.reporting_currency` column + dashboard / portfolio-summary FX-aware consumers + settings UI. |
+| KZO-180 | User-level reporting currency: `user_preferences.reportingCurrency` JSONB key + dashboard / portfolio-summary FX-aware consumers + settings UI. |
 | KZO-181 | FeeProfile / FeeProfileBinding mirror cleanup investigation. Natural home for the follow-up that converts `AccountsListSection` binding writes to direct PATCH. |
 | KZO-170 | US broker behavioral semantics on `account_type`. |
 | KZO-171 | AU broker behavioral semantics on `account_type`. |

@@ -1706,8 +1706,99 @@ export class MemoryPersistence implements Persistence {
         totalReturnAmount,
         totalReturnPercent,
         isProvisional,
+        // Legacy method does no FX translation — every row is trivially "available".
+        fxAvailable: true,
       };
     });
+  }
+
+  // KZO-180 — FX-aware aggregator (memory mirror of the Postgres method).
+  //
+  // Mirrors the Postgres SQL semantics: per-row translate-then-sum with the D8
+  // self-pair shortcut. Self-pair rows multiply by 1.0; non-self-pair rows
+  // call `getFxRate(currency, reportingCurrency, snapshotDate)` (forward-fill
+  // is encoded inside `getFxRate`'s memory impl). When ANY contributing row's
+  // pair fails, `fxAvailable=false` and the translated SUMs become null.
+  async getAggregatedSnapshotsInReportingCurrency(
+    userId: string,
+    startDate: string,
+    endDate: string,
+    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+  ): Promise<AggregatedSnapshotPoint[]> {
+    const byDate = new Map<string, HoldingSnapshot[]>();
+    for (const s of this.holdingSnapshots) {
+      if (s.userId !== userId || s.snapshotDate < startDate || s.snapshotDate > endDate) continue;
+      const list = byDate.get(s.snapshotDate) ?? [];
+      list.push(s);
+      byDate.set(s.snapshotDate, list);
+    }
+    const dates = [...byDate.keys()].sort();
+    const out: AggregatedSnapshotPoint[] = [];
+    for (const date of dates) {
+      const rows = byDate.get(date)!;
+      const isProvisional = rows.some(r => r.isProvisional);
+      let costSum = 0;
+      let marketSum = 0;
+      let unrealizedSum = 0;
+      let cumRealSum = 0;
+      let cumDivSum = 0;
+      let allFxResolved = true;
+      // Cache per-currency FX lookups within this snapshot date to avoid
+      // re-querying the in-memory store for the same pair across rows.
+      const fxCache = new Map<string, number | null>();
+
+      for (const r of rows) {
+        let fxRate: number | null;
+        if (r.currency === reportingCurrency) {
+          fxRate = 1.0;
+        } else {
+          if (fxCache.has(r.currency)) {
+            fxRate = fxCache.get(r.currency) ?? null;
+          } else {
+            fxRate = await this.getFxRate(r.currency, reportingCurrency, r.snapshotDate);
+            fxCache.set(r.currency, fxRate);
+          }
+        }
+        if (fxRate === null) {
+          allFxResolved = false;
+          // Don't add to running sums — when fxAvailable=false the translated
+          // outputs are nulled regardless. We still enumerate remaining rows
+          // to flip allFxResolved on the first miss but skipping the math is fine.
+          continue;
+        }
+        costSum += (r.costBasisNative ?? r.costBasis) * fxRate;
+        marketSum += (r.valueNative ?? r.marketValue ?? 0) * fxRate;
+        unrealizedSum += (r.unrealizedPnlNative ?? r.unrealizedPnl ?? 0) * fxRate;
+        cumRealSum += r.cumulativeRealizedPnl * fxRate;
+        cumDivSum += r.cumulativeDividends * fxRate;
+      }
+
+      const totalCostBasis = allFxResolved ? costSum : 0;
+      const totalMarketValue = !allFxResolved || isProvisional ? null : marketSum;
+      const totalUnrealizedPnl = !allFxResolved || isProvisional ? null : unrealizedSum;
+      const cumulativeRealizedPnl = allFxResolved ? cumRealSum : 0;
+      const cumulativeDividends = allFxResolved ? cumDivSum : 0;
+      const totalReturnAmount = allFxResolved && totalMarketValue !== null
+        ? totalMarketValue + cumulativeRealizedPnl + cumulativeDividends - totalCostBasis
+        : null;
+      const totalReturnPercent = totalReturnAmount !== null && totalCostBasis > 0
+        ? (totalReturnAmount / totalCostBasis) * 100
+        : null;
+
+      out.push({
+        date,
+        totalCostBasis,
+        totalMarketValue,
+        totalUnrealizedPnl,
+        cumulativeRealizedPnl,
+        cumulativeDividends,
+        totalReturnAmount,
+        totalReturnPercent,
+        isProvisional,
+        fxAvailable: allFxResolved,
+      });
+    }
+    return out;
   }
 
   async countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number> {

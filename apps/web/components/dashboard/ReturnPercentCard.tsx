@@ -23,8 +23,11 @@ export function ReturnPercentCard({
   const hasPoints = points.length > 0;
   const hasReturnPercent = points.some((point) => point.totalReturnPercent != null);
   const latestReturnPoint = [...points].reverse().find((point) => point.totalReturnPercent != null) ?? null;
+  // KZO-180: `totalCostAmount` is nullable when `fxAvailable === false`.
+  // Treat null as "not provisional" since the provisional warning is about a
+  // pending market quote against a known cost basis, not a missing FX rate.
   const hasProvisional = points.some(
-    (point) => point.totalReturnPercent == null && point.totalCostAmount > 0,
+    (point) => point.totalReturnPercent == null && point.totalCostAmount !== null && point.totalCostAmount > 0,
   );
 
   const { linePath, yLabels, xLabels } = buildReturnGeometry(points, locale);

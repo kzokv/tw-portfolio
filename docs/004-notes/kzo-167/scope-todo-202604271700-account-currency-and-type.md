@@ -24,7 +24,8 @@ KZO-165 landed multi-currency snapshot schema; KZO-166 lit up the WAC engine and
 - **D2.** Ship four observable surfaces: (a) schema additions, (b) service-layer cash-entry currency guard, (c) PATCH `/accounts/:id` extension to mutate `defaultCurrency` and `accountType`, (d) display chip on `/cash-ledger` rendering `name (TWD · Broker)` in account dropdown options + per-account summary chips. Pure schema + guard would be unobservable; D2 ensures end-to-end testability through real user-reachable paths.
 - **D3.** New service module `apps/api/src/services/cashLedgerService.ts`. Exports a pure helper `assertCashEntryCurrencyMatchesAccount(entry, account)` and a wrapper `bookCashLedgerEntry(store, entry)` that looks up the account from `store.accounts`, runs the assertion, and delegates to `appendCashLedgerEntry`. Existing `appendCashLedgerEntry` stays exported as a documented test-only / internal backdoor for synthetic seeding. Per `interface-caller-verification.md`, grep all callers before refactor.
 - **D4.** `account_type` is **metadata-only** in this ticket. Schema-level CHECK enum `('broker','bank','wallet')`. Same for `default_currency`: CHECK `('TWD','USD','AUD')`. **No runtime behavioral gating** — bank/wallet accounts can technically receive `TRADE_SETTLEMENT_*` entries through normal API paths today. Type semantics get locked by downstream tickets that have product reasons (e.g. KZO-168 FX_TRANSFER, KZO-170 US-market broker accounts).
-- **D5.** Per-user reporting currency is **out of scope** — splits to **KZO-180** which lands the `user_preferences.reporting_currency` column **and** the dashboard / portfolio-summary FX-aware read consumers together. The previous "future column with no consumer" pattern is rejected. The KZO-166 scope-todo memo (`docs/004-notes/kzo-166/scope-todo-202604262100-currency-wallet-wac.md:38`) is patched in this PR to remove the contradictory "KZO-167 covers per-user reporting currency" claim.
+- **D5.** Per-user reporting currency is **out of scope** — splits to **KZO-180** which lands the `user_preferences.reportingCurrency` JSONB key **and** the dashboard / portfolio-summary FX-aware read consumers together. The previous "future column with no consumer" pattern is rejected. The KZO-166 scope-todo memo (`docs/004-notes/kzo-166/scope-todo-202604262100-currency-wallet-wac.md:38`) is patched in this PR to remove the contradictory "KZO-167 covers per-user reporting currency" claim.
+  **Patched in KZO-180:** the earlier wording said `user_preferences.reporting_currency` column; the implemented contract is the `preferences.reportingCurrency` JSONB key.
 - **D6.** Sharing-view currency display is **dropped from scope.** No surface exists today (`apps/web/components/sharing/SharingClient.tsx` and `apps/web/app/share/[token]/page.tsx` reference no account data). Revisit when account-scoped sharing becomes a thing — likely after KZO-179.
 - **D7.** PATCH `/accounts/:id` change to `defaultCurrency` is **blocked** when the account has any `cash_ledger_entries` row OR any `trade_events` row. Throw `routeError(409, "currency_change_blocked", "Cannot change default currency: account has existing cash entries or trade events. Open a new account or contact support.")`. `accountType` changes are unguarded (per D4). The lockdown logic lives in `cashLedgerService.ts` (or sibling `accountService.ts` — implementer judgment) so it composes with the cash-entry guard cleanly.
 - **D8.** The cash-entry currency guard fires on **emission paths 1, 2, 3 only**:
@@ -49,7 +50,7 @@ KZO-165 landed multi-currency snapshot schema; KZO-166 lit up the WAC engine and
 ## Out of scope (explicit)
 
 - **KZO-179** — multi-account creation form + `POST /accounts` + DTO write contracts + audit. Mockup #4 (account creation form).
-- **KZO-180** — `user_preferences.reporting_currency` column + dashboard / portfolio-summary FX-aware read consumers + settings UI. Per `docs/market-data-platform.md:157`.
+- **KZO-180** — `user_preferences.reportingCurrency` JSONB key + dashboard / portfolio-summary FX-aware read consumers + settings UI. Per `docs/market-data-platform.md:157`.
 - **KZO-181** — investigate and consolidate `FeeProfile` / `FeeProfileBinding` mirror divergence (`taxRules?` and `marketCode?`).
 - **`account_type` behavioral gating** — bank/wallet accounts are not refused trades or specific entry types in this ticket. Defer to downstream tickets that have product reasons.
 - **Sharing-view changes** — no current surface; revisit when account-scoped sharing exists.
@@ -202,7 +203,7 @@ KZO-165 landed multi-currency snapshot schema; KZO-166 lit up the WAC engine and
 ## Open Items (carried forward to sibling tickets)
 
 - **KZO-179** — Multi-account creation UX: form + `POST /accounts`. Mockup #4. Blocked by KZO-167.
-- **KZO-180** — User-level reporting currency: `user_preferences.reporting_currency` column + dashboard FX-aware reads + settings UI. Blocked by KZO-167 + KZO-176.
+- **KZO-180** — User-level reporting currency: `user_preferences.reportingCurrency` JSONB key + dashboard FX-aware reads + settings UI. Blocked by KZO-167 + KZO-176.
 - **KZO-181** — Investigate `FeeProfile` / `FeeProfileBinding` mirror divergence (`taxRules?`, `marketCode?`); consolidate where safe. Low priority.
 
 ## References
