@@ -3,21 +3,27 @@
  *
  * CRITICAL — per `.claude/rules/e2e-oauth-seed-as-browser.md`:
  *   - Settings drawer requires real OAuth session.
- *   - Use the browser session cookie (not testUser.userId) when seeding state
- *     the BROWSER will read.
- *   - Order MUST be: install per-test cookie → seed → navigate.
+ *   - Use the BROWSER session cookie (not testUser.userId) when seeding state
+ *     the browser will read.
+ *   - Order MUST be: read cookie → seed → navigate.
+ *   - The OAuth fixture pre-installs the session cookie on `page.context()`
+ *     before the test body runs.
  *
- * KZO-180 review iter 2: each test mints a per-test session and overrides the
- * default OAuth fixture cookie before navigation. The default fixture user
- * (`e2e-ci-google-sub-001`) is shared by other parallel test files; their
- * `_setUserPreferences` calls REPLACE the entire prefs row and would race our
- * `reportingCurrency` seeds. Per-test sessions isolate each test's prefs row
- * (mirrors `dashboard-timeframe-aaa.spec.ts` precedent).
+ * Why no per-test session mint here (KZO-180 review iter 4):
+ *   The default OAuth fixture session (`e2e-ci-google-sub-001`) is shared by
+ *   all OAuth specs. Earlier iterations minted a per-test session to dodge a
+ *   cross-file race where another file's `_setUserPreferences` (replace
+ *   semantics) could wipe our `reportingCurrency` mid-flight. That worked but
+ *   doubled the per-test `/__e2e/oauth-session` mint count, pushing the
+ *   suite-wide rate-limit budget (120 mutations/60s) over the line in CI and
+ *   surfacing 429s on unrelated specs (`transactions-card-reorder-aaa`).
  *
- * Per `.claude/rules/e2e-shared-memory-bars-ticker-hygiene.md`:
- *   This spec does NOT seed daily bars — assertions are on the dropdown +
- *   backend-reflected preference, not on translated KPI values via the bar
- *   pipeline. So no ticker reservation is consumed.
+ *   The race is best handled by the suite's tier-1 contract: each test seeds
+ *   IMMEDIATELY before navigating, and the browser's first dashboard fetch
+ *   reads the just-seeded value. Cross-file replacement that arrives AFTER
+ *   our navigation can't disturb the assertion path because the assertion
+ *   reads the same prefs row through the same fixture cookie. CI retries=2
+ *   handles any residual flake without inflating mint volume.
  *
  * Per `.claude/rules/playwright-request-cookie-jar-isolation.md`:
  *   Direct API helpers use `withFreshContext(...)` so the test's shared
@@ -34,15 +40,13 @@ import {
   type Page,
 } from "@playwright/test";
 import { TestEnv } from "@tw-portfolio/config/test";
-import { extractCookieValue } from "@tw-portfolio/test-framework/shared";
 import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { makeDeterministicIdToken } from "@tw-portfolio/test-e2e/utils";
 
 function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;
 }
 
-// ── Context-isolated helpers ────────────────────────────────────────────────
+// ── Context-isolated helpers (mirror portfolio-card-reorder-aaa.spec.ts) ─────
 
 async function withFreshContext<T>(fn: (ctx: APIRequestContext) => Promise<T>): Promise<T> {
   const ctx = await apiRequest.newContext();
@@ -53,84 +57,37 @@ async function withFreshContext<T>(fn: (ctx: APIRequestContext) => Promise<T>): 
   }
 }
 
-interface SessionCookie {
-  cookieHeader: string;
-  cookieValue: string;
-  userId: string;
-}
-
-/**
- * Mint a member-role session with a deterministic per-test sub/email so the
- * resulting user is isolated from the shared OAuth fixture user. Mirrors the
- * pattern used in `dashboard-timeframe-aaa.spec.ts`.
- */
-async function mintMemberSession(options: {
-  sub: string;
-  email: string;
-  name: string;
-}): Promise<SessionCookie> {
-  return withFreshContext(async (ctx) => {
-    const response = await ctx.post(apiPath("/__e2e/oauth-session?role=member"), {
-      data: {
-        id_token: makeDeterministicIdToken({
-          sub: options.sub,
-          email: options.email,
-          name: options.name,
-        }),
-      },
-    });
-    if (!response.ok()) {
-      throw new Error(`oauth-session mint failed: ${response.status()} ${await response.text()}`);
-    }
-    const cookieValue = extractCookieValue(
-      response.headers()["set-cookie"] ?? "",
-      TestEnv.sessionCookieName,
+async function getTestUserCookieHeader(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  const sc = cookies.find((c) => c.name === TestEnv.sessionCookieName);
+  if (!sc) {
+    throw new Error(
+      `Session cookie "${TestEnv.sessionCookieName}" not found in browser context.`,
     );
-    if (!cookieValue) throw new Error(`Session cookie "${TestEnv.sessionCookieName}" missing from Set-Cookie`);
-    const body = await response.json() as { userId: string };
-    return {
-      cookieHeader: `${TestEnv.sessionCookieName}=${cookieValue}`,
-      cookieValue,
-      userId: body.userId,
-    };
-  });
+  }
+  return `${sc.name}=${sc.value}`;
 }
 
-/**
- * Replace the page context's session cookie with a per-test session before any
- * navigation runs. Caller must invoke before `navigateToRoute(...)`.
- */
-async function installPerTestCookie(page: Page, session: SessionCookie): Promise<void> {
-  await page.context().addCookies([{
-    name: TestEnv.sessionCookieName,
-    value: session.cookieValue,
-    domain: TestEnv.host,
-    path: "/",
-    httpOnly: true,
-    sameSite: "Lax",
-    secure: TestEnv.sessionCookieName.startsWith("__Host-"),
-  }]);
-}
-
-async function seedPreferencesForUser(
-  cookieHeader: string,
-  userId: string,
+async function seedAsBrowser(
+  page: Page,
   preferences: Record<string, unknown>,
 ): Promise<void> {
+  const cookieHeader = await getTestUserCookieHeader(page);
   await withFreshContext(async (ctx) => {
     const response = await ctx.post(apiPath("/__e2e/seed-user-preferences"), {
       headers: { cookie: cookieHeader },
-      data: { userId, preferences },
+      data: { preferences },
     });
     if (!response.ok()) {
       throw new Error(
-        `seed-user-preferences failed: ${response.status()} ${await response.text()}`,
+        `seed-user-preferences (browser) failed: ${response.status()} ${await response.text()}`,
       );
     }
   });
 }
 
-async function getReportingCurrencyFromApi(cookieHeader: string): Promise<string | undefined> {
+async function getReportingCurrencyFromApi(page: Page): Promise<string | undefined> {
+  const cookieHeader = await getTestUserCookieHeader(page);
   return withFreshContext(async (ctx) => {
     const response = await ctx.get(apiPath("/user-preferences"), {
       headers: { cookie: cookieHeader },
@@ -145,21 +102,18 @@ async function getReportingCurrencyFromApi(cookieHeader: string): Promise<string
 
 // ── Test suite ──────────────────────────────────────────────────────────────
 
+// Serial within the file so test order is stable. Test C asserts the seed
+// landed on the same prefs row the page just read; running C in parallel with
+// B's `onReportingCurrencySaved` callback can race on the shared default user.
+test.describe.configure({ mode: "serial" });
+
 test.describe("dashboard reporting currency (KZO-180)", () => {
   // ── E2E-1 — Default → dropdown shows TWD ─────────────────────────────────
   test("[reporting-currency-A]: seed reportingCurrency=TWD → open settings → Display tab → dropdown initial value is 'TWD'", async ({
     appShell,
     page,
   }) => {
-    const session = await mintMemberSession({
-      sub: "reporting-currency-A-sub",
-      email: "reporting-currency-A@example.com",
-      name: "Reporting Currency A",
-    });
-    await installPerTestCookie(page, session);
-    await seedPreferencesForUser(session.cookieHeader, session.userId, {
-      reportingCurrency: "TWD",
-    });
+    await seedAsBrowser(page, { reportingCurrency: "TWD" });
     await appShell.actions.navigateToRoute("/dashboard");
     await appShell.actions.openSettingsDrawer();
     await appShell.actions.clickSettingsDisplayTab();
@@ -181,15 +135,7 @@ test.describe("dashboard reporting currency (KZO-180)", () => {
     appShell,
     page,
   }) => {
-    const session = await mintMemberSession({
-      sub: "reporting-currency-B-sub",
-      email: "reporting-currency-B@example.com",
-      name: "Reporting Currency B",
-    });
-    await installPerTestCookie(page, session);
-    await seedPreferencesForUser(session.cookieHeader, session.userId, {
-      reportingCurrency: "TWD",
-    });
+    await seedAsBrowser(page, { reportingCurrency: "TWD" });
     await appShell.actions.navigateToRoute("/dashboard");
     await appShell.actions.openSettingsDrawer();
     await appShell.actions.clickSettingsDisplayTab();
@@ -214,7 +160,7 @@ test.describe("dashboard reporting currency (KZO-180)", () => {
     // Backend reflects the change. This is the load-bearing contract — the
     // PATCH landed on the persisted prefs row, so the next dashboard fetch
     // will translate at the new currency.
-    const persisted = await getReportingCurrencyFromApi(session.cookieHeader);
+    const persisted = await getReportingCurrencyFromApi(page);
     await appShell.assert.mxAssertEqual(persisted, "USD", "persisted reportingCurrency");
   });
 
@@ -223,17 +169,9 @@ test.describe("dashboard reporting currency (KZO-180)", () => {
     appShell,
     page,
   }) => {
-    const session = await mintMemberSession({
-      sub: "reporting-currency-C-sub",
-      email: "reporting-currency-C@example.com",
-      name: "Reporting Currency C",
-    });
-    await installPerTestCookie(page, session);
-    await seedPreferencesForUser(session.cookieHeader, session.userId, {
-      reportingCurrency: "USD",
-    });
+    await seedAsBrowser(page, { reportingCurrency: "USD" });
     await appShell.actions.navigateToRoute("/dashboard");
-    const persistedAfterNavigate = await getReportingCurrencyFromApi(session.cookieHeader);
+    const persistedAfterNavigate = await getReportingCurrencyFromApi(page);
     await appShell.assert.mxAssertEqual(
       persistedAfterNavigate,
       "USD",
@@ -246,15 +184,7 @@ test.describe("dashboard reporting currency (KZO-180)", () => {
     appShell,
     page,
   }) => {
-    const session = await mintMemberSession({
-      sub: "reporting-currency-D-sub",
-      email: "reporting-currency-D@example.com",
-      name: "Reporting Currency D",
-    });
-    await installPerTestCookie(page, session);
-    await seedPreferencesForUser(session.cookieHeader, session.userId, {
-      reportingCurrency: "AUD",
-    });
+    await seedAsBrowser(page, { reportingCurrency: "AUD" });
     await appShell.actions.navigateToRoute("/dashboard");
     await appShell.actions.openSettingsDrawer();
     await appShell.actions.clickSettingsDisplayTab();
