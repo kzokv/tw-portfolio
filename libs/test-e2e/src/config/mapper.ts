@@ -5,6 +5,7 @@ import { cashLedgerAssistantFactory } from "../assistants/cash-ledger/index.js";
 import { dashboardAssistantFactory } from "../assistants/dashboard/index.js";
 import { dividendReviewAssistantFactory } from "../assistants/dividend-review/index.js";
 import { dividendsAssistantFactory } from "../assistants/dividends/index.js";
+import { fxTransferAssistantFactory } from "../assistants/fx-transfer/index.js";
 import { appShellAssistantFactory } from "../assistants/layout/index.js";
 import { portfolioAssistantFactory } from "../assistants/portfolio/index.js";
 import { settingsAssistantFactory } from "../assistants/settings/index.js";
@@ -22,6 +23,7 @@ import { CashLedgerPage } from "../pages/cash-ledger/CashLedgerPage.js";
 import { DashboardPage } from "../pages/dashboard/DashboardPage.js";
 import { DividendCalendarPage } from "../pages/dividends/DividendCalendarPage.js";
 import { DividendReviewPage } from "../pages/dividends/DividendReviewPage.js";
+import { FxTransferPage } from "../pages/fx-transfer/FxTransferPage.js";
 import { AppShellPage } from "../pages/layout/AppShellPage.js";
 import { PortfolioPage } from "../pages/portfolio/PortfolioPage.js";
 import { SettingsDrawerPage } from "../pages/settings/SettingsDrawerPage.js";
@@ -48,6 +50,7 @@ export function registerTestE2EAssistants(): void {
     .register(DashboardPage, dashboardAssistantFactory)
     .register(DividendCalendarPage, dividendsAssistantFactory)
     .register(DividendReviewPage, dividendReviewAssistantFactory)
+    .register(FxTransferPage, fxTransferAssistantFactory)
     .register(PortfolioPage, portfolioAssistantFactory)
     .register(TransactionsPage, transactionsAssistantFactory)
     .register(TickerDetailPage, tickerDetailAssistantFactory)

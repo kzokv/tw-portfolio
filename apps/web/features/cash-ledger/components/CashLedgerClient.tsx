@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
 import type { LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { formatCurrencyAmount, formatDateLabel } from "../../../lib/utils";
 import { useEventStream } from "../../../hooks/useEventStream";
-import { fetchAccounts, fetchCashLedgerEntries } from "../services/cashLedgerService";
+import {
+  fetchAccounts,
+  fetchCashLedgerEntries,
+  type AccountWithLiveBalance,
+} from "../services/cashLedgerService";
+import { reverseFxTransfer } from "../../fx-transfer/services/fxTransferService";
 import {
   formatAccountOption,
   type AccountOptionInput,
@@ -20,6 +27,11 @@ import type {
 import { CashLedgerDrawer } from "./CashLedgerDrawer";
 import { Card } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
+import {
+  RecordFxTransferDialog,
+} from "../../../components/fx-transfer/RecordFxTransferDialog";
+import type { FxTransferFormValue } from "../../../components/fx-transfer/AddFxTransferCard";
+import { ConfirmDialog } from "../../../components/admin/ConfirmDialog";
 
 interface CashLedgerClientProps {
   initialData: CashLedgerListResponse;
@@ -65,6 +77,10 @@ const ENTRY_TYPE_OPTIONS: CashLedgerEntryType[] = [
   "REVERSAL",
 ];
 
+const FX_TRANSFER_ENTRY_TYPES: CashLedgerEntryType[] = ["FX_TRANSFER_OUT", "FX_TRANSFER_IN"];
+type EntryTypeFilterOption = CashLedgerEntryType | "FX_TRANSFER";
+const ENTRY_TYPE_FILTER_OPTIONS: EntryTypeFilterOption[] = [...ENTRY_TYPE_OPTIONS, "FX_TRANSFER"];
+
 function entryTypeLabel(entryType: CashLedgerEntryType, dict: AppDictionary): string {
   switch (entryType) {
     case "TRADE_SETTLEMENT_IN": return dict.cashLedger.entryTypeTradeSettlementIn;
@@ -72,8 +88,14 @@ function entryTypeLabel(entryType: CashLedgerEntryType, dict: AppDictionary): st
     case "DIVIDEND_RECEIPT": return dict.cashLedger.entryTypeDividendReceipt;
     case "DIVIDEND_DEDUCTION": return dict.cashLedger.entryTypeDividendDeduction;
     case "MANUAL_ADJUSTMENT": return dict.cashLedger.entryTypeManualAdjustment;
+    case "FX_TRANSFER_OUT": return dict.cashLedger.entryTypeFxTransferOut;
+    case "FX_TRANSFER_IN": return dict.cashLedger.entryTypeFxTransferIn;
     case "REVERSAL": return dict.cashLedger.entryTypeReversal;
   }
+}
+
+function isFxTransferEntry(entry: EnrichedCashLedgerEntry): boolean {
+  return entry.entryType === "FX_TRANSFER_OUT" || entry.entryType === "FX_TRANSFER_IN";
 }
 
 // KZO-167: the account chip / dropdown label uses `formatAccountOption`
@@ -88,6 +110,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData.summary);
   const [total, setTotal] = useState(initialData.total ?? 0);
   const [drawerEntry, setDrawerEntry] = useState<EnrichedCashLedgerEntry | null>(null);
+  const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>([]);
+  const [fxDialogOpen, setFxDialogOpen] = useState(false);
+  const [fxDialogMode, setFxDialogMode] = useState<"create" | "edit">("create");
+  const [fxDialogInitialValue, setFxDialogInitialValue] = useState<FxTransferFormValue | undefined>(undefined);
+  const [editingFxTransferId, setEditingFxTransferId] = useState<string | undefined>(undefined);
+  const [reverseEntry, setReverseEntry] = useState<EnrichedCashLedgerEntry | null>(null);
+  const [reversePending, setReversePending] = useState(false);
+  const [reverseError, setReverseError] = useState("");
 
   // KZO-167: account chip metadata — name, defaultCurrency, accountType.
   // Empty until the GET /accounts fetch resolves; renders fall back to the
@@ -104,27 +134,31 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<CashLedgerSortColumn>("entryDate");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const d = dict.cashLedger;
+
+  const loadAccounts = useCallback(async () => {
+    const nextAccounts = await fetchAccounts({ includeBalances: true });
+    setAccounts(nextAccounts);
+    const next = new Map<string, AccountOptionInput>();
+    for (const account of nextAccounts) {
+      next.set(account.id, {
+        name: account.name,
+        defaultCurrency: account.defaultCurrency,
+        accountType: account.accountType,
+      });
+    }
+    setAccountMeta(next);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void fetchAccounts()
-      .then((accounts) => {
-        if (cancelled) return;
-        const next = new Map<string, AccountOptionInput>();
-        for (const account of accounts) {
-          next.set(account.id, {
-            name: account.name,
-            defaultCurrency: account.defaultCurrency,
-            accountType: account.accountType,
-          });
-        }
-        setAccountMeta(next);
-      })
+    void loadAccounts()
       .catch(() => {
+        if (cancelled) return;
         // Leave accountMeta empty; dropdown + chips fall back to raw IDs.
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAccounts]);
 
   const renderAccountLabel = useCallback(
     (id: string): string => {
@@ -186,15 +220,27 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
     }
   }, [fromEntryDate, toEntryDate, accountId, entryTypeFilter, page, sortBy, sortOrder]);
 
-  // SSE: pre-connect pattern (always enabled)
+  // SSE: pre-connect pattern (always enabled). KZO-168: also listen for
+  // `currency_wallet_recomputed` so FX-transfer mutations refresh the ledger
+  // and account balances.
   useEventStream({
     enabled: true,
-    eventTypes: ["recompute_complete", "dividend_posted", "dividend_updated"],
-    onEvent: () => { void fetchData(); },
+    eventTypes: [
+      "recompute_complete",
+      "dividend_posted",
+      "dividend_updated",
+      "currency_wallet_recomputed",
+    ],
+    onEvent: () => {
+      void fetchData();
+      void loadAccounts();
+    },
   });
 
-  // Derive unique accounts from summary (full filtered set, not just current page)
-  const accountOptions = Array.from(new Set(summary.map((s) => s.accountId)));
+  // Prefer the account endpoint so accounts without current ledger rows remain selectable.
+  const accountOptions = accounts.length > 0
+    ? accounts.map((account) => account.id)
+    : Array.from(new Set(summary.map((s) => s.accountId)));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -226,15 +272,157 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
 
   // Entry-type chips: same stale-closure issue — compute the toggled array and
   // pass it explicitly so the fetch sees the new value immediately.
-  const handleEntryTypeToggle = useCallback((type: CashLedgerEntryType) => {
-    const newFilter = entryTypeFilter.includes(type)
-      ? entryTypeFilter.filter((t) => t !== type)
-      : [...entryTypeFilter, type];
+  const handleEntryTypeToggle = useCallback((type: EntryTypeFilterOption) => {
+    const toggledTypes = type === "FX_TRANSFER" ? FX_TRANSFER_ENTRY_TYPES : [type];
+    const allSelected = toggledTypes.every((item) => entryTypeFilter.includes(item));
+    const newFilter = allSelected
+      ? entryTypeFilter.filter((item) => !toggledTypes.includes(item))
+      : Array.from(new Set([...entryTypeFilter, ...toggledTypes]));
     setEntryTypeFilter(newFilter);
     void fetchData({ pg: 1, entryTypes: newFilter });
   }, [entryTypeFilter, fetchData]);
 
-  const d = dict.cashLedger;
+  const refreshAfterFxMutation = useCallback(() => {
+    void fetchData({ pg: 1 });
+    void loadAccounts();
+  }, [fetchData, loadAccounts]);
+
+  const openCreateFxDialog = useCallback(() => {
+    setFxDialogMode("create");
+    setFxDialogInitialValue(undefined);
+    setEditingFxTransferId(undefined);
+    setFxDialogOpen(true);
+  }, []);
+
+  const openEditFxDialog = useCallback((entry: EnrichedCashLedgerEntry) => {
+    if (!entry.fxTransferId || !entry.fxTransferDetail || !isFxTransferEntry(entry)) return;
+    const detail = entry.fxTransferDetail;
+    const sourceAccountId = entry.entryType === "FX_TRANSFER_OUT" ? entry.accountId : detail.pairedAccountId;
+    const destinationAccountId = entry.entryType === "FX_TRANSFER_OUT" ? detail.pairedAccountId : entry.accountId;
+    const sourceAmount = entry.entryType === "FX_TRANSFER_OUT" ? Math.abs(entry.amount) : detail.pairedAmount;
+    const destinationAmount = entry.entryType === "FX_TRANSFER_OUT" ? detail.pairedAmount : Math.abs(entry.amount);
+    setFxDialogMode("edit");
+    setEditingFxTransferId(entry.fxTransferId);
+    setFxDialogInitialValue({
+      fromAccountId: sourceAccountId,
+      toAccountId: destinationAccountId,
+      fromAmount: String(sourceAmount),
+      toAmount: String(destinationAmount),
+      effectiveRate: String(detail.effectiveRate),
+      entryDate: entry.entryDate,
+      notes: entry.note ?? "",
+    });
+    setFxDialogOpen(true);
+  }, []);
+
+  const confirmReverseFxTransfer = useCallback(async () => {
+    if (!reverseEntry?.fxTransferId) return;
+    setReversePending(true);
+    setReverseError("");
+    try {
+      await reverseFxTransfer(reverseEntry.fxTransferId);
+      setReverseEntry(null);
+      refreshAfterFxMutation();
+    } catch (error) {
+      setReverseError(error instanceof Error ? error.message : d.fxGenericError);
+    } finally {
+      setReversePending(false);
+    }
+  }, [d.fxGenericError, refreshAfterFxMutation, reverseEntry]);
+
+  function renderFxPairedLine(entry: EnrichedCashLedgerEntry): string | null {
+    const detail = entry.fxTransferDetail;
+    if (!detail || !isFxTransferEntry(entry)) return null;
+    const destinationCurrency = entry.entryType === "FX_TRANSFER_OUT" ? detail.pairedCurrency : entry.currency;
+    const sourceCurrency = entry.entryType === "FX_TRANSFER_OUT" ? entry.currency : detail.pairedCurrency;
+    const rateText = `${detail.effectiveRate.toFixed(6)} ${destinationCurrency}/${sourceCurrency}`;
+    return d.fxPairedLine
+      .replace("{account}", detail.pairedAccountName)
+      .replace("{amount}", formatCurrencyAmount(detail.pairedAmount, detail.pairedCurrency, locale))
+      .replace("{rate}", rateText);
+  }
+
+  function renderTypeCell(entry: EnrichedCashLedgerEntry) {
+    if (entry.entryType === "FX_TRANSFER_OUT" || entry.entryType === "FX_TRANSFER_IN") {
+      const isOut = entry.entryType === "FX_TRANSFER_OUT";
+      const pairedLine = renderFxPairedLine(entry);
+      return (
+        <div className="min-w-0">
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+            isOut ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+          }`}>
+            {isOut ? d.fxBadgeOut : d.fxBadgeIn}
+          </span>
+          {entry.fxTransferReversed ? (
+            <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+              {d.fxAlreadyReversed}
+            </span>
+          ) : null}
+          {pairedLine ? <p className="mt-1 text-xs text-slate-500">{pairedLine}</p> : null}
+        </div>
+      );
+    }
+    if (entry.entryType === "REVERSAL" && entry.fxTransferId) {
+      return (
+        <div>
+          <span>{entryTypeLabel(entry.entryType, dict)}</span>
+          <span className="ml-2 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+            {d.fxReversalIndicator}
+          </span>
+        </div>
+      );
+    }
+    return entryTypeLabel(entry.entryType, dict);
+  }
+
+  function renderFxActionMenu(entry: EnrichedCashLedgerEntry) {
+    if (!isFxTransferEntry(entry) || !entry.fxTransferId) return null;
+    const disabled = entry.fxTransferReversed === true;
+    return (
+      <div onClick={(event) => event.stopPropagation()} className="flex justify-end">
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+              aria-label={d.fxActionEdit}
+              data-testid={`fx-actions-${entry.id}`}
+            >
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              className="z-[80] min-w-44 rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl"
+            >
+              <DropdownMenu.Item
+                disabled={disabled}
+                onSelect={() => openEditFxDialog(entry)}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-slate-700 outline-none hover:bg-slate-50 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
+                data-testid={`fx-edit-${entry.id}`}
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+                {d.fxActionEdit}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled={disabled}
+                onSelect={() => {
+                  setReverseError("");
+                  setReverseEntry(entry);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-rose-700 outline-none hover:bg-rose-50 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50"
+                data-testid={`fx-reverse-${entry.id}`}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                {d.fxActionReverse}
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-6">
@@ -278,22 +466,32 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
           <div className="min-w-[10rem]">
             <label className="mb-1 block text-xs font-medium text-slate-500">{d.filterEntryType}</label>
             <div className="flex flex-wrap gap-1">
-              {ENTRY_TYPE_OPTIONS.map((type) => (
+              {ENTRY_TYPE_FILTER_OPTIONS.map((type) => {
+                const active = type === "FX_TRANSFER"
+                  ? FX_TRANSFER_ENTRY_TYPES.every((item) => entryTypeFilter.includes(item))
+                  : entryTypeFilter.includes(type);
+                const label = type === "FX_TRANSFER" ? d.entryTypeFxTransferFilter : entryTypeLabel(type, dict);
+                return (
                 <button
                   key={type}
                   type="button"
                   onClick={() => handleEntryTypeToggle(type)}
                   className={`rounded-full px-2 py-0.5 text-xs transition ${
-                    entryTypeFilter.includes(type)
+                    active
                       ? "bg-indigo-100 text-indigo-700"
                       : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                   }`}
                 >
-                  {entryTypeLabel(type, dict)}
+                  {label}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
+          <Button onClick={openCreateFxDialog} data-testid="new-fx-transfer-button">
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {d.fxFormTitleCreate}
+          </Button>
         </div>
       </Card>
 
@@ -338,6 +536,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
                     <SortHeader label={d.columnAmount} field="amount" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
                     <SortHeader label={d.columnCurrency} field="currency" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
                     <SortHeader label={d.columnAccount} field="accountId" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                    <th className="px-3 py-3 text-right"> </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -349,14 +548,15 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
                       className="cursor-pointer border-b border-slate-100 transition hover:bg-slate-50"
                     >
                       <td className="px-3 py-3 whitespace-nowrap">{formatDateLabel(entry.entryDate, locale)}</td>
-                      <td className="px-3 py-3">{entryTypeLabel(entry.entryType, dict)}</td>
+                      <td className="px-3 py-3">{renderTypeCell(entry)}</td>
                       <td className="px-3 py-3 whitespace-nowrap font-medium">{entry.ticker ?? "—"}</td>
                       <td className="px-3 py-3 whitespace-nowrap">{entry.side ?? "—"}</td>
                       <td className={`px-3 py-3 whitespace-nowrap text-right font-medium ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                         {formatCurrencyAmount(entry.amount, entry.currency, locale)}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-slate-500">{entry.currency}</td>
-                      <td className="px-3 py-3 text-slate-500">{entry.accountId}</td>
+                      <td className="px-3 py-3 text-slate-500">{renderAccountLabel(entry.accountId)}</td>
+                      <td className="px-3 py-3 text-right">{renderFxActionMenu(entry)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -405,7 +605,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs text-slate-500">{formatDateLabel(entry.entryDate, locale)}</p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-800">{entryTypeLabel(entry.entryType, dict)}</p>
+                    <div className="mt-0.5 text-sm font-medium text-slate-800">{renderTypeCell(entry)}</div>
                   </div>
                   <span className={`shrink-0 text-base font-semibold ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                     {formatCurrencyAmount(entry.amount, entry.currency, locale)}
@@ -422,9 +622,12 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
                   )}
                   <div>
                     <dt className="sr-only">{d.columnAccount}</dt>
-                    <dd>{entry.accountId}</dd>
+                    <dd>{renderAccountLabel(entry.accountId)}</dd>
                   </div>
                 </dl>
+                {isFxTransferEntry(entry) ? (
+                  <div className="mt-3 flex justify-end">{renderFxActionMenu(entry)}</div>
+                ) : null}
               </Card>
             ))}
 
@@ -466,6 +669,36 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
         onClose={() => setDrawerEntry(null)}
         dict={dict}
         locale={locale}
+      />
+      <RecordFxTransferDialog
+        open={fxDialogOpen}
+        mode={fxDialogMode}
+        fxTransferId={editingFxTransferId}
+        initialValue={fxDialogInitialValue}
+        accounts={accounts}
+        onOpenChange={setFxDialogOpen}
+        onSaved={refreshAfterFxMutation}
+        dict={dict}
+        locale={locale}
+      />
+      <ConfirmDialog
+        open={reverseEntry !== null}
+        title={d.fxReverseTitle}
+        description={reverseError || d.fxReverseDescription}
+        confirmLabel={d.fxReverseConfirm}
+        cancelLabel={d.fxReverseCancel}
+        variant="danger"
+        loading={reversePending}
+        dialogTestId="fx-reverse-confirm-dialog"
+        confirmTestId="fx-reverse-confirm"
+        cancelTestId="fx-reverse-cancel"
+        onConfirm={() => { void confirmReverseFxTransfer(); }}
+        onCancel={() => {
+          if (!reversePending) {
+            setReverseEntry(null);
+            setReverseError("");
+          }
+        }}
       />
     </div>
   );

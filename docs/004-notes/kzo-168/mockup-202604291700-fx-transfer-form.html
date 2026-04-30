@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KZO-168 — FX-transfer form &amp; cash ledger display mockup</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: rgba(255, 255, 255, 0.04);
+        --panel-strong: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.10);
+        --border-strong: rgba(255, 255, 255, 0.18);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --dim: #64748b;
+        --indigo: #7C8CFF;
+        --indigo-deep: #4F5FE0;
+        --emerald: #34D399;
+        --emerald-bg: rgba(52, 211, 153, 0.12);
+        --amber: #F59E0B;
+        --amber-bg: rgba(245, 158, 11, 0.14);
+        --rose: #FB7185;
+        --rose-bg: rgba(251, 113, 133, 0.14);
+        --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Monaco, "Courier New", monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        min-height: 100vh;
+        background-image:
+          radial-gradient(circle at 18% 22%, rgba(124, 140, 255, 0.16), transparent 55%),
+          radial-gradient(circle at 82% 12%, rgba(99, 102, 241, 0.12), transparent 50%),
+          radial-gradient(circle at 50% 95%, rgba(52, 211, 153, 0.06), transparent 55%);
+      }
+
+      .container {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 32px 24px 48px;
+      }
+
+      /* Page header */
+      .page-header {
+        margin-bottom: 24px;
+        padding: 18px 22px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(124, 140, 255, 0.08), rgba(15, 23, 42, 0.4));
+        backdrop-filter: blur(8px);
+      }
+      .page-header .eyebrow {
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--indigo);
+      }
+      .page-header h1 {
+        margin: 4px 0 0;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: #fff;
+      }
+      .page-header .sub {
+        margin-top: 4px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      /* Layout: dialog left, ledger right, full-width tolerance strip */
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+        gap: 22px;
+      }
+
+      /* Glass panel */
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        backdrop-filter: blur(18px);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.04) inset,
+          0 24px 48px -24px rgba(0, 0, 0, 0.45);
+      }
+
+      .panel-header {
+        padding: 18px 22px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .panel-header .label {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--indigo);
+      }
+      .panel-header h2 {
+        margin: 4px 0 2px;
+        font-size: 17px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: -0.005em;
+      }
+      .panel-header .panel-sub {
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+
+      /* ============ FX dialog ============ */
+      .dialog {
+        padding: 18px 22px 20px;
+      }
+
+      .section {
+        margin-top: 16px;
+      }
+      .section:first-child { margin-top: 4px; }
+
+      .section-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .section-label .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--indigo);
+        box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.18);
+      }
+
+      /* dropdown + amount row */
+      .row {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 10px;
+      }
+
+      .field {
+        position: relative;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .field:hover { border-color: var(--border-strong); }
+      .field.focused {
+        border-color: var(--indigo);
+        background: rgba(124, 140, 255, 0.06);
+        box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.18);
+      }
+      .field-label {
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+
+      .dropdown-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      .acct-name {
+        font-size: 14px;
+        font-weight: 500;
+        color: #fff;
+      }
+      .acct-meta {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .acct-balance-num {
+        color: var(--text);
+      }
+      .chev {
+        color: var(--dim);
+        flex-shrink: 0;
+      }
+
+      .amount-input {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .amount-prefix {
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .amount-value {
+        font-family: var(--mono);
+        font-size: 22px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: -0.01em;
+      }
+      .amount-currency {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dim);
+        margin-left: auto;
+      }
+
+      /* exchange rate row */
+      .fx-row {
+        display: grid;
+        grid-template-columns: minmax(180px, 0.9fr) minmax(0, 1.6fr);
+        gap: 14px;
+        align-items: stretch;
+      }
+
+      .rate-input-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .rate-input-card .rate-num {
+        font-family: var(--mono);
+        font-size: 24px;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: -0.01em;
+      }
+      .rate-input-card .rate-unit {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .gauge-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .gauge-svg-wrapper {
+        position: relative;
+        width: 100%;
+      }
+
+      .gauge-tooltip {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--text);
+        line-height: 1.45;
+        align-self: flex-start;
+      }
+      .gauge-tooltip .tt-strong {
+        color: var(--emerald);
+        font-weight: 600;
+      }
+
+      /* summary box */
+      .summary-box {
+        margin-top: 16px;
+        padding: 14px 16px;
+        background: linear-gradient(180deg, rgba(124, 140, 255, 0.08), rgba(124, 140, 255, 0.02));
+        border: 1px solid rgba(124, 140, 255, 0.28);
+        border-radius: 12px;
+      }
+      .summary-row {
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        gap: 8px;
+        align-items: baseline;
+        padding: 4px 0;
+      }
+      .summary-row + .summary-row { border-top: 1px dashed rgba(124, 140, 255, 0.14); }
+      .summary-key {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .summary-val {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+      }
+      .summary-val.muted-italic {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--muted);
+      }
+
+      /* footer buttons */
+      .dialog-footer {
+        margin-top: 18px;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .btn {
+        font-family: inherit;
+        font-size: 13.5px;
+        font-weight: 600;
+        padding: 9px 18px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .btn-secondary {
+        background: transparent;
+        border-color: var(--border-strong);
+        color: var(--text);
+      }
+      .btn-primary {
+        background: linear-gradient(180deg, #8C9CFF, var(--indigo-deep));
+        color: #fff;
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2), 0 8px 20px -8px rgba(124, 140, 255, 0.55);
+      }
+      .btn-primary[disabled] {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--dim);
+        cursor: not-allowed;
+        box-shadow: none;
+        border-color: var(--border);
+      }
+
+      /* ============ Cash ledger panel ============ */
+      .ledger {
+        padding: 18px 0 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 0 22px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+      .chip {
+        font-size: 12px;
+        padding: 5px 11px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .chip.active {
+        background: rgba(124, 140, 255, 0.14);
+        border-color: rgba(124, 140, 255, 0.45);
+        color: #fff;
+      }
+
+      .ledger-rows {
+        padding: 6px 12px 18px;
+      }
+
+      .lrow {
+        display: grid;
+        grid-template-columns: 78px 110px minmax(0, 1.6fr) 130px 28px;
+        column-gap: 12px;
+        row-gap: 2px;
+        align-items: center;
+        padding: 12px 10px;
+        border-radius: 12px;
+        transition: background 0.12s;
+      }
+      .lrow:hover { background: rgba(255, 255, 255, 0.03); }
+      .lrow.fx-pair-top { border-bottom: 1px dashed rgba(255, 255, 255, 0.08); border-radius: 12px 12px 0 0; padding-bottom: 8px; }
+      .lrow.fx-pair-bot { border-radius: 0 0 12px 12px; padding-top: 8px; margin-bottom: 6px; }
+      .lrow.fx-pair-top, .lrow.fx-pair-bot {
+        background: rgba(124, 140, 255, 0.04);
+      }
+
+      .ldate {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .badge.fx-out { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.28); }
+      .badge.fx-in  { background: var(--emerald-bg); color: var(--emerald); border: 1px solid rgba(52, 211, 153, 0.28); }
+      .badge.trade  { background: rgba(124, 140, 255, 0.14); color: var(--indigo); border: 1px solid rgba(124, 140, 255, 0.32); }
+      .badge.div    { background: rgba(52, 211, 153, 0.10); color: var(--emerald); border: 1px solid rgba(52, 211, 153, 0.22); }
+
+      .lprimary {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .lamount {
+        font-family: var(--mono);
+        font-size: 14.5px;
+        font-weight: 600;
+        color: #fff;
+        white-space: nowrap;
+      }
+      .lamount.neg { color: var(--rose); }
+      .lamount.pos { color: var(--emerald); }
+      .laccount {
+        font-size: 11.5px;
+        color: var(--muted);
+        margin-top: 1px;
+      }
+      .lpaired {
+        grid-column: 3 / span 1;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dim);
+        padding-top: 2px;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .lpaired .arrow { color: var(--indigo); margin-right: 2px; }
+      .lpaired .rate-tag {
+        color: var(--text);
+        background: rgba(124, 140, 255, 0.10);
+        padding: 1px 6px;
+        border-radius: 5px;
+        margin-left: 4px;
+      }
+
+      .ldate-col2 {
+        grid-column: 4 / span 1;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dim);
+        text-align: right;
+      }
+
+      .lkebab {
+        text-align: center;
+        color: var(--dim);
+        cursor: pointer;
+      }
+      .lkebab:hover { color: var(--text); }
+
+      /* ============ Tolerance demo strip ============ */
+      .tol-strip {
+        margin-top: 22px;
+      }
+      .tol-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        padding: 18px 22px 22px;
+      }
+      .tol-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .tol-card .tol-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .tol-card .tol-name {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .tol-card .tol-pct {
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .tol-card.safe .tol-pct { color: var(--emerald); }
+      .tol-card.warn .tol-pct { color: var(--amber); }
+      .tol-card.block .tol-pct { color: var(--rose); }
+
+      .tol-banner {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 7px 10px;
+        border-radius: 8px;
+      }
+      .tol-banner.safe { color: var(--emerald); background: var(--emerald-bg); border: 1px solid rgba(52, 211, 153, 0.28); }
+      .tol-banner.warn { color: var(--amber); background: var(--amber-bg); border: 1px solid rgba(245, 158, 11, 0.28); }
+      .tol-banner.block { color: var(--rose); background: var(--rose-bg); border: 1px solid rgba(251, 113, 133, 0.28); }
+
+      .tol-action {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      /* footnote */
+      .footnote {
+        margin-top: 28px;
+        padding: 14px 18px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.02);
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--dim);
+        line-height: 1.55;
+      }
+      .footnote strong { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Page header (meta) -->
+      <header class="page-header">
+        <p class="eyebrow">Mockup · KZO-168 · scope-grill 2026-04-29</p>
+        <h1>FX-Transfer Form &amp; Cash Ledger Display</h1>
+        <p class="sub">
+          Frozen reference snapshot for KZO-168.
+          Visualizes locked decisions D1–D18 from
+          <code style="font-family: var(--mono); font-size: 11.5px; color: var(--indigo);">scope-todo-202604291700-fx-transfer.md</code>.
+        </p>
+      </header>
+
+      <!-- Two-column: dialog + ledger -->
+      <div class="grid">
+        <!-- ======================================================== -->
+        <!-- PANEL 1: RecordFxTransferDialog                            -->
+        <!-- ======================================================== -->
+        <section class="panel">
+          <div class="panel-header">
+            <p class="label">Modal · RecordFxTransferDialog</p>
+            <h2>New FX Transfer</h2>
+            <p class="panel-sub">Move money between accounts of different currencies</p>
+          </div>
+
+          <div class="dialog">
+            <!-- Section 1: From -->
+            <div class="section">
+              <p class="section-label"><span class="dot"></span> From</p>
+              <div class="row">
+                <div class="field">
+                  <p class="field-label">Source account</p>
+                  <div class="dropdown-trigger">
+                    <div>
+                      <p class="acct-name">Cathay Brokerage TWD</p>
+                      <p class="acct-meta">balance:&nbsp;<span class="acct-balance-num">145,200.00</span> TWD</p>
+                    </div>
+                    <svg class="chev" width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                      <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.24 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="field focused">
+                  <p class="field-label">Amount</p>
+                  <div class="amount-input">
+                    <span class="amount-prefix">NT$</span>
+                    <span class="amount-value">30,000</span>
+                    <span class="amount-currency">TWD</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 2: To -->
+            <div class="section">
+              <p class="section-label"><span class="dot"></span> To</p>
+              <div class="row">
+                <div class="field">
+                  <p class="field-label">Destination account</p>
+                  <div class="dropdown-trigger">
+                    <div>
+                      <p class="acct-name">Schwab USD Brokerage</p>
+                      <p class="acct-meta">balance:&nbsp;<span class="acct-balance-num">2,840.55</span> USD</p>
+                    </div>
+                    <svg class="chev" width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                      <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.24 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="field">
+                  <p class="field-label">Amount</p>
+                  <div class="amount-input">
+                    <span class="amount-prefix">$</span>
+                    <span class="amount-value">955.42</span>
+                    <span class="amount-currency">USD</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 3: Exchange Rate -->
+            <div class="section">
+              <p class="section-label"><span class="dot"></span> Exchange Rate</p>
+              <div class="fx-row">
+                <div class="rate-input-card">
+                  <p class="field-label">User rate</p>
+                  <p class="rate-num">0.0318</p>
+                  <p class="rate-unit">USD per TWD</p>
+                </div>
+                <div class="gauge-card">
+                  <div class="gauge-svg-wrapper">
+                    <!-- Horizontal SVG gauge -->
+                    <svg viewBox="0 0 480 60" width="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                      <!-- Track background -->
+                      <defs>
+                        <linearGradient id="bandGrad" x1="0" x2="1">
+                          <stop offset="0" stop-color="#FB7185" />
+                          <stop offset="0.20" stop-color="#F59E0B" />
+                          <stop offset="0.40" stop-color="#34D399" />
+                          <stop offset="0.60" stop-color="#34D399" />
+                          <stop offset="0.80" stop-color="#F59E0B" />
+                          <stop offset="1" stop-color="#FB7185" />
+                        </linearGradient>
+                      </defs>
+
+                      <!-- Outer track shadow -->
+                      <rect x="6" y="22" width="468" height="16" rx="8" fill="rgba(255,255,255,0.05)" />
+
+                      <!-- Color bands: red (>10%) | amber (2-10%) | green (<2%) | amber | red -->
+                      <!-- Total width is 468 px; center at 240; each side spans 234 px -->
+                      <!-- Green zone: 0-2% off mid → centered, 2/15 of half = 0.1333 of half = 31.2 → ~31 px each side; combined 62 px wide centered -->
+                      <!-- For visual clarity widen green slightly -->
+                      <rect x="6"   y="24" width="55"  height="12" fill="#FB7185" opacity="0.7" />
+                      <rect x="61"  y="24" width="125" height="12" fill="#F59E0B" opacity="0.7" />
+                      <rect x="186" y="24" width="108" height="12" fill="#34D399" opacity="0.85" />
+                      <rect x="294" y="24" width="125" height="12" fill="#F59E0B" opacity="0.7" />
+                      <rect x="419" y="24" width="55"  height="12" fill="#FB7185" opacity="0.7" />
+
+                      <!-- Edge rounding overlay -->
+                      <rect x="6" y="24" width="468" height="12" rx="6" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1" />
+
+                      <!-- Tick marks for -10%, -2%, mid, +2%, +10% -->
+                      <g font-family="ui-monospace, SFMono-Regular, monospace" font-size="9" fill="#94a3b8">
+                        <line x1="61"  y1="20" x2="61"  y2="40" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+                        <text x="61" y="14" text-anchor="middle">−10%</text>
+                        <line x1="186" y1="20" x2="186" y2="40" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+                        <text x="186" y="14" text-anchor="middle">−2%</text>
+                        <line x1="240" y1="20" x2="240" y2="40" stroke="rgba(255,255,255,0.55)" stroke-width="1" />
+                        <text x="240" y="14" text-anchor="middle" fill="#cbd5e1">mid</text>
+                        <line x1="294" y1="20" x2="294" y2="40" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+                        <text x="294" y="14" text-anchor="middle">+2%</text>
+                        <line x1="419" y1="20" x2="419" y2="40" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+                        <text x="419" y="14" text-anchor="middle">+10%</text>
+                      </g>
+
+                      <!-- Mid marker (centered) -->
+                      <g>
+                        <line x1="240" y1="22" x2="240" y2="38" stroke="#fff" stroke-width="1.5" opacity="0.85" />
+                        <text x="240" y="54" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="9" fill="#cbd5e1">0.0322</text>
+                      </g>
+
+                      <!-- User marker — slightly LEFT of center (1.24% below mid → fraction 1.24/10 = 0.124 of the −2%..−10% half region -->
+                      <!-- −2% is at x=186, mid at 240, so 1.24% sits at: 240 − (1.24/2) × (240−186) = 240 − 0.62 × 54 = 206.5 -->
+                      <g>
+                        <circle cx="207" cy="30" r="9" fill="#34D399" stroke="#0b1020" stroke-width="2.5" />
+                        <circle cx="207" cy="30" r="9" fill="none" stroke="rgba(52,211,153,0.45)" stroke-width="6" />
+                        <text x="207" y="56" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="9.5" font-weight="600" fill="#34D399">yours: 0.0318</text>
+                      </g>
+                    </svg>
+                  </div>
+                  <div class="gauge-tooltip">
+                    Spread: <span class="tt-strong">1.24% below mid</span><br/>
+                    mid: 0.0322 &nbsp;·&nbsp; yours: 0.0318
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Summary box -->
+            <div class="summary-box">
+              <div class="summary-row">
+                <span class="summary-key">Effective rate</span>
+                <span class="summary-val">0.0318 USD/TWD</span>
+              </div>
+              <div class="summary-row">
+                <span class="summary-key">USD acquired</span>
+                <span class="summary-val">$ 955.42</span>
+              </div>
+              <div class="summary-row">
+                <span class="summary-key">Realized FX impact</span>
+                <span class="summary-val muted-italic">Deferred until USD converted back</span>
+              </div>
+            </div>
+
+            <!-- Footer buttons -->
+            <div class="dialog-footer">
+              <button class="btn btn-secondary">Cancel</button>
+              <button class="btn btn-primary">Save Transfer</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- PANEL 2: Cash ledger view (excerpt)                        -->
+        <!-- ======================================================== -->
+        <section class="panel ledger">
+          <div class="panel-header">
+            <p class="label">View · /cash-ledger</p>
+            <h2>Cash Ledger — paired-leg display</h2>
+            <p class="panel-sub">FX_TRANSFER entries render as two adjacent rows. Filter chip <em>FX Transfer</em> selects both legs.</p>
+          </div>
+
+          <!-- Filter chips -->
+          <div class="filter-chips">
+            <span class="chip">All</span>
+            <span class="chip">Trade Settlement</span>
+            <span class="chip">Dividend</span>
+            <span class="chip active">FX Transfer</span>
+            <span class="chip">Manual</span>
+            <span class="chip">Reversal</span>
+          </div>
+
+          <!-- Rows -->
+          <div class="ledger-rows">
+
+            <!-- Context row 1: Trade settlement OUT (BUY 2330) -->
+            <div class="lrow">
+              <span class="ldate">2026-04-28</span>
+              <span class="badge trade">Trade · Out</span>
+              <div class="lprimary">
+                <span class="lamount neg">−NT$ 84,200.00</span>
+                <span class="laccount">Cathay Brokerage TWD · BUY 200 × 2330</span>
+              </div>
+              <span class="ldate-col2">TWD</span>
+              <span class="lkebab">⋯</span>
+            </div>
+
+            <!-- FX Transfer pair: OUT leg -->
+            <div class="lrow fx-pair-top">
+              <span class="ldate">2026-04-29</span>
+              <span class="badge fx-out">FX&nbsp;↗&nbsp;Out</span>
+              <div class="lprimary">
+                <span class="lamount neg">−30,000.00 TWD</span>
+                <span class="laccount">Cathay Brokerage TWD</span>
+              </div>
+              <span class="ldate-col2">TWD</span>
+              <span class="lkebab">⋯</span>
+              <div class="lpaired"><span class="arrow">→</span> 955.42 USD to Schwab USD Brokerage <span class="rate-tag">@ 0.0318 USD/TWD</span></div>
+            </div>
+
+            <!-- FX Transfer pair: IN leg -->
+            <div class="lrow fx-pair-bot">
+              <span class="ldate">2026-04-29</span>
+              <span class="badge fx-in">FX&nbsp;↘&nbsp;In</span>
+              <div class="lprimary">
+                <span class="lamount pos">+955.42 USD</span>
+                <span class="laccount">Schwab USD Brokerage</span>
+              </div>
+              <span class="ldate-col2">USD</span>
+              <span class="lkebab">⋯</span>
+              <div class="lpaired"><span class="arrow">←</span> 30,000.00 TWD from Cathay Brokerage TWD <span class="rate-tag">@ 31.45 TWD/USD</span></div>
+            </div>
+
+            <!-- Context row 2: Dividend receipt -->
+            <div class="lrow">
+              <span class="ldate">2026-04-26</span>
+              <span class="badge div">Dividend</span>
+              <div class="lprimary">
+                <span class="lamount pos">+NT$ 6,420.00</span>
+                <span class="laccount">Cathay Brokerage TWD · 0050 cash dividend</span>
+              </div>
+              <span class="ldate-col2">TWD</span>
+              <span class="lkebab">⋯</span>
+            </div>
+
+            <!-- Context row 3: another trade -->
+            <div class="lrow">
+              <span class="ldate">2026-04-22</span>
+              <span class="badge trade">Trade · In</span>
+              <div class="lprimary">
+                <span class="lamount pos">+NT$ 412,580.00</span>
+                <span class="laccount">Cathay Brokerage TWD · SELL 1,000 × 2330</span>
+              </div>
+              <span class="ldate-col2">TWD</span>
+              <span class="lkebab">⋯</span>
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+      <!-- ======================================================== -->
+      <!-- PANEL 3: Tolerance state demo strip                        -->
+      <!-- ======================================================== -->
+      <section class="panel tol-strip">
+        <div class="panel-header">
+          <p class="label">Tolerance bands · D6</p>
+          <h2>Mid-rate validation states</h2>
+          <p class="panel-sub">Three side-by-side gauges show the safe / warn / block bands at 1.5%, 3%, and 12% off mid.</p>
+        </div>
+        <div class="tol-grid">
+
+          <!-- SAFE -->
+          <div class="tol-card safe">
+            <div class="tol-head">
+              <span class="tol-name">Safe · &lt; 2% off mid</span>
+              <span class="tol-pct">1.5%</span>
+            </div>
+            <svg viewBox="0 0 360 30" width="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="6" y="10" width="348" height="10" rx="5" fill="rgba(255,255,255,0.05)" />
+              <rect x="6"   y="11" width="40"  height="8" fill="#FB7185" opacity="0.55" />
+              <rect x="46"  y="11" width="93"  height="8" fill="#F59E0B" opacity="0.55" />
+              <rect x="139" y="11" width="82"  height="8" fill="#34D399" opacity="0.85" />
+              <rect x="221" y="11" width="93"  height="8" fill="#F59E0B" opacity="0.55" />
+              <rect x="314" y="11" width="40"  height="8" fill="#FB7185" opacity="0.55" />
+              <line x1="180" y1="8" x2="180" y2="22" stroke="#fff" stroke-width="1.2" opacity="0.7" />
+              <!-- 1.5% below: 180 - (1.5/2)*41 = 180 - 30.75 ≈ 149 -->
+              <circle cx="149" cy="15" r="6" fill="#34D399" stroke="#0b1020" stroke-width="2" />
+            </svg>
+            <div class="tol-banner safe">✓ Within tolerance — submit enabled</div>
+            <div class="tol-action">
+              <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px;">Save Transfer</button>
+            </div>
+          </div>
+
+          <!-- WARN -->
+          <div class="tol-card warn">
+            <div class="tol-head">
+              <span class="tol-name">Warn · 2 – 10% off mid</span>
+              <span class="tol-pct">3.0%</span>
+            </div>
+            <svg viewBox="0 0 360 30" width="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="6" y="10" width="348" height="10" rx="5" fill="rgba(255,255,255,0.05)" />
+              <rect x="6"   y="11" width="40"  height="8" fill="#FB7185" opacity="0.55" />
+              <rect x="46"  y="11" width="93"  height="8" fill="#F59E0B" opacity="0.55" />
+              <rect x="139" y="11" width="82"  height="8" fill="#34D399" opacity="0.65" />
+              <rect x="221" y="11" width="93"  height="8" fill="#F59E0B" opacity="0.85" />
+              <rect x="314" y="11" width="40"  height="8" fill="#FB7185" opacity="0.55" />
+              <line x1="180" y1="8" x2="180" y2="22" stroke="#fff" stroke-width="1.2" opacity="0.7" />
+              <!-- 3% above: 180 + ((3-2)/(10-2))*93 + (2/2)*41 = 180 + 41 + 11.6 ≈ 232 -->
+              <circle cx="232" cy="15" r="6" fill="#F59E0B" stroke="#0b1020" stroke-width="2" />
+            </svg>
+            <div class="tol-banner warn">⚠ Rate is 3.0% off mid — confirm intent</div>
+            <div class="tol-action">
+              <button class="btn btn-primary" style="padding: 6px 14px; font-size: 12px;">Save Transfer</button>
+            </div>
+          </div>
+
+          <!-- BLOCK -->
+          <div class="tol-card block">
+            <div class="tol-head">
+              <span class="tol-name">Block · &gt; 10% off mid</span>
+              <span class="tol-pct">12.0%</span>
+            </div>
+            <svg viewBox="0 0 360 30" width="100%" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="6" y="10" width="348" height="10" rx="5" fill="rgba(255,255,255,0.05)" />
+              <rect x="6"   y="11" width="40"  height="8" fill="#FB7185" opacity="0.85" />
+              <rect x="46"  y="11" width="93"  height="8" fill="#F59E0B" opacity="0.55" />
+              <rect x="139" y="11" width="82"  height="8" fill="#34D399" opacity="0.55" />
+              <rect x="221" y="11" width="93"  height="8" fill="#F59E0B" opacity="0.55" />
+              <rect x="314" y="11" width="40"  height="8" fill="#FB7185" opacity="0.85" />
+              <line x1="180" y1="8" x2="180" y2="22" stroke="#fff" stroke-width="1.2" opacity="0.7" />
+              <!-- 12% above: past +10% (314), nudge to ~330 -->
+              <circle cx="332" cy="15" r="6" fill="#FB7185" stroke="#0b1020" stroke-width="2" />
+            </svg>
+            <div class="tol-banner block">🚫 Rate is 12.0% off mid — submit disabled</div>
+            <div class="tol-action">
+              <button class="btn btn-primary" disabled style="padding: 6px 14px; font-size: 12px;">Save Transfer</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Footnote -->
+      <div class="footnote">
+        <strong>Frozen snapshot</strong> · Generated 2026-04-29 · Lives at
+        <code style="color: var(--indigo);">docs/004-notes/kzo-168/mockup-202604291700-fx-transfer-form.html</code>.
+        Per <code style="color: var(--indigo);">.claude/rules/doc-management.md</code>, files under
+        <code>docs/004-notes/{slug}/</code> are <em>frozen</em> — never updated after merge.
+        This mockup visualizes locked decisions D1–D18 from the companion
+        <code style="color: var(--indigo);">scope-todo-202604291700-fx-transfer.md</code>; it is not a behavioural source of truth.
+      </div>
+    </div>
+  </body>
+</html>

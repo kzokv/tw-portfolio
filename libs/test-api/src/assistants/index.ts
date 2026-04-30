@@ -4,6 +4,7 @@ export * from "./anonymous-share-tokens/index.js";
 export * from "./dividends/index.js";
 export * from "./feeProfiles/index.js";
 export * from "./fxRates/index.js";
+export * from "./fxTransfers/index.js";
 export * from "./notifications/index.js";
 export * from "./profile/index.js";
 export * from "./quotes/index.js";

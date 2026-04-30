@@ -141,6 +141,27 @@ export interface WalletGenerationFailedEvent {
   error: string;
 }
 
+/**
+ * KZO-168: emitted by FX-transfer create / update / reverse routes after the
+ * paired cash-ledger legs are persisted and currency-wallet snapshots have
+ * been regenerated. The payload carries one entry per affected wallet so
+ * cash-ledger / dashboard / account-balance consumers can refetch precisely
+ * the wallets that changed without scanning every account.
+ *
+ * This is **not** the same shape as `RecomputeCompleteEvent`, which is keyed
+ * by `(accountId, ticker)` for trade-event recomputes. Reusing that event
+ * here would silently feed `undefined` into transaction-mutation consumers
+ * that read `event.accountId` / `event.ticker`.
+ */
+export interface CurrencyWalletRecomputedEvent {
+  type: "currency_wallet_recomputed";
+  cashBalanceChanges: Array<{
+    accountId: string;
+    currency: string;
+    delta: number;
+  }>;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -160,7 +181,8 @@ export type SSEEvent =
   | DividendUpdatedEvent
   | DividendReconciliationChangedEvent
   | SnapshotsGeneratedEvent
-  | WalletGenerationFailedEvent;
+  | WalletGenerationFailedEvent
+  | CurrencyWalletRecomputedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -180,5 +202,6 @@ export type SSEDomainEventType =
   | "dividend_updated"
   | "dividend_reconciliation_changed"
   | "snapshots_generated"
-  | "wallet_generation_failed";
+  | "wallet_generation_failed"
+  | "currency_wallet_recomputed";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

@@ -5,6 +5,7 @@ import { anonymousShareTokensApiAssistantFactory } from "../assistants/anonymous
 import { dividendsApiAssistantFactory } from "../assistants/dividends/index.js";
 import { feeProfilesApiAssistantFactory } from "../assistants/feeProfiles/index.js";
 import { fxRatesApiAssistantFactory } from "../assistants/fxRates/index.js";
+import { fxTransfersApiAssistantFactory } from "../assistants/fxTransfers/index.js";
 import { notificationsApiAssistantFactory } from "../assistants/notifications/index.js";
 import { profileApiAssistantFactory } from "../assistants/profile/index.js";
 import { quotesApiAssistantFactory } from "../assistants/quotes/index.js";
@@ -18,6 +19,7 @@ import { AnonymousShareTokensEndpoint } from "../endpoints/AnonymousShareTokensE
 import { DividendsEndpoint } from "../endpoints/DividendsEndpoint.js";
 import { FeeProfilesEndpoint } from "../endpoints/FeeProfilesEndpoint.js";
 import { FxRatesEndpoint } from "../endpoints/FxRatesEndpoint.js";
+import { FxTransfersEndpoint } from "../endpoints/FxTransfersEndpoint.js";
 import { NotificationsEndpoint } from "../endpoints/NotificationsEndpoint.js";
 import { ProfileEndpoint } from "../endpoints/ProfileEndpoint.js";
 import { QuotesEndpoint } from "../endpoints/QuotesEndpoint.js";
@@ -39,6 +41,7 @@ export function registerTestApiAssistants(): void {
   apiAssistantRegistry.register(DividendsEndpoint, dividendsApiAssistantFactory);
   apiAssistantRegistry.register(FeeProfilesEndpoint, feeProfilesApiAssistantFactory);
   apiAssistantRegistry.register(FxRatesEndpoint, fxRatesApiAssistantFactory);
+  apiAssistantRegistry.register(FxTransfersEndpoint, fxTransfersApiAssistantFactory);
   apiAssistantRegistry.register(NotificationsEndpoint, notificationsApiAssistantFactory);
   apiAssistantRegistry.register(ProfileEndpoint, profileApiAssistantFactory);
   apiAssistantRegistry.register(QuotesEndpoint, quotesApiAssistantFactory);

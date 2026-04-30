@@ -111,7 +111,10 @@ export type AuditLogAction =
   | "impersonation_blocked_write"
   | "session_force_logout"
   | "app_config_updated"
-  | "admin_fx_rates_refresh";
+  | "admin_fx_rates_refresh"
+  | "fx_transfer_created"
+  | "fx_transfer_updated"
+  | "fx_transfer_reversed";
 
 export interface ShareGrantRecord {
   id: string;
@@ -423,6 +426,7 @@ export interface CashLedgerEntryForWalletReplay {
   entryDate: string;
   amount: number;
   fxRateToUsd: number | null;
+  fxTransferId?: string | null;
   entryType: import("../types/store.js").CashLedgerEntryType;
   reversalOfCashLedgerEntryId?: string;
   bookedAt?: string;
@@ -623,6 +627,18 @@ export interface Persistence {
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;
+  /**
+   * KZO-168 D8: persist a full accounting snapshot together with one audit-log
+   * row in a single DB transaction. Postgres opens BEGIN/COMMIT around both
+   * writes; memory backend simply chains the two inserts (no real transaction
+   * semantics). Used by the FX-transfer service so the cash-ledger legs and
+   * the lifecycle audit row never diverge on partial failure.
+   */
+  saveAccountingStoreWithAudit(
+    userId: string,
+    accounting: AccountingStore,
+    auditEntry: AuditLogInput,
+  ): Promise<void>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
   savePostedDividend(
     userId: string,
@@ -807,6 +823,11 @@ export interface Persistence {
    *   - Read-path callers (future dashboard JOINs) MAY degrade to native-only.
    */
   getFxRate(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<number | null>;
+  getFxTransferById(
+    userId: string,
+    fxTransferId: string,
+  ): Promise<{ legs: CashLedgerEntry[]; reversed: boolean } | null>;
+  getAccountAvailableBalance(userId: string, accountId: string, currency: CurrencyCode): Promise<number>;
   /**
    * KZO-166: deterministic cash-ledger projection for the wallet WAC walker.
    *

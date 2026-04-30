@@ -54,6 +54,17 @@ import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
+import {
+  createFxTransfer,
+  estimateFxTransfer,
+  reverseFxTransfer,
+  updateFxTransfer,
+  type CashBalanceChange,
+  type CreateFxTransferResult,
+  type ReverseFxTransferResult,
+  type UpdateFxTransferResult,
+} from "../services/fxTransferService.js";
+import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
 import { seedDemoTransactions } from "../services/demoData.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
@@ -275,6 +286,8 @@ const cashLedgerEntryTypes = [
   "DIVIDEND_RECEIPT",
   "DIVIDEND_DEDUCTION",
   "MANUAL_ADJUSTMENT",
+  "FX_TRANSFER_OUT",
+  "FX_TRANSFER_IN",
   "REVERSAL",
 ] as const;
 
@@ -290,6 +303,53 @@ const cashLedgerQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   sortBy: z.enum(["entryDate", "entryType", "amount", "currency", "accountId"]).default("entryDate"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+const fxTransferSchema = z.object({
+  fromAccountId: userScopedIdSchema,
+  toAccountId: userScopedIdSchema,
+  fromAmount: z.number().positive(),
+  toAmount: z.number().positive(),
+  effectiveRate: z.number().positive(),
+  entryDate: isoDateSchema,
+  notes: z.string().trim().max(500).optional(),
+});
+
+const fxTransferUpdateSchema = z
+  .object({
+    fromAmount: z.number().positive().optional(),
+    toAmount: z.number().positive().optional(),
+    effectiveRate: z.number().positive().optional(),
+    entryDate: isoDateSchema.optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const economicCount = [value.fromAmount, value.toAmount, value.effectiveRate]
+      .filter((field) => field !== undefined).length;
+    if (economicCount > 0 && economicCount < 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["effectiveRate"],
+        message: "fromAmount, toAmount, and effectiveRate must be provided together",
+      });
+    }
+    if (
+      value.fromAmount === undefined &&
+      value.toAmount === undefined &&
+      value.effectiveRate === undefined &&
+      value.entryDate === undefined &&
+      value.notes === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "at least one field required",
+      });
+    }
+  });
+
+const fxTransferParamsSchema = z.object({ id: z.string().uuid() });
+const fxTransferReverseSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
 });
 
 function buildCookieAttrs(cookieName: string, isProduction: boolean, cookieDomain?: string): string {
@@ -356,6 +416,9 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /profile",
   "POST /accounts",
   "PATCH /accounts/:id",
+  "POST /fx-transfers",
+  "PATCH /fx-transfers/:id",
+  "POST /fx-transfers/:id/reverse",
   "POST /fee-profiles",
   "PATCH /fee-profiles/:id",
   "DELETE /fee-profiles/:id",
@@ -394,6 +457,9 @@ const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
   "PUT /settings/fee-config",
   "POST /accounts",
   "PATCH /accounts/:id",
+  "POST /fx-transfers",
+  "PATCH /fx-transfers/:id",
+  "POST /fx-transfers/:id/reverse",
   "POST /fee-profiles",
   "PATCH /fee-profiles/:id",
   "DELETE /fee-profiles/:id",
@@ -1166,6 +1232,37 @@ function requireAccount(store: Store, accountId: string) {
   return account;
 }
 
+function buildLiveBalancesByAccount(
+  store: Store,
+): Map<string, Array<{ currency: string; amount: number }>> {
+  const reversedIds = new Set<string>();
+  for (const entry of store.accounting.facts.cashLedgerEntries) {
+    if (entry.reversalOfCashLedgerEntryId) {
+      reversedIds.add(entry.reversalOfCashLedgerEntryId);
+    }
+  }
+
+  const balances = new Map<string, Map<string, number>>();
+  for (const entry of store.accounting.facts.cashLedgerEntries) {
+    if (entry.reversalOfCashLedgerEntryId) continue;
+    if (reversedIds.has(entry.id)) continue;
+    const currencyMap = balances.get(entry.accountId) ?? new Map<string, number>();
+    currencyMap.set(entry.currency, (currencyMap.get(entry.currency) ?? 0) + entry.amount);
+    balances.set(entry.accountId, currencyMap);
+  }
+
+  const result = new Map<string, Array<{ currency: string; amount: number }>>();
+  for (const [accountId, currencyMap] of balances.entries()) {
+    result.set(
+      accountId,
+      [...currencyMap.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([currency, amount]) => ({ currency, amount: roundToDecimal(amount, 2) })),
+    );
+  }
+  return result;
+}
+
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1248,6 +1345,46 @@ async function opportunisticUpsertDailyBars(
   if ("_seedDailyBars" in persistence && typeof persistence._seedDailyBars === "function") {
     persistence._seedDailyBars(bars);
   }
+}
+
+type FxTransferMutationResult =
+  | CreateFxTransferResult
+  | UpdateFxTransferResult
+  | ReverseFxTransferResult;
+type CashLedgerStoreEntry = Store["accounting"]["facts"]["cashLedgerEntries"][number];
+
+// KZO-168 D11: emit a dedicated `currency_wallet_recomputed` event after FX
+// transfer mutations. Reusing the trade-event `recompute_complete` shape would
+// feed `undefined` into transaction-mutation consumers that read
+// `event.accountId` / `event.ticker`, so the payload-shape contract is
+// intentionally distinct.
+async function publishFxTransferRecompute(
+  app: FastifyInstance,
+  userId: string,
+  cashBalanceChanges: CashBalanceChange[],
+): Promise<void> {
+  await generateCurrencyWalletSnapshots(userId, app.persistence);
+  await app.eventBus.publishEvent(userId, "currency_wallet_recomputed", {
+    cashBalanceChanges,
+  });
+}
+
+function stripFxTransferSideEffects<T extends FxTransferMutationResult>(
+  result: T,
+): Omit<T, "cashBalanceChanges"> {
+  // Drop the side-effect channel before returning to the HTTP layer; the
+  // route already published the SSE event with the same payload, so the
+  // synchronous response only carries identifiers.
+  const response: Record<string, unknown> = { ...result };
+  delete response.cashBalanceChanges;
+  return response as Omit<T, "cashBalanceChanges">;
+}
+
+function rethrowFxTransferError(error: unknown): never {
+  if (error instanceof MissingFxRateError) {
+    throw routeError(400, "fx_rate_unavailable", error.message);
+  }
+  throw error;
 }
 
 function resolveTransactionFeeProfile(
@@ -2587,7 +2724,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/accounts", async (req) => {
+    const query = z.object({
+      includeBalances: z.coerce.boolean().default(false),
+    }).parse(req.query);
     const { store } = await loadUserStore(app, req);
+    if (query.includeBalances) {
+      const balancesByAccount = buildLiveBalancesByAccount(store);
+      return store.accounts.map((account) => ({
+        ...account,
+        liveBalance: balancesByAccount.get(account.id) ?? [],
+      }));
+    }
     return store.accounts;
   });
 
@@ -2716,6 +2863,54 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     await app.persistence.saveStore(store);
     return account;
+  });
+
+  app.post("/fx-transfers/estimate", async (req) => {
+    const body = fxTransferSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    try {
+      return await estimateFxTransfer(app.persistence, userId, body);
+    } catch (error) {
+      rethrowFxTransferError(error);
+    }
+  });
+
+  app.post("/fx-transfers", async (req) => {
+    const body = fxTransferSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    try {
+      const result = await createFxTransfer(app.persistence, userId, body);
+      await publishFxTransferRecompute(app, userId, result.cashBalanceChanges);
+      return stripFxTransferSideEffects(result);
+    } catch (error) {
+      rethrowFxTransferError(error);
+    }
+  });
+
+  app.patch("/fx-transfers/:id", async (req) => {
+    const params = fxTransferParamsSchema.parse(req.params);
+    const body = fxTransferUpdateSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    try {
+      const result = await updateFxTransfer(app.persistence, userId, params.id, body);
+      await publishFxTransferRecompute(app, userId, result.cashBalanceChanges);
+      return stripFxTransferSideEffects(result);
+    } catch (error) {
+      rethrowFxTransferError(error);
+    }
+  });
+
+  app.post("/fx-transfers/:id/reverse", async (req) => {
+    const params = fxTransferParamsSchema.parse(req.params);
+    const body = fxTransferReverseSchema.parse(req.body ?? {});
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    try {
+      const result = await reverseFxTransfer(app.persistence, userId, params.id, body);
+      await publishFxTransferRecompute(app, userId, result.cashBalanceChanges);
+      return stripFxTransferSideEffects(result);
+    } catch (error) {
+      rethrowFxTransferError(error);
+    }
   });
 
   app.get("/fee-profiles", async (req) => {
@@ -3369,6 +3564,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const tradeMap = new Map(listTradeEvents(store).map(t => [t.id, t]));
     const dividendLedgerMap = new Map(listDividendLedgerEntries(store).map(d => [d.id, d]));
     const dividendEventMap = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
+    const accountsById = new Map(store.accounts.map((account) => [account.id, account]));
+    const fxOriginalLegsByTransferId = new Map<string, { out?: CashLedgerStoreEntry; in?: CashLedgerStoreEntry }>();
+    const reversedFxTransferIds = new Set<string>();
+    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+      if (!cashEntry.fxTransferId) continue;
+      if (cashEntry.reversalOfCashLedgerEntryId) {
+        reversedFxTransferIds.add(cashEntry.fxTransferId);
+        continue;
+      }
+      const bucket = fxOriginalLegsByTransferId.get(cashEntry.fxTransferId) ?? {};
+      if (cashEntry.entryType === "FX_TRANSFER_OUT") bucket.out = cashEntry;
+      if (cashEntry.entryType === "FX_TRANSFER_IN") bucket.in = cashEntry;
+      fxOriginalLegsByTransferId.set(cashEntry.fxTransferId, bucket);
+    }
 
     // Build deduction total map: sum actual DividendDeductionEntry amounts per ledger entry
     const deductionTotals = new Map<string, number>();
@@ -3391,6 +3600,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         receivedCashAmount: number;
         deductionTotal: number;
       } | undefined;
+      let fxTransferDetail: {
+        pairedAccountId: string;
+        pairedAccountName: string;
+        pairedAmount: number;
+        pairedCurrency: string;
+        effectiveRate: number;
+      } | undefined;
+      let fxTransferReversed: boolean | undefined;
 
       if (entry.relatedTradeEventId) {
         const trade = tradeMap.get(entry.relatedTradeEventId);
@@ -3419,7 +3636,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      return { ...entry, ticker, side, tradeDetail, dividendDetail };
+      if (entry.fxTransferId) {
+        fxTransferReversed = reversedFxTransferIds.has(entry.fxTransferId);
+        const pair = fxOriginalLegsByTransferId.get(entry.fxTransferId);
+        if (pair?.out && pair.in && (entry.entryType === "FX_TRANSFER_OUT" || entry.entryType === "FX_TRANSFER_IN")) {
+          const paired = entry.entryType === "FX_TRANSFER_OUT" ? pair.in : pair.out;
+          const pairedAccount = accountsById.get(paired.accountId);
+          fxTransferDetail = {
+            pairedAccountId: paired.accountId,
+            pairedAccountName: pairedAccount?.name ?? paired.accountId,
+            pairedAmount: Math.abs(paired.amount),
+            pairedCurrency: paired.currency,
+            effectiveRate: roundToDecimal(pair.in.amount / Math.abs(pair.out.amount), 8),
+          };
+        }
+      }
+
+      return { ...entry, ticker, side, tradeDetail, dividendDetail, fxTransferDetail, fxTransferReversed };
     });
 
     // Round summary amounts

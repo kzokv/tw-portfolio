@@ -4,6 +4,8 @@ export type CashLedgerEntryType =
   | "DIVIDEND_RECEIPT"
   | "DIVIDEND_DEDUCTION"
   | "MANUAL_ADJUSTMENT"
+  | "FX_TRANSFER_OUT"
+  | "FX_TRANSFER_IN"
   | "REVERSAL";
 
 export interface TradeDetail {
@@ -17,6 +19,14 @@ export interface DividendDetail {
   expectedCashAmount: number;
   receivedCashAmount: number;
   deductionTotal: number;
+}
+
+export interface FxTransferDetail {
+  pairedAccountId: string;
+  pairedAccountName: string;
+  pairedAmount: number;
+  pairedCurrency: string;
+  effectiveRate: number;
 }
 
 export interface EnrichedCashLedgerEntry {
@@ -34,10 +44,13 @@ export interface EnrichedCashLedgerEntry {
   note?: string;
   reversalOfCashLedgerEntryId?: string;
   bookedAt?: string;
+  fxTransferId?: string | null;
   ticker: string | null;
   side: "BUY" | "SELL" | null;
   tradeDetail?: TradeDetail;
   dividendDetail?: DividendDetail;
+  fxTransferDetail?: FxTransferDetail;
+  fxTransferReversed?: boolean;
 }
 
 export interface CashLedgerSummary {
