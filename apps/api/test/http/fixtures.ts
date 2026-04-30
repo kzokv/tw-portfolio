@@ -13,6 +13,7 @@ import type {
   TAnonymousShareTokensApiAssistant,
   TDividendsApiAssistant,
   TFeeProfilesApiAssistant,
+  TFxTransfersApiAssistant,
   TNotificationsApiAssistant,
   TProfileApiAssistant,
   TQuotesApiAssistant,
@@ -28,6 +29,7 @@ import {
   AnonymousShareTokensEndpoint,
   DividendsEndpoint,
   FeeProfilesEndpoint,
+  FxTransfersEndpoint,
   NotificationsEndpoint,
   ProfileEndpoint,
   QuotesEndpoint,
@@ -45,6 +47,7 @@ type THttpApiFixtures = {
   anonymousShareTokensApi: TAnonymousShareTokensApiAssistant;
   dividendsApi: TDividendsApiAssistant;
   feeProfilesApi: TFeeProfilesApiAssistant;
+  fxTransfersApi: TFxTransfersApiAssistant;
   notificationsApi: TNotificationsApiAssistant;
   profileApi: TProfileApiAssistant;
   quotesApi: TQuotesApiAssistant;
@@ -72,6 +75,7 @@ export const test: THttpApiTest = base.extend<THttpApiFixtures>({
   adminApi: createApiFixture<TAdminApiAssistant>(AdminEndpoint),
   dividendsApi: createApiFixture<TDividendsApiAssistant>(DividendsEndpoint),
   feeProfilesApi: createApiFixture<TFeeProfilesApiAssistant>(FeeProfilesEndpoint),
+  fxTransfersApi: createApiFixture<TFxTransfersApiAssistant>(FxTransfersEndpoint),
   notificationsApi: createApiFixture<TNotificationsApiAssistant>(NotificationsEndpoint),
   quotesApi: createApiFixture<TQuotesApiAssistant>(QuotesEndpoint),
   transactionsApi: createApiFixture<TTransactionsApiAssistant>(TransactionsEndpoint),

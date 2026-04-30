@@ -712,11 +712,13 @@ Fields:
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
 | `account_id` | `TEXT` | `NOT NULL`, FK -> `accounts.id`, composite FK with `user_id` | account |
 | `entry_date` | `DATE` | `NOT NULL` | ledger date |
-| `entry_type` | `TEXT` | `NOT NULL`, checked | `TRADE_SETTLEMENT_IN`, `TRADE_SETTLEMENT_OUT`, `DIVIDEND_RECEIPT`, `DIVIDEND_DEDUCTION`, `MANUAL_ADJUSTMENT`, `REVERSAL` |
+| `entry_type` | `TEXT` | `NOT NULL`, checked | `TRADE_SETTLEMENT_IN`, `TRADE_SETTLEMENT_OUT`, `DIVIDEND_RECEIPT`, `DIVIDEND_DEDUCTION`, `MANUAL_ADJUSTMENT`, `FX_TRANSFER_OUT`, `FX_TRANSFER_IN`, `REVERSAL` |
 | `amount` | `INTEGER` | `NOT NULL`, non-zero plus sign checks | signed cash amount |
 | `currency` | `TEXT DEFAULT 'TWD'` | `NOT NULL` | explicit cash currency |
 | `related_trade_event_id` | `TEXT` | nullable, FK -> `trade_events.id` `ON DELETE CASCADE` (migration `016`) | trade link — row deleted automatically when the trade event is deleted |
 | `related_dividend_ledger_entry_id` | `TEXT` | nullable, FK -> `dividend_ledger_entries.id` | dividend link |
+| `fx_transfer_id` | `UUID` | nullable, checked by entry type | same UUID on the OUT/IN legs and inherited by FX reversal rows |
+| `fx_rate_to_usd` | `NUMERIC` | nullable | producer-side FX stamp consumed by currency-wallet WAC replay |
 | `source_type` | `TEXT` | `NOT NULL` | source channel |
 | `source_reference` | `TEXT` | nullable | source key |
 | `note` | `TEXT` | nullable | explanation |
@@ -730,12 +732,14 @@ Indexes and uniqueness:
 - `idx_cash_ledger_entries_related_dividend_ledger_entry_id`
 - `ux_cash_ledger_entries_account_source_reference` partial on non-null `source_reference`
 - `ux_cash_ledger_entries_reversal_of_cash_ledger_entry_id` partial on reversal target
+- `idx_cash_ledger_fx_transfer_leg_originals` partial unique `(fx_transfer_id, entry_type)` for non-reversal FX originals
 
 Important checks:
 - sign is constrained by `entry_type`
 - reversal rows must link to a target row
 - trade-settlement rows must link trade only
 - dividend rows must link dividend ledger only
+- FX transfer rows must not link trades or dividend ledger rows, and only FX transfer or reversal rows may carry `fx_transfer_id`
 
 Read path:
 - loaded into `accounting.facts.cashLedgerEntries`
@@ -744,6 +748,7 @@ Write path:
 - inserted with a trade in `savePostedTrade`
 - replaced for a dividend ledger row in `savePostedDividend`
 - full delete/reinsert by `saveAccountingStoreTx`
+- FX-transfer create/edit/reverse flows currently persist through `saveAccountingStore`, then write one audit row and regenerate currency-wallet snapshots
 
 #### `reconciliation_records`
 
@@ -945,6 +950,7 @@ Current numbered migration inventory:
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities` table with `UNIQUE(provider, provider_subject)`; makes `users.email` nullable with partial unique index
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing
 - `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
+- `043_kzo168_fx_transfer.sql`: extends `cash_ledger_entries` for FX transfer OUT/IN rows, adds `fx_transfer_id`, enforces one non-reversal OUT and IN leg per transfer, and adds FX transfer audit actions
 - `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` for admin-configurable dashboard timeframe defaults (KZO-159)
 - `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to support account ordering and migration backfill naming
 - `042_kzo183_account_scoped_fee_profiles.sql`: rescope `fee_profiles` from user-owned to account-owned, drop `account_fee_profile_overrides.market_code`, enforce same-account ownership with composite FKs, and add market-alignment guards for `trade_events` and `dividend_ledger_entries`
@@ -1478,6 +1484,25 @@ Resolution order and guards:
 | `POST` | `/portfolio/dividends/postings` | `{ accountId, dividendEventId, receivedCashAmount, receivedStockQuantity, deductions[] }` + `idempotency-key` header | `{ dividendEvent, dividendLedgerEntry, dividendDeductionEntries, linkedCashLedgerEntries, comparison }` | `postDividend`, Redis idempotency, `savePostedDividend` | not used by shipped UI |
 | `GET` | `/corporate-actions` | none | `CorporateAction[]` | `listCorporateActions` | not used by shipped UI |
 | `POST` | `/corporate-actions` | `{ accountId, symbol, actionType, numerator, denominator, actionDate }` | created `CorporateAction` | `applyCorporateAction`, `saveAccountingStore` | not used by shipped UI |
+
+#### FX transfers
+
+| Method | Path | Request shape | Response shape | Dependencies | Web usage |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/fx-transfers/estimate` | `{ fromAccountId, toAccountId, fromAmount, toAmount, effectiveRate, entryDate }` | `{ realizedFxImpactUsd, midRate, midRateAvailable, midRateProvider, tolerancePct, toleranceState, fromAccountAvailableBalance, insufficientBalance }` | `estimateFxTransfer`, live balance aggregation, FX-rate lookup | `RecordFxTransferDialog` preview/gauge |
+| `POST` | `/fx-transfers` | same plus optional `notes` | `{ fxTransferId, legOutId, legInId }` | `createFxTransfer`, `saveAccountingStore`, audit log, wallet snapshot regeneration, SSE | yes |
+| `PATCH` | `/fx-transfers/:id` | `{ fromAmount, toAmount, effectiveRate }` together, plus optional `entryDate`, `notes` | `{ fxTransferId, legOutId, legInId }` | `updateFxTransfer`, `saveAccountingStore`, audit log, wallet snapshot regeneration, SSE | yes |
+| `POST` | `/fx-transfers/:id/reverse` | `{ reason? }` | `{ reversalLegOutId, reversalLegInId, fxTransferIdReversed }` | `reverseFxTransfer`, `saveAccountingStore`, audit log, wallet snapshot regeneration, SSE | yes |
+
+FX-transfer behavior:
+- create writes exactly two cash ledger originals with the same `fx_transfer_id`: `FX_TRANSFER_OUT` on the source account and `FX_TRANSFER_IN` on the destination account
+- the source amount, destination amount, and effective rate must reconcile within the service epsilon; same-account and same-currency transfers are rejected
+- the source account is synchronously checked against live unreversed cash balance before mutation
+- non-USD legs receive a derived `fx_rate_to_usd` stamp; USD legs always use `1.0`
+- direct mid-rate tolerance is safe below 2%, warning from 2% to under 10%, and hard-blocked at 10% or above
+- missing direct mid-rate is a warning, but missing non-USD-to-USD bridge rates are rejected because the WAC replay cannot stamp the ledger row
+- edit keeps accounts and currencies locked; reverse creates two `REVERSAL` rows that point at the current original legs and inherit `fx_transfer_id`
+- after create/edit/reverse, the route regenerates currency-wallet snapshots and publishes `recompute_complete` with `holdings: []` and `cashBalanceChanges` for both affected wallets
 
 Dividend posting behavior:
 - creates or reuses one active expected ledger row per `(accountId, dividendEventId)`

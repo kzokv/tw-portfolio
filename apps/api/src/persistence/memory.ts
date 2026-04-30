@@ -953,6 +953,15 @@ export class MemoryPersistence implements Persistence {
     this.stores.set(userId, store);
   }
 
+  async saveAccountingStoreWithAudit(
+    userId: string,
+    accounting: AccountingStore,
+    auditEntry: AuditLogInput,
+  ): Promise<void> {
+    await this.saveAccountingStore(userId, accounting);
+    await this.appendAuditLog(auditEntry);
+  }
+
   async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
     await this.saveAccountingStore(userId, accounting);
   }
@@ -1537,6 +1546,44 @@ export class MemoryPersistence implements Persistence {
     return bestRate;
   }
 
+  async getFxTransferById(
+    userId: string,
+    fxTransferId: string,
+  ): Promise<{ legs: CashLedgerEntry[]; reversed: boolean } | null> {
+    const store = await this.loadStore(userId);
+    const legs = store.accounting.facts.cashLedgerEntries
+      .filter((entry) => entry.userId === userId && entry.fxTransferId === fxTransferId)
+      .sort((left, right) =>
+        (left.reversalOfCashLedgerEntryId ?? "").localeCompare(right.reversalOfCashLedgerEntryId ?? "")
+        || left.entryType.localeCompare(right.entryType)
+        || left.id.localeCompare(right.id),
+      );
+    if (legs.length === 0) return null;
+    return {
+      legs,
+      reversed: legs.some((leg) => Boolean(leg.reversalOfCashLedgerEntryId)),
+    };
+  }
+
+  async getAccountAvailableBalance(userId: string, accountId: string, currency: string): Promise<number> {
+    const store = await this.loadStore(userId);
+    const reversedIds = new Set<string>();
+    for (const entry of store.accounting.facts.cashLedgerEntries) {
+      if (entry.reversalOfCashLedgerEntryId) {
+        reversedIds.add(entry.reversalOfCashLedgerEntryId);
+      }
+    }
+    let total = 0;
+    for (const entry of store.accounting.facts.cashLedgerEntries) {
+      if (entry.accountId !== accountId) continue;
+      if (entry.currency !== currency) continue;
+      if (entry.reversalOfCashLedgerEntryId) continue;
+      if (reversedIds.has(entry.id)) continue;
+      total += entry.amount;
+    }
+    return total;
+  }
+
   async getCashLedgerEntriesForWalletReplay(
     userId: string,
   ): Promise<import("./types.js").CashLedgerEntryForWalletReplay[]> {
@@ -1555,6 +1602,7 @@ export class MemoryPersistence implements Persistence {
         entryDate: e.entryDate,
         amount: e.amount,
         fxRateToUsd: e.fxRateToUsd ?? null,
+        fxTransferId: e.fxTransferId ?? null,
         entryType: e.entryType,
         reversalOfCashLedgerEntryId: e.reversalOfCashLedgerEntryId,
         bookedAt: e.bookedAt,

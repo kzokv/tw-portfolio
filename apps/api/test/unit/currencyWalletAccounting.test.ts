@@ -227,6 +227,43 @@ describe("applyEntryToWalletState — Case C (FX outflow, amount < 0)", () => {
     const s2 = applyEntryToWalletState(s1, entry({ amount: -200, fxRateToUsd: 0.028 }));
     expect(s2.realizedFxPnlLifetime).toBeCloseTo(0.80, 2);  // 1.20 + (-0.40)
   });
+
+  it("KZO-168 D3: WAC=null funded wallet outflow seeds WAC at the entry rate without realized P&L", () => {
+    const prev: WalletState = { balance: 1000, wacFxToUsd: null, realizedFxPnlLifetime: 2.5 };
+    const next = applyEntryToWalletState(prev, entry({ amount: -400, fxRateToUsd: 0.031 }));
+
+    expect(next.balance).toBe(600);
+    expect(next.wacFxToUsd).toBe(0.031);
+    expect(next.realizedFxPnlLifetime).toBe(2.5);
+  });
+
+  it("KZO-168 D3: a second outflow against the just-seeded WAC realizes P&L correctly", () => {
+    // Step 1: WAC=null + balance=1000 + outflow at 0.031 → seeds WAC, realized=0
+    const seeded = applyEntryToWalletState(
+      { balance: 1000, wacFxToUsd: null, realizedFxPnlLifetime: 0 },
+      entry({ amount: -400, fxRateToUsd: 0.031 }),
+    );
+    expect(seeded.wacFxToUsd).toBe(0.031);
+    expect(seeded.realizedFxPnlLifetime).toBe(0);
+
+    // Step 2: outflow at a HIGHER USD-per-source rate realizes positive P&L
+    // (selling at a more favourable USD rate than we acquired the basis for).
+    // Realized = (entry rate − seeded WAC) × |amount| = (0.034 − 0.031) × 200 = 0.60
+    const realized = applyEntryToWalletState(seeded, entry({ amount: -200, fxRateToUsd: 0.034 }));
+    expect(realized.balance).toBe(400);
+    expect(realized.wacFxToUsd).toBe(0.031);
+    expect(realized.realizedFxPnlLifetime).toBeCloseTo(0.60, 2);
+  });
+
+  it("KZO-168 D3: WAC=null + outflow that drains balance to exactly 0 still throws (boundary)", () => {
+    // Spec D3 uses strict `> 0`: the seed branch covers strictly-positive
+    // remainders only. An exact-drain leaves no future basis to seed, so it
+    // continues to throw as a degenerate case.
+    const prev: WalletState = { balance: 400, wacFxToUsd: null, realizedFxPnlLifetime: 0 };
+    expect(() => applyEntryToWalletState(prev, entry({ amount: -400, fxRateToUsd: 0.031 }))).toThrow(
+      InsufficientWalletBalanceError,
+    );
+  });
 });
 
 // ── Error cases ───────────────────────────────────────────────────────────────

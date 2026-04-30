@@ -147,7 +147,11 @@ export function computeRealizedFxPnl(
  *
  * Throws InsufficientWalletBalanceError on:
  *   - outflow (amount < 0) that would take balance negative.
- *   - outflow with WAC=null (degenerate state — defect in upstream data).
+ *   - outflow with WAC=null that cannot be seeded.
+ *
+ * KZO-168 adds the producer-side FX-transfer path. If a wallet was funded by
+ * historical non-FX entries and its first FX-rate-stamped event is an outflow,
+ * the entry rate seeds WAC for the remaining balance and realizes no P&L.
  *
  * WAC precision: full floating-point throughout; caller rounds at write time.
  */
@@ -201,8 +205,16 @@ export function applyEntryToWalletState(prev: WalletState, entry: WalletEntry): 
     });
   }
 
+  if (prev.wacFxToUsd === null && prev.balance + amount > 0) {
+    return {
+      balance: roundToDecimal(prev.balance + amount, 2),
+      wacFxToUsd: fxRateToUsd,
+      realizedFxPnlLifetime: prev.realizedFxPnlLifetime,
+    };
+  }
+
   if (prev.wacFxToUsd === null) {
-    // Outflow before any inflow — degenerate state; treat as a defect.
+    // Outflow before any seedable WAC basis — degenerate state; treat as a defect.
     throw new InsufficientWalletBalanceError({
       accountId,
       currency,

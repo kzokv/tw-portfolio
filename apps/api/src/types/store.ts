@@ -58,6 +58,8 @@ export type CashLedgerEntryType =
   | "DIVIDEND_RECEIPT"
   | "DIVIDEND_DEDUCTION"
   | "MANUAL_ADJUSTMENT"
+  | "FX_TRANSFER_OUT"
+  | "FX_TRANSFER_IN"
   | "REVERSAL";
 
 export interface CashLedgerEntry {
@@ -75,6 +77,7 @@ export interface CashLedgerEntry {
   note?: string;
   reversalOfCashLedgerEntryId?: string;
   bookedAt?: string;
+  fxTransferId?: string | null;
   /**
    * KZO-166: USD rate at the moment of FX conversion. Non-null **only** for
    * cash entries that represent an FX conversion (KZO-168 FX_TRANSFER pair).

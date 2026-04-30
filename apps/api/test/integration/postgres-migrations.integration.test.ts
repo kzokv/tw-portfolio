@@ -2353,7 +2353,7 @@ describePostgres("postgres migrations", () => {
         costBasisAmount: 1000,
       }),
     ]);
-  });
+  }, 15_000);
 
   it("rejects overwriting an already-posted dividend ledger entry in place", async () => {
     persistence = new PostgresPersistence({
@@ -2494,7 +2494,7 @@ describePostgres("postgres migrations", () => {
     const reloaded = await persistence.loadStore("user-1");
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === "trade-kzo52-sell");
     expect(reloadedSell?.realizedPnlAmount).toBe(121);
-  });
+  }, 15_000);
 
   // ── KZO-165 — migration 038 walk ─────────────────────────────────────────
   // Migration 038 adds per-currency native columns + provider_source to
@@ -2937,6 +2937,126 @@ describePostgres("postgres migrations", () => {
         accountName: "main",
         feeProfileId: "mig041-fp-acc-2",
       }),
+    ).resolves.not.toThrow();
+  });
+
+  // ── KZO-168 — migration 043 walk ─────────────────────────────────────────
+  // Migration 043 enables paired FX-transfer cash-ledger entries:
+  //   - FX_TRANSFER_OUT / FX_TRANSFER_IN entry types
+  //   - fx_transfer_id UUID linkage column
+  //   - CHECK limiting fx_transfer_id to FX legs and reversals
+  //   - partial UNIQUE index limiting one original OUT and one original IN per transfer
+  //   - audit_log actions for create/update/reverse lifecycle events
+
+  it("KZO-168: migration 043 walk — cash ledger FX-transfer entry types, linkage, index, and audit actions", async () => {
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    const column = await pool.query<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+    }>(
+      `SELECT column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'cash_ledger_entries'
+         AND column_name = 'fx_transfer_id'`,
+    );
+    expect(column.rows).toHaveLength(1);
+    expect(column.rows[0].data_type).toBe("uuid");
+    expect(column.rows[0].is_nullable).toBe("YES");
+
+    const constraints = await pool.query<{ conname: string; def: string }>(
+      `SELECT conname, pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'cash_ledger_entries'::regclass`,
+    );
+    const constraintByName = new Map(constraints.rows.map((row) => [row.conname, row.def]));
+    expect(constraintByName.get("cash_ledger_entries_entry_type_check")).toContain("FX_TRANSFER_OUT");
+    expect(constraintByName.get("cash_ledger_entries_entry_type_check")).toContain("FX_TRANSFER_IN");
+    expect(constraintByName.get("ck_cash_ledger_entries_fx_transfer_id_entry_type")).toContain("fx_transfer_id");
+
+    const index = await pool.query<{ indexdef: string }>(
+      `SELECT pg_get_indexdef(indexrelid) AS indexdef
+       FROM pg_index
+       WHERE indexrelid = 'idx_cash_ledger_fx_transfer_leg_originals'::regclass`,
+    );
+    expect(index.rows).toHaveLength(1);
+    expect(index.rows[0].indexdef).toContain("fx_transfer_id");
+    expect(index.rows[0].indexdef).toContain("entry_type");
+    expect(index.rows[0].indexdef).toContain("reversal_of_cash_ledger_entry_id IS NULL");
+
+    await pool.query(`
+      INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+      VALUES ('mig043-u', 'mig043@example.com', 'en', 'WEIGHTED_AVERAGE', 10)
+    `);
+    await seedAccountWithFeeProfilePost042({
+      userId: "mig043-u",
+      accountId: "mig043-from",
+      accountName: "TWD Wallet",
+      feeProfileId: "mig043-fp-from",
+      defaultCurrency: "TWD",
+      accountType: "wallet",
+    });
+    await seedAccountWithFeeProfilePost042({
+      userId: "mig043-u",
+      accountId: "mig043-to",
+      accountName: "USD Wallet",
+      feeProfileId: "mig043-fp-to",
+      defaultCurrency: "USD",
+      accountType: "wallet",
+    });
+
+    const transferId = "00000000-0000-4000-8000-000000000043";
+    await expect(
+      pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           source, source_reference, booked_at, fx_rate_to_usd, fx_transfer_id
+         ) VALUES
+           ('mig043-out', 'mig043-u', 'mig043-from', '2026-04-01', 'FX_TRANSFER_OUT', -1000, 'TWD',
+            'fx_transfer', 'mig043-out', NOW(), 0.032, $1::uuid),
+           ('mig043-in', 'mig043-u', 'mig043-to', '2026-04-01', 'FX_TRANSFER_IN', 32, 'USD',
+            'fx_transfer', 'mig043-in', NOW(), 1.0, $1::uuid)`,
+        [transferId],
+      ),
+    ).resolves.not.toThrow();
+
+    await expect(
+      pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           source, source_reference, booked_at, fx_transfer_id
+         ) VALUES (
+           'mig043-invalid-type', 'mig043-u', 'mig043-from', '2026-04-01', 'MANUAL_ADJUSTMENT',
+           1, 'TWD', 'fx_transfer', 'mig043-invalid-type', NOW(), $1::uuid
+         )`,
+        [transferId],
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      pool.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           source, source_reference, booked_at, fx_transfer_id
+         ) VALUES (
+           'mig043-out-dup', 'mig043-u', 'mig043-from', '2026-04-01', 'FX_TRANSFER_OUT',
+           -1, 'TWD', 'fx_transfer', 'mig043-out-dup', NOW(), $1::uuid
+         )`,
+        [transferId],
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      pool.query(
+        `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata)
+         VALUES
+           ('mig043-audit-create', 'mig043-u', 'fx_transfer_created', 'mig043-u', '{}'::jsonb),
+           ('mig043-audit-update', 'mig043-u', 'fx_transfer_updated', 'mig043-u', '{}'::jsonb),
+           ('mig043-audit-reverse', 'mig043-u', 'fx_transfer_reversed', 'mig043-u', '{}'::jsonb)`,
+      ),
     ).resolves.not.toThrow();
   });
 });

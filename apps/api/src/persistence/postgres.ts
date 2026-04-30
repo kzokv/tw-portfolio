@@ -1791,7 +1791,7 @@ export class PostgresPersistence implements Persistence {
         `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
                 related_trade_event_id, related_dividend_ledger_entry_id, source,
                 source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-                fx_rate_to_usd
+                fx_rate_to_usd, fx_transfer_id::text AS fx_transfer_id
          FROM cash_ledger_entries
          WHERE user_id = $1
          ORDER BY entry_date, booked_at, id`,
@@ -1984,6 +1984,7 @@ export class PostgresPersistence implements Persistence {
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: normalizeDateTime(row.booked_at),
       fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
     }));
 
     const dividendEvents: DividendEvent[] = dividendEventsResult.rows.map((row) => ({
@@ -2543,6 +2544,83 @@ export class PostgresPersistence implements Persistence {
     return Number(result.rows[0].rate);
   }
 
+  async getFxTransferById(
+    userId: string,
+    fxTransferId: string,
+  ): Promise<{ legs: CashLedgerEntry[]; reversed: boolean } | null> {
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      account_id: string;
+      entry_date: string;
+      entry_type: string;
+      amount: string;
+      currency: string;
+      related_trade_event_id: string | null;
+      related_dividend_ledger_entry_id: string | null;
+      source: string;
+      source_reference: string | null;
+      note: string | null;
+      booked_at: string | null;
+      reversal_of_cash_ledger_entry_id: string | null;
+      fx_rate_to_usd: string | null;
+      fx_transfer_id: string | null;
+    }>(
+      `SELECT id, user_id, account_id, entry_date::text, entry_type, amount::text, currency,
+              related_trade_event_id, related_dividend_ledger_entry_id, source,
+              source_reference, note, booked_at::text, reversal_of_cash_ledger_entry_id,
+              fx_rate_to_usd::text, fx_transfer_id::text
+       FROM cash_ledger_entries
+       WHERE user_id = $1
+         AND fx_transfer_id = $2::uuid
+       ORDER BY reversal_of_cash_ledger_entry_id NULLS FIRST, entry_type ASC, id ASC`,
+      [userId, fxTransferId],
+    );
+    if (result.rows.length === 0) return null;
+    const legs: CashLedgerEntry[] = result.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      accountId: row.account_id,
+      entryDate: row.entry_date,
+      entryType: row.entry_type as CashLedgerEntry["entryType"],
+      amount: Number(row.amount),
+      currency: row.currency as CashLedgerEntry["currency"],
+      relatedTradeEventId: row.related_trade_event_id ?? undefined,
+      relatedDividendLedgerEntryId: row.related_dividend_ledger_entry_id ?? undefined,
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      note: row.note ?? undefined,
+      bookedAt: row.booked_at ? normalizeDateTime(row.booked_at) : undefined,
+      reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
+    }));
+    return {
+      legs,
+      reversed: legs.some((leg) => Boolean(leg.reversalOfCashLedgerEntryId)),
+    };
+  }
+
+  async getAccountAvailableBalance(userId: string, accountId: string, currency: string): Promise<number> {
+    const result = await this.pool.query<{ amount: string }>(
+      `SELECT COALESCE(SUM(c.amount), 0)::text AS amount
+       FROM cash_ledger_entries c
+       WHERE c.user_id = $1
+         AND c.account_id = $2
+         AND c.currency = $3
+         AND c.reversal_of_cash_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM cash_ledger_entries r
+           WHERE r.reversal_of_cash_ledger_entry_id = c.id
+         )`,
+      [userId, accountId, currency],
+    );
+    // COALESCE + aggregate guarantees exactly one row with a non-null `amount`
+    // string; no null/empty fallback needed.
+    return Number(result.rows[0].amount);
+  }
+
   async getCashLedgerEntriesForWalletReplay(
     userId: string,
   ): Promise<import("./types.js").CashLedgerEntryForWalletReplay[]> {
@@ -2553,12 +2631,14 @@ export class PostgresPersistence implements Persistence {
       entry_date: string;
       amount: string;
       fx_rate_to_usd: string | null;
+      fx_transfer_id: string | null;
       entry_type: string;
       reversal_of_cash_ledger_entry_id: string | null;
       booked_at: string | null;
     }>(
       `SELECT id, account_id, currency, entry_date::text, amount::text,
-              fx_rate_to_usd::text, entry_type, reversal_of_cash_ledger_entry_id, booked_at
+              fx_rate_to_usd::text, fx_transfer_id::text, entry_type,
+              reversal_of_cash_ledger_entry_id, booked_at
        FROM cash_ledger_entries c
        WHERE user_id = $1
          AND reversal_of_cash_ledger_entry_id IS NULL
@@ -2577,6 +2657,7 @@ export class PostgresPersistence implements Persistence {
       entryDate: row.entry_date,
       amount: Number(row.amount),
       fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
       entryType: row.entry_type as import("../types/store.js").CashLedgerEntryType,
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: row.booked_at ?? undefined,
@@ -3179,6 +3260,28 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
+  async saveAccountingStoreWithAudit(
+    userId: string,
+    accounting: AccountingStore,
+    auditEntry: AuditLogInput,
+  ): Promise<void> {
+    validateAccountingStoreInvariants(accounting);
+    await this.ensureDefaultPortfolioData(userId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const accountIds = await this.listUserAccountIds(client, userId);
+      await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
+      await this.appendAuditLogTx(client, auditEntry);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void> {
     validateAccountingStoreInvariants(accounting);
     await this.ensureDefaultPortfolioData(userId);
@@ -3249,12 +3352,12 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-           fx_rate_to_usd
+           fx_rate_to_usd, fx_transfer_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10,
            $11, $12, $13, $14,
-           $15
+           $15, $16
          )`,
         [
           cashEntry.id,
@@ -3272,6 +3375,7 @@ export class PostgresPersistence implements Persistence {
           cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
           cashEntry.reversalOfCashLedgerEntryId ?? null,
           cashEntry.fxRateToUsd ?? null,
+          cashEntry.fxTransferId ?? null,
         ],
       );
 
@@ -3501,12 +3605,12 @@ export class PostgresPersistence implements Persistence {
              id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-             fx_rate_to_usd
+             fx_rate_to_usd, fx_transfer_id
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
              $8, $9, $10,
              $11, $12, $13, $14,
-             $15
+             $15, $16
            )`,
           [
             cashEntry.id,
@@ -3524,6 +3628,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
             cashEntry.reversalOfCashLedgerEntryId ?? null,
             cashEntry.fxRateToUsd ?? null,
+            cashEntry.fxTransferId ?? null,
           ],
         );
       }
@@ -3900,12 +4005,12 @@ export class PostgresPersistence implements Persistence {
              id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-             fx_rate_to_usd
+             fx_rate_to_usd, fx_transfer_id
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7,
              $8, $9, $10,
              $11, $12, $13, $14,
-             $15
+             $15, $16
            )`,
           [
             cashEntry.id,
@@ -3923,6 +4028,7 @@ export class PostgresPersistence implements Persistence {
             cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
             cashEntry.reversalOfCashLedgerEntryId ?? null,
             cashEntry.fxRateToUsd ?? null,
+            cashEntry.fxTransferId ?? null,
           ],
         );
       }
@@ -4386,7 +4492,7 @@ export class PostgresPersistence implements Persistence {
       SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
              related_trade_event_id, related_dividend_ledger_entry_id, source,
              source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-             fx_rate_to_usd
+             fx_rate_to_usd, fx_transfer_id::text AS fx_transfer_id
       FROM cash_ledger_entries ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}, booked_at DESC NULLS LAST, id ASC
       LIMIT $6 OFFSET $7
@@ -4436,6 +4542,7 @@ export class PostgresPersistence implements Persistence {
       reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
       bookedAt: row.booked_at ? normalizeDateTime(row.booked_at) : undefined,
       fxRateToUsd: row.fx_rate_to_usd != null ? Number(row.fx_rate_to_usd) : null,
+      fxTransferId: row.fx_transfer_id ?? null,
     }));
 
     return { entries, total, summary };
@@ -5158,12 +5265,12 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-           fx_rate_to_usd
+           fx_rate_to_usd, fx_transfer_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10,
            $11, $12, $13, $14,
-           $15
+           $15, $16
          )`,
         [
           entry.id,
@@ -5181,6 +5288,7 @@ export class PostgresPersistence implements Persistence {
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
           entry.reversalOfCashLedgerEntryId ?? null,
           entry.fxRateToUsd ?? null,
+          entry.fxTransferId ?? null,
         ],
       );
     }
@@ -5612,11 +5720,11 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, entry_date, entry_type, amount, currency,
            related_trade_event_id, related_dividend_ledger_entry_id, source,
            source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
-           fx_rate_to_usd
+           fx_rate_to_usd, fx_transfer_id
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10, $11, $12, $13, $14,
-           $15
+           $15, $16
          )`,
         [
           entry.id,
@@ -5634,6 +5742,7 @@ export class PostgresPersistence implements Persistence {
           entry.bookedAt ?? new Date(`${entry.entryDate}T00:00:00.000Z`).toISOString(),
           entry.reversalOfCashLedgerEntryId ?? null,
           entry.fxRateToUsd ?? null,
+          entry.fxTransferId ?? null,
         ],
       );
     }

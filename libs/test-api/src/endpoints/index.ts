@@ -4,6 +4,7 @@ export * from "./AnonymousShareTokensEndpoint.js";
 export * from "./DividendsEndpoint.js";
 export * from "./FeeProfilesEndpoint.js";
 export * from "./FxRatesEndpoint.js";
+export * from "./FxTransfersEndpoint.js";
 export * from "./NotificationsEndpoint.js";
 export * from "./ProfileEndpoint.js";
 export * from "./QuotesEndpoint.js";

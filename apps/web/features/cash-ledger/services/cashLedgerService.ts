@@ -6,6 +6,15 @@ import type {
 import { getJson, postJson } from "../../../lib/api";
 import type { CashLedgerListResponse, CashLedgerQuery } from "../types";
 
+export interface AccountLiveBalance {
+  currency: string;
+  amount: number;
+}
+
+export type AccountWithLiveBalance = AccountDto & {
+  liveBalance?: AccountLiveBalance[];
+};
+
 /**
  * KZO-179 / KZO-183: request body for `POST /accounts`. Mirrors the Zod
  * schema in `apps/api/src/routes/registerRoutes.ts`. `feeProfileId` was
@@ -45,8 +54,13 @@ export async function fetchCashLedgerEntries(
  * render `name (currency · type)` instead of the raw account ID. Falls back
  * to the raw ID rendering until this resolves.
  */
-export async function fetchAccounts(): Promise<AccountDto[]> {
-  return getJson<AccountDto[]>("/accounts");
+export async function fetchAccounts(
+  opts: { includeBalances?: boolean } = {},
+): Promise<AccountWithLiveBalance[]> {
+  const params = new URLSearchParams();
+  if (opts.includeBalances) params.set("includeBalances", "true");
+  const qs = params.toString();
+  return getJson<AccountWithLiveBalance[]>(`/accounts${qs ? `?${qs}` : ""}`);
 }
 
 /**
