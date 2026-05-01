@@ -129,3 +129,46 @@ Canonical reference: `apps/api/test/integration/anonymous-share-token-purge.inte
 **Why:** Discovered in KZO-152 for the `anonymous_share_tokens` 90-day purge cron. The regression guard row caught an early draft of the DELETE SQL that used `created_at < NOW() - interval` — it would have deleted active tokens with old creation dates. The pattern generalizes to any retention/purge cron this repo ships (rate-limit bucket eviction, notification archival, audit-log TTL, etc.).
 
 **How to apply:** Any integration test asserting a retention/purge DELETE predicate. Use raw INSERT with SQL interval literals; include the terminality regression guard row; always pair with a memory no-op `it`.
+
+## Schema-qualified table names in raw test SQL — `market_data.` is mandatory
+
+Postgres `search_path` defaults to `"$user", public`. The `market_data` schema is **not** in the default path. Any raw `INSERT/SELECT/UPDATE/DELETE` in test code that targets a `market_data.*` table (`instruments`, `daily_bars`, `dividend_events`, `fx_rates`, etc.) **must** use the fully qualified name. A bare `INSERT INTO instruments` throws `relation "instruments" does not exist` at runtime — invisible to typecheck.
+
+```sql
+-- ❌ Wrong — runtime "relation does not exist"
+INSERT INTO instruments (ticker, market_code, ...) VALUES (...);
+SELECT bars_backfill_status FROM instruments WHERE ticker = $1;
+
+-- ✅ Correct
+INSERT INTO market_data.instruments (ticker, market_code, ...) VALUES (...);
+SELECT bars_backfill_status FROM market_data.instruments WHERE ticker = $1;
+```
+
+**Why:** Caught in KZO-185 iter 1 — `seedInstrument()` and the assertion query in `backfill-old-shape-rejection.integration.test.ts` both omitted the `market_data.` prefix. The bug was obvious only because the sibling `daily_bars` query in the same file *was* schema-qualified — the inconsistency made it visible in CR. Without that contrast it could have shipped past green typecheck.
+
+**How to apply:** Rule of thumb when writing raw SQL in any `apps/api/test/**` integration test against `market_data.*` tables. Pre-PR check: `grep -nE "(INSERT INTO|FROM|UPDATE|DELETE FROM) (instruments|daily_bars|dividend_events|fx_rates)\b"` inside the changed test file — every match must have the `market_data.` prefix.
+
+## Seeding rows pre-populated by `persistence.init()` — use `ON CONFLICT DO UPDATE`
+
+`PostgresPersistence.init()` pre-seeds a small set of rows into `market_data.instruments` (and similar bootstrap tables) with schema defaults — e.g. `(ticker, market_code) = ('2330', 'TW')` with `bars_backfill_status = 'pending'`. Test seed helpers that target the **same** PK with `ON CONFLICT DO NOTHING` become silent no-ops — the row already exists with the default values.
+
+If your test asserts on a specific value of a non-PK column (e.g. `bars_backfill_status='ready'`), the seed **must** `DO UPDATE` so the pre-seeded row is actively overwritten:
+
+```sql
+-- ❌ Wrong when asserting on non-PK columns — silently keeps `init()`'s defaults
+INSERT INTO market_data.instruments (ticker, market_code, name, instrument_type, bars_backfill_status)
+VALUES ($1, $2, $3, 'STOCK', 'ready')
+ON CONFLICT (ticker, market_code) DO NOTHING;
+
+-- ✅ Correct
+INSERT INTO market_data.instruments (ticker, market_code, name, instrument_type, bars_backfill_status)
+VALUES ($1, $2, $3, 'STOCK', 'ready')
+ON CONFLICT (ticker, market_code) DO UPDATE
+  SET bars_backfill_status = EXCLUDED.bars_backfill_status,
+      name                 = EXCLUDED.name,
+      instrument_type      = EXCLUDED.instrument_type;
+```
+
+**Why:** Caught in KZO-185 iter 2 — `backfill-old-shape-rejection.integration.test.ts` initially used `DO NOTHING`. The test asserted `bars_backfill_status='ready'` after the seed but read `'pending'` because `persistence.init()` had already written the row with the schema default. Cost one full convergence iteration to triage.
+
+**How to apply:** Any new Postgres integration test that seeds a row whose PK could collide with `init()`'s pre-seeded set, AND asserts on a non-PK column. The conservative default is `DO UPDATE` listing every column the test expects to control. `DO NOTHING` is only correct when the test asserts solely on existence by PK.

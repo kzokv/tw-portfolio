@@ -27,9 +27,10 @@
 - [project_account_shape.md](project_account_shape.md) — Account-shape extension 4-file checklist (`services/store.ts:67` is the canonical seed, NOT MemoryPersistence) + deterministic `cash-${tx.id}` cash-entry IDs by design
 
 ## Market data platform
-- [project_market_data_progress.md](project_market_data_progress.md) — Up to 2026-04-21; KZO-141 epic: 143–149, 151, 152, 153, 155 complete; backup/restore gap still open; rate-limit eviction closed by KZO-155
+- [project_market_data_progress.md](project_market_data_progress.md) — Pointer: Linear is authoritative for ticket state; this entry tracks only durable known-gaps (backup/restore, notification i18n sweep, legacy test drift)
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema boundary, FinMind client+backfill, catalog endpoints, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
+- [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185
