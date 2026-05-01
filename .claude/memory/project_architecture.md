@@ -17,7 +17,7 @@ npm workspaces monorepo with three workspace roots: `apps/*`, `libs/*`.
 - **`libs/shared-types`** — TypeScript interfaces shared between API and Web (`UserSettings`, `AccountDto`, `FeeProfileDto`, DTOs).
 
 ### Database
-- **`db/migrations/`** — 33 numbered migrations (001-033) + `baseline_current_schema.sql` + `manifest.env`.
+- **`db/migrations/`** — Numbered migrations + `baseline_current_schema.sql` + `manifest.env`. Use `ls db/migrations/` for the current list; baseline absorbs older numbered migrations periodically.
 - PostgreSQL 15+ with Redis for caching/idempotency.
 
 ### Infrastructure
@@ -27,7 +27,7 @@ npm workspaces monorepo with three workspace roots: `apps/*`, `libs/*`.
 ## Tech Stack
 - Node.js 24.13.0+, TypeScript 5.6.3 (strict mode)
 - Fastify 5.1, Zod 3.23 (API validation)
-- React 18.3, Next.js 16.1, Tailwind CSS 3.4, Radix UI
+- React 18.3, Next.js 16.x, Tailwind CSS 3.4, Radix UI
 - PostgreSQL + Redis 4.7
 - Vitest 4.0 (unit + integration), Playwright 1.51 (E2E)
 - ESLint 9.15 + TypeScript ESLint

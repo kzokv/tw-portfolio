@@ -8,10 +8,11 @@ type: reference
 Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, Radix UI.
 
 ## App Router Pages (`apps/web/app/`)
-- `/` — Dashboard home (`page.tsx`)
+- `/` — `redirect("/dashboard")` (server-side redirect, see `app/page.tsx`)
+- `/dashboard` — Dashboard home
 - `/portfolio` — Portfolio page
 - `/transactions` — Transactions page
-- `/symbols/[symbol]` — Symbol detail page
+- `/tickers/[ticker]` — Ticker detail page
 - `/sharing` — Outbound share grants UI (KZO-145)
 - `/admin/` — Admin portal (role=admin only, gated in `layout.tsx`)
   - `/admin/users` — User management (KZO-144)
