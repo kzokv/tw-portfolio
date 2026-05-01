@@ -61,8 +61,13 @@ export class TransactionsActions extends AppBaseActions {
   }
 
   @Step()
-  async selectTickerOption(ticker: string): Promise<void> {
-    await this.uiActions.click.perform(this.el.transactionForm.tickerOption(ticker));
+  async selectMarketChip(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+    await this.uiActions.click.perform(this.el.transactionForm.marketChip(market));
+  }
+
+  @Step()
+  async selectTickerOption(ticker: string, marketCode?: "TW" | "US" | "AU"): Promise<void> {
+    await this.uiActions.click.perform(this.el.transactionForm.tickerOption(ticker, marketCode));
   }
 
   @Step()
@@ -72,7 +77,21 @@ export class TransactionsActions extends AppBaseActions {
 
   @Step()
   async focusAccountTooltip(): Promise<void> {
-    await this.mxFocus(this.el.tooltipAccountTrigger);
+    const trigger = this.el.tooltipAccountTrigger;
+
+    await trigger.waitFor({ state: "visible" });
+    await this.mxFocus(trigger);
+
+    // Under the full E2E load, Playwright can focus the server-rendered trigger
+    // just before Radix has attached its tooltip focus handler. Re-dispatching
+    // focus after the first short visibility probe keeps this helper aligned
+    // with keyboard-visible tooltip behavior without adding a fixed sleep.
+    await this.el.tooltipAccountContent.waitFor({ state: "visible", timeout: 1_000 }).catch(async () => {
+      await trigger.evaluate((node) => {
+        (node as HTMLElement).blur();
+      });
+      await this.mxFocus(trigger);
+    });
   }
 
   @Step()

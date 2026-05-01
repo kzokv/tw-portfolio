@@ -20,6 +20,7 @@ interface TSeedDailyBar {
 interface TSeedTradeOptions {
   accountId?: string;
   ticker?: string;
+  marketCode?: "TW" | "US" | "AU";
   quantity?: number;
   unitPrice?: number;
   priceCurrency?: string;
@@ -55,6 +56,7 @@ export class DashboardArrange extends BaseArrange {
         data: {
           accountId: "acc-1",
           ticker: "2330",
+          marketCode: "TW",
           quantity: 100,
           unitPrice: 500,
           priceCurrency: "TWD",

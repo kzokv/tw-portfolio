@@ -130,7 +130,7 @@ function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptio
   return {
     ticker: def.ticker,
     instrumentType: def.type,
-    marketCode: def.marketCode ?? null,
+    marketCode: def.marketCode,
     isProvisional: def.isProvisional === true,
   };
 }

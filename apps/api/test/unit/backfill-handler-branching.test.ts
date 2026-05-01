@@ -190,7 +190,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       "finmind-backfill",
       { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
-      { startAfter: 30, singletonKey: "2330", priority: 10 },
+      { startAfter: 30, singletonKey: "2330:TW", priority: 10 },
     );
     // Status must NOT flip to "failed" on a reschedule.
     expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
@@ -392,7 +392,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       "finmind-backfill",
       { ticker: "2330", userId: "user-9", trigger: "user_selection" },
-      expect.objectContaining({ startAfter: 15, singletonKey: "2330" }),
+      expect.objectContaining({ startAfter: 15, singletonKey: "2330:TW" }),
     );
     expect(deps.eventBus.publishEvent).not.toHaveBeenCalledWith(
       "user-9",
@@ -426,7 +426,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
-      expect.objectContaining({ startAfter: 45, singletonKey: "2330" }),
+      expect.objectContaining({ startAfter: 45, singletonKey: "2330:TW" }),
     );
     // Status must NOT flip — this is a reschedule, not a failure or success
     expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
@@ -461,7 +461,7 @@ describe("backfill handler trigger branching", () => {
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
       { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
-      expect.objectContaining({ startAfter: 90, singletonKey: "2330" }),
+      expect.objectContaining({ startAfter: 90, singletonKey: "2330:TW" }),
     );
     // Critical: NEITHER fetch ran — that's the whole point of the pre-flight guard
     expect(provider.fetchBars).not.toHaveBeenCalled();

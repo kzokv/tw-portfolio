@@ -10,11 +10,17 @@ type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
 
 interface InstrumentCatalogSheetProps {
   instruments: InstrumentCatalogItemDto[];
+  // Selection keys are `${ticker}|${marketCode}` so duplicate symbols across
+  // markets remain independently selectable.
   selectedTickers: Set<string>;
   positionTickers: Set<string>;
-  onToggleTicker: (ticker: string) => void;
+  onToggleTicker: (key: string) => void;
   onBack: () => void;
   dict: AppDictionary;
+}
+
+function instrumentKey(instrument: Pick<InstrumentCatalogItemDto, "ticker" | "marketCode">): string {
+  return `${instrument.ticker}|${instrument.marketCode}`;
 }
 
 export function InstrumentCatalogSheet({
@@ -118,13 +124,16 @@ export function InstrumentCatalogSheet({
         ) : (
           <div className="divide-y divide-slate-100">
             {filtered.map((instrument) => {
-              const isPosition = positionTickers.has(instrument.ticker);
-              const isSelected = selectedTickers.has(instrument.ticker);
+              const key = instrumentKey(instrument);
+              const isPosition = positionTickers.has(key);
+              const isSelected = selectedTickers.has(key);
               const isChecked = isPosition || isSelected;
 
               return (
                 <label
-                  key={instrument.ticker}
+                  // KZO-169: catalog rows keyed by (ticker, marketCode) so
+                  // the same ticker on multiple markets is unambiguous.
+                  key={`${instrument.ticker}|${instrument.marketCode}`}
                   className={`flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-slate-50 ${
                     isPosition ? "cursor-default opacity-80" : ""
                   }`}
@@ -136,14 +145,14 @@ export function InstrumentCatalogSheet({
                     <input
                       type="checkbox"
                       checked={isChecked}
-                      onChange={() => onToggleTicker(instrument.ticker)}
+                      onChange={() => onToggleTicker(key)}
                       className="h-4 w-4 shrink-0 rounded border-slate-300"
                     />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
                       <span className="font-mono text-sm font-semibold text-slate-800">
-                        {instrument.ticker}
+                        {instrument.ticker} · {instrument.marketCode}
                       </span>
                       <span className="truncate text-xs text-slate-500">
                         {instrument.name ?? "—"}

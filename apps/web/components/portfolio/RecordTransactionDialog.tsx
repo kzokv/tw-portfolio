@@ -22,7 +22,9 @@ interface RecordTransactionDialogProps {
   title: string;
   dict: AppDictionary;
   locale: LocaleCode;
-  tickerReadOnly?: boolean;
+  // KZO-169 (D9a): rename `tickerReadOnly` → `instrumentReadOnly`. Locks chip
+  // AND ticker so edit-mode cannot change market or symbol.
+  instrumentReadOnly?: boolean;
   priceHint: TransactionPriceHint | null;
   showPriceUnavailableHint: boolean;
   feeEstimate: TransactionEstimateResponse | null;
@@ -42,7 +44,7 @@ export function RecordTransactionDialog({
   title,
   dict,
   locale,
-  tickerReadOnly = false,
+  instrumentReadOnly = false,
   priceHint,
   showPriceUnavailableHint,
   feeEstimate,
@@ -66,7 +68,7 @@ export function RecordTransactionDialog({
             dict={dict}
             locale={locale}
             framed={false}
-            tickerReadOnly={tickerReadOnly}
+            instrumentReadOnly={instrumentReadOnly}
             priceHint={priceHint}
             showPriceUnavailableHint={showPriceUnavailableHint}
             feeEstimate={feeEstimate}

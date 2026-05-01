@@ -54,16 +54,25 @@ interface AccountCreateFormProps {
   onCreate: (input: CreateAccountInput) => Promise<AccountDto>;
   onAccountsRefresh: () => void;
   dict: AppDictionary;
+  // KZO-169 (NC4): deep-link support — the transaction form's "no {currency}
+  // account" inline error links here with `?accountsPrefillCurrency=USD`,
+  // and the SettingsDrawer pipes the value into this prop. We seed the
+  // initial market-card selection so the user lands on the right currency
+  // without having to reselect.
+  prefillCurrency?: AccountDefaultCurrency;
 }
 
 export function AccountCreateForm({
   onCreate,
   onAccountsRefresh,
   dict,
+  prefillCurrency,
 }: AccountCreateFormProps) {
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("broker");
-  const [defaultCurrency, setDefaultCurrency] = useState<AccountDefaultCurrency>("TWD");
+  const [defaultCurrency, setDefaultCurrency] = useState<AccountDefaultCurrency>(
+    prefillCurrency ?? "TWD",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 

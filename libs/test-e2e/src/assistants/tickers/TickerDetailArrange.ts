@@ -8,6 +8,7 @@ import type { TickerDetailPage } from "../../pages/tickers/TickerDetailPage.js";
 interface TSeedTradeOptions {
   accountId?: string;
   ticker?: string;
+  marketCode?: "TW" | "US" | "AU";
   quantity?: number;
   unitPrice?: number;
   priceCurrency?: string;
@@ -43,6 +44,7 @@ export class TickerDetailArrange extends BaseArrange {
         data: {
           accountId: "acc-1",
           ticker: "2330",
+          marketCode: "TW",
           quantity: 100,
           unitPrice: 500,
           priceCurrency: "TWD",
@@ -68,12 +70,20 @@ export class TickerDetailArrange extends BaseArrange {
   }
 
   @Step()
-  async setManualMonitoredTickers(tickers: string[]): Promise<void> {
+  async setManualMonitoredTickers(
+    tickers: Array<string | { ticker: string; marketCode?: string }>,
+  ): Promise<void> {
     if (!this.userId) throw new Error("setManualMonitoredTickers requires userId");
 
     const response = await this.request.put(apiUrl("/monitored-tickers"), {
       headers: { "x-user-id": this.userId },
-      data: { tickers },
+      data: {
+        tickers: tickers.map((item) =>
+          typeof item === "string"
+            ? { ticker: item, marketCode: "TW" }
+            : { ticker: item.ticker, marketCode: item.marketCode ?? "TW" },
+        ),
+      },
     });
     if (!response.ok()) throw new Error(`setManualMonitoredTickers failed: ${response.status()} ${await response.text()}`);
   }

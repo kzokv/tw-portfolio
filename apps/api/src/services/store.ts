@@ -34,7 +34,9 @@ export function instrumentDefToRef(def: InstrumentDef): InstrumentRef {
   return {
     ticker: def.ticker,
     instrumentType: def.type,
-    marketCode: def.marketCode ?? "TW",
+    // KZO-169: InstrumentDef.marketCode is required after Slice 4 tightening —
+    // the legacy `?? "TW"` was a provider-stamping audit (G1) target.
+    marketCode: def.marketCode,
     isProvisional: def.isProvisional ?? false,
     lastSyncedAt: def.lastSyncedAt ?? null,
   };

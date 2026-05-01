@@ -279,6 +279,7 @@ describe("transaction form polish routes", () => {
       headers: authHeaders,
       payload: {
         ticker: "0050",
+        marketCode: "TW",
         quantity: 1000,
         unitPrice: 42.5,
         type: "SELL",
@@ -334,6 +335,7 @@ describe("transaction form polish routes", () => {
       headers: authHeaders,
       payload: {
         ticker: "UNLISTED",
+        marketCode: "TW",
         quantity: 1000,
         unitPrice: 50,
         type: "SELL",
@@ -363,6 +365,7 @@ describe("transaction form polish routes", () => {
       headers: authHeaders,
       payload: {
         ticker: "2330",
+        marketCode: "TW",
         quantity: 1,
         unitPrice: 100,
         type: "BUY",
@@ -379,17 +382,25 @@ describe("transaction form polish routes", () => {
     );
   });
 
-  it("POST /portfolio/transactions/estimate uses the profile commission currency for buy calculations", async () => {
+  // KZO-169: trade currency derives from `currencyFor(marketCode)` per D3, not
+  // from `profile.commissionCurrency`. After KZO-167 + KZO-169 the invariant
+  // chain is account.defaultCurrency = currencyFor(marketCode) =
+  // profile.commissionCurrency, so the estimate uses the marketCode-derived
+  // currency consistently. The pre-KZO-169 test that asserted "uses the
+  // profile commission currency for buy calculations" is preserved as-is in
+  // shape but its profile now carries a TWD commissionCurrency to honor the
+  // post-KZO-167 invariant.
+  it("POST /portfolio/transactions/estimate uses marketCode-derived trade currency for buy calculations", async () => {
     const store = await app.persistence.loadStore("user-1");
-    const usdProfile: FeeProfile = {
-      id: "fp-usd",
+    const twdProfile: FeeProfile = {
+      id: "fp-twd-estimate",
       // KZO-183: profile owned by the memory-seeded "acc-1" account.
       accountId: "acc-1",
-      name: "USD Profile",
+      name: "TWD Estimate Profile",
       boardCommissionRate: 0.001,
       commissionDiscountPercent: 0,
       minimumCommissionAmount: 2,
-      commissionCurrency: "USD",
+      commissionCurrency: "TWD",
       commissionRoundingMode: "ROUND",
       taxRoundingMode: "FLOOR",
       stockSellTaxRateBps: 30,
@@ -398,12 +409,12 @@ describe("transaction form polish routes", () => {
       bondEtfSellTaxRateBps: 0,
       commissionChargeMode: "CHARGED_UPFRONT",
     };
-    store.feeProfiles.push(usdProfile);
+    store.feeProfiles.push(twdProfile);
     const account = store.accounts.find((item) => item.id === "acc-1");
     if (!account) {
       throw new Error("expected default account acc-1");
     }
-    account.feeProfileId = usdProfile.id;
+    account.feeProfileId = twdProfile.id;
     await app.persistence.saveStore(store);
 
     const response = await app.inject({
@@ -412,6 +423,7 @@ describe("transaction form polish routes", () => {
       headers: authHeaders,
       payload: {
         ticker: "2330",
+        marketCode: "TW",
         quantity: 10,
         unitPrice: 25.5,
         type: "BUY",
@@ -421,7 +433,7 @@ describe("transaction form polish routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const expected = calculateBuyFees(usdProfile, roundToDecimal(10 * 25.5, 2), "USD");
+    const expected = calculateBuyFees(twdProfile, roundToDecimal(10 * 25.5, 2), "TWD");
     expect(response.json()).toEqual({
       commissionAmount: expected.commissionAmount,
       taxAmount: expected.taxAmount,

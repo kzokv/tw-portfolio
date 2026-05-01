@@ -3,8 +3,8 @@
  *
  * Covers F4 scope items:
  *   AMB-1  Create account with "United States" currency card → market badge shown.
- *   AMB-2  BUY trade against TW account with US ticker (MSFT) → rejected at form-time
- *          with trade_market_mismatch error displayed in the global-error banner.
+ *   AMB-2  BUY trade against TW-only account set with US ticker (MSFT) → blocked
+ *          in the form with the KZO-169 no-compatible-account state.
  *   AMB-3  BUY trade against US account with US ticker (MSFT) → succeeds.
  *
  * Ticker hygiene (e2e-shared-memory-bars-ticker-hygiene.md):
@@ -55,8 +55,7 @@ test("[settings drawer]: create account with United States currency card → mar
 
 // ─── AMB-2 ────────────────────────────────────────────────────────────────────
 
-test("[transactions]: BUY trade against TW account with US ticker MSFT is rejected with trade_market_mismatch", async ({
-  appShell,
+test("[transactions]: BUY trade against TW-only accounts with US ticker MSFT is blocked by no-account UX", async ({
   settings,
   transactions,
 }) => {
@@ -79,20 +78,18 @@ test("[transactions]: BUY trade against TW account with US ticker MSFT is reject
   await transactions.assert.selectedAccountOptionContains(/Main/i);
 
   await transactions.actions.selectTransactionType("BUY");
+  await transactions.actions.selectMarketChip("US");
   await transactions.actions.typeInTickerSearch("MSFT");
-  await transactions.actions.selectTickerOption("MSFT");
+  await transactions.actions.selectTickerOption("MSFT", "US");
   await transactions.actions.fillTradeDate("2026-01-15");
   await transactions.actions.fillQuantity(10);
   await transactions.actions.fillUnitPrice(400);
 
-  await transactions.actions.submitTransaction();
-
-  // ── Assert: global error banner reports the mismatch ─────────────────────
-  // The service-layer guard throws:
-  //   routeError(400, "trade_market_mismatch",
-  //     `Trade market US does not match account acc-1 market TW`)
-  // useTransactionSubmission.ts resolves error.message and sets it on the banner.
-  await appShell.assert.globalErrorContains(/does not match|trade.*market/i);
+  // ── Assert: KZO-169 filters out incompatible accounts before submit ──────
+  // Server-side currency_mismatch remains covered by the HTTP suite; the form
+  // path should stop users earlier with the create-account deep link.
+  await transactions.assert.noAccountErrorContains(/USD/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=USD/);
 });
 
 // ─── AMB-3 ────────────────────────────────────────────────────────────────────
@@ -131,7 +128,7 @@ test("[transactions]: BUY trade against US account with US ticker MSFT succeeds 
 
   await transactions.actions.selectTransactionType("BUY");
   await transactions.actions.typeInTickerSearch("MSFT");
-  await transactions.actions.selectTickerOption("MSFT");
+  await transactions.actions.selectTickerOption("MSFT", "US");
   await transactions.actions.fillTradeDate("2026-01-15");
   await transactions.actions.fillQuantity(5);
   await transactions.actions.fillUnitPrice(400);

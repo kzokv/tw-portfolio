@@ -1,5 +1,63 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
+import type { BookedTradeEvent, Store } from "../../src/types/store.js";
+
+const DEFAULT_FEE_SNAPSHOT = {
+  id: "fp-default",
+  accountId: "acc-1",
+  name: "Default Broker",
+  boardCommissionRate: 1.425,
+  commissionDiscountPercent: 0,
+  minimumCommissionAmount: 20,
+  commissionCurrency: "TWD" as const,
+  commissionRoundingMode: "FLOOR" as const,
+  taxRoundingMode: "FLOOR" as const,
+  stockSellTaxRateBps: 30,
+  stockDayTradeTaxRateBps: 15,
+  etfSellTaxRateBps: 10,
+  bondEtfSellTaxRateBps: 0,
+  commissionChargeMode: "CHARGED_UPFRONT" as const,
+};
+
+function seedOpenLot(
+  store: Store,
+  input: {
+    id: string;
+    accountId: string;
+    ticker: string;
+    openQuantity: number;
+    totalCostAmount: number;
+    openedAt: string;
+  },
+): void {
+  const tradeEvent: BookedTradeEvent = {
+    id: `trade-${input.id}`,
+    userId: store.userId,
+    accountId: input.accountId,
+    ticker: input.ticker,
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: input.openQuantity,
+    unitPrice: input.totalCostAmount / input.openQuantity,
+    priceCurrency: "TWD",
+    tradeDate: input.openedAt,
+    commissionAmount: 20,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: DEFAULT_FEE_SNAPSHOT,
+  };
+  store.accounting.facts.tradeEvents.push(tradeEvent);
+  store.accounting.projections.lots.push({
+    id: input.id,
+    accountId: input.accountId,
+    ticker: input.ticker,
+    openQuantity: input.openQuantity,
+    totalCostAmount: input.totalCostAmount,
+    costCurrency: "TWD",
+    openedAt: input.openedAt,
+  });
+}
 
 describe("monitored tickers", () => {
   let persistence: MemoryPersistence;
@@ -21,12 +79,13 @@ describe("monitored tickers", () => {
     it("returns manual selections with source 'manual'", async () => {
       // Seed an instrument so manual selection is valid
       persistence._seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
-      await persistence.replaceManualSelections(userId, ["2330"]);
+      await persistence.replaceManualSelections(userId, [{ ticker: "2330", marketCode: "TW" }]);
 
       const result = await persistence.getMonitoredSet(userId);
       expect(result).toEqual([
         {
           ticker: "2330",
+          marketCode: "TW",
           source: "manual",
           name: "TSMC",
           instrumentType: "STOCK",
@@ -41,13 +100,12 @@ describe("monitored tickers", () => {
       persistence._seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
       const store = await persistence.loadStore(userId);
       const accountId = store.accounts[0].id;
-      store.accounting.projections.lots.push({
+      seedOpenLot(store, {
         id: "lot-1",
         accountId,
         ticker: "2317",
         openQuantity: 100,
         totalCostAmount: 50000,
-        costCurrency: "TWD",
         openedAt: "2026-01-15",
       });
 
@@ -55,6 +113,7 @@ describe("monitored tickers", () => {
       expect(result).toEqual([
         {
           ticker: "2317",
+          marketCode: "TW",
           source: "position",
           name: "Hon Hai",
           instrumentType: "STOCK",
@@ -66,17 +125,16 @@ describe("monitored tickers", () => {
 
     it("deduplicates: manual + position returns source 'manual'", async () => {
       persistence._seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
-      await persistence.replaceManualSelections(userId, ["2330"]);
+      await persistence.replaceManualSelections(userId, [{ ticker: "2330", marketCode: "TW" }]);
 
       const store = await persistence.loadStore(userId);
       const accountId = store.accounts[0].id;
-      store.accounting.projections.lots.push({
+      seedOpenLot(store, {
         id: "lot-2",
         accountId,
         ticker: "2330",
         openQuantity: 50,
         totalCostAmount: 30000,
-        costCurrency: "TWD",
         openedAt: "2026-02-01",
       });
 
@@ -91,13 +149,12 @@ describe("monitored tickers", () => {
     it("returns null metadata for position-derived ticker without instrument data", async () => {
       const store = await persistence.loadStore(userId);
       const accountId = store.accounts[0].id;
-      store.accounting.projections.lots.push({
+      seedOpenLot(store, {
         id: "lot-3",
         accountId,
         ticker: "9999",
         openQuantity: 10,
         totalCostAmount: 5000,
-        costCurrency: "TWD",
         openedAt: "2026-01-01",
       });
 
@@ -105,6 +162,7 @@ describe("monitored tickers", () => {
       expect(result).toEqual([
         {
           ticker: "9999",
+          marketCode: "TW",
           source: "position",
           name: null,
           instrumentType: null,
@@ -123,7 +181,7 @@ describe("monitored tickers", () => {
 
     it("returns manual selections with addedAt timestamp", async () => {
       persistence._seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
-      await persistence.replaceManualSelections(userId, ["2330"]);
+      await persistence.replaceManualSelections(userId, [{ ticker: "2330", marketCode: "TW" }]);
 
       const result = await persistence.getManualSelections(userId);
       expect(result).toHaveLength(1);
@@ -138,12 +196,15 @@ describe("monitored tickers", () => {
       persistence._seedInstrument({ ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" });
       persistence._seedInstrument({ ticker: "0050", name: "Yuanta/P-shares TW Top50", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending" });
 
-      await persistence.replaceManualSelections(userId, ["2330", "2317"]);
+      await persistence.replaceManualSelections(userId, [
+        { ticker: "2330", marketCode: "TW" },
+        { ticker: "2317", marketCode: "TW" },
+      ]);
       let selections = await persistence.getManualSelections(userId);
       expect(selections.map((s) => s.ticker).sort()).toEqual(["2317", "2330"]);
 
       // Replace with different set
-      await persistence.replaceManualSelections(userId, ["0050"]);
+      await persistence.replaceManualSelections(userId, [{ ticker: "0050", marketCode: "TW" }]);
       selections = await persistence.getManualSelections(userId);
       expect(selections.map((s) => s.ticker)).toEqual(["0050"]);
     });
@@ -155,27 +216,29 @@ describe("monitored tickers", () => {
       // 2317 is already in the monitored set via position
       const store = await persistence.loadStore(userId);
       const accountId = store.accounts[0].id;
-      store.accounting.projections.lots.push({
+      seedOpenLot(store, {
         id: "lot-4",
         accountId,
         ticker: "2317",
         openQuantity: 100,
         totalCostAmount: 50000,
-        costCurrency: "TWD",
         openedAt: "2026-01-15",
       });
 
       // Adding both 2330 and 2317 — only 2330 is genuinely new
-      const result = await persistence.replaceManualSelections(userId, ["2330", "2317"]);
+      const result = await persistence.replaceManualSelections(userId, [
+        { ticker: "2330", marketCode: "TW" },
+        { ticker: "2317", marketCode: "TW" },
+      ]);
       expect(result.newTickers).toEqual(["2330"]);
     });
 
     it("returns empty newTickers when adding tickers already in monitored set", async () => {
       persistence._seedInstrument({ ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" });
-      await persistence.replaceManualSelections(userId, ["2330"]);
+      await persistence.replaceManualSelections(userId, [{ ticker: "2330", marketCode: "TW" }]);
 
       // Replace with same set — no new tickers
-      const result = await persistence.replaceManualSelections(userId, ["2330"]);
+      const result = await persistence.replaceManualSelections(userId, [{ ticker: "2330", marketCode: "TW" }]);
       expect(result.newTickers).toEqual([]);
     });
   });
@@ -247,9 +310,12 @@ describe("monitored tickers", () => {
         { ticker: "2330", name: "Scoped Stock", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
       ], otherUserId);
 
-      expect((await persistence.listInstrumentsCatalog(undefined, undefined, userId)).map((item) => item.ticker)).toEqual(["0050"]);
-      expect((await persistence.listInstrumentsCatalog(undefined, undefined, otherUserId)).map((item) => item.ticker)).toEqual(["2330"]);
-      expect((await persistence.listInstrumentsCatalog()).map((item) => item.ticker)).toEqual(["2330", "2317", "0050"]);
+      // KZO-169: signature is now (search?, type?, marketCode?, userId?). The
+      // marketCode arg slots in BEFORE userId. Pass `undefined` for marketCode.
+      expect((await persistence.listInstrumentsCatalog(undefined, undefined, undefined, userId)).map((item) => item.ticker)).toEqual(["0050"]);
+      expect((await persistence.listInstrumentsCatalog(undefined, undefined, undefined, otherUserId)).map((item) => item.ticker)).toEqual(["2330"]);
+      // Default ordering is now (ticker ASC, marketCode ASC) per Postgres parity.
+      expect((await persistence.listInstrumentsCatalog()).map((item) => item.ticker)).toEqual(["0050", "2317", "2330"]);
     });
   });
 });

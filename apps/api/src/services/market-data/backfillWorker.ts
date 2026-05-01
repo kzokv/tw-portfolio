@@ -10,6 +10,11 @@ export const BACKFILL_QUEUE = "finmind-backfill";
 
 export interface BackfillJobData {
   ticker: string;
+  // KZO-169 (D7b): producers stamp the market_code so consumers don't have to
+  // re-resolve via `resolveMarketCode(ticker)`. Optional for back-compat —
+  // pre-deploy in-flight jobs (TW only) lack this field; the handler treats
+  // `undefined` as `"TW"`. Cleanup tracked under KZO-185 ≥24h after queue drain.
+  marketCode?: MarketCode;
   userId?: string;
   trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh" | "repair";
   startDate?: string;
@@ -77,7 +82,10 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       throw new Error("Backfill job must request at least one dataset");
     }
 
-    const market = resolveMarketCode(ticker);
+    // KZO-169 (D7b): prefer the producer-stamped marketCode; fall back to the
+    // ticker-derived resolver for legacy in-flight jobs that predate KZO-169.
+    // TODO(KZO-185): remove the resolver fallback ≥24h after queue drain.
+    const market = job.data.marketCode ?? resolveMarketCode(ticker);
     const provider = marketDataRegistry.get(market);
     if (!provider) {
       throw new Error(`No market data provider for market ${market}`);
@@ -88,9 +96,12 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     async function rescheduleAfterRateLimit(err: RateLimitedError): Promise<void> {
       const delaySec = err.retryAfterSeconds;
       log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
+      // KZO-169 (G3): singletonKey is composite `${ticker}:${marketCode}` so
+      // BHP/AU and BHP/US don't share a slot.
+      const singletonKey = `${ticker}:${market}`;
       const id = await boss.send(BACKFILL_QUEUE, job.data, {
         startAfter: delaySec,
-        singletonKey: ticker,
+        singletonKey,
         priority: job.priority ?? 0,
       });
       // KZO-163 MEDIUM-2: singleton policy returns null when an existing job already covers
@@ -125,7 +136,8 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       let barsCount = 0;
       if (includeBars) {
         log.info({ ticker, trigger, startDate: effectiveStartDate, endDate }, "backfill_fetching_bars");
-        const bars = await provider.fetchBars(ticker, effectiveStartDate, endDate);
+        const bars = (await provider.fetchBars(ticker, effectiveStartDate, endDate))
+          .map((bar) => ({ ...bar, marketCode: market }));
 
         // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
@@ -136,7 +148,8 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       let dividendsCount = 0;
       if (includeDividends) {
         try {
-          const dividends = await provider.fetchDividends(ticker, effectiveStartDate, endDate);
+          const dividends = (await provider.fetchDividends(ticker, effectiveStartDate, endDate))
+            .map((dividend) => ({ ...dividend, marketCode: market }));
           // Write dividend events (dividend failure → log warning, don't fail job)
           dividendsCount = await upsertDividendEvents(pool, dividends);
           log.info({ ticker, dividendsCount }, "backfill_dividends_upserted");

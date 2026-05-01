@@ -127,7 +127,7 @@ test.describe("account-scoped fee profiles (KZO-183)", () => {
     await settingsApi.assert.errorEquals(body, "invalid_fee_profile");
   });
 
-  test("[transactions]: market/account mismatch returns trade_market_mismatch", async ({
+  test("[transactions]: market/account mismatch returns currency_mismatch", async ({
     accountsApi,
     transactionsApi,
   }) => {
@@ -146,6 +146,7 @@ test.describe("account-scoped fee profiles (KZO-183)", () => {
       transactionPayload({
         accountId: account.id,
         ticker: "2330",
+        marketCode: "TW",
         priceCurrency: "USD",
         tradeDate: "2026-02-01",
       }),
@@ -154,8 +155,8 @@ test.describe("account-scoped fee profiles (KZO-183)", () => {
 
     await transactionsApi.assert.statusIs(response, 400);
     const body = (await transactionsApi.arrange.body(response)) as Record<string, unknown>;
-    if (body["error"] !== "trade_market_mismatch") {
-      throw new Error(`Expected body.error "trade_market_mismatch" but got: ${JSON.stringify(body["error"])}`);
+    if (body["error"] !== "currency_mismatch") {
+      throw new Error(`Expected body.error "currency_mismatch" but got: ${JSON.stringify(body["error"])}`);
     }
   });
 });

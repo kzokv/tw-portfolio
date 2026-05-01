@@ -42,12 +42,14 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
   // Process each trade through the full booking pipeline so that lots,
   // cash ledger entries, and holding projections are populated — not just
   // raw trade events. Without this, the portfolio page shows empty holdings.
+  const marketCode = "TW" as const;
   for (const tx of transactions) {
-    ensureInstrumentDefinition(store, tx.ticker);
+    ensureInstrumentDefinition(store, tx.ticker, marketCode);
     createTransaction(store, userId, {
       id: `demo-tx-${randomUUID()}`,
       accountId: tx.accountId,
       ticker: tx.ticker,
+      marketCode,
       type: tx.type,
       quantity: tx.quantity,
       unitPrice: tx.unitPrice,

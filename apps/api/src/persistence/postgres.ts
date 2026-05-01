@@ -2085,7 +2085,9 @@ export class PostgresPersistence implements Persistence {
     const instruments = symbolsResult.rows.map((row) => ({
       ticker: row.ticker,
       instrumentType: row.instrument_type,
-      marketCode: row.market_code ?? "TW",
+      // KZO-169: market_code is NOT NULL on `symbols`/`instruments` (since
+      // migration 012). Strip the `?? "TW"` provider-stamping fallback (G1).
+      marketCode: String(row.market_code) as InstrumentDef["marketCode"],
       isProvisional: row.is_provisional,
       lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
     }));
@@ -3327,7 +3329,8 @@ export class PostgresPersistence implements Persistence {
           trade.userId,
           trade.accountId,
           trade.ticker,
-          trade.marketCode ?? "TW",
+          // KZO-169: marketCode is required on BookedTradeEvent.
+          trade.marketCode,
           trade.instrumentType,
           trade.type,
           trade.quantity,
@@ -5055,7 +5058,8 @@ export class PostgresPersistence implements Persistence {
       await this.pool.query(
         `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, type_raw, industry_category_raw, finmind_date, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-         ON CONFLICT (ticker) DO UPDATE SET
+         -- KZO-169: composite PK after migration 044.
+         ON CONFLICT (ticker, market_code) DO UPDATE SET
            instrument_type = CASE
              WHEN EXCLUDED.is_provisional THEN instruments.instrument_type
              ELSE EXCLUDED.instrument_type
@@ -5076,7 +5080,8 @@ export class PostgresPersistence implements Persistence {
         [
           instrument.ticker,
           instrument.type,
-          instrument.marketCode ?? "TW",
+          // KZO-169: required after Slice 4 tightening of InstrumentDef.
+          instrument.marketCode,
           instrument.isProvisional ?? false,
           instrument.lastSyncedAt ?? null,
           instrument.typeRaw ?? null,
@@ -5238,7 +5243,8 @@ export class PostgresPersistence implements Persistence {
           tx.userId,
           tx.accountId,
           tx.ticker,
-          tx.marketCode ?? "TW",
+          // KZO-169: marketCode is required on BookedTradeEvent.
+          tx.marketCode,
           tx.instrumentType,
           tx.type,
           tx.quantity,
@@ -5766,7 +5772,14 @@ export class PostgresPersistence implements Persistence {
 
   // --- Instruments ---
 
-  async getInstrument(ticker: string): Promise<InstrumentRow | null> {
+  async getInstrument(ticker: string, marketCode?: string): Promise<InstrumentRow | null> {
+    // KZO-169: when `marketCode` is supplied, the lookup uses the composite
+    // (ticker, market_code) PK established by migration 044. When omitted,
+    // the legacy ticker-only lookup is preserved for callers that haven't yet
+    // been threaded with market context — they get the first match (TW
+    // priority is enforced by the `ORDER BY` in catalog code paths upstream).
+    const conditions = marketCode ? "ticker = $1 AND market_code = $2" : "ticker = $1";
+    const params: unknown[] = marketCode ? [ticker, marketCode] : [ticker];
     const result = await this.pool.query<{
       ticker: string;
       instrument_type: string | null;
@@ -5792,8 +5805,11 @@ export class PostgresPersistence implements Persistence {
               bars_backfill_status, last_synced_at::text, last_repair_at::text,
               verification_status, verification_note,
               created_at::text, updated_at::text
-       FROM market_data.instruments WHERE ticker = $1`,
-      [ticker],
+       FROM market_data.instruments
+       WHERE ${conditions}
+       ORDER BY market_code = 'TW' DESC, market_code ASC
+       LIMIT 1`,
+      params,
     );
     if (result.rows.length === 0) return null;
     const r = result.rows[0]!;
@@ -6007,7 +6023,10 @@ export class PostgresPersistence implements Persistence {
             array_fill(FALSE::boolean, ARRAY[$7::int]),
             array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$7::int])
           )
-          ON CONFLICT (ticker) DO UPDATE SET
+          -- KZO-169: composite PK after migration 044. The catalog sync
+          -- always stamps market_code='TW' (FinMind is TW-only); KZO-170/172
+          -- will plumb US/AU codes here when those providers land.
+          ON CONFLICT (ticker, market_code) DO UPDATE SET
             name = EXCLUDED.name,
             type_raw = EXCLUDED.type_raw,
             industry_category_raw = EXCLUDED.industry_category_raw,
@@ -6043,8 +6062,14 @@ export class PostgresPersistence implements Persistence {
   // --- Monitored Symbols ---
 
   async getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]> {
+    // KZO-169: every monitored row now carries `market_code`, sourced from
+    // `user_monitored_tickers` for manual rows or from `lots.market_code`
+    // for position-derived rows (lots inherit market from the trade event).
+    // The JOIN to `market_data.instruments` becomes a composite-key match
+    // — see scope-todo §D10 / postgres.ts:6074.
     const result = await this.pool.query<{
       ticker: string;
+      market_code: string;
       source: "manual" | "position";
       name: string | null;
       instrument_type: string | null;
@@ -6052,31 +6077,51 @@ export class PostgresPersistence implements Persistence {
       last_repair_at: string | null;
     }>(
       `WITH manual AS (
-         SELECT ums.ticker, 'manual'::text AS source
+         SELECT ums.ticker, ums.market_code, 'manual'::text AS source
          FROM user_monitored_tickers ums
          WHERE ums.user_id = $1
        ),
        positions AS (
-         SELECT DISTINCT l.ticker, 'position'::text AS source
+         -- Lots don't carry market_code directly; derive it from a
+         -- representative trade event for the (account, ticker). The
+         -- post-KZO-169 invariant ensures every trade in a given
+         -- (account, ticker) carries the same market_code (account-currency
+         -- match), so any matching row is correct. Fall back to 'TW' for the
+         -- legacy zero-row case.
+         SELECT DISTINCT l.ticker,
+                COALESCE(
+                  (SELECT te.market_code
+                     FROM trade_events te
+                     WHERE te.account_id = l.account_id
+                       AND te.ticker = l.ticker
+                     LIMIT 1),
+                  'TW'
+                ) AS market_code,
+                'position'::text AS source
          FROM lots l
          JOIN accounts a ON l.account_id = a.id
          WHERE a.user_id = $1 AND l.open_quantity > 0
        ),
        combined AS (
-         SELECT ticker, source FROM manual
+         SELECT ticker, market_code, source FROM manual
          UNION ALL
-         SELECT ticker, source FROM positions
-         WHERE ticker NOT IN (SELECT ticker FROM manual)
+         SELECT ticker, market_code, source FROM positions p
+         WHERE NOT EXISTS (
+           SELECT 1 FROM manual m
+           WHERE m.ticker = p.ticker AND m.market_code = p.market_code
+         )
        )
-       SELECT c.ticker, c.source,
+       SELECT c.ticker, c.market_code, c.source,
               i.name, i.instrument_type, i.bars_backfill_status, i.last_repair_at::text
        FROM combined c
-       LEFT JOIN market_data.instruments i ON i.ticker = c.ticker`,
+       LEFT JOIN market_data.instruments i
+         ON i.ticker = c.ticker AND i.market_code = c.market_code`,
       [userId],
     );
 
     return result.rows.map((row) => ({
       ticker: row.ticker,
+      marketCode: row.market_code,
       source: row.source as MonitoredTickerDto["source"],
       name: row.name,
       instrumentType: (row.instrument_type as MonitoredTickerDto["instrumentType"]) ?? null,
@@ -6086,12 +6131,25 @@ export class PostgresPersistence implements Persistence {
   }
 
   async getAllMonitoredTickers(): Promise<string[]> {
+    // KZO-169: JOIN updated to composite (ticker, market_code) per scope-todo
+    // §D10 / postgres.ts:6102. Manual rows + position-derived rows union into
+    // distinct (ticker, market_code) pairs, then filter to ready+listed
+    // instruments. Returns ticker only — provider workers re-resolve market
+    // via getInstrument() when they need the composite key.
     const result = await this.pool.query<{ ticker: string }>(
       `WITH monitored AS (
-         SELECT ums.user_id, ums.ticker
+         SELECT ums.user_id, ums.ticker, ums.market_code
          FROM user_monitored_tickers ums
          UNION
-         SELECT DISTINCT a.user_id, l.ticker
+         SELECT DISTINCT a.user_id, l.ticker,
+                COALESCE(
+                  (SELECT te.market_code
+                     FROM trade_events te
+                     WHERE te.account_id = l.account_id
+                       AND te.ticker = l.ticker
+                     LIMIT 1),
+                  'TW'
+                ) AS market_code
          FROM lots l
          JOIN accounts a ON a.id = l.account_id
          WHERE l.open_quantity > 0
@@ -6099,7 +6157,8 @@ export class PostgresPersistence implements Persistence {
        SELECT DISTINCT i.ticker
        FROM monitored m
        JOIN users u ON u.id = m.user_id
-       JOIN market_data.instruments i ON i.ticker = m.ticker
+       JOIN market_data.instruments i
+         ON i.ticker = m.ticker AND i.market_code = m.market_code
        WHERE u.is_demo = FALSE
          AND i.bars_backfill_status = 'ready'
          AND i.delisted_at IS NULL
@@ -6130,30 +6189,41 @@ export class PostgresPersistence implements Persistence {
     return result.rows.map((row) => row.user_id);
   }
 
-  async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
-    const result = await this.pool.query<{ ticker: string; added_at: string }>(
-      `SELECT ticker, added_at FROM user_monitored_tickers WHERE user_id = $1 ORDER BY added_at`,
+  async getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]> {
+    const result = await this.pool.query<{ ticker: string; market_code: string; added_at: string }>(
+      `SELECT ticker, market_code, added_at
+       FROM user_monitored_tickers
+       WHERE user_id = $1
+       ORDER BY added_at`,
       [userId],
     );
     return result.rows.map((row) => ({
       ticker: row.ticker,
+      marketCode: row.market_code,
       addedAt: new Date(row.added_at).toISOString(),
     }));
   }
 
-  async replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }> {
-    // Get current full monitored set before replacing
+  async replaceManualSelections(
+    userId: string,
+    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+  ): Promise<{ newTickers: string[] }> {
+    // Get current full monitored set before replacing — diffed by composite
+    // (ticker|marketCode) key so a switch from BHP/AU → BHP/US is reported
+    // as a "new" entry per KZO-169.
     const currentSet = await this.getMonitoredSet(userId);
-    const currentTickers = new Set(currentSet.map((s) => s.ticker));
+    const currentKeys = new Set(currentSet.map((s) => `${s.ticker}|${s.marketCode}`));
 
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
-      for (const ticker of tickers) {
+      for (const sel of selections) {
         await client.query(
-          "INSERT INTO user_monitored_tickers (user_id, ticker) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-          [userId, ticker],
+          `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [userId, sel.ticker, sel.marketCode],
         );
       }
       await client.query("COMMIT");
@@ -6164,14 +6234,19 @@ export class PostgresPersistence implements Persistence {
       client.release();
     }
 
-    // Compute genuinely new tickers (not in current full monitored set)
-    const newTickers = tickers.filter((t) => !currentTickers.has(t));
+    // newTickers reports the ticker portion (back-compat with KZO-132 refresh
+    // batch consumers that key by ticker only) for selections whose composite
+    // key was not previously monitored.
+    const newTickers = selections
+      .filter((sel) => !currentKeys.has(`${sel.ticker}|${sel.marketCode}`))
+      .map((sel) => sel.ticker);
     return { newTickers };
   }
 
   async listInstrumentsCatalog(
     search?: string,
     type?: string,
+    marketCode?: string,
     _userId?: string,
   ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]> {
     const conditions: string[] = ["i.delisted_at IS NULL"];
@@ -6190,6 +6265,14 @@ export class PostgresPersistence implements Persistence {
       paramIndex++;
     }
 
+    // KZO-169: optional `market_code` server-side filter. Routes pass
+    // `undefined` for the ALL chip and a closed-set value for TW/US/AU.
+    if (marketCode) {
+      conditions.push(`i.market_code = $${paramIndex}`);
+      params.push(marketCode);
+      paramIndex++;
+    }
+
     const where = `WHERE ${conditions.join(" AND ")}`;
     const result = await this.pool.query<{
       ticker: string;
@@ -6201,7 +6284,7 @@ export class PostgresPersistence implements Persistence {
     }>(
       `SELECT ticker, name, instrument_type, market_code, bars_backfill_status, last_repair_at::text
        FROM market_data.instruments i ${where}
-       ORDER BY ticker`,
+       ORDER BY ticker, market_code`,
       params,
     );
 
@@ -7303,7 +7386,9 @@ function mapTradeEventRow(row: Record<string, unknown>, taxRuleRows: Record<stri
     userId: String(row.user_id),
     accountId: String(row.account_id),
     ticker: String(row.ticker),
-    marketCode: row.market_code ? String(row.market_code) : undefined,
+    // KZO-169: trade_events.market_code is NOT NULL (migration 012). Strip
+    // the legacy `?? "TW"` provider-stamping fallback (G1).
+    marketCode: String(row.market_code) as BookedTradeEvent["marketCode"],
     instrumentType: String(row.instrument_type) as BookedTradeEvent["instrumentType"],
     type: String(row.trade_type) as BookedTradeEvent["type"],
     quantity: Number(row.quantity),
@@ -7413,7 +7498,8 @@ async function insertTradeFeePolicySnapshot(
     tradeValueAmount: roundToDecimal(trade.quantity * trade.unitPrice, 2),
     instrumentType: trade.instrumentType,
     isDayTrade: trade.isDayTrade,
-    marketCode: trade.marketCode ?? "TW",
+    // KZO-169: marketCode is required on BookedTradeEvent.
+    marketCode: trade.marketCode,
   });
   if (!calculatedTaxComponents.length) {
     return;

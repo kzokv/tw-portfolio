@@ -9,15 +9,20 @@ export interface TTransactionFormElements {
   tickerListbox: Locator;
   tickerEmptyState: Locator;
   tickerMatchCount: Locator;
-  tickerOption: (ticker: string) => Locator;
+  marketChip: (market: "TW" | "US" | "AU" | "ALL") => Locator;
+  tickerOption: (ticker: string, marketCode?: "TW" | "US" | "AU") => Locator;
   accountSelector: Locator;
   accountSelect: Locator;
   accountOption: (index: number) => Locator;
+  accountOptionByText: (text: string | RegExp) => Locator;
   selectedAccountOption: Locator;
+  noAccountError: Locator;
+  createAccountLink: Locator;
   typeSelect: Locator;
   quantityInput: Locator;
   priceInput: Locator;
   unitPriceInput: Locator;
+  priceCurrencyInput: Locator;
   priceSourceHint: Locator;
   priceUnavailableHint: Locator;
   tradeDateInput: Locator;
@@ -45,16 +50,29 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
       tickerListbox: this.locate("tx-ticker-listbox", "Ticker Listbox"),
       tickerEmptyState: this.locate("tx-ticker-empty-state", "Ticker Empty State"),
       tickerMatchCount: this.locate("tx-ticker-match-count", "Ticker Match Count"),
-      tickerOption: (ticker: string) => this.locate(`tx-ticker-option-${ticker}`, `Ticker Option ${ticker}`),
+      marketChip: (market: "TW" | "US" | "AU" | "ALL") =>
+        this.locate(`tx-market-chip-${market}`, `Market Chip ${market}`),
+      tickerOption: (ticker: string, marketCode?: "TW" | "US" | "AU") =>
+        marketCode
+          ? this.locate(`tx-ticker-option-${ticker}-${marketCode}`, `Ticker Option ${ticker} ${marketCode}`)
+          : this.withDescription(
+            this.scope.locator(`[data-testid^="tx-ticker-option-${ticker}-"]`).first(),
+            `Ticker Option ${ticker}`,
+          ),
       accountSelector: this.locate("account-selector", "Account Selector"),
       accountSelect,
       accountOption: (index: number) =>
         this.withDescription(accountSelect.locator("option").nth(index), `Account Option ${index}`),
+      accountOptionByText: (text: string | RegExp) =>
+        this.withDescription(accountSelect.locator("option").filter({ hasText: text }), "Account Option By Text"),
       selectedAccountOption: this.withDescription(accountSelect.locator("option:checked"), "Selected Account Option"),
+      noAccountError: this.locate("tx-no-account-error", "No Account Error"),
+      createAccountLink: this.locate("tx-create-account-link", "Create Account Link"),
       typeSelect: this.locate("tx-type-select", "Transaction Type Select"),
       quantityInput: this.locate("tx-quantity-input", "Quantity Input"),
       priceInput: unitPriceInput,
       unitPriceInput,
+      priceCurrencyInput: this.locate("tx-price-currency-input", "Price Currency Input"),
       priceSourceHint: this.locate("price-source-hint", "Price Source Hint"),
       priceUnavailableHint: this.locate("price-unavailable-hint", "Price Unavailable Hint"),
       tradeDateInput: this.locate("tx-trade-date-input", "Trade Date Input"),

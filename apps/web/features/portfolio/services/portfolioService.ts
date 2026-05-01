@@ -1,6 +1,14 @@
 import { getJson, postJson } from "../../../lib/api";
-import type { InstrumentCatalogItemDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type {
+  InstrumentCatalogItemDto,
+  MarketCode,
+  TransactionHistoryItemDto,
+} from "@tw-portfolio/shared-types";
 import type { TransactionInput } from "../../../components/portfolio/types";
+
+// KZO-169: market_code query param accepted by GET /instruments. `null` /
+// undefined / "ALL" all map to the server's default (no filter).
+export type InstrumentCatalogMarketFilter = MarketCode | "ALL" | null | undefined;
 
 export interface RecomputePreviewResponse {
   id: string;
@@ -25,6 +33,10 @@ export interface MarketDataPriceResponse {
 
 export interface TransactionEstimateInput {
   ticker: string;
+  // KZO-169: estimate route requires `marketCode` so the server can derive the
+  // trade currency from the instrument (D3 / G2). Optional only for legacy
+  // callers that have not yet been updated.
+  marketCode?: MarketCode;
   quantity: number;
   unitPrice: number;
   type: "BUY" | "SELL";
@@ -38,6 +50,9 @@ export interface TransactionEstimateResponse {
 }
 
 export async function submitTransaction(input: TransactionInput): Promise<void> {
+  // KZO-169: marketCode is required by the server (D3). The form guards this
+  // with a chip+ticker commit before enabling submit; if it ever reaches the
+  // wire as null the API rejects with `currency_mismatch`/Zod validation.
   await postJson("/portfolio/transactions", {
     ...input,
     ticker: input.ticker.trim().toUpperCase(),
@@ -69,8 +84,20 @@ export async function fetchTransactionHistory(filters: {
   return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
 }
 
-export async function fetchTransactionInstrumentCatalog(): Promise<TransactionInstrumentCatalogResponse> {
-  return getJson<TransactionInstrumentCatalogResponse>("/instruments");
+// KZO-169: when `marketCode` is provided (TW/US/AU), the server filters the
+// catalog to that market. Pass `"ALL"` (or omit) for the cross-market view
+// used by the chip's All mode.
+export async function fetchTransactionInstrumentCatalog(
+  marketCode?: InstrumentCatalogMarketFilter,
+): Promise<TransactionInstrumentCatalogResponse> {
+  const params = new URLSearchParams();
+  if (marketCode && marketCode !== "ALL") {
+    params.set("market_code", marketCode);
+  } else if (marketCode === "ALL") {
+    params.set("market_code", "ALL");
+  }
+  const qs = params.toString();
+  return getJson<TransactionInstrumentCatalogResponse>(qs ? `/instruments?${qs}` : "/instruments");
 }
 
 export async function fetchMarketDataPrice(

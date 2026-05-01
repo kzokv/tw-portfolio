@@ -210,6 +210,9 @@ describe("dashboard components", () => {
         value={{
           accountId: "acc-1",
           ticker: "0050",
+          // KZO-169: TransactionInput now carries marketCode (TW for legacy
+          // 0050 fixture). null = "All" mode (chip-derived).
+          marketCode: "TW",
           quantity: 1,
           unitPrice: 100,
           priceCurrency: "TWD",
@@ -217,7 +220,14 @@ describe("dashboard components", () => {
           type: "BUY",
           isDayTrade: false,
         }}
-        accountOptions={[{ id: "acc-1", name: "Primary", feeProfileName: "Default Broker" }]}
+        accountOptions={[{
+          id: "acc-1",
+          name: "Primary",
+          feeProfileName: "Default Broker",
+          // KZO-169: defaultCurrency drives chip default + dropdown filter.
+          defaultCurrency: "TWD",
+          accountType: "broker",
+        }]}
         pending={false}
         onChange={() => undefined}
         onSubmit={async () => undefined}
@@ -251,6 +261,8 @@ describe("dashboard components", () => {
           value={{
             accountId: "acc-1",
             ticker: "0050",
+            // KZO-169: marketCode required field; TWD account ⇒ TW.
+            marketCode: "TW",
             quantity: 1,
             unitPrice: 100,
             priceCurrency: "TWD",
@@ -258,7 +270,13 @@ describe("dashboard components", () => {
             type: "BUY",
             isDayTrade: false,
           }}
-          accountOptions={[{ id: "acc-1", name: "Primary", feeProfileName: "Default Broker" }]}
+          accountOptions={[{
+            id: "acc-1",
+            name: "Primary",
+            feeProfileName: "Default Broker",
+            defaultCurrency: "TWD",
+            accountType: "broker",
+          }]}
           pending={false}
           onChange={onChange}
           onUnitPriceEdited={onUnitPriceEdited}

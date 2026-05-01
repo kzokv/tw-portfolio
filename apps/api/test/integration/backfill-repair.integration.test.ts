@@ -111,10 +111,13 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    // KZO-169: backfill payload now stamps marketCode (resolved from the
+    // persisted instrument) and the singletonKey is composite.
     expect(send).toHaveBeenCalledWith(
       "finmind-backfill",
       {
         ticker: "2330",
+        marketCode: "TW",
         userId: expect.any(String),
         trigger: "repair",
         startDate: "2026-03-01",
@@ -122,7 +125,7 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
         includeBars: false,
         includeDividends: true,
       },
-      { singletonKey: "2330", priority: 5 },
+      { singletonKey: "2330:TW", priority: 5 },
     );
   });
 

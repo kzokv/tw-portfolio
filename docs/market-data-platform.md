@@ -41,9 +41,9 @@
 
 | Table | Owned data |
 |---|---|
-| `instruments` | TWSE instrument reference metadata (all ~3,071 unique tickers) |
-| `daily_bars` | Raw OHLCV daily bars (not adjusted) |
-| `dividend_events` | Dividend event reference (ex-date, pay-date, amount-per-unit, source) |
+| `instruments` | Instrument reference metadata keyed by `(ticker, market_code)` |
+| `daily_bars` | Raw OHLCV daily bars keyed by `(ticker, market_code, bar_date)`; not adjusted |
+| `dividend_events` | Dividend event reference (ex-date, pay-date, amount-per-unit, source) with `market_code` for lookup disambiguation |
 | `fx_rates` | Daily FX rates for stored currency pairs (Frankfurter-sourced) |
 
 ### Key boundary
@@ -81,6 +81,8 @@ Historical bars are **not** backfilled for all ~3,071 TWSE symbols. Backfill is 
 4. When a new symbol enters the monitored set (user selection or first trade), an **async backfill job** is enqueued.
 5. The user is **notified via SSE** when backfill completes. No waiting required — the user saves settings and the system handles it in the background.
 
+KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth. Real US/AU ingestion remains separate from this schema/UI work; synthetic multi-market rows are seeded in tests via `/__e2e/seed-instruments`.
+
 ### Backfill status
 
 Per-symbol tracking: `pending -> backfilling -> ready -> failed`.
@@ -93,7 +95,7 @@ Daily refresh has **priority** over backfill in the 600 req/hr budget. Fresh dai
 
 ### Daily refresh scope
 
-The daily refresh job fetches new bars for the **distinct union of monitored symbols across all users** — not per-user. `market_data.daily_bars` is shared, not user-scoped.
+The daily refresh job fetches new bars for the **distinct union of monitored `(ticker, market_code)` pairs across all users** — not per-user. `market_data.daily_bars` is shared, not user-scoped.
 
 ### Demo users
 

@@ -70,8 +70,8 @@ export function useTransactionSubmission({
 
   useEffect(() => {
     const normalizedTicker = draftTransaction.ticker.trim().toUpperCase();
-    const lookupKey = normalizedTicker && draftTransaction.tradeDate
-      ? `${normalizedTicker}|${draftTransaction.tradeDate}`
+    const lookupKey = normalizedTicker && draftTransaction.tradeDate && draftTransaction.marketCode
+      ? `${normalizedTicker}|${draftTransaction.marketCode}|${draftTransaction.tradeDate}`
       : null;
     const lookupKeyChanged = lookupKey !== previousLookupKeyRef.current;
     previousLookupKeyRef.current = lookupKey;
@@ -142,7 +142,8 @@ export function useTransactionSubmission({
       if (
         draftTransaction.unitPrice <= 0 ||
         draftTransaction.quantity <= 0 ||
-        !draftTransaction.accountId
+        !draftTransaction.accountId ||
+        !draftTransaction.marketCode
       ) {
         setFeeEstimate(null);
         return;
@@ -152,6 +153,12 @@ export function useTransactionSubmission({
         const estimate = await estimateTransaction(
           {
             ticker: normalizedTicker,
+            // KZO-169 (G2): estimate route requires marketCode so the server
+            // can derive trade currency from the instrument. We forward the
+            // form's currently-committed marketCode; if the user hasn't yet
+            // committed an instrument, the form's debounce gate keeps us
+            // from getting here (no ticker → early return above).
+            marketCode: draftTransaction.marketCode,
             quantity: draftTransaction.quantity,
             unitPrice: draftTransaction.unitPrice,
             type: draftTransaction.type,
@@ -178,6 +185,7 @@ export function useTransactionSubmission({
     applyAutoUnitPrice,
     draftTransaction.accountId,
     draftTransaction.isDayTrade,
+    draftTransaction.marketCode,
     draftTransaction.quantity,
     draftTransaction.ticker,
     draftTransaction.tradeDate,

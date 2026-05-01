@@ -858,6 +858,17 @@ export interface AppDictionary {
     taxEstimateTitle: string;
     estimatedLabel: string;
     overrideAmountPlaceholder: string;
+    // KZO-169: market_code chip selector + currency-aware account filter
+    // strings. String-only per .claude/rules/nextjs-i18n-serialization.md —
+    // {currency} placeholder replaced at call site via .replace().
+    marketTerm: string;
+    marketChipTW: string;
+    marketChipUS: string;
+    marketChipAU: string;
+    marketChipAll: string;
+    noAccountForCurrency: string;
+    createAccountLink: string;
+    currencyMismatchError: string;
   };
   priceHint: {
     exact: string;

@@ -210,19 +210,38 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** KZO-169: composite key for the memory instrument catalog (mirrors the
+ *  Postgres PK shape on `market_data.instruments`). */
+function instrumentCatalogKey(ticker: string, marketCode: string): string {
+  return `${ticker}|${marketCode}`;
+}
+
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
   private readonly dailyBars: DailyBar[] = [];
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
-  /** userId → Set<ticker> (manual monitoring selections) */
-  private readonly monitoredTickers = new Map<string, Map<string, string>>();
+  /**
+   * KZO-169: per-user manual monitoring selections keyed by composite
+   * `${ticker}|${marketCode}` (mirrors `user_monitored_tickers` PK shape after
+   * migration 044). Inner value carries the structured tuple so callers don't
+   * have to re-parse the key.
+   */
+  private readonly monitoredTickers = new Map<
+    string,
+    Map<string, { ticker: string; marketCode: string; addedAt: string }>
+  >();
   /** userId → NotificationDto[] (in-memory notification store for E2E) */
   private readonly notifications = new Map<string, MemoryNotification[]>();
-  /** ticker → MemoryInstrument (instrument catalog for monitored tickers) */
+  /**
+   * `${ticker}|${marketCode}` → MemoryInstrument. KZO-169 widened the key to
+   * the composite (ticker, market_code) tuple to mirror migration 044's PK
+   * shape — the memory backend now supports two BHP rows on different markets,
+   * which is required by the E2E disambiguation spec for KZO-169.
+   */
   private readonly instruments = new Map<string, MemoryInstrument>();
-  /** userId → (ticker → MemoryInstrument) test-only catalog overrides */
+  /** userId → composite catalog map (mirrors `instruments` per user). */
   private readonly instrumentsByUser = new Map<string, Map<string, MemoryInstrument>>();
   /** Holding snapshots (KZO-115) */
   private readonly holdingSnapshots: HoldingSnapshot[] = [];
@@ -2108,12 +2127,34 @@ export class MemoryPersistence implements Persistence {
 
   // --- Instruments ---
 
-  async getInstrument(ticker: string): Promise<import("./types.js").InstrumentRow | null> {
-    const instrument =
-      this.instruments.get(ticker)
-      ?? [...this.instrumentsByUser.values()]
-        .map((catalog) => catalog.get(ticker))
-        .find((item): item is MemoryInstrument => Boolean(item));
+  async getInstrument(ticker: string, marketCode?: string): Promise<import("./types.js").InstrumentRow | null> {
+    // KZO-169: composite (ticker, market_code) lookup. When `marketCode` is
+    // provided we read directly via the composite key. When omitted (legacy
+    // callers), we scan for the first matching ticker — preferring TW for
+    // back-compat with monomarket deployments.
+    const findInCatalog = (catalog: Map<string, MemoryInstrument>): MemoryInstrument | undefined => {
+      if (marketCode) {
+        return catalog.get(instrumentCatalogKey(ticker, marketCode));
+      }
+      let twMatch: MemoryInstrument | undefined;
+      let firstMatch: MemoryInstrument | undefined;
+      for (const item of catalog.values()) {
+        if (item.ticker !== ticker) continue;
+        firstMatch ??= item;
+        if (item.marketCode === "TW") {
+          twMatch = item;
+          break;
+        }
+      }
+      return twMatch ?? firstMatch;
+    };
+    let instrument: MemoryInstrument | undefined = findInCatalog(this.instruments);
+    if (!instrument) {
+      for (const catalog of this.instrumentsByUser.values()) {
+        instrument = findInCatalog(catalog);
+        if (instrument) break;
+      }
+    }
     if (!instrument) return null;
     const now = new Date().toISOString();
     return {
@@ -2135,11 +2176,16 @@ export class MemoryPersistence implements Persistence {
   }
 
   async updateLastRepairAt(ticker: string): Promise<void> {
+    // KZO-169: update every market_code entry that shares this ticker — repair
+    // operations trigger cross-market regardless of which row was the trigger
+    // (provider-side rate limiter is per-symbol; we record the action against
+    // every matching catalog row).
     const now = new Date().toISOString();
     for (const catalog of [this.instruments, ...this.instrumentsByUser.values()]) {
-      const current = catalog.get(ticker);
-      if (current) {
-        catalog.set(ticker, { ...current, lastRepairAt: now });
+      for (const [key, current] of catalog.entries()) {
+        if (current.ticker === ticker) {
+          catalog.set(key, { ...current, lastRepairAt: now });
+        }
       }
     }
   }
@@ -2246,30 +2292,49 @@ export class MemoryPersistence implements Persistence {
   // --- Monitored Tickers ---
 
   async getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]> {
-    const manualTickers = this.monitoredTickers.get(userId) ?? new Map<string, string>();
+    const manualSelections = this.monitoredTickers.get(userId) ?? new Map();
     const store = this.stores.get(userId);
     const catalog = this._catalogForUser(userId);
 
-    // Collect position-derived tickers (lots with open_quantity > 0)
-    const positionTickers = new Set<string>();
+    // Collect position-derived (ticker, marketCode) pairs from open lots.
+    // KZO-169: lots don't store market_code; derive from a representative
+    // trade event (per-(account, ticker) market is invariant after KZO-169).
+    type PositionKey = { ticker: string; marketCode: string };
+    const positions: PositionKey[] = [];
+    const positionSeen = new Set<string>();
     if (store) {
       for (const lot of store.accounting.projections.lots) {
-        if (lot.openQuantity > 0) {
-          positionTickers.add(lot.ticker);
+        if (lot.openQuantity <= 0) continue;
+        const trade = store.accounting.facts.tradeEvents.find(
+          (te) => te.accountId === lot.accountId && te.ticker === lot.ticker,
+        );
+        if (!trade?.marketCode) {
+          throw routeError(
+            500,
+            "market_code_missing",
+            `Open lot ${lot.ticker} is missing a source trade market_code`,
+          );
         }
+        const marketCode = trade.marketCode;
+        const key = instrumentCatalogKey(lot.ticker, marketCode);
+        if (positionSeen.has(key)) continue;
+        positionSeen.add(key);
+        positions.push({ ticker: lot.ticker, marketCode });
       }
     }
 
-    // Build union: manual selections take precedence. Persistence returns rows
-    // without `repairAvailableAt` (KZO-133 — route layer decorates).
+    // Manual selections take precedence; persistence omits `repairAvailableAt`
+    // (KZO-133 — route layer decorates).
     const result: Omit<MonitoredTickerDto, "repairAvailableAt">[] = [];
     const seen = new Set<string>();
 
-    for (const ticker of manualTickers.keys()) {
-      seen.add(ticker);
-      const instrument = catalog.get(ticker);
+    for (const sel of manualSelections.values()) {
+      const key = instrumentCatalogKey(sel.ticker, sel.marketCode);
+      seen.add(key);
+      const instrument = catalog.get(key);
       result.push({
-        ticker,
+        ticker: sel.ticker,
+        marketCode: sel.marketCode,
         source: "manual",
         name: instrument?.name ?? null,
         instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
@@ -2278,12 +2343,14 @@ export class MemoryPersistence implements Persistence {
       });
     }
 
-    for (const ticker of positionTickers) {
-      if (seen.has(ticker)) continue;
-      seen.add(ticker);
-      const instrument = catalog.get(ticker);
+    for (const pos of positions) {
+      const key = instrumentCatalogKey(pos.ticker, pos.marketCode);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const instrument = catalog.get(key);
       result.push({
-        ticker,
+        ticker: pos.ticker,
+        marketCode: pos.marketCode,
         source: "position",
         name: instrument?.name ?? null,
         instrumentType: (instrument?.instrumentType as MonitoredTickerDto["instrumentType"]) ?? null,
@@ -2303,33 +2370,47 @@ export class MemoryPersistence implements Persistence {
     return [];
   }
 
-  async getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]> {
+  async getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]> {
     const selections = this.monitoredTickers.get(userId);
     if (!selections) return [];
-    return [...selections.entries()].map(([ticker, addedAt]) => ({ ticker, addedAt }));
+    return [...selections.values()].map(({ ticker, marketCode, addedAt }) => ({
+      ticker,
+      marketCode,
+      addedAt,
+    }));
   }
 
-  async replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }> {
-    // Get current full monitored set before replacing
+  async replaceManualSelections(
+    userId: string,
+    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+  ): Promise<{ newTickers: string[] }> {
+    // KZO-169: diff by composite key so a switch from BHP/AU → BHP/US shows up
+    // as a "new" entry. The returned `newTickers` is still a flat list of
+    // tickers (back-compat with KZO-132 refresh-batch consumers).
     const currentSet = await this.getMonitoredSet(userId);
-    const currentTickers = new Set(currentSet.map((s) => s.ticker));
+    const currentKeys = new Set(currentSet.map((s) => instrumentCatalogKey(s.ticker, s.marketCode)));
 
-    // Replace manual selections
     const now = new Date().toISOString();
-    const newSelections = new Map<string, string>();
-    for (const ticker of tickers) {
-      newSelections.set(ticker, now);
+    const next = new Map<string, { ticker: string; marketCode: string; addedAt: string }>();
+    for (const sel of selections) {
+      next.set(instrumentCatalogKey(sel.ticker, sel.marketCode), {
+        ticker: sel.ticker,
+        marketCode: sel.marketCode,
+        addedAt: now,
+      });
     }
-    this.monitoredTickers.set(userId, newSelections);
+    this.monitoredTickers.set(userId, next);
 
-    // Compute genuinely new tickers (not in current full monitored set)
-    const newTickers = tickers.filter((t) => !currentTickers.has(t));
+    const newTickers = selections
+      .filter((sel) => !currentKeys.has(instrumentCatalogKey(sel.ticker, sel.marketCode)))
+      .map((sel) => sel.ticker);
     return { newTickers };
   }
 
   async listInstrumentsCatalog(
     search?: string,
     type?: string,
+    marketCode?: string,
     userId?: string,
   ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]> {
     let results = [...this._catalogForUser(userId).values()].filter((instrument) => !instrument.delistedAt);
@@ -2344,6 +2425,18 @@ export class MemoryPersistence implements Persistence {
     if (type) {
       results = results.filter((i) => i.instrumentType === type);
     }
+
+    // KZO-169: optional market_code filter mirrors the Postgres behavior.
+    if (marketCode) {
+      results = results.filter((i) => i.marketCode === marketCode);
+    }
+
+    // Stable sort: ticker ASC, then marketCode ASC. Mirrors the Postgres
+    // `ORDER BY ticker, market_code` so HTTP-layer assertions can compare
+    // the two backends without re-sorting.
+    results.sort((a, b) =>
+      a.ticker === b.ticker ? a.marketCode.localeCompare(b.marketCode) : a.ticker.localeCompare(b.ticker),
+    );
 
     return results.map((i) => ({
       ticker: i.ticker,
@@ -2473,7 +2566,12 @@ export class MemoryPersistence implements Persistence {
 
   /** @internal Test-only: seed an instrument into the in-memory catalog. */
   _seedInstrument(instrument: MemoryInstrument, userId?: string): void {
-    this._catalogForWrite(userId).set(instrument.ticker, instrument);
+    // KZO-169: store under the composite (ticker|marketCode) key so two BHP
+    // rows on different markets can coexist in MemoryPersistence.
+    this._catalogForWrite(userId).set(
+      instrumentCatalogKey(instrument.ticker, instrument.marketCode),
+      instrument,
+    );
   }
 
   /** @internal Test-only: replace the in-memory catalog with the provided instruments. */

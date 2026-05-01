@@ -210,7 +210,9 @@ export interface DashboardOverviewRecentDividendDto {
 export interface InstrumentOptionDto {
   ticker: string;
   instrumentType: InstrumentType;
-  marketCode: string | null;
+  // KZO-169: `market_code` is required at the database level after migration
+  // 044's PK rewrite. Tighten the DTO from `string | null` to `string`.
+  marketCode: string;
   isProvisional: boolean;
 }
 
@@ -325,7 +327,9 @@ export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;
   ticker: string;
-  marketCode: string | null;
+  // KZO-169: trade events stamp market_code at booking time. Backfilled to
+  // `'TW'` for legacy rows by migration 044's NOT NULL DEFAULT.
+  marketCode: string;
   instrumentType: InstrumentType;
   type: "BUY" | "SELL";
   quantity: number;
@@ -614,6 +618,9 @@ export type MonitoredTickerSource = "manual" | "position";
 
 export interface MonitoredTickerDto {
   ticker: string;
+  // KZO-169: monitored ticker entries are now disambiguated by market — both
+  // user-manual selections and position-derived rows carry the market code.
+  marketCode: string;
   source: MonitoredTickerSource;
   name: string | null;
   instrumentType: InstrumentType | null;

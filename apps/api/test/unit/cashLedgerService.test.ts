@@ -70,6 +70,8 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
     userId: "user-1",
     accountId: "acc-1",
     ticker: "2330",
+    // KZO-169: BookedTradeEvent.marketCode is required; default to "TW".
+    marketCode: "TW",
     instrumentType: "STOCK",
     type: "BUY",
     quantity: 10,

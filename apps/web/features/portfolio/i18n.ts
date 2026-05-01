@@ -88,6 +88,17 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       taxEstimateTitle: "Securities Tax",
       estimatedLabel: "Estimated: {amount}",
       overrideAmountPlaceholder: "Override amount (optional)",
+      // KZO-169: market_code chip selector + currency-aware account filter.
+      // Strings only per .claude/rules/nextjs-i18n-serialization.md.
+      // `{currency}` placeholder replaced at call site via .replace().
+      marketTerm: "Market",
+      marketChipTW: "TW",
+      marketChipUS: "US",
+      marketChipAU: "AU",
+      marketChipAll: "All",
+      noAccountForCurrency: "No {currency} account available — ",
+      createAccountLink: "Create {currency} account",
+      currencyMismatchError: "Trade currency does not match account currency.",
     },
     priceHint: {
       exact: "Closing price • {date}",
@@ -177,6 +188,16 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       taxEstimateTitle: "證交稅",
       estimatedLabel: "預估：{amount}",
       overrideAmountPlaceholder: "覆寫金額（選填）",
+      // KZO-169: market_code chip + 帳戶幣別過濾。chip 標籤保持 MarketCode
+      // 字面值（TW / US / AU / All），符合 D5b 鎖定範圍。
+      marketTerm: "市場",
+      marketChipTW: "TW",
+      marketChipUS: "US",
+      marketChipAU: "AU",
+      marketChipAll: "All",
+      noAccountForCurrency: "尚未建立 {currency} 帳戶 — ",
+      createAccountLink: "新增 {currency} 帳戶",
+      currencyMismatchError: "交易幣別與帳戶幣別不符。",
     },
     priceHint: {
       exact: "收盤價 • {date}",

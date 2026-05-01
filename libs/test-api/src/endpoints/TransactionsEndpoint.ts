@@ -13,4 +13,12 @@ export class TransactionsEndpoint extends BaseEndpoint {
     this.request.get(apiUrl("/portfolio/transactions"), {
       ...(headers ? { headers } : {}),
     });
+
+  // KZO-169: estimate route accepts `marketCode` so the server derives trade
+  // currency from `currencyFor(marketCode)` instead of the fee profile.
+  estimate = (data: unknown, headers?: Record<string, string>): Promise<APIResponse> =>
+    this.request.post(apiUrl("/portfolio/transactions/estimate"), {
+      data,
+      ...(headers ? { headers } : {}),
+    });
 }

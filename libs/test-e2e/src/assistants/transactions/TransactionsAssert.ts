@@ -56,8 +56,48 @@ export class TransactionsAssert extends BaseAssert {
   }
 
   @Step()
+  async comboboxOptionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.tickerListbox.getByRole("option").filter({ hasText: text })).toBeVisible();
+  }
+
+  @Step()
   async selectedTickerContains(text: string | RegExp): Promise<void> {
     await expect(this.el.transactionForm.tickerCombobox).toHaveValue(text);
+  }
+
+  @Step()
+  async selectedMarketChipIs(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+    await expect(this.el.transactionForm.marketChip(market)).toHaveAttribute("aria-checked", "true");
+  }
+
+  @Step()
+  async selectedAccountOptionsContain(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.accountOptionByText(text)).toHaveCount(1);
+  }
+
+  @Step()
+  async selectedAccountOptionsExclude(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.accountOptionByText(text)).toHaveCount(0);
+  }
+
+  @Step()
+  async noAccountErrorContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.noAccountError).toContainText(text);
+  }
+
+  @Step()
+  async createAccountLinkHrefContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.createAccountLink).toHaveAttribute("href", text);
+  }
+
+  @Step()
+  async priceCurrencyIs(value: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.priceCurrencyInput).toHaveValue(value);
+  }
+
+  @Step()
+  async submitButtonIsDisabled(): Promise<void> {
+    await expect(this.el.transactionForm.submitButton).toBeDisabled();
   }
 
   @Step()

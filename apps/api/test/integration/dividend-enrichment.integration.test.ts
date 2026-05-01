@@ -51,6 +51,7 @@ describePostgres("dividend enrichment columns", () => {
     const count = await upsertDividendEvents(pool, [
       {
         ticker: "2330",
+        marketCode: "TW",
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
@@ -80,6 +81,7 @@ describePostgres("dividend enrichment columns", () => {
     const count = await upsertDividendEvents(pool, [
       {
         ticker: "0050",
+        marketCode: "TW",
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 1.0,
@@ -104,6 +106,7 @@ describePostgres("dividend enrichment columns", () => {
     await upsertDividendEvents(pool, [
       {
         ticker: "2330",
+        marketCode: "TW",
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
@@ -115,6 +118,7 @@ describePostgres("dividend enrichment columns", () => {
     await upsertDividendEvents(pool, [
       {
         ticker: "2330",
+        marketCode: "TW",
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
@@ -136,6 +140,7 @@ describePostgres("dividend enrichment columns", () => {
     const count = await upsertDividendEvents(pool, [
       {
         ticker: "00878",
+        marketCode: "TW",
         exDividendDate: "2025-01-20",
         paymentDate: "2025-02-25",
         cashDividendPerShare: 0.235,
@@ -145,6 +150,7 @@ describePostgres("dividend enrichment columns", () => {
       },
       {
         ticker: "00878",
+        marketCode: "TW",
         exDividendDate: "2025-01-20",
         paymentDate: "2025-02-25",
         cashDividendPerShare: 0.235,
@@ -168,6 +174,7 @@ describePostgres("dividend enrichment columns", () => {
     await upsertDividendEvents(pool, [
       {
         ticker: "2330",
+        marketCode: "TW",
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,

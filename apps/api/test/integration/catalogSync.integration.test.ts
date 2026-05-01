@@ -239,6 +239,8 @@ describePostgres("catalog sync persistence", () => {
         payload: {
           accountId: "acc-1",
           ticker: "020000",
+          // KZO-169 (G4): existing TW fixture must stamp marketCode.
+          marketCode: "TW",
           quantity: 10,
           unitPrice: 50,
           priceCurrency: "TWD",

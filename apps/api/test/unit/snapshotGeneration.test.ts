@@ -33,6 +33,8 @@ function makeTrade(overrides: Partial<BookedTradeEvent> = {}): BookedTradeEvent 
     userId: "user-1",
     accountId: "acc-1",
     ticker: "2330",
+    // KZO-169: BookedTradeEvent.marketCode is required.
+    marketCode: "TW",
     instrumentType: "STOCK",
     type: "BUY",
     quantity: 10,
