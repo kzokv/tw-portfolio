@@ -33,6 +33,21 @@ BEGIN
   END IF;
 END $$;
 
+-- ── 1b. user_monitored_symbols — drop FK that also references instruments_pkey
+--       if this legacy table exists on the target DB. Not present in the repo
+--       migration set; exists on the dev DB as a pre-migration artifact.
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'fk_ums_instrument'
+      AND table_name = 'user_monitored_symbols'
+  ) THEN
+    ALTER TABLE user_monitored_symbols DROP CONSTRAINT fk_ums_instrument;
+  END IF;
+END $$;
+
 -- ── 2. market_data.instruments — PK rewrite (ticker → (ticker, market_code)).
 --      market_code column already exists from migration 018 with NOT NULL
 --      DEFAULT 'TW', so no column add required.
