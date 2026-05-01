@@ -4,6 +4,8 @@ import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio
 import { getJson, postJson, putJson } from "../../../lib/api";
 
 export interface MonitoredTickersResponse {
+  // KZO-169 (D7a): MonitoredTickerDto.marketCode is now a required field;
+  // the GET return shape reflects that automatically via the shared type.
   tickers: MonitoredTickerDto[];
 }
 
@@ -14,6 +16,15 @@ export interface InstrumentsCatalogResponse {
 export interface SaveMonitoredTickersResponse {
   tickers: MonitoredTickerDto[];
   newTickers: string[];
+}
+
+// KZO-169 (D7a): the monitored-tickers PUT body shape changes from
+// `{ tickers: string[] }` to `{ tickers: { ticker, marketCode }[] }`. The
+// caller is responsible for stamping `marketCode` (typically from the
+// matching catalog row's `InstrumentCatalogItemDto.marketCode`).
+export interface MonitoredTickerSelection {
+  ticker: string;
+  marketCode: string;
 }
 
 export async function fetchMonitoredTickers(): Promise<MonitoredTickersResponse> {
@@ -31,7 +42,9 @@ export async function fetchInstrumentsCatalog(
   return getJson<InstrumentsCatalogResponse>(`/instruments${qs ? `?${qs}` : ""}`);
 }
 
-export async function saveMonitoredTickers(tickers: string[]): Promise<SaveMonitoredTickersResponse> {
+export async function saveMonitoredTickers(
+  tickers: MonitoredTickerSelection[],
+): Promise<SaveMonitoredTickersResponse> {
   return putJson<SaveMonitoredTickersResponse>("/monitored-tickers", { tickers });
 }
 
@@ -40,6 +53,6 @@ export interface RetryBackfillResponse {
   barsBackfillStatus: string;
 }
 
-export async function retryBackfill(ticker: string): Promise<RetryBackfillResponse> {
-  return postJson<RetryBackfillResponse>("/backfill/retry", { ticker });
+export async function retryBackfill(ticker: string, marketCode?: string): Promise<RetryBackfillResponse> {
+  return postJson<RetryBackfillResponse>("/backfill/retry", marketCode ? { ticker, marketCode } : { ticker });
 }

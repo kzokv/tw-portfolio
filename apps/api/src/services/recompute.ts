@@ -46,7 +46,9 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
             tradeCurrency,
             instrumentType: tx.instrumentType,
             isDayTrade: tx.isDayTrade,
-            marketCode: tx.marketCode ?? "TW",
+            // KZO-169: marketCode is required on BookedTradeEvent — the
+            // legacy `?? "TW"` was provider-stamping audit (G1) target.
+            marketCode: tx.marketCode,
           });
 
     return {

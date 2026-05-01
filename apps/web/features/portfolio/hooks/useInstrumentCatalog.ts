@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
-import { fetchTransactionInstrumentCatalog } from "../services/portfolioService";
+import {
+  fetchTransactionInstrumentCatalog,
+  type InstrumentCatalogMarketFilter,
+} from "../services/portfolioService";
 
 export type TransactionInstrumentOption = InstrumentCatalogItemDto & {
   instrumentType: Exclude<InstrumentCatalogItemDto["instrumentType"], null>;
@@ -28,7 +31,12 @@ export function filterInstrumentCatalog(
   };
 }
 
-export function useInstrumentCatalog(): {
+// KZO-169: hook now accepts a `marketCode` filter so the chip selector can
+// drive server-side filtering. Refetch fires whenever the chip changes.
+// `null` / `"ALL"` requests the cross-market catalog (chip = All).
+export function useInstrumentCatalog(
+  marketCode?: MarketCode | "ALL" | null,
+): {
   catalog: TransactionInstrumentOption[];
   isLoading: boolean;
   error: string;
@@ -43,7 +51,8 @@ export function useInstrumentCatalog(): {
     async function loadCatalog() {
       setIsLoading(true);
       try {
-        const response = await fetchTransactionInstrumentCatalog();
+        const filter: InstrumentCatalogMarketFilter = marketCode ?? "ALL";
+        const response = await fetchTransactionInstrumentCatalog(filter);
         if (!active) return;
         setCatalog(
           response.instruments.filter(
@@ -67,7 +76,7 @@ export function useInstrumentCatalog(): {
     return () => {
       active = false;
     };
-  }, []);
+  }, [marketCode]);
 
   return useMemo(
     () => ({ catalog, isLoading, error }),

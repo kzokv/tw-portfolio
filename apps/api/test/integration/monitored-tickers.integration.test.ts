@@ -92,7 +92,7 @@ describe("monitored tickers routes", () => {
       await app.inject({
         method: "PUT",
         url: "/monitored-tickers",
-        payload: { tickers: ["2330"] },
+        payload: { tickers: [{ ticker: "2330", marketCode: "TW" }] },
       });
 
       const res = await app.inject({ method: "GET", url: "/monitored-tickers" });
@@ -115,7 +115,7 @@ describe("monitored tickers routes", () => {
       const res = await app.inject({
         method: "PUT",
         url: "/monitored-tickers",
-        payload: { tickers: ["2330", "2317"] },
+        payload: { tickers: [{ ticker: "2330", marketCode: "TW" }, { ticker: "2317", marketCode: "TW" }] },
       });
 
       expect(res.statusCode).toBe(200);
@@ -132,14 +132,14 @@ describe("monitored tickers routes", () => {
       await app.inject({
         method: "PUT",
         url: "/monitored-tickers",
-        payload: { tickers: ["2330"] },
+        payload: { tickers: [{ ticker: "2330", marketCode: "TW" }] },
       });
 
       // Second: replace with 2330 + 2317 — only 2317 is new
       const res = await app.inject({
         method: "PUT",
         url: "/monitored-tickers",
-        payload: { tickers: ["2330", "2317"] },
+        payload: { tickers: [{ ticker: "2330", marketCode: "TW" }, { ticker: "2317", marketCode: "TW" }] },
       });
 
       expect(res.statusCode).toBe(200);
@@ -161,7 +161,7 @@ describe("monitored tickers routes", () => {
       const res = await app.inject({
         method: "PUT",
         url: "/monitored-tickers",
-        payload: { tickers: ["2330"] },
+        payload: { tickers: [{ ticker: "2330", marketCode: "TW" }] },
       });
 
       expect(res.statusCode).toBe(200);

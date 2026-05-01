@@ -1,12 +1,14 @@
 import type { Pool } from "pg";
+import type { MarketCode } from "@tw-portfolio/domain";
 
 export async function upsertDailyBars(
   pool: Pool,
-  bars: Array<{ ticker: string; barDate: string; open: number; high: number; low: number; close: number; volume: number; sourceId?: string }>,
+  bars: Array<{ ticker: string; marketCode: MarketCode; barDate: string; open: number; high: number; low: number; close: number; volume: number; sourceId?: string }>,
 ): Promise<number> {
   if (bars.length === 0) return 0;
 
   const tickers: string[] = [];
+  const marketCodes: string[] = [];
   const dates: string[] = [];
   const opens: number[] = [];
   const highs: number[] = [];
@@ -16,6 +18,7 @@ export async function upsertDailyBars(
   const sources: string[] = [];
   for (const bar of bars) {
     tickers.push(bar.ticker);
+    marketCodes.push(bar.marketCode);
     dates.push(bar.barDate);
     opens.push(bar.open);
     highs.push(bar.high);
@@ -27,18 +30,20 @@ export async function upsertDailyBars(
     sources.push(bar.sourceId ?? "finmind");
   }
 
+  // KZO-169: composite PK after migration 044 — INSERT now stamps market_code
+  // and ON CONFLICT keys on (ticker, market_code, bar_date).
   const result = await pool.query(
-    `INSERT INTO market_data.daily_bars (ticker, bar_date, open, high, low, close, volume, source, ingested_at)
+    `INSERT INTO market_data.daily_bars (ticker, market_code, bar_date, open, high, low, close, volume, source, ingested_at)
      SELECT * FROM unnest(
-       $1::text[], $2::date[], $3::numeric[], $4::numeric[], $5::numeric[], $6::numeric[], $7::bigint[],
-       $8::text[],
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int])
+       $1::text[], $2::text[], $3::date[], $4::numeric[], $5::numeric[], $6::numeric[], $7::numeric[], $8::bigint[],
+       $9::text[],
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$10::int])
      )
-     ON CONFLICT (ticker, bar_date) DO UPDATE SET
+     ON CONFLICT (ticker, market_code, bar_date) DO UPDATE SET
        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
        close = EXCLUDED.close, volume = EXCLUDED.volume,
        source = EXCLUDED.source, ingested_at = EXCLUDED.ingested_at`,
-    [tickers, dates, opens, highs, lows, closes, volumes, sources, bars.length],
+    [tickers, marketCodes, dates, opens, highs, lows, closes, volumes, sources, bars.length],
   );
   return result.rowCount ?? 0;
 }
@@ -67,6 +72,7 @@ export async function upsertDividendEvents(
   pool: Pool,
   events: Array<{
     ticker: string;
+    marketCode: MarketCode;
     exDividendDate: string;
     paymentDate: string;
     cashDividendPerShare: number;
@@ -92,6 +98,7 @@ export async function upsertDividendEvents(
 
   const ids: string[] = [];
   const tickers: string[] = [];
+  const marketCodes: string[] = [];
   const eventTypes: string[] = [];
   const exDates: string[] = [];
   const payDates: string[] = [];
@@ -107,6 +114,7 @@ export async function upsertDividendEvents(
     const { eventType, id } = deriveDividendKey(ev);
     ids.push(id);
     tickers.push(ev.ticker);
+    marketCodes.push(ev.marketCode);
     eventTypes.push(eventType);
     exDates.push(ev.exDividendDate);
     payDates.push(ev.paymentDate);
@@ -119,17 +127,19 @@ export async function upsertDividendEvents(
     rawProviderDataArr.push(ev.rawProviderData ? JSON.stringify(ev.rawProviderData) : null);
   }
 
+  // KZO-169: stamp market_code on every dividend row. ON CONFLICT keys on
+  // `id` (still unique post-044) — column add was non-PK on dividend_events.
   const result = await pool.query(
     `INSERT INTO market_data.dividend_events
-       (id, ticker, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
+       (id, ticker, market_code, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
         cash_dividend_currency, source, ingested_at,
         fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data)
      SELECT * FROM unnest(
-       $1::text[], $2::text[], $3::text[], $4::date[], $5::date[], $6::numeric[], $7::numeric[],
-       array_fill('TWD'::text, ARRAY[$8::int]),
-       $9::text[],
-       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$8::int]),
-       $10::text[], $11::date[], $12::numeric[], $13::jsonb[]
+       $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::date[], $7::numeric[], $8::numeric[],
+       array_fill('TWD'::text, ARRAY[$9::int]),
+       $10::text[],
+       array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int]),
+       $11::text[], $12::date[], $13::numeric[], $14::jsonb[]
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
@@ -140,7 +150,7 @@ export async function upsertDividendEvents(
        announcement_date = EXCLUDED.announcement_date,
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data`,
-    [ids, tickers, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
+    [ids, tickers, marketCodes, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
      sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
   );
   return result.rowCount ?? 0;

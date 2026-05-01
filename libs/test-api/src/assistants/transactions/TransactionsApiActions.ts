@@ -42,4 +42,14 @@ export class TransactionsApiActions extends ApiBaseActions {
   async listTransactionsForCookie(cookie: string): Promise<APIResponse> {
     return this._instance.list(headersForCookie(cookie));
   }
+
+  /**
+   * KZO-169: POST /portfolio/transactions/estimate. Server derives trade
+   * currency from `currencyFor(marketCode)` and returns commission/tax
+   * estimates. Body shape carries the new `marketCode` field.
+   */
+  @Step()
+  async estimateTransaction(data: unknown): Promise<APIResponse> {
+    return this._instance.estimate(data, this.authHeaders);
+  }
 }

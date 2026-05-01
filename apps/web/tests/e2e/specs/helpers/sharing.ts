@@ -122,6 +122,8 @@ export async function seedTransactionForUser(
       data: {
         accountId: input.accountId ?? "acc-1",
         ticker: input.ticker,
+        // KZO-169 (G4): existing TW switcher fixture stamps marketCode.
+        marketCode: "TW",
         quantity: input.quantity ?? 100,
         unitPrice: input.unitPrice ?? 100,
         priceCurrency: input.priceCurrency ?? "TWD",

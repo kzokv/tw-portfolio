@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  type AccountDefaultCurrency,
+  type AccountType,
   type DashboardPerformanceRange,
   type InstrumentOptionDto,
   type LocaleCode,
@@ -85,6 +87,10 @@ const DESKTOP_NAV_STORAGE_KEY = "tw-shell-nav-collapsed";
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
   ticker: "",
+  // KZO-169: marketCode is null until either the chip is selected or the
+  // form is mounted with a multi-currency-aware default. AddTransactionCard
+  // derives the displayed chip from `accountOptions` when this is null.
+  marketCode: null,
   quantity: 1000,
   unitPrice: 100,
   priceCurrency: "TWD",
@@ -475,12 +481,17 @@ export function AppShell({
     refresh: dashboard.refresh,
     closeDrawer: () => setDrawerOpen(false),
   });
+  // KZO-169: thread `defaultCurrency` (and `accountType`) through so the form
+  // can derive the chip default + filter the account dropdown by currency
+  // compatibility.
   const transactionAccountOptions = useMemo(
     () =>
       dashboard.accounts.map((account) => ({
         id: account.id,
         name: account.name,
         feeProfileName: dashboard.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+        defaultCurrency: account.defaultCurrency,
+        accountType: account.accountType,
       })),
     [dashboard.accounts, dashboard.feeProfiles],
   );
@@ -495,11 +506,39 @@ export function AppShell({
 
   const drawerOpen = searchParams.get("drawer") === "settings";
 
+  // KZO-169 (NC4): deep-link support for the transaction form's inline
+  // create-account link. URL shape: `?drawer=settings&settingsTab=accounts
+  // &accountsPrefillCurrency=USD`. Parsed values are passed to SettingsDrawer
+  // and on into useSettingsForm + AccountCreateForm.
+  const settingsTabParam = searchParams.get("settingsTab");
+  const settingsInitialTab =
+    settingsTabParam === "profile" ||
+    settingsTabParam === "general" ||
+    settingsTabParam === "accounts" ||
+    settingsTabParam === "tickers" ||
+    settingsTabParam === "display"
+      ? settingsTabParam
+      : undefined;
+  const accountsPrefillCurrencyParam = searchParams.get("accountsPrefillCurrency");
+  const accountsPrefillCurrency: AccountDefaultCurrency | undefined =
+    accountsPrefillCurrencyParam === "TWD" ||
+    accountsPrefillCurrencyParam === "USD" ||
+    accountsPrefillCurrencyParam === "AUD"
+      ? accountsPrefillCurrencyParam
+      : undefined;
+
   const setDrawerOpen = useCallback(
     (open: boolean) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (open) params.set("drawer", "settings");
-      else params.delete("drawer");
+      if (open) {
+        params.set("drawer", "settings");
+      } else {
+        params.delete("drawer");
+        // KZO-169: also clear the deep-link params on close so a subsequent
+        // re-open does not re-prefill stale state.
+        params.delete("settingsTab");
+        params.delete("accountsPrefillCurrency");
+      }
 
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -891,6 +930,11 @@ export function AppShell({
           void dashboard.refresh();
           void performance.refresh();
         }}
+        // KZO-169 (NC4): deep-link prefill for the create-account flow.
+        // AddTransactionCard's "no {currency} account" inline error builds a
+        // URL with these params; AppShell parses them above.
+        initialTab={settingsInitialTab}
+        accountsPrefillCurrency={accountsPrefillCurrency}
       />
     </div>
   );
@@ -930,7 +974,13 @@ function renderSection({
   refetchEffectiveRanges: () => void;
   recentTransactions: ReturnType<typeof useRecentTransactions>;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
-  transactionAccountOptions: Array<{ id: string; name: string; feeProfileName: string }>;
+  transactionAccountOptions: Array<{
+    id: string;
+    name: string;
+    feeProfileName: string;
+    defaultCurrency: AccountDefaultCurrency;
+    accountType?: AccountType;
+  }>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   setDrawerOpen: (open: boolean) => void;
   recomputingSymbols: Set<string>;
@@ -1099,7 +1149,7 @@ function renderSection({
                     pending={transactionSubmission.isSubmitting}
                     onChange={(next) => {
                       transactionSubmission.setMessage("");
-                      transactionSubmission.setDraftTransaction(dashboard.synchronizeTransactionDraft(next));
+                      transactionSubmission.setDraftTransaction(next);
                     }}
                     onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
                     onSubmit={transactionSubmission.submit}

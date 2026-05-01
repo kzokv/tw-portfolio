@@ -94,6 +94,7 @@ describePostgres("app_config — repair cooldown + DTO field (Postgres)", () => 
   /** Seed a minimal instrument row. */
   async function seedInstrument(params: {
     ticker: string;
+    marketCode?: string;
     name?: string;
     lastRepairAt?: string | null;
     barsBackfillStatus?: string;
@@ -101,14 +102,15 @@ describePostgres("app_config — repair cooldown + DTO field (Postgres)", () => 
     await pool.query(
       `INSERT INTO market_data.instruments
          (ticker, name, market_code, bars_backfill_status, last_repair_at)
-       VALUES ($1, $2, 'TW', $3, $4::timestamptz)
-       ON CONFLICT (ticker) DO UPDATE
+       VALUES ($1, $2, $3, $4, $5::timestamptz)
+       ON CONFLICT (ticker, market_code) DO UPDATE
          SET name = EXCLUDED.name,
              bars_backfill_status = EXCLUDED.bars_backfill_status,
              last_repair_at = EXCLUDED.last_repair_at`,
       [
         params.ticker,
         params.name ?? params.ticker,
+        params.marketCode ?? "TW",
         params.barsBackfillStatus ?? "ready",
         params.lastRepairAt ?? null,
       ],
@@ -116,12 +118,12 @@ describePostgres("app_config — repair cooldown + DTO field (Postgres)", () => 
   }
 
   /** Seed a manual monitored-ticker entry for user-1. */
-  async function seedMonitoredTicker(ticker: string, userId = "user-1"): Promise<void> {
+  async function seedMonitoredTicker(ticker: string, userId = "user-1", marketCode = "TW"): Promise<void> {
     await pool.query(
-      `INSERT INTO user_monitored_tickers (user_id, ticker)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id, ticker) DO NOTHING`,
-      [userId, ticker],
+      `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, ticker, market_code) DO NOTHING`,
+      [userId, ticker, marketCode],
     );
   }
 

@@ -8,6 +8,9 @@ export type TransactionType = "BUY" | "SELL";
 interface TransactionPayloadBase {
   accountId: string;
   ticker: string;
+  // KZO-169 (G4): every existing fixture defaults to TW. New tests for
+  // multi-market behavior override per call.
+  marketCode: "TW" | "US" | "AU";
   quantity: number;
   unitPrice: number;
   priceCurrency: string;
@@ -23,6 +26,7 @@ interface TransactionPayloadBase {
 const defaultTransaction: TransactionPayloadBase = {
   accountId: "acc-1",
   ticker: "2330",
+  marketCode: "TW",
   quantity: 10,
   unitPrice: 100,
   priceCurrency: "TWD",

@@ -12,6 +12,9 @@ import { getCooldownRemainingMinutes } from "../utils/cooldown";
 
 interface RepairCapableItem {
   ticker: string;
+  // KZO-169 (D7a): render `TICKER · MARKET` on every row so the user can
+  // disambiguate the same ticker on multiple markets (e.g. BHP·AU + BHP·US).
+  marketCode?: string | null;
   barsBackfillStatus: string | null;
   lastRepairAt?: string | null;
   repairAvailableAt?: string | null;
@@ -20,16 +23,19 @@ interface RepairCapableItem {
 }
 
 interface PerTickerRepairDraft extends RepairModalValue {
+  key: string;
   ticker: string;
+  marketCode: string;
 }
 
 interface MonitoredTickersSectionProps {
   monitoredTickers: MonitoredTickerDto[];
   instruments: InstrumentCatalogItemDto[];
+  // Selection keys are `${ticker}|${marketCode}`.
   selectedTickers: Set<string>;
-  onToggleTicker: (ticker: string) => void;
+  onToggleTicker: (key: string) => void;
   onBrowseCatalog: () => void;
-  onRetryBackfill: (ticker: string) => void;
+  onRetryBackfill: (key: string) => void;
   isDirty: boolean;
   isSaving: boolean;
   saveError: string;
@@ -39,7 +45,7 @@ interface MonitoredTickersSectionProps {
   repairMode: boolean;
   onRepairModeChange: (enabled: boolean) => void;
   repairSelection: Set<string>;
-  onToggleRepairSelection: (ticker: string) => void;
+  onToggleRepairSelection: (key: string) => void;
   onClearRepairSelection: () => void;
   onSubmitRepairRequests: (requests: RepairTargetRequest[]) => Promise<void>;
   isRepairSubmitting: boolean;
@@ -50,6 +56,20 @@ interface MonitoredTickersSectionProps {
 
 function buildCooldownLabel(dict: AppDictionary, minutes: number): string {
   return dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(minutes));
+}
+
+function monitoredTickerKey(item: { ticker: string; marketCode?: string | null }): string {
+  return `${item.ticker}|${item.marketCode ?? "TW"}`;
+}
+
+function parseMonitoredTickerKey(key: string): { ticker: string; marketCode: string } {
+  const [ticker = "", marketCode = "TW"] = key.split("|");
+  return { ticker, marketCode };
+}
+
+function formatTickerKeyLabel(key: string): string {
+  const { ticker, marketCode } = parseMonitoredTickerKey(key);
+  return `${ticker} · ${marketCode}`;
 }
 
 function groupRepairRequests(drafts: PerTickerRepairDraft[]): RepairTargetRequest[] {
@@ -109,14 +129,19 @@ export function MonitoredTickersSection({
 
   const positionTickers = useMemo(() => monitoredTickers.filter((s) => s.source === "position"), [monitoredTickers]);
 
-  const instrumentMap = useMemo(() => new Map(instruments.map((item) => [item.ticker, item])), [instruments]);
+  const instrumentMap = useMemo(() => new Map(instruments.map((item) => [monitoredTickerKey(item), item])), [instruments]);
 
   const manualTickers = useMemo(() => {
     return [...selectedTickers]
-      .map((ticker) => {
-        const instrument = instrumentMap.get(ticker);
+      .map((key) => {
+        const { ticker, marketCode } = parseMonitoredTickerKey(key);
+        const instrument = instrumentMap.get(key);
         return {
           ticker,
+          key,
+          // KZO-169 (D7a): include marketCode so the row can render
+          // `TICKER · MARKET` for cross-market disambiguation.
+          marketCode: instrument?.marketCode ?? marketCode,
           name: instrument?.name ?? null,
           instrumentType: instrument?.instrumentType ?? null,
           barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
@@ -128,20 +153,24 @@ export function MonitoredTickersSection({
   }, [selectedTickers, instrumentMap]);
 
   const repairCandidates = useMemo(() => {
-    const byTicker = new Map<string, RepairCapableItem>();
+    const byKey = new Map<string, RepairCapableItem>();
+    const positionKeys = new Set(positionTickers.map(monitoredTickerKey));
     for (const item of instruments as RepairCapableItem[]) {
-      if (selectedTickers.has(item.ticker) || positionTickers.some((p) => p.ticker === item.ticker)) {
-        byTicker.set(item.ticker, {
+      const key = monitoredTickerKey(item);
+      if (selectedTickers.has(key) || positionKeys.has(key)) {
+        byKey.set(key, {
           ...item,
-          source: positionTickers.some((p) => p.ticker === item.ticker) ? "position" : "manual",
+          source: positionKeys.has(key) ? "position" : "manual",
         });
       }
     }
 
     for (const positionTicker of positionTickers) {
-      if (!byTicker.has(positionTicker.ticker)) {
-        byTicker.set(positionTicker.ticker, {
+      const key = monitoredTickerKey(positionTicker);
+      if (!byKey.has(key)) {
+        byKey.set(key, {
           ticker: positionTicker.ticker,
+          marketCode: positionTicker.marketCode,
           name: positionTicker.name,
           barsBackfillStatus: positionTicker.barsBackfillStatus ?? null,
           source: "position",
@@ -151,7 +180,7 @@ export function MonitoredTickersSection({
       }
     }
 
-    return [...byTicker.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+    return [...byKey.values()].sort((a, b) => monitoredTickerKey(a).localeCompare(monitoredTickerKey(b)));
   }, [instruments, positionTickers, selectedTickers]);
 
   const filteredManual = useMemo(() => {
@@ -166,29 +195,33 @@ export function MonitoredTickersSection({
     return repairCandidates.filter((s) => s.ticker.toLowerCase().includes(q) || (s.name?.toLowerCase().includes(q) ?? false));
   }, [repairCandidates, search]);
 
-  const selectedRepairTickers = useMemo(() => [...repairSelection].sort((a, b) => a.localeCompare(b)), [repairSelection]);
+  const selectedRepairKeys = useMemo(() => [...repairSelection].sort((a, b) => a.localeCompare(b)), [repairSelection]);
 
   const [perTickerValues, setPerTickerValues] = useState<PerTickerRepairDraft[]>([]);
 
   useEffect(() => {
     setPerTickerValues((prev) => {
-      const existing = new Map(prev.map((item) => [item.ticker, item]));
-      return selectedRepairTickers.map((ticker) =>
-        existing.get(ticker) ?? {
+      const existing = new Map(prev.map((item) => [item.key, item]));
+      return selectedRepairKeys.map((key) => {
+        const { ticker, marketCode } = parseMonitoredTickerKey(key);
+        return existing.get(key) ?? {
+          key,
           ticker,
+          marketCode,
           startDate: repairDefaults.startDate,
           endDate: repairDefaults.endDate,
           includeBars: repairDefaults.includeBars,
           includeDividends: repairDefaults.includeDividends,
-        },
-      );
+        };
+      });
     });
-  }, [selectedRepairTickers]);
+  }, [selectedRepairKeys]);
 
-  const selectedCountLabel = `${selectedRepairTickers.length} ${dict.settings.repairModeSelectedCount}`;
+  const selectedCountLabel = `${selectedRepairKeys.length} ${dict.settings.repairModeSelectedCount}`;
 
   function handleToggleRepairTicker(item: RepairCapableItem): void {
-    const isSelected = repairSelection.has(item.ticker);
+    const key = monitoredTickerKey(item);
+    const isSelected = repairSelection.has(key);
     const isBackfilling = item.barsBackfillStatus === "pending" || item.barsBackfillStatus === "backfilling";
     const remaining = getCooldownRemainingMinutes(item.repairAvailableAt);
     if (!isSelected && (isBackfilling || remaining > 0)) return;
@@ -199,7 +232,7 @@ export function MonitoredTickersSection({
     }
 
     setSelectionError("");
-    onToggleRepairSelection(item.ticker);
+    onToggleRepairSelection(key);
   }
 
   function resetRepairFlow(): void {
@@ -212,10 +245,10 @@ export function MonitoredTickersSection({
 
   async function submitRepair(): Promise<void> {
     const requests =
-      repairApplyMode === "all"
+          repairApplyMode === "all"
         ? [
             {
-              tickers: selectedRepairTickers,
+              tickers: selectedRepairKeys.map((key) => parseMonitoredTickerKey(key).ticker),
               startDate: repairDefaults.startDate || undefined,
               endDate: repairDefaults.endDate || undefined,
               includeBars: repairDefaults.includeBars,
@@ -267,12 +300,16 @@ export function MonitoredTickersSection({
           <div className="space-y-1">
             {positionTickers.map((s) => (
               <div
-                key={s.ticker}
+                // KZO-169: monitored-tickers list keyed by (ticker, marketCode)
+                // so the same ticker on different markets is unique.
+                key={`${s.ticker}|${s.marketCode}`}
                 className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm"
                 data-testid={`position-ticker-${s.ticker}`}
               >
                 <Lock className="h-3.5 w-3.5 text-slate-400" />
-                <span className="font-mono font-medium text-slate-700">{s.ticker}</span>
+                <span className="font-mono font-medium text-slate-700">
+                  {s.ticker} · {s.marketCode}
+                </span>
                 {s.name && <span className="text-slate-500">— {s.name}</span>}
                 <span className="ml-auto text-xs text-slate-400">{dict.settings.tickersPositionLocked}</span>
               </div>
@@ -317,17 +354,19 @@ export function MonitoredTickersSection({
             <div className="max-h-48 space-y-1 overflow-y-auto">
               {filteredManual.map((s) => (
                 <label
-                  key={s.ticker}
+                  key={s.key}
                   className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-slate-50"
                   data-testid={`manual-ticker-${s.ticker}`}
                 >
                   <input
                     type="checkbox"
                     checked
-                    onChange={() => onToggleTicker(s.ticker)}
+                    onChange={() => onToggleTicker(s.key)}
                     className="h-4 w-4 rounded border-slate-300"
                   />
-                  <span className="font-mono font-medium text-slate-700">{s.ticker}</span>
+                  <span className="font-mono font-medium text-slate-700">
+                    {s.ticker} · {s.marketCode}
+                  </span>
                   {s.name && <span className="text-slate-500">— {s.name}</span>}
                   {s.barsBackfillStatus && (
                     <span className="ml-auto flex items-center gap-1">
@@ -351,7 +390,7 @@ export function MonitoredTickersSection({
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            onRetryBackfill(s.ticker);
+                            onRetryBackfill(s.key);
                           }}
                           className="rounded p-0.5 text-red-500 hover:bg-red-50 hover:text-red-700"
                           title="Retry backfill"
@@ -376,12 +415,15 @@ export function MonitoredTickersSection({
                   : remaining > 0
                     ? buildCooldownLabel(dict, remaining)
                     : "";
-              const selected = repairSelection.has(item.ticker);
+              const key = monitoredTickerKey(item);
+              const selected = repairSelection.has(key);
               const disabled = !selected && disabledReason.length > 0;
 
               return (
                 <label
-                  key={item.ticker}
+                  // KZO-169: repair candidate list also keyed by
+                  // (ticker, marketCode).
+                  key={key}
                   data-testid={`repair-row-${item.ticker}`}
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
                     disabled ? "cursor-not-allowed bg-slate-100/70 text-slate-400" : "cursor-pointer hover:bg-amber-100/55"
@@ -396,7 +438,9 @@ export function MonitoredTickersSection({
                     className={`h-4 w-4 rounded border-slate-300 ${repairMode ? "accent-amber-600" : ""}`}
                     data-testid={`repair-selection-${item.ticker}`}
                   />
-                  <span className="font-mono font-medium">{item.ticker}</span>
+                  <span className="font-mono font-medium">
+                    {item.ticker} · {item.marketCode ?? "TW"}
+                  </span>
                   {item.name ? <span className="truncate text-slate-500">— {item.name}</span> : null}
                   <span className="ml-auto text-[10px] text-slate-500" data-testid={`repair-cooldown-hint-${item.ticker}`}>
                     {disabledReason}
@@ -459,7 +503,7 @@ export function MonitoredTickersSection({
         open={repairModalOpen}
         pending={isRepairSubmitting}
         title={dict.settings.repairModeTitle}
-        subtitle={`${selectedRepairTickers.join(", ") || "-"}`}
+        subtitle={`${selectedRepairKeys.map(formatTickerKeyLabel).join(", ") || "-"}`}
         value={repairDefaults}
         onOpenChange={setRepairModalOpen}
         onChange={setRepairDefaults}
@@ -489,8 +533,8 @@ export function MonitoredTickersSection({
           {repairApplyMode === "per-ticker" ? (
             <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
               {perTickerValues.map((row, index) => (
-                <div key={row.ticker} className="rounded-lg border border-slate-200 bg-white p-2">
-                  <p className="mb-1 text-xs font-semibold text-slate-700">{row.ticker}</p>
+                <div key={row.key} className="rounded-lg border border-slate-200 bg-white p-2">
+                  <p className="mb-1 text-xs font-semibold text-slate-700">{row.ticker} · {row.marketCode}</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input
                       type="date"

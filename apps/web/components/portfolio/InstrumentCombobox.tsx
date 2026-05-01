@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import type { MarketCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { fieldClassName } from "../ui/fieldStyles";
@@ -12,13 +13,30 @@ import {
 
 interface InstrumentComboboxProps {
   value: string;
+  selectedMarketCode?: MarketCode | null;
+  // KZO-169: parent passes the chip's selection so the catalog query is
+  // server-side filtered. `null` (or omitted) = ALL mode (cross-market).
+  marketCodeFilter?: MarketCode | null;
   dict: AppDictionary;
-  onSelect: (ticker: string) => void;
+  // KZO-169: commit emits both ticker AND marketCode so currency derivation
+  // happens unambiguously. The combobox always knows the marketCode of the
+  // instrument it commits — in specific-market mode it is the chip; in ALL
+  // mode it is whichever row the user picked.
+  onSelect: (ticker: string, marketCode: MarketCode) => void;
   readOnly?: boolean;
+}
+
+// KZO-169: in ALL mode the listbox row ALSO shows the market code so users can
+// disambiguate ambiguous tickers (e.g. BHP·AU vs BHP·US). The committed input
+// value mirrors that suffix while ALL mode is in effect.
+function isAllMode(filter: MarketCode | null | undefined): boolean {
+  return filter === null || filter === undefined;
 }
 
 export function InstrumentCombobox({
   value,
+  selectedMarketCode = null,
+  marketCodeFilter = null,
   dict,
   onSelect,
   readOnly = false,
@@ -26,9 +44,19 @@ export function InstrumentCombobox({
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const normalizedValue = value.trim().toUpperCase();
-  const { catalog, isLoading, error } = useInstrumentCatalog();
-  const selectedInstrument = catalog.find((instrument) => instrument.ticker === normalizedValue) ?? null;
-  const committedValue = selectedInstrument ? formatInstrumentDisplay(selectedInstrument) : normalizedValue;
+  const { catalog, isLoading, error } = useInstrumentCatalog(marketCodeFilter ?? "ALL");
+  // KZO-169: in ALL mode multiple rows can share a ticker (BHP·AU + BHP·US);
+  // pin the lookup to the (ticker, market) pair when we have one.
+  const selectedInstrument = catalog.find((instrument) =>
+    instrument.ticker === normalizedValue &&
+    (isAllMode(marketCodeFilter)
+      ? (selectedMarketCode ? instrument.marketCode === selectedMarketCode : true)
+      : instrument.marketCode === marketCodeFilter),
+  ) ?? null;
+  const showMarketSuffix = isAllMode(marketCodeFilter);
+  const committedValue = selectedInstrument
+    ? formatInstrumentDisplay(selectedInstrument, showMarketSuffix)
+    : normalizedValue;
   const [inputValue, setInputValue] = useState(committedValue);
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -88,8 +116,11 @@ export function InstrumentCombobox({
   }
 
   function commitSelection(instrument: TransactionInstrumentOption) {
-    onSelect(instrument.ticker);
-    setInputValue(formatInstrumentDisplay(instrument));
+    // KZO-169: emit both ticker AND marketCode. Catalog rows are always
+    // stamped with `marketCode` post-Phase-1 schema migration, so the cast
+    // back to MarketCode is safe.
+    onSelect(instrument.ticker, instrument.marketCode as MarketCode);
+    setInputValue(formatInstrumentDisplay(instrument, showMarketSuffix));
     setQuery("");
     setActiveIndex(0);
     setIsOpen(false);
@@ -147,7 +178,7 @@ export function InstrumentCombobox({
         aria-autocomplete="list"
         aria-controls={listboxId}
         aria-expanded={isOpen}
-        aria-activedescendant={isOpen && activeOption ? optionId(listboxId, activeOption.ticker) : undefined}
+        aria-activedescendant={isOpen && activeOption ? optionId(listboxId, activeOption.ticker, activeOption.marketCode) : undefined}
         aria-readonly={readOnly || undefined}
         readOnly={readOnly}
         value={inputValue}
@@ -187,8 +218,10 @@ export function InstrumentCombobox({
               <div className="space-y-1">
                 {filtered.items.map((instrument, index) => (
                   <button
-                    key={instrument.ticker}
-                    id={optionId(listboxId, instrument.ticker)}
+                    // KZO-169: ALL mode can render BHP·AU + BHP·US side-by-side,
+                    // so React keys MUST include marketCode to stay unique.
+                    key={`${instrument.ticker}|${instrument.marketCode}`}
+                    id={optionId(listboxId, instrument.ticker, instrument.marketCode)}
                     type="button"
                     role="option"
                     aria-selected={index === activeIndex}
@@ -197,11 +230,15 @@ export function InstrumentCombobox({
                       "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition",
                       index === activeIndex ? "bg-slate-900 text-white" : "text-slate-900 hover:bg-slate-100",
                     )}
-                    data-testid={`tx-ticker-option-${instrument.ticker}`}
+                    data-testid={`tx-ticker-option-${instrument.ticker}-${instrument.marketCode}`}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => commitSelection(instrument)}
                   >
-                    <span className="w-16 shrink-0 font-mono text-sm">{instrument.ticker}</span>
+                    <span className="w-24 shrink-0 font-mono text-sm">
+                      {showMarketSuffix
+                        ? `${instrument.ticker} · ${instrument.marketCode}`
+                        : instrument.ticker}
+                    </span>
                     <span className="min-w-0 flex-1 truncate text-sm">{instrument.name ?? instrument.ticker}</span>
                     <span className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]",
@@ -227,8 +264,14 @@ export function InstrumentCombobox({
   );
 }
 
-function formatInstrumentDisplay(instrument: { ticker: string; name: string | null }): string {
-  return instrument.name ? `${instrument.ticker} — ${instrument.name}` : instrument.ticker;
+function formatInstrumentDisplay(
+  instrument: { ticker: string; name: string | null; marketCode: string },
+  showMarketSuffix: boolean,
+): string {
+  const head = showMarketSuffix
+    ? `${instrument.ticker} · ${instrument.marketCode}`
+    : instrument.ticker;
+  return instrument.name ? `${head} — ${instrument.name}` : head;
 }
 
 function formatInstrumentTypeLabel(instrumentType: TransactionInstrumentOption["instrumentType"]): string {
@@ -243,6 +286,6 @@ function formatInstrumentTypeLabel(instrumentType: TransactionInstrumentOption["
   return "ETF";
 }
 
-function optionId(listboxId: string, ticker: string): string {
-  return `${listboxId}-${ticker}`;
+function optionId(listboxId: string, ticker: string, marketCode: string): string {
+  return `${listboxId}-${ticker}-${marketCode}`;
 }

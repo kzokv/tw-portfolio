@@ -8,7 +8,7 @@ import {
   type Lot,
 } from "@tw-portfolio/domain";
 import { marketCodeFor } from "@tw-portfolio/shared-types";
-import type { AccountDto } from "@tw-portfolio/shared-types";
+import type { AccountDto, MarketCode } from "@tw-portfolio/shared-types";
 import {
   appendCorporateAction,
   appendTradeEvent,
@@ -66,6 +66,9 @@ export interface CreateTransactionInput {
   id: string;
   accountId: string;
   ticker: string;
+  // KZO-169: provided by the caller as part of the body payload — server
+  // rejects mismatches via the `currency_mismatch` guard in the route handler.
+  marketCode: MarketCode;
   quantity: number;
   unitPrice: number;
   priceCurrency: string;
@@ -94,13 +97,13 @@ export function createTransaction(
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) throw routeError(404, "account_not_found", "Account not found");
 
-  const instrument = store.instruments.find((item) => item.ticker === input.ticker);
+  const instrument = store.instruments.find((item) => item.ticker === input.ticker && item.marketCode === input.marketCode);
   if (!instrument) throw routeError(400, "unsupported_ticker", "Unsupported ticker");
   if (instrument.type === null) throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
   // KZO-183: enforce account market binding BEFORE running fee resolution
   // or any side effects. The instrument's market_code must match the
   // market derived from the booking account's defaultCurrency.
-  assertTradeMarketMatchesAccount(account, instrument.marketCode ?? "TW");
+  assertTradeMarketMatchesAccount(account, instrument.marketCode);
 
   const profile = resolveFeeProfileForTransaction(
     store,
@@ -125,7 +128,7 @@ export function createTransaction(
           tradeCurrency: input.priceCurrency,
           instrumentType: instrument.type,
           isDayTrade: input.isDayTrade,
-          marketCode: instrument.marketCode ?? "TW",
+          marketCode: instrument.marketCode,
         });
   const commissionAmount = input.commissionAmount ?? suggestedFees.commissionAmount;
   const taxAmount = input.taxAmount ?? suggestedFees.taxAmount;
@@ -135,7 +138,7 @@ export function createTransaction(
     userId,
     accountId: input.accountId,
     ticker: input.ticker,
-    marketCode: instrument.marketCode ?? "TW",
+    marketCode: instrument.marketCode,
     instrumentType: instrument.type,
     type: input.type,
     quantity: input.quantity,

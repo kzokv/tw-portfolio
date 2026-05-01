@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, ProfileDto, UserSettings } from "@tw-portfolio/shared-types";
+import type {
+  AccountDefaultCurrency,
+  AccountDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  ProfileDto,
+  UserSettings,
+} from "@tw-portfolio/shared-types";
 import type { FormEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -16,7 +23,10 @@ import { SettingsDrawerShell } from "../../features/settings/components/Settings
 import { UnsavedChangesFooter } from "../../features/settings/components/UnsavedChangesFooter";
 import { useSettingsForm } from "../../features/settings/hooks/useSettingsForm";
 import { useMonitoredTickers } from "../../features/settings/hooks/useMonitoredTickers";
-import type { SettingsFormModel } from "../../features/settings/types/settingsUi";
+import type {
+  SettingsFormModel,
+  SettingsTab,
+} from "../../features/settings/types/settingsUi";
 import { DisplayTabSection, type ReorderablePage } from "./DisplayTabSection";
 
 export type SettingsDraft = SettingsFormModel;
@@ -47,6 +57,12 @@ interface SettingsDrawerProps {
   onLayoutReset?: () => void;
   onPageLayoutReset?: (page: ReorderablePage) => void;
   onReportingCurrencySaved?: () => void;
+  // KZO-169 (NC4): deep-link support for the create-account flow. AppShell
+  // reads `?settingsTab=accounts&accountsPrefillCurrency=USD` from the URL
+  // and passes them in. AccountCreateForm uses `accountsPrefillCurrency` as
+  // its initial defaultCurrency selection.
+  initialTab?: SettingsTab;
+  accountsPrefillCurrency?: AccountDefaultCurrency;
 }
 
 export function SettingsDrawer({
@@ -68,6 +84,8 @@ export function SettingsDrawer({
   onLayoutReset,
   onPageLayoutReset,
   onReportingCurrencySaved,
+  initialTab,
+  accountsPrefillCurrency,
 }: SettingsDrawerProps) {
   const form = useSettingsForm({
     open,
@@ -78,12 +96,13 @@ export function SettingsDrawer({
     dict,
     onOpenChange,
     onSave,
+    initialTab,
   });
 
   const tickers = useMonitoredTickers(open && form.tab === "tickers");
 
   const positionTickers = useMemo(
-    () => new Set(tickers.monitoredTickers.filter((s) => s.source === "position").map((s) => s.ticker)),
+    () => new Set(tickers.monitoredTickers.filter((s) => s.source === "position").map((s) => `${s.ticker}|${s.marketCode}`)),
     [tickers.monitoredTickers],
   );
 
@@ -234,6 +253,7 @@ export function SettingsDrawer({
                     onCreate={createAccount}
                     onAccountsRefresh={onAccountsRefresh}
                     dict={dict}
+                    prefillCurrency={accountsPrefillCurrency}
                   />
                   <AccountsListSection
                     accounts={accounts}

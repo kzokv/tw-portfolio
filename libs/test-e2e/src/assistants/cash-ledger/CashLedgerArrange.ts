@@ -11,6 +11,7 @@ export class CashLedgerArrange extends BaseArrange {
   @Step()
   async seedTradeWithSettlement(overrides: {
     ticker?: string;
+    marketCode?: "TW" | "US" | "AU";
     type?: "BUY" | "SELL";
     quantity?: number;
     unitPrice?: number;
@@ -31,6 +32,7 @@ export class CashLedgerArrange extends BaseArrange {
         data: {
           accountId: "acc-1",
           ticker: overrides.ticker ?? "2330",
+          marketCode: overrides.marketCode ?? "TW",
           type: overrides.type ?? "BUY",
           quantity: overrides.quantity ?? 10,
           unitPrice: overrides.unitPrice ?? 100,

@@ -5,6 +5,8 @@ import type { TransactionInput } from "../../../components/portfolio/types";
 const transaction: TransactionInput = {
   accountId: "missing",
   ticker: "2330",
+  // KZO-169: TransactionInput now carries marketCode (TW for legacy 2330).
+  marketCode: "TW",
   quantity: 1,
   unitPrice: 100,
   priceCurrency: "TWD",

@@ -39,9 +39,17 @@ export class SettingsArrange extends BaseArrange {
   }
 
   @Step()
-  async setManualMonitoredTickers(tickers: string[]): Promise<void> {
+  async setManualMonitoredTickers(
+    tickers: Array<string | { ticker: string; marketCode?: string }>,
+  ): Promise<void> {
     await this.request.put(apiUrl("/monitored-tickers"), {
-      data: { tickers },
+      data: {
+        tickers: tickers.map((item) =>
+          typeof item === "string"
+            ? { ticker: item, marketCode: "TW" }
+            : { ticker: item.ticker, marketCode: item.marketCode ?? "TW" },
+        ),
+      },
       headers: { "x-user-id": this.userId ?? "user-1" },
     });
   }

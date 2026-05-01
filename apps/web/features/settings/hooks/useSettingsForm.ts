@@ -50,6 +50,11 @@ interface UseSettingsFormOptions {
   dict: AppDictionary;
   onOpenChange: (open: boolean) => void;
   onSave: (draft: SettingsFormModel) => Promise<void>;
+  // KZO-169 (NC4): caller can pre-select a tab on the closed→open transition.
+  // Default `"general"` preserves existing behavior. AppShell wires this to
+  // a `?settingsTab=accounts` URL param so the create-account inline-error
+  // link in the transaction form deep-links into the right tab.
+  initialTab?: SettingsTab;
 }
 
 export function useSettingsForm({
@@ -61,8 +66,9 @@ export function useSettingsForm({
   dict,
   onOpenChange,
   onSave,
+  initialTab = "general",
 }: UseSettingsFormOptions) {
-  const [tab, setTab] = useState<SettingsTab>("general");
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [draft, setDraft] = useState<SettingsFormModel | null>(null);
   const [baseline, setBaseline] = useState<SettingsFormModel | null>(null);
   const [quotePollInterval, setQuotePollInterval] = useState("10");
@@ -70,6 +76,24 @@ export function useSettingsForm({
   const [discardNotice, setDiscardNotice] = useState("");
   const [showCloseWarning, setShowCloseWarning] = useState(false);
   const wasOpenRef = useRef(false);
+  // KZO-169 Fix-F1: capture `initialTab` in a ref so the seed effect can read
+  // it on the closed→open transition WITHOUT being a dep. Including
+  // `initialTab` in the dep array re-runs the effect every time the prop
+  // identity shifts (e.g., URL-param parsing across renders), which races
+  // with the `!settings` early-return path: re-runs that early-return don't
+  // flip `wasOpenRef` to true, so when settings finally arrive the effect
+  // runs with whatever `initialTab` is at that moment — and the seed body
+  // also reseeds draft/tab, blowing away any value the test had pre-seeded
+  // via `seedAsBrowser`. Capturing in a ref keeps the dep array stable.
+  // See `.worklog/team/memory/frontend-implementer.md` for the failure
+  // signature (3 OAuth E2E regressions: timeframe-C / timeframe-E1 /
+  // reporting-currency-D).
+  const initialTabRef = useRef<SettingsTab>(initialTab);
+  // Keep the ref current so a fresh open transition picks up the latest
+  // `initialTab` prop (e.g., user opens the drawer from a different deep-
+  // link). The ref is read inside the seed body, NOT inside any effect's
+  // dep tracking, so this assignment doesn't cause re-runs.
+  initialTabRef.current = initialTab;
 
   useEffect(() => {
     if (!open || !settings) {
@@ -94,7 +118,11 @@ export function useSettingsForm({
     setValidationError("");
     setDiscardNotice("");
     setShowCloseWarning(false);
-    setTab("general");
+    // KZO-169 (NC4): use the caller-provided initial tab so deep-link prefill
+    // (e.g. `?settingsTab=accounts`) lands users on the right tab. Read from
+    // the ref (Fix-F1) so unstable `initialTab` references don't re-fire
+    // this effect — the dep array intentionally OMITS `initialTab`.
+    setTab(initialTabRef.current);
     wasOpenRef.current = true;
   }, [accounts, feeProfileBindings, feeProfiles, open, settings]);
 

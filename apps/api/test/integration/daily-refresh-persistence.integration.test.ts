@@ -118,10 +118,20 @@ describePostgres("daily refresh persistence queries", () => {
     await persistence!.updateBackfillStatus("2603", "ready");
     await persistence!.updateBackfillStatus("0050", "ready");
 
-    await persistence!.replaceManualSelections(realManual.userId, ["2330", "2317"]);
-    await persistence!.replaceManualSelections(realPosition.userId, ["2603"]);
-    await persistence!.replaceManualSelections(demoOnly.userId, ["1101"]);
-    await persistence!.replaceManualSelections(mixedTickerDemo.userId, ["2330"]);
+    // KZO-169: replaceManualSelections accepts `{ ticker, marketCode }[]`.
+    await persistence!.replaceManualSelections(realManual.userId, [
+      { ticker: "2330", marketCode: "TW" },
+      { ticker: "2317", marketCode: "TW" },
+    ]);
+    await persistence!.replaceManualSelections(realPosition.userId, [
+      { ticker: "2603", marketCode: "TW" },
+    ]);
+    await persistence!.replaceManualSelections(demoOnly.userId, [
+      { ticker: "1101", marketCode: "TW" },
+    ]);
+    await persistence!.replaceManualSelections(mixedTickerDemo.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
     await addOpenPosition(realPosition.userId, realPosition.accountId, "0050", "lot-real-0050");
     await addOpenPosition(demoOnly.userId, demoOnly.accountId, "1101", "lot-demo-1101");
 
@@ -135,9 +145,15 @@ describePostgres("daily refresh persistence queries", () => {
     const realPosition = await createUser("position@example.com");
     const demo = await createUser("demo@example.com", true);
 
-    await persistence!.replaceManualSelections(realManual.userId, ["2330"]);
-    await persistence!.replaceManualSelections(realPosition.userId, ["2330"]);
-    await persistence!.replaceManualSelections(demo.userId, ["2330"]);
+    await persistence!.replaceManualSelections(realManual.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
+    await persistence!.replaceManualSelections(realPosition.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
+    await persistence!.replaceManualSelections(demo.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
     await addOpenPosition(realPosition.userId, realPosition.accountId, "2330", "lot-real-2330");
     await addOpenPosition(demo.userId, demo.accountId, "2330", "lot-demo-2330");
 

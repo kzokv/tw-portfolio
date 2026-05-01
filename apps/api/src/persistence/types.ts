@@ -725,7 +725,14 @@ export interface Persistence {
   compactBookingSequence(userId: string, accountId: string, tradeDate: string): Promise<void>;
 
   // Instruments
-  getInstrument(ticker: string): Promise<InstrumentRow | null>;
+  // KZO-169: `marketCode` becomes part of the lookup key after migration 044.
+  // Optional for back-compat in legacy callers (read-only consumers that
+  // haven't yet been threaded with market context); when present, the
+  // implementation matches against the composite `(ticker, market_code)` PK.
+  // When absent, the implementation falls back to ticker-only lookup which is
+  // safe for monomarket TW deployments and degrades to the first match
+  // otherwise.
+  getInstrument(ticker: string, marketCode?: string): Promise<InstrumentRow | null>;
   updateBackfillStatus(ticker: string, status: BackfillStatus): Promise<void>;
   updateLastRepairAt(ticker: string): Promise<void>;
 
@@ -777,11 +784,18 @@ export interface Persistence {
   getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]>;
   getAllMonitoredTickers(): Promise<string[]>;
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
-  getManualSelections(userId: string): Promise<{ ticker: string; addedAt: string }[]>;
-  replaceManualSelections(userId: string, tickers: string[]): Promise<{ newTickers: string[] }>;
+  getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]>;
+  // KZO-169: signature change — entries are now keyed by `(ticker, market_code)`
+  // composite to honor migration 044's PK. The newTickers field continues to
+  // return the keys that were not previously monitored (manual or position).
+  replaceManualSelections(
+    userId: string,
+    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+  ): Promise<{ newTickers: string[] }>;
   listInstrumentsCatalog(
     search?: string,
     type?: string,
+    marketCode?: string,
     userId?: string,
   ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]>;
 

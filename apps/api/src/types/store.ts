@@ -13,7 +13,10 @@ export interface FeeProfileBinding {
 export interface InstrumentDef {
   ticker: string;
   type: InstrumentType | null;
-  marketCode?: MarketCode;
+  // KZO-169: required after migration 044's composite PK + provider stamping
+  // audit (G1). Every code path that produces an InstrumentDef must supply a
+  // valid market — fail-loud is preferred over a `?? "TW"` fallback.
+  marketCode: MarketCode;
   isProvisional?: boolean;
   lastSyncedAt?: string | null;
   typeRaw?: string | null;
@@ -28,7 +31,9 @@ export interface BookedTradeEvent {
   userId: string;
   accountId: string;
   ticker: string;
-  marketCode?: MarketCode;
+  // KZO-169: required after migration 044. Books a trade against a specific
+  // (ticker, market_code) — derives `priceCurrency` via `currencyFor()`.
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   type: TransactionType;
   quantity: number;

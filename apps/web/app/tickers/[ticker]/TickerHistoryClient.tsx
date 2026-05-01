@@ -132,6 +132,11 @@ export function TickerHistoryClient({
         {
           accountId,
           ticker,
+          // KZO-169: pre-populate marketCode from the most-recent trade event
+          // for this ticker. Edit-mode locks both chip + ticker (D9a) so the
+          // value is fixed; on Record (instrumentReadOnly=false) the user may
+          // still pivot via the chip.
+          marketCode: (transactions[0]?.marketCode as TransactionInput["marketCode"]) ?? null,
           quantity: 1000,
           unitPrice: 100,
           priceCurrency: transactions[0]?.priceCurrency ?? "TWD",
@@ -171,6 +176,9 @@ export function TickerHistoryClient({
     [accountId, accounts, feeProfileBindings, feeProfiles, submission, ticker],
   );
 
+  // KZO-169: include `defaultCurrency` so the chip default + account filter
+  // pipeline in AddTransactionCard works consistently from the ticker
+  // history page. `accountType` is optional metadata.
   const lockedAccountOptions = useMemo(
     () =>
       accounts
@@ -179,6 +187,8 @@ export function TickerHistoryClient({
           id: account.id,
           name: account.name,
           feeProfileName: feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+          defaultCurrency: account.defaultCurrency,
+          accountType: account.accountType,
         })),
     [accountId, accounts, feeProfiles],
   );
@@ -342,7 +352,7 @@ export function TickerHistoryClient({
         title={dict.tickerHistory.recordTransaction}
         dict={dict}
         locale={locale}
-        tickerReadOnly
+        instrumentReadOnly
         priceHint={submission.priceHint}
         showPriceUnavailableHint={submission.showPriceUnavailableHint}
         feeEstimate={submission.feeEstimate}

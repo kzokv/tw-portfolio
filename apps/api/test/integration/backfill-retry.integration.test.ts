@@ -64,7 +64,8 @@ describe("backfill trigger hooks (memory mode)", () => {
     const res = await app.inject({
       method: "PUT",
       url: "/monitored-tickers",
-      payload: { tickers: ["2330"] },
+      // KZO-169 (D7a): body shape change.
+      payload: { tickers: [{ ticker: "2330", marketCode: "TW" }] },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().newTickers).toEqual(["2330"]);
@@ -77,6 +78,8 @@ describe("backfill trigger hooks (memory mode)", () => {
       payload: {
         accountId: "acc-1",
         ticker: "2330",
+        // KZO-169 (G4): TW fixture must stamp marketCode.
+        marketCode: "TW",
         quantity: 10,
         unitPrice: 500,
         priceCurrency: "TWD",

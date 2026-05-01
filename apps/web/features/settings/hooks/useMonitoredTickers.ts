@@ -11,6 +11,15 @@ import {
 } from "../services/monitoredTickersService";
 import { requestRepair, type RepairTargetRequest } from "../services/repairService";
 
+function monitoredTickerKey(ticker: string, marketCode: string): string {
+  return `${ticker}|${marketCode}`;
+}
+
+function parseMonitoredTickerKey(key: string): { ticker: string; marketCode: string } {
+  const [ticker = "", marketCode = "TW"] = key.split("|");
+  return { ticker, marketCode };
+}
+
 export interface UseMonitoredTickersReturn {
   monitoredTickers: MonitoredTickerDto[];
   instruments: InstrumentCatalogItemDto[];
@@ -72,7 +81,11 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
         setMonitoredTickers(tickersRes.tickers);
         setInstruments(catalogRes.instruments);
 
-        const manual = new Set(tickersRes.tickers.filter((s) => s.source === "manual").map((s) => s.ticker));
+        const manual = new Set(
+          tickersRes.tickers
+            .filter((s) => s.source === "manual")
+            .map((s) => monitoredTickerKey(s.ticker, s.marketCode)),
+        );
         setSelectedTickers(manual);
         setSavedTickers(manual);
       } finally {
@@ -172,12 +185,15 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
 
   const isDirty = selectedTickers.size !== savedTickers.size || [...selectedTickers].some((t) => !savedTickers.has(t));
 
+  // KZO-169 (D7a): manual selection state is keyed by `(ticker, marketCode)`
+  // so the same ticker can be selected in multiple markets.
   const save = useCallback(async () => {
     setIsSaving(true);
     setSaveError("");
     setSaveSuccess("");
     try {
-      const result = await saveMonitoredTickers([...selectedTickers]);
+      const payload = [...selectedTickers].map(parseMonitoredTickerKey);
+      const result = await saveMonitoredTickers(payload);
       if (!mounted.current) return;
       setMonitoredTickers(result.tickers);
       setSavedTickers(new Set(selectedTickers));
@@ -191,10 +207,11 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
   }, [selectedTickers]);
 
   const retryTicker = useCallback(
-    async (ticker: string) => {
+    async (key: string) => {
+      const { ticker, marketCode } = parseMonitoredTickerKey(key);
       updateStatus(ticker, "pending");
       try {
-        await retryBackfill(ticker);
+        await retryBackfill(ticker, marketCode);
       } catch {
         updateStatus(ticker, "failed");
       }

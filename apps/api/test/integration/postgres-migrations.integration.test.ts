@@ -542,6 +542,9 @@ describePostgres("postgres migrations", () => {
     const manifest = await migrationManifestPromise;
     await resetDatabase();
     await applyBaselineMigration();
+    await applyMigrationFiles(
+      manifest.numberedMigrations.filter((name) => !manifest.baselineSupersedes.includes(name)),
+    );
 
     await seedAppliedMigrationLedger(
       manifest.numberedMigrations.filter(
@@ -1361,6 +1364,8 @@ describePostgres("postgres migrations", () => {
         userId: "user-1",
         accountId: "user-1-acc-1",
         ticker: "2330",
+        // KZO-169: required on BookedTradeEvent.
+        marketCode: "TW",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 10,
@@ -1854,6 +1859,7 @@ describePostgres("postgres migrations", () => {
         userId: "user-1",
         accountId: "user-1-acc-1",
         ticker: "2330",
+        marketCode: "TW",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 10,
@@ -1875,6 +1881,7 @@ describePostgres("postgres migrations", () => {
         userId: "user-1",
         accountId: "user-1-acc-1",
         ticker: "2330",
+        marketCode: "TW",
         instrumentType: "STOCK",
         type: "BUY",
         quantity: 5,
@@ -1965,6 +1972,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo24-buy",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2055,6 +2063,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo24-seeded-buy",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2071,6 +2080,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo24-sell",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 5,
       unitPrice: 130,
       priceCurrency: "TWD",
@@ -2199,6 +2209,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo36-buy",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2367,6 +2378,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo51-buy",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2460,6 +2472,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo52-buy",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 10,
       unitPrice: 100,
       priceCurrency: "TWD",
@@ -2474,6 +2487,7 @@ describePostgres("postgres migrations", () => {
       id: "trade-kzo52-sell",
       accountId: "user-1-acc-1",
       ticker: "2330",
+      marketCode: "TW",
       quantity: 5,
       unitPrice: 130,
       priceCurrency: "TWD",
@@ -3058,5 +3072,170 @@ describePostgres("postgres migrations", () => {
            ('mig043-audit-reverse', 'mig043-u', 'fx_transfer_reversed', 'mig043-u', '{}'::jsonb)`,
       ),
     ).resolves.not.toThrow();
+  });
+
+  // ── KZO-169 — migration 044 walk ─────────────────────────────────────────
+  // Migration 044 rewrites primary keys on market_data.instruments and
+  // market_data.daily_bars to the composite (ticker, market_code) shape, and
+  // adds market_code to market_data.dividend_events + user_monitored_tickers
+  // (with PK rewrite + FK rebind). Everything is forward-only and idempotent.
+
+  it("KZO-169: migration 044 walk — composite (ticker, market_code) PKs and column adds", async () => {
+    await resetDatabase();
+    await applyNumberedMigrations();
+
+    // ── 1. market_data.instruments PK is now composite (ticker, market_code) ──
+    const instrumentsPk = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'market_data.instruments'::regclass
+         AND contype = 'p'`,
+    );
+    expect(instrumentsPk.rows).toHaveLength(1);
+    expect(instrumentsPk.rows[0].def).toMatch(/PRIMARY KEY \(ticker, market_code\)/);
+
+    // ── 2. market_data.daily_bars has market_code column + composite PK ──────
+    const dailyBarsCol = await pool.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+      `SELECT data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'market_data'
+         AND table_name = 'daily_bars'
+         AND column_name = 'market_code'`,
+    );
+    expect(dailyBarsCol.rows).toHaveLength(1);
+    expect(dailyBarsCol.rows[0].data_type).toBe("text");
+    expect(dailyBarsCol.rows[0].is_nullable).toBe("NO");
+    expect(dailyBarsCol.rows[0].column_default).toMatch(/TW/);
+
+    const dailyBarsPk = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'market_data.daily_bars'::regclass
+         AND contype = 'p'`,
+    );
+    expect(dailyBarsPk.rows).toHaveLength(1);
+    expect(dailyBarsPk.rows[0].def).toMatch(/PRIMARY KEY \(ticker, market_code, bar_date\)/);
+
+    const dailyBarsCheck = await pool.query<{ conname: string }>(
+      `SELECT conname FROM pg_constraint
+       WHERE conname = 'ck_daily_bars_market_code'
+         AND conrelid = 'market_data.daily_bars'::regclass`,
+    );
+    expect(dailyBarsCheck.rows).toHaveLength(1);
+
+    // ── 3. market_data.dividend_events has market_code column + CHECK + index ─
+    const divCol = await pool.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+      `SELECT data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'market_data'
+         AND table_name = 'dividend_events'
+         AND column_name = 'market_code'`,
+    );
+    expect(divCol.rows).toHaveLength(1);
+    expect(divCol.rows[0].data_type).toBe("text");
+    expect(divCol.rows[0].is_nullable).toBe("NO");
+    expect(divCol.rows[0].column_default).toMatch(/TW/);
+
+    const divCheck = await pool.query<{ conname: string }>(
+      `SELECT conname FROM pg_constraint
+       WHERE conname = 'ck_dividend_events_market_code'
+         AND conrelid = 'market_data.dividend_events'::regclass`,
+    );
+    expect(divCheck.rows).toHaveLength(1);
+
+    const divIdx = await pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+       WHERE schemaname = 'market_data'
+         AND tablename = 'dividend_events'
+         AND indexname = 'idx_md_dividend_events_ticker_market_ex_date'`,
+    );
+    expect(divIdx.rows).toHaveLength(1);
+
+    // ── 4. user_monitored_tickers — column + composite PK + composite FK ─────
+    const umtCol = await pool.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+      `SELECT data_type, is_nullable, column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'user_monitored_tickers'
+         AND column_name = 'market_code'`,
+    );
+    expect(umtCol.rows).toHaveLength(1);
+    expect(umtCol.rows[0].data_type).toBe("text");
+    expect(umtCol.rows[0].is_nullable).toBe("NO");
+    expect(umtCol.rows[0].column_default).toMatch(/TW/);
+
+    const umtPk = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.user_monitored_tickers'::regclass
+         AND contype = 'p'`,
+    );
+    expect(umtPk.rows).toHaveLength(1);
+    expect(umtPk.rows[0].def).toMatch(/PRIMARY KEY \(user_id, ticker, market_code\)/);
+
+    const umtFk = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conname = 'fk_umt_instrument'
+         AND conrelid = 'public.user_monitored_tickers'::regclass`,
+    );
+    expect(umtFk.rows).toHaveLength(1);
+    expect(umtFk.rows[0].def).toMatch(/FOREIGN KEY \(ticker, market_code\) REFERENCES market_data\.instruments\(ticker, market_code\)/);
+
+    // ── 5. Two BHP rows on different markets persist (composite PK in action) ─
+    await expect(
+      pool.query(
+        `INSERT INTO market_data.instruments (ticker, market_code, name, instrument_type)
+         VALUES ('BHP', 'US', 'BHP Group ADR', 'STOCK'),
+                ('BHP', 'AU', 'BHP Group Ltd', 'STOCK')`,
+      ),
+    ).resolves.not.toThrow();
+
+    const dupRows = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM market_data.instruments WHERE ticker = 'BHP'`,
+    );
+    expect(dupRows.rows[0].count).toBe("2");
+
+    // ── 6. market_code regex CHECK rejects malformed codes ───────────────────
+    await expect(
+      pool.query(
+        `INSERT INTO market_data.daily_bars (
+           ticker, market_code, bar_date, open, high, low, close, volume, source
+         ) VALUES (
+           'BHP', 'lower', '2026-04-01', 1, 1, 1, 1, 0, 'test'
+         )`,
+      ),
+    ).rejects.toThrow();
+
+    // ── 7. user_monitored_tickers FK to composite instruments is enforced ────
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('mig044-u', 'mig044@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
+         VALUES ('mig044-u', 'BHP', 'AU')`,
+      ),
+    ).resolves.not.toThrow();
+
+    // Same (user, ticker) tuple on a different market is allowed by the new
+    // composite PK — verifies the disambiguation behaviour for BHP-on-US vs
+    // BHP-on-AU monitoring.
+    await expect(
+      pool.query(
+        `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
+         VALUES ('mig044-u', 'BHP', 'US')`,
+      ),
+    ).resolves.not.toThrow();
+
+    // FK violation: ticker exists but the (ticker, market_code) tuple does not.
+    await expect(
+      pool.query(
+        `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
+         VALUES ('mig044-u', 'BHP', 'TW')`,
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -954,6 +954,15 @@ Current numbered migration inventory:
 - `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` for admin-configurable dashboard timeframe defaults (KZO-159)
 - `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to support account ordering and migration backfill naming
 - `042_kzo183_account_scoped_fee_profiles.sql`: rescope `fee_profiles` from user-owned to account-owned, drop `account_fee_profile_overrides.market_code`, enforce same-account ownership with composite FKs, and add market-alignment guards for `trade_events` and `dividend_ledger_entries`
+- `044_kzo169_composite_market_pk.sql`: rewrites `market_data.instruments` to primary key `(ticker, market_code)`, rewrites `market_data.daily_bars` to primary key `(ticker, market_code, bar_date)`, adds `market_code` to `market_data.dividend_events`, and keys `user_monitored_tickers` by `(user_id, ticker, market_code)`
+
+### Transaction market selector and symbol disambiguation (KZO-169)
+
+KZO-169 makes BUY/SELL transaction entry market-aware while leaving DIV/STOCK_DIV/SPLIT user entry to KZO-184 and transaction-history display changes to KZO-175. Existing market-data rows backfill to `TW` through migration `044`'s forward-only `ADD COLUMN ... DEFAULT 'TW'` steps.
+
+`POST /portfolio/transactions` and `POST /portfolio/transactions/estimate` require `marketCode`. The route resolves instruments by `(ticker, marketCode)`, derives trade currency with `currencyFor(marketCode)`, and rejects stale clients or bulk paths with `400 currency_mismatch` when `account.defaultCurrency` differs. Edit mode keeps ticker and market locked, and `TransactionHistoryItemDto.marketCode` is non-null after migration `044`.
+
+`GET /instruments` accepts `market_code=TW|US|AU|ALL`, defaulting to `ALL`. Specific-market requests are filtered server-side; `ALL` returns cross-market rows so the web combobox can display disambiguated labels such as `BHP · AU` and `BHP · US`. `PUT /monitored-tickers` accepts `{ tickers: [{ ticker, marketCode }] }`. Backfill job payloads now carry `{ ticker, marketCode, userId }`; the worker temporarily accepts legacy no-market payloads until KZO-185 removes the compatibility path after queue drain.
 
 ### Persistence write-path map
 

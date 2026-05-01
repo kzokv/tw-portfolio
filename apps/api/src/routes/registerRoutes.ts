@@ -24,7 +24,7 @@ import {
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
-import { dashboardPerformanceRangesSchema } from "@tw-portfolio/shared-types";
+import { dashboardPerformanceRangesSchema, currencyFor, marketCodeFor } from "@tw-portfolio/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
   translateOverviewSummary,
@@ -97,7 +97,7 @@ import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteA
 import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
-import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
 
 export const userScopedIdSchema = z
   .string()
@@ -120,9 +120,17 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/);
 
+// KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
+// transactions must commit to a specific market).
+const marketCodeSchema = z.enum(["TW", "US", "AU"]);
+
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
   ticker: tickerSchema,
+  // KZO-169: required body field — every trade pins to (ticker, marketCode).
+  // Backfilled to "TW" for legacy fixtures via Slice 12 (G4) audit; new client
+  // code path always supplies it (form chip default derived from accounts).
+  marketCode: marketCodeSchema,
   quantity: z.number().int().positive(),
   unitPrice: z.number().positive().multipleOf(0.01),
   priceCurrency: currencyCodeSchema.default("TWD"),
@@ -1161,7 +1169,7 @@ function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDt
     id: trade.id,
     accountId: trade.accountId,
     ticker: trade.ticker,
-    marketCode: trade.marketCode ?? null,
+    marketCode: trade.marketCode,
     instrumentType: trade.instrumentType,
     type: trade.type,
     quantity: trade.quantity,
@@ -1319,6 +1327,7 @@ function buildFetchedPriceLookupResponse(bar: DailyBar, requestedDate: string) {
 async function opportunisticUpsertDailyBars(
   persistence: FastifyInstance["persistence"],
   bars: DailyBar[],
+  marketCode: MarketCode,
 ): Promise<void> {
   if (bars.length === 0) return;
 
@@ -1327,6 +1336,7 @@ async function opportunisticUpsertDailyBars(
       persistence.getPool(),
       bars.map((bar) => ({
         ticker: bar.ticker,
+        marketCode,
         barDate: bar.barDate,
         open: bar.open,
         high: bar.high,
@@ -1438,7 +1448,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post("/__e2e/seed-instruments", async (req) => {
-    assertE2EResetEnabled();
+    // KZO-169 (Fix-P1): seed-class endpoints must use the seed guard so that
+    // API HTTP tests (suite 8 — AUTH_MODE=oauth) can call them. The reset
+    // guard requires AUTH_MODE=dev_bypass and would block oauth-mode HTTP
+    // suites. Per `.claude/rules/e2e-seed-vs-reset-guards.md`.
+    assertE2ESeedEnabled();
     const body = z
       .object({
         instruments: z.array(
@@ -1594,11 +1608,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const tradeDate = body.tradeDate ?? new Date(Date.parse(`${body.exDividendDate}T00:00:00.000Z`) - 86_400_000)
         .toISOString()
         .slice(0, 10);
+      const marketCode = marketCodeFor(account.defaultCurrency);
+      ensureInstrumentDefinition(store, body.ticker, marketCode);
 
       createTransaction(store, userId, {
         id: randomUUID(),
         accountId: body.accountId,
         ticker: body.ticker,
+        marketCode,
         quantity: body.eligibleQuantity,
         unitPrice: 100,
         priceCurrency: body.cashDividendCurrency,
@@ -3042,7 +3059,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // limiter throws RateLimitedError when the shared FinMind budget is exhausted; surface
     // that as 503 + Retry-After so clients can back off intelligently. Distinct from the
     // per-IP 429 emitted by `assertMarketDataPriceRateLimit` above. (N8 behavioral delta.)
-    const provider = app.marketDataRegistry.marketData.get(resolveMarketCode(query.ticker));
+    const market = resolveMarketCode(query.ticker);
+    const provider = app.marketDataRegistry.marketData.get(market);
     if (!provider) {
       throw routeError(404, "price_not_found", "price not found");
     }
@@ -3073,7 +3091,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(404, "price_not_found", "price not found");
     }
 
-    await opportunisticUpsertDailyBars(app.persistence, fetchedBars);
+    await opportunisticUpsertDailyBars(app.persistence, fetchedBars, market);
     return buildFetchedPriceLookupResponse(fetchedMatch, query.date);
   });
 
@@ -3090,11 +3108,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
 
+    // KZO-169: server-side currency_mismatch guard. Trade currency derives
+    // from `currencyFor(body.marketCode)`; reject when the chosen account's
+    // defaultCurrency disagrees. This is the safety net for stale-state
+    // clients and bulk-import paths that miss the chip filter.
+    const account = draftStore.accounts.find((a) => a.id === body.accountId);
+    if (!account) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    const tradeCurrency = currencyFor(body.marketCode);
+    if (account.defaultCurrency !== tradeCurrency) {
+      throw routeError(
+        400,
+        "currency_mismatch",
+        `Trade currency ${tradeCurrency} does not match account currency ${account.defaultCurrency}`,
+      );
+    }
+
     // KZO-183: hydrate the persisted instrument catalog into draftStore so the
-    // market guard sees the canonical marketCode (e.g. MSFT="US") rather than
-    // the provisional default of "TW" produced by ensureInstrumentDefinition
-    // when the ticker is missing from store.instruments.
-    const persistedInstrument = await app.persistence.getInstrument(body.ticker);
+    // market guard sees the canonical marketCode rather than the provisional
+    // default of "TW" produced by ensureInstrumentDefinition. KZO-169: the
+    // lookup is now scoped by (ticker, marketCode) per migration 044's PK.
+    const persistedInstrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
     if (persistedInstrument) {
       setStoreInstruments(
         draftStore,
@@ -3107,7 +3142,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         }]),
       );
     }
-    const ensured = ensureInstrumentDefinition(draftStore, body.ticker);
+    const ensured = ensureInstrumentDefinition(draftStore, body.ticker, body.marketCode);
 
     if (ensured.instrument.type === null) {
       throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
@@ -3143,13 +3178,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // KZO-126: First-trade backfill trigger
     if (app.boss && !isDemo) {
-      const instrument = await app.persistence.getInstrument(body.ticker);
+      // KZO-169: lookup by composite (ticker, marketCode); singletonKey is
+      // composite so BHP/AU and BHP/US don't compete for the same slot.
+      const instrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
       // Skip if ticker not in catalog, or already ready
       if (instrument && instrument.barsBackfillStatus !== "ready") {
         await app.boss.send(
           BACKFILL_QUEUE,
-          { ticker: body.ticker, userId, trigger: "first_trade" } satisfies BackfillJobData,
-          { singletonKey: body.ticker, priority: 0 },
+          {
+            ticker: body.ticker,
+            marketCode: body.marketCode,
+            userId,
+            trigger: "first_trade",
+          } satisfies BackfillJobData,
+          { singletonKey: `${body.ticker}:${body.marketCode}`, priority: 0 },
         );
       }
     }
@@ -3160,6 +3202,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/portfolio/transactions/estimate", async (req) => {
     const body = z.object({
       ticker: tickerSchema,
+      // KZO-169 (G2): estimate body now requires marketCode so the trade
+      // currency derives from the instrument's market_code via currencyFor().
+      // Replaces the previous fee-profile-currency derivation.
+      marketCode: marketCodeSchema,
       quantity: z.number().int().positive(),
       unitPrice: z.number().positive().multipleOf(0.01),
       type: z.enum(["BUY", "SELL"]),
@@ -3173,11 +3219,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(404, "account_not_found", "Account not found");
     }
 
-    const instrument = await app.persistence.getInstrument(body.ticker);
-    const marketCode = instrument?.marketCode ?? "TW";
+    // KZO-169: resolve instrument by composite (ticker, marketCode); fall
+    // back to a STOCK assumption when the catalog row is absent (the form
+    // can request an estimate before the instrument is committed).
+    const instrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
+    const marketCode = body.marketCode;
     const instrumentType: InstrumentType = instrument?.instrumentType ?? "STOCK";
     const profile = resolveTransactionFeeProfile(store, account.id, body.ticker);
-    const tradeCurrency = profile.commissionCurrency ?? "TWD";
+    // KZO-169 (D3): trade currency derives from instrument.market_code via
+    // `currencyFor()`. The previous `profile.commissionCurrency ?? "TWD"`
+    // was a provider-stamping audit (G1) target.
+    const tradeCurrency = currencyFor(marketCode);
     const tradeValueAmount = roundToDecimal(body.quantity * body.unitPrice, 2);
 
     const fees = body.type === "BUY"
@@ -3302,7 +3354,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               tradeCurrency: trade.priceCurrency,
               instrumentType: trade.instrumentType,
               isDayTrade: trade.isDayTrade,
-              marketCode: trade.marketCode ?? "TW",
+              marketCode: trade.marketCode,
             });
 
         patch.commissionAmount = fees.commissionAmount;
@@ -4073,12 +4125,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { store, userId } = await loadUserStore(app, req);
     const draftStore = structuredClone(store);
     assertStoreIntegrity(draftStore);
+    const account = requireAccount(draftStore, body.accountId);
+    const marketCode = marketCodeFor(account.defaultCurrency);
 
     const created = body.proposals.map((proposal, idx) =>
       createTransaction(draftStore, userId, {
         id: `${randomUUID()}-${idx}`,
         accountId: body.accountId,
         ticker: proposal.ticker,
+        marketCode,
         quantity: proposal.quantity,
         unitPrice: proposal.unitPrice,
         priceCurrency: proposal.priceCurrency,
@@ -4116,11 +4171,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .object({
         search: z.string().trim().min(1).max(100).optional(),
         type: z.enum(["STOCK", "ETF", "BOND_ETF"]).optional(),
+        // KZO-169: optional `market_code` filter; "ALL" disables filtering.
+        // Default ALL preserves back-compat with existing consumers.
+        market_code: z.enum(["TW", "US", "AU", "ALL"]).default("ALL").optional(),
       })
       .parse(req.query);
 
     const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
-    const rows = await app.persistence.listInstrumentsCatalog(query.search, query.type, userId);
+    // KZO-169: pass `market_code` through to persistence; treat ALL/undefined
+    // as "no filter".
+    const marketFilter = query.market_code && query.market_code !== "ALL" ? query.market_code : undefined;
+    const rows = await app.persistence.listInstrumentsCatalog(query.search, query.type, marketFilter, userId);
     return { instruments: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
   });
 
@@ -4133,21 +4194,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.put("/monitored-tickers", async (req) => {
     const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    // KZO-169 (D7a): body shape change from `[ticker]` → `[{ticker, marketCode}]`.
     const body = z
       .object({
-        tickers: z.array(tickerSchema).max(500),
+        tickers: z
+          .array(z.object({ ticker: tickerSchema, marketCode: marketCodeSchema }))
+          .max(500),
       })
       .parse(req.body);
 
     const result = await app.persistence.replaceManualSelections(userId, body.tickers);
 
-    // KZO-126: Enqueue backfill for genuinely new tickers (demo users skip FinMind)
+    // KZO-126 / KZO-169: enqueue backfill for genuinely new tickers (demo users
+    // skip FinMind). Singleton key is now `${ticker}:${marketCode}` (G3) so
+    // BHP/AU and BHP/US don't compete for the same singleton slot.
     if (app.boss && !isDemo && result.newTickers.length > 0) {
-      for (const ticker of result.newTickers) {
+      for (const sel of body.tickers) {
+        if (!result.newTickers.includes(sel.ticker)) continue;
         await app.boss.send(
           BACKFILL_QUEUE,
-          { ticker, userId, trigger: "user_selection" } satisfies BackfillJobData,
-          { singletonKey: ticker, priority: 0 },
+          {
+            ticker: sel.ticker,
+            marketCode: sel.marketCode,
+            userId,
+            trigger: "user_selection",
+          } satisfies BackfillJobData,
+          { singletonKey: `${sel.ticker}:${sel.marketCode}`, priority: 0 },
         );
       }
     }
@@ -4165,7 +4237,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/backfill/retry", async (req) => {
     const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const body = z.object({ ticker: tickerSchema }).parse(req.body);
+    const body = z.object({ ticker: tickerSchema, marketCode: marketCodeSchema.optional() }).parse(req.body);
 
     if (isDemo) {
       throw routeError(403, "demo_restricted", "Backfill is not available for demo users");
@@ -4174,7 +4246,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(503, "queue_unavailable", "Job queue is not available");
     }
 
-    const instrument = await app.persistence.getInstrument(body.ticker);
+    // KZO-169: legacy retry route accepts ticker only; market is resolved via
+    // the persisted instrument (TW priority on ticker-only lookup). The
+    // resolved marketCode is stamped on the enqueued job + singleton key so
+    // the worker doesn't have to re-derive.
+    const instrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
     if (!instrument) {
       throw routeError(404, "instrument_not_found", "Instrument not found in catalog");
     }
@@ -4187,8 +4263,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     await app.boss.send(
       BACKFILL_QUEUE,
-      { ticker: body.ticker, userId, trigger: "retry" } satisfies BackfillJobData,
-      { singletonKey: body.ticker, priority: 0 },
+      {
+        ticker: body.ticker,
+        marketCode: instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
+        userId,
+        trigger: "retry",
+      } satisfies BackfillJobData,
+      { singletonKey: `${body.ticker}:${instrument.marketCode}`, priority: 0 },
     );
 
     return { ticker: body.ticker, barsBackfillStatus: "pending" };
@@ -4237,6 +4318,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const rejected: Array<{ ticker: string; reason: string }> = [];
 
     for (const ticker of body.tickers) {
+      // KZO-169: same as retry — resolve market from persisted instrument.
       const instrument = await app.persistence.getInstrument(ticker);
       if (!instrument) {
         rejected.push({ ticker, reason: "instrument_not_found" });
@@ -4260,6 +4342,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         BACKFILL_QUEUE,
         {
           ticker,
+          marketCode: instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
           userId,
           trigger: "repair",
           startDate: body.startDate,
@@ -4267,7 +4350,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           includeBars: body.includeBars,
           includeDividends: body.includeDividends,
         } satisfies BackfillJobData,
-        { singletonKey: ticker, priority: 5 },
+        { singletonKey: `${ticker}:${instrument.marketCode}`, priority: 5 },
       );
       queued.push(ticker);
     }
