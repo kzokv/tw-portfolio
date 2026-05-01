@@ -197,7 +197,9 @@ describe("generateHoldingSnapshots", () => {
     const result = await generateHoldingSnapshots("user-1", persistence);
 
     expect(result.provisionalRows).toBe(1);
-    expect(result.tickersNeedingBackfill).toContain("2330");
+    // KZO-185: tickersNeedingBackfill is now `{ticker, marketCode}[]` so the
+    // assertion uses `toContainEqual` against the composite shape.
+    expect(result.tickersNeedingBackfill).toContainEqual({ ticker: "2330", marketCode: "TW" });
 
     const snapshots = await persistence.getHoldingSnapshotsForTicker(
       "user-1", "acc-1", "2330", "2025-01-01", "2025-12-31",
@@ -556,5 +558,72 @@ describe("getAggregatedSnapshots", () => {
     // 2317 still held: costBasis=250, marketValue=275
     expect(aggregated[0].totalCostBasis).toBe(250); // just 2317
     expect(aggregated[0].cumulativeRealizedPnl).toBe(100); // from 2330 sell
+  });
+});
+
+// ── KZO-185: same-ticker-different-market tickersNeedingBackfill ─────────────
+//
+// The walker uses a composite Map key `${ticker}:${marketCode}` so a cross-listed
+// stock (e.g. BHP held in both an AU brokerage account and a US brokerage account)
+// surfaces as TWO distinct `tickersNeedingBackfill` entries — one per market.
+// This is the canonical test for that invariant.
+//
+// Ticker "CROSS" is reserved for this suite.
+// Per `.claude/rules/e2e-shared-memory-bars-ticker-hygiene.md`, this test does NOT
+// seed any daily bars for "CROSS" (the whole point is to exercise the "no bars →
+// provisional" path). No contamination risk with other test files.
+
+describe("tickersNeedingBackfill — same ticker across markets (KZO-185)", () => {
+  it("cross-listed ticker: walker emits two distinct {ticker, marketCode} entries when no bars exist", async () => {
+    const store = await persistence.loadStore("user-1");
+
+    // Account acc-1 holds CROSS/AU; account acc-2 holds CROSS/US.
+    // `acc-2` doesn't need to formally exist in store.accounts — the walker groups
+    // by accountId from the trade event itself (not from the accounts array).
+    store.accounting.facts.tradeEvents.push(
+      makeTrade({
+        accountId: "acc-1",
+        ticker: "CROSS",
+        marketCode: "AU",
+        priceCurrency: "AUD",
+        tradeDate: "2025-02-03",
+        quantity: 100,
+        unitPrice: 50,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+      makeTrade({
+        accountId: "acc-2",
+        ticker: "CROSS",
+        marketCode: "US",
+        priceCurrency: "USD",
+        tradeDate: "2025-02-03",
+        quantity: 50,
+        unitPrice: 200,
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    );
+    await persistence.saveStore(store);
+
+    // No daily bars seeded for "CROSS" → both (acc-1, CROSS/AU) and (acc-2, CROSS/US)
+    // produce provisional rows → both appear in tickersNeedingBackfill.
+    const result = await generateHoldingSnapshots("user-1", persistence);
+
+    expect(result.tickersNeedingBackfill).toHaveLength(2);
+    // Both composite entries must be present (order not guaranteed).
+    expect(result.tickersNeedingBackfill).toContainEqual({ ticker: "CROSS", marketCode: "AU" });
+    expect(result.tickersNeedingBackfill).toContainEqual({ ticker: "CROSS", marketCode: "US" });
+    // The two entries must be distinct — the Map key collapses same-ticker
+    // same-market duplicates but NOT same-ticker different-market pairs.
+    const auEntry = result.tickersNeedingBackfill.find(
+      (e) => e.ticker === "CROSS" && e.marketCode === "AU",
+    );
+    const usEntry = result.tickersNeedingBackfill.find(
+      (e) => e.ticker === "CROSS" && e.marketCode === "US",
+    );
+    expect(auEntry).toBeDefined();
+    expect(usEntry).toBeDefined();
+    expect(auEntry).not.toEqual(usEntry);
   });
 });

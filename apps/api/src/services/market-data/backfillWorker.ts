@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { PgBoss, JobWithMetadata } from "pg-boss";
 import type { BackfillStatus, MarketCode } from "@tw-portfolio/domain";
+import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
 import type { MarketDataProvider } from "./types.js";
 import { HISTORY_START, RateLimitedError } from "./types.js";
@@ -10,11 +11,11 @@ export const BACKFILL_QUEUE = "finmind-backfill";
 
 export interface BackfillJobData {
   ticker: string;
-  // KZO-169 (D7b): producers stamp the market_code so consumers don't have to
-  // re-resolve via `resolveMarketCode(ticker)`. Optional for back-compat —
-  // pre-deploy in-flight jobs (TW only) lack this field; the handler treats
-  // `undefined` as `"TW"`. Cleanup tracked under KZO-185 ≥24h after queue drain.
-  marketCode?: MarketCode;
+  // KZO-185: required after producer audit. Producers (snapshots/generate
+  // auto-trigger, recompute/confirm auto-trigger, daily-refresh cron, manual
+  // /market-data/backfill, /repair, /retry) all stamp `marketCode` directly.
+  // The Zod schema below is the single validation gate at the worker entry.
+  marketCode: MarketCode;
   userId?: string;
   trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh" | "repair";
   startDate?: string;
@@ -24,12 +25,28 @@ export interface BackfillJobData {
   batchId?: string;
 }
 
+// KZO-185: validation gate at the handler entry. Parsed BEFORE the existing
+// `try` block so a ZodError on a malformed (or pre-KZO-169 in-flight) job
+// propagates straight to pg-boss without running side effects (status updates,
+// SSE events, instrument writes). Per `.claude/rules/typed-transient-error-catch-audit.md`
+// — the existing `catch` (further down) only re-throws non-RateLimitedError, so
+// ZodError surfaces cleanly to pg-boss and the job retries up to retryLimit.
+export const BackfillJobDataSchema = z.object({
+  ticker: z.string(),
+  marketCode: z.enum(["TW", "US", "AU"]),
+  userId: z.string().optional(),
+  trigger: z.enum(["user_selection", "first_trade", "retry", "daily_refresh", "repair"]),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  includeBars: z.boolean().optional(),
+  includeDividends: z.boolean().optional(),
+  batchId: z.string().optional(),
+}) satisfies z.ZodType<BackfillJobData>;
+
 export interface BackfillWorkerDeps {
   pool: Pool;
   /** Per-market market-data registry. Replaces the single-provider `finmind` dep (KZO-163). */
   marketDataRegistry: Map<MarketCode, MarketDataProvider>;
-  /** Resolves a ticker to its market code. Today returns 'TW'; KZO-170 will upgrade. */
-  resolveMarketCode: (ticker: string) => MarketCode;
   eventBus: BufferedEventBus;
   boss: PgBoss;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
@@ -57,7 +74,6 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
   const {
     pool,
     marketDataRegistry,
-    resolveMarketCode,
     eventBus,
     boss,
     updateBackfillStatus,
@@ -70,7 +86,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
   } = deps;
 
   return async ([job]: JobWithMetadata<BackfillJobData>[]): Promise<void> => {
-    const { ticker, userId, trigger, startDate, endDate, includeBars = true, includeDividends = true, batchId } = job.data;
+    // KZO-185: validate job.data BEFORE the existing try block so a ZodError
+    // on a malformed (or pre-KZO-169 in-flight) job propagates straight to
+    // pg-boss without running side effects (status updates, SSE events,
+    // instrument writes). Per `.claude/rules/typed-transient-error-catch-audit.md`:
+    // the catch on the try block below only re-throws non-RateLimitedError, so
+    // ZodError surfaces cleanly to pg-boss and the job retries up to retryLimit.
+    const data = BackfillJobDataSchema.parse(job.data);
+    const { ticker, marketCode: market, userId, trigger, startDate, endDate, includeBars = true, includeDividends = true, batchId } = data;
     const effectiveStartDate = startDate ?? HISTORY_START;
     const isDailyRefresh = trigger === "daily_refresh";
     const isRepair = trigger === "repair";
@@ -82,10 +105,6 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       throw new Error("Backfill job must request at least one dataset");
     }
 
-    // KZO-169 (D7b): prefer the producer-stamped marketCode; fall back to the
-    // ticker-derived resolver for legacy in-flight jobs that predate KZO-169.
-    // TODO(KZO-185): remove the resolver fallback ≥24h after queue drain.
-    const market = job.data.marketCode ?? resolveMarketCode(ticker);
     const provider = marketDataRegistry.get(market);
     if (!provider) {
       throw new Error(`No market data provider for market ${market}`);
@@ -99,7 +118,8 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // KZO-169 (G3): singletonKey is composite `${ticker}:${marketCode}` so
       // BHP/AU and BHP/US don't share a slot.
       const singletonKey = `${ticker}:${market}`;
-      const id = await boss.send(BACKFILL_QUEUE, job.data, {
+      // KZO-185: enqueue the parsed (validated) payload, not raw `job.data`.
+      const id = await boss.send(BACKFILL_QUEUE, data, {
         startAfter: delaySec,
         singletonKey,
         priority: job.priority ?? 0,

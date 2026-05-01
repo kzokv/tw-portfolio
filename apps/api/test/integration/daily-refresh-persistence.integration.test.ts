@@ -137,7 +137,11 @@ describePostgres("daily refresh persistence queries", () => {
 
     await persistence!.upsertInstrumentCatalog([], [{ ticker: "2603", name: "Evergreen", date: "2026-03-30" }]);
 
-    await expect(persistence!.getAllMonitoredTickers()).resolves.toEqual(["0050", "2330"]);
+    // KZO-185: getAllMonitoredTickers returns `(ticker, marketCode)` pairs.
+    await expect(persistence!.getAllMonitoredTickers()).resolves.toEqual([
+      { ticker: "0050", marketCode: "TW" },
+      { ticker: "2330", marketCode: "TW" },
+    ]);
   });
 
   it("returns the non-demo users monitoring a ticker via manual selections or open positions", async () => {

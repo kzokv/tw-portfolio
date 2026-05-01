@@ -61,6 +61,7 @@ const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";
 export const API_CLIENT_ERROR_EVENT = "tw:api-client-error";
 
+import { redirect } from "next/navigation";
 import {
   CONTEXT_FALLBACK_REVOKED_EVENT,
   CONTEXT_USER_ID_COOKIE,
@@ -259,18 +260,26 @@ function emitClientApiError(error: ApiError, path: string): void {
 }
 
 async function redirectToLogoutOn401<T>(res: Response, path: string): Promise<T> {
-  if (res.status === 401 && typeof window !== "undefined") {
-    // Session is terminating — drop any outbound-share context cookie so the
-    // next login starts in the user's own context (KZO-146 design slice 17).
-    clearContextCookie();
-    // Demo session expired — redirect to login with message
-    if (sessionStorage.getItem("isDemo")) {
-      sessionStorage.removeItem("isDemo");
-      window.location.href = "/login?demoExpired=true";
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      // Session is terminating — drop any outbound-share context cookie so the
+      // next login starts in the user's own context (KZO-146 design slice 17).
+      clearContextCookie();
+      // Demo session expired — redirect to login with message
+      if (sessionStorage.getItem("isDemo")) {
+        sessionStorage.removeItem("isDemo");
+        window.location.href = "/login?demoExpired=true";
+        return new Promise<T>(() => {});
+      }
+      window.location.href = `${API_PUBLIC}/auth/logout`;
       return new Promise<T>(() => {});
     }
-    window.location.href = `${API_PUBLIC}/auth/logout`;
-    return new Promise<T>(() => {});
+    // Server context (Server Component / route handler): use Next.js redirect
+    // so the unhandled ApiError doesn't bubble to GlobalError and trip the
+    // duplicate <html>/<body> hydration warning. Mirrors requireSession()'s
+    // /login redirect in lib/auth.ts so behavior is consistent whichever
+    // server-side check resolves first.
+    redirect("/login");
   }
   throw await parseError(res, path);
 }

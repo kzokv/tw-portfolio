@@ -27,11 +27,14 @@ export async function enqueueDailyRefresh(
 
   const startDate = getDailyRefreshStartDate();
   await Promise.all(
-    tickers.map((ticker) =>
+    // KZO-185: producer stamps `marketCode` from the persistence result; the
+    // worker's Zod schema rejects any old-shape job. `singletonKey` is the
+    // composite `${ticker}:${marketCode}` so BHP/AU and BHP/US don't collide.
+    tickers.map(({ ticker, marketCode }) =>
       boss.send(
         BACKFILL_QUEUE,
-        { ticker, trigger: "daily_refresh", startDate, batchId } satisfies BackfillJobData,
-        { priority: DAILY_REFRESH_PRIORITY, singletonKey: ticker },
+        { ticker, marketCode: marketCode as BackfillJobData["marketCode"], trigger: "daily_refresh", startDate, batchId } satisfies BackfillJobData,
+        { priority: DAILY_REFRESH_PRIORITY, singletonKey: `${ticker}:${marketCode}` },
       ),
     ),
   );

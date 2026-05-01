@@ -5,7 +5,6 @@ import { registerBackfillWorker } from "../services/market-data/registerBackfill
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
 import { FX_REFRESH_CRON, FX_REFRESH_QUEUE } from "../services/market-data/fxRefreshWorker.js";
 import { registerFxRefreshWorker } from "../services/market-data/registerFxRefreshWorker.js";
-import { resolveMarketCode } from "../services/market-data/marketResolution.js";
 import {
   ANONYMOUS_SHARE_TOKEN_PURGE_CRON,
   ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE,
@@ -40,7 +39,10 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   const backfillDeps = {
     pool,
     marketDataRegistry: app.marketDataRegistry.marketData,
-    resolveMarketCode,
+    // KZO-185: `resolveMarketCode` dep removed — producers stamp `marketCode`
+    // directly on `BackfillJobData` and the worker validates via Zod at handler
+    // entry. The `marketResolution.ts` module is kept for `/market-data/price`
+    // (KZO-170 placeholder) but the worker no longer touches it.
     eventBus: app.eventBus,
     boss,
     updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>

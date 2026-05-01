@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 import type { JobWithMetadata } from "pg-boss";
 import type { MarketCode } from "@tw-portfolio/domain";
 import type { RawDailyBar, DividendRecord } from "../../src/services/market-data/types.js";
@@ -11,8 +12,15 @@ function createJob(
   retryLimit = 3,
   priority?: number,
 ): JobWithMetadata<Record<string, unknown>> {
+  // KZO-185: BackfillJobData.marketCode is required and validated via Zod at
+  // handler entry. Default to "TW" so existing test cases keep their semantics
+  // (all of these tests were originally written under the back-compat fallback
+  // `?? resolveMarketCode(ticker)` which always returned "TW"). Tests that
+  // intentionally exercise the missing-marketCode path should pass `data`
+  // without `marketCode` (and the test should expect a ZodError).
+  const dataWithMarket = "marketCode" in data ? data : { ...data, marketCode: "TW" };
   return {
-    data,
+    data: dataWithMarket,
     retryCount,
     retryLimit,
     priority,
@@ -63,7 +71,8 @@ function createDeps() {
     pool: { query: vi.fn().mockResolvedValue({ rowCount: 1 }) },
     provider,
     marketDataRegistry,
-    resolveMarketCode: vi.fn().mockReturnValue("TW" as MarketCode),
+    // KZO-185: `resolveMarketCode` dep removed — producers stamp `marketCode`
+    // directly. Worker validates via Zod schema at handler entry.
     eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
     boss: { send: vi.fn().mockResolvedValue(undefined) },
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
@@ -187,9 +196,11 @@ describe("backfill handler trigger branching", () => {
       ) as never,
     ]);
 
+    // KZO-185: reschedule enqueues the parsed (validated) payload, which
+    // includes the producer-stamped marketCode.
     expect(deps.boss.send).toHaveBeenCalledWith(
       "finmind-backfill",
-      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
       { startAfter: 30, singletonKey: "2330:TW", priority: 10 },
     );
     // Status must NOT flip to "failed" on a reschedule.
@@ -388,10 +399,11 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    // Reschedule, not completion notification
+    // Reschedule, not completion notification.
+    // KZO-185: parsed (validated) payload includes producer-stamped marketCode.
     expect(deps.boss.send).toHaveBeenCalledWith(
       "finmind-backfill",
-      { ticker: "2330", userId: "user-9", trigger: "user_selection" },
+      { ticker: "2330", marketCode: "TW", userId: "user-9", trigger: "user_selection" },
       expect.objectContaining({ startAfter: 15, singletonKey: "2330:TW" }),
     );
     expect(deps.eventBus.publishEvent).not.toHaveBeenCalledWith(
@@ -422,10 +434,11 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    // Reschedule sent with correct startAfter: ceil(45_000 / 1000) = 45
+    // Reschedule sent with correct startAfter: ceil(45_000 / 1000) = 45.
+    // KZO-185: parsed (validated) payload includes producer-stamped marketCode.
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
-      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
       expect.objectContaining({ startAfter: 45, singletonKey: "2330:TW" }),
     );
     // Status must NOT flip — this is a reschedule, not a failure or success
@@ -457,10 +470,11 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    // Reschedule fired with the full 2-slot wait time (90s, not 1s for the next single slot)
+    // Reschedule fired with the full 2-slot wait time (90s, not 1s for the next single slot).
+    // KZO-185: parsed (validated) payload includes producer-stamped marketCode.
     expect(deps.boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,
-      { ticker: "2330", trigger: "daily_refresh", startDate: "2026-03-24" },
+      { ticker: "2330", marketCode: "TW", trigger: "daily_refresh", startDate: "2026-03-24" },
       expect.objectContaining({ startAfter: 90, singletonKey: "2330:TW" }),
     );
     // Critical: NEITHER fetch ran — that's the whole point of the pre-flight guard
@@ -488,5 +502,45 @@ describe("backfill handler trigger branching", () => {
 
     expect(provider.reserveCapacity).not.toHaveBeenCalled();
     expect(provider.fetchBars).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // KZO-185 (D3 / typed-transient-error-catch-audit.md): old-shape rejection.
+  // The BackfillJobDataSchema.parse() is placed BEFORE the existing try block
+  // so a ZodError on a malformed job (missing `marketCode`) propagates straight
+  // to pg-boss without running ANY side effects. This test verifies:
+  //   (a) ZodError is thrown (job.data missing `marketCode` fails Zod)
+  //   (b) no bars fetch, no dividend fetch
+  //   (c) no status update, no SSE event, no reschedule boss.send
+  //   (d) the existing try/catch does NOT swallow ZodError — it propagates
+  //       cleanly because the parse is BEFORE the try block.
+  // -------------------------------------------------------------------------
+  it("rejects old-shape job.data missing marketCode with ZodError before any side effects", async () => {
+    const deps = createDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    // Construct old-shape job directly (bypass createJob's `marketCode` default)
+    // to simulate a pre-KZO-169 in-flight job that lacks `marketCode`. Cast
+    // through `unknown` because `JobWithMetadata` requires ~17 additional
+    // pg-boss-internal fields the handler never reads — the parse runs at
+    // entry, and the test's only assertion is that ZodError surfaces before
+    // any of those fields would be touched.
+    const oldShapeJob = {
+      data: { ticker: "2330", userId: "u1", trigger: "daily_refresh" },
+      retryCount: 0,
+      retryLimit: 3,
+    } as unknown as JobWithMetadata<Record<string, unknown>>;
+
+    await expect(handler([oldShapeJob as never])).rejects.toThrow(ZodError);
+
+    // Nothing must have run after the parse — all side-effect spies must be zero.
+    expect(deps.pool.query).not.toHaveBeenCalled();
+    expect(deps.eventBus.publishEvent).not.toHaveBeenCalled();
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
+    expect(deps.boss.send).not.toHaveBeenCalled();
+    // Provider is only reached after a successful parse; neither fetch ran.
+    const twProvider = deps.marketDataRegistry.get("TW")!;
+    expect(twProvider.fetchBars).not.toHaveBeenCalled();
+    expect(twProvider.fetchDividends).not.toHaveBeenCalled();
   });
 });

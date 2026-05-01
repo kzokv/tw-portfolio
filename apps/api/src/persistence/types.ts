@@ -487,6 +487,11 @@ export interface SnapshotTradeInput {
    *  as the holding's native currency and fails fast on mixed values for the
    *  same (account, ticker). */
   priceCurrency: string;
+  /** KZO-185: market code that owns this (ticker, market_code) row. Walker
+   *  groups (account, ticker) and forwards `marketCode` into the
+   *  `tickersNeedingBackfill` payload so downstream `boss.send` calls stamp
+   *  the producer-validated `marketCode` directly — no per-ticker fallback. */
+  marketCode: string;
 }
 
 export interface SnapshotGenerationInputs {
@@ -782,7 +787,11 @@ export interface Persistence {
   // KZO-133: persistence returns DTOs without `repairAvailableAt` — route layer
   // decorates using getEffectiveRepairCooldownMinutes() + deriveRepairAvailableAt().
   getMonitoredSet(userId: string): Promise<Omit<MonitoredTickerDto, "repairAvailableAt">[]>;
-  getAllMonitoredTickers(): Promise<string[]>;
+  // KZO-185: returns `(ticker, marketCode)` pairs so producers (daily refresh,
+  // post-recompute auto-backfill) can stamp `marketCode` on `BackfillJobData`
+  // directly. The Zod gatekeeper at the worker entry validates the value; the
+  // catalog `i.market_code` join in postgres.ts is the authoritative source.
+  getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]>;
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]>;
   // KZO-169: signature change — entries are now keyed by `(ticker, market_code)`

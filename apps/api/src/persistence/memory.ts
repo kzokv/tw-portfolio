@@ -1684,6 +1684,10 @@ export class MemoryPersistence implements Persistence {
         // KZO-165: project the trade's native currency. BookedTradeEvent always
         // carries a non-null priceCurrency (DB CHECK + TS required field).
         priceCurrency: t.priceCurrency,
+        // KZO-185: forward marketCode so the walker can stamp it on
+        // `tickersNeedingBackfill` entries. BookedTradeEvent has carried this
+        // field since KZO-169 / migration 044.
+        marketCode: t.marketCode,
       }));
 
     // Dividends — filter posted, non-reversed, non-superseded; join with events for paymentDate+ticker.
@@ -2362,7 +2366,10 @@ export class MemoryPersistence implements Persistence {
     return result;
   }
 
-  async getAllMonitoredTickers(): Promise<string[]> {
+  async getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]> {
+    // KZO-185: shape change to `{ticker, marketCode}` pairs. Memory backend
+    // has no users-monitored-tickers state; the empty array remains
+    // shape-compatible with consumers (daily-refresh cron, catalog sync).
     return [];
   }
 

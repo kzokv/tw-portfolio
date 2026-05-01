@@ -205,6 +205,10 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
       expect(trade.ticker).toBe("2330");
       expect(typeof trade.quantity).toBe("number");
       expect(typeof trade.unitPrice).toBe("number");
+      // KZO-185: `SnapshotTradeInput.marketCode` is now required; the Postgres
+      // SELECT projects `trade_events.market_code` → `marketCode`. The seed SQL
+      // inserts `'TW'` so this assertion validates end-to-end projection.
+      expect(trade.marketCode).toBe("TW");
     }
   });
 
