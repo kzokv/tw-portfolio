@@ -2678,10 +2678,10 @@ export class PostgresPersistence implements Persistence {
       id: string; account_id: string; ticker: string; trade_type: string;
       quantity: string; unit_price: string; trade_date: string;
       booking_sequence: number | null; commission_amount: string; tax_amount: string;
-      price_currency: string;
+      price_currency: string; market_code: string;
     }>(
       `SELECT id, account_id, ticker, trade_type, quantity, unit_price, trade_date::text,
-              booking_sequence, commission_amount, tax_amount, price_currency
+              booking_sequence, commission_amount, tax_amount, price_currency, market_code
        FROM trade_events
        WHERE ${tradeFilter}
        ORDER BY trade_date ASC, booking_sequence ASC, id ASC`,
@@ -2737,6 +2737,9 @@ export class PostgresPersistence implements Persistence {
         commissionAmount: Number(row.commission_amount),
         taxAmount: Number(row.tax_amount),
         priceCurrency: row.price_currency,
+        // KZO-185: forward `market_code` so the walker can stamp each
+        // (ticker, market_code) pair on the `tickersNeedingBackfill` payload.
+        marketCode: row.market_code,
       })),
       postedDividends: divResult.rows.map(r => ({
         accountId: r.account_id,
@@ -6130,13 +6133,13 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
-  async getAllMonitoredTickers(): Promise<string[]> {
-    // KZO-169: JOIN updated to composite (ticker, market_code) per scope-todo
-    // §D10 / postgres.ts:6102. Manual rows + position-derived rows union into
-    // distinct (ticker, market_code) pairs, then filter to ready+listed
-    // instruments. Returns ticker only — provider workers re-resolve market
-    // via getInstrument() when they need the composite key.
-    const result = await this.pool.query<{ ticker: string }>(
+  async getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]> {
+    // KZO-169 / KZO-185: composite (ticker, market_code) JOIN. Manual rows +
+    // position-derived rows union into distinct (ticker, market_code) pairs,
+    // then filter to ready+listed instruments. Producers (daily-refresh cron,
+    // post-recompute auto-backfill) consume `marketCode` directly; the worker's
+    // back-compat `?? resolveMarketCode(ticker)` fallback is gone (KZO-185).
+    const result = await this.pool.query<{ ticker: string; market_code: string }>(
       `WITH monitored AS (
          SELECT ums.user_id, ums.ticker, ums.market_code
          FROM user_monitored_tickers ums
@@ -6154,7 +6157,7 @@ export class PostgresPersistence implements Persistence {
          JOIN accounts a ON a.id = l.account_id
          WHERE l.open_quantity > 0
        )
-       SELECT DISTINCT i.ticker
+       SELECT DISTINCT i.ticker, i.market_code
        FROM monitored m
        JOIN users u ON u.id = m.user_id
        JOIN market_data.instruments i
@@ -6162,9 +6165,9 @@ export class PostgresPersistence implements Persistence {
        WHERE u.is_demo = FALSE
          AND i.bars_backfill_status = 'ready'
          AND i.delisted_at IS NULL
-       ORDER BY i.ticker`,
+       ORDER BY i.ticker, i.market_code`,
     );
-    return result.rows.map((row) => row.ticker);
+    return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
   }
 
   async getUsersMonitoringTicker(ticker: string): Promise<string[]> {

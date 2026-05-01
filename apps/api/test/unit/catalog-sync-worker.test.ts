@@ -25,7 +25,10 @@ function createDeps() {
   const catalogRegistry = new Map([["TW", catalogProvider]]);
   const persistence = {
     upsertInstrumentCatalog: vi.fn(),
-    getAllMonitoredTickers: vi.fn(),
+    // KZO-185: getAllMonitoredTickers now returns {ticker, marketCode}[] pairs.
+    // enqueueDailyRefreshFn is always injected as a mock in these tests so this
+    // mock is never invoked, but the return value is set to the correct shape.
+    getAllMonitoredTickers: vi.fn().mockResolvedValue([]),
     createRefreshBatch: vi.fn(),
   };
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

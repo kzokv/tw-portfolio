@@ -3894,11 +3894,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       try {
         const result = await generateHoldingSnapshots(userId, app.persistence, { generationRunId });
 
-        // Trigger backfill for tickers missing daily_bars
+        // KZO-185: producer stamps marketCode from the walker's result. Composite
+        // singletonKey `${ticker}:${marketCode}` so BHP/AU + BHP/US don't share
+        // a slot when both surface in the same regen.
         if (app.boss && result.tickersNeedingBackfill.length > 0) {
-          for (const ticker of result.tickersNeedingBackfill) {
+          for (const { ticker, marketCode } of result.tickersNeedingBackfill) {
             try {
-              await app.boss.send(BACKFILL_QUEUE, { ticker, trigger: "first_trade", includeBars: true } satisfies BackfillJobData);
+              await app.boss.send(
+                BACKFILL_QUEUE,
+                {
+                  ticker,
+                  marketCode: marketCode as BackfillJobData["marketCode"],
+                  trigger: "first_trade",
+                  includeBars: true,
+                } satisfies BackfillJobData,
+                { singletonKey: `${ticker}:${marketCode}` },
+              );
             } catch {
               // Backfill queue unavailable — provisional data remains
             }
@@ -4003,14 +4014,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const result = await generateHoldingSnapshots(userId, app.persistence, {
           generationRunId: snapshotRunId,
         });
+        // KZO-185: producer stamps marketCode + composite singletonKey
+        // (parity with snapshots/generate at line 3899 above and the
+        // daily-refresh cron in dailyRefreshEnqueue.ts).
         if (app.boss && result.tickersNeedingBackfill.length > 0) {
-          for (const ticker of result.tickersNeedingBackfill) {
+          for (const { ticker, marketCode } of result.tickersNeedingBackfill) {
             try {
-              await app.boss.send(BACKFILL_QUEUE, {
-                ticker,
-                trigger: "first_trade",
-                includeBars: true,
-              } satisfies BackfillJobData);
+              await app.boss.send(
+                BACKFILL_QUEUE,
+                {
+                  ticker,
+                  marketCode: marketCode as BackfillJobData["marketCode"],
+                  trigger: "first_trade",
+                  includeBars: true,
+                } satisfies BackfillJobData,
+                { singletonKey: `${ticker}:${marketCode}` },
+              );
             } catch {
               // Backfill queue unavailable — provisional data remains.
             }

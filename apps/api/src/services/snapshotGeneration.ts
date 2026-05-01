@@ -18,7 +18,11 @@ export interface SnapshotGenerationResult {
   provisionalRows: number;
   dateRange: { from: string; to: string } | null;
   generationRunId: string;
-  tickersNeedingBackfill: string[];
+  // KZO-185: walker emits (ticker, marketCode) pairs so producers can stamp
+  // `marketCode` on enqueued backfill jobs without per-ticker resolution.
+  // Same-ticker-different-market (e.g. BHP/AU + BHP/US in one user) surfaces
+  // as two distinct entries because the Map key is composite.
+  tickersNeedingBackfill: { ticker: string; marketCode: string }[];
 }
 
 /**
@@ -57,12 +61,21 @@ export async function generateHoldingSnapshots(
     : new Map<string, DailyBar[]>();
 
   const allSnapshots: HoldingSnapshot[] = [];
-  const tickersNeedingBackfill = new Set<string>();
+  // KZO-185: composite key `${ticker}:${marketCode}` so cross-listed tickers
+  // (BHP/AU + BHP/US in one user) surface as TWO distinct entries instead of
+  // collapsing on `ticker`. Producers (snapshots/generate, recompute/confirm)
+  // stamp `marketCode` on each enqueued backfill job from these entries.
+  const tickersNeedingBackfill = new Map<string, { ticker: string; marketCode: string }>();
 
   for (const [accountId, byTicker] of tradesByAccountTicker) {
     for (const [ticker, groupTrades] of byTicker) {
       const bars = barsByTicker.get(ticker) ?? [];
       const dividends = dividendsByAccountTicker.get(accountId)?.get(ticker) ?? [];
+      // KZO-185: the (account, ticker) pair has a single marketCode by the
+      // currency-coupling rule (walkPositionHistory enforces single
+      // priceCurrency at line 193 below; marketCode tracks priceCurrency 1:1).
+      const marketCode = groupTrades[0].marketCode;
+      const compositeKey = `${ticker}:${marketCode}`;
 
       const snapshots = walkPositionHistory({
         userId,
@@ -77,13 +90,13 @@ export async function generateHoldingSnapshots(
       });
 
       for (const s of snapshots) {
-        if (s.isProvisional) tickersNeedingBackfill.add(ticker);
+        if (s.isProvisional) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
         allSnapshots.push(s);
       }
 
       // If the ticker has no bars at all, flag for backfill even when the
       // walker didn't emit a provisional row (e.g., no dates to walk).
-      if (bars.length === 0) tickersNeedingBackfill.add(ticker);
+      if (bars.length === 0) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
     }
   }
 
@@ -97,7 +110,7 @@ export async function generateHoldingSnapshots(
     provisionalRows: allSnapshots.filter(s => s.isProvisional).length,
     dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : null,
     generationRunId,
-    tickersNeedingBackfill: [...tickersNeedingBackfill],
+    tickersNeedingBackfill: [...tickersNeedingBackfill.values()],
   };
 }
 
@@ -142,10 +155,15 @@ export async function recomputeSnapshotsForTicker(
     fromDate,
   });
 
-  const tickersNeedingBackfill = new Set<string>();
-  if (bars.length === 0) tickersNeedingBackfill.add(ticker);
+  // KZO-185: composite-key Map mirrors the full-regen walker. We know
+  // `inputs.trades.length > 0` from the early return above, so reading
+  // `inputs.trades[0].marketCode` is safe.
+  const marketCode = inputs.trades[0].marketCode;
+  const compositeKey = `${ticker}:${marketCode}`;
+  const tickersNeedingBackfill = new Map<string, { ticker: string; marketCode: string }>();
+  if (bars.length === 0) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
   for (const s of snapshots) {
-    if (s.isProvisional) tickersNeedingBackfill.add(ticker);
+    if (s.isProvisional) tickersNeedingBackfill.set(compositeKey, { ticker, marketCode });
   }
 
   if (snapshots.length > 0) {
@@ -158,7 +176,7 @@ export async function recomputeSnapshotsForTicker(
     provisionalRows: snapshots.filter(s => s.isProvisional).length,
     dateRange: dates.length > 0 ? { from: dates[0], to: dates[dates.length - 1] } : null,
     generationRunId,
-    tickersNeedingBackfill: [...tickersNeedingBackfill],
+    tickersNeedingBackfill: [...tickersNeedingBackfill.values()],
   };
 }
 
