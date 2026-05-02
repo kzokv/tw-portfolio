@@ -265,12 +265,23 @@ export interface CatalogInstrument {
   industryCategoryRaw: string;
   finmindDate: string;
   instrumentType: import("@tw-portfolio/domain").InstrumentType | null;
+  // KZO-170 S4: per-row market code now required. The persistence layer threads
+  // this through `unnest($N::text[])` (postgres.ts) and as the second composite-PK
+  // column on `market_data.instruments` (post-KZO-169). Previously every row was
+  // hardcoded `'TW'` at the SQL layer (`array_fill('TW'::text, ...)`); the stamp
+  // now comes from the catalog source.
+  marketCode: import("@tw-portfolio/domain").MarketCode;
 }
 
 export interface DelistingRecord {
   ticker: string;
   name: string;
   date: string;
+  // KZO-170 S4: optional market code for delisting target isolation. Without this,
+  // a TW delisting for ticker X would also flip a US instrument with the same ticker.
+  // `runCatalogSync` stamps this from the per-market sync invocation; older callers
+  // that omit it preserve the legacy TW-only behavior via the postgres branch.
+  marketCode?: import("@tw-portfolio/domain").MarketCode;
 }
 
 // ── Cash ledger listing (KZO-137) ────────────────────────────────────────────

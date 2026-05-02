@@ -1,4 +1,4 @@
-import { HISTORY_START } from "../types.js";
+import { historyStartFor } from "../types.js";
 import type {
   RawDailyBar,
   DividendRecord,
@@ -68,6 +68,8 @@ export interface FinMindMarketDataProviderConfig {
  * `RateLimitedError` when the limiter denies a request.
  */
 export class FinMindMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
+  /** KZO-170 D14: stable provider identity for log enrichment. */
+  readonly providerId = "finmind-tw";
   private readonly token: string;
   private readonly baseUrl: string;
   private readonly rateLimiter: RateLimiter;
@@ -120,7 +122,7 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
     }
   }
 
-  private async fetchDataset<T>(dataset: string, ticker: string, startDate: string = HISTORY_START, endDate?: string): Promise<T[]> {
+  private async fetchDataset<T>(dataset: string, ticker: string, startDate: string = historyStartFor("TW"), endDate?: string): Promise<T[]> {
     const params = new URLSearchParams({
       dataset,
       data_id: ticker,

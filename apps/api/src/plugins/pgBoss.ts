@@ -39,10 +39,10 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   const backfillDeps = {
     pool,
     marketDataRegistry: app.marketDataRegistry.marketData,
-    // KZO-185: `resolveMarketCode` dep removed — producers stamp `marketCode`
-    // directly on `BackfillJobData` and the worker validates via Zod at handler
-    // entry. The `marketResolution.ts` module is kept for `/market-data/price`
-    // (KZO-170 placeholder) but the worker no longer touches it.
+    // KZO-170: `resolveMarketCode` deleted — `/market-data/price` now requires
+    // `market_code` as a query param, producers stamp `marketCode` directly on
+    // `BackfillJobData`, and the worker validates the marketCode via Zod at
+    // handler entry. Nothing references `marketResolution.ts` post-KZO-170.
     eventBus: app.eventBus,
     boss,
     updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>

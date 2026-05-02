@@ -83,6 +83,12 @@ const MOCK_DELISTING_HISTORY: RawDelistingRecord[] = [
  * `MockFinMindClient` — preserves the `calls` field and deterministic fixtures used by tests.
  */
 export class MockFinMindMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
+  /**
+   * KZO-170 D14: same provider identity as the real `FinMindMarketDataProvider`. The mock and
+   * real provider are interchangeable behind the registry; sharing `providerId` lets log-based
+   * dashboards aggregate uniformly across dev/test/prod regardless of which branch is wired in.
+   */
+  readonly providerId = "finmind-tw";
   readonly calls: Array<{ method: string; ticker?: string; startDate?: string; endDate?: string; n?: number }> = [];
 
   /**

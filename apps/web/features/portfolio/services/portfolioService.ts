@@ -100,14 +100,21 @@ export async function fetchTransactionInstrumentCatalog(
   return getJson<TransactionInstrumentCatalogResponse>(qs ? `/instruments?${qs}` : "/instruments");
 }
 
+// KZO-170 S8: `marketCode` is now a required argument. The API's
+// `/market-data/price` route requires `market_code` as a query param —
+// the legacy `resolveMarketCode(ticker)` heuristic that returned `'TW'`
+// for every ticker was deleted. Callers pass the form's account-derived
+// market (`draftTransaction.marketCode`).
 export async function fetchMarketDataPrice(
   ticker: string,
   date: string,
+  marketCode: MarketCode,
   signal?: AbortSignal,
 ): Promise<MarketDataPriceResponse> {
   const query = new URLSearchParams({
     ticker: ticker.trim().toUpperCase(),
     date,
+    market_code: marketCode,
   });
   return getJson<MarketDataPriceResponse>(`/market-data/price?${query.toString()}`, { signal });
 }

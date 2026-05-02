@@ -28,6 +28,8 @@ export interface FrankfurterFxRateProviderConfig {
  * pg-boss apply its retry policy.
  */
 export class FrankfurterFxRateProvider implements FxRateProvider {
+  /** KZO-170 D14: stable provider identity for log enrichment. */
+  readonly providerId = "frankfurter";
   private readonly baseUrl: string;
 
   constructor(config: FrankfurterFxRateProviderConfig) {

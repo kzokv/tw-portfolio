@@ -6,6 +6,7 @@ export * from "./feeProfiles/index.js";
 export * from "./fxRates/index.js";
 export * from "./fxTransfers/index.js";
 export * from "./instruments/index.js";
+export * from "./marketData/index.js";
 export * from "./notifications/index.js";
 export * from "./profile/index.js";
 export * from "./quotes/index.js";

@@ -70,8 +70,13 @@ export function useTransactionSubmission({
 
   useEffect(() => {
     const normalizedTicker = draftTransaction.ticker.trim().toUpperCase();
-    const lookupKey = normalizedTicker && draftTransaction.tradeDate && draftTransaction.marketCode
-      ? `${normalizedTicker}|${draftTransaction.marketCode}|${draftTransaction.tradeDate}`
+    // KZO-170: capture `marketCode` here so the downstream `fetchMarketDataPrice`
+    // call gets a non-null value through closure narrowing. The truthy check on
+    // the right-hand side guarantees `marketCode` is a `MarketCode` (not null)
+    // when `lookupMarketCode` is non-null.
+    const lookupMarketCode = draftTransaction.marketCode;
+    const lookupKey = normalizedTicker && draftTransaction.tradeDate && lookupMarketCode
+      ? `${normalizedTicker}|${lookupMarketCode}|${draftTransaction.tradeDate}`
       : null;
     const lookupKeyChanged = lookupKey !== previousLookupKeyRef.current;
     previousLookupKeyRef.current = lookupKey;
@@ -94,7 +99,17 @@ export function useTransactionSubmission({
           const cachedResponse =
             cached && cached.expiresAt > Date.now()
               ? cached.response
-              : await fetchMarketDataPrice(normalizedTicker, draftTransaction.tradeDate, controller.signal);
+              : await fetchMarketDataPrice(
+                  normalizedTicker,
+                  draftTransaction.tradeDate,
+                  // KZO-170: `marketCode` is now a required argument. `lookupMarketCode`
+                  // is narrowed to non-null by the `lookupKey` guard above; the early-
+                  // return when `!lookupKey` ensures we don't reach this branch
+                  // without it. The TS non-null assertion is safe because the runtime
+                  // guard fires first.
+                  lookupMarketCode!,
+                  controller.signal,
+                );
 
           if (controller.signal.aborted) return;
 

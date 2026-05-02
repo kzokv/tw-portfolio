@@ -35,7 +35,15 @@ As of 2026-04-22:
 - `6770`, `5880`, `6669` — anon-public-view-aaa (KZO-147)
 - Any ticker referenced in `quotes-aaa.http.spec.ts` expectations
 
-Safe picks: any TWSE code (4-digit or 5-digit) not in the list above; grep first.
+As of 2026-05-02 (KZO-170 — US market data ingestion):
+- `AAPL` — us-backfill-aaa.spec.ts (E2E), market-data-price-aaa.http.spec.ts (HTTP). Reserved for KZO-187's us-dividends-aaa.spec.ts when it lands.
+- `MSFT` — reserved for us-bars-roundtrip-aaa.spec.ts (KZO-170/future US specs)
+- `VOO` — reserved for us-etf-aaa.spec.ts (KZO-170/future US specs)
+- `BND` — reserved for us-bond-etf-aaa.spec.ts (KZO-170/future US specs)
+
+Note: MSFT/VOO/BND are currently only referenced in Postgres-backed integration tests (which don't share the global MemoryPersistence bar array). They are listed here to prevent future memory-backed E2E/HTTP specs from accidentally reusing them.
+
+Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, or any US ticker not in the US list above; grep first.
 
 ## Why not fix MemoryPersistence?
 

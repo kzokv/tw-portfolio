@@ -71,11 +71,14 @@ describePostgres("catalog sync persistence", () => {
     await pool.end();
   });
 
+  // KZO-170: per-row `marketCode` is required on `CatalogInstrument` (was hardcoded
+  // 'TW' at the SQL layer pre-KZO-170). Stamping `marketCode: "TW"` here preserves
+  // the pre-KZO-170 semantics for these tests.
   const sampleCatalog: CatalogInstrument[] = [
-    { ticker: "2330", name: "台積電", typeRaw: "twse", industryCategoryRaw: "半導體業", finmindDate: "2026-03-31", instrumentType: "STOCK" },
-    { ticker: "0050", name: "元大台灣50", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "ETF" },
-    { ticker: "00679B", name: "元大美債20年", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "BOND_ETF" },
-    { ticker: "020000", name: "富邦ETN", typeRaw: "twse", industryCategoryRaw: "指數投資證券(ETN)", finmindDate: "2026-03-31", instrumentType: null },
+    { ticker: "2330", name: "台積電", typeRaw: "twse", industryCategoryRaw: "半導體業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
+    { ticker: "0050", name: "元大台灣50", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "ETF", marketCode: "TW" },
+    { ticker: "00679B", name: "元大美債20年", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "BOND_ETF", marketCode: "TW" },
+    { ticker: "020000", name: "富邦ETN", typeRaw: "twse", industryCategoryRaw: "指數投資證券(ETN)", finmindDate: "2026-03-31", instrumentType: null, marketCode: "TW" },
   ];
 
   it("upserts catalog instruments with correct columns", async () => {
@@ -162,7 +165,7 @@ describePostgres("catalog sync persistence", () => {
 
   it("allows null instrument_type in instruments table", async () => {
     const nullTypeCatalog: CatalogInstrument[] = [
-      { ticker: "TESTX", name: "Test Null Type", typeRaw: "twse", industryCategoryRaw: "存託憑證", finmindDate: "2026-03-31", instrumentType: null },
+      { ticker: "TESTX", name: "Test Null Type", typeRaw: "twse", industryCategoryRaw: "存託憑證", finmindDate: "2026-03-31", instrumentType: null, marketCode: "TW" },
     ];
     const result = await persistence!.upsertInstrumentCatalog(nullTypeCatalog, []);
     expect(result.upserted).toBe(1);
@@ -211,7 +214,7 @@ describePostgres("catalog sync persistence", () => {
 
     // Catalog sync reclassifies it as ETF with full metadata
     await persistence!.upsertInstrumentCatalog([
-      { ticker: "PROVTEST", name: "Provisional Test ETF", typeRaw: "tpex", industryCategoryRaw: "上櫃ETF", finmindDate: "2026-03-31", instrumentType: "ETF" },
+      { ticker: "PROVTEST", name: "Provisional Test ETF", typeRaw: "tpex", industryCategoryRaw: "上櫃ETF", finmindDate: "2026-03-31", instrumentType: "ETF", marketCode: "TW" },
     ], []);
 
     const after = await persistence!.getInstrument("PROVTEST");

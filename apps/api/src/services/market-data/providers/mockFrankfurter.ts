@@ -32,6 +32,11 @@ function enumerateDates(fromDate: string, toDate: string): string[] {
  * assert the call shape (per-method args at the entry's top level).
  */
 export class MockFrankfurterFxRateProvider implements FxRateProvider {
+  /**
+   * KZO-170 D14: same provider identity as the real `FrankfurterFxRateProvider`. Mirrors the
+   * `MockFinMindMarketDataProvider` convention — mock and real share the logical provider id.
+   */
+  readonly providerId = "frankfurter";
   readonly calls: Array<{
     method: string;
     base?: string;

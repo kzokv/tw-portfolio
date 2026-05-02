@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { MarketCode } from "@tw-portfolio/domain";
+import { currencyFor } from "@tw-portfolio/shared-types";
 
 export async function upsertDailyBars(
   pool: Pool,
@@ -104,6 +105,11 @@ export async function upsertDividendEvents(
   const payDates: string[] = [];
   const cashAmounts: number[] = [];
   const stockAmounts: number[] = [];
+  // KZO-170 D1: per-row cash dividend currency, derived from each event's marketCode.
+  // Replaces the previous `array_fill('TWD'::text, ARRAY[$N::int])` hardcode that broke
+  // multi-market correctness — a US/AU dividend would silently land with `TWD`.
+  // `currencyFor("TW") === "TWD"`, so TW behavior is preserved exactly.
+  const currencies: string[] = [];
   const sources: string[] = [];
   const fiscalYearPeriods: (string | null)[] = [];
   const announcementDates: (string | null)[] = [];
@@ -120,6 +126,7 @@ export async function upsertDividendEvents(
     payDates.push(ev.paymentDate);
     cashAmounts.push(ev.cashDividendPerShare);
     stockAmounts.push(ev.stockDividendPerShare);
+    currencies.push(currencyFor(ev.marketCode));
     sources.push(ev.sourceId ?? "finmind");
     fiscalYearPeriods.push(ev.fiscalYearPeriod ?? null);
     announcementDates.push(ev.announcementDate ?? null);
@@ -129,6 +136,8 @@ export async function upsertDividendEvents(
 
   // KZO-169: stamp market_code on every dividend row. ON CONFLICT keys on
   // `id` (still unique post-044) — column add was non-PK on dividend_events.
+  // KZO-170 D1: `cash_dividend_currency` now comes from a per-row `$15::text[]`
+  // (currencies, derived from marketCode via `currencyFor`), not a hardcoded TWD array_fill.
   const result = await pool.query(
     `INSERT INTO market_data.dividend_events
        (id, ticker, market_code, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
@@ -136,7 +145,7 @@ export async function upsertDividendEvents(
         fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data)
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::date[], $7::numeric[], $8::numeric[],
-       array_fill('TWD'::text, ARRAY[$9::int]),
+       $15::text[],
        $10::text[],
        array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int]),
        $11::text[], $12::date[], $13::numeric[], $14::jsonb[]
@@ -144,6 +153,7 @@ export async function upsertDividendEvents(
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
        stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
+       cash_dividend_currency = EXCLUDED.cash_dividend_currency,
        payment_date = EXCLUDED.payment_date,
        ingested_at = EXCLUDED.ingested_at,
        fiscal_year_period = EXCLUDED.fiscal_year_period,
@@ -151,7 +161,7 @@ export async function upsertDividendEvents(
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data`,
     [ids, tickers, marketCodes, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
-     sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr],
+     sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr, currencies],
   );
   return result.rowCount ?? 0;
 }
