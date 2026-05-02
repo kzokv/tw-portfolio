@@ -82,7 +82,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-15",
+      url: "/market-data/price?ticker=2330&date=2026-01-15&market_code=TW",
       headers: authHeaders,
     });
 
@@ -112,7 +112,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-18",
+      url: "/market-data/price?ticker=2330&date=2026-01-18&market_code=TW",
       headers: authHeaders,
     });
 
@@ -141,7 +141,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-16",
+      url: "/market-data/price?ticker=2330&date=2026-01-16&market_code=TW",
       headers: authHeaders,
     });
 
@@ -180,7 +180,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-16",
+      url: "/market-data/price?ticker=2330&date=2026-01-16&market_code=TW",
       headers: authHeaders,
     });
 
@@ -199,7 +199,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-16",
+      url: "/market-data/price?ticker=2330&date=2026-01-16&market_code=TW",
       headers: authHeaders,
     });
 
@@ -220,7 +220,7 @@ describe("transaction form polish routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2026-01-16",
+      url: "/market-data/price?ticker=2330&date=2026-01-16&market_code=TW",
       headers: authHeaders,
     });
 
@@ -234,7 +234,7 @@ describe("transaction form polish routes", () => {
   it("GET /market-data/price rejects future dates with invalid_date", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/market-data/price?ticker=2330&date=2999-01-01",
+      url: "/market-data/price?ticker=2330&date=2999-01-01&market_code=TW",
       headers: authHeaders,
     });
 

@@ -4,7 +4,7 @@ import type { BackfillStatus, MarketCode } from "@tw-portfolio/domain";
 import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
 import type { MarketDataProvider } from "./types.js";
-import { HISTORY_START, RateLimitedError } from "./types.js";
+import { historyStartFor, RateLimitedError } from "./types.js";
 import { upsertDailyBars, upsertDividendEvents } from "./upserts.js";
 
 export const BACKFILL_QUEUE = "finmind-backfill";
@@ -94,7 +94,20 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     // ZodError surfaces cleanly to pg-boss and the job retries up to retryLimit.
     const data = BackfillJobDataSchema.parse(job.data);
     const { ticker, marketCode: market, userId, trigger, startDate, endDate, includeBars = true, includeDividends = true, batchId } = data;
-    const effectiveStartDate = startDate ?? HISTORY_START;
+    // KZO-170 D13: truncate caller-supplied `startDate` to the per-market provider boundary.
+    // The TW provider serves bars from 1994-10-01; the US provider serves from 2019-06-01
+    // (Phase-1 verified). Without truncation, a backfill request for a US ticker with
+    // `startDate=2010-01-01` would round-trip through FinMind and silently return zero rows
+    // (or worse, a 4xx) — producing a "ready" status with no data. Truncating at this layer
+    // makes the boundary explicit and observable via `pre_provider_history_truncated`.
+    const providerStartDate = historyStartFor(market);
+    const effectiveStartDate = startDate && startDate >= providerStartDate ? startDate : providerStartDate;
+    if (startDate && startDate < providerStartDate) {
+      log.info(
+        { ticker, marketCode: market, requestedStartDate: startDate, providerStartDate },
+        "pre_provider_history_truncated",
+      );
+    }
     const isDailyRefresh = trigger === "daily_refresh";
     const isRepair = trigger === "repair";
     const shouldSetBackfillingStatus = !isDailyRefresh && !isRepair;
@@ -179,7 +192,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           if (divErr instanceof RateLimitedError) {
             throw divErr;
           }
-          log.warn({ ticker, error: divErr }, "backfill_dividend_fetch_failed: continuing without dividends");
+          // KZO-170 D14: stamp `provider` on every fetch-failure log so observability
+          // can disambiguate per-provider failure patterns (e.g. finmind-tw 4xx vs.
+          // finmind-us 422-on-bad-ticker).
+          log.warn(
+            { ticker, marketCode: market, provider: provider.providerId, error: divErr },
+            "backfill_dividend_fetch_failed: continuing without dividends",
+          );
         }
       }
 

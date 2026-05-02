@@ -590,7 +590,11 @@ function materializeDividendSourceComposition(
           dividendLedgerEntryId,
           sourceBucket: "DIVIDEND_INCOME",
           amount: actualCashEconomicAmount,
-          currencyCode: "TWD",
+          // KZO-170 D1b: derive from the dividend event's stored currency rather than
+          // hardcoding `"TWD"`. The event's `cashDividendCurrency` is stamped at upsert
+          // time via `currencyFor(marketCode)` (see `upserts.ts:139`), so this auto-fill
+          // path now correctly mirrors the event's currency for every market.
+          currencyCode: dividendEvent.cashDividendCurrency,
           source: "dividend_posting",
           sourceReference: dividendEvent.id,
           bookedAt,

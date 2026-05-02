@@ -4,8 +4,10 @@ import type { FxRateProvider, InstrumentCatalogProvider, MarketDataProvider } fr
 import { RateLimiter } from "./rateLimiter.js";
 import {
   FinMindMarketDataProvider,
+  FinMindUsStockMarketDataProvider,
   FrankfurterFxRateProvider,
   MockFinMindMarketDataProvider,
+  MockFinMindUsStockMarketDataProvider,
   MockFrankfurterFxRateProvider,
 } from "./providers/index.js";
 
@@ -45,12 +47,32 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
       })
     : new MockFinMindMarketDataProvider();
 
+  // KZO-170 S9: US-stock provider, parallel to TW. Real branch shares the same
+  // `finmindLimiter` instance — both TW and US dispatch against FinMind's single
+  // per-hour budget, so the limiter must be shared for the budget contract to hold.
+  // Mock branch uses `MockFinMindUsStockMarketDataProvider` with its default fixture
+  // start (`2024-01-02`); tests that exercise truncation use the constructor variant
+  // with `fixtureStartDate` directly rather than going through the registry.
+  const usStockProvider: MarketDataProvider & InstrumentCatalogProvider = env.FINMIND_API_TOKEN
+    ? new FinMindUsStockMarketDataProvider({
+        token: env.FINMIND_API_TOKEN,
+        baseUrl: env.FINMIND_BASE_URL,
+        rateLimiter: finmindLimiter,
+      })
+    : new MockFinMindUsStockMarketDataProvider();
+
   const marketData = new Map<MarketCode, MarketDataProvider>();
   const catalog = new Map<MarketCode, InstrumentCatalogProvider>();
 
   // Same instance registered under both interfaces — FinMind covers TW for both today.
   marketData.set("TW", finmindProvider);
   catalog.set("TW", finmindProvider);
+
+  // KZO-170 S9: US covers price + catalog. Dividends + delistings are intentional
+  // empty implementations — see `FinMindUsStockMarketDataProvider` JSDoc for the
+  // FinMind v4 dataset gap and KZO-187 (US dividend ingestion follow-up).
+  marketData.set("US", usStockProvider);
+  catalog.set("US", usStockProvider);
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()

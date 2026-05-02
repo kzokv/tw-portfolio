@@ -103,10 +103,13 @@ describe("catalog sync worker", () => {
     // Must NOT throw — worker reschedules and returns cleanly
     await handler([createJob()]);
 
-    // Reschedule with correct startAfter: ceil(60_000 / 1000) = 60
+    // KZO-170 S6: reschedule body now carries `pendingMarkets` (the markets that
+    // weren't completed before the rate-limit fired). The legacy `{}` body is
+    // gone — the per-market reschedule shape is the new contract.
+    // startAfter: ceil(60_000 / 1000) = 60
     expect(deps.boss.send).toHaveBeenCalledWith(
       CATALOG_SYNC_QUEUE,
-      {},
+      { pendingMarkets: ["TW"] },
       expect.objectContaining({ startAfter: 60, singletonKey: CATALOG_SYNC_QUEUE }),
     );
     // runCatalogSyncFn was attempted exactly once (the provider threw, not the registry lookup)
@@ -142,9 +145,12 @@ describe("catalog sync worker", () => {
 
     await handler([createJob()]);
 
+    // KZO-170 S6: reschedule body carries `pendingMarkets` — the pre-flight
+    // starvation guard fires BEFORE any market completes, so all markets are still
+    // pending. With a single TW provider in the registry, that's `["TW"]`.
     expect(deps.boss.send).toHaveBeenCalledWith(
       CATALOG_SYNC_QUEUE,
-      {},
+      { pendingMarkets: ["TW"] },
       expect.objectContaining({ startAfter: 120, singletonKey: CATALOG_SYNC_QUEUE }),
     );
     // Critical: runCatalogSync never ran — the pre-flight guard short-circuited

@@ -1,4 +1,5 @@
 import { classifyInstrument } from "@tw-portfolio/domain";
+import type { MarketCode } from "@tw-portfolio/domain";
 import type { RawInstrumentInfo } from "./types.js";
 import type { CatalogInstrument } from "../../persistence/types.js";
 
@@ -47,13 +48,17 @@ export function deduplicateInstruments(raw: RawInstrumentInfo[]): RawInstrumentI
   return result;
 }
 
-export function buildCatalogInstruments(deduped: RawInstrumentInfo[]): CatalogInstrument[] {
+export function buildCatalogInstruments(
+  deduped: RawInstrumentInfo[],
+  marketCode: MarketCode = "TW",
+): CatalogInstrument[] {
   return deduped.map((r) => ({
     ticker: r.ticker,
     name: r.name,
     typeRaw: r.typeRaw,
     industryCategoryRaw: r.industryCategory,
     finmindDate: r.date,
-    instrumentType: classifyInstrument(r.industryCategory, r.ticker),
+    instrumentType: classifyInstrument(r.industryCategory, r.ticker, marketCode),
+    marketCode,
   }));
 }

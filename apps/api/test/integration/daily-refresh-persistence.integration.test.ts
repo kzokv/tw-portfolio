@@ -25,12 +25,15 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
 const migrationManifestPromise = loadMigrationManifest(migrationsDir);
 
+// KZO-170: per-row `marketCode` is now required on `CatalogInstrument`. Pre-KZO-170
+// fixtures stamped 'TW' implicitly at the SQL layer (`array_fill('TW'::text, ...)`);
+// post-KZO-170 the source of truth is each row's `marketCode` field.
 const sampleCatalog: CatalogInstrument[] = [
-  { ticker: "1101", name: "Taiwan Cement", typeRaw: "twse", industryCategoryRaw: "水泥工業", finmindDate: "2026-03-31", instrumentType: "STOCK" },
-  { ticker: "2317", name: "Hon Hai", typeRaw: "twse", industryCategoryRaw: "其他電子業", finmindDate: "2026-03-31", instrumentType: "STOCK" },
-  { ticker: "2330", name: "TSMC", typeRaw: "twse", industryCategoryRaw: "半導體業", finmindDate: "2026-03-31", instrumentType: "STOCK" },
-  { ticker: "2603", name: "Evergreen", typeRaw: "twse", industryCategoryRaw: "航運業", finmindDate: "2026-03-31", instrumentType: "STOCK" },
-  { ticker: "0050", name: "Yuanta Taiwan 50", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "ETF" },
+  { ticker: "1101", name: "Taiwan Cement", typeRaw: "twse", industryCategoryRaw: "水泥工業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
+  { ticker: "2317", name: "Hon Hai", typeRaw: "twse", industryCategoryRaw: "其他電子業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
+  { ticker: "2330", name: "TSMC", typeRaw: "twse", industryCategoryRaw: "半導體業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
+  { ticker: "2603", name: "Evergreen", typeRaw: "twse", industryCategoryRaw: "航運業", finmindDate: "2026-03-31", instrumentType: "STOCK", marketCode: "TW" },
+  { ticker: "0050", name: "Yuanta Taiwan 50", typeRaw: "twse", industryCategoryRaw: "ETF", finmindDate: "2026-03-31", instrumentType: "ETF", marketCode: "TW" },
 ];
 
 describePostgres("daily refresh persistence queries", () => {

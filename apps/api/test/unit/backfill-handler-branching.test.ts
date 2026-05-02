@@ -14,10 +14,10 @@ function createJob(
 ): JobWithMetadata<Record<string, unknown>> {
   // KZO-185: BackfillJobData.marketCode is required and validated via Zod at
   // handler entry. Default to "TW" so existing test cases keep their semantics
-  // (all of these tests were originally written under the back-compat fallback
-  // `?? resolveMarketCode(ticker)` which always returned "TW"). Tests that
-  // intentionally exercise the missing-marketCode path should pass `data`
-  // without `marketCode` (and the test should expect a ZodError).
+  // (all of these tests were originally written when every ticker resolved to
+  // TW). Tests that intentionally exercise the missing-marketCode path should
+  // pass `data` without `marketCode` (and expect a ZodError). KZO-170 deleted
+  // the legacy `resolveMarketCode` heuristic entirely.
   const dataWithMarket = "marketCode" in data ? data : { ...data, marketCode: "TW" };
   return {
     data: dataWithMarket,
@@ -71,8 +71,9 @@ function createDeps() {
     pool: { query: vi.fn().mockResolvedValue({ rowCount: 1 }) },
     provider,
     marketDataRegistry,
-    // KZO-185: `resolveMarketCode` dep removed — producers stamp `marketCode`
-    // directly. Worker validates via Zod schema at handler entry.
+    // KZO-170: `resolveMarketCode` was deleted entirely (heuristic removed).
+    // Producers now stamp `marketCode` directly on `BackfillJobData`, and the
+    // worker validates via Zod schema at handler entry.
     eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
     boss: { send: vi.fn().mockResolvedValue(undefined) },
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),

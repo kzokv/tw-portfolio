@@ -6007,6 +6007,10 @@ export class PostgresPersistence implements Persistence {
         const industryCategoryRaws: string[] = [];
         const finmindDates: string[] = [];
         const instrumentTypes: (string | null)[] = [];
+        // KZO-170 S4: per-row market code threaded as `$8::text[]` instead of the previous
+        // `array_fill('TW'::text, ...)`. Required-field on `CatalogInstrument` post-KZO-170,
+        // so the source of truth is the catalog row's `marketCode`.
+        const marketCodes: string[] = [];
 
         for (const inst of instruments) {
           tickers.push(inst.ticker);
@@ -6015,6 +6019,7 @@ export class PostgresPersistence implements Persistence {
           industryCategoryRaws.push(inst.industryCategoryRaw);
           finmindDates.push(inst.finmindDate);
           instrumentTypes.push(inst.instrumentType);
+          marketCodes.push(inst.marketCode);
         }
 
         const result = await client.query(
@@ -6022,13 +6027,13 @@ export class PostgresPersistence implements Persistence {
             (ticker, name, type_raw, industry_category_raw, finmind_date, instrument_type, market_code, is_provisional, updated_at)
           SELECT * FROM unnest(
             $1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
-            array_fill('TW'::text, ARRAY[$7::int]),
+            $8::text[],
             array_fill(FALSE::boolean, ARRAY[$7::int]),
             array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$7::int])
           )
-          -- KZO-169: composite PK after migration 044. The catalog sync
-          -- always stamps market_code='TW' (FinMind is TW-only); KZO-170/172
-          -- will plumb US/AU codes here when those providers land.
+          -- KZO-170 S4: composite PK from KZO-169 + per-row market_code. The catalog sync
+          -- now stamps market_code from the per-market sync invocation, supporting US (KZO-170),
+          -- TW (legacy), and AU (KZO-171 placeholder) without code changes.
           ON CONFLICT (ticker, market_code) DO UPDATE SET
             name = EXCLUDED.name,
             type_raw = EXCLUDED.type_raw,
@@ -6037,19 +6042,33 @@ export class PostgresPersistence implements Persistence {
             instrument_type = EXCLUDED.instrument_type,
             is_provisional = FALSE,
             updated_at = CURRENT_TIMESTAMP`,
-          [tickers, names, typeRaws, industryCategoryRaws, finmindDates, instrumentTypes, instruments.length],
+          [tickers, names, typeRaws, industryCategoryRaws, finmindDates, instrumentTypes, instruments.length, marketCodes],
         );
         upserted = result.rowCount ?? 0;
       }
 
       let delisted = 0;
       for (const d of delistings) {
-        const result = await client.query(
-          `UPDATE market_data.instruments SET delisted_at = $2::timestamp, updated_at = CURRENT_TIMESTAMP
-           WHERE ticker = $1 AND delisted_at IS NULL`,
-          [d.ticker, d.date],
-        );
-        delisted += result.rowCount ?? 0;
+        // KZO-170 S4: filter the delisting UPDATE by `market_code` when the caller
+        // provides one. Without this, a TW delisting for ticker `X` would also flip a
+        // cross-listed US row with the same ticker. Older callers that omit `marketCode`
+        // preserve the pre-KZO-170 TW-only behavior — the WHERE clause then matches any
+        // listed row for that ticker (the dataset only ever held TW rows pre-KZO-170).
+        if (d.marketCode) {
+          const result = await client.query(
+            `UPDATE market_data.instruments SET delisted_at = $2::timestamp, updated_at = CURRENT_TIMESTAMP
+             WHERE ticker = $1 AND market_code = $3 AND delisted_at IS NULL`,
+            [d.ticker, d.date, d.marketCode],
+          );
+          delisted += result.rowCount ?? 0;
+        } else {
+          const result = await client.query(
+            `UPDATE market_data.instruments SET delisted_at = $2::timestamp, updated_at = CURRENT_TIMESTAMP
+             WHERE ticker = $1 AND delisted_at IS NULL`,
+            [d.ticker, d.date],
+          );
+          delisted += result.rowCount ?? 0;
+        }
       }
 
       await client.query("COMMIT");
@@ -6134,11 +6153,11 @@ export class PostgresPersistence implements Persistence {
   }
 
   async getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]> {
-    // KZO-169 / KZO-185: composite (ticker, market_code) JOIN. Manual rows +
-    // position-derived rows union into distinct (ticker, market_code) pairs,
-    // then filter to ready+listed instruments. Producers (daily-refresh cron,
-    // post-recompute auto-backfill) consume `marketCode` directly; the worker's
-    // back-compat `?? resolveMarketCode(ticker)` fallback is gone (KZO-185).
+    // KZO-169 / KZO-185 / KZO-170: composite (ticker, market_code) JOIN. Manual
+    // rows + position-derived rows union into distinct (ticker, market_code)
+    // pairs, then filter to ready+listed instruments. Producers (daily-refresh
+    // cron, post-recompute auto-backfill) consume `marketCode` directly. The
+    // legacy `resolveMarketCode(ticker)` heuristic was deleted in KZO-170.
     const result = await this.pool.query<{ ticker: string; market_code: string }>(
       `WITH monitored AS (
          SELECT ums.user_id, ums.ticker, ums.market_code

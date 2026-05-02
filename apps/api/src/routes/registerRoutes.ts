@@ -71,7 +71,6 @@ import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
-import { resolveMarketCode } from "../services/market-data/marketResolution.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { routeError } from "../lib/routeError.js";
@@ -3039,9 +3038,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     resolveUserId(req, app.oauthConfig?.sessionSecret);
     assertMarketDataPriceRateLimit(req.ip);
 
+    // KZO-170 S7: clients now pin `marketCode` explicitly. The previous `resolveMarketCode(ticker)`
+    // heuristic returned `'TW'` for every ticker — fine when the codebase only knew TW, but
+    // structurally wrong now that US/AU markets exist. Web callers (`fetchMarketDataPrice`)
+    // pass `marketCode` from the form's account-derived market.
     const query = z.object({
       ticker: tickerSchema,
       date: isoDateSchema,
+      market_code: z.enum(["TW", "US", "AU"]),
     }).parse(req.query);
 
     if (query.date > todayIsoDate()) {
@@ -3059,7 +3063,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // limiter throws RateLimitedError when the shared FinMind budget is exhausted; surface
     // that as 503 + Retry-After so clients can back off intelligently. Distinct from the
     // per-IP 429 emitted by `assertMarketDataPriceRateLimit` above. (N8 behavioral delta.)
-    const market = resolveMarketCode(query.ticker);
+    const market = query.market_code;
     const provider = app.marketDataRegistry.marketData.get(market);
     if (!provider) {
       throw routeError(404, "price_not_found", "price not found");

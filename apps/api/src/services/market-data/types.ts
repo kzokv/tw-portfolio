@@ -1,5 +1,44 @@
-/** Earliest date for TaiwanStockPrice dataset — used as default startDate for full backfill. */
-export const HISTORY_START = "1994-10-01";
+import type { MarketCode } from "@tw-portfolio/domain";
+
+/**
+ * KZO-170 D7 — Per-market backfill history start map.
+ *
+ * Earliest date the upstream provider serves daily bars for the given market.
+ * `backfillWorker.effectiveStartDate` reads from this map (via `historyStartFor`)
+ * and truncates any caller-supplied `startDate` that predates the provider's
+ * earliest available bar. Replaces the previous single-market `HISTORY_START`
+ * constant which was TW-only (pre-KZO-170, the codebase had no other market).
+ *
+ * - TW: `1994-10-01` — FinMind TaiwanStockPrice earliest bar.
+ * - US: `2019-06-01` — FinMind USStockPrice earliest bar (verified 2026-05-02 via
+ *   the Phase 1 verification curl; FinMind v4 returns 200 for `start_date >= 2019-06-01`).
+ * - AU: `1994-10-01` — placeholder. KZO-171 (AU expansion) will pin the actual
+ *   earliest date once the AU provider is wired. Keeping the conservative TW value
+ *   means AU backfills WILL truncate at the real provider boundary when KZO-171 lands;
+ *   no behavioral change is needed in `backfillWorker` at that time.
+ *
+ * TODO(KZO-171): pin AU history start.
+ */
+export const HISTORY_START_BY_MARKET: Record<MarketCode, string> = {
+  TW: "1994-10-01",
+  US: "2019-06-01",
+  AU: "1994-10-01",
+};
+
+/**
+ * KZO-170 D7 — Helper for `HISTORY_START_BY_MARKET` lookups.
+ *
+ * Returns the canonical earliest bar date for the given market. Use everywhere
+ * the worker / provider previously referenced the bare `HISTORY_START` constant
+ * so the lookup always reflects the per-market truth.
+ */
+export function historyStartFor(marketCode: MarketCode): string {
+  const start = HISTORY_START_BY_MARKET[marketCode];
+  if (!start) {
+    throw new Error(`unsupported_market_for_history_start: ${marketCode}`);
+  }
+  return start;
+}
 
 /** Raw daily OHLCV bar from FinMind TaiwanStockPrice dataset (pre-ingestion shape). */
 export interface RawDailyBar {
@@ -55,6 +94,16 @@ export interface RawDelistingRecord {
  * provider without touching call sites. The provider is per-market — no `market` parameter.
  */
 export interface MarketDataProvider {
+  /**
+   * KZO-170 D14 — Stable provider identity for log enrichment. Workers stamp this on every
+   * fetch-failure log line so observability can disambiguate per-provider failure modes
+   * (e.g. `finmind-tw` rate-limit pattern vs. `finmind-us` 422-on-bad-ticker pattern).
+   * Must be unique across providers; no two providers in the registry may share the same id.
+   * Conventional values: `finmind-tw`, `finmind-us`, `frankfurter`, plus mock variants under
+   * the same id (the mock and real provider share an id by design — they are interchangeable
+   * implementations of the same logical provider, observable via the configured branch).
+   */
+  readonly providerId: string;
   fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]>;
   fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]>;
   /**
@@ -82,6 +131,8 @@ export interface MarketDataProvider {
  * does today), or two distinct providers can supply data + catalog independently for a market.
  */
 export interface InstrumentCatalogProvider {
+  /** Same semantics as `MarketDataProvider.providerId`. KZO-170 D14. */
+  readonly providerId: string;
   fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]>;
   fetchDelistingHistory(): Promise<RawDelistingRecord[]>;
   /** Same semantics as `MarketDataProvider.reserveCapacity` — pre-flight check, no consume. */
@@ -109,6 +160,8 @@ export interface FxRate {
  * client-side filter; the underlying API returns ALL quote currencies for the requested base.
  */
 export interface FxRateProvider {
+  /** Same semantics as `MarketDataProvider.providerId`. KZO-170 D14. */
+  readonly providerId: string;
   fetchRatesForBase(
     base: string,
     fromDate: string,

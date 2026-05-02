@@ -100,6 +100,7 @@ describe("buildCatalogInstruments", () => {
       industryCategoryRaw: "半導體業",
       finmindDate: "2026-03-31",
       instrumentType: "STOCK",
+      marketCode: "TW",
     });
   });
 });
