@@ -83,6 +83,37 @@ Historical bars are **not** backfilled for all ~3,071 TWSE symbols. Backfill is 
 
 KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth. Real US/AU ingestion remains separate from this schema/UI work; synthetic multi-market rows are seeded in tests via `/__e2e/seed-instruments`.
 
+### AU provider strategy (KZO-171 spike outcome, KZO-172 implementation)
+
+**v1 provider: `yahoo-finance2` (Yahoo Finance unofficial API).** Locked 2026-05-02 via the KZO-171 spike. Live validation evidence at `docs/004-notes/kzo-171/spike-202605021115-au-provider.md`.
+
+Key contract:
+- `providerId = "yahoo-finance-au"`, `sourceId = "yahoo-finance-au"`. Registered under `MarketCode "AU"` in `buildMarketDataRegistry()` parallel to the FinMind TW/US providers.
+- **Symbol normalization at the provider boundary.** Internal storage is `(ticker='BHP', market_code='AU')`; the provider serializes to `BHP.AX` for Yahoo. Bare ticker silently routes to the NYSE listing in USD — `.AX` is mandatory.
+- **Independent `RateLimiter` instance** — Yahoo does NOT share the FinMind 600/hr budget. Recommend a precautionary self-imposed ceiling (Yahoo publishes none).
+- **`HISTORY_START_BY_MARKET["AU"] = "1988-01-28"`** (BHP first available bar in Yahoo's feed). Pre-this-date trade dates get truncated with a `pre_provider_history_truncated` log, mirroring KZO-170 D13.
+- **Bounded catalog only.** `yahoo-finance2.screener()` exposes no AU scrId; there is no reliable ASX-wide enumeration. KZO-172 ships per-symbol `quote()` enrichment for monitored symbols + per-query `search()` for type-ahead. **No full ASX autocomplete.** The first downstream ticket that needs it adds an EODHD-backed catalog provider.
+- **Splits owned by KZO-186.** Yahoo's split data is sparse for ASX historical (proven via DMP 2015 3:1 missing from the feed). KZO-186 must independently select an AU split source — do not assume Yahoo.
+
+What Yahoo cannot supply (locked Yahoo gaps, EODHD upgrade path):
+- Franking credits, DRP/BSP indicators, withholding tax, special-vs-ordinary dividend classification.
+- Rights issues, capital returns, share purchase plans, buyback events.
+- Full ASX catalog enumeration.
+- Comprehensive AU split coverage.
+
+**EODHD upgrade path (re-verified 2026-05-02).** Source: ASX ReferencePoint E34 feed, refreshed daily after 18:30 AEST.
+
+| Tier | Plan | What you get for AU |
+|---|--:|---|
+| Day-one | yahoo-finance2 | Bars, basic dividends (amount + date), per-symbol metadata |
+| **EOD All-World** | **$19.99/mo** | EOD prices + basic splits & dividends, 30+ years history, 2,000+ ASX securities, exchange redistribution rights — *but no `_asx_extra` block* |
+| **Fundamentals** | **$59.99/mo** | All of the above PLUS the **ASX Corporate Actions API (beta)** with `_asx_extra` (franking %, DRP, BSP, withholding tax, rights/bonus/buyback/capital-return events) |
+| All-In-One | $99.99/mo | Fundamentals + intraday + news/calendar |
+
+Switch from Yahoo → EODHD when any of: (1) commercializing beyond personal use (Yahoo ToS), (2) tax reporting requires franking credits, (3) AU split events become operationally required, (4) Yahoo HTML/`chart()` breaks unrecoverably across releases, (5) full ASX catalog enumeration becomes a product requirement. The swap is a registry-level change in `buildMarketDataRegistry()` — no call-site changes (KZO-163 invariant).
+
+Likely env vars when EODHD lands: `EODHD_API_KEY`, `EODHD_BASE_URL` (default `https://eodhd.com/api`), `EODHD_RATE_LIMIT_PER_DAY` (default 100k), `EODHD_RATE_LIMIT_PER_MINUTE` (default 1000), `EODHD_PLAN` (signals whether `_asx_extra` is available).
+
 ### Backfill status
 
 Per-symbol tracking: `pending -> backfilling -> ready -> failed`.
