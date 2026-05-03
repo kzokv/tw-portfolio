@@ -2082,15 +2082,19 @@ export class PostgresPersistence implements Persistence {
       createdAt: normalizeDateTime(row.created_at),
       items: recomputeItems.get(row.id) ?? [],
     }));
-    const instruments = symbolsResult.rows.map((row) => ({
-      ticker: row.ticker,
-      instrumentType: row.instrument_type,
-      // KZO-169: market_code is NOT NULL on `symbols`/`instruments` (since
-      // migration 012). Strip the `?? "TW"` provider-stamping fallback (G1).
-      marketCode: String(row.market_code) as InstrumentDef["marketCode"],
-      isProvisional: row.is_provisional,
-      lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
-    }));
+    const instruments = symbolsResult.rows
+      // Guard against index tickers (e.g. ^DJI) that may have been stored by an
+      // earlier catalog sync before the deduplicateInstruments filter was in place.
+      .filter((row) => /^[A-Za-z0-9]{1,16}$/.test(row.ticker as string))
+      .map((row) => ({
+        ticker: row.ticker,
+        instrumentType: row.instrument_type,
+        // KZO-169: market_code is NOT NULL on `symbols`/`instruments` (since
+        // migration 012). Strip the `?? "TW"` provider-stamping fallback (G1).
+        marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+        isProvisional: row.is_provisional,
+        lastSyncedAt: row.last_synced_at ? normalizeDateTime(row.last_synced_at) : null,
+      }));
 
     const store: Store = {
       userId,

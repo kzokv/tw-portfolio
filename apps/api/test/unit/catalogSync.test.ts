@@ -46,6 +46,17 @@ describe("deduplicateInstruments", () => {
     expect(result[0]!.ticker).toBe("2330");
   });
 
+  it("filters out tickers with special characters (e.g. ^DJI, ^GSPC)", () => {
+    const raw: RawInstrumentInfo[] = [
+      { ticker: "^DJI", name: "Dow Jones Industrial Average", typeRaw: "US", industryCategory: "n/a", date: "2026-05-01" },
+      { ticker: "^GSPC", name: "S&P 500", typeRaw: "US", industryCategory: "n/a", date: "2026-05-01" },
+      { ticker: "AAPL", name: "Apple Inc.", typeRaw: "US", industryCategory: "Computer Manufacturing", date: "2026-05-01" },
+    ];
+    const result = deduplicateInstruments(raw);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.ticker).toBe("AAPL");
+  });
+
   it("handles single-entry tickers without dedup", () => {
     const raw: RawInstrumentInfo[] = [
       { ticker: "0050", name: "元大台灣50", typeRaw: "twse", industryCategory: "ETF", date: "2026-03-31" },
