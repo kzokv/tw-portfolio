@@ -6,9 +6,14 @@ import type { CatalogInstrument } from "../../persistence/types.js";
 export const UMBRELLA_CATEGORIES = ["電子工業", "化學生技醫療", "觀光餐旅"];
 export const INDEX_META_CATEGORIES = ["Index", "大盤", "所有證券"];
 
+const VALID_TICKER_RE = /^[A-Za-z0-9]{1,16}$/;
+
 export function deduplicateInstruments(raw: RawInstrumentInfo[]): RawInstrumentInfo[] {
-  // Filter out INDEX/META entries entirely
-  const filtered = raw.filter((r) => !INDEX_META_CATEGORIES.includes(r.industryCategory));
+  // Filter out INDEX/META entries and tickers that contain special characters
+  // (e.g. ^DJI, ^GSPC) which are market-index identifiers, not tradeable instruments.
+  const filtered = raw.filter(
+    (r) => !INDEX_META_CATEGORIES.includes(r.industryCategory) && VALID_TICKER_RE.test(r.ticker),
+  );
 
   // Group by ticker
   const groups = new Map<string, RawInstrumentInfo[]>();
