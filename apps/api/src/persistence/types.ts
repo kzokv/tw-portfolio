@@ -1,4 +1,4 @@
-import type { BackfillStatus, CurrencyCode, InstrumentRef, Lot, VerificationStatus } from "@tw-portfolio/domain";
+import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@tw-portfolio/domain";
 import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type { FxRate } from "../services/market-data/types.js";
@@ -808,9 +808,19 @@ export interface Persistence {
   // KZO-169: signature change — entries are now keyed by `(ticker, market_code)`
   // composite to honor migration 044's PK. The newTickers field continues to
   // return the keys that were not previously monitored (manual or position).
+  // KZO-188: optional `name` + `instrumentType` carry metadata for live-search
+  // picks that are not yet in `market_data.instruments`. When both are
+  // provided, the implementation upserts the catalog row (ON CONFLICT DO
+  // NOTHING) before the FK insert so an un-catalogued AU pick like CBA can be
+  // saved on Postgres without violating `user_monitored_tickers_*_fkey`.
   replaceManualSelections(
     userId: string,
-    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+    selections: ReadonlyArray<{
+      ticker: string;
+      marketCode: string;
+      name?: string | null;
+      instrumentType?: InstrumentType | null;
+    }>,
   ): Promise<{ newTickers: string[] }>;
   listInstrumentsCatalog(
     search?: string,

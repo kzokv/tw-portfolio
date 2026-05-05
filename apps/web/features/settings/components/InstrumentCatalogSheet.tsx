@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import { useEffect, useMemo, useState } from "react";
+import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
+import { useDebouncedValue } from "../../../lib/hooks/useDebouncedValue";
+import {
+  searchInstruments,
+  SearchUnavailableError,
+} from "../services/instrumentSearchService";
 import { ArrowLeft, Lock, Search, X } from "lucide-react";
 
 type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
+type MarketChip = "ALL" | MarketCode;
 
 interface InstrumentCatalogSheetProps {
   instruments: InstrumentCatalogItemDto[];
@@ -14,7 +20,10 @@ interface InstrumentCatalogSheetProps {
   // markets remain independently selectable.
   selectedTickers: Set<string>;
   positionTickers: Set<string>;
-  onToggleTicker: (key: string) => void;
+  // KZO-188: optional `liveItem` is the synthetic catalog row for un-catalogued
+  // AU tickers picked via live search; passed through to `useMonitoredTickers`
+  // so it can append the synthetic to local state for backfill enrichment.
+  onToggleTicker: (key: string, liveItem?: InstrumentCatalogItemDto) => void;
   onBack: () => void;
   dict: AppDictionary;
 }
@@ -33,9 +42,24 @@ export function InstrumentCatalogSheet({
 }: InstrumentCatalogSheetProps) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
+  // KZO-188: market chip filters the catalog client-side; default `ALL`
+  // shows every market just like before this ticket.
+  const [marketChip, setMarketChip] = useState<MarketChip>("ALL");
+
+  // KZO-188: live-search state (only fires when chip === "AU" AND filtered
+  // catalog count is 0). The state is cleared whenever the chip moves off
+  // AU or the search box clears.
+  const [liveResults, setLiveResults] = useState<InstrumentCatalogItemDto[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<SearchUnavailableError | null>(null);
+
+  const debouncedQuery = useDebouncedValue(search, 300);
 
   const filtered = useMemo(() => {
     let results = instruments;
+    if (marketChip !== "ALL") {
+      results = results.filter((i) => i.marketCode === marketChip);
+    }
     if (search) {
       const q = search.toLowerCase();
       results = results.filter(
@@ -46,7 +70,59 @@ export function InstrumentCatalogSheet({
       results = results.filter((i) => i.instrumentType === typeFilter);
     }
     return results;
-  }, [instruments, search, typeFilter]);
+  }, [instruments, marketChip, search, typeFilter]);
+
+  // Live results pass through the SAME type filter as catalog rows; rows
+  // hidden by the filter are dropped silently.
+  const filteredLiveResults = useMemo(() => {
+    if (typeFilter === "ALL") return liveResults;
+    return liveResults.filter((i) => i.instrumentType === typeFilter);
+  }, [liveResults, typeFilter]);
+
+  const liveSearchEnabled =
+    debouncedQuery.length >= 2 && marketChip === "AU" && filtered.length === 0;
+
+  useEffect(() => {
+    // Reset live state when conditions stop matching so a stale message does
+    // not linger after the user clears the query or switches markets.
+    if (!liveSearchEnabled) {
+      setLiveResults([]);
+      setLiveLoading(false);
+      setLiveError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setLiveLoading(true);
+    setLiveError(null);
+
+    void (async () => {
+      try {
+        const found = await searchInstruments(debouncedQuery, "AU", controller.signal);
+        if (controller.signal.aborted) return;
+        setLiveResults(found);
+        setLiveLoading(false);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof SearchUnavailableError) {
+          setLiveError(err);
+          setLiveResults([]);
+          setLiveLoading(false);
+          return;
+        }
+        // Treat unexpected errors as the same degraded state — the user-facing
+        // message intentionally collapses 3 backend codes (429, 503-rate,
+        // 503-degraded) into one signal.
+        setLiveError(new SearchUnavailableError(0, undefined));
+        setLiveResults([]);
+        setLiveLoading(false);
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }, [debouncedQuery, liveSearchEnabled]);
 
   const filters: { value: TypeFilter; label: string }[] = [
     { value: "ALL", label: dict.settings.tickersFilterAll },
@@ -54,6 +130,21 @@ export function InstrumentCatalogSheet({
     { value: "ETF", label: dict.settings.tickersFilterEtf },
     { value: "BOND_ETF", label: dict.settings.tickersFilterBondEtf },
   ];
+
+  const marketChips: { value: MarketChip; label: string }[] = [
+    { value: "ALL", label: dict.settings.tickersMarketChipAll },
+    { value: "TW", label: dict.settings.tickersMarketChipTw },
+    { value: "US", label: dict.settings.tickersMarketChipUs },
+    { value: "AU", label: dict.settings.tickersMarketChipAu },
+  ];
+
+  const showLiveResults = liveSearchEnabled && filteredLiveResults.length > 0;
+  const showLiveLoading = liveSearchEnabled && liveLoading;
+  const showLiveUnavailable = liveSearchEnabled && liveError !== null;
+  const showEmptyState =
+    filtered.length === 0 && !showLiveResults && !showLiveLoading && !showLiveUnavailable;
+  // Only render the count line when catalog has matches (per scope-todo Phase 2).
+  const showCountLine = filtered.length > 0;
 
   return (
     <div className="flex h-full flex-col" data-testid="instrument-catalog-sheet">
@@ -68,6 +159,27 @@ export function InstrumentCatalogSheet({
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h3 className="text-sm font-semibold text-slate-800">{dict.settings.tickersCatalogTitle}</h3>
+      </div>
+
+      {/* KZO-188 — Market chip group (above type-filter chips) */}
+      <div className="pt-3">
+        <div className="inline-flex gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5">
+          {marketChips.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setMarketChip(c.value)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                marketChip === c.value
+                  ? "bg-white text-slate-800 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+              data-testid={`catalog-market-chip-${c.value.toLowerCase()}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search + filter bar */}
@@ -112,16 +224,16 @@ export function InstrumentCatalogSheet({
         </div>
       </div>
 
-      {/* Results count */}
-      <p className="mb-2 text-xs text-slate-400">
-        {filtered.length} instrument{filtered.length !== 1 ? "s" : ""}
-      </p>
+      {/* Results count — only when catalog rows are visible */}
+      {showCountLine && (
+        <p className="mb-2 text-xs text-slate-400">
+          {dict.settings.tickersCatalogCount.replace("{count}", String(filtered.length))}
+        </p>
+      )}
 
       {/* Instrument list */}
       <div className="flex-1 overflow-y-auto" data-testid="catalog-list">
-        {filtered.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No instruments found.</p>
-        ) : (
+        {filtered.length > 0 ? (
           <div className="divide-y divide-slate-100">
             {filtered.map((instrument) => {
               const key = instrumentKey(instrument);
@@ -171,6 +283,91 @@ export function InstrumentCatalogSheet({
               );
             })}
           </div>
+        ) : null}
+
+        {/* KZO-188 — live results (only when catalog returns 0 AND chip === AU) */}
+        {showLiveResults && (
+          <div className="divide-y divide-slate-100" data-testid="catalog-live-list">
+            {filteredLiveResults.map((instrument) => {
+              // Live results may not have a stable `marketCode` from the
+              // backend if the route ever expands beyond AU; for the AU-only
+              // gate today we always stamp "AU" (the route always returns it).
+              const enriched: InstrumentCatalogItemDto = {
+                ...instrument,
+                marketCode: instrument.marketCode || "AU",
+                // The backend route always responds with `barsBackfillStatus:
+                // "pending"` — make explicit just in case the upstream shape
+                // ever ships a null in this field.
+                barsBackfillStatus: instrument.barsBackfillStatus || "pending",
+              };
+              const key = instrumentKey(enriched);
+              const isPosition = positionTickers.has(key);
+              const isSelected = selectedTickers.has(key);
+              const isChecked = isPosition || isSelected;
+
+              return (
+                <label
+                  key={key}
+                  className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors hover:bg-slate-50"
+                  data-testid={`catalog-item-${enriched.ticker}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => onToggleTicker(key, enriched)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-semibold text-slate-800">
+                        {enriched.ticker} · {enriched.marketCode}
+                      </span>
+                      <span className="truncate text-xs text-slate-500">
+                        {enriched.name ?? "—"}
+                      </span>
+                    </div>
+                  </div>
+                  <span
+                    className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+                    data-testid={`catalog-live-badge-${enriched.ticker}`}
+                  >
+                    {dict.settings.tickersSearchLiveBadge}
+                  </span>
+                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                    {enriched.instrumentType ?? "—"}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {/* KZO-188 — loading and degraded-state messages */}
+        {showLiveLoading && (
+          <p
+            className="py-8 text-center text-sm text-slate-400"
+            data-testid="catalog-live-loading"
+          >
+            {dict.settings.tickersSearchLiveSearching}
+          </p>
+        )}
+
+        {showLiveUnavailable && (
+          <p
+            className="py-8 text-center text-sm text-amber-600"
+            data-testid="catalog-live-unavailable"
+          >
+            {dict.settings.tickersSearchLiveUnavailable}
+          </p>
+        )}
+
+        {showEmptyState && (
+          <p
+            className="py-8 text-center text-sm text-slate-400"
+            data-testid="catalog-empty-state"
+          >
+            {dict.settings.tickersSearchEmptyState}
+          </p>
         )}
       </div>
     </div>

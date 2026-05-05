@@ -20,13 +20,23 @@ function parseMonitoredTickerKey(key: string): { ticker: string; marketCode: str
   return { ticker, marketCode };
 }
 
+// KZO-188: synthetic catalog rows produced by the live-search fallback carry
+// a non-DTO marker so the LIVE badge can persist after backfill_complete.
+// The marker is stripped before any payload leaves the client.
+export type LiveSourcedInstrumentCatalogItemDto = InstrumentCatalogItemDto & {
+  __liveSourced?: true;
+};
+
 export interface UseMonitoredTickersReturn {
   monitoredTickers: MonitoredTickerDto[];
-  instruments: InstrumentCatalogItemDto[];
+  instruments: LiveSourcedInstrumentCatalogItemDto[];
   selectedTickers: Set<string>;
   showCatalog: boolean;
   setShowCatalog: (show: boolean) => void;
-  toggleTicker: (ticker: string) => void;
+  // KZO-188: optional `liveItem` is the synthetic catalog row from
+  // `searchInstruments`; when present we append it to `instruments` so the
+  // SSE-driven backfill enrichment lands on a row the UI already renders.
+  toggleTicker: (ticker: string, liveItem?: InstrumentCatalogItemDto) => void;
   isDirty: boolean;
   save: () => Promise<void>;
   isSaving: boolean;
@@ -47,7 +57,7 @@ export interface UseMonitoredTickersReturn {
 
 export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
   const [monitoredTickers, setMonitoredTickers] = useState<MonitoredTickerDto[]>([]);
-  const [instruments, setInstruments] = useState<InstrumentCatalogItemDto[]>([]);
+  const [instruments, setInstruments] = useState<LiveSourcedInstrumentCatalogItemDto[]>([]);
   const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
   const [savedTickers, setSavedTickers] = useState<Set<string>>(new Set());
   const [showCatalog, setShowCatalog] = useState(false);
@@ -169,30 +179,69 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     enabled: true,
   });
 
-  const toggleTicker = useCallback((ticker: string) => {
-    setSaveError("");
-    setSaveSuccess("");
-    setSelectedTickers((prev) => {
-      const next = new Set(prev);
-      if (next.has(ticker)) {
-        next.delete(ticker);
-      } else {
-        next.add(ticker);
+  const toggleTicker = useCallback(
+    (ticker: string, liveItem?: InstrumentCatalogItemDto) => {
+      setSaveError("");
+      setSaveSuccess("");
+      setSelectedTickers((prev) => {
+        const next = new Set(prev);
+        if (next.has(ticker)) {
+          next.delete(ticker);
+        } else {
+          next.add(ticker);
+        }
+        return next;
+      });
+      // KZO-188: when a live-sourced row is toggled, optimistically append the
+      // synthetic to `instruments` so subsequent renders (and the SSE-driven
+      // backfill_complete handler) operate on a row the UI already shows.
+      // Idempotent on `(ticker, marketCode)` collision.
+      if (liveItem) {
+        setInstruments((prev) => {
+          const exists = prev.some(
+            (i) => i.ticker === liveItem.ticker && i.marketCode === liveItem.marketCode,
+          );
+          if (exists) return prev;
+          const synthetic: LiveSourcedInstrumentCatalogItemDto = {
+            ...liveItem,
+            barsBackfillStatus: "pending",
+            __liveSourced: true,
+          };
+          return [...prev, synthetic];
+        });
       }
-      return next;
-    });
-  }, []);
+    },
+    [],
+  );
 
   const isDirty = selectedTickers.size !== savedTickers.size || [...selectedTickers].some((t) => !savedTickers.has(t));
 
   // KZO-169 (D7a): manual selection state is keyed by `(ticker, marketCode)`
   // so the same ticker can be selected in multiple markets.
+  // KZO-188: live-sourced rows (the AU search fallback) carry `__liveSourced`
+  // and are not in `market_data.instruments` yet. Forward `name` +
+  // `instrumentType` for those so the API can upsert the catalog row before
+  // the FK insert on `user_monitored_tickers`.
   const save = useCallback(async () => {
     setIsSaving(true);
     setSaveError("");
     setSaveSuccess("");
     try {
-      const payload = [...selectedTickers].map(parseMonitoredTickerKey);
+      const payload = [...selectedTickers].map((key) => {
+        const { ticker, marketCode } = parseMonitoredTickerKey(key);
+        const liveRow = instruments.find(
+          (i) => i.ticker === ticker && i.marketCode === marketCode && i.__liveSourced,
+        );
+        if (liveRow) {
+          return {
+            ticker,
+            marketCode,
+            name: liveRow.name,
+            instrumentType: liveRow.instrumentType,
+          };
+        }
+        return { ticker, marketCode };
+      });
       const result = await saveMonitoredTickers(payload);
       if (!mounted.current) return;
       setMonitoredTickers(result.tickers);
@@ -204,7 +253,7 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     } finally {
       if (mounted.current) setIsSaving(false);
     }
-  }, [selectedTickers]);
+  }, [selectedTickers, instruments]);
 
   const retryTicker = useCallback(
     async (key: string) => {

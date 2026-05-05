@@ -40,6 +40,20 @@ At Tier 2, the QA and Implementer tasks are created together at launch. Phase 1 
 
 **How to apply:** Applies to every Tier 2 (Squad) run. Does NOT apply to Tier 3 (Full Team), where QA runs a two-phase plan → execute ceremony and the checkpoint review happens between those phases.
 
+### Dispatcher launch-round timing — do not issue `[ARCHITECT:CHECK]` prematurely
+
+After briefing the Dispatcher to launch Phase 1, the Architect should **wait at least 30 seconds** before checking whether both Task #1 and Task #2 appear in `TaskList`. The Dispatcher creates tasks in a single turn but `TaskList` may lag by one polling cycle before both tasks are visible.
+
+Issuing `[ARCHITECT:CHECK]` immediately after launch is a false-alarm pattern: the Dispatcher is often still in its launch turn when the Architect reads `TaskList` and sees only Task #1. The check-in is harmless but generates noise and a round-trip delay.
+
+**Options (pick one per run):**
+- Wait ≥30s after briefing before calling `TaskList` for verification.
+- Add `[DISPATCHER:LAUNCHING]` as a pre-task ack (Dispatcher sends before creating tasks; Architect waits for it before checking TaskList).
+
+**Why (KZO-188):** Architect issued `[ARCHITECT:CHECK]` immediately after the Dispatcher's launch brief. The Dispatcher was mid-turn creating Task #2 when the Architect read TaskList and saw only Task #1. The false alarm crossed with the launch completion with no actual harm, but added a round-trip message exchange. The 30s wait would have avoided it entirely.
+
+**How to apply:** All Tier 2 runs. The Dispatcher's `[DISPATCHER:READY]` / `[DISPATCHER:WAVE_LAUNCHED]` ack is the authoritative signal — wait for it rather than polling TaskList directly after briefing.
+
 ## Task description amplification (both Implementer and QA)
 
 When a scope-todo cites a "precedent file to mirror" but is vague on exact type signatures (e.g. "handler takes a Job" vs the precedent's `JobWithMetadata<T>[]`), the Architect must call out the precedent explicitly in BOTH the Implementer's and QA's task descriptions. Both teammates will converge independently on the precedent shape, which is the correct outcome — but only if they both know to look at it.

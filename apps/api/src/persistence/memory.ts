@@ -11,7 +11,7 @@ import type {
   MarketDataFacts,
   Store,
 } from "../types/store.js";
-import type { DailyBar } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
@@ -2389,13 +2389,40 @@ export class MemoryPersistence implements Persistence {
 
   async replaceManualSelections(
     userId: string,
-    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+    selections: ReadonlyArray<{
+      ticker: string;
+      marketCode: string;
+      name?: string | null;
+      instrumentType?: InstrumentType | null;
+    }>,
   ): Promise<{ newTickers: string[] }> {
     // KZO-169: diff by composite key so a switch from BHP/AU → BHP/US shows up
     // as a "new" entry. The returned `newTickers` is still a flat list of
     // tickers (back-compat with KZO-132 refresh-batch consumers).
     const currentSet = await this.getMonitoredSet(userId);
     const currentKeys = new Set(currentSet.map((s) => instrumentCatalogKey(s.ticker, s.marketCode)));
+
+    // KZO-188: mirror the postgres-side instrument upsert. When the client
+    // provides metadata for a live-sourced pick (e.g. CBA/AU) we add the row
+    // to the same catalog map the user reads from in `getMonitoredSet` /
+    // `listInstrumentsCatalog` so the next reload renders name + type
+    // correctly. Write to the existing per-user map when one exists, else the
+    // shared catalog — matching `_catalogForUser`'s read precedence — to
+    // avoid creating an empty per-user catalog that would shadow the shared
+    // default rows.
+    const targetCatalog = this.instrumentsByUser.get(userId) ?? this.instruments;
+    for (const sel of selections) {
+      if (sel.name === undefined || sel.instrumentType === undefined) continue;
+      const key = instrumentCatalogKey(sel.ticker, sel.marketCode);
+      if (targetCatalog.has(key)) continue;
+      targetCatalog.set(key, {
+        ticker: sel.ticker,
+        name: sel.name ?? null,
+        instrumentType: sel.instrumentType ?? null,
+        marketCode: sel.marketCode,
+        barsBackfillStatus: "pending",
+      });
+    }
 
     const now = new Date().toISOString();
     const next = new Map<string, { ticker: string; marketCode: string; addedAt: string }>();

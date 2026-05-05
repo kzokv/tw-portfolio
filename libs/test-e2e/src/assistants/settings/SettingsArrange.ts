@@ -64,4 +64,22 @@ export class SettingsArrange extends BaseArrange {
       data: { type: eventType, data },
     });
   }
+
+  /**
+   * KZO-188: inject a one-time search error into the AU mock provider.
+   * The next `searchInstruments` call will throw, simulating a degraded upstream.
+   * Auto-clears after one fire (via `_setNextSearchError` on the mock provider).
+   *
+   * Uses `assertE2ESeedEnabled()` guard (additive, not destructive — works in
+   * both dev_bypass and oauth modes per `.claude/rules/e2e-seed-vs-reset-guards.md`).
+   */
+  @Step()
+  async injectSearchError(): Promise<void> {
+    const response = await this.request.post(apiUrl("/__e2e/inject-search-error"));
+    if (!response.ok()) {
+      throw new Error(
+        `/__e2e/inject-search-error failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+  }
 }

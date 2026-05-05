@@ -482,6 +482,16 @@ export interface AppDictionary {
     tickersFilterStock: string;
     tickersFilterEtf: string;
     tickersFilterBondEtf: string;
+    // KZO-188 — AU ticker discovery (sheet + combobox)
+    tickersSearchLiveBadge: string;
+    tickersSearchLiveSearching: string;
+    tickersSearchLiveUnavailable: string;
+    tickersSearchEmptyState: string;
+    tickersMarketChipAll: string;
+    tickersMarketChipTw: string;
+    tickersMarketChipUs: string;
+    tickersMarketChipAu: string;
+    tickersCatalogCount: string;
     tickersSaveSelections: string;
     tickersSaving: string;
     tickersSaved: string;

@@ -11,7 +11,7 @@ import {
   type FeeProfile,
   type FeeProfileTaxRule,
 } from "@tw-portfolio/domain";
-import type { DailyBar } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
@@ -6232,7 +6232,12 @@ export class PostgresPersistence implements Persistence {
 
   async replaceManualSelections(
     userId: string,
-    selections: ReadonlyArray<{ ticker: string; marketCode: string }>,
+    selections: ReadonlyArray<{
+      ticker: string;
+      marketCode: string;
+      name?: string | null;
+      instrumentType?: InstrumentType | null;
+    }>,
   ): Promise<{ newTickers: string[] }> {
     // Get current full monitored set before replacing — diffed by composite
     // (ticker|marketCode) key so a switch from BHP/AU → BHP/US is reported
@@ -6245,6 +6250,20 @@ export class PostgresPersistence implements Persistence {
       await client.query("BEGIN");
       await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
       for (const sel of selections) {
+        // KZO-188: live-sourced AU picks (e.g. CBA) are not in the catalog
+        // sync feed, so the FK insert below would fail without an instrument
+        // row. Upsert the catalog row first when the client provides
+        // metadata. ON CONFLICT DO NOTHING preserves any pre-existing row's
+        // enriched fields (instrument_type from sync, last_synced_at, etc.).
+        if (sel.name !== undefined && sel.instrumentType !== undefined) {
+          await client.query(
+            `INSERT INTO market_data.instruments
+               (ticker, name, instrument_type, market_code, is_provisional, bars_backfill_status, updated_at)
+             VALUES ($1, $2, $3, $4, FALSE, 'pending', NOW())
+             ON CONFLICT (ticker, market_code) DO NOTHING`,
+            [sel.ticker, sel.name, sel.instrumentType, sel.marketCode],
+          );
+        }
         await client.query(
           `INSERT INTO user_monitored_tickers (user_id, ticker, market_code)
            VALUES ($1, $2, $3)
