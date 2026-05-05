@@ -89,7 +89,7 @@ export class MockFinMindMarketDataProvider implements MarketDataProvider, Instru
    * dashboards aggregate uniformly across dev/test/prod regardless of which branch is wired in.
    */
   readonly providerId = "finmind-tw";
-  readonly calls: Array<{ method: string; ticker?: string; startDate?: string; endDate?: string; n?: number }> = [];
+  readonly calls: Array<{ method: string; ticker?: string; query?: string; startDate?: string; endDate?: string; n?: number }> = [];
 
   /**
    * KZO-163 HIGH-1 fix: mock has no rate limiter, so this is a no-op. We still record the call
@@ -117,5 +117,17 @@ export class MockFinMindMarketDataProvider implements MarketDataProvider, Instru
   async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {
     this.calls.push({ method: "fetchDelistingHistory" });
     return MOCK_DELISTING_HISTORY;
+  }
+
+  /** KZO-172: TW mock mirrors the real provider — no-op metadata enrichment. */
+  async fetchInstrumentMetadata(ticker: string): Promise<RawInstrumentInfo | null> {
+    this.calls.push({ method: "fetchInstrumentMetadata", ticker });
+    return null;
+  }
+
+  /** KZO-172: TW mock mirrors the real provider — no-op per-query search. */
+  async searchInstruments(query: string): Promise<RawInstrumentInfo[]> {
+    this.calls.push({ method: "searchInstruments", query });
+    return [];
   }
 }

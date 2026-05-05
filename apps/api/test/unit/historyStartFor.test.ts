@@ -7,10 +7,10 @@
  * in `backfillWorker.ts` and must return the canonical date for every supported
  * market code.
  *
- * Per scope-todo D7:
+ * Per scope-todo D7 (updated post-KZO-172):
  *   - TW: "1994-10-01" (FinMind TaiwanStockPrice earliest)
  *   - US: "2019-06-01" (FinMind USStockPrice earliest)
- *   - AU: "1994-10-01" (placeholder, KZO-171 will pin)
+ *   - AU: "1988-01-28" (Yahoo Finance — BHP.AX firstTradeDate per spike §8)
  *
  * Mirror precedent: `apps/api/test/unit/finmind-provider-reserveCapacity.test.ts`
  * (pure unit test against a helper, no infra deps).
@@ -28,8 +28,8 @@ describe("historyStartFor", () => {
     expect(historyStartFor("US")).toBe("2019-06-01");
   });
 
-  it("returns 1994-10-01 for AU (placeholder until KZO-171 pins the AU history start)", () => {
-    expect(historyStartFor("AU")).toBe("1994-10-01");
+  it("returns 1988-01-28 for AU (Yahoo Finance BHP.AX firstTradeDate per KZO-171 spike §8 / KZO-172)", () => {
+    expect(historyStartFor("AU")).toBe("1988-01-28");
   });
 });
 
@@ -37,7 +37,7 @@ describe("HISTORY_START_BY_MARKET", () => {
   it("exposes a per-market map keyed by MarketCode", () => {
     expect(HISTORY_START_BY_MARKET.TW).toBe("1994-10-01");
     expect(HISTORY_START_BY_MARKET.US).toBe("2019-06-01");
-    expect(HISTORY_START_BY_MARKET.AU).toBe("1994-10-01");
+    expect(HISTORY_START_BY_MARKET.AU).toBe("1988-01-28");
   });
 
   it("covers exactly the three supported MarketCode values (no extras)", () => {

@@ -148,6 +148,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
   app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
   app.marketDataRegistry = buildMarketDataRegistry(Env);
+  // KZO-172: Yahoo's ToS limits use to personal/non-commercial. Surface the constraint
+  // at boot time so operators see the notice in production logs (NOT in mock mode —
+  // the mock provider doesn't touch Yahoo). Spike §7.3 documents the EODHD switch
+  // triggers; a future operator-targeted persistence method (`persistence.countUsers`)
+  // could enrich this with a `userCount` field — intentionally NOT added here per the
+  // scope-todo's "do NOT add a new persistence method" guard.
+  if (!Env.AU_PROVIDER_MOCK) {
+    app.log.warn(
+      { provider: "yahoo-finance-au" },
+      "yahoo_finance_tos_notice: ToS limits use to personal/non-commercial. For multi-tenant deployment, switch to EODHD per spike §7.3.",
+    );
+  }
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
   // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.

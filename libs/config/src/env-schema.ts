@@ -60,6 +60,17 @@ export const envSchema = z.object({
   // the registry call sites; defaults to false so prod always reaches the real provider.
   FRANKFURTER_BASE_URL: z.string().url().default("https://api.frankfurter.dev/v2"),
   FX_PROVIDER_MOCK: z.coerce.boolean().default(false),
+  // KZO-172: Yahoo Finance AU provider. Per-minute self-imposed ceiling — Yahoo does not
+  // publish a hard limit (KZO-171 spike §5). The AU provider has its own `RateLimiter`
+  // instance — NOT shared with FinMind's 600/hr budget. Default 60 req/min is the
+  // precautionary value from the spike. AU_PROVIDER_MOCK=true switches the registry to
+  // the deterministic mock for tests/dev without changing call sites.
+  YAHOO_AU_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  AU_PROVIDER_MOCK: z.coerce.boolean().default(false),
+  // KZO-172: per-IP rate limit on `GET /market-data/search`. Bounded autocomplete
+  // affordance for AU (Yahoo `search()` per-query). 20/min is generous enough for
+  // typeahead UX while keeping abuse off the upstream budget.
+  MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

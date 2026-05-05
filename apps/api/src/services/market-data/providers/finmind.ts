@@ -234,4 +234,24 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
       date: r.date,
     }));
   }
+
+  /**
+   * KZO-172: no-op for TW. The full `TaiwanStockInfo` dump from `fetchInstrumentCatalog`
+   * already covers every monitored instrument — per-ticker enrichment would re-spend
+   * the FinMind 600/hr budget redundantly. The interface method exists only for AU's
+   * bounded-catalog Yahoo path (KZO-172 REVISIT-1).
+   */
+  async fetchInstrumentMetadata(_ticker: string): Promise<RawInstrumentInfo | null> {
+    return null;
+  }
+
+  /**
+   * KZO-172: no-op for TW. The web UI's instrument search reads from the persisted
+   * catalog (populated by the daily `catalog-sync` cron's `fetchInstrumentCatalog`),
+   * not from a per-query upstream search. Yahoo's AU provider exposes a real
+   * `searchInstruments` because no full ASX enumeration is available (spike §6).
+   */
+  async searchInstruments(_query: string): Promise<RawInstrumentInfo[]> {
+    return [];
+  }
 }

@@ -119,3 +119,72 @@ describe("classifyInstrument — US (KZO-170 D6 revised: hand-curated allow-list
     expect(classifyInstrument("Software", "FOOB", "US")).toBe("STOCK");
   });
 });
+
+describe("classifyInstrument — AU (KZO-172)", () => {
+  // AU classifier reads Yahoo's `quoteType` literal (forwarded as
+  // `industryCategory` from the YahooFinanceAuMarketDataProvider). Spike-locked
+  // mapping: `"ETF"` → ETF; everything else (including `"EQUITY"`) → STOCK.
+  // **No `BOND_ETF`** in v1 — Yahoo doesn't carry a bond-ETF discriminator on
+  // the quoteType field, and the spike defers bond-ETF identification to a
+  // follow-up. The TW-only "B"-suffix rule does NOT apply on AU.
+
+  it("VAS → ETF (industryCategory='ETF' is the AU ETF rule)", () => {
+    expect(classifyInstrument("ETF", "VAS", "AU")).toBe("ETF");
+  });
+
+  it("BHP / CSL / WBC / AFI / GMG / IMD → STOCK on industryCategory='EQUITY'", () => {
+    expect(classifyInstrument("EQUITY", "BHP", "AU")).toBe("STOCK");
+    expect(classifyInstrument("EQUITY", "CSL", "AU")).toBe("STOCK");
+    expect(classifyInstrument("EQUITY", "WBC", "AU")).toBe("STOCK");
+    expect(classifyInstrument("EQUITY", "AFI", "AU")).toBe("STOCK");
+    expect(classifyInstrument("EQUITY", "GMG", "AU")).toBe("STOCK");
+    expect(classifyInstrument("EQUITY", "IMD", "AU")).toBe("STOCK");
+  });
+
+  it("AU branch fires BEFORE the TW substring path (ordering invariant)", () => {
+    // In the TW branch, `industryCategory='ETF'` + ticker ending in "B" maps to
+    // BOND_ETF via the legacy substring rule. If the AU branch ever falls
+    // through to the TW path, an AU ticker like "00679B" with industryCategory
+    // 'ETF' would incorrectly classify as BOND_ETF instead of ETF. This test
+    // pins the AU-first ordering.
+    //
+    // Note: real ASX tickers don't generally end in B, but this synthetic case
+    // is the canonical regression net for the precedence rule.
+    expect(classifyInstrument("ETF", "FOOB", "AU")).toBe("ETF"); // NOT BOND_ETF
+  });
+
+  it("AU does NOT honor the TW 'ticker-ending-B → BOND_ETF' rule (no BOND_ETF for AU v1)", () => {
+    // Even with industryCategory='ETF' and a B-suffixed ticker, AU must NEVER
+    // return BOND_ETF — bond-ETF identification on AU is deferred (spike §4.4).
+    // Synthetic input pinned here to make the contract explicit.
+    expect(classifyInstrument("ETF", "ABCDB", "AU")).toBe("ETF");
+  });
+
+  it("classifies null industryCategory on AU as STOCK (defensive default; the 7-row catalog never has null, and Yahoo `quoteType` is non-null)", () => {
+    // Scope-todo Phase 6 locks the AU rule as `industryCategory === "ETF"` → ETF,
+    // **else STOCK** — including null. This intentionally diverges from the TW/US
+    // branches (which return null/provisional on missing industryCategory). The
+    // production AU paths (static 7-row catalog + `fetchInstrumentMetadata` via
+    // `quote().quoteType`) never emit null, so the divergence has no practical
+    // effect; STOCK is a safer default than provisional for any defensive edge.
+    expect(classifyInstrument(null, "BHP", "AU")).toBe("STOCK");
+  });
+
+  it("non-ETF, non-EQUITY industryCategory still classifies as STOCK on AU (defensive default)", () => {
+    // Yahoo's `quoteType` literal could in principle widen — MUTUALFUND, INDEX,
+    // CRYPTOCURRENCY etc. The spike-locked rule is "ETF → ETF; else STOCK", so
+    // any unrecognized quoteType lands as STOCK rather than null. Provisional
+    // null is reserved for the truly-missing case.
+    expect(classifyInstrument("MUTUALFUND", "BHP", "AU")).toBe("STOCK");
+    expect(classifyInstrument("INDEX", "BHP", "AU")).toBe("STOCK");
+  });
+
+  it("AU does NOT regress TW + US existing behavior", () => {
+    // A regression check: the AU branch addition must not alter the TW or US
+    // dispatch paths. (These cases are also covered by the dedicated TW/US
+    // describe blocks above; this is an inline net to flag any branch leakage.)
+    expect(classifyInstrument("半導體業", "2330", "TW")).toBe("STOCK");
+    expect(classifyInstrument("Computer Manufacturing", "AAPL", "US")).toBe("STOCK");
+    expect(classifyInstrument("ETF", "0050", "TW")).toBe("ETF");
+  });
+});

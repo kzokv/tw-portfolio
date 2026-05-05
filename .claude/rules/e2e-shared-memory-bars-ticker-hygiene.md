@@ -28,7 +28,7 @@ If any match exists outside the new spec, pick another ticker.
 
 ## Currently-reserved tickers (avoid)
 
-As of 2026-04-22:
+As of 2026-05-04 (KZO-172):
 - `2330` — dashboard-daily-change, portfolio-snapshots, quotes-aaa, various dividend/transaction specs
 - `2454`, `0050` — portfolio-snapshots, portfolio-transactions, quotes-aaa
 - `00919`, `2317` — dashboard-daily-change
@@ -43,7 +43,19 @@ As of 2026-05-02 (KZO-170 — US market data ingestion):
 
 Note: MSFT/VOO/BND are currently only referenced in Postgres-backed integration tests (which don't share the global MemoryPersistence bar array). They are listed here to prevent future memory-backed E2E/HTTP specs from accidentally reusing them.
 
-Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, or any US ticker not in the US list above; grep first.
+As of 2026-05-02 (KZO-172 — AU market data ingestion via yahoo-finance2):
+- `BHP` — au-backfill-aaa.spec.ts (E2E), market-data-price-aaa.http.spec.ts and market-data-search-aaa.http.spec.ts (HTTP). Reserved for KZO-187's au-dividends-aaa.spec.ts when it lands.
+- `CSL` — au-backfill-aaa.spec.ts (E2E)
+- `VAS` — reserved for au-etf-aaa.spec.ts (KZO-172/future AU specs)
+- `WBC` — au-backfill-aaa.spec.ts (E2E)
+- `AFI` — reserved for au-lic-aaa.spec.ts (KZO-172/future AU specs)
+- `GMG` — reserved for `auStockBackfill.integration.test.ts` (Postgres-only)
+- `IMD` — reserved for `auStockBackfill.integration.test.ts` (Postgres-only)
+- `CBA` — reserved for KZO-188's `au-ticker-discovery-aaa.spec.ts` (AU discovery test ticker; included in mock `searchInstruments` fixture by Backend Implementer)
+
+Note: GMG/IMD are currently only referenced in Postgres-backed integration tests (which don't share the global MemoryPersistence bar array). They are listed here to prevent future memory-backed E2E/HTTP specs from accidentally reusing them — same precedent as MSFT/VOO/BND in the US section above.
+
+Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 
 ## Why not fix MemoryPersistence?
 

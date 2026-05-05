@@ -9,6 +9,11 @@ import { apiUrl } from "@tw-portfolio/test-framework/shared";
  * heuristic `resolveMarketCode(ticker)` is deleted; clients must now pin the
  * market explicitly so the route can route through the per-market provider
  * registry.
+ *
+ * KZO-172: extended with `searchInstruments` for `GET /market-data/search`.
+ * Per `.claude/rules/test-api-mapper-registration.md`, the search route does
+ * NOT get its own endpoint class — it lives on the existing `MarketDataEndpoint`
+ * so the mapper registration stays untouched.
  */
 export class MarketDataEndpoint extends BaseEndpoint {
   /**
@@ -49,6 +54,47 @@ export class MarketDataEndpoint extends BaseEndpoint {
   ): Promise<APIResponse> =>
     this.request.post(apiUrl("/__e2e/seed-daily-bars"), {
       data: { bars },
+      ...(headers ? { headers } : {}),
+    });
+
+  /**
+   * KZO-172: search instruments via `GET /market-data/search?q=...&market_code=...`.
+   *
+   * Both `q` and `marketCode` are OPTIONAL on the wrapper to enable the 400-shape
+   * regression cases (missing `market_code`, missing `q`, etc.). Suspicious raw
+   * strings (whitespace-only, regex mismatch) are passed through verbatim — the
+   * route's Zod schema is the validation gate under test.
+   */
+  searchInstruments = (
+    q?: string,
+    marketCode?: "TW" | "US" | "AU",
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> => {
+    const params = new URLSearchParams();
+    if (q !== undefined) {
+      params.set("q", q);
+    }
+    if (marketCode !== undefined) {
+      params.set("market_code", marketCode);
+    }
+    const qs = params.toString();
+    return this.request.get(
+      apiUrl(`/market-data/search${qs ? `?${qs}` : ""}`),
+      headers !== undefined ? { headers } : {},
+    );
+  };
+
+  /**
+   * KZO-172: test-only reset for the per-IP search rate-limit bucket. Mirrors
+   * `_resetMarketDataPriceBuckets`. Backend exposes `POST /__e2e/reset-market-data-search-rate-limit`
+   * (or the test calls the `_reset*` helper directly via `vi`-style invocation
+   * — out of band for HTTP specs).
+   */
+  resetSearchRateLimit = (
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.post(apiUrl("/__e2e/reset-market-data-search-rate-limit"), {
+      data: {},
       ...(headers ? { headers } : {}),
     });
 }

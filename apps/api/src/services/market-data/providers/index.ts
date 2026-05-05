@@ -9,3 +9,9 @@ export { MockFinMindUsStockMarketDataProvider, MOCK_US_INSTRUMENT_CATALOG } from
 export { FrankfurterFxRateProvider } from "./frankfurter.js";
 export type { FrankfurterFxRateProviderConfig } from "./frankfurter.js";
 export { MockFrankfurterFxRateProvider } from "./mockFrankfurter.js";
+// KZO-172 — AU provider via yahoo-finance2. Real branch needs its own RateLimiter
+// instance (separate from FinMind's 600/hr); mock branch supports `fixtureStartDate`
+// for the truncation regression test.
+export { YahooFinanceAuMarketDataProvider, AU_RESERVED_INSTRUMENTS } from "./yahooFinanceAu.js";
+export type { YahooFinanceAuMarketDataProviderConfig } from "./yahooFinanceAu.js";
+export { MockYahooFinanceAuMarketDataProvider, MOCK_AU_INSTRUMENT_CATALOG } from "./mockYahooFinanceAu.js";

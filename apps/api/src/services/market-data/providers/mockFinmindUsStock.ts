@@ -109,6 +109,7 @@ export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider,
   readonly calls: Array<{
     method: string;
     ticker?: string;
+    query?: string;
     startDate?: string;
     endDate?: string;
     n?: number;
@@ -161,6 +162,18 @@ export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider,
    */
   async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {
     this.calls.push({ method: "fetchDelistingHistory" });
+    return [];
+  }
+
+  /** KZO-172: US mock mirrors the real provider — no-op metadata enrichment. */
+  async fetchInstrumentMetadata(ticker: string): Promise<RawInstrumentInfo | null> {
+    this.calls.push({ method: "fetchInstrumentMetadata", ticker });
+    return null;
+  }
+
+  /** KZO-172: US mock mirrors the real provider — no-op per-query search. */
+  async searchInstruments(query: string): Promise<RawInstrumentInfo[]> {
+    this.calls.push({ method: "searchInstruments", query });
     return [];
   }
 }

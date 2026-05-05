@@ -12,17 +12,16 @@ import type { MarketCode } from "@tw-portfolio/domain";
  * - TW: `1994-10-01` — FinMind TaiwanStockPrice earliest bar.
  * - US: `2019-06-01` — FinMind USStockPrice earliest bar (verified 2026-05-02 via
  *   the Phase 1 verification curl; FinMind v4 returns 200 for `start_date >= 2019-06-01`).
- * - AU: `1994-10-01` — placeholder. KZO-171 (AU expansion) will pin the actual
- *   earliest date once the AU provider is wired. Keeping the conservative TW value
- *   means AU backfills WILL truncate at the real provider boundary when KZO-171 lands;
- *   no behavioral change is needed in `backfillWorker` at that time.
- *
- * TODO(KZO-171): pin AU history start.
+ * - AU: `1988-01-28` — Yahoo Finance `chart()` earliest available bar for BHP.AX
+ *   (KZO-171 spike §8 verified 2026-05-02 via `meta.firstTradeDate`). Pre-1988 trade
+ *   dates get truncated with `pre_provider_history_truncated`, mirroring KZO-170 D13.
+ *   Per-ticker floors above this (e.g. VAS listed 2009) are handled natively — Yahoo
+ *   returns the available subrange when `period1` predates listing.
  */
 export const HISTORY_START_BY_MARKET: Record<MarketCode, string> = {
   TW: "1994-10-01",
   US: "2019-06-01",
-  AU: "1994-10-01",
+  AU: "1988-01-28",
 };
 
 /**
@@ -129,12 +128,38 @@ export interface MarketDataProvider {
  * Generic per-market instrument-catalog provider. KZO-163 — split off from `FinMindProvider`
  * so a single provider class can implement both `MarketDataProvider` and this interface (FinMind
  * does today), or two distinct providers can supply data + catalog independently for a market.
+ *
+ * KZO-172 (REVISIT-1) — added `fetchInstrumentMetadata` and `searchInstruments` for the
+ * AU bounded-catalog path. TW/US implement these as no-ops (their full catalog dump via
+ * `fetchInstrumentCatalog` is comprehensive; per-ticker enrichment is unnecessary).
  */
 export interface InstrumentCatalogProvider {
   /** Same semantics as `MarketDataProvider.providerId`. KZO-170 D14. */
   readonly providerId: string;
   fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]>;
   fetchDelistingHistory(): Promise<RawDelistingRecord[]>;
+  /**
+   * KZO-172 — per-ticker metadata enrichment at the provider boundary. Yahoo's AU provider
+   * implements via `quote(symbol)` → `{ longName, quoteType }`. TW/US implement as
+   * `async () => null` because their full-catalog dump from `fetchInstrumentCatalog` already
+   * covers every monitored instrument; enriching per ticker would re-spend budget redundantly.
+   *
+   * Returns `null` when the upstream has no record (delisted, mistyped) or when the call
+   * fails non-recoverably. Callers should warn-and-continue on `null`. Throws
+   * `RateLimitedError` when the per-provider budget is exhausted (per
+   * `.claude/rules/typed-transient-error-catch-audit.md`, callers MUST re-throw).
+   */
+  fetchInstrumentMetadata(ticker: string): Promise<RawInstrumentInfo | null>;
+  /**
+   * KZO-172 — per-query symbol-search affordance for the `/market-data/search` autocomplete.
+   * Yahoo's AU provider implements via `search(query, { region: "AU" })` and double-filters
+   * for ASX. TW/US implement as `async () => []` because their UI uses the persisted
+   * catalog dump rather than per-query upstream search.
+   *
+   * Throws `RateLimitedError` on per-provider budget exhaustion; the route catches and maps
+   * to 503 + Retry-After.
+   */
+  searchInstruments(query: string): Promise<RawInstrumentInfo[]>;
   /** Same semantics as `MarketDataProvider.reserveCapacity` — pre-flight check, no consume. */
   reserveCapacity(n: number): void;
 }

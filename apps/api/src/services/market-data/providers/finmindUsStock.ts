@@ -226,4 +226,24 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
   async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {
     return [];
   }
+
+  /**
+   * KZO-172: no-op for US. The full `USStockInfo` dump from `fetchInstrumentCatalog`
+   * already covers ~9000 instruments — per-ticker enrichment would re-spend the
+   * shared FinMind 600/hr budget redundantly. The interface method exists only for
+   * AU's bounded-catalog Yahoo path (KZO-172 REVISIT-1).
+   */
+  async fetchInstrumentMetadata(_ticker: string): Promise<RawInstrumentInfo | null> {
+    return null;
+  }
+
+  /**
+   * KZO-172: no-op for US. The web UI's instrument search reads from the persisted
+   * catalog (populated by daily `catalog-sync` cron), not from a per-query upstream
+   * search. Yahoo's AU provider exposes a real `searchInstruments` because no full
+   * ASX enumeration is available (spike §6).
+   */
+  async searchInstruments(_query: string): Promise<RawInstrumentInfo[]> {
+    return [];
+  }
 }

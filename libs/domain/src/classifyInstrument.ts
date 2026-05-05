@@ -59,7 +59,17 @@ export function classifyInstrument(
     return US_INSTRUMENT_TYPE_BY_TICKER[ticker] ?? "STOCK";
   }
 
-  // TW + AU: legacy substring path.
+  // KZO-172 — AU branch BEFORE the TW substring path. Yahoo's `quote()` returns
+  // `quoteType: "EQUITY" | "ETF" | ...` which the AU provider passes through verbatim
+  // to `industryCategory`. The classifier maps `"ETF"` → ETF and everything else → STOCK.
+  // No `BOND_ETF` for AU in v1 (spike-locked — sample contains none, and Yahoo's
+  // `quoteType` does not distinguish bond ETFs). Spike §6 + scope-todo Phase 6.
+  if (marketCode === "AU") {
+    if (industryCategory === null) return "STOCK";
+    return industryCategory === "ETF" ? "ETF" : "STOCK";
+  }
+
+  // TW: legacy substring path.
   if (industryCategory === null) return null;
 
   if (TW_ETF_CATEGORIES.includes(industryCategory)) {

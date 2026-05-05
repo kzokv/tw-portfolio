@@ -1542,3 +1542,62 @@ ORDER BY state;
 ```
 
 If data is stale, first check API logs for `fx_refresh_failed`, then verify pg-boss is running and Frankfurter is reachable from the API host. A manual refresh for the missing date window is safe; upserts are idempotent on `(date, base_currency, quote_currency)`.
+
+---
+
+## 19. KZO-172 deploy notes — AU market data ingestion
+
+### Provider and env vars
+
+KZO-172 adds the AU market data provider (`yahoo-finance2@^3.14.0`) and the `GET /market-data/search` endpoint. No DB schema migrations are required (the `market_data.instruments` composite PK already covers AU via `market_code = 'AU'` from migration `044`).
+
+Three new env vars with safe defaults:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `YAHOO_AU_RATE_LIMIT_PER_MINUTE` | `60` | Self-imposed per-minute ceiling on Yahoo API calls. Yahoo publishes no official limit; 60 is the empirically safe value from the KZO-171 spike. Raise only if AU catalog grows significantly. |
+| `AU_PROVIDER_MOCK` | `false` | Set to `true` for local dev and all test runs. Production deployments leave unset (default `false`). |
+| `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Per-IP per-minute cap on `GET /market-data/search`. Separate bucket from the `/market-data/price` limit (30/min) to prevent multi-IP coordinated Yahoo budget drain. |
+
+### Yahoo ToS notice at startup
+
+When `AU_PROVIDER_MOCK=false` (production mode), the API emits at `warn` level on boot:
+
+```
+yahoo_finance_tos_notice: ToS limits use to personal/non-commercial. For multi-tenant deployment, switch to EODHD per spike §7.3.
+```
+
+This log line is expected and not an error. If the deployment is ever transitioning from personal use to multi-tenant or commercial use, consult `docs/004-notes/kzo-171/spike-202605021115-au-provider.md` §7.3 for EODHD upgrade triggers.
+
+### Bounded AU catalog
+
+The AU catalog is static and bounded: BHP, CSL, VAS, WBC, AFI, GMG, IMD (7 tickers). These are hard-coded in `YahooFinanceAuMarketDataProvider.fetchInstrumentCatalog()` — no API call, no pg-boss queue involvement for the catalog dump. The catalog-sync cron (`30 17 * * 1-5`, post-AU-close) writes these 7 rows on each run.
+
+Users can monitor any AU ticker outside this set; the backfill worker enriches the catalog row inline via `quote("TICKER.AX")` on the first backfill. There is no pre-population race: the inline enrichment path is the load-bearing invariant for first-time AU tickers.
+
+### History start
+
+AU bar history starts from `1988-01-28` (BHP.AX `meta.firstTradeDate`). Trade dates predating this are truncated with a `pre_provider_history_truncated` log entry; the trade itself is accepted and persisted normally.
+
+### Backfill queue observability
+
+AU backfill jobs run on the same `finmind-backfill` queue as TW and US jobs. To check AU-specific job health:
+
+```sql
+SELECT state, count(*)
+FROM pgboss.job
+WHERE name = 'finmind-backfill'
+  AND data->>'marketCode' = 'AU'
+GROUP BY state
+ORDER BY state;
+```
+
+Failed AU jobs set `market_data.instruments.bars_backfill_status = 'failed'`. Check API logs for `backfill_metadata_fetch_failed` (warn-and-continue; bars may have landed even if Yahoo `quote()` enrichment failed) and `backfill_failed` (full job failure; no bars or dividends).
+
+### Search endpoint observability
+
+The `GET /market-data/search` route logs:
+- `search_provider_error` (warn) — Yahoo provider error, non-`RateLimitedError`. Response has `X-Search-Degraded: true` header and `503`.
+- Per-IP rate-limit breach returns `429 rate_limit_exceeded`. Provider budget exhaustion returns `503 provider_rate_limited` with `Retry-After` header.
+
+A `search_provider_error` spike (>3 occurrences per minute) may indicate Yahoo search endpoint breakage (see issue #967 in `gadicc/yahoo-finance2`). If sustained, consider setting `AU_PROVIDER_MOCK=true` temporarily and opening the EODHD upgrade process.
