@@ -135,10 +135,19 @@ describePostgres("US backfill round-trip — bars only (KZO-170 D5 revised)", ()
 
     const marketDataRegistry = new Map<MarketCode, typeof provider>();
     marketDataRegistry.set("US", provider);
+    // KZO-172: catalog registry threaded for the handler's metadata-enrichment
+    // step. The mock US provider implements `fetchInstrumentMetadata` as a no-op
+    // (returns null), so the enrichment branch is a clean pass-through here.
+    const catalogRegistry = new Map<MarketCode, typeof provider>();
+    catalogRegistry.set("US", provider);
 
     const handlerDeps = {
       pool,
       marketDataRegistry,
+      catalogRegistry,
+      // KZO-172: real persistence delegate so the (no-op) metadata enrichment path
+      // doesn't crash if the mock ever starts returning a non-null row.
+      persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
       updateBackfillStatus: async (ticker: string, status: string) => {

@@ -22,6 +22,11 @@ import { test } from "../fixtures.js";
 // days, ending ~2024-02-12). 2024-01-15 (Monday) is in week 3 of the 30-bar window.
 const AAPL_2024_BAR_DATE = "2024-01-15";
 
+// KZO-172: AU memory-backed mock provider (`MockYahooFinanceAuMarketDataProvider`)
+// emits 30 trading days starting `2024-01-02` for BHP. Pick a date well inside
+// the fixture window. 2024-01-15 (Monday) lands in week 3.
+const BHP_2024_BAR_DATE = "2024-01-15";
+
 test.describe("GET /market-data/price (KZO-170)", () => {
   // ── M1 — TW happy path (regression: pre-KZO-170 behavior unchanged) ─────────
 
@@ -66,6 +71,33 @@ test.describe("GET /market-data/price (KZO-170)", () => {
     const response = await marketDataApi.actions.getPrice("AAPL", AAPL_2024_BAR_DATE, "US");
 
     // Assert — 200 with a numeric close field; the US provider exists.
+    await marketDataApi.assert.statusIs(response, 200);
+    const body = await marketDataApi.assert.priceBody(response);
+    await marketDataApi.assert.mxAssertEqual(
+      typeof body["close"] === "number" && Number.isFinite(body["close"] as number),
+      true,
+      "body.close is a finite number",
+    );
+    await marketDataApi.assert.mxAssertEqual(
+      typeof body["date"] === "string" && (body["date"] as string).length >= 10,
+      true,
+      "body.date is an ISO date string",
+    );
+  });
+
+  // ── M2.AU — AU happy path (KZO-172) ─────────────────────────────────────────
+  // No seed: route falls through to the provider registry, which on memory
+  // backend resolves to MockYahooFinanceAuMarketDataProvider. Asserts only on
+  // shape (200 + finite close + ISO date) like M2 — the mock fixture is
+  // deterministic but the test should not pin a synthetic price value.
+
+  test("[/market-data/price]: AU with marketCode dispatches to the AU provider → 200", async ({ marketDataApi }) => {
+    // Act — query BHP with marketCode=AU. With no stored bar, the route should
+    // dispatch to the AU provider (MockYahooFinanceAuMarketDataProvider in
+    // memory mode) and return a fixture bar.
+    const response = await marketDataApi.actions.getPrice("BHP", BHP_2024_BAR_DATE, "AU");
+
+    // Assert — 200 with a numeric close field; the AU provider exists.
     await marketDataApi.assert.statusIs(response, 200);
     const body = await marketDataApi.assert.priceBody(response);
     await marketDataApi.assert.mxAssertEqual(

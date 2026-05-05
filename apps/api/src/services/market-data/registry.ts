@@ -9,6 +9,8 @@ import {
   MockFinMindMarketDataProvider,
   MockFinMindUsStockMarketDataProvider,
   MockFrankfurterFxRateProvider,
+  MockYahooFinanceAuMarketDataProvider,
+  YahooFinanceAuMarketDataProvider,
 } from "./providers/index.js";
 
 /**
@@ -73,6 +75,21 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   // FinMind v4 dataset gap and KZO-187 (US dividend ingestion follow-up).
   marketData.set("US", usStockProvider);
   catalog.set("US", usStockProvider);
+
+  // KZO-172: AU provider via yahoo-finance2. Yahoo does NOT share the FinMind 600/hr
+  // budget — it has its own self-imposed precautionary ceiling
+  // (`YAHOO_AU_RATE_LIMIT_PER_MINUTE`, default 60/min from spike §5). The RateLimiter
+  // takes `(budget, windowMs)`; passing 60 + 60_000ms gives "60 requests per minute."
+  // Mock branch is constructible with `fixtureStartDate` for the truncation
+  // regression test directly; here we use the default fixture start.
+  // Mirrors `registry.ts:42` precedent: same provider instance registered to BOTH
+  // `marketData` and `catalog` maps because one class implements both interfaces.
+  const yahooAuLimiter = new RateLimiter(env.YAHOO_AU_RATE_LIMIT_PER_MINUTE, 60_000);
+  const auProvider: MarketDataProvider & InstrumentCatalogProvider = env.AU_PROVIDER_MOCK
+    ? new MockYahooFinanceAuMarketDataProvider()
+    : new YahooFinanceAuMarketDataProvider({ rateLimiter: yahooAuLimiter });
+  marketData.set("AU", auProvider);
+  catalog.set("AU", auProvider);
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()

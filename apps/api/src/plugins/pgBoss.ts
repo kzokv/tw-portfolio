@@ -39,6 +39,14 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   const backfillDeps = {
     pool,
     marketDataRegistry: app.marketDataRegistry.marketData,
+    // KZO-172: catalog registry threaded so the handler can call
+    // `fetchInstrumentMetadata(ticker)` after bars+dividends. AU's same-instance
+    // registration in both maps means the rate-limiter budget is shared.
+    catalogRegistry: app.marketDataRegistry.catalog,
+    // KZO-172: `persistence.upsertInstrumentCatalog([row], [])` writes the enriched
+    // catalog row. The handler limits this to a single row per backfill, mirroring the
+    // catalog-sync upsert path but scoped to one ticker.
+    persistence: app.persistence,
     // KZO-170: `resolveMarketCode` deleted — `/market-data/price` now requires
     // `market_code` as a query param, producers stamp `marketCode` directly on
     // `BackfillJobData`, and the worker validates the marketCode via Zod at

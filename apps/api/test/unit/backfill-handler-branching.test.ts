@@ -65,12 +65,29 @@ function createDeps() {
     fetchBars: vi.fn().mockResolvedValue(createSuccessBars()),
     fetchDividends: vi.fn().mockResolvedValue(createSuccessDividends()),
   };
+  // KZO-172: catalog provider for metadata enrichment. Defaults to a no-op (returns
+  // null) so the existing tests' assertions about bars/dividends paths continue to
+  // hold — the metadata branch is exercised in dedicated tests added later.
+  const catalogProvider = {
+    fetchInstrumentMetadata: vi.fn().mockResolvedValue(null),
+  };
   const marketDataRegistry = new Map<MarketCode, typeof provider>();
   marketDataRegistry.set("TW", provider);
+  const catalogRegistry = new Map<MarketCode, typeof catalogProvider>();
+  catalogRegistry.set("TW", catalogProvider);
   return {
     pool: { query: vi.fn().mockResolvedValue({ rowCount: 1 }) },
     provider,
+    catalogProvider,
     marketDataRegistry,
+    // KZO-172: catalog registry for `fetchInstrumentMetadata` after bars+dividends.
+    // Same-instance dual-registration mirrors the production AU path.
+    catalogRegistry,
+    // KZO-172: persistence shim for `upsertInstrumentCatalog` writes during
+    // metadata enrichment. The default catalogProvider returns null so this is
+    // never called in the existing tests; tests targeting the enrichment branch
+    // override the catalogProvider mock.
+    persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 }) },
     // KZO-170: `resolveMarketCode` was deleted entirely (heuristic removed).
     // Producers now stamp `marketCode` directly on `BackfillJobData`, and the
     // worker validates via Zod schema at handler entry.
@@ -484,9 +501,12 @@ describe("backfill handler trigger branching", () => {
     expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
   });
 
-  // KZO-163 HIGH-1: single-call invocations (includeBars XOR includeDividends) must
-  // skip the reserveCapacity pre-flight — there's no starvation risk with one call.
-  it("skips reserveCapacity for single-call invocations (includeDividends=false)", async () => {
+  // KZO-172: every backfill now reserves 3 slots upfront (bars + dividends + metadata)
+  // because metadata enrichment is unconditional (P1 user-locked). FinMind providers'
+  // `fetchInstrumentMetadata` is a no-op — the 1-slot over-reservation when
+  // `includeDividends=false` is harmless under the 600/hr budget; KZO-190 tracks the
+  // dynamic-count cleanup. Pre-KZO-172 this test asserted skip-on-single-call.
+  it("reserves 3 slots up-front for every invocation (covers bars + dividends + metadata; KZO-172)", async () => {
     const deps = createDeps();
     const provider = deps.marketDataRegistry.get("TW")!;
     const handler = createBackfillHandler(deps as never);
@@ -501,7 +521,8 @@ describe("backfill handler trigger branching", () => {
       }) as never,
     ]);
 
-    expect(provider.reserveCapacity).not.toHaveBeenCalled();
+    expect(provider.reserveCapacity).toHaveBeenCalledTimes(1);
+    expect(provider.reserveCapacity).toHaveBeenCalledWith(3);
     expect(provider.fetchBars).toHaveBeenCalledTimes(1);
   });
 
@@ -543,5 +564,210 @@ describe("backfill handler trigger branching", () => {
     const twProvider = deps.marketDataRegistry.get("TW")!;
     expect(twProvider.fetchBars).not.toHaveBeenCalled();
     expect(twProvider.fetchDividends).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // KZO-172 — AU metadata enrichment via `fetchInstrumentMetadata`.
+  //
+  // Per scope-todo Phase 5 + .claude/rules/typed-transient-error-catch-audit.md:
+  //   1. Worker resolves BOTH `marketDataRegistry.get("AU")` (bars/dividends)
+  //      AND `catalogRegistry.get("AU")` (metadata). For AU, the same provider
+  //      instance is registered to both.
+  //   2. After fetchBars + fetchDividends, the worker calls
+  //      `catalogProvider.fetchInstrumentMetadata(ticker)`.
+  //   3. Generic errors from `fetchInstrumentMetadata` use warn-and-continue
+  //      semantics — the backfill still flips status to `ready`.
+  //   4. `RateLimitedError` from `fetchInstrumentMetadata` MUST re-throw to the
+  //      outer catch so the reschedule path engages — same load-bearing
+  //      contract as the dividend warn-and-continue catch.
+  //
+  // These tests build their own `BackfillWorkerDeps` with both registries
+  // because the existing `createDeps()` only stamps `marketDataRegistry`.
+  // -------------------------------------------------------------------------
+
+  function createAuDeps() {
+    // The AU provider implements both interfaces — same instance under both maps.
+    const auProvider = {
+      providerId: "yahoo-finance-au",
+      reserveCapacity: vi.fn(),
+      fetchBars: vi.fn().mockResolvedValue([
+        {
+          ticker: "BHP",
+          barDate: "2024-06-15",
+          open: 45,
+          high: 46,
+          low: 44.5,
+          close: 45.5,
+          volume: 1_000_000,
+          sourceId: "yahoo-finance-au",
+        },
+      ]),
+      fetchDividends: vi.fn().mockResolvedValue([]),
+      fetchInstrumentCatalog: vi.fn().mockResolvedValue([]),
+      fetchDelistingHistory: vi.fn().mockResolvedValue([]),
+      fetchInstrumentMetadata: vi.fn().mockResolvedValue({
+        ticker: "BHP",
+        name: "BHP Group Limited",
+        typeRaw: "ASX",
+        industryCategory: "EQUITY",
+        date: "2026-05-02",
+      }),
+      searchInstruments: vi.fn().mockResolvedValue([]),
+    };
+    const marketDataRegistry = new Map<MarketCode, typeof auProvider>();
+    marketDataRegistry.set("AU", auProvider);
+    const catalogRegistry = new Map<MarketCode, typeof auProvider>();
+    catalogRegistry.set("AU", auProvider);
+    return {
+      pool: { query: vi.fn().mockResolvedValue({ rowCount: 1 }) },
+      auProvider,
+      marketDataRegistry,
+      catalogRegistry,
+      // KZO-172 (Phase 4 F5): persistence shim so the worker's metadata
+      // enrichment branch can call `persistence.upsertInstrumentCatalog([row], [])`
+      // after `fetchInstrumentMetadata` returns. Without this shim the worker's
+      // metadata-write step throws and is swallowed by the outer warn-and-continue
+      // catch — the AU happy-path test would still see status=ready but the
+      // upsert would never be observed. The added `toHaveBeenCalledTimes(1)`
+      // assertion in the happy-path test pins the contract.
+      persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 }) },
+      eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
+      boss: { send: vi.fn().mockResolvedValue(undefined) },
+      updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
+      getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    };
+  }
+
+  it("AU happy path: fetchInstrumentMetadata is invoked after fetchBars + fetchDividends, and status flips to ready", async () => {
+    const deps = createAuDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "BHP",
+        marketCode: "AU",
+        userId: "user-1",
+        trigger: "user_selection",
+        startDate: "2024-01-02",
+      }) as never,
+    ]);
+
+    // Metadata enrichment was called for AU.
+    expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
+
+    // KZO-172 (Phase 4 F5): metadata's RawInstrumentInfo result must flow
+    // through to `persistence.upsertInstrumentCatalog([row], [])` exactly
+    // once. Without the toHaveBeenCalledTimes(1) pin, a silent error inside
+    // the metadata-write step (e.g. throw swallowed by warn-and-continue)
+    // would leave the rest of the assertions green while the enrichment
+    // itself never landed.
+    expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
+
+    // Standard backfill flow ran end-to-end.
+    expect(deps.auProvider.fetchBars).toHaveBeenCalledWith(
+      "BHP",
+      expect.any(String),
+      undefined,
+    );
+    expect(deps.auProvider.fetchDividends).toHaveBeenCalledWith(
+      "BHP",
+      expect.any(String),
+      undefined,
+    );
+    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
+
+    // Reschedule was NOT called (this is a clean completion, not a retry).
+    expect(deps.boss.send).not.toHaveBeenCalled();
+  });
+
+  it("AU warn-and-continue: generic error from fetchInstrumentMetadata does NOT abort the backfill", async () => {
+    const deps = createAuDeps();
+    deps.auProvider.fetchInstrumentMetadata.mockRejectedValueOnce(
+      new Error("yahoo quote() timed out"),
+    );
+    const handler = createBackfillHandler(deps as never);
+
+    // Handler must NOT throw — the metadata enrichment failure is non-fatal.
+    await handler([
+      createJob({
+        ticker: "BHP",
+        marketCode: "AU",
+        userId: "user-1",
+        trigger: "user_selection",
+        startDate: "2024-01-02",
+      }) as never,
+    ]);
+
+    // The bars + dividends fetched successfully; status flipped to ready.
+    expect(deps.auProvider.fetchBars).toHaveBeenCalledTimes(1);
+    expect(deps.auProvider.fetchDividends).toHaveBeenCalledTimes(1);
+    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "failed");
+
+    // The metadata error was logged via warn (NOT thrown).
+    expect(deps.log.warn).toHaveBeenCalled();
+  });
+
+  it("AU RateLimitedError re-throw: fetchInstrumentMetadata RateLimitedError engages the reschedule path", async () => {
+    // Load-bearing assertion per .claude/rules/typed-transient-error-catch-audit.md
+    // — the metadata try/catch must re-throw RateLimitedError so the outer
+    // catch block reschedules. Without this, the rate-limit signal is silently
+    // swallowed and the worker reports "ready" while the limiter is exhausted,
+    // creating a half-success that AC #3 (`<60s`) will eventually mask.
+    const deps = createAuDeps();
+    deps.auProvider.fetchInstrumentMetadata.mockRejectedValueOnce(
+      new RateLimitedError({ msUntilAvailable: 25_000 }),
+    );
+    const handler = createBackfillHandler(deps as never);
+
+    // Handler must NOT throw (reschedule is a clean completion).
+    await handler([
+      createJob(
+        {
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "user_selection",
+          startDate: "2024-01-02",
+        },
+        0,
+        3,
+        10,
+      ) as never,
+    ]);
+
+    // Reschedule fired with composite singletonKey + 25s startAfter
+    // (`Math.ceil(25000/1000)`).
+    expect(deps.boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      expect.objectContaining({ ticker: "BHP", marketCode: "AU" }),
+      expect.objectContaining({ startAfter: 25, singletonKey: "BHP:AU" }),
+    );
+
+    // Status must NOT flip to "failed" — this is a reschedule.
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "failed");
+  });
+
+  it("AU pre-1988 trade-date truncation: startDate before historyStartFor('AU') is replaced with the AU start", async () => {
+    const deps = createAuDeps();
+    const handler = createBackfillHandler(deps as never);
+
+    await handler([
+      createJob({
+        ticker: "BHP",
+        marketCode: "AU",
+        userId: "user-1",
+        trigger: "user_selection",
+        startDate: "1985-01-01", // pre-1988-01-28 (AU history start)
+      }) as never,
+    ]);
+
+    // The provider was called with the truncated start (>= "1988-01-28") —
+    // never the original "1985-01-01".
+    const [, fetchBarsStartDate] = deps.auProvider.fetchBars.mock.calls[0]!;
+    expect(typeof fetchBarsStartDate).toBe("string");
+    expect(fetchBarsStartDate >= "1988-01-28").toBe(true);
+    expect(fetchBarsStartDate).not.toBe("1985-01-01");
   });
 });

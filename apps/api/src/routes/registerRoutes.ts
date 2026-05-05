@@ -22,7 +22,7 @@ import {
   type ImpersonationCookieIdentity,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
 import { dashboardPerformanceRangesSchema, currencyFor, marketCodeFor } from "@tw-portfolio/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
@@ -94,6 +94,7 @@ import {
 import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../lib/inviteStatusRateLimit.js";
 import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
 import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
+import { _resetMarketDataSearchBuckets, assertMarketDataSearchRateLimit, registerMarketDataSearchEviction } from "../lib/marketDataSearchRateLimit.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
@@ -409,6 +410,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "POST /__e2e/demo-session",
   "POST /__e2e/impersonation-session",
   "POST /__e2e/reset-demo-rate-buckets",
+  "POST /__e2e/reset-market-data-search-rate-limit",
   "POST /__e2e/reset-app-config",
   "POST /__e2e/seed-anonymous-share-token",
   "POST /__e2e/anon-share-rate-reset",
@@ -1426,6 +1428,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerInviteStatusEviction(app);
   registerAnonymousShareEviction(app);
   registerMarketDataPriceEviction(app);
+  registerMarketDataSearchEviction(app);
 
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
@@ -1649,6 +1652,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2EOauthSessionEnabled();
     _resetDemoRateBuckets();
     return { status: "reset" };
+  });
+
+  // KZO-172: per-IP search rate-limit bucket reset for HTTP-suite isolation.
+  // Uses the seed guard (NOT reset guard) because the HTTP suite runs in oauth
+  // mode — `assertE2EResetEnabled()` requires `AUTH_MODE=dev_bypass` and would
+  // 404 the endpoint in suite 8. Per `.claude/rules/e2e-seed-vs-reset-guards.md`.
+  app.post("/__e2e/reset-market-data-search-rate-limit", async () => {
+    assertE2ESeedEnabled();
+    _resetMarketDataSearchBuckets();
+    return { ok: true };
   });
 
   // KZO-142: reset the repair cooldown override so each E2E settings spec
@@ -3097,6 +3110,67 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     await opportunisticUpsertDailyBars(app.persistence, fetchedBars, market);
     return buildFetchedPriceLookupResponse(fetchedMatch, query.date);
+  });
+
+  /**
+   * KZO-172 — bounded autocomplete for instrument lookup. AU is the primary consumer
+   * (Yahoo's per-query `search()` over the ASX universe); TW/US implement
+   * `searchInstruments` as no-ops (their UI uses the persisted catalog dump). KZO-188
+   * wires a web-side fallback that calls this endpoint when the catalog returns no
+   * matches.
+   *
+   * Two distinct rate-limit gates per `.claude/rules/service-error-pattern.md`:
+   *   - Per-IP 429 (`assertMarketDataSearchRateLimit`) — client identity throttle.
+   *   - Per-provider 503 + Retry-After — Yahoo's bounded budget exhausted.
+   *
+   * Generic upstream failures (e.g. Yahoo HTML breakage per spike issue #967) collapse
+   * to 503 + `X-Search-Degraded: true` so the web UI can render a "search temporarily
+   * unavailable" affordance without leaking provider internals.
+   */
+  app.get("/market-data/search", async (req, reply) => {
+    resolveUserId(req, app.oauthConfig?.sessionSecret);
+    assertMarketDataSearchRateLimit(req.ip);
+
+    const query = z.object({
+      // Tight allow-list — alphanumerics + a small set of common name punctuation
+      // (`.`, `&`, `'`, `()`, `-`, space). Rejects path-traversal / SQL-meta /
+      // NUL / non-ASCII to keep abuse off Yahoo's upstream search.
+      q: z.string().trim().min(2).max(50).regex(/^[A-Za-z0-9 .&'()-]+$/),
+      market_code: z.enum(["TW", "US", "AU"]),
+    }).parse(req.query);
+
+    const provider = app.marketDataRegistry.catalog.get(query.market_code);
+    if (!provider) {
+      throw routeError(404, "market_not_supported", "market not supported");
+    }
+
+    let raws: Awaited<ReturnType<typeof provider.searchInstruments>>;
+    try {
+      raws = await provider.searchInstruments(query.q);
+    } catch (err) {
+      if (err instanceof RateLimitedError) {
+        reply.header("Retry-After", String(err.retryAfterSeconds));
+        throw routeError(503, "provider_rate_limited", "market data search rate limit exceeded");
+      }
+      app.log.warn({ err, q: query.q, market: query.market_code }, "search_provider_error");
+      reply.header("X-Search-Degraded", "true");
+      throw routeError(503, "search_unavailable", "search temporarily unavailable");
+    }
+
+    return {
+      instruments: raws.map((r) => ({
+        ticker: r.ticker,
+        name: r.name,
+        instrumentType: classifyInstrument(r.industryCategory, r.ticker, query.market_code),
+        marketCode: query.market_code,
+        // Search results are upstream candidates, not yet persisted catalog rows.
+        // The DTO requires these fields; null/"pending" are the truthful defaults
+        // (the actual catalog row, if any, is reachable via `/instruments/catalog`).
+        barsBackfillStatus: "pending" as const,
+        lastRepairAt: null,
+        repairAvailableAt: null,
+      })),
+    };
   });
 
   app.post("/portfolio/transactions", async (req) => {

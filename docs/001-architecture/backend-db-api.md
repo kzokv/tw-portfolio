@@ -1527,6 +1527,19 @@ Corporate action behavior:
 Finding:
 - `POST /dividend-events` and `POST /corporate-actions` both persist through full-accounting rewrite, not focused incremental mutation.
 
+#### Market data (KZO-163 / KZO-170 / KZO-172)
+
+| Method | Path | Request shape | Response shape | Dependencies | Web usage |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/market-data/price` | query `ticker`, `date`, `market_code` (TW\|US\|AU) | `{ ticker, date, close, currency, sourceId }` | `marketDataRegistry.marketData.get(market_code)`, per-IP rate limit (30/min) | yes (quote card) |
+| `GET` | `/market-data/search` | query `q` (2–50 chars, `[A-Za-z0-9 .&'()-]+`), `market_code` (TW\|US\|AU) | `{ instruments: RawInstrumentInfo[] }` | `marketDataRegistry.catalog.get(market_code).searchInstruments`, per-IP rate limit (20/min) | deferred to KZO-188 |
+
+Market data route behavior:
+- `/market-data/price`: auth required (`resolveUserId`). Returns 429 on per-IP limit breach; 503 + `Retry-After` on upstream provider budget exhaustion (`RateLimitedError`). AU uses Yahoo Finance (`yahoo-finance2`); TW and US use FinMind.
+- `/market-data/search`: auth required. Per-IP limit is a separate bucket from price (configurable via `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE`, default 20). Non-`RateLimitedError` provider failures (e.g. Yahoo HTML scraper breakage) return 503 + `X-Search-Degraded: true` with empty `{ instruments: [] }` body — degraded search is not a hard failure.
+- TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. Only AU routes search through the Yahoo Finance `search()` SDK call.
+- AU bounded catalog: 7 reserved tickers (BHP, CSL, VAS, WBC, AFI, GMG, IMD) pre-populated by the catalog-sync cron. Arbitrary AU tickers are enriched inline at first backfill via `fetchInstrumentMetadata`.
+
 #### Recompute and quote retrieval
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |

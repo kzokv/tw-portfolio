@@ -125,11 +125,17 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
 
     const marketDataRegistry = new Map<MarketCode, typeof provider>();
     marketDataRegistry.set("US", provider);
+    // KZO-172: catalog registry — same instance, mock US provider's
+    // `fetchInstrumentMetadata` is a no-op.
+    const catalogRegistry = new Map<MarketCode, typeof provider>();
+    catalogRegistry.set("US", provider);
 
     const logInfo = vi.fn();
     const handlerDeps = {
       pool,
       marketDataRegistry,
+      catalogRegistry,
+      persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
       updateBackfillStatus: async (ticker: string, status: string) => {
@@ -196,11 +202,17 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
 
     const marketDataRegistry = new Map<MarketCode, typeof provider>();
     marketDataRegistry.set("US", provider);
+    // KZO-172: catalog registry — same instance, mock US provider's
+    // `fetchInstrumentMetadata` is a no-op.
+    const catalogRegistry = new Map<MarketCode, typeof provider>();
+    catalogRegistry.set("US", provider);
 
     const logInfo = vi.fn();
     const handlerDeps = {
       pool,
       marketDataRegistry,
+      catalogRegistry,
+      persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
       updateBackfillStatus: async (ticker: string, status: string) => {

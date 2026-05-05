@@ -3,8 +3,10 @@ import type { PgBoss, JobWithMetadata } from "pg-boss";
 import type { BackfillStatus, MarketCode } from "@tw-portfolio/domain";
 import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
-import type { MarketDataProvider } from "./types.js";
+import type { CatalogInstrument, CatalogSyncResult, DelistingRecord } from "../../persistence/types.js";
+import type { InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { historyStartFor, RateLimitedError } from "./types.js";
+import { buildCatalogInstruments } from "./catalogSync.js";
 import { upsertDailyBars, upsertDividendEvents } from "./upserts.js";
 
 export const BACKFILL_QUEUE = "finmind-backfill";
@@ -47,6 +49,20 @@ export interface BackfillWorkerDeps {
   pool: Pool;
   /** Per-market market-data registry. Replaces the single-provider `finmind` dep (KZO-163). */
   marketDataRegistry: Map<MarketCode, MarketDataProvider>;
+  /**
+   * KZO-172 — per-market catalog registry. The handler calls
+   * `catalogRegistry.get(market).fetchInstrumentMetadata(ticker)` after bars+dividends
+   * to enrich the persisted catalog row. For TW/US the provider returns `null` (no-op);
+   * for AU it returns Yahoo-derived metadata. Same instance is registered in both
+   * `marketDataRegistry` and `catalogRegistry` for AU (and for FinMind).
+   */
+  catalogRegistry: Map<MarketCode, InstrumentCatalogProvider>;
+  /**
+   * KZO-172 — minimal persistence surface for metadata-enrichment writes. Only
+   * `upsertInstrumentCatalog` is needed; the handler keeps `pool`-based bars/dividends
+   * writes via `upsertDailyBars` / `upsertDividendEvents` for legacy parity.
+   */
+  persistence: { upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> };
   eventBus: BufferedEventBus;
   boss: PgBoss;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
@@ -74,6 +90,8 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
   const {
     pool,
     marketDataRegistry,
+    catalogRegistry,
+    persistence,
     eventBus,
     boss,
     updateBackfillStatus,
@@ -145,16 +163,14 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     }
 
     try {
-      // KZO-163 HIGH-1 fix: pre-reserve rate-limit slots for the call count this invocation
-      // will make (bars + dividends, optional). Without this, the dominant starvation pattern
-      // is: bars consumes the only newly-freed slot, dividends throws RateLimitedError, the
-      // job reschedules, and the cycle repeats indefinitely under one-slot-at-a-time
-      // replenishment. Pre-reserving throws RateLimitedError upfront with msUntilAvailable
-      // sized for the full call count, so the reschedule waits until ALL slots are free.
-      const callCount = (includeBars ? 1 : 0) + (includeDividends ? 1 : 0);
-      if (callCount > 1) {
-        provider.reserveCapacity(callCount);
-      }
+      // KZO-163 HIGH-1 fix + KZO-172: pre-reserve rate-limit slots for every call this
+      // invocation makes — bars + dividends + metadata enrichment. Flat reservation of 3
+      // covers the worst case (AU's `fetchInstrumentMetadata` is a real `quote()` call;
+      // FinMind providers' equivalent is a no-op that consumes nothing, so the
+      // 1-slot-over-reservation is harmless under their 600/hr budget). KZO-190 tracks
+      // the dynamic-count cleanup. The pre-reserve breaks the deterministic starvation
+      // pattern under one-slot-at-a-time replenishment by waiting for ALL needed slots.
+      provider.reserveCapacity(3);
 
       if (shouldSetBackfillingStatus) {
         await updateBackfillStatus(ticker, "backfilling");
@@ -198,6 +214,39 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           log.warn(
             { ticker, marketCode: market, provider: provider.providerId, error: divErr },
             "backfill_dividend_fetch_failed: continuing without dividends",
+          );
+        }
+      }
+
+      // KZO-172 — metadata enrichment via the per-market catalog provider. Runs for
+      // EVERY backfill (no trigger gating) per the user-locked P1 default. KZO-189
+      // tracks the conditional optimization. For TW/US the provider returns null
+      // (no-op); for AU, Yahoo's `quote()` returns enriched `{ name, quoteType }`.
+      //
+      // Error policy mirrors the dividend block exactly (REVISIT-D in scope-todo):
+      //   - `RateLimitedError` MUST be re-thrown so the outer reschedule path runs
+      //     (per `.claude/rules/typed-transient-error-catch-audit.md`).
+      //   - Any other error (network blip, Yahoo HTML breakage, TS narrowing slip) is
+      //     warn-and-continue — bars + dividends already landed, the catalog row will
+      //     be enriched on the next backfill or the daily catalog-sync sweep.
+      const catalogProvider = catalogRegistry.get(market);
+      if (catalogProvider) {
+        try {
+          const rawMeta = await catalogProvider.fetchInstrumentMetadata(ticker);
+          if (rawMeta) {
+            const [catalogRow] = buildCatalogInstruments([rawMeta], market);
+            if (catalogRow) {
+              await persistence.upsertInstrumentCatalog([catalogRow], []);
+              log.info({ ticker, marketCode: market, provider: catalogProvider.providerId }, "backfill_metadata_enriched");
+            }
+          }
+        } catch (metaErr) {
+          if (metaErr instanceof RateLimitedError) {
+            throw metaErr;
+          }
+          log.warn(
+            { ticker, marketCode: market, provider: catalogProvider.providerId, error: metaErr },
+            "backfill_metadata_fetch_failed: continuing without enrichment",
           );
         }
       }

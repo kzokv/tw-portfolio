@@ -47,4 +47,43 @@ export class MarketDataApiActions extends ApiBaseActions {
   ): Promise<APIResponse> {
     return this._instance.seedDailyBars(bars, this.authHeaders);
   }
+
+  /**
+   * KZO-172: canonical 2-arg form for `GET /market-data/search`.
+   */
+  @Step()
+  async searchInstruments(
+    q: string,
+    marketCode: "TW" | "US" | "AU",
+  ): Promise<APIResponse> {
+    return this._instance.searchInstruments(q, marketCode, this.authHeaders);
+  }
+
+  /**
+   * KZO-172: 1-arg variant — omits `market_code`, used for the 400 regression
+   * test that confirms the route requires `market_code`.
+   */
+  @Step()
+  async searchInstrumentsMissingMarketCode(q: string): Promise<APIResponse> {
+    return this._instance.searchInstruments(q, undefined, this.authHeaders);
+  }
+
+  /**
+   * KZO-172: 1-arg variant — omits `q`, used for the 400 regression test that
+   * confirms the route requires `q`.
+   */
+  @Step()
+  async searchInstrumentsMissingQuery(marketCode: "TW" | "US" | "AU"): Promise<APIResponse> {
+    return this._instance.searchInstruments(undefined, marketCode, this.authHeaders);
+  }
+
+  /**
+   * KZO-172: reset the per-IP search rate-limit bucket (test-only seam).
+   * Used to isolate the 429-after-20-calls assertion from sibling specs that
+   * may share the worker.
+   */
+  @Step()
+  async resetSearchRateLimit(): Promise<APIResponse> {
+    return this._instance.resetSearchRateLimit(this.authHeaders);
+  }
 }
