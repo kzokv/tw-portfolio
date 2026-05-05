@@ -104,7 +104,7 @@ export const userScopedIdSchema = z
   .string()
   .trim()
   .min(1)
-  .max(80)
+  .max(200)
   .regex(/^[A-Za-z0-9._:-]+$/);
 
 const tickerSchema = z

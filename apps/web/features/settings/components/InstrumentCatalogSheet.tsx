@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type UIEvent } from "react";
 import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
@@ -53,6 +53,11 @@ export function InstrumentCatalogSheet({
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<SearchUnavailableError | null>(null);
 
+  // Incremental rendering window — render the first 100 items and grow as the
+  // user scrolls within 200px of the bottom. Resets whenever the filtered list
+  // changes (e.g. search/market/type filter changes).
+  const [visibleCount, setVisibleCount] = useState(100);
+
   const debouncedQuery = useDebouncedValue(search, 300);
 
   const filtered = useMemo(() => {
@@ -78,6 +83,35 @@ export function InstrumentCatalogSheet({
     if (typeFilter === "ALL") return liveResults;
     return liveResults.filter((i) => i.instrumentType === typeFilter);
   }, [liveResults, typeFilter]);
+
+  // Reset the incremental-render window whenever the filtered list changes.
+  // Filter/market/search transitions should always start at the top with the
+  // initial 100 rows visible.
+  useEffect(() => {
+    setVisibleCount(100);
+  }, [filtered, filteredLiveResults]);
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+      setVisibleCount((prev) => {
+        // Growth window covers BOTH lists (catalog + live results) — slice each
+        // independently below using min(visibleCount, list.length).
+        const cap = Math.max(filtered.length, filteredLiveResults.length);
+        if (prev >= cap) return prev;
+        return Math.min(prev + 100, cap);
+      });
+    }
+  };
+
+  const visibleFiltered = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount],
+  );
+  const visibleLiveResults = useMemo(
+    () => filteredLiveResults.slice(0, visibleCount),
+    [filteredLiveResults, visibleCount],
+  );
 
   const liveSearchEnabled =
     debouncedQuery.length >= 2 && marketChip === "AU" && filtered.length === 0;
@@ -232,10 +266,14 @@ export function InstrumentCatalogSheet({
       )}
 
       {/* Instrument list */}
-      <div className="flex-1 overflow-y-auto" data-testid="catalog-list">
+      <div
+        className="flex-1 overflow-y-auto"
+        data-testid="catalog-list"
+        onScroll={handleScroll}
+      >
         {filtered.length > 0 ? (
           <div className="divide-y divide-slate-100">
-            {filtered.map((instrument) => {
+            {visibleFiltered.map((instrument) => {
               const key = instrumentKey(instrument);
               const isPosition = positionTickers.has(key);
               const isSelected = selectedTickers.has(key);
@@ -288,7 +326,7 @@ export function InstrumentCatalogSheet({
         {/* KZO-188 — live results (only when catalog returns 0 AND chip === AU) */}
         {showLiveResults && (
           <div className="divide-y divide-slate-100" data-testid="catalog-live-list">
-            {filteredLiveResults.map((instrument) => {
+            {visibleLiveResults.map((instrument) => {
               // Live results may not have a stable `marketCode` from the
               // backend if the route ever expands beyond AU; for the AU-only
               // gate today we always stamp "AU" (the route always returns it).
@@ -367,6 +405,30 @@ export function InstrumentCatalogSheet({
             data-testid="catalog-empty-state"
           >
             {dict.settings.tickersSearchEmptyState}
+          </p>
+        )}
+
+        {/* Incremental rendering hint — visible only when more rows remain. */}
+        {(filtered.length > visibleCount ||
+          (showLiveResults && filteredLiveResults.length > visibleCount)) && (
+          <p
+            className="py-3 text-center text-xs text-slate-400"
+            data-testid="catalog-showing-of"
+          >
+            {dict.settings.tickersCatalogShowingOf
+              .replace(
+                "{showing}",
+                String(
+                  Math.min(
+                    visibleCount,
+                    showLiveResults ? filteredLiveResults.length : filtered.length,
+                  ),
+                ),
+              )
+              .replace(
+                "{total}",
+                String(showLiveResults ? filteredLiveResults.length : filtered.length),
+              )}
           </p>
         )}
       </div>

@@ -492,6 +492,7 @@ export interface AppDictionary {
     tickersMarketChipUs: string;
     tickersMarketChipAu: string;
     tickersCatalogCount: string;
+    tickersCatalogShowingOf: string;
     tickersSaveSelections: string;
     tickersSaving: string;
     tickersSaved: string;
