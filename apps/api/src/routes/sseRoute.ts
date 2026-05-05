@@ -9,7 +9,7 @@ import {
 } from "./contextFallback.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const MAX_CONNECTIONS_PER_USER = 20;
+export const MAX_CONNECTIONS_PER_USER = 20;
 const E2E_USER_COOKIE = "tw_e2e_user";
 
 // Per-user connection counter (module-scoped, cleared on app close)

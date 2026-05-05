@@ -14,7 +14,7 @@ Earlier versions of this memory tracked the full Market Data Platform ticket-com
 - KZO-141 (sharing, invites, admin portal, anonymous tokens, retention) — done by 2026-04-21
 - KZO-167+ (account-shape extension: defaultCurrency, accountType, multi-account creation, reporting currency) — done by 2026-04-30
 - KZO-169+ (multi-market: composite-PK migration, market_code on instruments/daily_bars/dividend_events, transaction-form market_code selector) — KZO-169 done 2026-05-01
-- KZO-170 / KZO-172 (US / AU instrument ingestion) — forward; deps on KZO-169
+- KZO-170 / KZO-172 (US / AU instrument ingestion) — KZO-170 done 2026-05-01; KZO-172 done 2026-05-05 (backend slice; UI follow-up KZO-188)
 - KZO-185 (pgboss back-compat removal after KZO-169 queue drain) — done 2026-05-01
 
 Use `mcp__linear__list_issues` (project filter) for the live state.

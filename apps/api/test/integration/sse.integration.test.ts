@@ -18,7 +18,7 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 });
 
 import { buildApp } from "../../src/app.js";
-import { _resetConnectionCounts } from "../../src/routes/sseRoute.js";
+import { _resetConnectionCounts, MAX_CONNECTIONS_PER_USER } from "../../src/routes/sseRoute.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let baseUrl: string;
@@ -246,12 +246,12 @@ describe("SSE infrastructure", () => {
   });
 
   describe("connection limit", () => {
-    it("6th connection receives error event with connection_limit_exceeded, not 429", async () => {
+    it(`${MAX_CONNECTIONS_PER_USER + 1}th connection receives error event with connection_limit_exceeded, not 429`, async () => {
       const connections: ReturnType<typeof openSSEConnection>[] = [];
 
       try {
-        // Open 5 connections for the same user
-        for (let i = 0; i < 5; i++) {
+        // Open MAX_CONNECTIONS_PER_USER connections for the same user
+        for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
           const conn = openSSEConnection(`${baseUrl}/events/stream`, {
             "x-user-id": "limit-user",
           });
@@ -259,7 +259,7 @@ describe("SSE infrastructure", () => {
           await conn.waitForFrames(1); // wait for initial heartbeat
         }
 
-        // 6th connection should get error event
+        // (MAX_CONNECTIONS_PER_USER + 1)th connection should get error event
         const sixthConn = openSSEConnection(`${baseUrl}/events/stream`, {
           "x-user-id": "limit-user",
         });
