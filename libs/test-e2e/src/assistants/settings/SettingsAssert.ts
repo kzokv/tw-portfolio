@@ -243,4 +243,34 @@ export class SettingsAssert extends BaseAssert {
   async repairSelectionCheckboxIsEnabled(ticker: string): Promise<void> {
     await expect(this.el.tickers.repairSelection(ticker)).toBeEnabled();
   }
+
+  // ── KZO-188: AU ticker discovery ─────────────────────────────────────────
+
+  /**
+   * Assert a LIVE badge is visible within the catalog item row for the given ticker.
+   * The Implementer renders a `data-testid="catalog-live-badge"` element inside
+   * each live-sourced row. Falls back to text-content assertion if the testid is
+   * absent, per the LIVE i18n key value "LIVE".
+   */
+  @Step()
+  async catalogLiveItemHasBadge(ticker: string): Promise<void> {
+    // Primary: assert the badge element within the item row
+    const badgeLocator = this.el.catalog.liveItemBadge(ticker);
+    const badgeVisible = await badgeLocator.isVisible().catch(() => false);
+    if (badgeVisible) {
+      await expect(badgeLocator).toBeVisible();
+      return;
+    }
+    // Fallback: assert the item row contains the "LIVE" text
+    await expect(this.el.catalog.item(ticker)).toContainText("LIVE");
+  }
+
+  /**
+   * Assert the live-search unavailable message is visible in the catalog sheet.
+   * Uses `data-testid="catalog-live-unavailable"` per the Implementer's testid map.
+   */
+  @Step()
+  async catalogLiveSearchUnavailableIsVisible(): Promise<void> {
+    await expect(this.el.catalog.liveUnavailableMessage).toBeVisible();
+  }
 }

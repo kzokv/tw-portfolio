@@ -100,6 +100,14 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     filterBondEtf: Locator;
     item: (ticker: string) => Locator;
     itemCheckbox: (ticker: string) => Locator;
+    // KZO-188: market chip group (All · TW · US · AU) above type-filter chips
+    marketChip: (market: "all" | "TW" | "US" | "AU") => Locator;
+    // KZO-188: LIVE badge text rendered inside a live-sourced catalog row
+    liveItemBadge: (ticker: string) => Locator;
+    // KZO-188: live-search error message rendered when search backend is degraded
+    liveUnavailableMessage: Locator;
+    // KZO-188: in-flight live-search indicator
+    liveSearchingMessage: Locator;
   };
   footer: {
     saveButton: Locator;
@@ -327,6 +335,29 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
             "input[type=checkbox]",
             `Catalog Item Checkbox ${ticker}`,
           ),
+        // KZO-188: market chip group buttons (All · TW · US · AU).
+        // Implementer uses testid `catalog-market-chip-{market}` with lowercase
+        // market code (e.g. `catalog-market-chip-au`).
+        marketChip: (market: "all" | "TW" | "US" | "AU") =>
+          this.locate(
+            `catalog-market-chip-${market.toLowerCase()}`,
+            `Market Chip ${market}`,
+          ),
+        // KZO-188: LIVE badge for a live-sourced catalog row.
+        // Implementer uses a top-level testid `catalog-live-badge-{ticker}`
+        // (not nested inside the item row).
+        liveItemBadge: (ticker: string) =>
+          this.locate(`catalog-live-badge-${ticker}`, `Live Badge ${ticker}`),
+        // KZO-188: error message rendered when live search backend is degraded
+        liveUnavailableMessage: this.locate(
+          "catalog-live-unavailable",
+          "Catalog Live Unavailable Message",
+        ),
+        // KZO-188: in-flight indicator while live search request is pending
+        liveSearchingMessage: this.locate(
+          "catalog-live-loading",
+          "Catalog Live Searching Indicator",
+        ),
       },
       footer: {
         saveButton: this.locate("settings-save-button", "Save Settings Button"),

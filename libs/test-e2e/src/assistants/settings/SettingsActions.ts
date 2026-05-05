@@ -318,4 +318,32 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.repairModal.submitButton);
     await responsePromise;
   }
+
+  // ── KZO-188: AU ticker discovery ─────────────────────────────────────────
+
+  /**
+   * Click a market chip in the InstrumentCatalogSheet (All · TW · US · AU).
+   * Must be called after the catalog sheet is open.
+   */
+  @Step()
+  async clickMarketChip(market: "all" | "TW" | "US" | "AU"): Promise<void> {
+    await this.uiActions.click.perform(this.el.catalog.marketChip(market));
+  }
+
+  /**
+   * Pre-attach a wait for the PUT /monitored-tickers response BEFORE clicking
+   * the save button. Returns the response promise — caller awaits it after the
+   * save click to satisfy the pre-attach contract per
+   * `react-useEventStream-preconnect-pattern.md`.
+   */
+  @Step()
+  async waitForSaveTickersResponse(): Promise<import("@playwright/test").Response> {
+    return this.mxWaitForResponse(
+      (response) =>
+        response.request().method() === "PUT"
+        && response.url().includes("/monitored-tickers")
+        && response.ok(),
+      { timeout: 10_000 },
+    );
+  }
 }

@@ -51,10 +51,9 @@ test.describe("Demo user flow", () => {
     await login.arrange.stubDemoStartResponse(404, "not_found");
     await login.actions.navigateToLogin();
     await login.assert.demoSignInButtonIsVisible();
-    const [response] = await Promise.all([
-      login.actions.waitForDemoStartResponse(),
-      login.actions.clickDemoSignIn(),
-    ]);
+    const response = await login.actions.waitForDemoStartResponse(
+      () => login.actions.clickDemoSignIn(),
+    );
     await response.finished();
     await login.assert.errorAlertIsVisible();
   });
@@ -63,10 +62,9 @@ test.describe("Demo user flow", () => {
     await login.arrange.stubDemoStartResponse(429, "rate_limit_exceeded");
     await login.actions.navigateToLogin();
     await login.assert.demoSignInButtonIsVisible();
-    const [response] = await Promise.all([
-      login.actions.waitForDemoStartResponse(),
-      login.actions.clickDemoSignIn(),
-    ]);
+    const response = await login.actions.waitForDemoStartResponse(
+      () => login.actions.clickDemoSignIn(),
+    );
     await response.finished();
     await login.assert.errorAlertContains("wait");
   });

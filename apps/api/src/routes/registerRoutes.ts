@@ -73,6 +73,7 @@ import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/ba
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
+import { MockYahooFinanceAuMarketDataProvider } from "../services/market-data/providers/mockYahooFinanceAu.js";
 import { routeError } from "../lib/routeError.js";
 import {
   requireAdminRole,
@@ -411,6 +412,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "POST /__e2e/impersonation-session",
   "POST /__e2e/reset-demo-rate-buckets",
   "POST /__e2e/reset-market-data-search-rate-limit",
+  "POST /__e2e/inject-search-error",
   "POST /__e2e/reset-app-config",
   "POST /__e2e/seed-anonymous-share-token",
   "POST /__e2e/anon-share-rate-reset",
@@ -1662,6 +1664,28 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2ESeedEnabled();
     _resetMarketDataSearchBuckets();
     return { ok: true };
+  });
+
+  // KZO-188: inject a single-use upstream-failure error into the AU mock
+  // provider's `searchInstruments` path so the discovery UI's degraded-state
+  // E2E spec can assert the "search temporarily unavailable" affordance.
+  // The mock auto-clears the injected error after one fire — see
+  // `MockYahooFinanceAuMarketDataProvider._setNextSearchError` JSDoc.
+  // Uses the seed guard (additive, not destructive) per
+  // `.claude/rules/e2e-seed-vs-reset-guards.md`.
+  app.post("/__e2e/inject-search-error", async (_req, reply) => {
+    assertE2ESeedEnabled();
+    const provider = app.marketDataRegistry.catalog.get("AU");
+    if (!(provider instanceof MockYahooFinanceAuMarketDataProvider)) {
+      throw routeError(
+        409,
+        "au_mock_provider_unavailable",
+        "AU catalog provider is not the mock fixture; cannot inject search error",
+      );
+    }
+    provider._setNextSearchError(new Error("simulated_upstream_failure"));
+    reply.code(204);
+    return reply.send();
   });
 
   // KZO-142: reset the repair cooldown override so each E2E settings spec
@@ -4292,10 +4316,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.put("/monitored-tickers", async (req) => {
     const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     // KZO-169 (D7a): body shape change from `[ticker]` → `[{ticker, marketCode}]`.
+    // KZO-188: optional `name` + `instrumentType` accompany live-sourced picks
+    // (the AU live-search fallback in `InstrumentCatalogSheet`). When present
+    // they are forwarded to `replaceManualSelections`, which upserts the
+    // catalog row before the FK insert so un-catalogued AU tickers (e.g. CBA)
+    // can be saved on Postgres without violating
+    // `user_monitored_tickers_*_fkey`.
     const body = z
       .object({
         tickers: z
-          .array(z.object({ ticker: tickerSchema, marketCode: marketCodeSchema }))
+          .array(
+            z.object({
+              ticker: tickerSchema,
+              marketCode: marketCodeSchema,
+              name: z.string().trim().min(1).max(200).nullish(),
+              instrumentType: z.enum(["STOCK", "ETF", "BOND_ETF"]).nullish(),
+            }),
+          )
           .max(500),
       })
       .parse(req.body);

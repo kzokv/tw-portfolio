@@ -65,7 +65,12 @@ export class LoginActions extends AppBaseActions {
   }
 
   @Step()
-  async waitForDemoStartResponse(): Promise<import("@playwright/test").Response> {
-    return await this.mxWaitForResponse((res) => res.url().includes("/api/demo/start"));
+  async waitForDemoStartResponse(
+    triggerAction?: () => Promise<void>,
+  ): Promise<import("@playwright/test").Response> {
+    return await this.mxWaitForResponse(
+      (res) => res.url().includes("/api/demo/start"),
+      triggerAction,
+    );
   }
 }

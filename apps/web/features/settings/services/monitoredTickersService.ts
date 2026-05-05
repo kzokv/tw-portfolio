@@ -1,6 +1,6 @@
 "use client";
 
-import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, InstrumentType, MonitoredTickerDto } from "@tw-portfolio/shared-types";
 import { getJson, postJson, putJson } from "../../../lib/api";
 
 export interface MonitoredTickersResponse {
@@ -22,9 +22,16 @@ export interface SaveMonitoredTickersResponse {
 // `{ tickers: string[] }` to `{ tickers: { ticker, marketCode }[] }`. The
 // caller is responsible for stamping `marketCode` (typically from the
 // matching catalog row's `InstrumentCatalogItemDto.marketCode`).
+// KZO-188: optional `name` + `instrumentType` carry metadata for live-search
+// picks not yet in the persisted catalog (`__liveSourced` rows produced by
+// the AU search fallback). When supplied, the API upserts the catalog row
+// before the FK insert so the save survives Postgres's
+// `user_monitored_tickers_*_fkey`.
 export interface MonitoredTickerSelection {
   ticker: string;
   marketCode: string;
+  name?: string | null;
+  instrumentType?: InstrumentType | null;
 }
 
 export async function fetchMonitoredTickers(): Promise<MonitoredTickersResponse> {
