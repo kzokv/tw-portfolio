@@ -11,4 +11,7 @@ export default createPlaywrightConfig({
   webServers: "full",
   authMode: "dev_bypass",
   workers: 2,
+  apiEnvOverrides: {
+    AU_PROVIDER_MOCK: "true",
+  },
 });
