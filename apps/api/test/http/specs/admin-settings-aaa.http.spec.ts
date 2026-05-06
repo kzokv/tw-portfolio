@@ -250,4 +250,175 @@ test.describe("admin settings API (KZO-142)", () => {
     const body = await adminApi.arrange.errorBody(response);
     await adminApi.assert.errorCodeIs(body, "admin_role_required");
   });
+
+  // ── KZO-189: metadataEnrichmentMode PATCH tests ───────────────────────────
+
+  test("[metadata-enrichment-A]: PATCH { metadataEnrichmentMode: 'unconditional' } → 200, DTO updated", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-meta-enrich-a-sub",
+      email: "admin-settings-meta-enrich-a@example.com",
+      name: "Admin Meta Enrichment A",
+      role: "admin",
+    });
+
+    const response = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: "unconditional" },
+    );
+    await adminApi.assert.statusIs(response, 200);
+
+    const body = await adminApi.arrange.appConfigBody(response);
+    await adminApi.assert.appConfigShape(body);
+    await adminApi.assert.mxAssertEqual(
+      body.metadataEnrichmentMode,
+      "unconditional",
+      "metadataEnrichmentMode",
+    );
+    await adminApi.assert.mxAssertEqual(
+      body.effectiveMetadataEnrichmentMode,
+      "unconditional",
+      "effectiveMetadataEnrichmentMode",
+    );
+  });
+
+  test("[metadata-enrichment-B]: PATCH { metadataEnrichmentMode: 'conditional' } → 200, DTO updated", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-meta-enrich-b-sub",
+      email: "admin-settings-meta-enrich-b@example.com",
+      name: "Admin Meta Enrichment B",
+      role: "admin",
+    });
+
+    const response = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: "conditional" },
+    );
+    await adminApi.assert.statusIs(response, 200);
+
+    const body = await adminApi.arrange.appConfigBody(response);
+    await adminApi.assert.appConfigShape(body);
+    await adminApi.assert.mxAssertEqual(
+      body.metadataEnrichmentMode,
+      "conditional",
+      "metadataEnrichmentMode",
+    );
+  });
+
+  test("[metadata-enrichment-C]: PATCH { metadataEnrichmentMode: null } → 200, effectiveMetadataEnrichmentMode falls back to env", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-meta-enrich-c-sub",
+      email: "admin-settings-meta-enrich-c@example.com",
+      name: "Admin Meta Enrichment C",
+      role: "admin",
+    });
+
+    // Set a value first so the null-reset is observable
+    const seedResponse = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: "unconditional" },
+    );
+    await adminApi.assert.statusIs(seedResponse, 200);
+
+    const response = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: null },
+    );
+    await adminApi.assert.statusIs(response, 200);
+
+    const body = await adminApi.arrange.appConfigBody(response);
+    await adminApi.assert.mxAssertNull(body.metadataEnrichmentMode, "metadataEnrichmentMode");
+    await adminApi.assert.mxAssertTruthy(
+      body.effectiveMetadataEnrichmentMode === "unconditional"
+        || body.effectiveMetadataEnrichmentMode === "conditional",
+      "effectiveMetadataEnrichmentMode falls back to env ('unconditional' | 'conditional')",
+    );
+  });
+
+  test("[metadata-enrichment-D]: PATCH { metadataEnrichmentMode: 'foo' } → 400", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-meta-enrich-d-sub",
+      email: "admin-settings-meta-enrich-d@example.com",
+      name: "Admin Meta Enrichment D",
+      role: "admin",
+    });
+
+    const response = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      // Cast to bypass TypeScript — we're intentionally sending an invalid value
+      { metadataEnrichmentMode: "foo" as "unconditional" },
+    );
+    await adminApi.assert.statusIs(response, 400);
+  });
+
+  test("[metadata-enrichment-E]: PATCH 'unconditional' twice → second is no-op; exactly one audit delta", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-meta-enrich-e-sub",
+      email: "admin-settings-meta-enrich-e@example.com",
+      name: "Admin Meta Enrichment E",
+      role: "admin",
+    });
+
+    // Prime to null so the first PATCH(unconditional) is guaranteed to write
+    const primeResponse = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: null },
+    );
+    await adminApi.assert.statusIs(primeResponse, 200);
+
+    // Baseline audit count for this actor
+    const baselineResponse = await adminApi.actions.listAuditLogForCookie(admin.cookieHeader, {
+      action: ["app_config_updated"],
+      actorUserId: admin.userId,
+    });
+    await adminApi.assert.statusIs(baselineResponse, 200);
+    const baselineBody = await adminApi.arrange.auditLogBody(baselineResponse);
+    const baselineCount = adminApi.arrange.countAuditEntriesByAction(
+      baselineBody,
+      "app_config_updated",
+    );
+
+    const firstPatch = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: "unconditional" },
+    );
+    await adminApi.assert.statusIs(firstPatch, 200);
+
+    const secondPatch = await adminApi.actions.patchAdminSettingsForCookie(
+      admin.cookieHeader,
+      { metadataEnrichmentMode: "unconditional" },
+    );
+    await adminApi.assert.statusIs(secondPatch, 200);
+
+    const afterResponse = await adminApi.actions.listAuditLogForCookie(admin.cookieHeader, {
+      action: ["app_config_updated"],
+      actorUserId: admin.userId,
+    });
+    await adminApi.assert.statusIs(afterResponse, 200);
+    const afterBody = await adminApi.arrange.auditLogBody(afterResponse);
+    const afterCount = adminApi.arrange.countAuditEntriesByAction(
+      afterBody,
+      "app_config_updated",
+    );
+
+    await adminApi.assert.mxAssertEqual(
+      afterCount - baselineCount,
+      1,
+      "first PATCH(unconditional) writes audit entry; second PATCH(unconditional) is a no-op",
+    );
+  });
 });

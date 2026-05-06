@@ -756,12 +756,14 @@ export interface Persistence {
   // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
   getRepairCooldownMinutes(): Promise<number | null>;
 
-  // App config (KZO-142 / KZO-159) — read the raw DB overrides + updatedAt
-  // stamp. Routes combine this with getEffectiveRepairCooldownMinutes() and
-  // the 3-tier range resolver to expose the full AppConfigDto to clients.
+  // App config (KZO-142 / KZO-159 / KZO-189) — read the raw DB overrides +
+  // updatedAt stamp. Routes combine this with getEffectiveRepairCooldownMinutes(),
+  // the 3-tier range resolver, and getEffectiveMetadataEnrichmentMode() to
+  // expose the full AppConfigDto to clients.
   getAppConfig(): Promise<{
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
+    metadataEnrichmentMode: "unconditional" | "conditional" | null;
     updatedAt: string;
   }>;
 
@@ -775,6 +777,16 @@ export interface Persistence {
   // `@tw-portfolio/shared-types` and wraps this in an `app_config_updated`
   // audit entry (see adminRoutes.ts).
   setDashboardPerformanceRanges(value: string[] | null): Promise<void>;
+
+  // App config (KZO-189) — read the raw DB override for AU metadata enrichment
+  // mode. Returns null when unset; callers fall back to Env.METADATA_ENRICHMENT_MODE
+  // via getEffectiveMetadataEnrichmentMode().
+  getMetadataEnrichmentMode(): Promise<"unconditional" | "conditional" | null>;
+
+  // App config (KZO-189) — set (or clear, when `null`) the admin override for
+  // AU metadata enrichment mode. The route layer wraps this in an audit log
+  // (action `app_config_updated`).
+  setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void>;
 
   // User preferences (KZO-159 / 158A) — per-user JSONB preferences row.
   // `getUserPreferences` returns `{}` when no row exists (lazy — no insert

@@ -93,6 +93,10 @@ function createDeps() {
     // worker validates via Zod schema at handler entry.
     eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
     boss: { send: vi.fn().mockResolvedValue(undefined) },
+    // KZO-189: implementation-coupled stub — defaults to "conditional" (the
+    // production default). Tests that exercise mode-specific branches override
+    // this resolved value as needed.
+    getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
     getUsersMonitoringTicker: vi.fn().mockResolvedValue(["user-1", "user-2"]),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -633,6 +637,10 @@ describe("backfill handler trigger branching", () => {
       persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 }) },
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      // KZO-189: implementation-coupled stub — defaults to "conditional".
+      // KZO-189-specific tests (mode × trigger truth-table cases) override
+      // this resolved value to exercise both branches.
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -769,5 +777,121 @@ describe("backfill handler trigger branching", () => {
     expect(typeof fetchBarsStartDate).toBe("string");
     expect(fetchBarsStartDate >= "1988-01-28").toBe(true);
     expect(fetchBarsStartDate).not.toBe("1985-01-01");
+  });
+
+  // ── KZO-189: metadata enrichment gate ─────────────────────────────────────
+  //
+  // Four cases from the locked truth table:
+  //   unconditional × daily_refresh   → shouldEnrich=true  → reserveCapacity(3), fetchInstrumentMetadata called
+  //   conditional   × daily_refresh   → shouldEnrich=false → reserveCapacity(2), fetchInstrumentMetadata NOT called
+  //   conditional   × user_selection  → shouldEnrich=true  → reserveCapacity(3) (sanity)
+  //   conditional   × repair          → shouldEnrich=true  → reserveCapacity(3) (allowlist regression guard)
+  //
+  // Each test overrides `deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce(...)`
+  // per the truth-table row under test. All four use `createAuDeps()` (AU path) because:
+  //   - `catalogRegistry.get("AU")` returns a provider with `fetchInstrumentMetadata`
+  //   - Both call and no-call can be asserted on `auProvider.fetchInstrumentMetadata`
+  //   - `reserveCapacity` is on the same AU provider instance
+  //
+  // TDD-red gates (will be RED until Implementer completes scope-todo items 7+9):
+  //   - `deps.getEffectiveMetadataEnrichmentMode` — mock injected by Implementer in createAuDeps()
+  //   - `reserveCapacity(2)` for the daily_refresh/conditional row — Implementer changes flat `3` → dynamic
+  //   - `fetchInstrumentMetadata` guard — Implementer wraps block in `if (shouldEnrich)`
+
+  describe("metadata enrichment gate (KZO-189)", () => {
+    it("unconditional × daily_refresh → enriches: reserveCapacity(3), fetchInstrumentMetadata called", async () => {
+      const deps = createAuDeps();
+      // Override: unconditional mode — all triggers enrich regardless
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("unconditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "daily_refresh",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      // reserveCapacity(3) because shouldEnrich=true
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
+      // Metadata enrichment ran
+      expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
+      expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
+      // KZO-189 gates enrichment only — status flow is unchanged for daily_refresh
+    });
+
+    it("conditional × daily_refresh → skips: reserveCapacity(2), fetchInstrumentMetadata NOT called", async () => {
+      const deps = createAuDeps();
+      // Override: conditional mode + daily_refresh → shouldEnrich=false
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("conditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "daily_refresh",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      // reserveCapacity(2) because shouldEnrich=false (metadata slot not needed)
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(2);
+      // Metadata enrichment did NOT run
+      expect(deps.auProvider.fetchInstrumentMetadata).not.toHaveBeenCalled();
+      expect(deps.persistence.upsertInstrumentCatalog).not.toHaveBeenCalled();
+      // Backfill still completed (bars + dividends fetched)
+      expect(deps.auProvider.fetchBars).toHaveBeenCalledTimes(1);
+      expect(deps.auProvider.fetchDividends).toHaveBeenCalledTimes(1);
+    });
+
+    it("conditional × user_selection → enriches: reserveCapacity(3) (sanity — ALLOW list)", async () => {
+      const deps = createAuDeps();
+      // Override: conditional mode + user_selection → shouldEnrich=true (in ALLOW list)
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("conditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "user_selection",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
+      expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
+      expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
+      expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
+    });
+
+    it("conditional × repair → enriches: reserveCapacity(3) (regression guard for ALLOW-list lock)", async () => {
+      // Repair is in the ALLOW list — conditional mode must NOT skip it.
+      // Without this guard, a future refactor that accidentally includes `repair`
+      // in the skip-list would cause silent metadata starvation for repair flows.
+      const deps = createAuDeps();
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("conditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-repair",
+          trigger: "repair",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
+      expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
+      expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
+    });
   });
 });

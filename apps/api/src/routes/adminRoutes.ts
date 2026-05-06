@@ -10,6 +10,7 @@ import { signImpersonationCookie } from "../auth/googleOAuth.js";
 import { routeError } from "../lib/routeError.js";
 import { requireAdminRole } from "../lib/routeGuards.js";
 import { getEffectiveRepairCooldownMinutes } from "../services/market-data/repairCooldown.js";
+import { getEffectiveMetadataEnrichmentMode } from "../services/market-data/metadataEnrichmentMode.js";
 import {
   FX_REFRESH_QUEUE,
   STORED_QUOTES,
@@ -51,6 +52,11 @@ export const patchAdminSettingsSchema = z
     dashboardPerformanceRanges: z
       .union([dashboardPerformanceRangesSchema, z.null()])
       .optional(),
+    // KZO-189: admin override for AU metadata enrichment mode.
+    // `null` clears the override (falls back to Env.METADATA_ENRICHMENT_MODE).
+    metadataEnrichmentMode: z
+      .union([z.enum(["unconditional", "conditional"]), z.null()])
+      .optional(),
   })
   .strict();
 
@@ -79,9 +85,10 @@ function resolveEffectiveDashboardPerformanceRanges(
 }
 
 async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
-  const [config, effective] = await Promise.all([
+  const [config, effective, effectiveMode] = await Promise.all([
     app.persistence.getAppConfig(),
     getEffectiveRepairCooldownMinutes(app.persistence),
+    getEffectiveMetadataEnrichmentMode(app.persistence),
   ]);
   return {
     repairCooldownMinutes: config.repairCooldownMinutes,
@@ -90,6 +97,8 @@ async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
     effectiveDashboardPerformanceRanges: resolveEffectiveDashboardPerformanceRanges(
       config.dashboardPerformanceRanges,
     ),
+    metadataEnrichmentMode: config.metadataEnrichmentMode,
+    effectiveMetadataEnrichmentMode: effectiveMode,
     updatedAt: config.updatedAt,
   };
 }
@@ -386,6 +395,15 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         after.dashboardPerformanceRanges = nextList;
         await app.persistence.setDashboardPerformanceRanges(nextList);
       }
+    }
+
+    if (
+      body.metadataEnrichmentMode !== undefined
+      && body.metadataEnrichmentMode !== current.metadataEnrichmentMode
+    ) {
+      before.metadataEnrichmentMode = current.metadataEnrichmentMode;
+      after.metadataEnrichmentMode = body.metadataEnrichmentMode;
+      await app.persistence.setMetadataEnrichmentMode(body.metadataEnrichmentMode);
     }
 
     if (Object.keys(after).length === 0) {

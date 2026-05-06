@@ -42,6 +42,11 @@ function buildConfig(overrides: Partial<AppConfigDto> = {}): AppConfigDto {
     effectiveRepairCooldownMinutes: 15,
     dashboardPerformanceRanges: null,
     effectiveDashboardPerformanceRanges: ["1M", "3M", "YTD", "1Y"],
+    // KZO-189 — implementation-coupled fixture extension. Defaults match the
+    // env-default state (no admin override). Tests targeting the new mode
+    // section should override these via the `overrides` param.
+    metadataEnrichmentMode: null,
+    effectiveMetadataEnrichmentMode: "conditional",
     updatedAt: "2026-04-22T10:00:00.000Z",
     ...overrides,
   };

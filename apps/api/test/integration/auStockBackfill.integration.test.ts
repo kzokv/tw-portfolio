@@ -168,6 +168,10 @@ describePostgres("AU backfill round-trip — bars + dividends + metadata enrichm
       persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      // KZO-189: implementation-coupled stub. Tests in this suite use
+      // trigger="user_selection" → shouldEnrich=true under "conditional",
+      // matching pre-KZO-189 behavior (enrichment runs).
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (
         ticker: string,
         status: string,

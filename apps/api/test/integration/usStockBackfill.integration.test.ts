@@ -150,6 +150,11 @@ describePostgres("US backfill round-trip — bars only (KZO-170 D5 revised)", ()
       persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      // KZO-189: implementation-coupled stub. This test uses trigger="daily_refresh"
+      // and the existing comment above explicitly relies on the (no-op) metadata
+      // enrichment path being exercised. Use "unconditional" so shouldEnrich=true
+      // and the enrichment branch runs as a clean pass-through (matches pre-KZO-189).
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("unconditional"),
       updateBackfillStatus: async (ticker: string, status: string) => {
         await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
       },

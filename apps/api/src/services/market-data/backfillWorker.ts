@@ -65,6 +65,13 @@ export interface BackfillWorkerDeps {
   persistence: { upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> };
   eventBus: BufferedEventBus;
   boss: PgBoss;
+  /**
+   * KZO-189 — effective AU metadata enrichment mode resolver. Hybrid env+DB
+   * (mirror of `getEffectiveRepairCooldownMinutes`). Read every job (no
+   * in-process cache) so admin toggles take effect on the next backfill.
+   * Predicate: `shouldEnrich = (mode === "unconditional") || (trigger !== "daily_refresh")`.
+   */
+  getEffectiveMetadataEnrichmentMode: () => Promise<"unconditional" | "conditional">;
   updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
   updateLastRepairAt?: (ticker: string) => Promise<void>;
   getUsersMonitoringTicker: (ticker: string) => Promise<string[]>;
@@ -94,6 +101,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     persistence,
     eventBus,
     boss,
+    getEffectiveMetadataEnrichmentMode,
     updateBackfillStatus,
     updateLastRepairAt,
     getUsersMonitoringTicker,
@@ -132,6 +140,15 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     const shouldSetReadyStatus = !isRepair;
     const shouldSetFailedStatus = !isDailyRefresh && !isRepair;
 
+    // KZO-189: AU metadata enrichment gate. Resolved per-job (no cache) so admin
+    // toggles take effect on the next backfill. The predicate matches the locked
+    // truth table:
+    //   unconditional × any trigger              → enrich (reserveCapacity 3)
+    //   conditional   × user_selection|first_trade|retry|repair → enrich (3)
+    //   conditional   × daily_refresh            → SKIP (reserveCapacity 2)
+    const mode = await getEffectiveMetadataEnrichmentMode();
+    const shouldEnrich = mode === "unconditional" || trigger !== "daily_refresh";
+
     if (!includeBars && !includeDividends) {
       throw new Error("Backfill job must request at least one dataset");
     }
@@ -163,14 +180,15 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     }
 
     try {
-      // KZO-163 HIGH-1 fix + KZO-172: pre-reserve rate-limit slots for every call this
-      // invocation makes — bars + dividends + metadata enrichment. Flat reservation of 3
-      // covers the worst case (AU's `fetchInstrumentMetadata` is a real `quote()` call;
-      // FinMind providers' equivalent is a no-op that consumes nothing, so the
-      // 1-slot-over-reservation is harmless under their 600/hr budget). KZO-190 tracks
-      // the dynamic-count cleanup. The pre-reserve breaks the deterministic starvation
-      // pattern under one-slot-at-a-time replenishment by waiting for ALL needed slots.
-      provider.reserveCapacity(3);
+      // KZO-163 HIGH-1 fix + KZO-172 + KZO-189: pre-reserve rate-limit slots for every
+      // call this invocation makes — always bars + dividends, plus metadata enrichment
+      // when `shouldEnrich` (KZO-189 gate). Pre-reserve breaks the deterministic
+      // starvation pattern under one-slot-at-a-time replenishment by waiting for ALL
+      // needed slots up-front. AU's `fetchInstrumentMetadata` is a real `quote()` call;
+      // FinMind providers' equivalent is a no-op that consumes nothing, so the +1 slot
+      // is harmless under their 600/hr budget when shouldEnrich is true. KZO-190 tracks
+      // the includeBars/includeDividends-aware count cleanup.
+      provider.reserveCapacity(2 + (shouldEnrich ? 1 : 0));
 
       if (shouldSetBackfillingStatus) {
         await updateBackfillStatus(ticker, "backfilling");
@@ -218,10 +236,11 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
         }
       }
 
-      // KZO-172 — metadata enrichment via the per-market catalog provider. Runs for
-      // EVERY backfill (no trigger gating) per the user-locked P1 default. KZO-189
-      // tracks the conditional optimization. For TW/US the provider returns null
-      // (no-op); for AU, Yahoo's `quote()` returns enriched `{ name, quoteType }`.
+      // KZO-172 + KZO-189 — metadata enrichment via the per-market catalog provider.
+      // The KZO-189 gate (`shouldEnrich`) skips this block when `mode === "conditional"`
+      // and the trigger is `daily_refresh`, conserving the Yahoo budget on the bulk
+      // daily-refresh sweep. For TW/US the provider returns null (no-op); for AU,
+      // Yahoo's `quote()` returns enriched `{ name, quoteType }`.
       //
       // Error policy mirrors the dividend block exactly (REVISIT-D in scope-todo):
       //   - `RateLimitedError` MUST be re-thrown so the outer reschedule path runs
@@ -229,25 +248,27 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       //   - Any other error (network blip, Yahoo HTML breakage, TS narrowing slip) is
       //     warn-and-continue — bars + dividends already landed, the catalog row will
       //     be enriched on the next backfill or the daily catalog-sync sweep.
-      const catalogProvider = catalogRegistry.get(market);
-      if (catalogProvider) {
-        try {
-          const rawMeta = await catalogProvider.fetchInstrumentMetadata(ticker);
-          if (rawMeta) {
-            const [catalogRow] = buildCatalogInstruments([rawMeta], market);
-            if (catalogRow) {
-              await persistence.upsertInstrumentCatalog([catalogRow], []);
-              log.info({ ticker, marketCode: market, provider: catalogProvider.providerId }, "backfill_metadata_enriched");
+      if (shouldEnrich) {
+        const catalogProvider = catalogRegistry.get(market);
+        if (catalogProvider) {
+          try {
+            const rawMeta = await catalogProvider.fetchInstrumentMetadata(ticker);
+            if (rawMeta) {
+              const [catalogRow] = buildCatalogInstruments([rawMeta], market);
+              if (catalogRow) {
+                await persistence.upsertInstrumentCatalog([catalogRow], []);
+                log.info({ ticker, marketCode: market, provider: catalogProvider.providerId }, "backfill_metadata_enriched");
+              }
             }
+          } catch (metaErr) {
+            if (metaErr instanceof RateLimitedError) {
+              throw metaErr;
+            }
+            log.warn(
+              { ticker, marketCode: market, provider: catalogProvider.providerId, error: metaErr },
+              "backfill_metadata_fetch_failed: continuing without enrichment",
+            );
           }
-        } catch (metaErr) {
-          if (metaErr instanceof RateLimitedError) {
-            throw metaErr;
-          }
-          log.warn(
-            { ticker, marketCode: market, provider: catalogProvider.providerId, error: metaErr },
-            "backfill_metadata_fetch_failed: continuing without enrichment",
-          );
         }
       }
 

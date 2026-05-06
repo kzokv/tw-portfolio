@@ -260,6 +260,9 @@ export class MemoryPersistence implements Persistence {
   /** App config: admin override for dashboard performance ranges (KZO-159 / 158A).
    *  null = unset, callers fall back to the hardcoded DEFAULT list. */
   private _dashboardPerformanceRanges: string[] | null = null;
+  /** App config: AU metadata enrichment mode override (KZO-189).
+   *  null = unset, callers fall back to Env.METADATA_ENRICHMENT_MODE. */
+  private _metadataEnrichmentMode: "unconditional" | "conditional" | null = null;
   /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
    *  construction so a fresh MemoryPersistence always has a non-null value. */
   private _appConfigUpdatedAt: string = new Date().toISOString();
@@ -2203,6 +2206,7 @@ export class MemoryPersistence implements Persistence {
   async getAppConfig(): Promise<{
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
+    metadataEnrichmentMode: "unconditional" | "conditional" | null;
     updatedAt: string;
   }> {
     return {
@@ -2210,6 +2214,7 @@ export class MemoryPersistence implements Persistence {
       dashboardPerformanceRanges: this._dashboardPerformanceRanges
         ? [...this._dashboardPerformanceRanges]
         : null,
+      metadataEnrichmentMode: this._metadataEnrichmentMode,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -2223,6 +2228,16 @@ export class MemoryPersistence implements Persistence {
     // KZO-159 (158A) — sibling setter per D6. Route layer validates the
     // list shape via `dashboardPerformanceRangesSchema` before calling.
     this._dashboardPerformanceRanges = value ? [...value] : null;
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  // KZO-189: AU metadata enrichment mode override.
+  async getMetadataEnrichmentMode(): Promise<"unconditional" | "conditional" | null> {
+    return this._metadataEnrichmentMode;
+  }
+
+  async setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void> {
+    this._metadataEnrichmentMode = value;
     this._bumpAppConfigUpdatedAt();
   }
 

@@ -16,6 +16,7 @@ The Validator MUST NOT self-activate under any circumstances. Activation is auth
 - Time elapsed since a prior run
 - User-typed input ("resume", "continue", "go ahead") unless that text is forwarded by the Architect in an explicit `[GO]` envelope addressed to the Validator
 - The Validator's own internal sense of "I should check"
+- `TaskUpdate(status: "in_progress")` fired by the Dispatcher on this very Validator task — Dispatcher-managed task-status transitions are NOT `[GO]` signals; only Architect-issued `[GO]` envelopes authorize activation (KZO-189 occurrence 3)
 
 ## Preamble requirement for [GO] envelopes
 
@@ -37,13 +38,15 @@ When relaying Architect `[TRIAGE]` envelopes to Phase 4 teammates, do NOT forwar
 
 ## Why this is a standalone rule
 
-Two distinct self-activation incidents in KZO-172, both before a legitimate Phase 3/5 [GO]:
+Three self-activation incidents across KZO-172 (×2) and KZO-189 (×1), all before a legitimate Phase 3/5 [GO]:
 
 1. **Occurrence 1** — Validator interpreted user-typed "resume" (directed at the Dispatcher's polling loop) as a [GO] signal. Ran suites 1-4 + 6-7 against incomplete source (Phase 1 still in_progress). `[FORCE_STOP]` issued; results discarded; lsof sweep required before the legitimate run.
 
 2. **Occurrence 2** — Validator self-activated on ambient activity (likely the Architect's [TRIAGE] envelope to other teammates, or state.json phase changes). Ran the full 8-suite gate mid-Phase-4 without authorization. No [FORCE_STOP] needed (idled after reporting); results were directional only but could have been mistaken for Phase 5 results.
 
-**Operational cost:** each unauthorized run burns 8–12 minutes of compute and risks producing data that looks authoritative but reflects incomplete source state. KZO-74 (first recorded instance) and KZO-172 (two additional instances) establish this as a recurring pattern, not a one-off.
+3. **Occurrence 3 (KZO-189)** — Dispatcher set the Validator's task to `in_progress` as the Phase 5 [GO] mechanism. The Validator treated this as authorization and began running suites. Architect caught it and issued an explicit `[ARCHITECT:GO]` to formalize; suites ran but the activation signal was wrong. The Dispatcher subsequently held for explicit `[ARCHITECT:GO]` for the iteration-2 validation run — no further incidents.
+
+**Operational cost:** each unauthorized run burns 8–12 minutes of compute and risks producing data that looks authoritative but reflects incomplete source state. KZO-74 (first recorded instance), KZO-172 (two additional instances), KZO-189 (one additional instance) establish this as a recurring pattern, not a one-off.
 
 The `[GO]` gate is also documented in `agent-team-workflow.md` ("Validator gating") but without the enumerated negation list. This rule adds the negation list and the preamble template — the parts that directly addressed occurrences 1 and 2.
 

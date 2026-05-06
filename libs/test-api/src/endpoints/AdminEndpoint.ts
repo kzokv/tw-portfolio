@@ -62,6 +62,7 @@ export class AdminEndpoint extends BaseEndpoint {
     body: {
       repairCooldownMinutes?: number | null;
       dashboardPerformanceRanges?: string[] | null;
+      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
     },
     headers?: Record<string, string>,
   ): Promise<APIResponse> =>

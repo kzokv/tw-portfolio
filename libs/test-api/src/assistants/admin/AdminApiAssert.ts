@@ -33,5 +33,16 @@ export class AdminApiAssert extends ApiBaseAssert {
       typeof body.updatedAt === "string" && body.updatedAt.length > 0,
       "updatedAt is a non-empty string",
     );
+    await this.mxAssertTruthy(
+      body.metadataEnrichmentMode === null
+        || body.metadataEnrichmentMode === "unconditional"
+        || body.metadataEnrichmentMode === "conditional",
+      "metadataEnrichmentMode is 'unconditional' | 'conditional' | null",
+    );
+    await this.mxAssertTruthy(
+      body.effectiveMetadataEnrichmentMode === "unconditional"
+        || body.effectiveMetadataEnrichmentMode === "conditional",
+      "effectiveMetadataEnrichmentMode is 'unconditional' | 'conditional'",
+    );
   }
 }

@@ -17,6 +17,21 @@ Check that the artifact has each of these section headings, in order:
 
 The CI workflow `pr-gate.yml` enforces these section headings via body validation. A draft missing any of them fails CI on submission.
 
+## Wave 2 pre-engagement artifact check (Architect gate)
+
+Before routing Wave 2 docs to the Code Reviewer, the Architect must verify every required deliverable exists on disk:
+
+```bash
+ls .worklog/team/          # pr-description-draft.md must be present
+ls docs/004-notes/<slug>/  # transition note must be present
+```
+
+Do NOT assume a teammate's `[DONE]` signal means all deliverables were written. Check file existence explicitly. If any required artifact is missing, send `[QUESTION]` to the Technical Writer and wait for the missing file before engaging the Code Reviewer.
+
+If the PR description draft includes a truth table (any feature that is mode-dependent or condition-dependent), verify the table is included verbatim in the draft — not summarized in prose. The truth table is the acceptance signal the Code Reviewer and human use to verify behavioral correctness.
+
+**Why:** KZO-189 Wave 2 — Technical Writer reported `[DONE]` after writing 3 of 4 deliverables. The PR description draft (`.worklog/team/pr-description-draft.md`) was absent. Architect caught this via the existence check before routing to Code Reviewer, avoided a Code Reviewer run against an incomplete artifact set. Without the check, the Code Reviewer would have reviewed 3 of 4 artifacts and declared clean — missing the PR body compliance review entirely (which is the one that fails CI).
+
 ## Brief the Code Reviewer explicitly
 
 When the Architect routes Wave 2 docs to the Code Reviewer, include in the brief:

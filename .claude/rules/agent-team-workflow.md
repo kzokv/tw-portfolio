@@ -100,3 +100,18 @@ If any of those fail (extraction would change behavior, violate a rule, or land 
 - QA rule of thumb: prefer importing from a plausible `utils/` location even if the scope-todo doesn't name it — the Implementer can extract on receipt.
 - Architect rule of thumb: do NOT route this as a finding in Phase 3 if it lands cleanly. The implicit extraction is part of Tier 2's "QA writes scripts proactively" contract.
 - Companion rule: `nextjs-i18n-serialization.md` is the most common destination for this pattern (helpers MUST live outside i18n dicts).
+
+## QA assertion scope-bleed — audit inherited negations when modeling new test cases
+
+When QA models a new test case on an existing sibling (copy-and-modify), inherited negative assertions (`expect(fn).not.toHaveBeenCalled(...)`, `expect(fn).not.toHaveBeenCalledWith(...)`) must be audited for scope correctness. A sibling that tests a failure path may have negations that are NOT true for the new gating condition's success path.
+
+**Audit question for each inherited `not.toHaveBeenCalled*` assertion:**
+> "Does this behavior CHANGE under the new gate I'm testing, or does it remain the same as it was before my feature landed?"
+
+If the answer is "remains the same as before," the assertion is out of scope for the new test case and should be removed. The inherited assertion describes the sibling's feature, not the new one.
+
+**Symptom:** A new test case fails with "expected function NOT to have been called, but it was called 1 time." The function call is correct pre-existing behavior — the inherited assertion is wrong for the new path, not the code.
+
+**Why:** KZO-189 Suite 4 iter 1 — QA modeled the `conditional × daily_refresh` (enrichment-skip) test case on the failure-path sibling in `backfill-handler-branching.test.ts`. The sibling's `expect(updateBackfillStatus).not.toHaveBeenCalledWith('BHP', 'ready')` was correct for the failure path but wrong for the skip path, where enrichment is skipped but the handler completes successfully — `updateBackfillStatus('BHP', 'ready')` IS called (unchanged from pre-KZO-189). The fix was 1-line removal in Phase 4; finding it cost a full convergence iteration.
+
+**How to apply:** QA self-check before `[DONE]`: for every `not.toHaveBeenCalled*` assertion in a new test case, confirm it is testing something that the new gate feature actually changes — not inherited from a sibling that tested something else entirely.

@@ -31,6 +31,9 @@ export interface TAppShellElements extends TElementLocatorHelpers {
   adminActiveTimeframeChips: Locator;
   adminFirstActiveTimeframeChip: Locator;
   timeframeCustomizeRows: Locator;
+  adminMetadataEnrichmentModeSelect: Locator;
+  adminMetadataEnrichmentModeSave: Locator;
+  adminMetadataEnrichmentModeEffective: Locator;
 }
 
 export class AppShellPage extends BasePage<TAppShellElements> {
@@ -83,6 +86,18 @@ export class AppShellPage extends BasePage<TAppShellElements> {
         this.locate("timeframe-customize-popover")
           .locator('[data-testid^="timeframe-customize-row-"]'),
         "Timeframe Customize Rows",
+      ),
+      adminMetadataEnrichmentModeSelect: this.locate(
+        "admin-settings-metadata-enrichment-mode-select",
+        "Admin Metadata Enrichment Mode Select",
+      ),
+      adminMetadataEnrichmentModeSave: this.locate(
+        "admin-settings-metadata-enrichment-mode-save",
+        "Admin Metadata Enrichment Mode Save Button",
+      ),
+      adminMetadataEnrichmentModeEffective: this.locate(
+        "admin-settings-metadata-enrichment-mode-effective",
+        "Admin Metadata Enrichment Mode Effective Value",
       ),
     };
   }

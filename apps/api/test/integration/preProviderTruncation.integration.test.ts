@@ -138,6 +138,9 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      // KZO-189: implementation-coupled stub. trigger="user_selection" →
+      // shouldEnrich=true under "conditional", matching pre-KZO-189 behavior.
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (ticker: string, status: string) => {
         await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
       },
@@ -215,6 +218,9 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       persistence: persistence!,
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
+      // KZO-189: implementation-coupled stub. trigger="user_selection" →
+      // shouldEnrich=true under "conditional", matching pre-KZO-189 behavior.
+      getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (ticker: string, status: string) => {
         await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
       },

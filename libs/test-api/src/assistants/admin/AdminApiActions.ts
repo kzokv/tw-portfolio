@@ -41,6 +41,7 @@ export class AdminApiActions extends ApiBaseActions {
     body: {
       repairCooldownMinutes?: number | null;
       dashboardPerformanceRanges?: string[] | null;
+      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
     },
   ): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, this.authHeaders);
@@ -52,6 +53,7 @@ export class AdminApiActions extends ApiBaseActions {
     body: {
       repairCooldownMinutes?: number | null;
       dashboardPerformanceRanges?: string[] | null;
+      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
     },
   ): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, headersForCookie(cookie));
