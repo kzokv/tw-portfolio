@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool, type PoolClient } from "pg";
+import { Pool, types, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import {
   calculateAppliedTaxComponents,
@@ -11,7 +11,7 @@ import {
   type FeeProfile,
   type FeeProfileTaxRule,
 } from "@tw-portfolio/domain";
-import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
@@ -100,6 +100,8 @@ import {
   ANONYMOUS_SHARE_TOKEN_RETENTION_MS,
 } from "../lib/anonymousShareToken.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
+
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
@@ -2421,6 +2423,17 @@ export class PostgresPersistence implements Persistence {
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
+  }
+
+  async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
+    const result = await this.pool.query<{ bar_date: string }>(
+      `SELECT DISTINCT bar_date::text AS bar_date
+       FROM market_data.daily_bars
+       WHERE market_code = $1 AND bar_date >= $2::date
+       ORDER BY bar_date ASC`,
+      [market, fromDate],
+    );
+    return result.rows.map((row) => row.bar_date);
   }
 
   async getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]> {

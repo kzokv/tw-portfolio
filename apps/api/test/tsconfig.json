@@ -16,6 +16,9 @@
     "unit/fx-refresh-derive-window.test.ts",
     "unit/fx-refresh-worker.test.ts",
     "unit/cashLedgerService.test.ts",
-    "integration/account-currency-change-guard.integration.test.ts"
+    "unit/services/market-data/tradingCalendar.test.ts",
+    "unit/tradingCalendarPersistence.test.ts",
+    "integration/account-currency-change-guard.integration.test.ts",
+    "integration/tradingCalendar.integration.test.ts"
   ]
 }

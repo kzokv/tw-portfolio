@@ -11,7 +11,7 @@ import type {
   MarketDataFacts,
   Store,
 } from "../types/store.js";
-import type { DailyBar, InstrumentType } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
@@ -105,6 +105,9 @@ interface MemoryInstrument {
   lastRepairAt?: string | null;
   delistedAt?: string;
 }
+
+type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
+type SeedDailyBar = DailyBar & { marketCode?: MarketCode };
 
 interface MemoryPersistenceOptions {
   seedCatalog?: boolean;
@@ -219,7 +222,7 @@ function instrumentCatalogKey(ticker: string, marketCode: string): string {
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
-  private readonly dailyBars: DailyBar[] = [];
+  private readonly dailyBars: MemoryDailyBar[] = [];
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
   /**
@@ -1474,7 +1477,7 @@ export class MemoryPersistence implements Persistence {
 
   async getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]> {
     const tickerSet = new Set(tickers);
-    const grouped = new Map<string, DailyBar[]>();
+    const grouped = new Map<string, MemoryDailyBar[]>();
     for (const bar of this.dailyBars) {
       if (!tickerSet.has(bar.ticker)) continue;
       const list = grouped.get(bar.ticker) ?? [];
@@ -1489,7 +1492,19 @@ export class MemoryPersistence implements Persistence {
     return result;
   }
 
-  _seedDailyBars(bars: DailyBar[]): void { this.dailyBars.push(...bars); }
+  async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
+    const dates = new Set<string>();
+    for (const bar of this.dailyBars) {
+      if (bar.marketCode !== market) continue;
+      if (bar.barDate < fromDate) continue;
+      dates.add(bar.barDate);
+    }
+    return [...dates].sort((a, b) => a.localeCompare(b));
+  }
+
+  _seedDailyBars(bars: SeedDailyBar[]): void {
+    this.dailyBars.push(...bars.map((bar) => ({ ...bar, marketCode: bar.marketCode ?? "TW" })));
+  }
   _clearDailyBars(): void { this.dailyBars.length = 0; }
   _seedHoldingSnapshots(snapshots: HoldingSnapshot[]): void { this.holdingSnapshots.push(...snapshots); }
   _clearHoldingSnapshots(): void { this.holdingSnapshots.length = 0; }

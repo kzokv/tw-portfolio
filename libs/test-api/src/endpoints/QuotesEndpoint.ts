@@ -9,6 +9,7 @@ export class QuotesEndpoint extends BaseEndpoint {
   seedDailyBars = (
     bars: {
       ticker: string;
+      marketCode?: "TW" | "US" | "AU";
       barDate: string;
       open: number;
       high: number;

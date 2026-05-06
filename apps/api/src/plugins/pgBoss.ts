@@ -1,6 +1,7 @@
 import { PgBoss } from "pg-boss";
 import pg from "pg";
 import { Env } from "@tw-portfolio/config";
+import type { MarketCode } from "@tw-portfolio/domain";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
 import { getEffectiveMetadataEnrichmentMode } from "../services/market-data/metadataEnrichmentMode.js";
@@ -80,6 +81,9 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
         tickerResults: batch.tickerResults,
         log: app.log,
       });
+    },
+    onBarsUpserted: (market: MarketCode, dates: ReadonlyArray<string>) => {
+      app.tradingCalendarCache.notifyBarsUpserted(market, dates);
     },
     log: app.log,
   };
