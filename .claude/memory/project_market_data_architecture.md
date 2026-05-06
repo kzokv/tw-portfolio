@@ -61,7 +61,7 @@ Reusing `fetchDataset` with empty params would include `data_id=` in the URL, wh
 
 TW and US providers expose no-op stubs (return `null` / `[]`) — they do not implement catalog discovery.
 
-`BackfillWorkerDeps` now includes `catalogRegistry: Map<MarketCode, InstrumentCatalogProvider>` alongside `providerRegistry`. Existing integration tests that construct `BackfillWorkerDeps` must include both registries.
+`BackfillWorkerDeps` now includes `catalogRegistry: Map<MarketCode, InstrumentCatalogProvider>` alongside `providerRegistry`. As of KZO-189 it also includes `getEffectiveMetadataEnrichmentMode: () => Promise<"unconditional" | "conditional">` — a functor injected from `pgBoss.ts` that reads the DB override (falling back to `METADATA_ENRICHMENT_MODE` env var). Existing integration tests that construct `BackfillWorkerDeps` must include all three. Tests using `as never` / `as unknown as BackfillWorkerDeps` casts silently omit fields at compile time; see `.claude/rules/interface-caller-verification.md` §*Deps factory audit.
 
 ## Catalog upsert ON CONFLICT strategy
 

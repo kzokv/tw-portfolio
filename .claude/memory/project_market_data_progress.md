@@ -15,6 +15,7 @@ Earlier versions of this memory tracked the full Market Data Platform ticket-com
 - KZO-167+ (account-shape extension: defaultCurrency, accountType, multi-account creation, reporting currency) — done by 2026-04-30
 - KZO-169+ (multi-market: composite-PK migration, market_code on instruments/daily_bars/dividend_events, transaction-form market_code selector) — KZO-169 done 2026-05-01
 - KZO-170 / KZO-172 / KZO-188 (US / AU instrument ingestion + discovery UI) — KZO-170 done 2026-05-01; KZO-172 done 2026-05-05 (AU backend: provider + search route); KZO-188 done 2026-05-05 (AU ticker discovery UI: sheet chip group, live-search fallback, InstrumentCombobox liveResults Map, instrumentSearchService, E2E spec)
+- KZO-189 (metadata enrichment gate: trigger-based shouldEnrich predicate + admin-configurable mode unconditional|conditional) — done 2026-05-06; branch `worktree-kzo-189`, PR pending
 - KZO-185 (pgboss back-compat removal after KZO-169 queue drain) — done 2026-05-01
 
 Use `mcp__linear__list_issues` (project filter) for the live state.
