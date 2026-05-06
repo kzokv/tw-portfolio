@@ -160,6 +160,13 @@ export interface InstrumentCatalogProvider {
    * to 503 + Retry-After.
    */
   searchInstruments(query: string): Promise<RawInstrumentInfo[]>;
+  /**
+   * KZO-190 — true iff this provider's `fetchInstrumentMetadata` consumes a slot from
+   * the rate limiter when called. Used by `backfillWorker.ts` to right-size
+   * `reserveCapacity`. AU's Yahoo-backed `fetchInstrumentMetadata` is a real `quote()`
+   * call → true. FinMind TW/US are no-ops returning null → false.
+   */
+  readonly supportsMetadataEnrichment: boolean;
   /** Same semantics as `MarketDataProvider.reserveCapacity` — pre-flight check, no consume. */
   reserveCapacity(n: number): void;
 }

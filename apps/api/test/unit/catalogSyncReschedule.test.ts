@@ -35,6 +35,11 @@ function createProvider() {
     reserveCapacity: vi.fn(),
     fetchInstrumentCatalog: vi.fn(),
     fetchDelistingHistory: vi.fn(),
+    // KZO-190 — interface contract: covers both TW and US providers used by these
+    // tests. Both real FinMind providers' `fetchInstrumentMetadata` are no-ops, so
+    // false is correct. The catalog sync handler does not read this field; the
+    // mock declares it for interface fidelity.
+    supportsMetadataEnrichment: false,
   };
 }
 

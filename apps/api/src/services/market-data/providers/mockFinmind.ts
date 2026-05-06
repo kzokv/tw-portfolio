@@ -89,6 +89,8 @@ export class MockFinMindMarketDataProvider implements MarketDataProvider, Instru
    * dashboards aggregate uniformly across dev/test/prod regardless of which branch is wired in.
    */
   readonly providerId = "finmind-tw";
+  /** KZO-190 — mirrors real `FinMindMarketDataProvider`; `fetchInstrumentMetadata` no-op. */
+  readonly supportsMetadataEnrichment = false;
   readonly calls: Array<{ method: string; ticker?: string; query?: string; startDate?: string; endDate?: string; n?: number }> = [];
 
   /**

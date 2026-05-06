@@ -127,6 +127,8 @@ function shiftToSydneyDate(date: Date): string {
 export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: stable provider identity for log enrichment. */
   readonly providerId = "yahoo-finance-au";
+  /** KZO-190 — `fetchInstrumentMetadata` is a real Yahoo `quote()` call; consumes one slot. */
+  readonly supportsMetadataEnrichment = true;
   private readonly rateLimiter: RateLimiter;
   private readonly client: InstanceType<typeof YahooFinance>;
 

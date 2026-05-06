@@ -69,6 +69,9 @@ function createDeps() {
   // null) so the existing tests' assertions about bars/dividends paths continue to
   // hold — the metadata branch is exercised in dedicated tests added later.
   const catalogProvider = {
+    // KZO-190: TW catalog provider's `fetchInstrumentMetadata` is a no-op (returns null)
+    // and consumes no rate-limit slot. Worker uses this flag to right-size reserveCapacity.
+    supportsMetadataEnrichment: false,
     fetchInstrumentMetadata: vi.fn().mockResolvedValue(null),
   };
   const marketDataRegistry = new Map<MarketCode, typeof provider>();
@@ -505,12 +508,13 @@ describe("backfill handler trigger branching", () => {
     expect(deps.updateBackfillStatus).not.toHaveBeenCalled();
   });
 
-  // KZO-172: every backfill now reserves 3 slots upfront (bars + dividends + metadata)
-  // because metadata enrichment is unconditional (P1 user-locked). FinMind providers'
-  // `fetchInstrumentMetadata` is a no-op — the 1-slot over-reservation when
-  // `includeDividends=false` is harmless under the 600/hr budget; KZO-190 tracks the
-  // dynamic-count cleanup. Pre-KZO-172 this test asserted skip-on-single-call.
-  it("reserves 3 slots up-front for every invocation (covers bars + dividends + metadata; KZO-172)", async () => {
+  // KZO-190: reserveCapacity is now dynamic per (includeBars, includeDividends,
+  // shouldEnrich && supportsMetadataEnrichment). For TW + bars-only + repair (which
+  // is on the unconditional-enrich ALLOW list, so shouldEnrich=true), the formula
+  // resolves to 1 (bars only) — TW's `fetchInstrumentMetadata` is a no-op so its
+  // `supportsMetadataEnrichment` is false. Pre-KZO-190 this asserted 3 (the static
+  // over-reservation that KZO-172 introduced and KZO-189 carried forward).
+  it("reserves bars-only slot for TW + repair + includeDividends=false (KZO-190 dynamic count)", async () => {
     const deps = createDeps();
     const provider = deps.marketDataRegistry.get("TW")!;
     const handler = createBackfillHandler(deps as never);
@@ -526,7 +530,7 @@ describe("backfill handler trigger branching", () => {
     ]);
 
     expect(provider.reserveCapacity).toHaveBeenCalledTimes(1);
-    expect(provider.reserveCapacity).toHaveBeenCalledWith(3);
+    expect(provider.reserveCapacity).toHaveBeenCalledWith(1);
     expect(provider.fetchBars).toHaveBeenCalledTimes(1);
   });
 
@@ -593,6 +597,9 @@ describe("backfill handler trigger branching", () => {
     // The AU provider implements both interfaces — same instance under both maps.
     const auProvider = {
       providerId: "yahoo-finance-au",
+      // KZO-190: AU's `fetchInstrumentMetadata` is a real Yahoo `quote()` call that
+      // consumes one rate-limit slot. Worker reads this flag to size reserveCapacity.
+      supportsMetadataEnrichment: true,
       reserveCapacity: vi.fn(),
       fetchBars: vi.fn().mockResolvedValue([
         {
@@ -892,6 +899,127 @@ describe("backfill handler trigger branching", () => {
       expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
       expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
       expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── KZO-190: reserveCapacity dynamic count formula ────────────────────────
+  //
+  // 5 truth-table cells verifying the new formula:
+  //   N = (includeBars ? 1 : 0)
+  //     + (includeDividends ? 1 : 0)
+  //     + (shouldEnrich && catalogProvider?.supportsMetadataEnrichment ? 1 : 0)
+  //
+  // AU provider (supportsMetadataEnrichment=true): adds the metadata slot when shouldEnrich=T.
+  // TW provider (supportsMetadataEnrichment=false): skips the metadata slot even when shouldEnrich=T.
+  // includeBars / includeDividends contribute independently regardless of provider.
+  //
+  // Assertion scope: `reserveCapacity(N)` only. Fetch-call and status-transition
+  // coverage lives in other tests; inheriting those assertions here would blur the
+  // per-cell contract and create false `not.toHaveBeenCalled` scope-bleed
+  // (per `.claude/rules/agent-team-workflow.md § QA assertion scope-bleed`).
+  //
+  describe("reserveCapacity dynamic count formula (KZO-190)", () => {
+    it("AU enrich both: N=3 (bars=1 + dividends=1 + AU-metadata=1)", async () => {
+      const deps = createAuDeps();
+      // unconditional mode → shouldEnrich=T for all triggers
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("unconditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "user_selection",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      // AU supportsMetadataEnrichment=true, shouldEnrich=T: 1+1+1=3
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
+    });
+
+    it("TW enrich both (over-reserve fix): N=2, not 3 (bars=1 + dividends=1, TW-metadata no slot)", async () => {
+      // KZO-190 fix: FinMind's fetchInstrumentMetadata is a no-op (returns null) that
+      // consumes no rate-limit slot. With supportsMetadataEnrichment=false, the metadata
+      // slot is not reserved even when shouldEnrich=true. Pre-KZO-190: reserveCapacity(3).
+      const deps = createDeps();
+      // unconditional mode → shouldEnrich=T
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("unconditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "2330",
+          userId: "user-1",
+          trigger: "user_selection",
+        }) as never,
+      ]);
+
+      // TW supportsMetadataEnrichment=false, shouldEnrich=T: 1+1+0=2
+      expect(deps.provider.reserveCapacity).toHaveBeenCalledWith(2);
+    });
+
+    it("AU no-enrich both (KZO-189 path retained): N=2 (bars=1 + dividends=1, shouldEnrich=F)", async () => {
+      // Regression guard: the KZO-189 conditional/daily_refresh skip path is unchanged
+      // after KZO-190. AU supportsMetadataEnrichment=true but shouldEnrich=F → no slot added.
+      const deps = createAuDeps();
+      // conditional + daily_refresh → shouldEnrich=F
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("conditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "BHP",
+          marketCode: "AU",
+          userId: "user-1",
+          trigger: "daily_refresh",
+          startDate: "2024-01-02",
+        }) as never,
+      ]);
+
+      // AU supportsMetadataEnrichment=true, shouldEnrich=F: 1+1+0=2
+      expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(2);
+    });
+
+    it("TW bars-only enrich: N=1 (bars=1, dividends skipped, TW-metadata no slot)", async () => {
+      const deps = createDeps();
+      // unconditional mode + repair trigger → shouldEnrich=T; dividends explicitly excluded
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("unconditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "2330",
+          userId: "user-repair",
+          trigger: "repair",
+          includeBars: true,
+          includeDividends: false,
+        }) as never,
+      ]);
+
+      // TW supportsMetadataEnrichment=false, shouldEnrich=T, includeDividends=F: 1+0+0=1
+      expect(deps.provider.reserveCapacity).toHaveBeenCalledWith(1);
+    });
+
+    it("TW dividends-only no-enrich: N=1 (bars skipped, dividends=1, shouldEnrich=F)", async () => {
+      const deps = createDeps();
+      // conditional + daily_refresh → shouldEnrich=F; bars explicitly excluded
+      deps.getEffectiveMetadataEnrichmentMode.mockResolvedValueOnce("conditional");
+      const handler = createBackfillHandler(deps as never);
+
+      await handler([
+        createJob({
+          ticker: "2330",
+          trigger: "daily_refresh",
+          startDate: "2024-01-02",
+          includeBars: false,
+          includeDividends: true,
+        }) as never,
+      ]);
+
+      // TW supportsMetadataEnrichment=false, shouldEnrich=F, includeBars=F: 0+1+0=1
+      expect(deps.provider.reserveCapacity).toHaveBeenCalledWith(1);
     });
   });
 });
