@@ -501,6 +501,12 @@ export interface AppConfigDto {
   // KZO-159 (158A): fully-resolved list after admin fallback — what the
   // admin UI should render as the authoritative "current" list.
   effectiveDashboardPerformanceRanges: string[];
+  // KZO-189: admin override for AU metadata enrichment mode. `null` = use
+  // Env.METADATA_ENRICHMENT_MODE.
+  metadataEnrichmentMode: "unconditional" | "conditional" | null;
+  // KZO-189: fully-resolved mode after env fallback — what the admin UI
+  // should render as the authoritative "current" mode.
+  effectiveMetadataEnrichmentMode: "unconditional" | "conditional";
   updatedAt: string;
 }
 

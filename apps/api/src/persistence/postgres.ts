@@ -5872,20 +5872,23 @@ export class PostgresPersistence implements Persistence {
   async getAppConfig(): Promise<{
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
+    metadataEnrichmentMode: "unconditional" | "conditional" | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
       repair_cooldown_minutes: number | null;
       dashboard_performance_ranges: string[] | null;
+      metadata_enrichment_mode: "unconditional" | "conditional" | null;
       updated_at: Date | string;
     }>(
-      "SELECT repair_cooldown_minutes, dashboard_performance_ranges, updated_at FROM public.app_config WHERE id = 1",
+      "SELECT repair_cooldown_minutes, dashboard_performance_ranges, metadata_enrichment_mode, updated_at FROM public.app_config WHERE id = 1",
     );
     if (r.rowCount === 0) {
       console.warn("[app_config] row missing — falling back to env REPAIR_COOLDOWN_MINUTES");
       return {
         repairCooldownMinutes: null,
         dashboardPerformanceRanges: null,
+        metadataEnrichmentMode: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -5895,6 +5898,7 @@ export class PostgresPersistence implements Persistence {
     return {
       repairCooldownMinutes: row.repair_cooldown_minutes,
       dashboardPerformanceRanges: row.dashboard_performance_ranges,
+      metadataEnrichmentMode: row.metadata_enrichment_mode,
       updatedAt,
     };
   }
@@ -5914,6 +5918,27 @@ export class PostgresPersistence implements Persistence {
        VALUES (1, $1::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE SET dashboard_performance_ranges = $1::jsonb, updated_at = NOW()`,
       [value === null ? null : JSON.stringify(value)],
+    );
+  }
+
+  // KZO-189: AU metadata enrichment mode override.
+  async getMetadataEnrichmentMode(): Promise<"unconditional" | "conditional" | null> {
+    const r = await this.pool.query<{ metadata_enrichment_mode: "unconditional" | "conditional" | null }>(
+      "SELECT metadata_enrichment_mode FROM public.app_config WHERE id = 1",
+    );
+    if (r.rowCount === 0) {
+      console.warn("[app_config] row missing — falling back to env METADATA_ENRICHMENT_MODE");
+      return null;
+    }
+    return r.rows[0].metadata_enrichment_mode;
+  }
+
+  async setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, metadata_enrichment_mode, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET metadata_enrichment_mode = $1, updated_at = NOW()`,
+      [value],
     );
   }
 

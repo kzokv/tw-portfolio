@@ -1601,3 +1601,27 @@ The `GET /market-data/search` route logs:
 - Per-IP rate-limit breach returns `429 rate_limit_exceeded`. Provider budget exhaustion returns `503 provider_rate_limited` with `Retry-After` header.
 
 A `search_provider_error` spike (>3 occurrences per minute) may indicate Yahoo search endpoint breakage (see issue #967 in `gadicc/yahoo-finance2`). If sustained, consider setting `AU_PROVIDER_MOCK=true` temporarily and opening the EODHD upgrade process.
+
+---
+
+## 20. KZO-189 deploy notes — Metadata Enrichment Gate
+
+### Migration
+
+`045_kzo189_metadata_enrichment_mode.sql` adds a `metadata_enrichment_mode TEXT NULL` column to `app_config` with a CHECK constraint (`'unconditional'` or `'conditional'`). `NULL` means "use `METADATA_ENRICHMENT_MODE` env var fallback." Idempotent (`ADD COLUMN IF NOT EXISTS`). No data backfill required.
+
+### Metadata Enrichment Mode
+
+**Setting location:** Admin Settings page (`/admin/settings`) → "Metadata Enrichment Mode" select, or `METADATA_ENRICHMENT_MODE` env var.
+
+**Valid values:** `unconditional` (always enrich) | `conditional` (skip on `daily_refresh` trigger). Default: `conditional`.
+
+**When to change:**
+- Set to `unconditional` if you need to force metadata re-enrichment on the next daily refresh pass (e.g., after a bulk instrument import where metadata is stale).
+- Keep `conditional` (default) under normal operation to preserve Yahoo Finance API budget — daily refreshes only update price bars, not instrument metadata.
+
+**Yahoo budget pressure signal:** Frequent `backfill_rate_limited` warnings in logs on a per-instrument basis (not just the shared budget) may indicate enrichment is running more often than needed. Confirm `mode = conditional` is set.
+
+**Auditing a change:** Filter `audit_log` by `action = 'app_config_updated'` and inspect `metadata.before.metadataEnrichmentMode` and `metadata.after.metadataEnrichmentMode`.
+
+**Rollback:** Set `METADATA_ENRICHMENT_MODE=unconditional` in env (or set DB column to `unconditional` via admin UI) to restore pre-KZO-189 behavior. Change is passive — applies to future jobs only, no replay needed.

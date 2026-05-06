@@ -234,9 +234,7 @@ The user adjudicated the debate's **REVISIT-E2** in favor of **P1 (unconditional
 
 **Cost:** one additional `quote()` Yahoo API call per backfill trigger. At the current rate limit (20/min by default), this is acceptable for single-user portfolios.
 
-**KZO-189** is tracked to add conditional gating (skip if metadata already fresh within N days). The feature-flag approach (env var `METADATA_ENRICHMENT_MODE=unconditional|conditional`) is the recommended implementation path — avoids touching the worker's core logic; controls via config.
-
-Engineers implementing KZO-189 should read the warn-and-continue pattern at `backfillWorker.ts:189-202` (dividend path) as the template for how the metadata catch block is structured — the audit rule `.claude/rules/typed-transient-error-catch-audit.md` applies.
+**(Updated: KZO-189)** The metadata enrichment gate was implemented in KZO-189 and does touch `backfillWorker.ts` core logic: the `shouldEnrich` predicate, `reserveCapacity(2 + (shouldEnrich ? 1 : 0))` formula, and `if (shouldEnrich) { ... }` wrapper around the enrichment block. See `docs/004-notes/kzo-189/transition-202605061930-metadata-enrichment-gate.md` for full implementation details.
 
 ---
 

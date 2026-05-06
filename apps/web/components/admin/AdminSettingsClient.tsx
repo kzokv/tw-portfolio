@@ -86,6 +86,16 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const [timeframeServerError, setTimeframeServerError] = useState<string | null>(null);
   const [timeframeSaveSuccess, setTimeframeSaveSuccess] = useState<string | null>(null);
 
+  // ── Metadata Enrichment Mode section state (KZO-189) ───────────────────────
+  // The select value is "" when the admin is using the env default (override
+  // cleared); otherwise the explicit override string. PATCH translates "" → null.
+  const [metadataEnrichmentMode, setMetadataEnrichmentMode] = useState<string>(
+    initial.metadataEnrichmentMode ?? "",
+  );
+  const [metadataModeSaving, setMetadataModeSaving] = useState(false);
+  const [metadataModeError, setMetadataModeError] = useState<string | null>(null);
+  const [metadataModeSuccess, setMetadataModeSuccess] = useState<string | null>(null);
+
   const clientValidation = overrideEnabled ? validateMinutesInput(minutesInput) : { value: null, error: null };
   const inlineError = overrideEnabled ? clientValidation.error : null;
 
@@ -212,6 +222,32 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
       }
     } finally {
       setTimeframeSaving(false);
+    }
+  }
+
+  // ── Metadata Enrichment Mode handlers (KZO-189) ────────────────────────────
+  async function handleSaveMetadataMode() {
+    setMetadataModeError(null);
+    setMetadataModeSuccess(null);
+    setMetadataModeSaving(true);
+    try {
+      const next = metadataEnrichmentMode === "" ? null : metadataEnrichmentMode;
+      const updated = await patchJson<AppConfigDto>("/admin/settings", {
+        metadataEnrichmentMode: next,
+      });
+      setConfig(updated);
+      setMetadataEnrichmentMode(updated.metadataEnrichmentMode ?? "");
+      setMetadataModeSuccess("Metadata enrichment mode saved.");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setMetadataModeError(err.message);
+      } else if (err instanceof Error) {
+        setMetadataModeError(err.message);
+      } else {
+        setMetadataModeError("Failed to save metadata enrichment mode.");
+      }
+    } finally {
+      setMetadataModeSaving(false);
     }
   }
 
@@ -487,6 +523,84 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               data-testid="timeframe-save-button"
             >
               {timeframeSaving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── KZO-189: Metadata Enrichment Mode section ───────────────────── */}
+      <Card data-testid="admin-settings-metadata-enrichment-mode-section">
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Metadata enrichment mode</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Controls whether AU instrument metadata (name, type) is enriched on every backfill or
+              only on user-driven triggers. Use {`"Skip on daily refresh"`} to conserve the Yahoo
+              budget when the daily-refresh cron sweeps every monitored ticker.
+            </p>
+          </div>
+
+          <div>
+            <label
+              className="block text-sm font-medium text-slate-700"
+              htmlFor="admin-settings-metadata-enrichment-mode-select"
+            >
+              Mode
+            </label>
+            <select
+              id="admin-settings-metadata-enrichment-mode-select"
+              value={metadataEnrichmentMode}
+              onChange={(e) => {
+                setMetadataEnrichmentMode(e.target.value);
+                setMetadataModeError(null);
+                setMetadataModeSuccess(null);
+              }}
+              disabled={metadataModeSaving}
+              className="mt-1 w-72 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              data-testid="admin-settings-metadata-enrichment-mode-select"
+            >
+              <option value="">
+                Use environment default ({config.effectiveMetadataEnrichmentMode})
+              </option>
+              <option value="unconditional">Always enrich (unconditional)</option>
+              <option value="conditional">Skip on daily refresh (conditional)</option>
+            </select>
+            <p
+              className="mt-2 text-xs text-slate-500"
+              data-testid="admin-settings-metadata-enrichment-mode-effective"
+            >
+              Effective: {config.effectiveMetadataEnrichmentMode}
+              {config.metadataEnrichmentMode === null ? " (env default)" : " (admin override)"}
+            </p>
+          </div>
+
+          {metadataModeError && (
+            <p
+              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              role="alert"
+              data-testid="admin-settings-metadata-enrichment-mode-error"
+            >
+              {metadataModeError}
+            </p>
+          )}
+
+          {metadataModeSuccess && (
+            <p
+              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+              role="status"
+              data-testid="admin-settings-metadata-enrichment-mode-success"
+            >
+              {metadataModeSuccess}
+            </p>
+          )}
+
+          <div className="flex items-center justify-end">
+            <Button
+              onClick={() => void handleSaveMetadataMode()}
+              disabled={metadataModeSaving}
+              data-testid="admin-settings-metadata-enrichment-mode-save"
+            >
+              {metadataModeSaving ? "Saving..." : "Save"}
             </Button>
           </div>
         </div>

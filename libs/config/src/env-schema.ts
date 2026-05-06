@@ -24,6 +24,12 @@ export const envSchema = z.object({
   // Fallback default (minutes) used when `app_config.repair_cooldown_minutes` is NULL or
   // the singleton row is missing. When the DB value is set, it is authoritative. See KZO-133.
   REPAIR_COOLDOWN_MINUTES: z.coerce.number().int().positive().default(60),
+  // KZO-189: AU metadata enrichment gate. `unconditional` preserves pre-KZO-189
+  // behavior (enrich on every backfill); `conditional` skips enrichment for the
+  // `daily_refresh` trigger to conserve the Yahoo budget. The DB override at
+  // `app_config.metadata_enrichment_mode` (NULL → use this env value) wins when
+  // set. See `services/market-data/metadataEnrichmentMode.ts`.
+  METADATA_ENRICHMENT_MODE: z.enum(["unconditional", "conditional"]).default("conditional"),
   ADMIN_IMPERSONATION_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   // Google OAuth — required when AUTH_MODE=oauth.
   // GOOGLE_CLIENT_ID: OAuth 2.0 client ID from Google Cloud Console credentials.
