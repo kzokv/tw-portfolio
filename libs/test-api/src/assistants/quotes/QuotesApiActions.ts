@@ -21,6 +21,7 @@ export class QuotesApiActions extends ApiBaseActions {
   async seedDailyBars(
     bars: {
       ticker: string;
+      marketCode?: "TW" | "US" | "AU";
       barDate: string;
       open: number;
       high: number;

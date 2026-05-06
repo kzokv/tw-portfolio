@@ -18,6 +18,7 @@ import {
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
+import { registerTradingCalendarCache } from "./services/market-data/registerTradingCalendarCache.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
 // If fields ever drift, this line fails to compile and surfaces the problem immediately.
@@ -148,6 +149,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
   app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
   app.marketDataRegistry = buildMarketDataRegistry(Env);
+  registerTradingCalendarCache(app, { persistence: app.persistence });
   // KZO-172: Yahoo's ToS limits use to personal/non-commercial. Surface the constraint
   // at boot time so operators see the notice in production logs (NOT in mock mode —
   // the mock provider doesn't touch Yahoo). Spike §7.3 documents the EODHD switch

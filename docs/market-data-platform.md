@@ -128,6 +128,22 @@ Daily refresh has **priority** over backfill in the 600 req/hr budget. Fresh dai
 
 The daily refresh job fetches new bars for the **distinct union of monitored `(ticker, market_code)` pairs across all users** — not per-user. `market_data.daily_bars` is shared, not user-scoped.
 
+### Trading calendar derivation
+
+KZO-173 adds service-layer trading-calendar helpers without a calendar table, seed file, migration, admin route, scheduler holiday skip, or external holiday dependency. The calendar source of truth is the set of distinct `bar_date` values already present in `market_data.daily_bars` for each `market_code`.
+
+`apps/api/src/services/market-data/tradingCalendar.ts` exposes `TradingCalendarCache` on `app.tradingCalendarCache` with three consumer helpers:
+
+- `latestSettledTradingDay(market, now, options?)`
+- `tradingDaysBetween(d1, d2, market)`
+- `isTradingDay(market, date)`
+
+The cache refreshes from `Persistence.getDistinctBarDates(market, fromDate)` with a 400-day lookback and a 1-hour TTL. It deduplicates concurrent cold refreshes per market and updates synchronously when daily bars are upserted by backfill, opportunistic price fallback, or `/__e2e/seed-daily-bars`. Multi-instance deployments can lag up to the TTL on instances that did not perform the write; this is acceptable for the current freshness thresholds.
+
+Settlement math uses the market-local close time: TW 13:30 Asia/Taipei, US 16:00 America/New_York, and AU 16:00 Australia/Sydney. `settleGraceHours` lets downstream freshness checks delay same-day settlement until ingestion should have landed bars; KZO-177 passes a grace window instead of declaring providers stale in the close-to-cron gap. Synthetic `FX` uses weekdays plus a 16:00 UTC publish threshold. v1 limitations: FX ignores ECB/TARGET2 holidays (KZO-192) and equity markets ignore early-close sessions (KZO-193).
+
+When a market has no recent derived bars, helpers fall back to weekday-only logic and emit a once-per-refresh warning (`trading_calendar_bootstrap_fallback`). This keeps bootstrap and empty-market development flows from failing hard while making missing calendar data visible in logs.
+
 ### Demo users
 
 Demo users receive **fixture/seed data only**. No real FinMind API calls are triggered by demo sessions. `getAllMonitoredTickers()` excludes demo users entirely.

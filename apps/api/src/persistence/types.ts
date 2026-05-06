@@ -13,7 +13,7 @@ import type {
   Store,
   InstrumentDef,
 } from "../types/store.js";
-import type { DailyBar } from "@tw-portfolio/domain";
+import type { DailyBar, MarketCode } from "@tw-portfolio/domain";
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -724,6 +724,11 @@ export interface Persistence {
   getProfile(userId: string): Promise<ProfileDto>;
   updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
   getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]>;
+  /**
+   * KZO-173: distinct `bar_date` values from `market_data.daily_bars` for the
+   * given market, on or after `fromDate` inclusive. Ordered ascending.
+   */
+  getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]>;
   readiness(): Promise<ReadinessStatus>;
   markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
 

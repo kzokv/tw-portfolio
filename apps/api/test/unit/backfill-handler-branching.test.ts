@@ -102,6 +102,7 @@ function createDeps() {
     getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
     updateBackfillStatus: vi.fn().mockResolvedValue(undefined),
     getUsersMonitoringTicker: vi.fn().mockResolvedValue(["user-1", "user-2"]),
+    onBarsUpserted: vi.fn(),
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 }
@@ -128,6 +129,7 @@ describe("backfill handler trigger branching", () => {
     expect(dividendsCall[0]).toBe("2330");
     expect(dividendsCall[1]).toBe("2026-03-24");
     expect(deps.getUsersMonitoringTicker).toHaveBeenCalledWith("2330");
+    expect(deps.onBarsUpserted).toHaveBeenCalledWith("TW", ["2026-03-30"]);
     expect(deps.eventBus.publishEvent).toHaveBeenCalledTimes(2);
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-1", "daily_refresh_complete", {
       ticker: "2330",

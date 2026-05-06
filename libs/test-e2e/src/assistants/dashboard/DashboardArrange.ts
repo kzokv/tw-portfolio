@@ -7,6 +7,7 @@ import type { DashboardPage } from "../../pages/dashboard/DashboardPage.js";
 
 interface TSeedDailyBar {
   ticker: string;
+  marketCode?: "TW" | "US" | "AU";
   barDate: string;
   open: number;
   high: number;

@@ -90,7 +90,23 @@ export interface BackfillWorkerDeps {
     result: { status: "success" | "failed"; barsCount?: number; dividendsCount?: number; reason?: string },
   ) => Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
   onBatchComplete?: (batchId: string) => Promise<void>;
+  onBarsUpserted?: (market: MarketCode, dates: ReadonlyArray<string>) => void;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
+}
+
+function collectDistinctBarDatesByMarket(
+  bars: ReadonlyArray<{ marketCode: MarketCode; barDate: string }>,
+): Map<MarketCode, Set<string>> {
+  const distinctByMarket = new Map<MarketCode, Set<string>>();
+  for (const bar of bars) {
+    let dates = distinctByMarket.get(bar.marketCode);
+    if (!dates) {
+      dates = new Set<string>();
+      distinctByMarket.set(bar.marketCode, dates);
+    }
+    dates.add(bar.barDate);
+  }
+  return distinctByMarket;
 }
 
 export function createBackfillHandler(deps: BackfillWorkerDeps) {
@@ -108,6 +124,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     createNotification,
     updateBatchTickerResult,
     onBatchComplete,
+    onBarsUpserted,
     log,
   } = deps;
 
@@ -224,6 +241,11 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
         // Write bars to market_data.daily_bars (upsert)
         barsCount = await upsertDailyBars(pool, bars);
+        if (onBarsUpserted) {
+          for (const [upsertedMarket, dates] of collectDistinctBarDatesByMarket(bars)) {
+            onBarsUpserted(upsertedMarket, [...dates]);
+          }
+        }
         log.info({ ticker, barsCount }, "backfill_bars_upserted");
       }
 

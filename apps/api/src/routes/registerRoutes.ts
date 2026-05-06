@@ -1328,11 +1328,14 @@ function buildFetchedPriceLookupResponse(bar: DailyBar, requestedDate: string) {
 }
 
 async function opportunisticUpsertDailyBars(
-  persistence: FastifyInstance["persistence"],
+  app: FastifyInstance,
   bars: DailyBar[],
   marketCode: MarketCode,
 ): Promise<void> {
   if (bars.length === 0) return;
+
+  const distinctDates = [...new Set(bars.map((bar) => bar.barDate))];
+  const persistence = app.persistence;
 
   if ("getPool" in persistence && typeof persistence.getPool === "function") {
     await upsertDailyBars(
@@ -1352,11 +1355,13 @@ async function opportunisticUpsertDailyBars(
         sourceId: bar.source,
       })),
     );
+    app.tradingCalendarCache.notifyBarsUpserted(marketCode, distinctDates);
     return;
   }
 
   if ("_seedDailyBars" in persistence && typeof persistence._seedDailyBars === "function") {
-    persistence._seedDailyBars(bars);
+    persistence._seedDailyBars(bars.map((bar) => ({ ...bar, marketCode })));
+    app.tradingCalendarCache.notifyBarsUpserted(marketCode, distinctDates);
   }
 }
 
@@ -1529,6 +1534,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         bars: z.array(
           z.object({
             ticker: z.string(),
+            marketCode: marketCodeSchema.default("TW"),
             barDate: z.string(),
             open: z.number(),
             high: z.number(),
@@ -1547,6 +1553,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "memory_only", "seed-daily-bars is only available with memory persistence");
     }
     app.persistence._seedDailyBars(body.bars);
+    const distinctByMarket = new Map<MarketCode, Set<string>>();
+    for (const bar of body.bars) {
+      let dates = distinctByMarket.get(bar.marketCode);
+      if (!dates) {
+        dates = new Set<string>();
+        distinctByMarket.set(bar.marketCode, dates);
+      }
+      dates.add(bar.barDate);
+    }
+    for (const [marketCode, dates] of distinctByMarket) {
+      app.tradingCalendarCache.notifyBarsUpserted(marketCode, [...dates]);
+    }
     return { status: "seeded", count: body.bars.length };
   });
 
@@ -3132,7 +3150,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(404, "price_not_found", "price not found");
     }
 
-    await opportunisticUpsertDailyBars(app.persistence, fetchedBars, market);
+    await opportunisticUpsertDailyBars(app, fetchedBars, market);
     return buildFetchedPriceLookupResponse(fetchedMatch, query.date);
   });
 
