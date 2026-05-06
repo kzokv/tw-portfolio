@@ -21,6 +21,12 @@ function createDeps() {
     reserveCapacity: vi.fn(),
     fetchInstrumentCatalog: vi.fn(),
     fetchDelistingHistory: vi.fn(),
+    // KZO-190 — interface contract: every InstrumentCatalogProvider declares whether
+    // its `fetchInstrumentMetadata` consumes a rate-limit slot. The catalog sync
+    // handler does not read this field, but the mock satisfies the interface so
+    // future code paths (or accidental same-mock reuse in metadata-aware tests)
+    // see a correct value. TW = no-op metadata = false.
+    supportsMetadataEnrichment: false,
   };
   const catalogRegistry = new Map([["TW", catalogProvider]]);
   const persistence = {

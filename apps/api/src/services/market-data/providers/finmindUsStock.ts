@@ -88,6 +88,8 @@ export interface FinMindUsStockMarketDataProviderConfig {
 export class FinMindUsStockMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: stable provider identity for log enrichment. */
   readonly providerId = "finmind-us";
+  /** KZO-190 — `fetchInstrumentMetadata` is a no-op returning null; consumes no slot. */
+  readonly supportsMetadataEnrichment = false;
   private readonly token: string;
   private readonly baseUrl: string;
   private readonly rateLimiter: RateLimiter;

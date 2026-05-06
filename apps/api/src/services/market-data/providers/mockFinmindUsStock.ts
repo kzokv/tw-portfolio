@@ -106,6 +106,8 @@ const MOCK_US_INSTRUMENT_CATALOG: RawInstrumentInfo[] = MOCK_US_TICKERS.map((spe
 export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: same provider identity as the real `FinMindUsStockMarketDataProvider`. */
   readonly providerId = "finmind-us";
+  /** KZO-190 — mirrors real `FinMindUsStockMarketDataProvider`; `fetchInstrumentMetadata` no-op. */
+  readonly supportsMetadataEnrichment = false;
   readonly calls: Array<{
     method: string;
     ticker?: string;

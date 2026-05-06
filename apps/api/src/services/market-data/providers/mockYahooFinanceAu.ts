@@ -114,6 +114,8 @@ const MOCK_AU_INSTRUMENT_CATALOG: RawInstrumentInfo[] = [...AU_RESERVED_INSTRUME
 export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: same provider identity as the real `YahooFinanceAuMarketDataProvider`. */
   readonly providerId = "yahoo-finance-au";
+  /** KZO-190 — mirrors real `YahooFinanceAuMarketDataProvider`; `fetchInstrumentMetadata` consumes a slot. */
+  readonly supportsMetadataEnrichment = true;
   readonly calls: Array<{
     method: string;
     ticker?: string;

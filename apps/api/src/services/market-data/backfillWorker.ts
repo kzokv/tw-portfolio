@@ -179,16 +179,32 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       }
     }
 
+    // KZO-190 — hoisted from the `if (shouldEnrich)` block below so the reserveCapacity
+    // formula can read `supportsMetadataEnrichment`. Reused by the enrichment block to
+    // avoid a second registry lookup. Per `registry.ts`, the same instance is registered
+    // under both the market-data and catalog maps for each market, so `provider` and
+    // `catalogProvider` resolve to the same object — reserving on `provider`'s rate
+    // limiter covers the metadata call's consumption on `catalogProvider`.
+    const catalogProvider = catalogRegistry.get(market);
+
     try {
-      // KZO-163 HIGH-1 fix + KZO-172 + KZO-189: pre-reserve rate-limit slots for every
-      // call this invocation makes — always bars + dividends, plus metadata enrichment
-      // when `shouldEnrich` (KZO-189 gate). Pre-reserve breaks the deterministic
-      // starvation pattern under one-slot-at-a-time replenishment by waiting for ALL
-      // needed slots up-front. AU's `fetchInstrumentMetadata` is a real `quote()` call;
-      // FinMind providers' equivalent is a no-op that consumes nothing, so the +1 slot
-      // is harmless under their 600/hr budget when shouldEnrich is true. KZO-190 tracks
-      // the includeBars/includeDividends-aware count cleanup.
-      provider.reserveCapacity(2 + (shouldEnrich ? 1 : 0));
+      // KZO-163 HIGH-1 + KZO-172 + KZO-189 + KZO-190: pre-reserve rate-limit slots for
+      // every call this invocation will make. Three independent slot decisions:
+      //   - `includeBars` → 1 slot for `fetchBars`
+      //   - `includeDividends` → 1 slot for `fetchDividends`
+      //   - `shouldEnrich && supportsMetadataEnrichment` → 1 slot for
+      //     `fetchInstrumentMetadata` (only AU's Yahoo `quote()` consumes a slot;
+      //     FinMind TW/US implementations are no-op `return null`).
+      // Pre-reserving up-front breaks the deterministic starvation pattern under
+      // one-slot-at-a-time replenishment by waiting for ALL needed slots together.
+      // Invariant: `provider` and `catalogProvider` resolve to the same instance per
+      // market (per `registry.ts`), so reserving on `provider`'s rate limiter covers
+      // the metadata call's consumption on `catalogProvider`.
+      provider.reserveCapacity(
+        (includeBars ? 1 : 0) +
+        (includeDividends ? 1 : 0) +
+        (shouldEnrich && catalogProvider?.supportsMetadataEnrichment ? 1 : 0),
+      );
 
       if (shouldSetBackfillingStatus) {
         await updateBackfillStatus(ticker, "backfilling");
@@ -249,7 +265,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       //     warn-and-continue — bars + dividends already landed, the catalog row will
       //     be enriched on the next backfill or the daily catalog-sync sweep.
       if (shouldEnrich) {
-        const catalogProvider = catalogRegistry.get(market);
+        // KZO-190 — reuse the `catalogProvider` hoisted above the `try` block.
         if (catalogProvider) {
           try {
             const rawMeta = await catalogProvider.fetchInstrumentMetadata(ticker);
