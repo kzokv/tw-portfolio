@@ -63,6 +63,21 @@ TW and US providers expose no-op stubs (return `null` / `[]`) — they do not im
 
 `BackfillWorkerDeps` now includes `catalogRegistry: Map<MarketCode, InstrumentCatalogProvider>` alongside `providerRegistry`. As of KZO-189 it also includes `getEffectiveMetadataEnrichmentMode: () => Promise<"unconditional" | "conditional">` — a functor injected from `pgBoss.ts` that reads the DB override (falling back to `METADATA_ENRICHMENT_MODE` env var). Existing integration tests that construct `BackfillWorkerDeps` must include all three. Tests using `as never` / `as unknown as BackfillWorkerDeps` casts silently omit fields at compile time; see `.claude/rules/interface-caller-verification.md` §*Deps factory audit.
 
+## Provider health layer (KZO-177)
+
+Two new tables in `market_data` schema:
+- `provider_health_log` — one row per (provider_id, outcome_date): `last_successful_run`, `last_failed_run`, `error_count_24h`, `error_count_7d`, `rate_limit_count_24h`
+- `provider_error_log` — error detail rows (id, provider_id, occurred_at, error_class, error_message)
+
+Key files:
+- `apps/api/src/services/market-data/providerHealth.ts` — `computeStatus()`, `recordOutcome()`, `claimProviderDownNotificationSlot()` (CAS via conditional UPDATE WHERE)
+- `apps/api/src/routes/adminRoutes.ts` — `GET /admin/providers` recomputes status at read time via `computeStatus()` + trading calendar
+- `apps/web/components/admin/AdminProvidersClient.tsx` — dual-layout: table (≥lg) + card grid (<lg); distinct `-card-` testid prefix required per `.claude/rules/responsive-dual-layout-testid-prefixes.md`
+- `apps/web/components/portfolio/HoldingsTable.tsx` — stale-data freshness badges (`current` / `stale_amber` / `stale_red`) sourced from `dashboardFreshness.ts`
+- `apps/api/src/services/dashboardFreshness.ts` — `enrichHoldingsWithFreshness()` uses `getLatestBarDatesByTickerMarket` (composite `${ticker}:${marketCode}` keys via unnest Postgres query)
+
+Recovery notification fires only when `newStatus === "healthy" && previous.status === "down"` (not `!== "down"` — that was a Codex P2 fix).
+
 ## Catalog upsert ON CONFLICT strategy
 
 `upsertInstrumentCatalog` deliberately excludes operational columns from the ON CONFLICT SET clause:
