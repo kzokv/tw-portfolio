@@ -303,13 +303,27 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
     });
   });
 
-  describe("_setUserPreferences — full-replace (test-only seed helper)", () => {
-    it("overwrites the entire preferences object", async () => {
+  describe("_setUserPreferences — shallow merge (test-only seed helper)", () => {
+    // KZO-177: switched from full-replace to shallow merge at top-level keys.
+    // Reason: parallel E2E specs seeding `{ cardOrder: ... }` on the shared
+    // default OAuth user were wiping `reportingCurrency`, causing flakes in
+    // `dashboard-reporting-currency-aaa.spec.ts`. Merge semantics keep the
+    // unmentioned keys intact while still letting tests overwrite specific
+    // top-level fields.
+    it("merges new top-level keys with existing preferences", async () => {
       await persistence!.setUserPreferencePatch(userId, { a: 1, b: 2 });
       await persistence!._setUserPreferences(userId, { only: "this" });
 
       const read = await persistence!.getUserPreferences(userId);
-      expect(read).toEqual({ only: "this" });
+      expect(read).toEqual({ a: 1, b: 2, only: "this" });
+    });
+
+    it("overwrites a top-level key when seeded with the same key", async () => {
+      await persistence!.setUserPreferencePatch(userId, { a: 1, b: 2 });
+      await persistence!._setUserPreferences(userId, { a: 99 });
+
+      const read = await persistence!.getUserPreferences(userId);
+      expect(read).toEqual({ a: 99, b: 2 });
     });
 
     it("inserts when no row exists", async () => {
@@ -558,10 +572,10 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
     });
   });
 
-  it("M4 — _setUserPreferences full-replace overwrites prior patch-merged state", async () => {
+  it("M4 — _setUserPreferences shallow-merges with prior patch-merged state (KZO-177)", async () => {
     await persistence.setUserPreferencePatch(userId, { a: 1, b: 2 });
     await persistence._setUserPreferences(userId, { only: "this" });
-    expect(await persistence.getUserPreferences(userId)).toEqual({ only: "this" });
+    expect(await persistence.getUserPreferences(userId)).toEqual({ a: 1, b: 2, only: "this" });
   });
 
   it("M5 — resolveEffectiveRanges default tier (no user, no admin)", async () => {

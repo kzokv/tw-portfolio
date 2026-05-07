@@ -9,21 +9,16 @@
  *   - The OAuth fixture pre-installs the session cookie on `page.context()`
  *     before the test body runs.
  *
- * Why no per-test session mint here (KZO-180 review iter 4):
+ * Why no per-test session mint here (KZO-180 review iter 4, refined KZO-177):
  *   The default OAuth fixture session (`e2e-ci-google-sub-001`) is shared by
  *   all OAuth specs. Earlier iterations minted a per-test session to dodge a
- *   cross-file race where another file's `_setUserPreferences` (replace
- *   semantics) could wipe our `reportingCurrency` mid-flight. That worked but
- *   doubled the per-test `/__e2e/oauth-session` mint count, pushing the
- *   suite-wide rate-limit budget (120 mutations/60s) over the line in CI and
- *   surfacing 429s on unrelated specs (`transactions-card-reorder-aaa`).
- *
- *   The race is best handled by the suite's tier-1 contract: each test seeds
- *   IMMEDIATELY before navigating, and the browser's first dashboard fetch
- *   reads the just-seeded value. Cross-file replacement that arrives AFTER
- *   our navigation can't disturb the assertion path because the assertion
- *   reads the same prefs row through the same fixture cookie. CI retries=2
- *   handles any residual flake without inflating mint volume.
+ *   cross-file race where another file's `_setUserPreferences` (formerly
+ *   replace-semantics) could wipe our `reportingCurrency` mid-flight. KZO-177
+ *   fixed that root cause by switching `_setUserPreferences` to shallow-merge
+ *   semantics — seeding `{ cardOrder: ... }` from card-reorder specs no
+ *   longer wipes `reportingCurrency`. Per-test session minting is therefore
+ *   unnecessary and (per the original concern) would still inflate the
+ *   suite-wide rate-limit budget if reintroduced.
  *
  * Per `.claude/rules/playwright-request-cookie-jar-isolation.md`:
  *   Direct API helpers use `withFreshContext(...)` so the test's shared
