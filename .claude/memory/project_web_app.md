@@ -19,6 +19,7 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
   - `/admin/invites` — Invite management (KZO-144)
   - `/admin/audit-log` — Audit log viewer (KZO-144)
   - `/admin/settings` — App config settings (KZO-142)
+  - `/admin/providers` — Provider health monitor + manual re-run (KZO-177)
 - `layout.tsx` — Root layout
 
 ## Feature Modules (`apps/web/features/`)
@@ -59,6 +60,7 @@ Next.js 16.1 with App Router, React 18.3, TypeScript strict, Tailwind CSS 3.4, R
   - `AdminSidebar.tsx` — nav items (`adminNavItems`); add entry for every new admin subpage
   - `AdminAuditLogClient.tsx` — audit log viewer with `ACTION_LABELS` + `ACTION_CATEGORIES`
   - `AdminSettingsClient.tsx` — app config settings (KZO-142); toggle + number input for `repairCooldownMinutes`
+  - `AdminProvidersClient.tsx` — provider health table (desktop) + card grid (mobile); dual-layout with `-card-` testid prefix convention (KZO-177)
 
 ## Patterns
 - API calls live in `features/*/services/` (not in components)
