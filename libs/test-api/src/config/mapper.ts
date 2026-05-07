@@ -10,6 +10,7 @@ import { instrumentsApiAssistantFactory } from "../assistants/instruments/index.
 import { marketDataApiAssistantFactory } from "../assistants/marketData/index.js";
 import { notificationsApiAssistantFactory } from "../assistants/notifications/index.js";
 import { profileApiAssistantFactory } from "../assistants/profile/index.js";
+import { providersApiAssistantFactory } from "../assistants/providers/index.js";
 import { quotesApiAssistantFactory } from "../assistants/quotes/index.js";
 import { sessionApiAssistantFactory } from "../assistants/session/index.js";
 import { sharesApiAssistantFactory } from "../assistants/shares/index.js";
@@ -26,6 +27,7 @@ import { InstrumentsEndpoint } from "../endpoints/InstrumentsEndpoint.js";
 import { MarketDataEndpoint } from "../endpoints/MarketDataEndpoint.js";
 import { NotificationsEndpoint } from "../endpoints/NotificationsEndpoint.js";
 import { ProfileEndpoint } from "../endpoints/ProfileEndpoint.js";
+import { ProvidersEndpoint } from "../endpoints/ProvidersEndpoint.js";
 import { QuotesEndpoint } from "../endpoints/QuotesEndpoint.js";
 import { SessionEndpoint } from "../endpoints/SessionEndpoint.js";
 import { SharesEndpoint } from "../endpoints/SharesEndpoint.js";
@@ -50,6 +52,7 @@ export function registerTestApiAssistants(): void {
   apiAssistantRegistry.register(MarketDataEndpoint, marketDataApiAssistantFactory);
   apiAssistantRegistry.register(NotificationsEndpoint, notificationsApiAssistantFactory);
   apiAssistantRegistry.register(ProfileEndpoint, profileApiAssistantFactory);
+  apiAssistantRegistry.register(ProvidersEndpoint, providersApiAssistantFactory);
   apiAssistantRegistry.register(QuotesEndpoint, quotesApiAssistantFactory);
   apiAssistantRegistry.register(SessionEndpoint, sessionApiAssistantFactory);
   apiAssistantRegistry.register(SharesEndpoint, sharesApiAssistantFactory);

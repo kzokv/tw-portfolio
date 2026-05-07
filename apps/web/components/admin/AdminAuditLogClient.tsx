@@ -28,6 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
   user_linked_identity: "Linked identity",
   user_login: "User login",
   app_config_updated: "Updated settings",
+  provider_health_rerun: "Re-run provider",
   impersonation_start: "Started impersonation",
   impersonation_end: "Ended impersonation",
   impersonation_blocked_write: "Blocked write while impersonating",
@@ -61,6 +62,10 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
   {
     label: "Settings",
     actions: ["app_config_updated"],
+  },
+  {
+    label: "Provider Health",
+    actions: ["provider_health_rerun"],
   },
 ];
 

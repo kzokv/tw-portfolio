@@ -1527,7 +1527,7 @@ Corporate action behavior:
 Finding:
 - `POST /dividend-events` and `POST /corporate-actions` both persist through full-accounting rewrite, not focused incremental mutation.
 
-#### Market data (KZO-163 / KZO-170 / KZO-172)
+#### Market data (KZO-163 / KZO-170 / KZO-172 / KZO-177)
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
@@ -1539,6 +1539,47 @@ Market data route behavior:
 - `/market-data/search`: auth required. Per-IP limit is a separate bucket from price (configurable via `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE`, default 20). Non-`RateLimitedError` provider failures (e.g. Yahoo HTML scraper breakage) return 503 + `X-Search-Degraded: true` with empty `{ instruments: [] }` body — degraded search is not a hard failure.
 - TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. Only AU routes search through the Yahoo Finance `search()` SDK call.
 - AU bounded catalog: 7 reserved tickers (BHP, CSL, VAS, WBC, AFI, GMG, IMD) pre-populated by the catalog-sync cron. Arbitrary AU tickers are enriched inline at first backfill via `fetchInstrumentMetadata`.
+
+**Provider health (KZO-177):**
+
+The `providerHealth.ts` aggregator sits between workers and the DB, recording success/error/rate-limit outcomes after each provider call. Provider classes themselves stay pure — no health tracking inside `finmind.ts`, `yahooFinanceAu.ts`, etc.
+
+```text
+backfillWorker.ts / fxRefreshWorker.ts
+  → recordOutcome(persistence, { providerId, outcome })
+  → market_data.provider_health_status   (one row per provider, updated each call)
+  → market_data.provider_error_trail     (append-only error log)
+  → fanOutAdminNotification              (on down transition, 24h-suppressed)
+  → clearProviderDownNotificationCas     (CAS gated, on recovery)
+```
+
+Status is computed on read from `computeStatus({ lastSuccessfulRun, latestSettledTradingDay, errorCount24h })`:
+- `healthy`: last success ≥ latest settled trading day AND no 24h errors
+- `degraded`: last success ≥ latest settled trading day AND ≥ 1 24h error
+- `down`: last success < latest settled trading day (including NULL)
+
+`latestSettledTradingDay(market, now)` is provided by the `TradingCalendarCache` wrapper (from KZO-173), which caches `getDistinctBarDates` results per request.
+
+Two admin routes are served by `adminRoutes.ts`:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/admin/providers` | Returns all 4 provider rows + last 10 error trail entries per row |
+| `POST` | `/admin/providers/:providerId/rerun` | Enqueues a provider-wide daily refresh; 60s cooldown via `last_manual_rerun_at`; writes `provider_health_rerun` audit entry |
+
+Holdings freshness (`dashboardFreshness.ts`):
+
+```text
+GET /dashboard/overview
+  → buildDashboardOverview (existing)
+  → enrichHoldingsWithFreshness(holdings, store, { persistence, tradingCalendar })
+     → getDailyBarsForTickers(tickers, startDate, endDate)   [90d lookback]
+     → latestSettledTradingDay(market, now)                   [per-request cached]
+     → tradingDaysBetween(latestBarDate, settled, market)
+  → DashboardOverviewHoldingDto.freshness + freshnessTooltip
+```
+
+`freshness` values: `current` (0 days behind), `stale_amber` (1 day), `stale_red` (≥ 2 days or no bar data). Manual/unsupported instruments always return `current` + `null` tooltip.
 
 #### Recompute and quote retrieval
 
@@ -1757,6 +1798,20 @@ POST /portfolio/dividends/postings
   - depends on `requireAdminRole` and `appendAuditLog`
   - depends on persistence `getAppConfig`, `setRepairCooldownMinutes`, `setDashboardPerformanceRanges` (KZO-159)
   - depends on `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types` (KZO-159)
+  - depends on `getProviderHealthStatus`, `listProviderHealthStatuses`, `getProviderErrorTrail` for `GET /admin/providers` (KZO-177)
+  - depends on `enqueueDailyRefresh({ marketFilter })` and `FX_REFRESH_QUEUE` for `POST /admin/providers/:providerId/rerun` (KZO-177)
+
+- `providerHealth.ts` (KZO-177)
+  - pure aggregator: `computeStatus(input)`, `recordOutcome(persistence, args)`, `createProviderHealthService(deps)`
+  - depends on `TradingCalendarCache.latestSettledTradingDay` for status threshold
+  - depends on persistence: `getProviderHealthStatus`, `upsertProviderHealthStatus`, `insertProviderErrorTrailEntry`, `computeErrorCount24h`, `clearProviderDownNotificationCas`, `listAdminUserIds`, `createNotification`
+  - consumed by `backfillWorker.ts` and `fxRefreshWorker.ts` (workers call `app.providerHealth.recordOutcome`)
+
+- `dashboardFreshness.ts` (KZO-177)
+  - pure enricher: mutates holdings array in place with `freshness` + `freshnessTooltip`
+  - depends on `TradingCalendarCache.latestSettledTradingDay` + `tradingDaysBetween`
+  - depends on `persistence.getDailyBarsForTickers` (90-day lookback window)
+  - called from the dashboard overview handler after the base DTO is built
 
 #### Service layer
 
@@ -1815,6 +1870,12 @@ POST /portfolio/dividends/postings
   - `dashboardPerformanceRangesSchema` (KZO-159) — `z.array(z.string()).min(1).max(12).refine(...)`. Single source of truth for range-list validation in admin settings, user preferences PATCH, and front-end AdminSettingsClient.
   - `DEFAULT_DASHBOARD_PERFORMANCE_RANGES = ["1M","3M","YTD","1Y"] as const` (KZO-159) — hardcoded fallback for the 3-tier resolver.
   - `AppConfigDto` (KZO-142 / KZO-159) — includes `dashboardPerformanceRanges: string[] | null` and `effectiveDashboardPerformanceRanges: string[]`.
+  - `ProviderHealthStatus = "healthy" | "degraded" | "down"` (KZO-177).
+  - `ProviderErrorClass = "rate_limit" | "http_4xx" | "http_5xx" | "network" | "parse" | "other"` (KZO-177).
+  - `ProviderHealthStatusDto` (KZO-177) — per-provider row with `providerId`, `status`, `lastSuccessfulRun`, `lastFailedRun`, `errorCount24h`, `errorCount7d`, `rateLimitCount24h`, `lastErrorMessage`, `lastManualRerunAt`, `updatedAt`, `recentErrors: ProviderErrorTrailEntryDto[]`.
+  - `ProviderErrorTrailEntryDto` (KZO-177) — `{ id, occurredAt, errorClass, errorMessage }`.
+  - `AdminProvidersResponse = { providers: ProviderHealthStatusDto[] }` (KZO-177).
+  - `DashboardOverviewHoldingDto` (KZO-177 extension) — adds `freshness: "current" | "stale_amber" | "stale_red"` and `freshnessTooltip: string | null`.
 
 ### Cross-cutting findings summary
 

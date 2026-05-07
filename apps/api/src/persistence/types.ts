@@ -114,7 +114,8 @@ export type AuditLogAction =
   | "admin_fx_rates_refresh"
   | "fx_transfer_created"
   | "fx_transfer_updated"
-  | "fx_transfer_reversed";
+  | "fx_transfer_reversed"
+  | "provider_health_rerun";
 
 export interface ShareGrantRecord {
   id: string;
@@ -342,6 +343,56 @@ export interface DividendLedgerListResult {
 export interface CatalogSyncResult {
   upserted: number;
   delisted: number;
+}
+
+// ── Provider health (KZO-177) ────────────────────────────────────────────────
+
+export type ProviderHealthStatus = "healthy" | "degraded" | "down";
+export type ProviderErrorClass =
+  | "rate_limit"
+  | "http_4xx"
+  | "http_5xx"
+  | "network"
+  | "parse"
+  | "other";
+
+/** Row shape for `market_data.provider_health_status`. */
+export interface ProviderHealthRow {
+  providerId: string;
+  status: ProviderHealthStatus;
+  lastSuccessfulRun: string | null;
+  lastFailedRun: string | null;
+  lastErrorMessage: string | null;
+  lastDownNotificationAt: string | null;
+  lastManualRerunAt: string | null;
+  updatedAt: string;
+}
+
+/** Row shape for `market_data.provider_error_trail`. */
+export interface ProviderErrorTrailRow {
+  id: number;
+  providerId: string;
+  occurredAt: string;
+  errorClass: ProviderErrorClass;
+  errorMessage: string | null;
+  context: Record<string, unknown> | null;
+}
+
+export interface ProviderHealthUpsert {
+  providerId: string;
+  status?: ProviderHealthStatus;
+  lastSuccessfulRun?: string | null;
+  lastFailedRun?: string | null;
+  lastErrorMessage?: string | null;
+  lastDownNotificationAt?: string | null;
+  lastManualRerunAt?: string | null;
+}
+
+export interface ProviderErrorTrailInput {
+  providerId: string;
+  errorClass: ProviderErrorClass;
+  errorMessage?: string | null;
+  context?: Record<string, unknown> | null;
 }
 
 // ── Holding snapshots (KZO-115, extended in KZO-165) ──────────────────────────
@@ -729,6 +780,18 @@ export interface Persistence {
    * given market, on or after `fromDate` inclusive. Ordered ascending.
    */
   getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]>;
+  /**
+   * KZO-177 (P2 Fix 3): batched latest-bar-date lookup keyed by composite
+   * `(ticker, marketCode)`. Returns `null` for keys with no bar data. Used by
+   * the dashboard freshness classifier — required so cross-listed instruments
+   * (e.g. BHP/AU vs BHP/US) get classified against the correct market's data
+   * rather than being collapsed under the bare ticker.
+   *
+   * Returned map keys are `${ticker}:${marketCode}`.
+   */
+  getLatestBarDatesByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>>;
   readiness(): Promise<ReadinessStatus>;
   markDemoUser(userId: string, ttlSeconds: number): Promise<void>;
 
@@ -1028,4 +1091,67 @@ export interface Persistence {
   countActiveAdmins(): Promise<number>;
   listInvites(options: AdminInviteListOptions): Promise<AdminInviteListResponse>;
   listAuditLog(options: AdminAuditLogListOptions): Promise<AdminAuditLogResponse>;
+
+  // ── Provider health (KZO-177) ──────────────────────────────────────────────
+  /**
+   * Fetch one provider health status row. Returns null if the providerId is
+   * unknown (i.e. not seeded by migration 046).
+   */
+  getProviderHealthStatus(providerId: string): Promise<ProviderHealthRow | null>;
+  /** Fetch every provider health status row, ordered by providerId ASC. */
+  getAllProviderHealthStatuses(): Promise<ProviderHealthRow[]>;
+  /**
+   * Update a provider health row in-place. Only the fields explicitly set in
+   * `patch` are written; others are preserved. `updated_at` is bumped to NOW().
+   */
+  upsertProviderHealthStatus(patch: ProviderHealthUpsert): Promise<ProviderHealthRow>;
+  /**
+   * CAS-clear `last_down_notification_at` IFF the row's previously-recorded
+   * value matches `expectedPreviousNotificationAt`. Returns true when the
+   * worker won the CAS (and therefore SHOULD fire recovery notifications).
+   * Used to ensure only one worker fires recovery notifications across
+   * concurrent successes.
+   */
+  clearProviderDownNotificationCas(
+    providerId: string,
+    expectedPreviousNotificationAt: string,
+  ): Promise<boolean>;
+  /**
+   * KZO-177 (P2 Fix 5) — atomic claim for the down-notification fan-out slot.
+   * Returns true iff this caller wins the slot: only the winner should fire
+   * the `provider_down` admin fan-out. Implemented as a conditional UPDATE
+   * `WHERE last_down_notification_at IS NULL OR last_down_notification_at <
+   * NOW() - <suppressionWindow>` so concurrent workers never double-fire
+   * within the suppression window.
+   */
+  claimProviderDownNotificationSlot(
+    providerId: string,
+    suppressionWindowMs: number,
+  ): Promise<boolean>;
+  /** Insert a new error trail row. */
+  insertProviderErrorTrailEntry(input: ProviderErrorTrailInput): Promise<ProviderErrorTrailRow>;
+  /**
+   * Fetch the most recent N error trail rows for the given providerId,
+   * ordered occurredAt DESC.
+   */
+  getRecentProviderErrors(
+    providerId: string,
+    limit: number,
+  ): Promise<ProviderErrorTrailRow[]>;
+  /**
+   * Count error trail rows for the providerId where `error_class != 'rate_limit'`
+   * AND occurredAt within the last 24 hours.
+   */
+  computeErrorCount24h(providerId: string): Promise<number>;
+  /** Count error trail rows where error_class != 'rate_limit' within the last 7 days. */
+  computeErrorCount7d(providerId: string): Promise<number>;
+  /** Count error trail rows where error_class = 'rate_limit' within the last 24 hours. */
+  computeRateLimitCount24h(providerId: string): Promise<number>;
+  /**
+   * Delete error trail rows older than `olderThanDays` days. Memory backend
+   * may behave as a no-op (returns 0). Returns the number of rows deleted.
+   */
+  pruneOldProviderErrorTrail(olderThanDays: number): Promise<number>;
+  /** Return user IDs of all active admins (role='admin', not deactivated/deleted). */
+  listAdminUserIds(): Promise<string[]>;
 }

@@ -19,6 +19,7 @@ import {
 import { registerPgBoss } from "./plugins/pgBoss.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
 import { registerTradingCalendarCache } from "./services/market-data/registerTradingCalendarCache.js";
+import { registerProviderHealth } from "./services/market-data/registerProviderHealth.js";
 import type { GoogleOAuthConfig } from "./auth/googleOAuth.js";
 // Compile-time check: GoogleOAuthEnvConfig must remain assignable to GoogleOAuthConfig (P10).
 // If fields ever drift, this line fails to compile and surfaces the problem immediately.
@@ -150,6 +151,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
   app.marketDataRegistry = buildMarketDataRegistry(Env);
   registerTradingCalendarCache(app, { persistence: app.persistence });
+  registerProviderHealth(app, { persistence: app.persistence });
   // KZO-172: Yahoo's ToS limits use to personal/non-commercial. Surface the constraint
   // at boot time so operators see the notice in production logs (NOT in mock mode —
   // the mock provider doesn't touch Yahoo). Spike §7.3 documents the EODHD switch
@@ -227,6 +229,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
 
   app.addHook("onRequest", async (req, reply) => {
     if (!["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) return;
+    // /__e2e/* paths are test-only (gated by assertE2ESeedEnabled /
+    // assertE2EOauthSessionEnabled) and unreachable in production. Counting
+    // them against the global mutation budget causes E2E suite flakiness as
+    // fixture mints and seed calls exhaust the 120/60s limit.
+    if (req.url.startsWith("/__e2e/")) return;
 
     const key = getRateLimitKey(req);
     const now = Date.now();

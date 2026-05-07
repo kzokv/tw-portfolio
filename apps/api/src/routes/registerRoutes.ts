@@ -42,6 +42,7 @@ import {
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
 import { buildDashboardOverview } from "../services/dashboard.js";
+import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
 import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
@@ -96,6 +97,7 @@ import { assertInviteStatusRateLimit, registerInviteStatusEviction } from "../li
 import { _resetAnonymousShareRateBuckets, assertAnonymousShareRateLimit, deleteAnonymousShareRateBucket, registerAnonymousShareEviction } from "../lib/anonymousShareRateLimit.js";
 import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from "../lib/marketDataPriceRateLimit.js";
 import { _resetMarketDataSearchBuckets, assertMarketDataSearchRateLimit, registerMarketDataSearchEviction } from "../lib/marketDataSearchRateLimit.js";
+import { registerProviderErrorTrailPurge } from "../lib/providerErrorTrailPurge.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
 import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
 import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
@@ -507,6 +509,9 @@ const ADMIN_ROUTE_KEYS = new Set([
   // KZO-164: FX rate ingestion admin surface.
   // POST /admin/fx-rates/refresh has a route-local demo-before-admin guard.
   "GET /admin/fx-rates/freshness",
+  // KZO-177: provider health admin surface.
+  "GET /admin/providers",
+  "POST /admin/providers/:providerId/rerun",
 ]);
 const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "POST /admin/users/:id/impersonate",
@@ -1436,6 +1441,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   registerAnonymousShareEviction(app);
   registerMarketDataPriceEviction(app);
   registerMarketDataSearchEviction(app);
+  registerProviderErrorTrailPurge(app);
 
   app.post("/__e2e/reset", async (req) => {
     assertE2EResetEnabled();
@@ -1510,9 +1516,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // KZO-159 (158A): test-only helper that lets E2E/integration suites drop
   // a fully-formed preferences row onto the active user (or a specific user
-  // when provided). Uses `_setUserPreferences` which bypasses the merge
-  // semantics and replaces the entire preferences object. Gated behind the
-  // seed guard (NODE_ENV + PERSISTENCE_BACKEND=memory) per KZO-132 pattern.
+  // when provided). Uses `_setUserPreferences` which does a shallow merge at
+  // the top-level key (preserves unmentioned keys like `reportingCurrency`
+  // when seeding `cardOrder`, and vice versa). Gated behind the seed guard
+  // (NODE_ENV + PERSISTENCE_BACKEND=memory) per KZO-132 pattern.
   app.post("/__e2e/seed-user-preferences", async (req) => {
     assertE2ESeedEnabled();
     const body = z
@@ -1525,6 +1532,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ?? resolveUserId(req, app.oauthConfig?.sessionSecret).userId;
     await app.persistence._setUserPreferences(targetUserId, body.preferences);
     return { status: "seeded", userId: targetUserId };
+  });
+
+  // KZO-177 — test-only seed for provider health rows. Lets E2E/HTTP suites
+  // jump the row to a specific status without driving full backfill flows.
+  // Gated with `assertE2ESeedEnabled()` (NOT reset guard) so it works in oauth
+  // mode for HTTP tests.
+  app.post("/__e2e/seed-provider-health-status", async (req) => {
+    assertE2ESeedEnabled();
+    const body = z
+      .object({
+        providerId: z.enum(["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"]),
+        status: z.enum(["healthy", "degraded", "down"]).optional(),
+        lastSuccessfulRun: z.string().nullable().optional(),
+        lastFailedRun: z.string().nullable().optional(),
+        lastErrorMessage: z.string().nullable().optional(),
+        lastDownNotificationAt: z.string().nullable().optional(),
+        lastManualRerunAt: z.string().nullable().optional(),
+      })
+      .parse(req.body);
+    const row = await app.persistence.upsertProviderHealthStatus(body);
+    return { status: "seeded", row };
   });
 
   app.post("/__e2e/seed-daily-bars", async (req) => {
@@ -3622,6 +3650,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       integrityIssue: getStoreIntegrityIssue(store),
       quotes,
     });
+    // KZO-177: server-classified freshness. Mutates `overview.holdings` with
+    // `freshness` + `freshnessTooltip`. Skipped silently for callers without a
+    // trading calendar cache (defensive — `app.tradingCalendarCache` is decorated
+    // unconditionally by `registerTradingCalendarCache`).
+    if (app.tradingCalendarCache) {
+      try {
+        await enrichHoldingsWithFreshness(overview.holdings, store, {
+          persistence: app.persistence,
+          tradingCalendar: app.tradingCalendarCache,
+        });
+      } catch (err) {
+        app.log.warn({ err }, "dashboard_freshness_enrichment_failed");
+      }
+    }
     const reportingCurrency = resolveReportingCurrency(prefs);
     const translatedSummary = await translateOverviewSummary(
       overview.summary,

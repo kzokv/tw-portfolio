@@ -25,6 +25,7 @@ const ADMIN_TITLES: Record<string, string> = {
   "/admin/users": "Users",
   "/admin/invites": "Invites",
   "/admin/audit-log": "Audit Log",
+  "/admin/providers": "Provider Health",
   "/admin/settings": "Settings",
 };
 

@@ -31,9 +31,9 @@ describe("daily refresh enqueue", () => {
     };
     const log = { info: vi.fn() };
 
-    const count = await enqueueDailyRefresh(boss, persistence, log);
+    const result = await enqueueDailyRefresh(boss, persistence, log);
 
-    expect(count).toBe(2);
+    expect(result.tickerCount).toBe(2);
     expect(persistence.createRefreshBatch).toHaveBeenCalledWith(null, 2);
     expect(boss.send).toHaveBeenCalledTimes(2);
     // KZO-185: producer stamps `marketCode` and uses composite singletonKey
@@ -58,9 +58,9 @@ describe("daily refresh enqueue", () => {
     };
     const log = { info: vi.fn() };
 
-    const count = await enqueueDailyRefresh(boss, persistence, log);
+    const result = await enqueueDailyRefresh(boss, persistence, log);
 
-    expect(count).toBe(0);
+    expect(result.tickerCount).toBe(0);
     expect(boss.send).not.toHaveBeenCalled();
   });
 
@@ -88,9 +88,9 @@ describe("daily refresh enqueue", () => {
     };
     const log = { info: vi.fn() };
 
-    const count = await enqueueDailyRefresh(boss, persistence, log);
+    const result = await enqueueDailyRefresh(boss, persistence, log);
 
-    expect(count).toBe(2);
+    expect(result.tickerCount).toBe(2);
     // Two distinct jobs: AU and US have separate singleton slots.
     expect(boss.send).toHaveBeenCalledWith(
       BACKFILL_QUEUE,

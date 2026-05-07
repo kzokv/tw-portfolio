@@ -54,6 +54,8 @@ const holdings: DashboardOverviewHoldingDto[] = [
     quoteStatus: "current",
     nextDividendDate: null,
     lastDividendPostedDate: "2026-02-20",
+    freshness: "current",
+    freshnessTooltip: null,
   },
 ];
 
@@ -154,6 +156,49 @@ describe("dashboard components", () => {
     expect(html).toContain("Unrealized P&amp;L");
     expect(html).toContain("href=\"/tickers/2330?accountId=acc-1\"");
     expect(html).toContain("NT$610");
+  });
+
+  it("renders freshness badge for stale_amber holdings when showFreshnessBadge=true", () => {
+    const stale: DashboardOverviewHoldingDto[] = [
+      { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Last quote 3 days ago" },
+    ];
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={true} />,
+    );
+
+    expect(html).toContain("holdings-freshness-badge-acc-1-2330");
+    expect(html).toMatch(/bg-amber-500/);
+  });
+
+  it("renders freshness badge for stale_red holdings", () => {
+    const stale: DashboardOverviewHoldingDto[] = [
+      { ...holdings[0]!, freshness: "stale_red", freshnessTooltip: "Last quote 14 days ago" },
+    ];
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={true} />,
+    );
+
+    expect(html).toContain("holdings-freshness-badge-acc-1-2330");
+    expect(html).toMatch(/bg-rose-500/);
+  });
+
+  it("does not render freshness badge when showFreshnessBadge=false", () => {
+    const stale: DashboardOverviewHoldingDto[] = [
+      { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Stale" },
+    ];
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={stale} dict={dict} locale="en" showFreshnessBadge={false} />,
+    );
+
+    expect(html).not.toContain("holdings-freshness-badge-");
+  });
+
+  it("does not render freshness badge when freshness=current", () => {
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={holdings} dict={dict} locale="en" showFreshnessBadge={true} />,
+    );
+
+    expect(html).not.toContain("holdings-freshness-badge-");
   });
 
   it("renders performance range controls and chart legend", () => {

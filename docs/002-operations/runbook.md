@@ -1625,3 +1625,133 @@ A `search_provider_error` spike (>3 occurrences per minute) may indicate Yahoo s
 **Auditing a change:** Filter `audit_log` by `action = 'app_config_updated'` and inspect `metadata.before.metadataEnrichmentMode` and `metadata.after.metadataEnrichmentMode`.
 
 **Rollback:** Set `METADATA_ENRICHMENT_MODE=unconditional` in env (or set DB column to `unconditional` via admin UI) to restore pre-KZO-189 behavior. Change is passive — applies to future jobs only, no replay needed.
+
+---
+
+## 21. KZO-177 deploy notes — Provider Health Monitoring
+
+### Migration
+
+`046_kzo177_provider_health.sql` adds two tables in the `market_data` schema:
+
+- `market_data.provider_health_status` — one row per provider, tracks timestamps, current status, and notification suppression keys.
+- `market_data.provider_error_trail` — append-only error log per provider; indexed on `(provider_id, occurred_at DESC)`.
+
+Both tables are created with `CREATE TABLE IF NOT EXISTS`. Four rows are pre-seeded in `provider_health_status` (initial `status='down'`) via `ON CONFLICT DO NOTHING`. No destructive rewrite or backfill. Safe to re-run.
+
+**Rollback impact:** Older API images are unaware of these tables and will leave them empty. The new admin page will 404 (old routing) or show empty state. The backfill/FX workers will fail silently if they reference the missing `getProviderHealthStatus` method — ensure old code is never deployed against this migration without the matching API image.
+
+### Provider Health Monitoring
+
+**Admin UI location:** `/admin` → Providers
+
+The providers page shows real-time health status for the four market-data providers this app uses:
+
+| Provider ID | Markets covered |
+|---|---|
+| `finmind-tw` | TW equity bars + dividends |
+| `finmind-us` | US equity bars + dividends |
+| `yahoo-finance-au` | AU equity bars + metadata |
+| `frankfurter` | FX rates (TWD, USD, AUD crosses) |
+
+#### Status semantics
+
+| Status | Meaning | Badge color |
+|---|---|---|
+| `healthy` | Last successful run is current (≥ latest settled trading day) AND no errors in past 24 h | Green |
+| `degraded` | Last successful run is current, but ≥ 1 error in past 24 h | Amber |
+| `down` | Last successful run is older than the latest settled trading day (or never ran) | Red |
+
+"Latest settled trading day" is resolved from the KZO-173 trading calendar (TWSE, NYSE, ASX, or weekday-only FX calendar). A provider transitions to `down` only when market data was expected but absent — weekend and holiday gaps never trigger `down`.
+
+#### Admin notifications
+
+Notifications are posted to all admin users when:
+
+- **Provider transitions to `down`:** a `provider_down` notification is fanned out at most once per 24 h per provider (suppressed by `last_down_notification_at`). Notification severity: `error`.
+- **Provider recovers from `down`:** a `provider_recovered` notification fires on the first successful run that brings the provider out of `down`. Uses a compare-and-swap on `last_down_notification_at` to prevent duplicate fires from concurrent workers. Notification severity: `info`.
+
+Notifications on `degraded` transitions are intentionally suppressed — `degraded` is informational and does not require immediate operator action.
+
+#### "Re-run now" button
+
+The Re-run now button dispatches a provider-wide refresh job:
+
+- **`finmind-tw`:** enqueues daily-refresh for the TW market (all monitored TW tickers).
+- **`finmind-us`:** enqueues daily-refresh for the US market.
+- **`yahoo-finance-au`:** enqueues daily-refresh for the AU market.
+- **`frankfurter`:** enqueues an FX-refresh job for all stored currency bases.
+
+**60-second cooldown:** the button is rate-limited per provider via `last_manual_rerun_at` in the DB. A click within 60 s of a previous click returns `429 rate_limit_exceeded` with `Retry-After: 60`. This prevents accidental queue flooding.
+
+**Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. Visible at `/admin/audit-log`.
+
+**Existing `/admin/fx-rates/refresh` is NOT deprecated** — it remains the path for targeted date-range FX backfills. Re-run now triggers a full current-day FX refresh.
+
+#### User repair vs admin Re-run
+
+| | User repair (`/backfill/retry`, `/backfill/repair`) | Admin Re-run |
+|---|---|---|
+| Scope | Per-user, per-ticker | Provider-wide (all monitored tickers for that market) |
+| Auth required | Any authenticated user | Admin only |
+| Typical use | One ticker missing data after a manual trade entry | Provider-wide data lag (e.g., provider outage recovery) |
+| Audit | No audit log | `provider_health_rerun` audit entry |
+| Cooldown | Per-ticker cooldown (`REPAIR_COOLDOWN_MINUTES`) | 60 s per provider |
+
+#### Error trail
+
+The `market_data.provider_error_trail` table stores up to 10 recent errors per provider in the admin UI. Error classes:
+
+| Class | When used |
+|---|---|
+| `rate_limit` | Provider returned HTTP 429 or the self-imposed rate-limit guard fired |
+| `http_4xx` | Provider returned a 4xx error (excluding 429) |
+| `http_5xx` | Provider returned a 5xx error |
+| `network` | Network-level failure (connection refused, timeout) |
+| `parse` | Response body did not match expected schema |
+| `other` | Catch-all for unclassified errors |
+
+Note: `rate_limit` entries do **not** change the provider status — rate limits are expected transient events and do not count toward the error threshold that triggers `degraded` or `down`. They are logged separately to aid capacity planning.
+
+**Retention:** trail rows older than 30 days are pruned daily by an in-process `setInterval`-based purge registered by `registerProviderErrorTrailPurge(app)`. The purge runs every 24 hours and logs `provider_error_trail_purged` (info) on success, `provider_error_trail_purge_failed` (warn) on error. No pg-boss job — this is a host-process sweep, not a scheduled queue job.
+
+#### Stale-data badge on Holdings
+
+Holdings rows in the dashboard now carry a `freshness` field (`current` | `stale_amber` | `stale_red`) computed server-side from the latest bar date for each ticker:
+
+| `freshness` | Condition | Badge |
+|---|---|---|
+| `current` | `daysBehind ≤ 0` | Hidden |
+| `stale_amber` | `daysBehind = 1` | Amber chip |
+| `stale_red` | `daysBehind ≥ 2` (or no bar data at all) | Red chip |
+
+"Days behind" is computed in trading days via `tradingDaysBetween(latestBarDate, latestSettledTradingDay, market)`. Manual/unsupported instruments (no resolvable `marketCode`) always show `current` with no badge.
+
+The badge is **hidden** on the anonymous share view (`/share/[token]`) — the `showFreshnessBadge` prop defaults to `false` there, and the DTO server-side sets `freshnessTooltip = null` as defense-in-depth.
+
+#### Operational checks
+
+```sql
+-- Check provider health rows
+SELECT provider_id, status, last_successful_run, last_failed_run, updated_at
+FROM market_data.provider_health_status
+ORDER BY provider_id;
+
+-- Check recent error trail for a specific provider
+SELECT occurred_at, error_class, error_message
+FROM market_data.provider_error_trail
+WHERE provider_id = 'finmind-tw'
+ORDER BY occurred_at DESC
+LIMIT 20;
+
+-- Count trail rows per provider
+SELECT provider_id, COUNT(*) AS trail_count, MAX(occurred_at) AS latest
+FROM market_data.provider_error_trail
+GROUP BY provider_id
+ORDER BY provider_id;
+```
+
+If a provider is stuck in `down` after a genuine recovery:
+1. Check `last_successful_run` — if it's current (≥ today's settled trading day), the status will update on the next worker run.
+2. Trigger Re-run now from `/admin/providers`.
+3. Watch API logs for `provider_health_outcome_recorded` (info) confirming the success outcome was processed.

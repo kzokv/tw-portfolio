@@ -8,6 +8,8 @@ import type { InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { historyStartFor, RateLimitedError } from "./types.js";
 import { buildCatalogInstruments } from "./catalogSync.js";
 import { upsertDailyBars, upsertDividendEvents } from "./upserts.js";
+import type { ProviderHealthService, ProviderId, ProviderOutcome } from "./providerHealth.js";
+import type { ProviderErrorClass } from "../../persistence/types.js";
 
 export const BACKFILL_QUEUE = "finmind-backfill";
 
@@ -19,7 +21,7 @@ export interface BackfillJobData {
   // The Zod schema below is the single validation gate at the worker entry.
   marketCode: MarketCode;
   userId?: string;
-  trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh" | "repair";
+  trigger: "user_selection" | "first_trade" | "retry" | "daily_refresh" | "repair" | "admin_rerun";
   startDate?: string;
   endDate?: string;
   includeBars?: boolean;
@@ -37,7 +39,7 @@ export const BackfillJobDataSchema = z.object({
   ticker: z.string(),
   marketCode: z.enum(["TW", "US", "AU"]),
   userId: z.string().optional(),
-  trigger: z.enum(["user_selection", "first_trade", "retry", "daily_refresh", "repair"]),
+  trigger: z.enum(["user_selection", "first_trade", "retry", "daily_refresh", "repair", "admin_rerun"]),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   includeBars: z.boolean().optional(),
@@ -91,7 +93,33 @@ export interface BackfillWorkerDeps {
   ) => Promise<{ jobsSucceeded: number; jobsFailed: number; jobsTotal: number } | null>;
   onBatchComplete?: (batchId: string) => Promise<void>;
   onBarsUpserted?: (market: MarketCode, dates: ReadonlyArray<string>) => void;
+  /**
+   * KZO-177 — provider health aggregator. The worker calls
+   * `providerHealth.recordOutcome(providerId, outcome)` after each provider
+   * call (bars/dividends/metadata) to feed the per-provider status machine.
+   * Provider classes themselves stay pure (no health side effects).
+   */
+  providerHealth?: ProviderHealthService;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
+}
+
+/** KZO-177 — map a `MarketCode` to the provider id used by the health aggregator. */
+export function providerIdForMarket(market: MarketCode): ProviderId {
+  if (market === "US") return "finmind-us";
+  if (market === "AU") return "yahoo-finance-au";
+  return "finmind-tw";
+}
+
+/** KZO-177 — best-effort error classification from a thrown error. */
+export function classifyProviderError(err: unknown): ProviderErrorClass {
+  if (!err) return "other";
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (/(http )?5\d\d|server error|bad gateway|gateway timeout/.test(lower)) return "http_5xx";
+  if (/(http )?4\d\d|forbidden|unauthorized|not found|bad request/.test(lower)) return "http_4xx";
+  if (/network|econnrefused|enotfound|etimedout|timeout|fetch failed|socket/.test(lower)) return "network";
+  if (/parse|json|unexpected token|invalid response/.test(lower)) return "parse";
+  return "other";
 }
 
 function collectDistinctBarDatesByMarket(
@@ -125,6 +153,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     updateBatchTickerResult,
     onBatchComplete,
     onBarsUpserted,
+    providerHealth,
     log,
   } = deps;
 
@@ -177,6 +206,23 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
     // Helper: reschedule the current job after the rate limiter releases capacity. Returns
     // true once a reschedule is enqueued so the caller can short-circuit cleanly.
+    // KZO-177: provider id for the active market. Used to feed `providerHealth`
+    // outcomes. Computed once per job — the market is stable across the
+    // bars/dividends/metadata calls.
+    const healthProviderId = providerIdForMarket(market);
+
+    async function safeRecordOutcome(outcome: ProviderOutcome): Promise<void> {
+      if (!providerHealth) return;
+      try {
+        await providerHealth.recordOutcome(healthProviderId, outcome);
+      } catch (healthErr) {
+        log.warn(
+          { err: healthErr, providerId: healthProviderId, outcomeKind: outcome.kind },
+          "provider_health_record_outcome_failed",
+        );
+      }
+    }
+
     async function rescheduleAfterRateLimit(err: RateLimitedError): Promise<void> {
       const delaySec = err.retryAfterSeconds;
       log.info({ ticker, trigger, delaySec }, "backfill_rate_limited: rescheduling");
@@ -271,6 +317,17 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             { ticker, marketCode: market, provider: provider.providerId, error: divErr },
             "backfill_dividend_fetch_failed: continuing without dividends",
           );
+          // KZO-177 (P2 Fix 1): warn-and-continue must NOT mask the failure from
+          // the health aggregator. Record the partial-error outcome so
+          // error_count_24h reflects the dividend fetch failure; the later
+          // success call still fires (bars landed) and the resulting status
+          // computes as `degraded` (success ≥ settled day AND errors ≥ 1).
+          await safeRecordOutcome({
+            kind: "error",
+            errorClass: classifyProviderError(divErr),
+            errorMessage: divErr instanceof Error ? divErr.message : String(divErr),
+            context: { ticker, marketCode: market, phase: "dividends" },
+          });
         }
       }
 
@@ -306,9 +363,23 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
               { ticker, marketCode: market, provider: catalogProvider.providerId, error: metaErr },
               "backfill_metadata_fetch_failed: continuing without enrichment",
             );
+            // KZO-177 (P2 Fix 1): mirror the dividend block — record the
+            // partial-error outcome so the health aggregator sees the
+            // metadata-enrichment failure even when bars+dividends landed.
+            await safeRecordOutcome({
+              kind: "error",
+              errorClass: classifyProviderError(metaErr),
+              errorMessage: metaErr instanceof Error ? metaErr.message : String(metaErr),
+              context: { ticker, marketCode: market, phase: "metadata" },
+            });
           }
         }
       }
+
+      // KZO-177: provider succeeded — record success outcome before downstream
+      // status updates / SSE fan-out so the health aggregator's status machine
+      // sees the success even if a later step throws.
+      await safeRecordOutcome({ kind: "success" });
 
       // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {
@@ -365,12 +436,28 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
       // so the job effectively pauses until the limiter releases.
       if (err instanceof RateLimitedError) {
+        // KZO-177: classify as rate_limit — does NOT change provider status.
+        await safeRecordOutcome({
+          kind: "rate_limit",
+          errorMessage: err.message,
+          context: { ticker, marketCode: market, retryAfterSeconds: err.retryAfterSeconds },
+        });
         await rescheduleAfterRateLimit(err);
         return;
       }
 
       const isLastRetry = job.retryCount >= job.retryLimit;
       const reason = err instanceof Error ? err.message : String(err);
+
+      // KZO-177: record provider error outcome. Classification falls back to
+      // "other" when the message doesn't match a known shape. The handler
+      // continues with the existing failure-path side effects below.
+      await safeRecordOutcome({
+        kind: "error",
+        errorClass: classifyProviderError(err),
+        errorMessage: reason,
+        context: { ticker, marketCode: market, trigger, isLastRetry },
+      });
 
       if (isLastRetry && shouldSetFailedStatus) {
         await updateBackfillStatus(ticker, "failed");

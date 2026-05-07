@@ -62,6 +62,8 @@ const baseHolding: DashboardOverviewHoldingDto = {
   quoteStatus: "current",
   nextDividendDate: null,
   lastDividendPostedDate: null,
+  freshness: "current",
+  freshnessTooltip: null,
 };
 
 const baseSummary = {
