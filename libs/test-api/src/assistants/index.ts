@@ -9,6 +9,7 @@ export * from "./instruments/index.js";
 export * from "./marketData/index.js";
 export * from "./notifications/index.js";
 export * from "./profile/index.js";
+export * from "./providers/index.js";
 export * from "./quotes/index.js";
 export * from "./session/index.js";
 export * from "./shares/index.js";

@@ -93,6 +93,12 @@ import type {
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
   AggregatedSnapshotPoint,
+  ProviderErrorTrailInput,
+  ProviderErrorTrailRow,
+  ProviderHealthRow,
+  ProviderHealthStatus,
+  ProviderHealthUpsert,
+  ProviderErrorClass,
   UserRole,
 } from "./types.js";
 import {
@@ -2423,6 +2429,31 @@ export class PostgresPersistence implements Persistence {
       source: row.source,
       ingestedAt: row.ingested_at,
     }));
+  }
+
+  async getLatestBarDatesByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (pairs.length === 0) return result;
+    for (const p of pairs) result.set(`${p.ticker}:${p.marketCode}`, null);
+    // Use `unnest` to batch the (ticker, marketCode) pairs in one round-trip.
+    // `MAX(bar_date)` per group produces the freshest bar per pair.
+    const tickers = pairs.map((p) => p.ticker);
+    const markets = pairs.map((p) => p.marketCode);
+    const rows = await this.pool.query<{ ticker: string; market_code: string; latest: string | null }>(
+      `SELECT input.ticker, input.market_code,
+              MAX(b.bar_date)::text AS latest
+         FROM unnest($1::text[], $2::text[]) AS input(ticker, market_code)
+         LEFT JOIN market_data.daily_bars b
+           ON b.ticker = input.ticker AND b.market_code = input.market_code
+         GROUP BY input.ticker, input.market_code`,
+      [tickers, markets],
+    );
+    for (const row of rows.rows) {
+      result.set(`${row.ticker}:${row.market_code}`, row.latest);
+    }
+    return result;
   }
 
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
@@ -6031,7 +6062,8 @@ export class PostgresPersistence implements Persistence {
       `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
        VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (user_id) DO UPDATE
-         SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
+         SET preferences = user_preferences.preferences || EXCLUDED.preferences,
+             updated_at = NOW()`,
       [userId, JSON.stringify(preferences)],
     );
   }
@@ -7144,6 +7176,254 @@ export class PostgresPersistence implements Persistence {
       limit,
     };
   }
+
+  // ── Provider health (KZO-177) ─────────────────────────────────────────────
+
+  async getProviderHealthStatus(providerId: string): Promise<ProviderHealthRow | null> {
+    const result = await this.pool.query<ProviderHealthRowSql>(
+      `SELECT provider_id,
+              status,
+              last_successful_run,
+              last_failed_run,
+              last_error_message,
+              last_down_notification_at,
+              last_manual_rerun_at,
+              updated_at
+         FROM market_data.provider_health_status
+         WHERE provider_id = $1`,
+      [providerId],
+    );
+    return result.rows[0] ? mapProviderHealthRow(result.rows[0]) : null;
+  }
+
+  async getAllProviderHealthStatuses(): Promise<ProviderHealthRow[]> {
+    const result = await this.pool.query<ProviderHealthRowSql>(
+      `SELECT provider_id,
+              status,
+              last_successful_run,
+              last_failed_run,
+              last_error_message,
+              last_down_notification_at,
+              last_manual_rerun_at,
+              updated_at
+         FROM market_data.provider_health_status
+         ORDER BY provider_id ASC`,
+    );
+    return result.rows.map(mapProviderHealthRow);
+  }
+
+  async upsertProviderHealthStatus(patch: ProviderHealthUpsert): Promise<ProviderHealthRow> {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (patch.status !== undefined) { sets.push(`status = $${i++}`); params.push(patch.status); }
+    if (patch.lastSuccessfulRun !== undefined) {
+      sets.push(`last_successful_run = $${i++}`);
+      params.push(patch.lastSuccessfulRun);
+    }
+    if (patch.lastFailedRun !== undefined) {
+      sets.push(`last_failed_run = $${i++}`);
+      params.push(patch.lastFailedRun);
+    }
+    if (patch.lastErrorMessage !== undefined) {
+      sets.push(`last_error_message = $${i++}`);
+      params.push(patch.lastErrorMessage);
+    }
+    if (patch.lastDownNotificationAt !== undefined) {
+      sets.push(`last_down_notification_at = $${i++}`);
+      params.push(patch.lastDownNotificationAt);
+    }
+    if (patch.lastManualRerunAt !== undefined) {
+      sets.push(`last_manual_rerun_at = $${i++}`);
+      params.push(patch.lastManualRerunAt);
+    }
+    sets.push(`updated_at = NOW()`);
+    params.push(patch.providerId);
+    const sql = `UPDATE market_data.provider_health_status
+                 SET ${sets.join(", ")}
+                 WHERE provider_id = $${i}
+                 RETURNING provider_id, status, last_successful_run, last_failed_run,
+                           last_error_message, last_down_notification_at,
+                           last_manual_rerun_at, updated_at`;
+    const result = await this.pool.query<ProviderHealthRowSql>(sql, params);
+    if (result.rows.length === 0) {
+      throw new Error(`provider_health_status row missing for providerId=${patch.providerId}`);
+    }
+    return mapProviderHealthRow(result.rows[0]!);
+  }
+
+  async clearProviderDownNotificationCas(
+    providerId: string,
+    expectedPreviousNotificationAt: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE market_data.provider_health_status
+         SET last_down_notification_at = NULL,
+             updated_at = NOW()
+         WHERE provider_id = $1
+           AND last_down_notification_at = $2`,
+      [providerId, expectedPreviousNotificationAt],
+    );
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  async claimProviderDownNotificationSlot(
+    providerId: string,
+    suppressionWindowMs: number,
+  ): Promise<boolean> {
+    // KZO-177 (P2 Fix 5): atomic CAS. Stamp `last_down_notification_at = NOW()`
+    // only if no notification has fired inside the suppression window. The
+    // `seconds`-based interval keeps the parameter type narrow (bigint) and
+    // matches the pattern used by `pruneOldProviderErrorTrail`.
+    const seconds = Math.max(0, Math.floor(suppressionWindowMs / 1000));
+    const result = await this.pool.query(
+      `UPDATE market_data.provider_health_status
+         SET last_down_notification_at = NOW(),
+             updated_at = NOW()
+         WHERE provider_id = $1
+           AND (last_down_notification_at IS NULL
+                OR last_down_notification_at < NOW() - ($2::bigint || ' seconds')::INTERVAL)`,
+      [providerId, seconds],
+    );
+    return (result.rowCount ?? 0) === 1;
+  }
+
+  async insertProviderErrorTrailEntry(
+    input: ProviderErrorTrailInput,
+  ): Promise<ProviderErrorTrailRow> {
+    const result = await this.pool.query<ProviderErrorTrailRowSql>(
+      `INSERT INTO market_data.provider_error_trail
+         (provider_id, error_class, error_message, context)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, provider_id, occurred_at, error_class, error_message, context`,
+      [
+        input.providerId,
+        input.errorClass,
+        input.errorMessage ?? null,
+        input.context ? JSON.stringify(input.context) : null,
+      ],
+    );
+    return mapProviderErrorTrailRow(result.rows[0]!);
+  }
+
+  async getRecentProviderErrors(
+    providerId: string,
+    limit: number,
+  ): Promise<ProviderErrorTrailRow[]> {
+    const result = await this.pool.query<ProviderErrorTrailRowSql>(
+      `SELECT id, provider_id, occurred_at, error_class, error_message, context
+         FROM market_data.provider_error_trail
+         WHERE provider_id = $1
+         ORDER BY occurred_at DESC
+         LIMIT $2`,
+      [providerId, Math.max(0, limit)],
+    );
+    return result.rows.map(mapProviderErrorTrailRow);
+  }
+
+  async computeErrorCount24h(providerId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_error_trail
+         WHERE provider_id = $1
+           AND error_class <> 'rate_limit'
+           AND occurred_at >= NOW() - INTERVAL '24 hours'`,
+      [providerId],
+    );
+    return parseInt(result.rows[0]!.count, 10);
+  }
+
+  async computeErrorCount7d(providerId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_error_trail
+         WHERE provider_id = $1
+           AND error_class <> 'rate_limit'
+           AND occurred_at >= NOW() - INTERVAL '7 days'`,
+      [providerId],
+    );
+    return parseInt(result.rows[0]!.count, 10);
+  }
+
+  async computeRateLimitCount24h(providerId: string): Promise<number> {
+    const result = await this.pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM market_data.provider_error_trail
+         WHERE provider_id = $1
+           AND error_class = 'rate_limit'
+           AND occurred_at >= NOW() - INTERVAL '24 hours'`,
+      [providerId],
+    );
+    return parseInt(result.rows[0]!.count, 10);
+  }
+
+  async pruneOldProviderErrorTrail(olderThanDays: number): Promise<number> {
+    const seconds = Math.max(0, Math.floor(olderThanDays * 24 * 60 * 60));
+    const result = await this.pool.query(
+      `DELETE FROM market_data.provider_error_trail
+         WHERE occurred_at < NOW() - ($1::bigint || ' seconds')::INTERVAL`,
+      [seconds],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async listAdminUserIds(): Promise<string[]> {
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT id FROM users
+         WHERE role = 'admin'
+           AND deactivated_at IS NULL
+           AND deleted_at IS NULL`,
+    );
+    return result.rows.map((r) => r.id);
+  }
+}
+
+interface ProviderHealthRowSql {
+  provider_id: string;
+  status: string;
+  last_successful_run: string | null;
+  last_failed_run: string | null;
+  last_error_message: string | null;
+  last_down_notification_at: string | null;
+  last_manual_rerun_at: string | null;
+  updated_at: string;
+}
+
+interface ProviderErrorTrailRowSql {
+  id: string | number;
+  provider_id: string;
+  occurred_at: string;
+  error_class: string;
+  error_message: string | null;
+  context: Record<string, unknown> | null;
+}
+
+function mapProviderHealthRow(row: ProviderHealthRowSql): ProviderHealthRow {
+  return {
+    providerId: row.provider_id,
+    status: row.status as ProviderHealthStatus,
+    lastSuccessfulRun: row.last_successful_run ? new Date(row.last_successful_run).toISOString() : null,
+    lastFailedRun: row.last_failed_run ? new Date(row.last_failed_run).toISOString() : null,
+    lastErrorMessage: row.last_error_message,
+    lastDownNotificationAt: row.last_down_notification_at
+      ? new Date(row.last_down_notification_at).toISOString()
+      : null,
+    lastManualRerunAt: row.last_manual_rerun_at
+      ? new Date(row.last_manual_rerun_at).toISOString()
+      : null,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapProviderErrorTrailRow(row: ProviderErrorTrailRowSql): ProviderErrorTrailRow {
+  return {
+    id: typeof row.id === "string" ? parseInt(row.id, 10) : row.id,
+    providerId: row.provider_id,
+    occurredAt: new Date(row.occurred_at).toISOString(),
+    errorClass: row.error_class as ProviderErrorClass,
+    errorMessage: row.error_message,
+    context: row.context,
+  };
 }
 
 // Exported for KZO-179 — POST /accounts uses this in the saveStore catch

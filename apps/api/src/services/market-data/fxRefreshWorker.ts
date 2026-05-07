@@ -1,7 +1,10 @@
 import type { JobWithMetadata } from "pg-boss";
 import type { Persistence } from "../../persistence/types.js";
 import type { FxRate, FxRateProvider, FxRefreshJobData } from "./types.js";
+import { RateLimitedError } from "./types.js";
 import { deriveFetchWindow } from "./deriveFetchWindow.js";
+import type { ProviderHealthService } from "./providerHealth.js";
+import { classifyProviderError } from "./backfillWorker.js";
 
 /** KZO-164: pg-boss queue name. */
 export const FX_REFRESH_QUEUE = "fx-refresh";
@@ -23,6 +26,11 @@ export interface FxRefreshWorkerDeps {
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
   /** Test seam — defaults to `today_utc()`. */
   now?: () => string;
+  /**
+   * KZO-177 — provider health aggregator. The handler calls
+   * `recordOutcome("frankfurter", outcome)` on success/error/rate_limit.
+   */
+  providerHealth?: ProviderHealthService;
 }
 
 /**
@@ -43,8 +51,17 @@ export interface FxRefreshWorkerDeps {
  *  - #7 Errors bubble — no special catch; pg-boss retry policy applies.
  */
 export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
-  const { fxProvider, persistence, log } = deps;
+  const { fxProvider, persistence, log, providerHealth } = deps;
   const storedQuotesSet = new Set<string>(STORED_QUOTES);
+
+  async function safeRecordOutcome(outcome: import("./providerHealth.js").ProviderOutcome): Promise<void> {
+    if (!providerHealth) return;
+    try {
+      await providerHealth.recordOutcome("frankfurter", outcome);
+    } catch (err) {
+      log.warn({ err, outcomeKind: outcome.kind }, "provider_health_record_outcome_failed");
+    }
+  }
 
   // The cron schedule sends `{}` (no payload), so the worker normalizes the partial input
   // into a full `FxRefreshJobData` before delegating. Manual-trigger payloads from the
@@ -93,8 +110,28 @@ export function createFxRefreshHandler(deps: FxRefreshWorkerDeps) {
         },
         "fx_refresh_completed",
       );
+      // KZO-177: feed the success outcome to the health aggregator AFTER the
+      // upsert lands, so a partial failure never reports as a healthy run.
+      await safeRecordOutcome({ kind: "success" });
     } catch (error) {
       log.error({ error, trigger }, "fx_refresh_failed");
+      // KZO-177: classify outcome before re-throw. Frankfurter has no rate
+      // limiter today, but a future provider switch could throw RateLimitedError.
+      if (error instanceof RateLimitedError) {
+        await safeRecordOutcome({
+          kind: "rate_limit",
+          errorMessage: error.message,
+          context: { trigger, retryAfterSeconds: error.retryAfterSeconds },
+        });
+      } else {
+        const reason = error instanceof Error ? error.message : String(error);
+        await safeRecordOutcome({
+          kind: "error",
+          errorClass: classifyProviderError(error),
+          errorMessage: reason,
+          context: { trigger },
+        });
+      }
       throw error;
     }
   };

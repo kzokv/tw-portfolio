@@ -2,6 +2,7 @@
 
 import React, { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import type { DashboardOverviewHoldingDto, LocaleCode } from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
@@ -13,9 +14,10 @@ interface HoldingsTableProps {
   dict: AppDictionary;
   locale: LocaleCode;
   recomputingSymbols?: Set<string>;
+  showFreshnessBadge?: boolean;
 }
 
-export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: HoldingsTableProps) {
+export function HoldingsTable({ holdings, dict, locale, recomputingSymbols, showFreshnessBadge = true }: HoldingsTableProps) {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
 
@@ -32,6 +34,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
   const topWeight = largestHolding?.allocationPct ?? null;
 
   return (
+    <Tooltip.Provider delayDuration={150}>
     <Card data-testid="dashboard-holdings-section">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
@@ -106,9 +109,14 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
                     <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}</td>
                     <td className={cn("px-4 py-4 text-right font-medium", getCurrentPriceTone(holding))}>
-                      {holding.currentUnitPrice === null
-                        ? "-"
-                        : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {holding.currentUnitPrice === null
+                          ? "-"
+                          : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
+                        {showFreshnessBadge && holding.freshness !== "current" && (
+                          <FreshnessBadge holding={holding} />
+                        )}
+                      </span>
                     </td>
                     <td className={cn("px-4 py-4 text-right font-medium", getDailyChangeTone(holding.change))}>
                       {holding.quoteStatus === "missing" ? (
@@ -168,6 +176,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
                     label={dict.dashboardHome.currentPriceLabel}
                     value={holding.currentUnitPrice === null ? "-" : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
                     valueClassName={getCurrentPriceTone(holding)}
+                    badge={showFreshnessBadge && holding.freshness !== "current" ? <FreshnessBadge holding={holding} /> : null}
                   />
                   <HoldingDetail
                     label={dict.dashboardHome.dailyChangeLabel}
@@ -202,6 +211,7 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols }: Ho
         </>
       )}
     </Card>
+    </Tooltip.Provider>
   );
 }
 
@@ -266,11 +276,53 @@ function SummaryTile({ label, value, detail }: { label: string; value: string; d
   );
 }
 
-function HoldingDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+function HoldingDetail({
+  label,
+  value,
+  valueClassName,
+  badge,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+  badge?: React.ReactNode;
+}) {
   return (
     <div>
       <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className={cn("mt-1 text-sm font-medium text-slate-900", valueClassName)}>{value}</dd>
+      <dd className={cn("mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-900", valueClassName)}>
+        <span>{value}</span>
+        {badge}
+      </dd>
     </div>
+  );
+}
+
+function FreshnessBadge({ holding }: { holding: DashboardOverviewHoldingDto }) {
+  if (!holding.freshnessTooltip) return null;
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <span
+          className={cn(
+            "ml-2 inline-flex h-2 w-2 rounded-full",
+            holding.freshness === "stale_amber" && "bg-amber-500",
+            holding.freshness === "stale_red" && "bg-rose-500",
+          )}
+          data-testid={`holdings-freshness-badge-${holding.accountId}-${holding.ticker}`}
+          aria-label={holding.freshnessTooltip}
+        />
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content
+          side="top"
+          sideOffset={4}
+          className="z-50 max-w-xs rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white shadow"
+        >
+          {holding.freshnessTooltip}
+          <Tooltip.Arrow className="fill-slate-900" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }

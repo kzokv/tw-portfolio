@@ -16,6 +16,18 @@ import {
   STORED_QUOTES,
 } from "../services/market-data/fxRefreshWorker.js";
 import { today_utc } from "../services/market-data/deriveFetchWindow.js";
+import { enqueueDailyRefresh } from "../services/market-data/dailyRefreshEnqueue.js";
+import type { MarketCode } from "@tw-portfolio/domain";
+import type {
+  AdminProvidersResponse,
+  ProviderHealthStatusDto,
+  ProviderErrorTrailEntryDto,
+} from "@tw-portfolio/shared-types";
+import {
+  calendarMarketForProvider,
+  computeStatus,
+  type ProviderId,
+} from "../services/market-data/providerHealth.js";
 import {
   impersonationClearCookieString,
   impersonationSetCookieString,
@@ -492,5 +504,153 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       };
     });
     return { pairs, queriedAt };
+  });
+
+  // ── KZO-177: provider health admin surface ────────────────────────────────
+
+  // GET /admin/providers — read-only snapshot of all 4 provider health rows
+  // with computed counters and the last 10 trail entries each.
+  app.get("/providers", async (req): Promise<AdminProvidersResponse> => {
+    if (req.authContext?.role !== "admin") {
+      throw routeError(403, "admin_required", "Admin role required");
+    }
+    // KZO-177 (P2 Fix 2): recompute `status` against the current trading
+    // calendar for each row. The persisted `row.status` lags reality when the
+    // queue stalls — a provider with `last_successful_run < latestSettled`
+    // should report `down` even if no error trail rows have landed since.
+    const rows = await app.persistence.getAllProviderHealthStatuses();
+    const now = new Date();
+    const providers: ProviderHealthStatusDto[] = await Promise.all(
+      rows.map(async (row) => {
+        const market = calendarMarketForProvider(row.providerId as ProviderId);
+        const [errorCount24h, errorCount7d, rateLimitCount24h, recentErrors, latestSettled] =
+          await Promise.all([
+            app.persistence.computeErrorCount24h(row.providerId),
+            app.persistence.computeErrorCount7d(row.providerId),
+            app.persistence.computeRateLimitCount24h(row.providerId),
+            app.persistence.getRecentProviderErrors(row.providerId, 10),
+            app.tradingCalendarCache.latestSettledTradingDay(market, now),
+          ]);
+        const computedStatus = computeStatus({
+          lastSuccessfulRun: row.lastSuccessfulRun,
+          latestSettledTradingDay: latestSettled,
+          errorCount24h,
+        });
+        const recentErrorDtos: ProviderErrorTrailEntryDto[] = recentErrors.map((e) => ({
+          id: e.id,
+          occurredAt: e.occurredAt,
+          errorClass: e.errorClass,
+          errorMessage: e.errorMessage,
+        }));
+        return {
+          providerId: row.providerId,
+          status: computedStatus,
+          lastSuccessfulRun: row.lastSuccessfulRun,
+          lastFailedRun: row.lastFailedRun,
+          errorCount24h,
+          errorCount7d,
+          rateLimitCount24h,
+          lastErrorMessage: row.lastErrorMessage,
+          lastManualRerunAt: row.lastManualRerunAt,
+          updatedAt: row.updatedAt,
+          recentErrors: recentErrorDtos,
+        };
+      }),
+    );
+    return { providers };
+  });
+
+  // POST /admin/providers/:providerId/rerun — admin "Re-run now" button.
+  // 60s per-provider cooldown via `last_manual_rerun_at`. Returns `429
+  // rate_limit_exceeded` with `Retry-After` header if clicked within cooldown.
+  app.post("/providers/:providerId/rerun", async (req, reply) => {
+    // (1) admin guard — 403 fires before any other branch so unauthenticated
+    // callers can't probe path-param shape or queue availability.
+    if (req.authContext?.role !== "admin") {
+      throw routeError(403, "admin_required", "Admin role required");
+    }
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+
+    // (2) provider exists 404 — path param parsed as a free string so an
+    // unknown id lands as 404 (not Zod 400). The provider's existence in
+    // `provider_health_status` is the authoritative gate.
+    const params = z.object({ providerId: z.string() }).parse(req.params);
+    const providerId = params.providerId as
+      | "finmind-tw"
+      | "finmind-us"
+      | "yahoo-finance-au"
+      | "frankfurter";
+    const existing = await app.persistence.getProviderHealthStatus(providerId);
+    if (!existing) {
+      throw routeError(404, "provider_not_found", "Unknown provider id");
+    }
+
+    // (3) 60s cooldown per provider.
+    const COOLDOWN_MS = 60 * 1000;
+    if (existing.lastManualRerunAt) {
+      const elapsedMs = Date.now() - new Date(existing.lastManualRerunAt).getTime();
+      if (elapsedMs < COOLDOWN_MS) {
+        const retryAfterSec = Math.max(1, Math.ceil((COOLDOWN_MS - elapsedMs) / 1000));
+        reply.header("Retry-After", String(retryAfterSec));
+        throw routeError(429, "rate_limit_exceeded", "Re-run cooldown active for this provider");
+      }
+    }
+
+    // (4) queue dispatch — checked LAST so auth/404/cooldown branches fire
+    // first. When `app.boss` is null (memory backend / E2E tests with no
+    // pg-boss), we skip the dispatch but still stamp the audit + cooldown
+    // so the route stays observable end-to-end. Returns `tickerCount=0` and
+    // `jobId=null` to signal the no-op.
+
+    // Stamp the cooldown column BEFORE dispatching so a successful enqueue is
+    // protected. If the dispatch throws, the cooldown is still in effect (a
+    // small operator inconvenience), which is the safer default.
+    await app.persistence.upsertProviderHealthStatus({
+      providerId,
+      lastManualRerunAt: new Date().toISOString(),
+    });
+
+    let tickerCount = 0;
+    let marketCode: MarketCode | "FX" = "FX";
+    let jobId: string | null = null;
+
+    if (providerId === "frankfurter") {
+      if (app.boss) {
+        const today = today_utc();
+        jobId = await app.boss.send(
+          FX_REFRESH_QUEUE,
+          { trigger: "manual" as const, startDate: today, endDate: today, bases: [...STORED_QUOTES] },
+          { singletonKey: "fx-refresh", priority: 5 },
+        );
+      }
+      tickerCount = STORED_QUOTES.length;
+    } else {
+      marketCode = providerId === "finmind-tw" ? "TW" : providerId === "finmind-us" ? "US" : "AU";
+      if (app.boss) {
+        const result = await enqueueDailyRefresh(
+          app.boss,
+          app.persistence,
+          app.log,
+          { marketFilter: marketCode, trigger: "admin_rerun" },
+        );
+        tickerCount = result.tickerCount;
+        jobId = result.batchId;
+      }
+    }
+
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_health_rerun",
+      metadata: {
+        providerId,
+        marketCode: marketCode === "FX" ? null : marketCode,
+        tickerCount,
+        jobId,
+      },
+      ipAddress,
+    });
+
+    reply.code(202);
+    return { status: "queued" as const, providerId, tickerCount, jobId };
   });
 };

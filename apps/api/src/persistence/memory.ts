@@ -72,6 +72,10 @@ import type {
   RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   AggregatedSnapshotPoint,
+  ProviderErrorTrailInput,
+  ProviderErrorTrailRow,
+  ProviderHealthRow,
+  ProviderHealthUpsert,
   UserRole,
 } from "./types.js";
 import {
@@ -273,10 +277,42 @@ export class MemoryPersistence implements Persistence {
    *  == empty preferences. Top-level merge semantics mirror the Postgres
    *  `||` / `- key[]` update shape (see design D3). */
   private readonly userPreferences = new Map<string, Record<string, unknown>>();
+  /** KZO-177: provider health rows keyed by providerId. Pre-seeded in `init()`. */
+  private readonly providerHealth = new Map<string, ProviderHealthRow>();
+  /** KZO-177: provider error trail rows; auto-incrementing id stamped at insert. */
+  private readonly providerErrorTrail: ProviderErrorTrailRow[] = [];
+  private _providerErrorTrailNextId = 1;
+  /**
+   * KZO-177 (M2): per-provider promise-chain mutex for the recovery CAS.
+   * MemoryPersistence is single-threaded but JS microtasks interleave; without
+   * this, two concurrent `recordOutcome({kind:"success"})` calls on a `down`
+   * row could both observe `lastDownNotificationAt !== null` and both win the
+   * CAS. The Postgres backend gets atomicity from the conditional UPDATE row
+   * count; this mutex matches that semantics in memory.
+   */
+  private readonly _providerCasLocks = new Map<string, Promise<void>>();
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
   async init(): Promise<void> {
+    // KZO-177: pre-seed the four canonical providers, mirroring migration 046's
+    // seed insert. The aggregator assumes every providerId exists when the
+    // workers start logging outcomes.
+    if (this.providerHealth.size === 0) {
+      const now = new Date().toISOString();
+      for (const providerId of ["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"]) {
+        this.providerHealth.set(providerId, {
+          providerId,
+          status: "down",
+          lastSuccessfulRun: null,
+          lastFailedRun: null,
+          lastErrorMessage: null,
+          lastDownNotificationAt: null,
+          lastManualRerunAt: null,
+          updatedAt: now,
+        });
+      }
+    }
     if (this.options.seedCatalog === true && this.instruments.size === 0) {
       this._replaceInstruments(DEFAULT_MEMORY_CATALOG);
     }
@@ -1492,6 +1528,22 @@ export class MemoryPersistence implements Persistence {
     return result;
   }
 
+  async getLatestBarDatesByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    for (const p of pairs) result.set(`${p.ticker}:${p.marketCode}`, null);
+    for (const bar of this.dailyBars) {
+      const key = `${bar.ticker}:${bar.marketCode}`;
+      if (!result.has(key)) continue;
+      const current = result.get(key);
+      if (!current || bar.barDate > current) {
+        result.set(key, bar.barDate);
+      }
+    }
+    return result;
+  }
+
   async getDistinctBarDates(market: MarketCode, fromDate: string): Promise<string[]> {
     const dates = new Set<string>();
     for (const bar of this.dailyBars) {
@@ -2320,7 +2372,8 @@ export class MemoryPersistence implements Persistence {
   /** Test-only: full-replace the preferences row for a user (used by the
    *  `/__e2e/seed-user-preferences` endpoint; bypasses merge semantics). */
   async _setUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<void> {
-    this.userPreferences.set(userId, { ...preferences });
+    const existing = this.userPreferences.get(userId) ?? {};
+    this.userPreferences.set(userId, { ...existing, ...preferences });
   }
 
   // --- Monitored Tickers ---
@@ -3032,6 +3085,269 @@ export class MemoryPersistence implements Persistence {
       page,
       limit,
     };
+  }
+
+  // ── Provider health (KZO-177) ─────────────────────────────────────────────
+
+  async getProviderHealthStatus(providerId: string): Promise<ProviderHealthRow | null> {
+    const row = this.providerHealth.get(providerId);
+    return row ? { ...row } : null;
+  }
+
+  async getAllProviderHealthStatuses(): Promise<ProviderHealthRow[]> {
+    return [...this.providerHealth.values()]
+      .map((row) => ({ ...row }))
+      .sort((a, b) => a.providerId.localeCompare(b.providerId));
+  }
+
+  async upsertProviderHealthStatus(patch: ProviderHealthUpsert): Promise<ProviderHealthRow> {
+    const now = new Date().toISOString();
+    const existing = this.providerHealth.get(patch.providerId) ?? {
+      providerId: patch.providerId,
+      status: "down" as const,
+      lastSuccessfulRun: null,
+      lastFailedRun: null,
+      lastErrorMessage: null,
+      lastDownNotificationAt: null,
+      lastManualRerunAt: null,
+      updatedAt: now,
+    };
+    const merged: ProviderHealthRow = {
+      ...existing,
+      status: patch.status ?? existing.status,
+      lastSuccessfulRun:
+        patch.lastSuccessfulRun !== undefined ? patch.lastSuccessfulRun : existing.lastSuccessfulRun,
+      lastFailedRun:
+        patch.lastFailedRun !== undefined ? patch.lastFailedRun : existing.lastFailedRun,
+      lastErrorMessage:
+        patch.lastErrorMessage !== undefined ? patch.lastErrorMessage : existing.lastErrorMessage,
+      lastDownNotificationAt:
+        patch.lastDownNotificationAt !== undefined
+          ? patch.lastDownNotificationAt
+          : existing.lastDownNotificationAt,
+      lastManualRerunAt:
+        patch.lastManualRerunAt !== undefined ? patch.lastManualRerunAt : existing.lastManualRerunAt,
+      updatedAt: now,
+    };
+    this.providerHealth.set(patch.providerId, merged);
+    return { ...merged };
+  }
+
+  async clearProviderDownNotificationCas(
+    providerId: string,
+    expectedPreviousNotificationAt: string,
+  ): Promise<boolean> {
+    // KZO-177 (M2): per-provider promise-chain CAS lock — chains the read /
+    // check / write through a single in-flight slot so concurrent winners are
+    // serialized. Loser sees `lastDownNotificationAt === null` and returns
+    // false. Mirrors Postgres's atomic-UPDATE rowcount semantics.
+    const prev = this._providerCasLocks.get(providerId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((r) => { release = r; });
+    this._providerCasLocks.set(providerId, prev.then(() => next));
+    await prev;
+    try {
+      const row = this.providerHealth.get(providerId);
+      if (!row) return false;
+      if (row.lastDownNotificationAt !== expectedPreviousNotificationAt) return false;
+      this.providerHealth.set(providerId, {
+        ...row,
+        lastDownNotificationAt: null,
+        updatedAt: new Date().toISOString(),
+      });
+      return true;
+    } finally {
+      release();
+    }
+  }
+
+  async claimProviderDownNotificationSlot(
+    providerId: string,
+    suppressionWindowMs: number,
+  ): Promise<boolean> {
+    // KZO-177 (P2 Fix 5): chain through the same per-provider mutex used by
+    // `clearProviderDownNotificationCas` so concurrent claim attempts are
+    // serialized. The Postgres backend gets atomicity from the conditional
+    // UPDATE row count; this matches the semantics in memory.
+    const prev = this._providerCasLocks.get(providerId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((r) => { release = r; });
+    this._providerCasLocks.set(providerId, prev.then(() => next));
+    await prev;
+    try {
+      const row = this.providerHealth.get(providerId);
+      if (!row) return false;
+      const lastNotifMs = row.lastDownNotificationAt
+        ? new Date(row.lastDownNotificationAt).getTime()
+        : 0;
+      if (Date.now() - lastNotifMs < suppressionWindowMs) {
+        return false;
+      }
+      const nowIso = new Date().toISOString();
+      this.providerHealth.set(providerId, {
+        ...row,
+        lastDownNotificationAt: nowIso,
+        updatedAt: nowIso,
+      });
+      return true;
+    } finally {
+      release();
+    }
+  }
+
+  async insertProviderErrorTrailEntry(input: ProviderErrorTrailInput): Promise<ProviderErrorTrailRow> {
+    const row: ProviderErrorTrailRow = {
+      id: this._providerErrorTrailNextId++,
+      providerId: input.providerId,
+      occurredAt: new Date().toISOString(),
+      errorClass: input.errorClass,
+      errorMessage: input.errorMessage ?? null,
+      context: input.context ?? null,
+    };
+    this.providerErrorTrail.push(row);
+    return { ...row };
+  }
+
+  async getRecentProviderErrors(
+    providerId: string,
+    limit: number,
+  ): Promise<ProviderErrorTrailRow[]> {
+    return this.providerErrorTrail
+      .filter((row) => row.providerId === providerId)
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+      .slice(0, Math.max(0, limit))
+      .map((row) => ({ ...row }));
+  }
+
+  async computeErrorCount24h(providerId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    return this.providerErrorTrail.filter(
+      (row) =>
+        row.providerId === providerId &&
+        row.errorClass !== "rate_limit" &&
+        row.occurredAt >= cutoff,
+    ).length;
+  }
+
+  async computeErrorCount7d(providerId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    return this.providerErrorTrail.filter(
+      (row) =>
+        row.providerId === providerId &&
+        row.errorClass !== "rate_limit" &&
+        row.occurredAt >= cutoff,
+    ).length;
+  }
+
+  async computeRateLimitCount24h(providerId: string): Promise<number> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    return this.providerErrorTrail.filter(
+      (row) =>
+        row.providerId === providerId &&
+        row.errorClass === "rate_limit" &&
+        row.occurredAt >= cutoff,
+    ).length;
+  }
+
+  async pruneOldProviderErrorTrail(olderThanDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
+    let removed = 0;
+    for (let i = this.providerErrorTrail.length - 1; i >= 0; i--) {
+      if (this.providerErrorTrail[i]!.occurredAt < cutoff) {
+        this.providerErrorTrail.splice(i, 1);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
+  async listAdminUserIds(): Promise<string[]> {
+    return [...this.usersByEmail.values()]
+      .filter((u) => u.role === "admin" && !u.deactivatedAt && !u.deletedAt)
+      .map((u) => u.id);
+  }
+
+  // ── Test-only helpers (KZO-177) ─────────────────────────────────────────
+  // Used by unit / integration tests to seed and inspect provider-health
+  // state without going through `recordOutcome`. NOT part of the production
+  // Persistence contract.
+
+  /** @internal */
+  async _seedProviderHealthStatus(input: {
+    providerId: string;
+    status?: "healthy" | "degraded" | "down";
+    lastSuccessfulRun?: string | null;
+    lastFailedRun?: string | null;
+    lastErrorMessage?: string | null;
+    lastDownNotificationAt?: string | null;
+    lastManualRerunAt?: string | null;
+    /** Ignored by memory backend (counters are computed-on-read). */
+    errorCount24h?: number;
+    /** Ignored by memory backend (counters are computed-on-read). */
+    errorCount7d?: number;
+    /** Ignored by memory backend (counters are computed-on-read). */
+    rateLimitCount24h?: number;
+  }): Promise<void> {
+    await this.upsertProviderHealthStatus({
+      providerId: input.providerId,
+      status: input.status,
+      lastSuccessfulRun: input.lastSuccessfulRun ?? undefined,
+      lastFailedRun: input.lastFailedRun ?? undefined,
+      lastErrorMessage: input.lastErrorMessage ?? undefined,
+      lastDownNotificationAt: input.lastDownNotificationAt ?? undefined,
+      lastManualRerunAt: input.lastManualRerunAt ?? undefined,
+    });
+  }
+
+  /** @internal — returns the row plus computed counters for test convenience. */
+  async _getProviderHealthStatus(providerId: string): Promise<{
+    providerId: string;
+    status: "healthy" | "degraded" | "down";
+    lastSuccessfulRun: string | null;
+    lastFailedRun: string | null;
+    lastErrorMessage: string | null;
+    lastDownNotificationAt: string | null;
+    lastManualRerunAt: string | null;
+    errorCount24h: number;
+    errorCount7d: number;
+    rateLimitCount24h: number;
+  } | null> {
+    const row = await this.getProviderHealthStatus(providerId);
+    if (!row) return null;
+    const [errorCount24h, errorCount7d, rateLimitCount24h] = await Promise.all([
+      this.computeErrorCount24h(providerId),
+      this.computeErrorCount7d(providerId),
+      this.computeRateLimitCount24h(providerId),
+    ]);
+    return {
+      providerId: row.providerId,
+      status: row.status,
+      lastSuccessfulRun: row.lastSuccessfulRun,
+      lastFailedRun: row.lastFailedRun,
+      lastErrorMessage: row.lastErrorMessage,
+      lastDownNotificationAt: row.lastDownNotificationAt,
+      lastManualRerunAt: row.lastManualRerunAt,
+      errorCount24h,
+      errorCount7d,
+      rateLimitCount24h,
+    };
+  }
+
+  /** @internal — list admin notifications by source category for tests. */
+  async _listAdminNotifications(category: string): Promise<Array<{ category: string; payload: unknown }>> {
+    const out: Array<{ category: string; payload: unknown }> = [];
+    for (const list of this.notifications.values()) {
+      for (const n of list) {
+        if (n.source === "provider_health") {
+          // Map each in-app notification to a category by inspecting title.
+          const inferred = /down/i.test(n.title) ? "provider_down" : "provider_recovered";
+          if (inferred === category) {
+            out.push({ category: inferred, payload: n.detail });
+          }
+        }
+      }
+    }
+    return out;
   }
 }
 

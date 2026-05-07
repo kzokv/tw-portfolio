@@ -169,6 +169,12 @@ function buildOverviewHoldings(
         quoteStatus: !quote ? "missing" as const : quote.isProvisional ? "provisional" as const : "current" as const,
         nextDividendDate: upcomingDividendDates.get(`${holding.accountId}:${holding.ticker}`) || null,
         lastDividendPostedDate: recentPostedDividends.get(`${holding.accountId}:${holding.ticker}`) ?? null,
+        // KZO-177: defaults — the route handler post-processes these via
+        // `enrichHoldingsWithFreshness()` using the trading-calendar helper.
+        // Sync `buildDashboardOverview` returns these as `current`/`null` so
+        // unit tests that don't supply a calendar still produce a valid DTO.
+        freshness: "current" as const,
+        freshnessTooltip: null,
       };
     })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));

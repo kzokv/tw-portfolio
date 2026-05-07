@@ -9,6 +9,7 @@ export * from "./InstrumentsEndpoint.js";
 export * from "./MarketDataEndpoint.js";
 export * from "./NotificationsEndpoint.js";
 export * from "./ProfileEndpoint.js";
+export * from "./ProvidersEndpoint.js";
 export * from "./QuotesEndpoint.js";
 export * from "./SessionEndpoint.js";
 export * from "./SharesEndpoint.js";

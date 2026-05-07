@@ -85,6 +85,9 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     onBarsUpserted: (market: MarketCode, dates: ReadonlyArray<string>) => {
       app.tradingCalendarCache.notifyBarsUpserted(market, dates);
     },
+    // KZO-177: feed provider outcomes (success/error/rate_limit) into the
+    // health aggregator. Decorated by `registerProviderHealth(app)` in app.ts.
+    providerHealth: app.providerHealth,
     log: app.log,
   };
 
@@ -107,6 +110,8 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     fxProvider: app.marketDataRegistry.fxRate,
     persistence: app.persistence,
     log: app.log,
+    // KZO-177: feed Frankfurter outcomes into the health aggregator.
+    providerHealth: app.providerHealth,
   };
   await registerFxRefreshWorker(app, boss, fxDeps);
   await boss.schedule(FX_REFRESH_QUEUE, FX_REFRESH_CRON, {});

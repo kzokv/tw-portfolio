@@ -183,6 +183,9 @@ export interface DashboardOverviewHoldingDto {
   quoteStatus: "current" | "provisional" | "missing";
   nextDividendDate: string | null;
   lastDividendPostedDate: string | null;
+  // KZO-177: server-classified freshness, null when current
+  freshness: "current" | "stale_amber" | "stale_red";
+  freshnessTooltip: string | null;
 }
 
 export interface DashboardOverviewUpcomingDividendDto {
@@ -676,6 +679,36 @@ export interface NotificationListResponse {
 
 export interface UnreadCountResponse {
   count: number;
+}
+
+// ── Provider health (KZO-177) ───────────────────────────────────────────────
+
+export type ProviderHealthStatus = "healthy" | "degraded" | "down";
+export type ProviderErrorClass = "rate_limit" | "http_4xx" | "http_5xx" | "network" | "parse" | "other";
+
+export interface ProviderErrorTrailEntryDto {
+  id: number;
+  occurredAt: string;
+  errorClass: ProviderErrorClass;
+  errorMessage: string | null;
+}
+
+export interface ProviderHealthStatusDto {
+  providerId: string;
+  status: ProviderHealthStatus;
+  lastSuccessfulRun: string | null;
+  lastFailedRun: string | null;
+  errorCount24h: number;
+  errorCount7d: number;
+  rateLimitCount24h: number;
+  lastErrorMessage: string | null;
+  lastManualRerunAt: string | null;
+  updatedAt: string;
+  recentErrors: ProviderErrorTrailEntryDto[];
+}
+
+export interface AdminProvidersResponse {
+  providers: ProviderHealthStatusDto[];
 }
 
 // ── Dividend ledger aggregates (KZO-135) ────────────────────────────────────

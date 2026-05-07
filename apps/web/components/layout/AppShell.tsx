@@ -1060,6 +1060,7 @@ function renderSection({
                     dict={dict}
                     locale={locale}
                     recomputingSymbols={recomputingSymbols}
+                    showFreshnessBadge={!isSharedContext}
                   />
                 );
               case "dividends-section":
@@ -1314,6 +1315,7 @@ function renderSection({
                   dict={dict}
                   locale={locale}
                   recomputingSymbols={recomputingSymbols}
+                  showFreshnessBadge={!isSharedContext}
                 />
               );
             case "dividends-section":
