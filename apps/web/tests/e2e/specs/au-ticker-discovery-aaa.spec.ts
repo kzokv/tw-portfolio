@@ -13,9 +13,10 @@
  * `.claude/rules/e2e-shared-memory-bars-ticker-hygiene.md`. CBA is already in
  * the rule's reservation list — no update needed.
  *
- * CBA is NOT in `AU_RESERVED_INSTRUMENTS` (not seeded by `fetchInstrumentCatalog`
- * by default), so typing "CBA" exercises the live-search fallback path via
- * `searchInstruments` rather than finding the ticker in the local catalog.
+ * KZO-194 — `AU_RESERVED_INSTRUMENTS` is removed; AU catalog now ships from
+ * `TwelveDataAuCatalogProvider`. CBA is NOT in the TD bulk catalog (LIC/banking
+ * cross-listings are sparse on TD's free tier) — so typing "CBA" still exercises
+ * the live-search fallback path via `searchInstruments`, which delegates to Yahoo.
  *
  * Memory-mode constraint: pg-boss is null in memory mode, so the backfill job
  * queue won't run automatically. The backfill badge will show "pending" immediately
@@ -107,9 +108,9 @@ test.describe("AU ticker discovery", () => {
 
     // ── Assert 1: Live result row with LIVE badge ─────────────────────────
     // CBA is seeded into MockYahooFinanceAuMarketDataProvider.searchInstruments()
-    // but NOT in AU_RESERVED_INSTRUMENTS (not in the local catalog). The live
-    // result row uses the same `catalog-item-CBA` testid as catalog rows plus
-    // a nested LIVE badge element.
+    // but NOT in the persisted local catalog (TwelveDataAuCatalogProvider mock
+    // covers RIO/STW/SCG/NABPF/RYDAF; KZO-194). The live result row uses the
+    // same `catalog-item-CBA` testid as catalog rows plus a nested LIVE badge.
     await settings.assert.catalogItemIsVisible("CBA");
     await settings.assert.catalogLiveItemHasBadge("CBA");
 

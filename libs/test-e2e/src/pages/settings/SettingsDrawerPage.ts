@@ -99,6 +99,8 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     filterEtf: Locator;
     filterBondEtf: Locator;
     item: (ticker: string) => Locator;
+    // KZO-194: all currently-rendered catalog-item-* rows (for count assertions)
+    allItems: Locator;
     itemCheckbox: (ticker: string) => Locator;
     // KZO-188: market chip group (All · TW · US · AU) above type-filter chips
     marketChip: (market: "all" | "TW" | "US" | "AU") => Locator;
@@ -329,6 +331,12 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         filterBondEtf: this.locate("catalog-filter-bond_etf", "Catalog Filter Bond ETF"),
         item: (ticker: string) =>
           this.locate(`catalog-item-${ticker}`, `Catalog Item ${ticker}`),
+        // KZO-194: all catalog-item-* rows currently rendered (respects the
+        // incremental-render window). Use for count assertions (≥N rows).
+        allItems: this.withDescription(
+          this.page.locator('[data-testid^="catalog-item-"]'),
+          "All Catalog Items",
+        ),
         itemCheckbox: (ticker: string) =>
           this.withinByCss(
             this.locate(`catalog-item-${ticker}`),

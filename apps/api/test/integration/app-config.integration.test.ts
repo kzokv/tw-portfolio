@@ -304,7 +304,15 @@ describePostgres("app_config — repair cooldown + DTO field (Postgres)", () => 
 
       expect(response.statusCode).toBe(200);
       const body = response.json<{ instruments: Array<{ ticker: string; repairAvailableAt: string | null }> }>();
-      expect(body.instruments).toHaveLength(2);
+      // KZO-194: `persistence.init()` plus the post-deploy catalog-sync startup-tick
+      // pre-populate `instruments` beyond just the 2 explicitly seeded here. The
+      // behavior under test is "every item carries the repairAvailableAt key" — the
+      // exact count is incidental. Assert both seeded tickers are present and the
+      // field invariant holds for ALL returned rows.
+      expect(body.instruments.length).toBeGreaterThanOrEqual(2);
+      const tickers = body.instruments.map((i) => i.ticker);
+      expect(tickers).toContain("2330");
+      expect(tickers).toContain("2317");
       // Every item should have the repairAvailableAt key (even if null)
       for (const item of body.instruments) {
         expect(item).toHaveProperty("repairAvailableAt");

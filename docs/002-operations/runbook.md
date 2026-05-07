@@ -1569,11 +1569,19 @@ yahoo_finance_tos_notice: ToS limits use to personal/non-commercial. For multi-t
 
 This log line is expected and not an error. If the deployment is ever transitioning from personal use to multi-tenant or commercial use, consult `docs/004-notes/kzo-171/spike-202605021115-au-provider.md` §7.3 for EODHD upgrade triggers.
 
-### Bounded AU catalog
+### AU catalog (Twelve Data, KZO-194)
 
-The AU catalog is static and bounded: BHP, CSL, VAS, WBC, AFI, GMG, IMD (7 tickers). These are hard-coded in `YahooFinanceAuMarketDataProvider.fetchInstrumentCatalog()` — no API call, no pg-boss queue involvement for the catalog dump. The catalog-sync cron (`30 17 * * 1-5`, post-AU-close) writes these 7 rows on each run.
+The AU catalog is sourced from Twelve Data's free Basic tier: `/stocks?exchange=ASX` (~2,013 rows) + `/etf?exchange=ASX` (~449 rows), warrants filtered, cross-endpoint dedup preferring `/etf` classification. Net ~2,439 instruments per sync. `YahooFinanceAuMarketDataProvider.fetchInstrumentCatalog()` now returns `[]` — Yahoo is retained for AU bars/dividends/metadata/search only.
 
-Users can monitor any AU ticker outside this set; the backfill worker enriches the catalog row inline via `quote("TICKER.AX")` on the first backfill. There is no pre-population race: the inline enrichment path is the load-bearing invariant for first-time AU tickers.
+The catalog-sync cron (`30 17 * * 1-5`, post-AU-close) calls `TwelveDataAuCatalogProvider.fetchInstrumentCatalog()` and idempotently upserts to `market_data.instruments`. On transient HTTP/rate-limit failures the provider throws — pg-boss retries with backoff and the previous day's catalog is preserved by the upsert path.
+
+**Startup-tick (KZO-194 critical gap 2):** `pgBoss.ts` enqueues a one-shot `boss.send(CATALOG_SYNC_QUEUE, {}, { singletonKey: ... })` at boot, immediately after registering the cron. Without this, a Friday-evening deploy would leave the AU catalog empty until Monday's 17:30 UTC cron tick (~72h gap).
+
+**LIC/CEF coverage gap:** Twelve Data's bulk endpoints do not include some Australian listed investment companies (AFI, ARG, AUI, etc.). These remain discoverable via `searchInstruments` (delegated to Yahoo's live `search()` per KZO-188) and enrich inline at first backfill via `fetchInstrumentMetadata` (also Yahoo-delegated). Users see them via autocomplete and can add them via transactions; they just don't appear in the bulk Browse Full Catalog grid.
+
+**Required env:** `TWELVE_DATA_API_KEY` (Twelve Data Basic). `TWELVE_DATA_BASE_URL` defaults to `https://api.twelvedata.com`. `TWELVE_DATA_RATE_LIMIT_PER_MINUTE` defaults to 8 (matches Basic tier). `AU_CATALOG_PROVIDER_MOCK=1` forces the mock; absence of `TWELVE_DATA_API_KEY` also routes to the mock (FinMind precedent).
+
+**Commercial-use note:** Twelve Data Basic ToS §2.3(l) prohibits commercial use; commercialization swaps to EODHD commercial ($399/mo) per the KZO-171 spike. Yahoo retirement is also deferred to that swap — TD's free tier does not cover bars/dividends/quotes (Pro tier $229/mo+).
 
 ### History start
 

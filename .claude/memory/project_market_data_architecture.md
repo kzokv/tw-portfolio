@@ -1,6 +1,6 @@
 ---
 name: Market Data Platform architecture
-description: market_data schema boundary, FinMind (TW/US) + Yahoo Finance AU client+backfill, catalog interface, environment policy decisions
+description: market_data schema boundary, FinMind (TW/US) + Yahoo Finance AU bars/dividends/metadata/search + Twelve Data AU catalog (KZO-194), catalog interface, environment policy decisions
 type: project
 ---
 
@@ -49,9 +49,22 @@ Reusing `fetchDataset` with empty params would include `data_id=` in the URL, wh
 - Env vars: `YAHOO_AU_RATE_LIMIT_PER_MINUTE` (Yahoo SDK rate cap), `AU_PROVIDER_MOCK` (boolean), `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE`.
 - ToS constraint: startup `log.warn("yahoo_finance_tos_notice")` in registry; JSDoc framing on provider class. Yahoo Finance data is unofficial/ToS-constrained for commercial use.
 - History start: `HISTORY_START_BY_MARKET["AU"] = "1988-01-28"` (spike-confirmed in KZO-171).
-- Dual-registration: AU provider registered to BOTH `marketData.set("AU", ...)` AND `catalog.set("AU", ...)` in `registry.ts`.
+- Registry split (KZO-194): `marketData.set("AU", yahooAu)` (bars/dividends/metadata/search) AND `catalog.set("AU", twelveDataAuCatalog)` (catalog ingestion). `TwelveDataAuCatalogProvider` is constructed with `yahooFallback: yahooAu` and delegates `fetchInstrumentMetadata` and `searchInstruments` to it. Pre-194 the AU provider was registered to both surfaces; post-194 the catalog surface is owned by Twelve Data while Yahoo retains everything else.
 - GET /market-data/search route: Zod query validation (`/^[A-Za-z0-9 .&'()-]+$/`), per-IP sliding-window 429, RateLimitedError → 503 + Retry-After, catch-all → 503 + X-Search-Degraded:true.
 - AU classifier: `industryCategory === "ETF" → "ETF"` else `"STOCK"` — fires BEFORE TW substring path in `classifyInstrument.ts`. No BOND_ETF for AU v1.
+
+## Twelve Data AU catalog provider (KZO-194)
+
+- Provider: `apps/api/src/services/market-data/providers/twelveDataAu.ts` + `mockTwelveDataAu.ts`. Class `TwelveDataAuCatalogProvider implements InstrumentCatalogProvider`. `providerId = "twelve-data-au"`, `supportsMetadataEnrichment = true`.
+- Composition shape (Option A): constructor takes `{ apiKey, baseUrl, rateLimiter, yahooFallback }`. `fetchInstrumentMetadata` and `searchInstruments` delegate to `yahooFallback` (the existing `YahooFinanceAuMarketDataProvider`). This preserves KZO-188's live autocomplete and per-ticker `quote()` enrichment, including LICs not present in TD's bulk endpoints (AFI, ARG, AUI, etc.).
+- Endpoints: `/stocks?exchange=ASX` + `/etf?exchange=ASX` (Twelve Data Basic free tier). MIC defensive validation: every row asserted `mic_code === "XASX"`; mismatch on `/stocks` warns+skips, mismatch on `/etf` warns+skips. Warrant filter: `type === "Warrant"` dropped. Cross-endpoint dedup: `/etf` classification wins when ticker appears in both.
+- Mapping: `ticker = symbol`, `name`, `typeRaw = "ASX"`, `industryCategory = "ETF"` for `/etf` rows, TD's `type` field passed through for `/stocks` rows. Net ~2,439 rows after filter+dedup.
+- Yahoo provider neutralization: `YahooFinanceAuMarketDataProvider.fetchInstrumentCatalog()` now returns `[]` (interface compliance only). All other Yahoo methods unchanged. The `AU_RESERVED_INSTRUMENTS` constant is deleted; the 7-ticker reserved set is gone from production.
+- Env: `TWELVE_DATA_API_KEY` (optional — absence routes to mock per FinMind precedent), `TWELVE_DATA_BASE_URL` (default `https://api.twelvedata.com`), `TWELVE_DATA_RATE_LIMIT_PER_MINUTE` (default 8, `RateLimiter(8, 60_000)`), `AU_CATALOG_PROVIDER_MOCK` (boolean, separate from `AU_PROVIDER_MOCK` which now scopes to AU bars only).
+- Failure handling: `RateLimitedError` re-thrown for outer reschedule (per `typed-transient-error-catch-audit.md`); HTTP 4xx/5xx throw for pg-boss retry; idempotent upsert preserves yesterday's catalog on transient failure.
+- Startup-tick (Critical Gap 2): `pgBoss.ts` enqueues a one-shot `boss.send(CATALOG_SYNC_QUEUE, {}, { singletonKey: CATALOG_SYNC_QUEUE })` immediately after `boss.schedule()`. Closes the post-deploy empty-catalog window without waiting for the next 17:30 UTC cron tick (load-bearing for Friday-evening deploys).
+- Commercial-use: TD Basic ToS §2.3(l) prohibits commercial use; commercialization swaps to EODHD ($399/mo Internal-Use tier) per the KZO-171 spike. Yahoo retirement also deferred to that swap — TD's free tier doesn't cover bars/dividends/quotes.
+- Deferred follow-ups: KZO-195 (delisting detection), KZO-196 (GICS/sector enrichment), KZO-197 (catalog-bootstrap orphan / provider-health "down" symptom).
 
 ## InstrumentCatalogProvider interface (KZO-172)
 

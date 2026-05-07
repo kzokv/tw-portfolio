@@ -6,7 +6,6 @@ import type {
   MarketDataProvider,
   InstrumentCatalogProvider,
 } from "../types.js";
-import { AU_RESERVED_INSTRUMENTS } from "./yahooFinanceAu.js";
 
 /**
  * KZO-172 — Deterministic AU fixtures for tests / dev (`AU_PROVIDER_MOCK=true`).
@@ -109,7 +108,15 @@ const FIXTURE_DIVIDENDS_BY_TICKER: Record<string, ReadonlyArray<{ exDate: string
   VAS: VAS_FIXTURE_DIVIDENDS,
 };
 
-const MOCK_AU_INSTRUMENT_CATALOG: RawInstrumentInfo[] = [...AU_RESERVED_INSTRUMENTS];
+/**
+ * KZO-194 — Yahoo's `fetchInstrumentCatalog()` returns `[]`. The mock follows the same
+ * shape so call-site behavior stays identical to the real provider. Tests that need
+ * mock AU catalog rows now go through `MockTwelveDataAuCatalogProvider` instead.
+ *
+ * Pre-KZO-194 this was a copy of `AU_RESERVED_INSTRUMENTS` (the 7-row reserved set).
+ * The constant has moved to TD; this mock no longer carries an AU catalog of its own.
+ */
+const MOCK_AU_INSTRUMENT_CATALOG: ReadonlyArray<RawInstrumentInfo> = [];
 
 export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider, InstrumentCatalogProvider {
   /** KZO-170 D14: same provider identity as the real `YahooFinanceAuMarketDataProvider`. */
@@ -180,7 +187,7 @@ export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider,
 
   async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {
     this.calls.push({ method: "fetchInstrumentCatalog" });
-    return MOCK_AU_INSTRUMENT_CATALOG;
+    return [...MOCK_AU_INSTRUMENT_CATALOG];
   }
 
   async fetchDelistingHistory(): Promise<RawDelistingRecord[]> {

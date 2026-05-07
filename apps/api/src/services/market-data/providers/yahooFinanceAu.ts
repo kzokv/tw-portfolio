@@ -62,18 +62,20 @@ interface YahooQuoteResult {
  * switching to EODHD — the registry's swap path is a single line. The startup log emits a
  * `yahoo_finance_tos_notice` warning when this provider is selected.
  *
- * **Bounded catalog.** Yahoo offers no reliable enumeration of ASX-listed instruments
- * (`screener()` has no `*_au` scrId; spike §3). KZO-172 ships a hardcoded 7-row reserved
- * set via `fetchInstrumentCatalog()`; the wider catalog grows organically through
- * `fetchInstrumentMetadata(ticker)` enrichment as users add AU positions, plus per-query
- * autocomplete via `searchInstruments(query)`. No full ASX autocomplete in v1.
+ * **Catalog ownership.** Pre-KZO-194 this provider shipped a hardcoded 7-row reserved
+ * set via `fetchInstrumentCatalog()`. KZO-194 moves AU catalog enumeration to
+ * `TwelveDataAuCatalogProvider` (free-tier `/stocks?exchange=ASX` + `/etf?exchange=ASX`,
+ * ~2,439 rows post-warrant filter). Yahoo's `fetchInstrumentCatalog()` now returns `[]`;
+ * this provider keeps bars + dividends + metadata + search, and is the `yahooFallback`
+ * threaded into the TD catalog provider for `fetchInstrumentMetadata` /
+ * `searchInstruments` delegation.
  *
  * **Rate limiter.** Yahoo does not publish a public rate limit. The provider has its own
  * `RateLimiter` instance — separate from FinMind's 600/hr budget — initialized via
  * `YAHOO_AU_RATE_LIMIT_PER_MINUTE` (default 60 req/min). Pre-flight `assertCanConsume(1)`
  * runs on each remote method (`fetchBars`, `fetchDividends`, `fetchInstrumentMetadata`,
  * `searchInstruments`). `fetchInstrumentCatalog()` is intentionally NOT pre-flighted —
- * it returns a static reserved-set without an upstream call.
+ * post-KZO-194 it returns `[]` without an upstream call.
  *
  * @see docs/004-notes/kzo-171/spike-202605021115-au-provider.md (§3, §5, §6, §7.3, §8)
  * @see docs/004-notes/kzo-172/scope-todo-202605021330-au-stock-ingestion.md (Phase 1)
@@ -81,29 +83,6 @@ interface YahooQuoteResult {
 export interface YahooFinanceAuMarketDataProviderConfig {
   rateLimiter: RateLimiter;
 }
-
-/**
- * KZO-172 — 7-row reserved AU instrument set returned by `fetchInstrumentCatalog()`.
- * Spike §4.1 + §6 lock these tickers as the bounded validation sample. VAS is the only
- * ETF; the others are EQUITY (large-cap miner / healthcare / banks / LIC / A-REIT /
- * mining services).
- *
- * `industryCategory` carries Yahoo's `quoteType` literal (`"EQUITY"` or `"ETF"`),
- * matching what `fetchInstrumentMetadata()` emits via `quote()`. The classifier in
- * `libs/domain/src/classifyInstrument.ts` AU branch reads this verbatim.
- *
- * `date` uses the spike's verification date. The catalog-sync flow is identical to
- * KZO-170 US — `runCatalogSync` calls `dedup → build → upsert`; the date is informational.
- */
-const AU_RESERVED_INSTRUMENTS: ReadonlyArray<RawInstrumentInfo> = [
-  { ticker: "BHP", name: "BHP Group Limited",                typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-  { ticker: "CSL", name: "CSL Limited",                      typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-  { ticker: "VAS", name: "Vanguard Australian Shares Index ETF", typeRaw: "ASX", industryCategory: "ETF",    date: "2026-05-02" },
-  { ticker: "WBC", name: "Westpac Banking Corporation",      typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-  { ticker: "AFI", name: "Australian Foundation Investment Company Limited", typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-  { ticker: "GMG", name: "Goodman Group",                    typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-  { ticker: "IMD", name: "Imdex Limited",                    typeRaw: "ASX", industryCategory: "EQUITY", date: "2026-05-02" },
-];
 
 /**
  * Australia/Sydney UTC offset for ASX session-date normalization. ASX trades during
@@ -232,13 +211,18 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
   }
 
   /**
-   * KZO-172 — bounded reserved-set. Static — no API call, no rate-limit consumption.
-   * The catalog grows organically through `fetchInstrumentMetadata(ticker)` as users
-   * add AU positions; this method seeds the validation tickers + a small starter set.
-   * Spike §6 + scope-todo Phase 1.
+   * KZO-194 — Yahoo no longer owns AU catalog enumeration. The full ASX universe is
+   * sourced from `TwelveDataAuCatalogProvider` via `/stocks?exchange=ASX` +
+   * `/etf?exchange=ASX`. Yahoo retains bars / dividends / metadata / search; this
+   * method exists only to satisfy the `InstrumentCatalogProvider` interface for any
+   * lingering call site that constructs the Yahoo provider directly.
+   *
+   * Pre-KZO-194, this returned the 7-row `AU_RESERVED_INSTRUMENTS` reserved set per
+   * KZO-171 spike §6 / KZO-172. The constant has been removed; the catalog is now
+   * authoritative-from-TD.
    */
   async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {
-    return [...AU_RESERVED_INSTRUMENTS];
+    return [];
   }
 
   /**
@@ -332,5 +316,3 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
   }
 }
 
-/** Test-only export of the reserved-set so unit tests can assert membership without re-deriving. */
-export { AU_RESERVED_INSTRUMENTS };

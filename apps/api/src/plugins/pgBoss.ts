@@ -101,6 +101,14 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   await registerBackfillWorker(app, boss, backfillDeps);
   await registerCatalogSyncWorker(app, boss, catalogDeps);
   await boss.schedule(CATALOG_SYNC_QUEUE, CATALOG_SYNC_CRON, {});
+  // KZO-194: kick the catalog-sync queue once on startup so a fresh deploy doesn't
+  // wait up to 72h (Fri afternoon → Mon 17:30 UTC, the next CATALOG_SYNC_CRON tick)
+  // for the AU catalog to populate. Pre-KZO-194, AU shipped a hardcoded 7-row
+  // reserved set so an empty `instruments` table was acceptable post-deploy. Now
+  // the AU catalog comes entirely from `TwelveDataAuCatalogProvider`'s upstream
+  // call — without this startup-tick, the AU catalog stays empty until the cron
+  // fires. Singleton policy collapses duplicate kicks from concurrent restarts.
+  await boss.send(CATALOG_SYNC_QUEUE, {}, { singletonKey: CATALOG_SYNC_QUEUE });
 
   // KZO-164: Frankfurter FX rate ingestion. Singleton policy ensures concurrent
   // manual triggers (and overlapping cron + manual) coalesce. Cron schedule sends

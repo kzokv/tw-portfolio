@@ -9,9 +9,18 @@ export { MockFinMindUsStockMarketDataProvider, MOCK_US_INSTRUMENT_CATALOG } from
 export { FrankfurterFxRateProvider } from "./frankfurter.js";
 export type { FrankfurterFxRateProviderConfig } from "./frankfurter.js";
 export { MockFrankfurterFxRateProvider } from "./mockFrankfurter.js";
-// KZO-172 — AU provider via yahoo-finance2. Real branch needs its own RateLimiter
-// instance (separate from FinMind's 600/hr); mock branch supports `fixtureStartDate`
-// for the truncation regression test.
-export { YahooFinanceAuMarketDataProvider, AU_RESERVED_INSTRUMENTS } from "./yahooFinanceAu.js";
+// KZO-172 — AU bars/dividends/metadata/search via yahoo-finance2. Real branch needs
+// its own RateLimiter instance (separate from FinMind's 600/hr); mock branch supports
+// `fixtureStartDate` for the truncation regression test.
+// KZO-194 — Yahoo's `fetchInstrumentCatalog()` is now a no-op; AU catalog is owned by
+// `TwelveDataAuCatalogProvider`. The `AU_RESERVED_INSTRUMENTS` constant is removed.
+export { YahooFinanceAuMarketDataProvider } from "./yahooFinanceAu.js";
 export type { YahooFinanceAuMarketDataProviderConfig } from "./yahooFinanceAu.js";
 export { MockYahooFinanceAuMarketDataProvider, MOCK_AU_INSTRUMENT_CATALOG } from "./mockYahooFinanceAu.js";
+// KZO-194 — Twelve Data AU catalog provider. Real branch fetches the full ASX universe
+// via the free-tier `/stocks?exchange=ASX` + `/etf?exchange=ASX` endpoints. Mock branch
+// is consumed by integration tests + `AU_CATALOG_PROVIDER_MOCK=true` dev flow.
+export { TwelveDataAuCatalogProvider } from "./twelveDataAu.js";
+export type { TwelveDataAuCatalogProviderConfig } from "./twelveDataAu.js";
+export { MockTwelveDataAuCatalogProvider, MOCK_TD_AU_CATALOG_TICKERS } from "./mockTwelveDataAu.js";
+export type { MockTwelveDataAuCatalogProviderConfig } from "./mockTwelveDataAu.js";

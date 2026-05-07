@@ -1538,7 +1538,7 @@ Market data route behavior:
 - `/market-data/price`: auth required (`resolveUserId`). Returns 429 on per-IP limit breach; 503 + `Retry-After` on upstream provider budget exhaustion (`RateLimitedError`). AU uses Yahoo Finance (`yahoo-finance2`); TW and US use FinMind.
 - `/market-data/search`: auth required. Per-IP limit is a separate bucket from price (configurable via `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE`, default 20). Non-`RateLimitedError` provider failures (e.g. Yahoo HTML scraper breakage) return 503 + `X-Search-Degraded: true` with empty `{ instruments: [] }` body — degraded search is not a hard failure.
 - TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. Only AU routes search through the Yahoo Finance `search()` SDK call.
-- AU bounded catalog: 7 reserved tickers (BHP, CSL, VAS, WBC, AFI, GMG, IMD) pre-populated by the catalog-sync cron. Arbitrary AU tickers are enriched inline at first backfill via `fetchInstrumentMetadata`.
+- AU catalog (KZO-194): sourced from `TwelveDataAuCatalogProvider` via `/stocks?exchange=ASX` + `/etf?exchange=ASX` (Twelve Data Basic free tier, ~2,439 rows after warrant filter). Yahoo Finance is retained for AU bars/dividends/metadata/search; the catalog provider delegates `fetchInstrumentMetadata` and `searchInstruments` to the Yahoo provider so per-ticker enrichment and live autocomplete are unchanged. LICs not present in Twelve Data bulk endpoints (e.g. AFI, ARG, AUI) remain discoverable via the Yahoo `searchInstruments` delegation and enrich inline at first backfill.
 
 **Provider health (KZO-177):**
 

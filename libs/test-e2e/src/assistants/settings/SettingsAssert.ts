@@ -244,6 +244,19 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.tickers.repairSelection(ticker)).toBeEnabled();
   }
 
+  /**
+   * KZO-194: asserts that at least `n` catalog-item rows are rendered inside
+   * the catalog list. Uses a prefix locator so it counts all testids that match
+   * `[data-testid^="catalog-item-"]` within the catalog sheet — the same DOM
+   * elements the spec counts manually. This allows the spec to stay free of raw
+   * `expect()` calls per the AAA boundary rule.
+   */
+  @Step()
+  async catalogItemCountAtLeast(n: number): Promise<void> {
+    const count = await this.el.catalog.allItems.count();
+    expect(count).toBeGreaterThanOrEqual(n);
+  }
+
   // ── KZO-188: AU ticker discovery ─────────────────────────────────────────
 
   /**

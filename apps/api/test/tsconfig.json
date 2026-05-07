@@ -19,6 +19,9 @@
     "unit/services/market-data/tradingCalendar.test.ts",
     "unit/tradingCalendarPersistence.test.ts",
     "integration/account-currency-change-guard.integration.test.ts",
-    "integration/tradingCalendar.integration.test.ts"
+    "integration/tradingCalendar.integration.test.ts",
+    "unit/twelveDataAuProvider.test.ts",
+    "integration/auCatalogSyncTwelveData.integration.test.ts",
+    "integration/auLicMetadataDelegation.integration.test.ts"
   ]
 }

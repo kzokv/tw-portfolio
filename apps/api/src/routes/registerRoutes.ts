@@ -74,7 +74,7 @@ import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/ba
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
-import { MockYahooFinanceAuMarketDataProvider } from "../services/market-data/providers/mockYahooFinanceAu.js";
+import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
 import { routeError } from "../lib/routeError.js";
 import {
   requireAdminRole,
@@ -1715,18 +1715,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // KZO-188: inject a single-use upstream-failure error into the AU mock
   // provider's `searchInstruments` path so the discovery UI's degraded-state
   // E2E spec can assert the "search temporarily unavailable" affordance.
-  // The mock auto-clears the injected error after one fire — see
-  // `MockYahooFinanceAuMarketDataProvider._setNextSearchError` JSDoc.
+  // The mock auto-clears the injected error after one fire.
   // Uses the seed guard (additive, not destructive) per
   // `.claude/rules/e2e-seed-vs-reset-guards.md`.
+  //
+  // KZO-194: AU catalog ownership moved to `MockTwelveDataAuCatalogProvider` (which
+  // delegates `searchInstruments` to the Yahoo mock). The injected error fires at
+  // the TD-mock seam — its `_setNextSearchError` mirrors the Yahoo mock pattern.
   app.post("/__e2e/inject-search-error", async (_req, reply) => {
     assertE2ESeedEnabled();
     const provider = app.marketDataRegistry.catalog.get("AU");
-    if (!(provider instanceof MockYahooFinanceAuMarketDataProvider)) {
+    if (!(provider instanceof MockTwelveDataAuCatalogProvider)) {
       throw routeError(
         409,
         "au_mock_provider_unavailable",
-        "AU catalog provider is not the mock fixture; cannot inject search error",
+        "AU catalog provider is not the TD mock fixture; cannot inject search error",
       );
     }
     provider._setNextSearchError(new Error("simulated_upstream_failure"));
