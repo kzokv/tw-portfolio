@@ -48,12 +48,19 @@ As of 2026-05-02 (KZO-172 — AU market data ingestion via yahoo-finance2):
 - `CSL` — au-backfill-aaa.spec.ts (E2E)
 - `VAS` — reserved for au-etf-aaa.spec.ts (KZO-172/future AU specs)
 - `WBC` — au-backfill-aaa.spec.ts (E2E)
-- `AFI` — reserved for au-lic-aaa.spec.ts (KZO-172/future AU specs)
+- `AFI` — reserved for au-lic-aaa.spec.ts (KZO-172/future AU specs); also referenced in KZO-194 `auLicMetadataDelegation.integration.test.ts` (Postgres-only)
 - `GMG` — reserved for `auStockBackfill.integration.test.ts` (Postgres-only)
 - `IMD` — reserved for `auStockBackfill.integration.test.ts` (Postgres-only)
 - `CBA` — reserved for KZO-188's `au-ticker-discovery-aaa.spec.ts` (AU discovery test ticker; included in mock `searchInstruments` fixture by Backend Implementer)
 
 Note: GMG/IMD are currently only referenced in Postgres-backed integration tests (which don't share the global MemoryPersistence bar array). They are listed here to prevent future memory-backed E2E/HTTP specs from accidentally reusing them — same precedent as MSFT/VOO/BND in the US section above.
+
+**Status change post-KZO-194:** BHP/CSL/VAS/WBC/AFI/GMG/IMD were originally seeded into `market_data.instruments` by every catalog-sync run via the hardcoded `AU_RESERVED_INSTRUMENTS` constant in `yahooFinanceAu.ts`. KZO-194 deleted that constant — `YahooFinanceAuMarketDataProvider.fetchInstrumentCatalog()` now returns `[]` and the AU catalog is sourced from `TwelveDataAuCatalogProvider`. The 7 tickers are no longer auto-seeded by the catalog-sync cron; they are now reservation-only as test fixtures. Specs that previously assumed these rows would be present in `instruments` after a sync run must seed explicitly (see `auLicMetadataDelegation.integration.test.ts` for the AFI pattern).
+
+As of 2026-05-07 (KZO-194 — Twelve Data AU catalog provider):
+- `AUTEST*` — synthetic prefix used by `apps/api/test/http/specs/au-catalog-browser-aaa.http.spec.ts` for ≥100-row catalog assertions. Do not reuse for any non-KZO-194 spec.
+- `AUCAT*` — synthetic prefix used by `apps/web/tests/e2e/specs/au-catalog-browser-aaa.spec.ts` (chosen to avoid collision with `AUTEST`). Do not reuse.
+- `RIO`, `STW`, `SCG`, `NABPF`, `RYDAF`, `RIOWAR` — fixture tickers for `MockTwelveDataAuCatalogProvider` exported as `MOCK_TD_AU_CATALOG_TICKERS`. Used by `auCatalogSyncTwelveData.integration.test.ts` and `auStockBackfill.integration.test.ts` case 6. STW is the `/etf`-origin row; RIOWAR is the warrant filter probe.
 
 Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 

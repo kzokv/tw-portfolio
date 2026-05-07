@@ -6,7 +6,9 @@ import {
   FinMindUsStockMarketDataProvider,
   MockFinMindMarketDataProvider,
   MockFinMindUsStockMarketDataProvider,
+  MockTwelveDataAuCatalogProvider,
   MockYahooFinanceAuMarketDataProvider,
+  TwelveDataAuCatalogProvider,
   YahooFinanceAuMarketDataProvider,
 } from "../../src/services/market-data/providers/index.js";
 
@@ -19,6 +21,13 @@ function envWith(overrides: Partial<EnvConfig>): EnvConfig {
     // branches on AU_PROVIDER_MOCK. Tests default to the mock branch.
     YAHOO_AU_RATE_LIMIT_PER_MINUTE: 60,
     AU_PROVIDER_MOCK: true,
+    // KZO-194: AU catalog now sourced from `TwelveDataAuCatalogProvider`. Tests
+    // default to the mock catalog branch (TWELVE_DATA_API_KEY undefined +
+    // AU_CATALOG_PROVIDER_MOCK true both select the mock).
+    TWELVE_DATA_API_KEY: undefined,
+    TWELVE_DATA_BASE_URL: "https://api.twelvedata.com",
+    TWELVE_DATA_RATE_LIMIT_PER_MINUTE: 8,
+    AU_CATALOG_PROVIDER_MOCK: true,
   };
   return { ...base, ...overrides } as EnvConfig;
 }
@@ -36,16 +45,24 @@ describe("buildMarketDataRegistry", () => {
     expect(registry.marketData.get("US")).toBeInstanceOf(MockFinMindUsStockMarketDataProvider);
     expect(registry.catalog.get("US")).toBeInstanceOf(MockFinMindUsStockMarketDataProvider);
     expect(registry.marketData.get("AU")).toBeInstanceOf(MockYahooFinanceAuMarketDataProvider);
-    expect(registry.catalog.get("AU")).toBeInstanceOf(MockYahooFinanceAuMarketDataProvider);
+    // KZO-194: AU catalog is owned by the TD catalog provider (mock branch here).
+    expect(registry.catalog.get("AU")).toBeInstanceOf(MockTwelveDataAuCatalogProvider);
   });
 
-  it("registers the real Yahoo AU provider when AU_PROVIDER_MOCK=false", () => {
-    const registry = buildMarketDataRegistry(envWith({ FINMIND_API_TOKEN: undefined, AU_PROVIDER_MOCK: false }));
+  it("KZO-194: registers TwelveDataAuCatalogProvider for AU catalog when API key is set + AU_CATALOG_PROVIDER_MOCK=false", () => {
+    const registry = buildMarketDataRegistry(
+      envWith({
+        FINMIND_API_TOKEN: undefined,
+        AU_PROVIDER_MOCK: false,
+        TWELVE_DATA_API_KEY: "td-test-key",
+        AU_CATALOG_PROVIDER_MOCK: false,
+      }),
+    );
 
     expect(registry.marketData.get("AU")).toBeInstanceOf(YahooFinanceAuMarketDataProvider);
-    expect(registry.catalog.get("AU")).toBeInstanceOf(YahooFinanceAuMarketDataProvider);
-    // Same instance under both maps (one class implements both interfaces).
-    expect(registry.marketData.get("AU")).toBe(registry.catalog.get("AU"));
+    expect(registry.catalog.get("AU")).toBeInstanceOf(TwelveDataAuCatalogProvider);
+    // KZO-194: marketData and catalog AU entries are now distinct provider instances.
+    expect(registry.marketData.get("AU")).not.toBe(registry.catalog.get("AU"));
   });
 
   it("registers FinMindMarketDataProvider for TW and FinMindUsStockMarketDataProvider for US when FINMIND_API_TOKEN is set", () => {

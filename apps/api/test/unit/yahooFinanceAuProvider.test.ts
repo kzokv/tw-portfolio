@@ -124,25 +124,16 @@ describe("MockYahooFinanceAuMarketDataProvider", () => {
     }
   });
 
-  it("fetchInstrumentCatalog returns the 7 reserved AU rows with correct industryCategory", async () => {
+  it("fetchInstrumentCatalog returns [] (KZO-194: AU catalog ownership moved to TwelveDataAuCatalogProvider)", async () => {
     const { MockYahooFinanceAuMarketDataProvider, MOCK_AU_INSTRUMENT_CATALOG } = await import("../../src/services/market-data/providers/index.js");
     const provider = new MockYahooFinanceAuMarketDataProvider();
     const catalog = await provider.fetchInstrumentCatalog();
 
-    const tickers = catalog.map((row) => row.ticker).sort();
-    expect(tickers).toEqual(["AFI", "BHP", "CSL", "GMG", "IMD", "VAS", "WBC"]);
-
-    const vas = catalog.find((row) => row.ticker === "VAS")!;
-    expect(vas.industryCategory).toBe("ETF");
-
-    const bhp = catalog.find((row) => row.ticker === "BHP")!;
-    expect(bhp.industryCategory).toBe("EQUITY");
-
-    // typeRaw is "ASX" on every row.
-    expect(catalog.every((row) => row.typeRaw === "ASX")).toBe(true);
-
-    // Reserved-set export is consistent with the catalog returned.
-    expect(MOCK_AU_INSTRUMENT_CATALOG.map((r) => r.ticker).sort()).toEqual(tickers);
+    // Yahoo's `fetchInstrumentCatalog` is a no-op post-KZO-194; the reserved-set
+    // export mirrors that no-op so anything that imported `MOCK_AU_INSTRUMENT_CATALOG`
+    // for legacy reasons sees the same shape.
+    expect(catalog).toEqual([]);
+    expect(MOCK_AU_INSTRUMENT_CATALOG).toEqual([]);
   });
 
   it("fetchDelistingHistory returns []", async () => {
@@ -393,10 +384,10 @@ describe("YahooFinanceAuMarketDataProvider — real provider against mocked yaho
     expect(await provider.fetchDividends("BHP")).toEqual([]);
   });
 
-  it("fetchInstrumentCatalog is fully static — does NOT call the SDK", async () => {
+  it("fetchInstrumentCatalog returns [] without an SDK call (KZO-194: catalog moved to TwelveDataAuCatalogProvider)", async () => {
     const provider = await makeProvider();
     const catalog = await provider.fetchInstrumentCatalog();
-    expect(catalog.length).toBe(7);
+    expect(catalog).toEqual([]);
     expect(activeSdkStub!.chart).not.toHaveBeenCalled();
     expect(activeSdkStub!.quote).not.toHaveBeenCalled();
     expect(activeSdkStub!.search).not.toHaveBeenCalled();

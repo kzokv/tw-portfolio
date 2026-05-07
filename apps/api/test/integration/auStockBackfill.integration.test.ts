@@ -427,11 +427,17 @@ describePostgres("AU backfill round-trip — bars + dividends + metadata enrichm
   // tickers across the two passes.
   // ───────────────────────────────────────────────────────────────────────
 
-  it("catalog-sync round-trip: 7-row reserved set survives dedupe → build → upsert without is_provisional flipping", async () => {
-    const { MockYahooFinanceAuMarketDataProvider } = await import(
-      "../../src/services/market-data/providers/index.js"
-    );
-    const provider = new MockYahooFinanceAuMarketDataProvider();
+  it("catalog-sync round-trip: TD-AU mock fixture (5 non-warrant rows) survives dedupe → build → upsert without is_provisional flipping", async () => {
+    // KZO-194: AU catalog is now sourced from `TwelveDataAuCatalogProvider`. The mock
+    // fixture covers Common Stock / ETF / REIT / Preferred Stock / Depositary Receipt
+    // + 1 Warrant (must be filtered out) — 5 rows survive the warrant filter.
+    const {
+      MockYahooFinanceAuMarketDataProvider,
+      MockTwelveDataAuCatalogProvider,
+      MOCK_TD_AU_CATALOG_TICKERS,
+    } = await import("../../src/services/market-data/providers/index.js");
+    const yahooMock = new MockYahooFinanceAuMarketDataProvider();
+    const provider = new MockTwelveDataAuCatalogProvider({ yahooFallback: yahooMock });
 
     const { runCatalogSync } = await import(
       "../../src/services/market-data/runCatalogSync.js"
@@ -454,31 +460,37 @@ describePostgres("AU backfill round-trip — bars + dividends + metadata enrichm
       log,
     });
 
-    const reservedTickers = ["AFI", "BHP", "CSL", "GMG", "IMD", "VAS", "WBC"];
+    const expectedTickers = [...MOCK_TD_AU_CATALOG_TICKERS].sort();
 
     const rows = await pool.query<{ ticker: string; is_provisional: boolean; instrument_type: string | null }>(
       `SELECT ticker, is_provisional, instrument_type
          FROM market_data.instruments
          WHERE market_code = 'AU' AND ticker = ANY($1)
          ORDER BY ticker ASC`,
-      [reservedTickers],
+      [expectedTickers],
     );
 
-    expect(rows.rows.map((r) => r.ticker)).toEqual(reservedTickers);
+    expect(rows.rows.map((r) => r.ticker)).toEqual(expectedTickers);
 
-    // is_provisional is FALSE on every reserved row (catalog rows are full,
-    // not provisional).
+    // is_provisional is FALSE on every catalog row (full ingestion, not provisional).
     for (const row of rows.rows) {
       expect(row.is_provisional).toBe(false);
     }
 
-    // VAS is the lone ETF; the rest classify as STOCK.
-    const vasRow = rows.rows.find((r) => r.ticker === "VAS")!;
-    expect(vasRow.instrument_type).toBe("ETF");
+    // STW is the lone ETF in the fixture; the rest (Common Stock / REIT / Preferred /
+    // Depositary Receipt) classify as STOCK per the AU classifier branch.
+    const etfRow = rows.rows.find((r) => r.ticker === "STW")!;
+    expect(etfRow.instrument_type).toBe("ETF");
     for (const row of rows.rows) {
-      if (row.ticker !== "VAS") {
+      if (row.ticker !== "STW") {
         expect(row.instrument_type).toBe("STOCK");
       }
     }
+
+    // Warrant entry from the fixture (RIOWAR) MUST NOT have been ingested.
+    const warrantRow = await pool.query(
+      `SELECT 1 FROM market_data.instruments WHERE market_code = 'AU' AND ticker = 'RIOWAR'`,
+    );
+    expect(warrantRow.rowCount).toBe(0);
   });
 });

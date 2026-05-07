@@ -9,7 +9,9 @@ import {
   MockFinMindMarketDataProvider,
   MockFinMindUsStockMarketDataProvider,
   MockFrankfurterFxRateProvider,
+  MockTwelveDataAuCatalogProvider,
   MockYahooFinanceAuMarketDataProvider,
+  TwelveDataAuCatalogProvider,
   YahooFinanceAuMarketDataProvider,
 } from "./providers/index.js";
 
@@ -76,20 +78,33 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   marketData.set("US", usStockProvider);
   catalog.set("US", usStockProvider);
 
-  // KZO-172: AU provider via yahoo-finance2. Yahoo does NOT share the FinMind 600/hr
-  // budget — it has its own self-imposed precautionary ceiling
-  // (`YAHOO_AU_RATE_LIMIT_PER_MINUTE`, default 60/min from spike §5). The RateLimiter
-  // takes `(budget, windowMs)`; passing 60 + 60_000ms gives "60 requests per minute."
-  // Mock branch is constructible with `fixtureStartDate` for the truncation
-  // regression test directly; here we use the default fixture start.
-  // Mirrors `registry.ts:42` precedent: same provider instance registered to BOTH
-  // `marketData` and `catalog` maps because one class implements both interfaces.
+  // KZO-172: AU bars/dividends/metadata/search via yahoo-finance2. Yahoo does NOT share
+  // the FinMind 600/hr budget — it has its own self-imposed precautionary ceiling
+  // (`YAHOO_AU_RATE_LIMIT_PER_MINUTE`, default 60/min from spike §5).
+  //
+  // KZO-194: AU catalog is now owned by `TwelveDataAuCatalogProvider` (free-tier
+  // `/stocks?exchange=ASX` + `/etf?exchange=ASX`). Yahoo's `fetchInstrumentCatalog()`
+  // returns `[]`. The TD provider composes the Yahoo provider as `yahooFallback` so
+  // `fetchInstrumentMetadata` + `searchInstruments` keep working for tickers TD's bulk
+  // catalog doesn't enumerate (e.g. LICs).
   const yahooAuLimiter = new RateLimiter(env.YAHOO_AU_RATE_LIMIT_PER_MINUTE, 60_000);
-  const auProvider: MarketDataProvider & InstrumentCatalogProvider = env.AU_PROVIDER_MOCK
+  const yahooAuProvider: MarketDataProvider & InstrumentCatalogProvider = env.AU_PROVIDER_MOCK
     ? new MockYahooFinanceAuMarketDataProvider()
     : new YahooFinanceAuMarketDataProvider({ rateLimiter: yahooAuLimiter });
-  marketData.set("AU", auProvider);
-  catalog.set("AU", auProvider);
+
+  const twelveDataAuRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
+  const twelveDataAuCatalog: InstrumentCatalogProvider =
+    env.AU_CATALOG_PROVIDER_MOCK || !env.TWELVE_DATA_API_KEY
+      ? new MockTwelveDataAuCatalogProvider({ yahooFallback: yahooAuProvider })
+      : new TwelveDataAuCatalogProvider({
+          apiKey: env.TWELVE_DATA_API_KEY,
+          baseUrl: env.TWELVE_DATA_BASE_URL,
+          rateLimiter: twelveDataAuRateLimiter,
+          yahooFallback: yahooAuProvider,
+        });
+
+  marketData.set("AU", yahooAuProvider);
+  catalog.set("AU", twelveDataAuCatalog);
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()
