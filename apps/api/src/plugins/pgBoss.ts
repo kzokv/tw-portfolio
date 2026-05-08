@@ -96,6 +96,10 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     catalogRegistry: app.marketDataRegistry.catalog,
     persistence: app.persistence,
     log: app.log,
+    // KZO-200: feed catalog-sync outcomes into the health aggregator. AU is
+    // attributed to `twelve-data-au` (KZO-194 catalog provider); TW/US share
+    // their bars provider id (`finmind-tw`/`finmind-us`).
+    providerHealth: app.providerHealth,
   };
 
   await registerBackfillWorker(app, boss, backfillDeps);

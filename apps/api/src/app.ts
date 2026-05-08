@@ -172,7 +172,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     );
   }
 
-  app.marketDataRegistry = buildMarketDataRegistry(Env);
+  app.marketDataRegistry = buildMarketDataRegistry(Env, app.log);
   registerTradingCalendarCache(app, { persistence: app.persistence });
   registerProviderHealth(app, { persistence: app.persistence });
   // KZO-172: Yahoo's ToS limits use to personal/non-commercial. Surface the constraint

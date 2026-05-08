@@ -117,14 +117,22 @@ describePostgres("provider-health state machine (Postgres) — KZO-177", () => {
     await pool.end();
   });
 
-  // I1 — migration pre-seeds 4 provider rows
-  it("I1: migration pre-seeds 4 provider rows with status='down' and NULL timestamps", async () => {
+  // I1 — migrations 046 + 048 pre-seed 5 provider rows.
+  // KZO-200: migration 048 adds `twelve-data-au` (the AU catalog provider per
+  // KZO-194). Original migration 046 seeded the 4 listed below.
+  it("I1: migrations pre-seed 5 provider rows with status='down' and NULL timestamps", async () => {
     const result = await pool.query<{ provider_id: string; status: string; last_successful_run: string | null }>(
       "SELECT provider_id, status, last_successful_run FROM market_data.provider_health_status ORDER BY provider_id",
     );
     const ids = result.rows.map((r) => r.provider_id);
     expect(ids).toEqual(
-      ["finmind-tw", "finmind-us", "frankfurter", "yahoo-finance-au"].sort(),
+      [
+        "finmind-tw",
+        "finmind-us",
+        "frankfurter",
+        "yahoo-finance-au",
+        "twelve-data-au",
+      ].sort(),
     );
     for (const row of result.rows) {
       expect(row.status).toBe("down");

@@ -1,5 +1,22 @@
 import { z } from "zod";
 
+/**
+ * KZO-200: string-aware boolean parser. `z.coerce.boolean()` delegates to
+ * `Boolean(string)` which is `true` for any non-empty string — so
+ * `*_MOCK=false` (the literal string "false") silently coerces to the boolean
+ * `true` and short-circuits real-vs-mock provider gates. This helper accepts
+ * the canonical string forms only and rejects anything else as a parse error,
+ * preserving the schema's contract: invalid env input fails loudly at boot.
+ */
+const envBool = z
+  .union([
+    z.boolean(),
+    z
+      .enum(["true", "false", "1", "0"])
+      .transform((v) => v === "true" || v === "1"),
+  ])
+  .default(false);
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   AUTH_MODE: z.enum(["oauth", "dev_bypass"]).default("dev_bypass"),
@@ -65,14 +82,14 @@ export const envSchema = z.object({
   // FX_PROVIDER_MOCK enables the deterministic mock provider for tests/dev without changing
   // the registry call sites; defaults to false so prod always reaches the real provider.
   FRANKFURTER_BASE_URL: z.string().url().default("https://api.frankfurter.dev/v2"),
-  FX_PROVIDER_MOCK: z.coerce.boolean().default(false),
+  FX_PROVIDER_MOCK: envBool,
   // KZO-172: Yahoo Finance AU provider. Per-minute self-imposed ceiling — Yahoo does not
   // publish a hard limit (KZO-171 spike §5). The AU provider has its own `RateLimiter`
   // instance — NOT shared with FinMind's 600/hr budget. Default 60 req/min is the
   // precautionary value from the spike. AU_PROVIDER_MOCK=true switches the registry to
   // the deterministic mock for tests/dev without changing call sites.
   YAHOO_AU_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
-  AU_PROVIDER_MOCK: z.coerce.boolean().default(false),
+  AU_PROVIDER_MOCK: envBool,
   // KZO-194: Twelve Data AU catalog provider. Free-tier endpoints (`/stocks?exchange=ASX`
   // and `/etf?exchange=ASX`) enumerate the full ASX universe; bars/dividends remain on
   // Yahoo. Default rate-limit budget mirrors Twelve Data's free-tier 8 req/min ceiling.
@@ -82,7 +99,7 @@ export const envSchema = z.object({
   TWELVE_DATA_API_KEY: z.string().optional(),
   TWELVE_DATA_BASE_URL: z.string().url().default("https://api.twelvedata.com"),
   TWELVE_DATA_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(8),
-  AU_CATALOG_PROVIDER_MOCK: z.coerce.boolean().default(false),
+  AU_CATALOG_PROVIDER_MOCK: envBool,
   // KZO-172: per-IP rate limit on `GET /market-data/search`. Bounded autocomplete
   // affordance for AU (Yahoo `search()` per-query). 20/min is generous enough for
   // typeahead UX while keeping abuse off the upstream budget.

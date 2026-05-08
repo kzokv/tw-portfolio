@@ -1542,7 +1542,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     assertE2ESeedEnabled();
     const body = z
       .object({
-        providerId: z.enum(["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"]),
+        providerId: z.enum([
+          "finmind-tw",
+          "finmind-us",
+          "yahoo-finance-au",
+          "twelve-data-au",
+          "frankfurter",
+        ]),
         status: z.enum(["healthy", "degraded", "down"]).optional(),
         lastSuccessfulRun: z.string().nullable().optional(),
         lastFailedRun: z.string().nullable().optional(),

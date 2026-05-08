@@ -31,6 +31,7 @@ export type ProviderId =
   | "finmind-tw"
   | "finmind-us"
   | "yahoo-finance-au"
+  | "twelve-data-au"
   | "frankfurter";
 
 export type ProviderOutcomeKind = "success" | "rate_limit" | "error";
@@ -67,6 +68,12 @@ export function calendarMarketForProvider(providerId: ProviderId): MarketCode | 
     case "finmind-us":
       return "US";
     case "yahoo-finance-au":
+      return "AU";
+    // KZO-200: Twelve Data is the AU catalog provider (KZO-194). It runs on the
+    // catalog-sync cadence (cron `CATALOG_SYNC_CRON`, weekday 17:30 UTC) but
+    // its health-status freshness is measured against the AU calendar — same
+    // settled-trading-day yardstick as `yahoo-finance-au`.
+    case "twelve-data-au":
       return "AU";
     case "frankfurter":
       return "FX";

@@ -93,12 +93,19 @@ async function seedProviderHealthAsBrowser(
   });
 }
 
-const PROVIDERS = ["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"] as const;
+// KZO-200: `twelve-data-au` row added (KZO-194 catalog provider).
+const PROVIDERS = [
+  "finmind-tw",
+  "finmind-us",
+  "yahoo-finance-au",
+  "twelve-data-au",
+  "frankfurter",
+] as const;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe.serial("admin /admin/providers (KZO-177)", () => {
-  test("[providers-A]: page renders 4 providers with status badges", async ({
+  test("[providers-A]: page renders 5 providers with status badges", async ({
     page,
     appShell,
   }) => {
@@ -118,6 +125,12 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
       status: "down",
       lastSuccessfulRun: null,
       lastErrorMessage: "service unavailable",
+    });
+    // KZO-200: `twelve-data-au` is the AU catalog provider (KZO-194).
+    await seedProviderHealthAsBrowser(page, {
+      providerId: "twelve-data-au",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
     });
     await seedProviderHealthAsBrowser(page, {
       providerId: "frankfurter",

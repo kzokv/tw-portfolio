@@ -6,6 +6,7 @@ import {
   getEffectiveFinmindApiToken,
   getEffectiveTwelveDataApiKey,
 } from "../appConfig/providerKeys.js";
+import { getAppConfigCacheEntry } from "../appConfig/cache.js";
 import {
   FinMindMarketDataProvider,
   FinMindUsStockMarketDataProvider,
@@ -36,6 +37,15 @@ export interface MarketDataRegistry {
 }
 
 /**
+ * KZO-200 — minimal logger shape consumed by `buildMarketDataRegistry`. Pino's
+ * structured logger satisfies this; tests can pass a stub. Optional so call
+ * sites that don't have a logger handy (e.g. legacy unit tests) keep working.
+ */
+interface RegistryLogger {
+  info: (...args: unknown[]) => void;
+}
+
+/**
  * Build the per-market provider registry from runtime env config. Centralizes the
  * `Env.FINMIND_API_TOKEN ? real : mock` selection that was duplicated in `pgBoss.ts` and
  * `registerRoutes.ts`. Even when a token is set, the rate limiter and base URL are still
@@ -43,8 +53,30 @@ export interface MarketDataRegistry {
  *
  * KZO-164 — also constructs the singleton `fxRate` provider, branching on
  * `env.FX_PROVIDER_MOCK` so tests/dev can opt into the deterministic mock.
+ *
+ * KZO-200 — emits a per-provider `market_data_registry_provider_selected`
+ * boot-time log with `branch ∈ {real, mock_forced_by_env, mock_no_key}` and
+ * `bootstrapKeySource ∈ {app_config, env, null}`. This is the operational
+ * signal that catches silent fallback (e.g. parsed `*_MOCK=true` while the
+ * literal env var is `false`, or a DB-only API key that didn't reach the
+ * resolver) — without it, the only symptom is "the catalog is the 5-row
+ * mock fixture" with no provenance.
  */
-export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
+export function buildMarketDataRegistry(
+  env: EnvConfig,
+  log?: RegistryLogger,
+): MarketDataRegistry {
+  function emit(
+    providerId: string,
+    branch: "real" | "mock_forced_by_env" | "mock_no_key",
+    bootstrapKeySource: "app_config" | "env" | null,
+  ): void {
+    log?.info(
+      { providerId, branch, bootstrapKeySource },
+      "market_data_registry_provider_selected",
+    );
+  }
+
   const finmindLimiter = new RateLimiter(env.FINMIND_RATE_LIMIT_PER_HOUR);
 
   // KZO-198: real-vs-mock gate consults the `app_config` cache (via the
@@ -54,7 +86,18 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   // real provider on the first run instead of degrading to mock.
   // The provider's internal `get token()` re-reads per fetch (rotation
   // remains live; no client rebuild needed).
+  // KZO-200: source-detection inspects the cache entry directly so the boot
+  // log distinguishes "key came from app_config" vs "resolver fell back to
+  // env." The resolver itself returns the env fallback when the cache has no
+  // override, so calling `getEffective*()` alone can't tell the two apart.
+  const finmindCacheHasKey =
+    getAppConfigCacheEntry()?.finmindApiTokenEncrypted != null;
   const finmindBootstrapToken = getEffectiveFinmindApiToken() ?? env.FINMIND_API_TOKEN;
+  const finmindKeySource: "app_config" | "env" | null = finmindCacheHasKey
+    ? "app_config"
+    : env.FINMIND_API_TOKEN
+      ? "env"
+      : null;
 
   const finmindProvider: MarketDataProvider & InstrumentCatalogProvider = finmindBootstrapToken
     ? new FinMindMarketDataProvider({
@@ -63,6 +106,11 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
         rateLimiter: finmindLimiter,
       })
     : new MockFinMindMarketDataProvider();
+  emit(
+    "finmind-tw",
+    finmindBootstrapToken ? "real" : "mock_no_key",
+    finmindKeySource,
+  );
 
   // KZO-170 S9: US-stock provider, parallel to TW. Real branch shares the same
   // `finmindLimiter` instance — both TW and US dispatch against FinMind's single
@@ -77,6 +125,11 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
         rateLimiter: finmindLimiter,
       })
     : new MockFinMindUsStockMarketDataProvider();
+  emit(
+    "finmind-us",
+    finmindBootstrapToken ? "real" : "mock_no_key",
+    finmindKeySource,
+  );
 
   const marketData = new Map<MarketCode, MarketDataProvider>();
   const catalog = new Map<MarketCode, InstrumentCatalogProvider>();
@@ -104,10 +157,25 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   const yahooAuProvider: MarketDataProvider & InstrumentCatalogProvider = env.AU_PROVIDER_MOCK
     ? new MockYahooFinanceAuMarketDataProvider()
     : new YahooFinanceAuMarketDataProvider({ rateLimiter: yahooAuLimiter });
+  // Yahoo AU has no API key — `bootstrapKeySource` is always null. Branch is
+  // `mock_forced_by_env` when AU_PROVIDER_MOCK is true, otherwise `real`.
+  emit(
+    "yahoo-finance-au",
+    env.AU_PROVIDER_MOCK ? "mock_forced_by_env" : "real",
+    null,
+  );
 
   const twelveDataAuRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
   // KZO-198: same gate semantics as FinMind above — consult resolver first.
+  // KZO-200: source-detection via the cache entry (see FinMind comment above).
+  const twelveDataCacheHasKey =
+    getAppConfigCacheEntry()?.twelveDataApiKeyEncrypted != null;
   const twelveDataBootstrapKey = getEffectiveTwelveDataApiKey() ?? env.TWELVE_DATA_API_KEY;
+  const twelveDataKeySource: "app_config" | "env" | null = twelveDataCacheHasKey
+    ? "app_config"
+    : env.TWELVE_DATA_API_KEY
+      ? "env"
+      : null;
   const twelveDataAuCatalog: InstrumentCatalogProvider =
     env.AU_CATALOG_PROVIDER_MOCK || !twelveDataBootstrapKey
       ? new MockTwelveDataAuCatalogProvider({ yahooFallback: yahooAuProvider })
@@ -117,6 +185,15 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
           rateLimiter: twelveDataAuRateLimiter,
           yahooFallback: yahooAuProvider,
         });
+  emit(
+    "twelve-data-au",
+    env.AU_CATALOG_PROVIDER_MOCK
+      ? "mock_forced_by_env"
+      : !twelveDataBootstrapKey
+        ? "mock_no_key"
+        : "real",
+    twelveDataKeySource,
+  );
 
   marketData.set("AU", yahooAuProvider);
   catalog.set("AU", twelveDataAuCatalog);
@@ -124,6 +201,13 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()
     : new FrankfurterFxRateProvider({ baseUrl: env.FRANKFURTER_BASE_URL });
+  // Frankfurter is keyless. Branch is `mock_forced_by_env` when
+  // FX_PROVIDER_MOCK is true, otherwise `real`.
+  emit(
+    "frankfurter",
+    env.FX_PROVIDER_MOCK ? "mock_forced_by_env" : "real",
+    null,
+  );
 
   return { marketData, catalog, fxRate };
 }
