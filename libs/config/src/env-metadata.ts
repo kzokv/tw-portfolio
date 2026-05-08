@@ -9,7 +9,7 @@ export const envGroups: EnvGroup[] = [
   { label: "Application ports", keys: ["API_PORT", "WEB_PORT", "DB_PORT", "REDIS_PORT"] },
   { label: "Database/Redis URLs", keys: ["DB_URL", "REDIS_URL"] },
   { label: "Market data providers", keys: ["DATA_PROVIDER_TIMEOUT_MS", "PRIMARY_PROVIDER", "FALLBACK_PROVIDER"] },
-  { label: "Security/Tuning", keys: ["ALLOWED_ORIGINS", "RATE_LIMIT_WINDOW_MS", "RATE_LIMIT_MAX_MUTATIONS", "REPAIR_COOLDOWN_MINUTES", "METADATA_ENRICHMENT_MODE", "ANONYMOUS_SHARE_TOKEN_PURGE_DAYS"] },
+  { label: "Security/Tuning", keys: ["ALLOWED_ORIGINS", "RATE_LIMIT_WINDOW_MS", "RATE_LIMIT_MAX_MUTATIONS", "REPAIR_COOLDOWN_MINUTES", "METADATA_ENRICHMENT_MODE", "ANONYMOUS_SHARE_TOKEN_PURGE_DAYS", "APP_CONFIG_ENCRYPTION_KEY"] },
   {
     label: "Google OAuth",
     keys: [
@@ -68,6 +68,7 @@ export const dockerCloudGroups: EnvGroup[] = [
       "REPAIR_COOLDOWN_MINUTES",
       "METADATA_ENRICHMENT_MODE",
       "ANONYMOUS_SHARE_TOKEN_PURGE_DAYS",
+      "APP_CONFIG_ENCRYPTION_KEY",
     ],
   },
   { label: "State paths", keys: ["TWP_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
@@ -104,6 +105,7 @@ export const dockerLocalGroups: EnvGroup[] = [
       "REPAIR_COOLDOWN_MINUTES",
       "METADATA_ENRICHMENT_MODE",
       "ANONYMOUS_SHARE_TOKEN_PURGE_DAYS",
+      "APP_CONFIG_ENCRYPTION_KEY",
     ],
   },
   { label: "Docker", keys: ["IMAGE_TAG"] },
@@ -120,6 +122,8 @@ export const sensitiveKeys = new Set([
   "MAC_PASSWORD",
   "DB_URL",
   "REDIS_URL",
+  // KZO-198: AES-256-GCM key for app_config Tier 0 secret encryption.
+  "APP_CONFIG_ENCRYPTION_KEY",
 ]);
 
 // Auto-generatable keys — offer crypto.randomBytes(32).toString('hex')
@@ -127,4 +131,8 @@ export const autoGenerateKeys = new Set([
   "POSTGRES_PASSWORD",
   "REDIS_PASSWORD",
   "SESSION_SECRET",
+  // KZO-198: 32 random bytes → 64 lowercase hex chars matches the
+  // env-schema regex /^[0-9a-f]{64}$/. Required at API boot in non-test
+  // runtimes (see Env.validateEnvConstraints).
+  "APP_CONFIG_ENCRYPTION_KEY",
 ]);

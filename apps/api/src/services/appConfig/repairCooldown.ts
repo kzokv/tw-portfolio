@@ -1,14 +1,16 @@
 import { Env } from "@tw-portfolio/config";
-import type { Persistence } from "../../persistence/types.js";
+import { getAppConfigCacheEntry } from "./cache.js";
 
 /**
- * Effective repair cooldown (KZO-133): DB value when set, else env fallback.
- * Single source of truth — repair route and DTO mapper decoration both call this.
+ * Effective repair cooldown (KZO-133, migrated to KZO-198 cache layer): DB
+ * value when set, else env fallback. Single source of truth — repair route
+ * and DTO mapper decoration both call this.
+ *
+ * Reads from the `app_config` TTL cache (`getAppConfigCacheEntry()`) — no
+ * `persistence` parameter. Cache miss / pending / load-failure → env fallback.
  */
-export async function getEffectiveRepairCooldownMinutes(
-  persistence: Persistence,
-): Promise<number> {
-  const db = await persistence.getRepairCooldownMinutes();
+export function getEffectiveRepairCooldownMinutes(): number {
+  const db = getAppConfigCacheEntry()?.repairCooldownMinutes ?? null;
   return db ?? Env.REPAIR_COOLDOWN_MINUTES;
 }
 

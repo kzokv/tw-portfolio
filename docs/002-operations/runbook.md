@@ -1763,3 +1763,201 @@ If a provider is stuck in `down` after a genuine recovery:
 1. Check `last_successful_run` — if it's current (≥ today's settled trading day), the status will update on the next worker run.
 2. Trigger Re-run now from `/admin/providers`.
 3. Watch API logs for `provider_health_outcome_recorded` (info) confirming the success outcome was processed.
+
+---
+
+## 22. KZO-198 deploy notes — Hybrid env+app_config for Tier A constants
+
+### Deployment prerequisite: `APP_CONFIG_ENCRYPTION_KEY`
+
+**Required** in all non-test runtimes (`NODE_ENV !== "test"`). The API will fail at boot with a clear error message if absent:
+
+```
+Error: APP_CONFIG_ENCRYPTION_KEY is required (64 lowercase hex chars).
+Generate with `openssl rand -hex 32`.
+```
+
+**Primary path — `npm run env:setup`:**
+
+```bash
+npm run env:setup
+```
+
+The interactive setup wizard prompts "Auto-generate APP_CONFIG_ENCRYPTION_KEY?" (defaults yes). Answering yes generates a cryptographically random 64-hex key and writes it to `.env.local` automatically; the value is masked in the summary display. This is the recommended path for local development and for initialising a new deployment environment.
+
+**Manual fallback (CI / headless environments):**
+
+```bash
+openssl rand -hex 32
+```
+
+This prints a 64-character lowercase hex string. Add it to the deployment environment (Docker env, `.env.prod`, Kubernetes secret, etc.) as `APP_CONFIG_ENCRYPTION_KEY=<value>`.
+
+**Properties:**
+
+| Property | Value |
+|---|---|
+| Algorithm | AES-256-GCM |
+| Key material | Raw 32 bytes encoded as 64 lowercase hex chars |
+| Rotation | Requires a re-encrypt migration (see [Key rotation note](#key-rotation-note) below) |
+| Test exemption | `NODE_ENV=test` skips this validation; test workers use `PERSISTENCE_BACKEND=memory` |
+
+### Migration
+
+`047_kzo198_app_config_tier_a_constants.sql` adds 19 nullable columns to the `app_config` singleton row:
+
+- **2 Tier 0** (`TEXT NULL`) — `finmind_api_token`, `twelve_data_api_key` — encrypted at rest as `nonce_b64:ciphertext+tag_b64`.
+- **12 Tier 1** (`INT` / `BIGINT NULL`) — admin-editable via `/admin/settings`; `NULL` falls back to the matching env var.
+- **5 Tier 2** (`INT` / `BIGINT NULL`) — DB-only escape hatch; no admin UI; `NULL` falls back to the matching env var.
+
+No CHECK constraints were added (SQL escape hatch preserved). All columns are nullable — backward compatible with old API images.
+
+### Admin UI — Tier 1 knobs
+
+Navigate to **`/admin` → Settings** to adjust the following levers. Changes take effect on the next resolver read (≤ 8 s TTL cache propagation):
+
+**Rate Limits section:**
+- Market data price: window (ms) and per-window cap
+- Market data search: window (ms)
+- Invite status: window (ms) and per-window cap
+
+**Provider Health section:**
+- Down-notification suppression (ms)
+- Error trail retention (days)
+- Re-run cooldown (ms)
+
+**Backfill section:**
+- Retry limit (count)
+- Retry delay (seconds)
+- FinMind 402 retry delay (ms)
+
+Each field has a "Reset to default (NULL)" button that clears the DB override and causes the resolver to fall back to the env var default.
+
+### Tier 0 key rotation procedure
+
+Rotating a FinMind or Twelve Data API key:
+
+1. Navigate to **`/admin` → Settings → Provider Keys**.
+2. Click **Rotate** on the relevant key field.
+3. The masked input (`••••••••`) shows the current state (set or unset). The existing value is **never displayed**.
+4. Enter the new API key (20–500 characters). The field shows a character count.
+5. Click **Save**. The API validates length, encrypts with AES-256-GCM using `APP_CONFIG_ENCRYPTION_KEY`, and writes the `nonce:ciphertext+tag` to the DB column.
+6. The cache is invalidated immediately; all provider fetches within 8 s will re-read and decrypt the new value.
+
+**Audit trail:** the audit log records `metadata: { type: "rotation", field: "finmind_api_token" | "twelve_data_api_key", actorUserId }`. The plaintext value is **never** stored in the audit log.
+
+To clear a key (force env-fallback): click **Rotate** → leave the input blank → click **Clear** (submits `null`, which sets the column to NULL and forces env-fallback on the next read).
+
+### Tier 2 SQL escape hatch
+
+The 5 Tier 2 fields are not in the admin UI. Adjust them directly via SQL on the `app_config` singleton (id = 1). The API's TTL cache picks up the change within 8 s of the SQL write — no restart required.
+
+```sql
+-- Daily-refresh lookback window (days)
+UPDATE app_config SET daily_refresh_lookback_days = 14, updated_at = NOW() WHERE id = 1;
+
+-- pg-boss daily-refresh job priority (higher = runs sooner)
+UPDATE app_config SET daily_refresh_priority = 20, updated_at = NOW() WHERE id = 1;
+
+-- SSE keepalive heartbeat interval (ms)
+UPDATE app_config SET sse_heartbeat_interval_ms = 15000, updated_at = NOW() WHERE id = 1;
+
+-- Max concurrent SSE connections per user
+UPDATE app_config SET sse_max_connections_per_user = 10, updated_at = NOW() WHERE id = 1;
+
+-- BufferedEventBus per-user event TTL (ms)
+UPDATE app_config SET sse_buffer_default_ttl_ms = 30000, updated_at = NOW() WHERE id = 1;
+
+-- Reset any Tier 2 field to env-fallback
+UPDATE app_config SET sse_heartbeat_interval_ms = NULL, updated_at = NOW() WHERE id = 1;
+```
+
+**Note:** SQL writes do **not** stamp an audit_log entry. If audit trail is required, use the admin UI (Tier 1 fields only).
+
+### Decryption-failure troubleshooting
+
+If the API log shows:
+
+```
+app_config_decrypt_failed  { field: "finmind_api_token", reason: "tag_mismatch" }
+```
+
+This means the `APP_CONFIG_ENCRYPTION_KEY` in the current deployment does not match the key used to encrypt the stored ciphertext.
+
+**Behavior during failure:** the resolver falls back to `Env.FINMIND_API_TOKEN` (or `Env.TWELVE_DATA_API_KEY`) transparently. Provider fetches continue using the env var value. No panic, no outage.
+
+**Recovery options:**
+
+1. **Restore the original key** — if the env key was accidentally rotated, restore the correct 64-hex value to `APP_CONFIG_ENCRYPTION_KEY` and redeploy. The stored ciphertext remains valid.
+
+2. **Re-rotate via admin UI** — navigate to `/admin` → Settings → Provider Keys → Rotate. Enter the new API key. This re-encrypts with the current `APP_CONFIG_ENCRYPTION_KEY`.
+
+3. **Clear the stored value** — if the correct key cannot be recovered, use the Rotate modal → Clear button to set the column to NULL and rely on `Env.*` until a fresh rotation is performed.
+
+**Reason codes:**
+
+| `reason` | Meaning |
+|---|---|
+| `tag_mismatch` | Authentication tag check failed — key mismatch or ciphertext corrupted |
+| `bad_key` | `APP_CONFIG_ENCRYPTION_KEY` is malformed (wrong length or non-hex chars) |
+| `malformed_input` | Stored value does not have the expected `nonce_b64:ct+tag_b64` format |
+
+### Key rotation note
+
+`APP_CONFIG_ENCRYPTION_KEY` rotation (changing the env var to a new 64-hex key) requires re-encrypting all Tier 0 secrets stored in `app_config` before the new key is deployed. A re-encrypt migration is **out of scope** for KZO-198 and is tracked as a future ticket.
+
+**Do not change `APP_CONFIG_ENCRYPTION_KEY` without a re-encrypt migration.** Doing so will cause `tag_mismatch` decryption failures until the admin re-rotates the API keys via the UI. The env-fallback path is safe, but the DB ciphertexts become unreadable.
+
+### Tier 3 cron schedules
+
+The 3 cron env vars are Tier 3 (env-only, restart-required to change) and are fully wired to their respective workers:
+
+| Env var | Default | Schedule | Worker |
+|---|---|---|---|
+| `CATALOG_SYNC_CRON` | `"30 17 * * 1-5"` | Weekdays 17:30 UTC | `registerCatalogSyncWorker.ts` |
+| `FX_REFRESH_CRON` | `"0 22 * * *"` | Daily 22:00 UTC | `fxRefreshWorker.ts` |
+| `ANONYMOUS_SHARE_TOKEN_PURGE_CRON` | `"0 4 * * *"` | Daily 04:00 UTC | `registerAnonymousShareTokenPurgeWorker.ts` |
+
+Overriding any of these in the deployment environment changes the effective cron schedule on the next deploy/restart.
+
+> **Quoting requirement:** cron strings contain spaces and **must be double-quoted** in `.env` files. The `npm run env:setup` generator handles this automatically. Manually authored `.env*` files (e.g. `.env.prod`) must quote all cron values — for example `CATALOG_SYNC_CRON="30 17 * * 1-5"` — or bash sourcing (`set -a; source .env.local`) will fail with `command not found` errors.
+
+### Audit log queries
+
+```sql
+-- See all app_config_updated entries with type discriminator
+SELECT
+  id,
+  actor_user_id,
+  created_at,
+  metadata->>'type' AS audit_type,
+  metadata->'before' AS before_val,
+  metadata->'after' AS after_val,
+  metadata->>'field' AS rotated_field
+FROM audit_log
+WHERE action = 'app_config_updated'
+ORDER BY created_at DESC
+LIMIT 20;
+
+-- Check current Tier 0 column state (columns are encrypted — values are opaque)
+SELECT
+  finmind_api_token IS NOT NULL AS finmind_key_set,
+  twelve_data_api_key IS NOT NULL AS twelve_data_key_set,
+  updated_at
+FROM app_config WHERE id = 1;
+
+-- Check current Tier 1 effective values (NULL = using env fallback)
+SELECT
+  market_data_price_window_ms,
+  market_data_price_limit,
+  market_data_search_window_ms,
+  invite_status_window_ms,
+  invite_status_limit,
+  provider_down_notification_suppression_ms,
+  provider_error_trail_retention_days,
+  provider_rerun_cooldown_ms,
+  backfill_retry_limit,
+  backfill_retry_delay_seconds,
+  backfill_finmind_402_retry_ms
+FROM app_config WHERE id = 1;
+```

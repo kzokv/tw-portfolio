@@ -493,23 +493,78 @@ export interface AdminAuditLogResponse {
   limit: number;
 }
 
-// ── Admin settings (KZO-142 / KZO-159) ─────────────────────────────────────
+// ── Admin settings (KZO-142 / KZO-159 / KZO-189 / KZO-198) ─────────────────
+
+/**
+ * KZO-198 — Tier 1/2 numeric override bounds carried on the DTO so the admin
+ * UI binds `min`/`max` HTML attributes without duplicating the source of
+ * truth in `apps/api/src/services/appConfig/bounds.ts`.
+ *
+ * Keyed by camelCase field name. Includes pre-existing fields with bounds
+ * (e.g. `repairCooldownMinutes`) so the same lookup works across the
+ * sectioned form and the legacy repair-cooldown row.
+ */
+export type AppConfigBoundsDto = Record<string, { min: number; max: number }>;
 
 export interface AppConfigDto {
+  // ── KZO-133 / KZO-189 / KZO-159 — pre-existing override knobs ──────────
   repairCooldownMinutes: number | null;
   effectiveRepairCooldownMinutes: number;
-  // KZO-159 (158A): admin override for the user-facing dashboard timeframe
-  // picker. `null` = use the hardcoded DEFAULT_DASHBOARD_PERFORMANCE_RANGES.
+  /** Admin override for the user-facing dashboard timeframe picker. `null` = use the hardcoded `DEFAULT_DASHBOARD_PERFORMANCE_RANGES`. */
   dashboardPerformanceRanges: string[] | null;
-  // KZO-159 (158A): fully-resolved list after admin fallback — what the
-  // admin UI should render as the authoritative "current" list.
+  /** Fully-resolved list after admin fallback — what the admin UI renders as the authoritative "current" list. */
   effectiveDashboardPerformanceRanges: string[];
-  // KZO-189: admin override for AU metadata enrichment mode. `null` = use
-  // Env.METADATA_ENRICHMENT_MODE.
+  /** Admin override for AU metadata enrichment mode. `null` = use `Env.METADATA_ENRICHMENT_MODE`. */
   metadataEnrichmentMode: "unconditional" | "conditional" | null;
-  // KZO-189: fully-resolved mode after env fallback — what the admin UI
-  // should render as the authoritative "current" mode.
+  /** Fully-resolved mode after env fallback. */
   effectiveMetadataEnrichmentMode: "unconditional" | "conditional";
+
+  // ── KZO-198 Tier 1 — Rate limits (UI-editable) ─────────────────────────
+  marketDataPriceWindowMs: number | null;
+  effectiveMarketDataPriceWindowMs: number;
+  marketDataPriceLimit: number | null;
+  effectiveMarketDataPriceLimit: number;
+  marketDataSearchWindowMs: number | null;
+  effectiveMarketDataSearchWindowMs: number;
+  marketDataSearchLimit: number | null;
+  effectiveMarketDataSearchLimit: number;
+  inviteStatusWindowMs: number | null;
+  effectiveInviteStatusWindowMs: number;
+  inviteStatusLimit: number | null;
+  effectiveInviteStatusLimit: number;
+
+  // ── KZO-198 Tier 1 — Provider health (UI-editable) ─────────────────────
+  providerDownNotificationSuppressionMs: number | null;
+  effectiveProviderDownNotificationSuppressionMs: number;
+  providerErrorTrailRetentionDays: number | null;
+  effectiveProviderErrorTrailRetentionDays: number;
+  providerRerunCooldownMs: number | null;
+  effectiveProviderRerunCooldownMs: number;
+
+  // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
+  backfillRetryLimit: number | null;
+  effectiveBackfillRetryLimit: number;
+  backfillRetryDelaySeconds: number | null;
+  effectiveBackfillRetryDelaySeconds: number;
+  backfillFinmind402RetryMs: number | null;
+  effectiveBackfillFinmind402RetryMs: number;
+
+  // KZO-198 Tier 2 fields (dailyRefreshLookbackDays, dailyRefreshPriority,
+  // sse{Heartbeat,MaxConn,BufferTtl}) are intentionally NOT in this DTO.
+  // They are DB+SQL only per scope-todo — operators override via direct SQL.
+  // The persistence + cache layer still hold them so source-file resolvers
+  // honor SQL-set overrides at runtime.
+
+  // ── KZO-198 Tier 0 — Encrypted secrets (masked in UI) ──────────────────
+  /** True when the encrypted FinMind token is set in `app_config`. The plaintext value is never sent to the client. */
+  finmindApiTokenSet: boolean;
+  /** True when the encrypted Twelve Data key is set in `app_config`. The plaintext value is never sent to the client. */
+  twelveDataApiKeySet: boolean;
+
+  // ── KZO-198 — Bounds (single source of truth for UI form constraints) ──
+  bounds: AppConfigBoundsDto;
+  secretLengthBounds: { min: number; max: number };
+
   updatedAt: string;
 }
 

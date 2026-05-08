@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { EventBus, EventHandler, Unsubscribe } from "./types.js";
+import { getEffectiveSseBufferDefaultTtlMs } from "../services/appConfig/sse.js";
 
 export interface BufferedEvent {
   seq: number;
@@ -15,12 +16,31 @@ export class BufferedEventBus implements EventBus {
   private readonly emitter = new EventEmitter();
   private readonly buffers = new Map<string, BufferedEvent[]>();
   private readonly seqCounters = new Map<string, number>();
-  private readonly ttlMs: number;
+  /**
+   * Constructor-supplied TTL override. When `null`, the runtime resolver
+   * (`getEffectiveSseBufferDefaultTtlMs()`) is consulted live per eviction
+   * sweep. Tests that want a fixed TTL pass it explicitly.
+   */
+  private readonly fixedTtlMs: number | null;
 
-  constructor(inner: EventBus, ttlMs: number = DEFAULT_TTL_MS) {
+  constructor(inner: EventBus, ttlMs?: number) {
     this.inner = inner;
-    this.ttlMs = ttlMs;
+    this.fixedTtlMs = typeof ttlMs === "number" ? ttlMs : null;
     this.emitter.setMaxListeners(0);
+  }
+
+  /**
+   * KZO-198: read TTL live (DB override → env → DEFAULT_TTL_MS) when no
+   * constructor override was supplied. Each eviction sweep picks up the
+   * current effective value within cache TTL.
+   */
+  private get ttlMs(): number {
+    if (this.fixedTtlMs !== null) return this.fixedTtlMs;
+    try {
+      return getEffectiveSseBufferDefaultTtlMs();
+    } catch {
+      return DEFAULT_TTL_MS;
+    }
   }
 
   /**

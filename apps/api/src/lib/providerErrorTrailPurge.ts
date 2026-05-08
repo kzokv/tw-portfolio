@@ -9,6 +9,7 @@ import {
   PROVIDER_ERROR_TRAIL_RETENTION_DAYS,
   purgeProviderErrorTrail,
 } from "../services/market-data/providerErrorTrailPurge.js";
+import { getEffectiveErrorTrailRetentionDays } from "../services/appConfig/providerHealth.js";
 
 /** 24 hours. */
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -27,13 +28,16 @@ async function runPurgeOnce(
   app: FastifyInstance & { persistence: Persistence },
 ): Promise<void> {
   try {
+    // KZO-198: read live (DB override → env). Each periodic run picks up the
+    // current effective retention without a process restart.
+    const retentionDays = getEffectiveErrorTrailRetentionDays();
     const removed = await purgeProviderErrorTrail(
       app.persistence,
-      PROVIDER_ERROR_TRAIL_RETENTION_DAYS,
+      retentionDays,
     );
     if (removed > 0) {
       app.log.info(
-        { removed, retentionDays: PROVIDER_ERROR_TRAIL_RETENTION_DAYS },
+        { removed, retentionDays },
         "provider_error_trail_purged",
       );
     }

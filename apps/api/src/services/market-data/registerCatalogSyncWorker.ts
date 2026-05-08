@@ -1,6 +1,7 @@
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { MarketCode } from "@tw-portfolio/domain";
 import { z } from "zod";
+import { Env } from "@tw-portfolio/config";
 import type { AppInstance } from "../../app.js";
 import type { Persistence } from "../../persistence/types.js";
 import type { InstrumentCatalogProvider } from "./types.js";
@@ -10,7 +11,11 @@ import { enqueueDailyRefresh } from "./dailyRefreshEnqueue.js";
 import { DEFAULT_MARKET_DATA_QUEUE_OPTIONS } from "./registerBackfillWorker.js";
 
 export const CATALOG_SYNC_QUEUE = "catalog-sync";
-export const CATALOG_SYNC_CRON = "30 17 * * 1-5";
+/**
+ * KZO-198: cron sourced from `Env.CATALOG_SYNC_CRON` (Tier 3, restart-required).
+ * Default `"30 17 * * 1-5"` (weekdays 17:30 UTC, TW market close +30 min).
+ */
+export const CATALOG_SYNC_CRON = Env.CATALOG_SYNC_CRON;
 const CATALOG_SYNC_QUEUE_OPTIONS = {
   ...DEFAULT_MARKET_DATA_QUEUE_OPTIONS,
   policy: "singleton",

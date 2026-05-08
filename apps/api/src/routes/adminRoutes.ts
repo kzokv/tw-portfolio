@@ -9,8 +9,21 @@ import { Env } from "@tw-portfolio/config";
 import { signImpersonationCookie } from "../auth/googleOAuth.js";
 import { routeError } from "../lib/routeError.js";
 import { requireAdminRole } from "../lib/routeGuards.js";
-import { getEffectiveRepairCooldownMinutes } from "../services/market-data/repairCooldown.js";
-import { getEffectiveMetadataEnrichmentMode } from "../services/market-data/metadataEnrichmentMode.js";
+// KZO-198 Fix 3 — DTO is built directly from the post-write row + Env. The
+// `getEffective*()` resolvers are NOT imported here because they read from
+// the TTL cache, which may briefly be cold immediately after a PATCH
+// `invalidate()` and would return env-fallback values for fields the user
+// just wrote. The resolver-based cache path is the source of truth for
+// source-code paths (rate-limit handlers, providers, etc.) — only the
+// admin DTO bypasses it. The `getEffectiveRerunCooldownMs()` import below
+// remains for the `/admin/providers/:id/rerun` cooldown gate (cache-correct
+// for that path).
+import { getEffectiveRerunCooldownMs } from "../services/appConfig/providerHealth.js";
+import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
+import {
+  invalidate as invalidateAppConfigCache,
+} from "../services/appConfig/cache.js";
+import type { AppConfigPlainField } from "../persistence/types.js";
 import {
   FX_REFRESH_QUEUE,
   STORED_QUOTES,
@@ -56,9 +69,32 @@ const fxRefreshBodySchema = z
     }
   });
 
+/**
+ * KZO-198: a Tier 1 plain field accepts an integer within `APP_CONFIG_BOUNDS`,
+ * or `null` to clear the override (falls back to env). Single source of truth
+ * for `min`/`max` is `bounds.ts` — never inline here.
+ */
+function plainBoundedField(key: keyof typeof APP_CONFIG_BOUNDS) {
+  const { min, max } = APP_CONFIG_BOUNDS[key];
+  return z.union([z.number().int().min(min).max(max), z.null()]).optional();
+}
+
+/**
+ * KZO-198 Tier 0: a Tier 0 secret accepts a plaintext string within
+ * `APP_CONFIG_SECRET_LENGTH` (denoting a rotation), or `null` to clear.
+ * The plaintext is encrypted at the persistence boundary (never logged).
+ */
+const tier0SecretField = z
+  .union([
+    z.string().min(APP_CONFIG_SECRET_LENGTH.min).max(APP_CONFIG_SECRET_LENGTH.max),
+    z.null(),
+  ])
+  .optional();
+
 export const patchAdminSettingsSchema = z
   .object({
-    repairCooldownMinutes: z.union([z.number().int().min(1).max(10080), z.null()]).optional(),
+    // KZO-133 — pre-existing
+    repairCooldownMinutes: plainBoundedField("repairCooldownMinutes"),
     // KZO-159 (158A): admin override for the user-facing timeframe picker.
     // `null` clears the override (falls back to the hardcoded default list).
     dashboardPerformanceRanges: z
@@ -69,8 +105,62 @@ export const patchAdminSettingsSchema = z
     metadataEnrichmentMode: z
       .union([z.enum(["unconditional", "conditional"]), z.null()])
       .optional(),
+
+    // ── KZO-198 Tier 1 — rate limits ────────────────────────────────────
+    marketDataPriceWindowMs: plainBoundedField("marketDataPriceWindowMs"),
+    marketDataPriceLimit: plainBoundedField("marketDataPriceLimit"),
+    marketDataSearchWindowMs: plainBoundedField("marketDataSearchWindowMs"),
+    marketDataSearchLimit: plainBoundedField("marketDataSearchLimit"),
+    inviteStatusWindowMs: plainBoundedField("inviteStatusWindowMs"),
+    inviteStatusLimit: plainBoundedField("inviteStatusLimit"),
+
+    // ── KZO-198 Tier 1 — provider health ────────────────────────────────
+    providerDownNotificationSuppressionMs: plainBoundedField("providerDownNotificationSuppressionMs"),
+    providerErrorTrailRetentionDays: plainBoundedField("providerErrorTrailRetentionDays"),
+    providerRerunCooldownMs: plainBoundedField("providerRerunCooldownMs"),
+
+    // ── KZO-198 Tier 1/2 — backfill ─────────────────────────────────────
+    backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
+    backfillRetryDelaySeconds: plainBoundedField("backfillRetryDelaySeconds"),
+    backfillFinmind402RetryMs: plainBoundedField("backfillFinmind402RetryMs"),
+
+    // Tier 2 (`dailyRefreshLookbackDays`, `dailyRefreshPriority`,
+    // `sseHeartbeatIntervalMs`, `sseMaxConnectionsPerUser`,
+    // `sseBufferDefaultTtlMs`) is DB+SQL only per scope-todo — operators
+    // override via direct SQL. `.strict()` below rejects them with a 400.
+
+    // ── KZO-198 Tier 0 — encrypted secrets (rotation flow) ──────────────
+    finmindApiToken: tier0SecretField,
+    twelveDataApiKey: tier0SecretField,
   })
   .strict();
+
+/**
+ * KZO-198 — list of plain camelCase fields handled by the generic per-field
+ * setter `setAppConfigField`. Order does not matter; the PATCH handler walks
+ * this list and only writes when the request body has a defined value that
+ * differs from the current state.
+ */
+/**
+ * KZO-198 — Tier 1 plain camelCase fields handled by the PATCH route. Tier 2
+ * (daily refresh + SSE) fields are deliberately absent — DB+SQL only. The
+ * literal tuple type is keyed off the PATCH schema so indexing `body[field]`
+ * type-checks without `any` casts.
+ */
+const TIER1_PLAIN_FIELDS = [
+  "marketDataPriceWindowMs",
+  "marketDataPriceLimit",
+  "marketDataSearchWindowMs",
+  "marketDataSearchLimit",
+  "inviteStatusWindowMs",
+  "inviteStatusLimit",
+  "providerDownNotificationSuppressionMs",
+  "providerErrorTrailRetentionDays",
+  "providerRerunCooldownMs",
+  "backfillRetryLimit",
+  "backfillRetryDelaySeconds",
+  "backfillFinmind402RetryMs",
+] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
   const sessionUserId = requireSessionUserId(req);
@@ -96,23 +186,81 @@ function resolveEffectiveDashboardPerformanceRanges(
   return [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
 }
 
-async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
-  const [config, effective, effectiveMode] = await Promise.all([
-    app.persistence.getAppConfig(),
-    getEffectiveRepairCooldownMinutes(app.persistence),
-    getEffectiveMetadataEnrichmentMode(app.persistence),
-  ]);
+/**
+ * KZO-198 Fix 3 — derive `AppConfigDto` directly from the freshly-fetched
+ * row + env, NOT from `getEffective*()` resolvers (which read from the TTL
+ * cache and may return env-fallback values immediately after `invalidate()`
+ * before the background refresh completes).
+ *
+ * This bypasses the cache for the response path so a PATCH always returns
+ * the post-write effective values. Cache invalidation stays fire-and-forget
+ * for subsequent reads — the response itself does not depend on it.
+ */
+function buildAppConfigDtoFromRow(
+  row: Awaited<ReturnType<FastifyInstance["persistence"]["getAppConfig"]>>,
+): AppConfigDto {
   return {
-    repairCooldownMinutes: config.repairCooldownMinutes,
-    effectiveRepairCooldownMinutes: effective,
-    dashboardPerformanceRanges: config.dashboardPerformanceRanges,
+    repairCooldownMinutes: row.repairCooldownMinutes,
+    effectiveRepairCooldownMinutes: row.repairCooldownMinutes ?? Env.REPAIR_COOLDOWN_MINUTES,
+    dashboardPerformanceRanges: row.dashboardPerformanceRanges,
     effectiveDashboardPerformanceRanges: resolveEffectiveDashboardPerformanceRanges(
-      config.dashboardPerformanceRanges,
+      row.dashboardPerformanceRanges,
     ),
-    metadataEnrichmentMode: config.metadataEnrichmentMode,
-    effectiveMetadataEnrichmentMode: effectiveMode,
-    updatedAt: config.updatedAt,
+    metadataEnrichmentMode: row.metadataEnrichmentMode,
+    effectiveMetadataEnrichmentMode: row.metadataEnrichmentMode ?? Env.METADATA_ENRICHMENT_MODE,
+
+    // KZO-198 Tier 1 — rate limits
+    marketDataPriceWindowMs: row.marketDataPriceWindowMs,
+    effectiveMarketDataPriceWindowMs: row.marketDataPriceWindowMs ?? Env.MARKET_DATA_PRICE_WINDOW_MS,
+    marketDataPriceLimit: row.marketDataPriceLimit,
+    effectiveMarketDataPriceLimit: row.marketDataPriceLimit ?? Env.MARKET_DATA_PRICE_LIMIT,
+    marketDataSearchWindowMs: row.marketDataSearchWindowMs,
+    effectiveMarketDataSearchWindowMs: row.marketDataSearchWindowMs ?? Env.MARKET_DATA_SEARCH_WINDOW_MS,
+    marketDataSearchLimit: row.marketDataSearchLimit,
+    effectiveMarketDataSearchLimit: row.marketDataSearchLimit ?? Env.MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE,
+    inviteStatusWindowMs: row.inviteStatusWindowMs,
+    effectiveInviteStatusWindowMs: row.inviteStatusWindowMs ?? Env.INVITE_STATUS_WINDOW_MS,
+    inviteStatusLimit: row.inviteStatusLimit,
+    effectiveInviteStatusLimit: row.inviteStatusLimit ?? Env.INVITE_STATUS_LIMIT,
+
+    // KZO-198 Tier 1 — provider health
+    providerDownNotificationSuppressionMs: row.providerDownNotificationSuppressionMs,
+    effectiveProviderDownNotificationSuppressionMs:
+      row.providerDownNotificationSuppressionMs ?? Env.PROVIDER_DOWN_NOTIFICATION_SUPPRESSION_MS,
+    providerErrorTrailRetentionDays: row.providerErrorTrailRetentionDays,
+    effectiveProviderErrorTrailRetentionDays:
+      row.providerErrorTrailRetentionDays ?? Env.PROVIDER_ERROR_TRAIL_RETENTION_DAYS,
+    providerRerunCooldownMs: row.providerRerunCooldownMs,
+    effectiveProviderRerunCooldownMs: row.providerRerunCooldownMs ?? Env.PROVIDER_RERUN_COOLDOWN_MS,
+
+    // KZO-198 Tier 1 — backfill
+    backfillRetryLimit: row.backfillRetryLimit,
+    effectiveBackfillRetryLimit: row.backfillRetryLimit ?? Env.BACKFILL_RETRY_LIMIT,
+    backfillRetryDelaySeconds: row.backfillRetryDelaySeconds,
+    effectiveBackfillRetryDelaySeconds: row.backfillRetryDelaySeconds ?? Env.BACKFILL_RETRY_DELAY_SECONDS,
+    backfillFinmind402RetryMs: row.backfillFinmind402RetryMs,
+    effectiveBackfillFinmind402RetryMs: row.backfillFinmind402RetryMs ?? Env.BACKFILL_FINMIND_402_RETRY_MS,
+
+    // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
+
+    // KZO-198 Tier 0 — encrypted secret presence sentinels (NEVER ciphertext or plaintext)
+    finmindApiTokenSet: row.finmindApiTokenEncrypted !== null,
+    twelveDataApiKeySet: row.twelveDataApiKeyEncrypted !== null,
+
+    // KZO-198 — bounds (single source of truth for UI form constraints)
+    bounds: APP_CONFIG_BOUNDS,
+    secretLengthBounds: APP_CONFIG_SECRET_LENGTH,
+
+    updatedAt: row.updatedAt,
   };
+}
+
+async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
+  // Fetch the post-write row directly. The DTO is derived from this row
+  // (Fix 3) so the response always reflects the latest persisted state,
+  // independent of cache TTL or in-flight refresh state.
+  const row = await app.persistence.getAppConfig();
+  return buildAppConfigDtoFromRow(row);
 }
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
@@ -418,16 +566,85 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       await app.persistence.setMetadataEnrichmentMode(body.metadataEnrichmentMode);
     }
 
-    if (Object.keys(after).length === 0) {
+    // KZO-198 — diff Tier 1/2 plain fields. Only changed fields are added to
+    // `patch` so a no-op PATCH does not bump `updated_at`.
+    const patch: import("../persistence/types.js").AppConfigPatch = {};
+    for (const field of TIER1_PLAIN_FIELDS) {
+      const next = body[field];
+      if (next === undefined) continue;
+      const currentVal = current[field] ?? null;
+      if (next === currentVal) continue;
+      before[field] = currentVal;
+      after[field] = next;
+      patch[field] = next;
+    }
+
+    // KZO-198 — Tier 0 rotations. Plaintext goes onto the patch under the
+    // camelCase key; persistence encrypts inline. Audit metadata uses the
+    // `rotation` discriminator and NEVER carries the plaintext value. Each
+    // rotation gets its own audit row so a partial PATCH cannot co-mingle
+    // plaintext-changes with rotations in a single `before/after` diff.
+    const rotations: Array<{
+      field: "finmindApiToken" | "twelveDataApiKey";
+      action: "rotate" | "clear";
+    }> = [];
+    if (body.finmindApiToken !== undefined) {
+      patch.finmindApiToken = body.finmindApiToken;
+      rotations.push({
+        field: "finmindApiToken",
+        action: body.finmindApiToken === null ? "clear" : "rotate",
+      });
+    }
+    if (body.twelveDataApiKey !== undefined) {
+      patch.twelveDataApiKey = body.twelveDataApiKey;
+      rotations.push({
+        field: "twelveDataApiKey",
+        action: body.twelveDataApiKey === null ? "clear" : "rotate",
+      });
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await app.persistence.setAppConfigPatch(patch);
+    }
+
+    const hasPlaintextDiff = Object.keys(after).length > 0;
+
+    if (!hasPlaintextDiff && rotations.length === 0) {
       return loadAppConfigDto(app);
     }
 
-    await app.persistence.appendAuditLog({
-      actorUserId: sessionUserId,
-      action: "app_config_updated",
-      metadata: { before, after },
-      ipAddress,
-    });
+    if (hasPlaintextDiff) {
+      // KZO-198: explicit `value_change` discriminator on the metadata object.
+      // Legacy rows (pre-KZO-198) without `type` are read as `value_change` by
+      // the UI per design.md §6 — no backfill migration needed.
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "app_config_updated",
+        metadata: { type: "value_change", before, after },
+        ipAddress,
+      });
+    }
+
+    for (const rotation of rotations) {
+      // Tier 0 rotation audit — the value is NEVER part of the metadata. The
+      // operator audit trail records who rotated which secret and when.
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "app_config_updated",
+        metadata: {
+          type: "rotation",
+          field: rotation.field,
+          action: rotation.action,
+          actorUserId: sessionUserId,
+        },
+        ipAddress,
+      });
+    }
+
+    // KZO-198 — invalidate the TTL cache so the next read on this instance
+    // sees the new value immediately. Cross-instance pub/sub is a KZO-121
+    // follow-up; peers see stale values up to TTL.
+    invalidateAppConfigCache();
 
     return loadAppConfigDto(app);
   });
@@ -585,12 +802,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       throw routeError(404, "provider_not_found", "Unknown provider id");
     }
 
-    // (3) 60s cooldown per provider.
-    const COOLDOWN_MS = 60 * 1000;
+    // (3) cooldown per provider — read live (KZO-198: DB override → env).
+    const cooldownMs = getEffectiveRerunCooldownMs();
     if (existing.lastManualRerunAt) {
       const elapsedMs = Date.now() - new Date(existing.lastManualRerunAt).getTime();
-      if (elapsedMs < COOLDOWN_MS) {
-        const retryAfterSec = Math.max(1, Math.ceil((COOLDOWN_MS - elapsedMs) / 1000));
+      if (elapsedMs < cooldownMs) {
+        const retryAfterSec = Math.max(1, Math.ceil((cooldownMs - elapsedMs) / 1000));
         reply.header("Retry-After", String(retryAfterSec));
         throw routeError(429, "rate_limit_exceeded", "Re-run cooldown active for this provider");
       }

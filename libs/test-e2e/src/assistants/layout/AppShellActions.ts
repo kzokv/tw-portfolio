@@ -211,9 +211,13 @@ export class AppShellActions extends AppBaseActions {
 
   // ── Admin settings actions ────────────────────────────────────────────────
 
+  // KZO-198 — repair-cooldown form was refactored to use the shared
+  // `NumericOverrideRow` component; testids are now keyed by fieldKey
+  // `repair-cooldown-minutes`. The action API is unchanged so callers
+  // (admin-settings-aaa.spec.ts) don't need updates.
   @Step()
   async toggleAdminSettingsOverride(enable: boolean): Promise<void> {
-    const toggle = this.el.testId("admin-settings-override-toggle");
+    const toggle = this.el.testId("admin-settings-repair-cooldown-minutes-toggle");
     if (enable) {
       await this.mxCheck(toggle);
     } else {
@@ -223,12 +227,14 @@ export class AppShellActions extends AppBaseActions {
 
   @Step()
   async fillAdminSettingsMinutes(value: string): Promise<void> {
-    await this.mxFill(this.el.testId("admin-settings-minutes-input"), value);
+    await this.mxFill(this.el.testId("admin-settings-repair-cooldown-minutes-input"), value);
   }
 
   @Step()
   async clickAdminSettingsSave(): Promise<void> {
-    await this.uiActions.click.perform(this.el.testId("admin-settings-save-button"));
+    await this.uiActions.click.perform(
+      this.el.testId("admin-settings-repair-cooldown-minutes-save-button"),
+    );
   }
 
   // ── KZO-159 — Admin timeframe defaults section actions ────────────────────

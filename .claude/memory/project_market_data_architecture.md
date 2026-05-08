@@ -14,12 +14,12 @@ Same Postgres instance, dedicated `market_data` schema alongside `public` (ledge
 
 ## FinMind integration (implemented in KZO-126)
 
-- Client: `apps/api/src/services/market-data/finmindClient.ts` (real HTTP) + `finmindClient.mock.ts`
+- Provider: `apps/api/src/services/market-data/providers/finmind.ts` (TW) + `finmindUsStock.ts` (US) + sibling `mockFinmind*.ts`
 - Datasets: `TaiwanStockPrice` (daily bars), `TaiwanStockDividend` (dividends)
 - Rate limiter: in-memory sliding window, 600 req/hr (`rateLimiter.ts`)
 - Backfill worker: pg-boss queue, 3 retries, exponential backoff (`backfillWorker.ts`)
 - Plugin: `apps/api/src/plugins/pgBoss.ts` — lifecycle managed, skipped in memory mode
-- Env var: `FINMIND_API_TOKEN` (optional — mock used if missing)
+- Env var: `FINMIND_API_TOKEN` (optional — mock used if missing). Token is also resolvable from `app_config` Tier 0 via `getEffectiveFinmindApiToken()` post-KZO-198 (encrypted at rest; live re-read per fetch).
 
 ## Environment policy (ADR 2026-03-25)
 

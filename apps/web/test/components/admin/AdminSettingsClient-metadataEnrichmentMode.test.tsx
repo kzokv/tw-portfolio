@@ -35,17 +35,11 @@ beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
+// KZO-198 — delegate to shared fixture so the 22 new fields are populated.
+import { buildAppConfigDto } from "../../fixtures/appConfigDto";
+
 function buildConfig(overrides: Partial<AppConfigDto> = {}): AppConfigDto {
-  return {
-    repairCooldownMinutes: null,
-    effectiveRepairCooldownMinutes: 15,
-    dashboardPerformanceRanges: null,
-    effectiveDashboardPerformanceRanges: ["1M", "3M", "YTD", "1Y"],
-    metadataEnrichmentMode: null,
-    effectiveMetadataEnrichmentMode: "conditional",
-    updatedAt: "2026-05-06T10:00:00.000Z",
-    ...overrides,
-  };
+  return buildAppConfigDto({ updatedAt: "2026-05-06T10:00:00.000Z", ...overrides });
 }
 
 function click(testId: string) {

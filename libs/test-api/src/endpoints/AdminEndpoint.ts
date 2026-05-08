@@ -59,15 +59,46 @@ export class AdminEndpoint extends BaseEndpoint {
     this.request.get(apiUrl("/admin/settings"), headers ? { headers } : {});
 
   patchAdminSettings = (
-    body: {
-      repairCooldownMinutes?: number | null;
-      dashboardPerformanceRanges?: string[] | null;
-      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
-    },
+    body: TPatchAdminSettingsBody,
     headers?: Record<string, string>,
   ): Promise<APIResponse> =>
     this.request.patch(apiUrl("/admin/settings"), {
       data: body,
       ...(headers ? { headers } : {}),
     });
+}
+
+/**
+ * KZO-198 — body shape for PATCH /admin/settings. Accepts every field the
+ * server's `patchAdminSettingsSchema` allows. Intentionally loose: tests for
+ * out-of-range values, Tier 2 keys, and other negative-path scenarios pass
+ * unknown values via `Record<string, unknown>` cast.
+ */
+export interface TPatchAdminSettingsBody {
+  // Pre-existing
+  repairCooldownMinutes?: number | null;
+  dashboardPerformanceRanges?: string[] | null;
+  metadataEnrichmentMode?: "unconditional" | "conditional" | null;
+
+  // KZO-198 Tier 1 — rate limits
+  marketDataPriceWindowMs?: number | null;
+  marketDataPriceLimit?: number | null;
+  marketDataSearchWindowMs?: number | null;
+  marketDataSearchLimit?: number | null;
+  inviteStatusWindowMs?: number | null;
+  inviteStatusLimit?: number | null;
+
+  // KZO-198 Tier 1 — provider health
+  providerDownNotificationSuppressionMs?: number | null;
+  providerErrorTrailRetentionDays?: number | null;
+  providerRerunCooldownMs?: number | null;
+
+  // KZO-198 Tier 1 — backfill
+  backfillRetryLimit?: number | null;
+  backfillRetryDelaySeconds?: number | null;
+  backfillFinmind402RetryMs?: number | null;
+
+  // KZO-198 Tier 0 — encrypted secrets (rotation flow)
+  finmindApiToken?: string | null;
+  twelveDataApiKey?: string | null;
 }
