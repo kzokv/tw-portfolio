@@ -4,7 +4,7 @@ import { Env } from "@tw-portfolio/config";
 import type { MarketCode } from "@tw-portfolio/domain";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
-import { getEffectiveMetadataEnrichmentMode } from "../services/market-data/metadataEnrichmentMode.js";
+import { getEffectiveMetadataEnrichmentMode } from "../services/appConfig/metadataEnrichmentMode.js";
 import { FX_REFRESH_CRON, FX_REFRESH_QUEUE } from "../services/market-data/fxRefreshWorker.js";
 import { registerFxRefreshWorker } from "../services/market-data/registerFxRefreshWorker.js";
 import {
@@ -57,7 +57,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     boss,
     // KZO-189: AU metadata enrichment gate — read every job (no cache) so admin
     // toggles take effect on the next backfill. Hybrid env+DB resolution.
-    getEffectiveMetadataEnrichmentMode: () => getEffectiveMetadataEnrichmentMode(app.persistence),
+    getEffectiveMetadataEnrichmentMode: () => Promise.resolve(getEffectiveMetadataEnrichmentMode()),
     updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>
       app.persistence.updateBackfillStatus(ticker, status),
     updateLastRepairAt: (ticker: string) => app.persistence.updateLastRepairAt(ticker),

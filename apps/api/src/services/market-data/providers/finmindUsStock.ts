@@ -1,4 +1,6 @@
 import { historyStartFor } from "../types.js";
+import { getEffectiveFinmindApiToken } from "../../appConfig/providerKeys.js";
+import { getEffectiveBackfillFinmind402RetryMs } from "../../appConfig/backfill.js";
 import type {
   RawDailyBar,
   DividendRecord,
@@ -90,14 +92,22 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
   readonly providerId = "finmind-us";
   /** KZO-190 — `fetchInstrumentMetadata` is a no-op returning null; consumes no slot. */
   readonly supportsMetadataEnrichment = false;
-  private readonly token: string;
+  /** Bootstrap token from constructor config; KZO-198 resolver reads override per fetch. */
+  private readonly bootstrapToken: string;
   private readonly baseUrl: string;
   private readonly rateLimiter: RateLimiter;
 
   constructor(config: FinMindUsStockMarketDataProviderConfig) {
-    this.token = config.token;
+    this.bootstrapToken = config.token;
     this.baseUrl = config.baseUrl;
     this.rateLimiter = config.rateLimiter;
+  }
+
+  /**
+   * KZO-198: live token (DB override → env → bootstrap). See `finmind.ts` peer.
+   */
+  private get token(): string {
+    return getEffectiveFinmindApiToken() ?? this.bootstrapToken;
   }
 
   /**
@@ -143,7 +153,7 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
 
     const res = await fetch(`${this.baseUrl}?${params.toString()}`);
     if (res.status === 402) {
-      throw new RateLimitedError({ msUntilAvailable: FinMindUsStockMarketDataProvider.REMOTE_402_RETRY_MS });
+      throw new RateLimitedError({ msUntilAvailable: getEffectiveBackfillFinmind402RetryMs() });
     }
     if (!res.ok) {
       throw new Error(`FinMind API error: ${res.status} ${res.statusText}`);
@@ -161,7 +171,7 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
 
     const res = await fetch(`${this.baseUrl}?${params.toString()}`);
     if (res.status === 402) {
-      throw new RateLimitedError({ msUntilAvailable: FinMindUsStockMarketDataProvider.REMOTE_402_RETRY_MS });
+      throw new RateLimitedError({ msUntilAvailable: getEffectiveBackfillFinmind402RetryMs() });
     }
     if (!res.ok) {
       throw new Error(`FinMind API error: ${res.status} ${res.statusText}`);

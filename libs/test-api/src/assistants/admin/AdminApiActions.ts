@@ -1,7 +1,12 @@
 import type { APIResponse } from "@playwright/test";
 import { Step } from "@tw-portfolio/test-framework/decorators";
 import { ApiBaseActions, headersForCookie } from "../../mixins/index.js";
-import type { AdminEndpoint, TAdminAuditLogQuery, TAdminInvitesQuery } from "../../endpoints/AdminEndpoint.js";
+import type {
+  AdminEndpoint,
+  TAdminAuditLogQuery,
+  TAdminInvitesQuery,
+  TPatchAdminSettingsBody,
+} from "../../endpoints/AdminEndpoint.js";
 
 export class AdminApiActions extends ApiBaseActions {
   declare protected readonly _instance: AdminEndpoint;
@@ -37,24 +42,14 @@ export class AdminApiActions extends ApiBaseActions {
   }
 
   @Step()
-  async patchAdminSettings(
-    body: {
-      repairCooldownMinutes?: number | null;
-      dashboardPerformanceRanges?: string[] | null;
-      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
-    },
-  ): Promise<APIResponse> {
+  async patchAdminSettings(body: TPatchAdminSettingsBody): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, this.authHeaders);
   }
 
   @Step()
   async patchAdminSettingsForCookie(
     cookie: string,
-    body: {
-      repairCooldownMinutes?: number | null;
-      dashboardPerformanceRanges?: string[] | null;
-      metadataEnrichmentMode?: "unconditional" | "conditional" | null;
-    },
+    body: TPatchAdminSettingsBody,
   ): Promise<APIResponse> {
     return this._instance.patchAdminSettings(body, headersForCookie(cookie));
   }

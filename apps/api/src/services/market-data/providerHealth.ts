@@ -20,6 +20,7 @@
 
 import type { MarketCode } from "@tw-portfolio/domain";
 import type { Persistence, ProviderErrorClass } from "../../persistence/types.js";
+import { getEffectiveDownNotificationSuppressionMs } from "../appConfig/providerHealth.js";
 import {
   latestSettledTradingDayPure,
   TradingCalendarCache,
@@ -53,7 +54,9 @@ const NOOP_LOG: Logger = {
   error: () => {},
 };
 
-const DOWN_NOTIFICATION_SUPPRESSION_MS = 24 * 60 * 60 * 1000;
+// KZO-198: replaced module-level constant with the resolver below. Keep the
+// line intentionally absent — `getEffectiveDownNotificationSuppressionMs()` is
+// the single source of truth (cache → env-fallback).
 
 // ── Provider id ↔ market mapping ────────────────────────────────────────────
 
@@ -236,7 +239,7 @@ async function recordOutcomeImpl(
       // fan-out without firing duplicate notifications.
       const claimed = await deps.persistence.claimProviderDownNotificationSlot(
         providerId,
-        DOWN_NOTIFICATION_SUPPRESSION_MS,
+        getEffectiveDownNotificationSuppressionMs(),
       );
       if (claimed) {
         await fanOutAdminNotification(

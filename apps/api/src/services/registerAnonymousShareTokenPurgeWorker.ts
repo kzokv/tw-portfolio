@@ -2,10 +2,12 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { FastifyBaseLogger } from "fastify";
 import type { AppInstance } from "../app.js";
 import type { Persistence } from "../persistence/types.js";
+import { Env } from "@tw-portfolio/config";
 import { DEFAULT_MARKET_DATA_QUEUE_OPTIONS } from "./market-data/registerBackfillWorker.js";
 
 export const ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE = "anonymous-share-token-purge";
-export const ANONYMOUS_SHARE_TOKEN_PURGE_CRON = "0 4 * * *";
+/** KZO-198: schedule sourced from `Env.ANONYMOUS_SHARE_TOKEN_PURGE_CRON` (Tier 3, restart-required). */
+export const ANONYMOUS_SHARE_TOKEN_PURGE_CRON = Env.ANONYMOUS_SHARE_TOKEN_PURGE_CRON;
 
 const ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE_OPTIONS = {
   ...DEFAULT_MARKET_DATA_QUEUE_OPTIONS,

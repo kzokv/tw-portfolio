@@ -1,4 +1,6 @@
 import { historyStartFor } from "../types.js";
+import { getEffectiveFinmindApiToken } from "../../appConfig/providerKeys.js";
+import { getEffectiveBackfillFinmind402RetryMs } from "../../appConfig/backfill.js";
 import type {
   RawDailyBar,
   DividendRecord,
@@ -72,14 +74,25 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
   readonly providerId = "finmind-tw";
   /** KZO-190 — `fetchInstrumentMetadata` is a no-op returning null; consumes no slot. */
   readonly supportsMetadataEnrichment = false;
-  private readonly token: string;
+  /** Bootstrap token from constructor config; KZO-198 resolver reads override per fetch. */
+  private readonly bootstrapToken: string;
   private readonly baseUrl: string;
   private readonly rateLimiter: RateLimiter;
 
   constructor(config: FinMindMarketDataProviderConfig) {
-    this.token = config.token;
+    this.bootstrapToken = config.token;
     this.baseUrl = config.baseUrl;
     this.rateLimiter = config.rateLimiter;
+  }
+
+  /**
+   * KZO-198: read the effective FinMind API token live per fetch. The
+   * `app_config` cache TTL is the only freshness lever — there is no client
+   * rebuild on rotation. Decryption errors fall back to env via the resolver;
+   * if no env value is set either, the constructor-bootstrap token is used.
+   */
+  private get token(): string {
+    return getEffectiveFinmindApiToken() ?? this.bootstrapToken;
   }
 
   /**
@@ -139,7 +152,7 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
     if (res.status === 402) {
       // KZO-163 MEDIUM-1: surface remote rate-limit as RateLimitedError so workers reschedule
       // and the price route returns 503 + Retry-After (not 404 price_not_found).
-      throw new RateLimitedError({ msUntilAvailable: FinMindMarketDataProvider.REMOTE_402_RETRY_MS });
+      throw new RateLimitedError({ msUntilAvailable: getEffectiveBackfillFinmind402RetryMs() });
     }
     if (!res.ok) {
       throw new Error(`FinMind API error: ${res.status} ${res.statusText}`);
@@ -157,7 +170,7 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
 
     const res = await fetch(`${this.baseUrl}?${params.toString()}`);
     if (res.status === 402) {
-      throw new RateLimitedError({ msUntilAvailable: FinMindMarketDataProvider.REMOTE_402_RETRY_MS });
+      throw new RateLimitedError({ msUntilAvailable: getEffectiveBackfillFinmind402RetryMs() });
     }
     if (!res.ok) {
       throw new Error(`FinMind API error: ${res.status} ${res.statusText}`);

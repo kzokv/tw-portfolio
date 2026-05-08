@@ -199,6 +199,10 @@ describe("validateEnvConstraints", () => {
     GOOGLE_CLIENT_SECRET: undefined,
     GOOGLE_REDIRECT_URI: undefined,
     SESSION_SECRET: undefined,
+    // KZO-198: required in non-test runtimes. 64 lowercase hex chars matches
+    // the env-schema regex /^[0-9a-f]{64}$/.
+    APP_CONFIG_ENCRYPTION_KEY:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   };
 
   it("passes with unique ports and dev_bypass in development", () => {

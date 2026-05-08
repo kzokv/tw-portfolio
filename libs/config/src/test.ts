@@ -51,6 +51,13 @@ export const TestEnv = {
     sessionSecret: "e2e-session-secret-that-is-at-least-32-chars!!!",
   },
 
+  /**
+   * KZO-198 — deterministic AES-256-GCM key fixture for E2E suites that
+   * exercise the Tier 0 rotation flow. 64 lowercase hex chars (32 bytes).
+   * NOT a production secret — never reuse outside test harness.
+   */
+  appConfigEncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+
   get sessionCookieName(): string {
     return e2eParsed().SESSION_COOKIE_NAME;
   },
@@ -83,6 +90,13 @@ export const TestEnv = {
    */
   apiServerEnv(overrides: Record<string, string> = {}): Record<string, string> {
     return {
+      // KZO-198: NODE_ENV=test exempts the API server from the
+      // `APP_CONFIG_ENCRYPTION_KEY` mandatory check in `validateEnvConstraints`.
+      // E2E suites that exercise the Tier 0 rotation path (admin-settings-tier-a)
+      // still need a valid 64-hex key so encryptSecret() can succeed at the
+      // persistence boundary; we ship a deterministic fixture key.
+      NODE_ENV: "test",
+      APP_CONFIG_ENCRYPTION_KEY: TestEnv.appConfigEncryptionKey,
       API_PORT: String(TestEnv.ports.api),
       WEB_PORT: String(TestEnv.ports.web),
       PERSISTENCE_BACKEND: "memory",

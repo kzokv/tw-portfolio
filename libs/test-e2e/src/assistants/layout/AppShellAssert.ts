@@ -300,7 +300,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminSettingsOverrideToggleChecked(checked: boolean): Promise<void> {
-    const toggle = this.el.testId("admin-settings-override-toggle");
+    const toggle = this.el.testId("admin-settings-repair-cooldown-minutes-toggle");
     if (checked) {
       await expect(toggle).toBeChecked();
     } else {
@@ -310,34 +310,34 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminSettingsEnvDefaultBadgeIsVisible(): Promise<void> {
-    const badge = this.el.testId("admin-settings-env-default-badge");
+    const badge = this.el.testId("admin-settings-repair-cooldown-minutes-env-default-badge");
     await expect(badge).toBeVisible();
     await expect(badge).toContainText(/Using env default/i);
   }
 
   @Step()
   async adminSettingsEnvDefaultBadgeIsHidden(): Promise<void> {
-    await expect(this.el.testId("admin-settings-env-default-badge")).toHaveCount(0);
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-env-default-badge")).toHaveCount(0);
   }
 
   @Step()
   async adminSettingsMinutesInputIsVisible(): Promise<void> {
-    await expect(this.el.testId("admin-settings-minutes-input")).toBeVisible();
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-input")).toBeVisible();
   }
 
   @Step()
   async adminSettingsMinutesInputIsHidden(): Promise<void> {
-    await expect(this.el.testId("admin-settings-minutes-input")).toHaveCount(0);
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-input")).toHaveCount(0);
   }
 
   @Step()
   async adminSettingsMinutesInputHasValue(value: string): Promise<void> {
-    await expect(this.el.testId("admin-settings-minutes-input")).toHaveValue(value);
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-input")).toHaveValue(value);
   }
 
   @Step()
   async adminSettingsSaveSuccessIsVisible(): Promise<void> {
-    await expect(this.el.testId("admin-settings-save-success")).toBeVisible();
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-success")).toBeVisible();
   }
 
   @Step()
@@ -347,12 +347,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminSettingsValidationErrorIsVisible(): Promise<void> {
-    await expect(this.el.testId("admin-settings-validation-error")).toBeVisible();
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-validation-error")).toBeVisible();
   }
 
   @Step()
   async adminSettingsSaveButtonIsDisabled(): Promise<void> {
-    await expect(this.el.testId("admin-settings-save-button")).toBeDisabled();
+    await expect(this.el.testId("admin-settings-repair-cooldown-minutes-save-button")).toBeDisabled();
   }
 
   // ── KZO-159 — Admin timeframe defaults section assertions ─────────────────

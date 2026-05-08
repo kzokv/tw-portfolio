@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
+import { getEffectiveTwelveDataApiKey } from "../../appConfig/providerKeys.js";
 
 /**
  * KZO-194 — Twelve Data row shape for `/stocks?exchange=ASX` (verified 2026-05-07).
@@ -108,13 +109,22 @@ export class TwelveDataAuCatalogProvider implements InstrumentCatalogProvider {
    * `backfillWorker.ts` reads this flag to right-size `reserveCapacity`.
    */
   readonly supportsMetadataEnrichment = true;
-  private readonly apiKey: string;
+  /** Bootstrap key from constructor config; KZO-198 resolver reads override per fetch. */
+  private readonly bootstrapApiKey: string;
   private readonly baseUrl: string;
   private readonly rateLimiter: RateLimiter;
   private readonly yahooFallback: InstrumentCatalogProvider;
 
+  /**
+   * KZO-198: live API key (DB override → env → bootstrap). No client rebuild
+   * on rotation — the resolver is consulted on every fetch.
+   */
+  private get apiKey(): string {
+    return getEffectiveTwelveDataApiKey() ?? this.bootstrapApiKey;
+  }
+
   constructor(config: TwelveDataAuCatalogProviderConfig) {
-    this.apiKey = config.apiKey;
+    this.bootstrapApiKey = config.apiKey;
     this.baseUrl = config.baseUrl;
     this.rateLimiter = config.rateLimiter;
     this.yahooFallback = config.yahooFallback;

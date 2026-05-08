@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { Env } from "@tw-portfolio/config";
 import { routeError } from "./routeError.js";
 import { sweepSlidingWindowBucket } from "./slidingWindowBucket.js";
+import {
+  getEffectiveMarketDataSearchWindowMs,
+  getEffectiveMarketDataSearchLimit,
+} from "../services/appConfig/rateLimits.js";
 
 /**
  * KZO-172 — per-IP sliding-window rate limiter for `GET /market-data/search`. Default
@@ -18,16 +22,15 @@ import { sweepSlidingWindowBucket } from "./slidingWindowBucket.js";
  * vs upstream-budget rate limits".
  */
 const marketDataSearchBuckets = new Map<string, number[]>();
-const MARKET_DATA_SEARCH_WINDOW_MS = 60_000;
 
 export function assertMarketDataSearchRateLimit(ip: string): void {
-  // Read the limit at call time (not module load) so vitest's `vi.mock` of `Env` takes
-  // effect before the first route hit. Same convention as the inviteStatus + anonymous-
-  // share limiters in this directory.
-  const limit = Env.MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE;
+  // KZO-198: read window+limit live (DB override → env). Each request resolves
+  // the effective values so admin overrides take effect within cache TTL.
+  const windowMs = getEffectiveMarketDataSearchWindowMs();
+  const limit = getEffectiveMarketDataSearchLimit();
   const now = Date.now();
   const recent = (marketDataSearchBuckets.get(ip) ?? []).filter(
-    (timestamp) => now - timestamp < MARKET_DATA_SEARCH_WINDOW_MS,
+    (timestamp) => now - timestamp < windowMs,
   );
   if (recent.length >= limit) {
     throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
@@ -42,9 +45,12 @@ export function _resetMarketDataSearchBuckets(): void {
 }
 
 export function registerMarketDataSearchEviction(app: FastifyInstance): void {
+  // KZO-198 / fastify-eviction-lifecycle-pattern.md: cadence (interval arg)
+  // stays at env. Sweep CALLBACK reads effective window — see peer
+  // `marketDataPriceRateLimit.ts` for the full rationale.
   const timer = setInterval(
-    () => sweepSlidingWindowBucket(marketDataSearchBuckets, MARKET_DATA_SEARCH_WINDOW_MS),
-    MARKET_DATA_SEARCH_WINDOW_MS,
+    () => sweepSlidingWindowBucket(marketDataSearchBuckets, getEffectiveMarketDataSearchWindowMs()),
+    Env.MARKET_DATA_SEARCH_WINDOW_MS,
   );
   app.addHook("onClose", () => {
     clearInterval(timer);

@@ -7,8 +7,15 @@ import {
   contextClearCookieString,
   shouldStampContextFallback,
 } from "./contextFallback.js";
+import {
+  getEffectiveSseHeartbeatIntervalMs,
+  getEffectiveSseMaxConnectionsPerUser,
+} from "../services/appConfig/sse.js";
 
-const HEARTBEAT_INTERVAL_MS = 30_000;
+/**
+ * @deprecated KZO-198 — prefer `getEffectiveSseMaxConnectionsPerUser()`.
+ * Retained as the env-default snapshot for places that consume it as a number.
+ */
 export const MAX_CONNECTIONS_PER_USER = 20;
 const E2E_USER_COOKIE = "tw_e2e_user";
 
@@ -116,7 +123,7 @@ export function registerSSERoute(
 
     // 2. Connection limit check
     const currentCount = connectionCounts.get(userId) ?? 0;
-    if (currentCount >= MAX_CONNECTIONS_PER_USER) {
+    if (currentCount >= getEffectiveSseMaxConnectionsPerUser()) {
       const limitFallback = pickContextFallbackHeaders(req, reply);
       reply.raw.writeHead(200, {
         ...pickCorsHeaders(reply),
@@ -204,11 +211,15 @@ export function registerSSERoute(
       writeEvent(event.type, event.data, event.seq ?? 0);
     });
 
-    // 9. Heartbeat interval — uses BufferedEventBus.nextSeq()
+    // 9. Heartbeat interval — uses BufferedEventBus.nextSeq().
+    // KZO-198: read interval at connection setup (not inside the timer) so
+    // the cadence stays stable per connection but admin overrides are picked
+    // up by the next new connection.
+    const heartbeatIntervalMs = getEffectiveSseHeartbeatIntervalMs();
     const heartbeatInterval = setInterval(() => {
       const hbSeq = app.eventBus.nextSeq(userId);
       writeEvent("heartbeat", {}, hbSeq);
-    }, HEARTBEAT_INTERVAL_MS);
+    }, heartbeatIntervalMs);
 
     // 10. Cleanup on connection close
     req.raw.on("close", () => {

@@ -1,8 +1,9 @@
 "use client";
 
-// Validation strategy: client-side inline validation (see `admin-settings-validation-error`)
-// blocks Save when the override is ON and the value is outside 1–10080 / non-integer / empty.
-// A server 400 (defense-in-depth) is surfaced in the same error slot.
+// KZO-198 — Repair cooldown bounds, like every other Tier 1 numeric knob,
+// flow from `apps/api/src/services/appConfig/bounds.ts` → DTO → UI. The
+// `NumericOverrideRow` component reads `min`/`max` from `config.bounds`
+// directly; no module-level constants are duplicated in this file.
 
 import { useState } from "react";
 import {
@@ -14,13 +15,12 @@ import { patchJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
+import { NumericOverrideRow } from "./NumericOverrideRow";
+import { MaskedSecretInput } from "./MaskedSecretInput";
 
 interface AdminSettingsClientProps {
   initial: AppConfigDto;
 }
-
-const MIN_MINUTES = 1;
-const MAX_MINUTES = 10080;
 
 // KZO-159: Predefined chip palette for the Dashboard Timeframe Defaults section.
 // `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (4 items) is the fallback active selection;
@@ -50,30 +50,8 @@ function formatTimestamp(dateStr: string): string {
   return d.toLocaleString();
 }
 
-function validateMinutesInput(raw: string): { value: number | null; error: string | null } {
-  const trimmed = raw.trim();
-  if (trimmed === "") {
-    return { value: null, error: "Enter a number between 1 and 10080." };
-  }
-  const num = Number(trimmed);
-  if (!Number.isFinite(num) || !Number.isInteger(num)) {
-    return { value: null, error: "Value must be a whole number." };
-  }
-  if (num < MIN_MINUTES || num > MAX_MINUTES) {
-    return { value: null, error: `Value must be between ${MIN_MINUTES} and ${MAX_MINUTES}.` };
-  }
-  return { value: num, error: null };
-}
-
 export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const [config, setConfig] = useState<AppConfigDto>(initial);
-  const [overrideEnabled, setOverrideEnabled] = useState<boolean>(initial.repairCooldownMinutes !== null);
-  const [minutesInput, setMinutesInput] = useState<string>(
-    initial.repairCooldownMinutes !== null ? String(initial.repairCooldownMinutes) : "",
-  );
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   // ── Dashboard Timeframe Defaults section state (KZO-159) ───────────────────
   const [pendingRanges, setPendingRanges] = useState<string[]>(
@@ -95,11 +73,6 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const [metadataModeSaving, setMetadataModeSaving] = useState(false);
   const [metadataModeError, setMetadataModeError] = useState<string | null>(null);
   const [metadataModeSuccess, setMetadataModeSuccess] = useState<string | null>(null);
-
-  const clientValidation = overrideEnabled ? validateMinutesInput(minutesInput) : { value: null, error: null };
-  const inlineError = overrideEnabled ? clientValidation.error : null;
-
-  const canSave = !saving && (!overrideEnabled || clientValidation.error === null);
 
   // ── Timeframe section derived state ────────────────────────────────────────
   const trimmedCustomInput = customInput.trim();
@@ -131,45 +104,6 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const availablePredefinedChips = PREDEFINED_TIMEFRAME_CHIPS.filter(
     (range) => !pendingRanges.includes(range),
   );
-
-  function handleToggle(next: boolean) {
-    setOverrideEnabled(next);
-    setSaveError(null);
-    setSaveSuccess(null);
-    if (next && minutesInput.trim() === "") {
-      setMinutesInput(String(config.effectiveRepairCooldownMinutes));
-    }
-  }
-
-  async function handleSave() {
-    setSaveError(null);
-    setSaveSuccess(null);
-
-    const payloadValue: number | null = overrideEnabled ? clientValidation.value : null;
-    if (overrideEnabled && payloadValue === null) {
-      // Client validation failed — Save button is already disabled, but guard defensively.
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const updated = await patchJson<AppConfigDto>("/admin/settings", { repairCooldownMinutes: payloadValue });
-      setConfig(updated);
-      setOverrideEnabled(updated.repairCooldownMinutes !== null);
-      setMinutesInput(updated.repairCooldownMinutes !== null ? String(updated.repairCooldownMinutes) : "");
-      setSaveSuccess("Settings saved.");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setSaveError(err.message);
-      } else if (err instanceof Error) {
-        setSaveError(err.message);
-      } else {
-        setSaveError("Failed to save settings.");
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
 
   // ── Timeframe section handlers (KZO-159) ───────────────────────────────────
   function clearTimeframeFeedback() {
@@ -251,6 +185,17 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
     }
   }
 
+  // ── KZO-198 Tier 1 numeric override rows + Tier 0 secret rotations ────────
+  // A single generic PATCH handler keyed by DTO field name. Each
+  // `NumericOverrideRow` and `MaskedSecretInput` calls this with the field
+  // name + next value (`null` = reset to env default for Tier 1, or clear
+  // for Tier 0). Errors propagate so the row component can render them
+  // inline; success refreshes `config` so effective values stay accurate.
+  async function patchAppConfigField(field: string, value: number | string | null): Promise<void> {
+    const updated = await patchJson<AppConfigDto>("/admin/settings", { [field]: value });
+    setConfig(updated);
+  }
+
   async function handleResetTimeframes() {
     setTimeframeServerError(null);
     setTimeframeSaveSuccess(null);
@@ -285,34 +230,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
         </p>
       </div>
 
-      {saveError && (
-        <div
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-          role="alert"
-          data-testid="admin-settings-save-error"
-        >
-          {saveError}
-          <button
-            type="button"
-            className="ml-2 text-red-500 hover:text-red-700"
-            onClick={() => setSaveError(null)}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {saveSuccess && (
-        <div
-          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-          role="status"
-          data-testid="admin-settings-save-success"
-        >
-          {saveSuccess}
-        </div>
-      )}
-
-      <Card>
+      <Card data-testid="admin-settings-repair-cooldown-section">
         <div className="space-y-5">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Repair cooldown</h2>
@@ -320,68 +238,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.
             </p>
           </div>
-
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={overrideEnabled}
-              onChange={(e) => handleToggle(e.target.checked)}
-              disabled={saving}
-              className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
-              data-testid="admin-settings-override-toggle"
-            />
-            <span className="text-sm font-medium text-slate-700">Override repair cooldown</span>
-          </label>
-
-          {overrideEnabled ? (
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Cooldown (minutes)</label>
-              <input
-                type="number"
-                min={MIN_MINUTES}
-                max={MAX_MINUTES}
-                step={1}
-                value={minutesInput}
-                onChange={(e) => {
-                  setMinutesInput(e.target.value);
-                  setSaveError(null);
-                  setSaveSuccess(null);
-                }}
-                disabled={saving}
-                className="mt-1 w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                data-testid="admin-settings-minutes-input"
-              />
-              <p className="mt-1 text-xs text-slate-500">Allowed range: {MIN_MINUTES}–{MAX_MINUTES} minutes.</p>
-              {inlineError && (
-                <p
-                  className="mt-2 text-sm text-red-600"
-                  role="alert"
-                  data-testid="admin-settings-validation-error"
-                >
-                  {inlineError}
-                </p>
-              )}
-            </div>
-          ) : (
-            <div>
-              <span
-                className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700"
-                data-testid="admin-settings-env-default-badge"
-              >
-                Using env default · {config.effectiveRepairCooldownMinutes} min
-              </span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end">
-            <Button
-              onClick={() => void handleSave()}
-              disabled={!canSave}
-              data-testid="admin-settings-save-button"
-            >
-              {saving ? "Saving..." : "Save"}
-            </Button>
-          </div>
+          <NumericOverrideRow
+            fieldKey="repair-cooldown-minutes"
+            label="Cooldown"
+            override={config.repairCooldownMinutes}
+            effective={config.effectiveRepairCooldownMinutes}
+            bounds={config.bounds.repairCooldownMinutes}
+            unit="min"
+            onSave={(v) => patchAppConfigField("repairCooldownMinutes", v)}
+          />
         </div>
       </Card>
 
@@ -603,6 +468,186 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               {metadataModeSaving ? "Saving..." : "Save"}
             </Button>
           </div>
+        </div>
+      </Card>
+
+      {/* ── KZO-198: Rate Limits section ────────────────────────────────── */}
+      <Card data-testid="admin-settings-rate-limits-section">
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Rate limits</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.
+            </p>
+          </div>
+          <NumericOverrideRow
+            fieldKey="market-data-price-window-ms"
+            label="Market data price · window"
+            override={config.marketDataPriceWindowMs}
+            effective={config.effectiveMarketDataPriceWindowMs}
+            bounds={config.bounds.marketDataPriceWindowMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("marketDataPriceWindowMs", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="market-data-price-limit"
+            label="Market data price · limit"
+            override={config.marketDataPriceLimit}
+            effective={config.effectiveMarketDataPriceLimit}
+            bounds={config.bounds.marketDataPriceLimit}
+            unit="req/window"
+            onSave={(v) => patchAppConfigField("marketDataPriceLimit", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="market-data-search-window-ms"
+            label="Market data search · window"
+            override={config.marketDataSearchWindowMs}
+            effective={config.effectiveMarketDataSearchWindowMs}
+            bounds={config.bounds.marketDataSearchWindowMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("marketDataSearchWindowMs", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="market-data-search-limit"
+            label="Market data search · limit"
+            override={config.marketDataSearchLimit}
+            effective={config.effectiveMarketDataSearchLimit}
+            bounds={config.bounds.marketDataSearchLimit}
+            unit="req/window"
+            onSave={(v) => patchAppConfigField("marketDataSearchLimit", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="invite-status-window-ms"
+            label="Invite status · window"
+            override={config.inviteStatusWindowMs}
+            effective={config.effectiveInviteStatusWindowMs}
+            bounds={config.bounds.inviteStatusWindowMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("inviteStatusWindowMs", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="invite-status-limit"
+            label="Invite status · limit"
+            override={config.inviteStatusLimit}
+            effective={config.effectiveInviteStatusLimit}
+            bounds={config.bounds.inviteStatusLimit}
+            unit="req/window"
+            onSave={(v) => patchAppConfigField("inviteStatusLimit", v)}
+          />
+        </div>
+      </Card>
+
+      {/* ── KZO-198: Provider Health section ────────────────────────────── */}
+      <Card data-testid="admin-settings-provider-health-section">
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Provider health</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.
+            </p>
+          </div>
+          <NumericOverrideRow
+            fieldKey="provider-down-suppression-ms"
+            label="Down notification suppression"
+            description="Cooldown between repeat 'provider down' notifications for the same provider+market."
+            override={config.providerDownNotificationSuppressionMs}
+            effective={config.effectiveProviderDownNotificationSuppressionMs}
+            bounds={config.bounds.providerDownNotificationSuppressionMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("providerDownNotificationSuppressionMs", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="provider-error-trail-retention-days"
+            label="Error trail retention"
+            description="Days of historical provider errors to keep before the purge cron evicts them."
+            override={config.providerErrorTrailRetentionDays}
+            effective={config.effectiveProviderErrorTrailRetentionDays}
+            bounds={config.bounds.providerErrorTrailRetentionDays}
+            unit="days"
+            onSave={(v) => patchAppConfigField("providerErrorTrailRetentionDays", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="provider-rerun-cooldown-ms"
+            label="Re-run cooldown"
+            description="Minimum interval between admin-triggered re-runs for the same provider+market."
+            override={config.providerRerunCooldownMs}
+            effective={config.effectiveProviderRerunCooldownMs}
+            bounds={config.bounds.providerRerunCooldownMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("providerRerunCooldownMs", v)}
+          />
+        </div>
+      </Card>
+
+      {/* ── KZO-198: Backfill section ───────────────────────────────────── */}
+      <Card data-testid="admin-settings-backfill-section">
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Backfill</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.
+            </p>
+          </div>
+          <NumericOverrideRow
+            fieldKey="backfill-retry-limit"
+            label="Retry limit"
+            description="Maximum pg-boss retry attempts per backfill job before it is marked failed."
+            override={config.backfillRetryLimit}
+            effective={config.effectiveBackfillRetryLimit}
+            bounds={config.bounds.backfillRetryLimit}
+            unit="attempts"
+            onSave={(v) => patchAppConfigField("backfillRetryLimit", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="backfill-retry-delay-seconds"
+            label="Retry delay"
+            description="Base backoff between failed retries. The reschedule path additionally honours provider Retry-After."
+            override={config.backfillRetryDelaySeconds}
+            effective={config.effectiveBackfillRetryDelaySeconds}
+            bounds={config.bounds.backfillRetryDelaySeconds}
+            unit="s"
+            onSave={(v) => patchAppConfigField("backfillRetryDelaySeconds", v)}
+          />
+          <NumericOverrideRow
+            fieldKey="backfill-finmind-402-retry-ms"
+            label="FinMind 402 retry"
+            description="Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue."
+            override={config.backfillFinmind402RetryMs}
+            effective={config.effectiveBackfillFinmind402RetryMs}
+            bounds={config.bounds.backfillFinmind402RetryMs}
+            unit="ms"
+            onSave={(v) => patchAppConfigField("backfillFinmind402RetryMs", v)}
+          />
+        </div>
+      </Card>
+
+      {/* ── KZO-198: Provider Keys section (Tier 0 — masked) ────────────── */}
+      <Card data-testid="admin-settings-provider-keys-section">
+        <div className="space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Provider API keys</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Encrypted secrets stored in <code>app_config</code>. Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.
+            </p>
+          </div>
+          <MaskedSecretInput
+            fieldKey="finmind-api-token"
+            label="FinMind API token"
+            description="Bearer token used by the TWSE/FinMind data provider."
+            isSet={config.finmindApiTokenSet}
+            secretLengthBounds={config.secretLengthBounds}
+            onRotate={(plaintext) => patchAppConfigField("finmindApiToken", plaintext)}
+            onClear={() => patchAppConfigField("finmindApiToken", null)}
+          />
+          <MaskedSecretInput
+            fieldKey="twelve-data-api-key"
+            label="Twelve Data API key"
+            description="API key used by the AU catalog (Twelve Data) provider."
+            isSet={config.twelveDataApiKeySet}
+            secretLengthBounds={config.secretLengthBounds}
+            onRotate={(plaintext) => patchAppConfigField("twelveDataApiKey", plaintext)}
+            onClear={() => patchAppConfigField("twelveDataApiKey", null)}
+          />
         </div>
       </Card>
 

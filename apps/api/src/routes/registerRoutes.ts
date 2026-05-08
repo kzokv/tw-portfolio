@@ -71,7 +71,7 @@ import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../se
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
-import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/market-data/repairCooldown.js";
+import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/appConfig/repairCooldown.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
@@ -4361,7 +4361,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       })
       .parse(req.query);
 
-    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const cooldown = getEffectiveRepairCooldownMinutes();
     // KZO-169: pass `market_code` through to persistence; treat ALL/undefined
     // as "no filter".
     const marketFilter = query.market_code && query.market_code !== "ALL" ? query.market_code : undefined;
@@ -4371,7 +4371,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/monitored-tickers", async (req) => {
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const cooldown = getEffectiveRepairCooldownMinutes();
     const rows = await app.persistence.getMonitoredSet(userId);
     return { tickers: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
   });
@@ -4421,7 +4421,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const cooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const cooldown = getEffectiveRepairCooldownMinutes();
     const monitored = await app.persistence.getMonitoredSet(userId);
     const decorated = monitored.map((r) => ({
       ...r,
@@ -4510,7 +4510,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const nowMs = Date.now();
-    const effectiveCooldown = await getEffectiveRepairCooldownMinutes(app.persistence);
+    const effectiveCooldown = getEffectiveRepairCooldownMinutes();
     const queued: string[] = [];
     const rejected: Array<{ ticker: string; reason: string }> = [];
 

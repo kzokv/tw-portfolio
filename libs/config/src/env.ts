@@ -31,7 +31,8 @@ export const Env = Object.freeze({
     envInput: Pick<EnvConfig,
       "API_PORT" | "WEB_PORT" | "DB_PORT" | "REDIS_PORT" |
       "AUTH_MODE" | "NODE_ENV" |
-      "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "GOOGLE_REDIRECT_URI" | "SESSION_SECRET"
+      "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "GOOGLE_REDIRECT_URI" | "SESSION_SECRET" |
+      "APP_CONFIG_ENCRYPTION_KEY"
     > = _parsed,
   ): void {
     const ports = [envInput.API_PORT, envInput.WEB_PORT, envInput.DB_PORT, envInput.REDIS_PORT];
@@ -50,6 +51,17 @@ export const Env = Object.freeze({
       if (missing.length > 0) {
         throw new Error(`AUTH_MODE=oauth requires the following env vars to be set: ${missing.join(", ")}`);
       }
+    }
+
+    // KZO-198: APP_CONFIG_ENCRYPTION_KEY is required in non-test runtimes so
+    // Tier 0 secrets (FinMind, Twelve Data) can be encrypted/decrypted at the
+    // app_config layer. Tests run with PERSISTENCE_BACKEND=memory and never
+    // touch the encryption path, so we exempt NODE_ENV=test from the gate.
+    if (envInput.NODE_ENV !== "test" && !envInput.APP_CONFIG_ENCRYPTION_KEY) {
+      throw new Error(
+        "APP_CONFIG_ENCRYPTION_KEY is required (64 lowercase hex chars). " +
+        "Generate with `openssl rand -hex 32`.",
+      );
     }
 
     Env.validateHostConsistency(_parsed);

@@ -1,44 +1,55 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Env } from "@tw-portfolio/config";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
+import {
+  _resetAppConfigCache,
+  refresh as refreshAppConfigCache,
+  setAppConfigCachePersistence,
+} from "../../src/services/appConfig/cache.js";
 import {
   deriveRepairAvailableAt,
   getEffectiveRepairCooldownMinutes,
   remainingCooldownMinutes,
-} from "../../src/services/market-data/repairCooldown.js";
+} from "../../src/services/appConfig/repairCooldown.js";
 
-// ── getEffectiveRepairCooldownMinutes ────────────────────────────────────────
+// ── getEffectiveRepairCooldownMinutes (KZO-198 cache-based) ──────────────────
 
 describe("getEffectiveRepairCooldownMinutes", () => {
   let persistence: MemoryPersistence;
 
   beforeEach(async () => {
+    _resetAppConfigCache();
     persistence = new MemoryPersistence();
     await persistence.init();
+    setAppConfigCachePersistence(persistence);
   });
 
-  it("returns Env.REPAIR_COOLDOWN_MINUTES when persistence returns null", async () => {
+  afterEach(() => {
+    _resetAppConfigCache();
+  });
+
+  it("returns Env.REPAIR_COOLDOWN_MINUTES when DB value is null", async () => {
     persistence._setRepairCooldownMinutes(null);
-    const result = await getEffectiveRepairCooldownMinutes(persistence);
-    expect(result).toBe(Env.REPAIR_COOLDOWN_MINUTES);
+    await refreshAppConfigCache();
+    expect(getEffectiveRepairCooldownMinutes()).toBe(Env.REPAIR_COOLDOWN_MINUTES);
   });
 
-  it("returns DB value when persistence returns a positive integer", async () => {
+  it("returns DB value when set", async () => {
     persistence._setRepairCooldownMinutes(15);
-    const result = await getEffectiveRepairCooldownMinutes(persistence);
-    expect(result).toBe(15);
+    await refreshAppConfigCache();
+    expect(getEffectiveRepairCooldownMinutes()).toBe(15);
   });
 
-  it("honors DB value of 1 (minimum allowed by CHECK constraint)", async () => {
+  it("honors DB value of 1", async () => {
     persistence._setRepairCooldownMinutes(1);
-    const result = await getEffectiveRepairCooldownMinutes(persistence);
-    expect(result).toBe(1);
+    await refreshAppConfigCache();
+    expect(getEffectiveRepairCooldownMinutes()).toBe(1);
   });
 
   it("DB value takes precedence when it differs from env default", async () => {
-    // env default is 60; set DB to a deliberately different value
     persistence._setRepairCooldownMinutes(5);
-    const result = await getEffectiveRepairCooldownMinutes(persistence);
+    await refreshAppConfigCache();
+    const result = getEffectiveRepairCooldownMinutes();
     expect(result).toBe(5);
     expect(result).not.toBe(Env.REPAIR_COOLDOWN_MINUTES);
   });
@@ -118,7 +129,6 @@ describe("remainingCooldownMinutes", () => {
 
   it("ceils fractional remaining minutes (0.5 remaining → 1)", () => {
     const now = Date.now();
-    // 59 min 30 sec elapsed in a 60-min cooldown → 30 sec = 0.5 min remaining
     const almostExpired = new Date(now - (60 * 60_000 - 30_000)).toISOString();
     expect(remainingCooldownMinutes(almostExpired, 60, now)).toBe(1);
   });

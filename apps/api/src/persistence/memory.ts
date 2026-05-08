@@ -270,6 +270,12 @@ export class MemoryPersistence implements Persistence {
   /** App config: AU metadata enrichment mode override (KZO-189).
    *  null = unset, callers fall back to Env.METADATA_ENRICHMENT_MODE. */
   private _metadataEnrichmentMode: "unconditional" | "conditional" | null = null;
+  /** KZO-198: Tier 0 encrypted secrets — stored as `nonce_b64:ct+tag_b64`.
+   *  null = unset, callers (resolvers) fall back to env. */
+  private _finmindApiTokenEncrypted: string | null = null;
+  private _twelveDataApiKeyEncrypted: string | null = null;
+  /** KZO-198: Tier 1/2 plain overrides — keyed by AppConfigPlainField. */
+  private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, number | null>> = {};
   /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
    *  construction so a fresh MemoryPersistence always has a non-null value. */
   private _appConfigUpdatedAt: string = new Date().toISOString();
@@ -2274,16 +2280,118 @@ export class MemoryPersistence implements Persistence {
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
+    finmindApiTokenEncrypted: string | null;
+    twelveDataApiKeyEncrypted: string | null;
+    marketDataPriceWindowMs: number | null;
+    marketDataPriceLimit: number | null;
+    marketDataSearchWindowMs: number | null;
+    marketDataSearchLimit: number | null;
+    inviteStatusWindowMs: number | null;
+    inviteStatusLimit: number | null;
+    providerDownNotificationSuppressionMs: number | null;
+    providerErrorTrailRetentionDays: number | null;
+    providerRerunCooldownMs: number | null;
+    backfillRetryLimit: number | null;
+    backfillRetryDelaySeconds: number | null;
+    backfillFinmind402RetryMs: number | null;
+    dailyRefreshLookbackDays: number | null;
+    dailyRefreshPriority: number | null;
+    sseHeartbeatIntervalMs: number | null;
+    sseMaxConnectionsPerUser: number | null;
+    sseBufferDefaultTtlMs: number | null;
     updatedAt: string;
   }> {
+    const p = this._appConfigPlain;
     return {
       repairCooldownMinutes: this._repairCooldownMinutes,
       dashboardPerformanceRanges: this._dashboardPerformanceRanges
         ? [...this._dashboardPerformanceRanges]
         : null,
       metadataEnrichmentMode: this._metadataEnrichmentMode,
+      finmindApiTokenEncrypted: this._finmindApiTokenEncrypted,
+      twelveDataApiKeyEncrypted: this._twelveDataApiKeyEncrypted,
+      marketDataPriceWindowMs: p.marketDataPriceWindowMs ?? null,
+      marketDataPriceLimit: p.marketDataPriceLimit ?? null,
+      marketDataSearchWindowMs: p.marketDataSearchWindowMs ?? null,
+      marketDataSearchLimit: p.marketDataSearchLimit ?? null,
+      inviteStatusWindowMs: p.inviteStatusWindowMs ?? null,
+      inviteStatusLimit: p.inviteStatusLimit ?? null,
+      providerDownNotificationSuppressionMs: p.providerDownNotificationSuppressionMs ?? null,
+      providerErrorTrailRetentionDays: p.providerErrorTrailRetentionDays ?? null,
+      providerRerunCooldownMs: p.providerRerunCooldownMs ?? null,
+      backfillRetryLimit: p.backfillRetryLimit ?? null,
+      backfillRetryDelaySeconds: p.backfillRetryDelaySeconds ?? null,
+      backfillFinmind402RetryMs: p.backfillFinmind402RetryMs ?? null,
+      dailyRefreshLookbackDays: p.dailyRefreshLookbackDays ?? null,
+      dailyRefreshPriority: p.dailyRefreshPriority ?? null,
+      sseHeartbeatIntervalMs: p.sseHeartbeatIntervalMs ?? null,
+      sseMaxConnectionsPerUser: p.sseMaxConnectionsPerUser ?? null,
+      sseBufferDefaultTtlMs: p.sseBufferDefaultTtlMs ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
+  }
+
+  async setAppConfigField(
+    field: import("./types.js").AppConfigPlainField,
+    value: number | null,
+  ): Promise<void> {
+    if (value === null) {
+      delete this._appConfigPlain[field];
+    } else {
+      this._appConfigPlain[field] = value;
+    }
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  async setAppConfigEncryptedSecret(
+    field: "finmindApiToken" | "twelveDataApiKey",
+    plaintext: string | null,
+  ): Promise<void> {
+    const { encryptSecret } = await import("../services/appConfig/encryption.js");
+    const stored = plaintext === null ? null : encryptSecret(plaintext);
+    if (field === "finmindApiToken") {
+      this._finmindApiTokenEncrypted = stored;
+    } else {
+      this._twelveDataApiKeyEncrypted = stored;
+    }
+    this._bumpAppConfigUpdatedAt();
+  }
+
+  async setAppConfigPatch(patch: import("./types.js").AppConfigPatch): Promise<void> {
+    const { APP_CONFIG_PLAIN_COLUMNS } = await import("./types.js");
+    let touched = false;
+    for (const key of Object.keys(APP_CONFIG_PLAIN_COLUMNS) as Array<
+      import("./types.js").AppConfigPlainField
+    >) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
+        const value = patch[key] ?? null;
+        if (value === null) {
+          delete this._appConfigPlain[key];
+        } else {
+          this._appConfigPlain[key] = value;
+        }
+        touched = true;
+      }
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
+      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")
+    ) {
+      const { encryptSecret } = await import("../services/appConfig/encryption.js");
+      if (Object.prototype.hasOwnProperty.call(patch, "finmindApiToken")) {
+        this._finmindApiTokenEncrypted =
+          patch.finmindApiToken == null ? null : encryptSecret(patch.finmindApiToken);
+        touched = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
+        this._twelveDataApiKeyEncrypted =
+          patch.twelveDataApiKey == null ? null : encryptSecret(patch.twelveDataApiKey);
+        touched = true;
+      }
+    }
+
+    if (touched) this._bumpAppConfigUpdatedAt();
   }
 
   async setRepairCooldownMinutes(value: number | null): Promise<void> {

@@ -3,13 +3,23 @@ import type { MarketCode } from "@tw-portfolio/domain";
 import type { Persistence } from "../../persistence/types.js";
 import type { BackfillJobData } from "./backfillWorker.js";
 import { BACKFILL_QUEUE } from "./backfillWorker.js";
+import {
+  getEffectiveDailyRefreshLookbackDays,
+  getEffectiveDailyRefreshPriority,
+} from "../appConfig/backfill.js";
 
+/**
+ * @deprecated KZO-198 — prefer `getEffectiveDailyRefreshLookbackDays()` /
+ * `getEffectiveDailyRefreshPriority()` from `services/appConfig/backfill.ts`.
+ * Retained here as the back-compat env-default snapshot.
+ */
 export const DAILY_REFRESH_LOOKBACK_DAYS = 7;
 export const DAILY_REFRESH_PRIORITY = 10;
 
 export function getDailyRefreshStartDate(now: Date = new Date()): string {
   const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  startDate.setUTCDate(startDate.getUTCDate() - DAILY_REFRESH_LOOKBACK_DAYS);
+  // KZO-198: read live (DB override → env).
+  startDate.setUTCDate(startDate.getUTCDate() - getEffectiveDailyRefreshLookbackDays());
   return startDate.toISOString().slice(0, 10);
 }
 
@@ -59,7 +69,8 @@ export async function enqueueDailyRefresh(
       boss.send(
         BACKFILL_QUEUE,
         { ticker, marketCode: marketCode as BackfillJobData["marketCode"], trigger, startDate, batchId } satisfies BackfillJobData,
-        { priority: DAILY_REFRESH_PRIORITY, singletonKey: `${ticker}:${marketCode}` },
+        // KZO-198: read live (DB override → env).
+        { priority: getEffectiveDailyRefreshPriority(), singletonKey: `${ticker}:${marketCode}` },
       ),
     ),
   );

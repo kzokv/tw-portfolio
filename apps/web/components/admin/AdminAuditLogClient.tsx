@@ -76,6 +76,28 @@ function formatTimestamp(dateStr: string): string {
 
 function formatMetadata(metadata: Record<string, unknown>): string {
   const parts: string[] = [];
+
+  // KZO-198 — `app_config_updated` rows carry a discriminator under
+  // `metadata.type`. `rotation` rows record secret rotations and intentionally
+  // do NOT include before/after — the value is never stored. Legacy rows
+  // (created before KZO-198) have no `type` key and fall through to the
+  // existing `value_change` rendering below.
+  if (metadata.type === "rotation") {
+    const field = typeof metadata.field === "string" ? metadata.field : "secret";
+    return `Rotated ${field} (value not stored in audit log)`;
+  }
+
+  // `value_change` (or absent type — backfilled to value_change). When
+  // `before`/`after` are present, render a compact diff. Server may also
+  // include `field` to disambiguate which knob changed when the row covers
+  // the generic `app_config_updated` action.
+  if (metadata.before !== undefined || metadata.after !== undefined) {
+    const field = typeof metadata.field === "string" ? `${metadata.field}: ` : "";
+    const before = metadata.before === undefined ? "—" : JSON.stringify(metadata.before);
+    const after = metadata.after === undefined ? "—" : JSON.stringify(metadata.after);
+    return `${field}${before} → ${after}`;
+  }
+
   if (metadata.fromRole && metadata.toRole) {
     parts.push(`${String(metadata.fromRole)} → ${String(metadata.toRole)}`);
   }

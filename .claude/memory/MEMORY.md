@@ -32,6 +32,14 @@
 ## Team / docs patterns
 - [project_team_doc_patterns.md](project_team_doc_patterns.md) — Transition note process-notes section + runbook numbered section for new market data providers
 
+## Promoted to .claude/rules/ (KZO-198)
+- `fastify-app-config-bootstrap.md` — onReady hook + eager pre-warm + resolver gates for TTL caches consumed during buildApp()
+- `app-config-cache-coherency.md` — generation counter + PATCH-response bypass for TTL caches that back PATCH endpoints
+- `env-setup-autogen-required-secrets.md` — register new required Env entries in autoGenerateKeys + shell-quote env values containing spaces
+- `fastify-eviction-lifecycle-pattern.md` (addendum) — sweep parameter is admin-tunable; cadence stays env-default
+- `vitest-config-patterns.md` (addendum) — Env-Proxy pattern for per-test mutation of frozen Env fields
+- `cash-ledger-act-warnings-cosmetic.md` — pre-existing CashLedgerClient act() stderr is known-noisy; skip in PR review
+
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185

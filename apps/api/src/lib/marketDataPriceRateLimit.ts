@@ -1,17 +1,24 @@
 import type { FastifyInstance } from "fastify";
+import { Env } from "@tw-portfolio/config";
 import { routeError } from "./routeError.js";
 import { sweepSlidingWindowBucket } from "./slidingWindowBucket.js";
+import {
+  getEffectiveMarketDataPriceWindowMs,
+  getEffectiveMarketDataPriceLimit,
+} from "../services/appConfig/rateLimits.js";
 
 const marketDataPriceBuckets = new Map<string, number[]>();
-const MARKET_DATA_PRICE_WINDOW_MS = 60_000;
-const MARKET_DATA_PRICE_LIMIT = 30;
 
 export function assertMarketDataPriceRateLimit(ip: string): void {
+  // KZO-198: read live (DB override → env). Each request resolves the
+  // effective window/limit so admin overrides take effect within cache TTL.
+  const windowMs = getEffectiveMarketDataPriceWindowMs();
+  const limit = getEffectiveMarketDataPriceLimit();
   const now = Date.now();
   const recent = (marketDataPriceBuckets.get(ip) ?? []).filter(
-    (timestamp) => now - timestamp < MARKET_DATA_PRICE_WINDOW_MS,
+    (timestamp) => now - timestamp < windowMs,
   );
-  if (recent.length >= MARKET_DATA_PRICE_LIMIT) {
+  if (recent.length >= limit) {
     throw routeError(429, "rate_limit_exceeded", "rate limit exceeded");
   }
   recent.push(now);
@@ -23,9 +30,14 @@ export function _resetMarketDataPriceBuckets(): void {
 }
 
 export function registerMarketDataPriceEviction(app: FastifyInstance): void {
+  // KZO-198 / fastify-eviction-lifecycle-pattern.md: the `setInterval`
+  // CADENCE (interval argument) stays at boot-time env — load-bearing rule.
+  // The sweep CALLBACK reads the effective window via the resolver so when
+  // an admin extends the window, in-flight entries that are still within
+  // the live window are not prematurely evicted.
   const timer = setInterval(
-    () => sweepSlidingWindowBucket(marketDataPriceBuckets, MARKET_DATA_PRICE_WINDOW_MS),
-    MARKET_DATA_PRICE_WINDOW_MS,
+    () => sweepSlidingWindowBucket(marketDataPriceBuckets, getEffectiveMarketDataPriceWindowMs()),
+    Env.MARKET_DATA_PRICE_WINDOW_MS,
   );
   app.addHook("onClose", () => { clearInterval(timer); });
 }

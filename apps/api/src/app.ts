@@ -149,6 +149,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");
   const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
   app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
+
+  // KZO-198: bind the app_config TTL cache to live persistence + eager pre-
+  // warm BEFORE downstream init that consumes effective values (e.g. the
+  // market-data registry's real-vs-mock provider gate, pg-boss queue options
+  // sourced from `getEffectiveBackfillRetryLimit`). Without this, those
+  // consumers read env-only defaults at boot and the DB override silently
+  // never takes effect on the first run after deploy. Failures here don't
+  // block boot — resolvers gracefully fall back to env.
+  const { setAppConfigCachePersistence, refresh: refreshAppConfigCache } =
+    await import("./services/appConfig/cache.js");
+  setAppConfigCachePersistence(app.persistence);
+  // Note: persistence.init() (line below) creates the singleton row; we call
+  // it BEFORE the eager pre-warm so the SELECT in `getAppConfig()` succeeds.
+  await app.persistence.init();
+  try {
+    await refreshAppConfigCache();
+  } catch (err) {
+    app.log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "app_config_cache_prewarm_failed",
+    );
+  }
+
   app.marketDataRegistry = buildMarketDataRegistry(Env);
   registerTradingCalendarCache(app, { persistence: app.persistence });
   registerProviderHealth(app, { persistence: app.persistence });
@@ -175,7 +198,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   }
   app.oauthConfig = options.oauthConfig !== undefined ? options.oauthConfig : Env.getGoogleOAuthEnvConfig();
   app.appBaseUrl = options.appBaseUrl ?? Env.APP_BASE_URL ?? "http://localhost:3000";
-  await app.persistence.init();
+  // KZO-198: a defensive `onReady` re-warm guards the ready-chain transition.
+  // The eager pre-warm above gives downstream init (registry, queue options)
+  // the hot cache; this hook keeps the cache fresh if `app.ready()` is called
+  // long after `buildApp()` returns (idempotent — coalesces under in-flight
+  // refresh).
+  app.addHook("onReady", async () => {
+    try {
+      await refreshAppConfigCache();
+    } catch (err) {
+      app.log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "app_config_cache_prewarm_failed",
+      );
+    }
+  });
   await bootstrapAdminAccess(app);
 
   // KZO-37: Fire-and-forget dividend ledger backfill on boot. Brings stored

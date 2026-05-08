@@ -42,3 +42,27 @@ export function registerRoutes(app: FastifyInstance, ...) {
 **Why:** Inlining `setInterval` blocks in `registerRoutes.ts` hides cleanup logic and couples eviction lifecycle to the route file. The factory pattern keeps Fastify lifecycle coupling at the module edge. The `onClose` hook ensures graceful teardown in tests and server restarts — without it, leaked timers cause test hangs. Extracted in KZO-155 from two inline blocks that had grown unbounded in `registerRoutes.ts`.
 
 **How to apply:** Any time a new sliding-window rate limiter, in-memory cache with TTL, or periodic sweep is added to the API. Also applies retroactively when reviewing `registerRoutes.ts` — any bare `setInterval` without a paired `onClose` is a bug waiting to surface in test teardown.
+
+## Sweep parameter is admin-tunable; sweep cadence stays env-default
+
+The `setInterval` interval (the second arg — the schedule) MUST stay at the env-default and MUST NOT be re-read per tick. But the **window value passed into the sweep callback** must be the live effective value, not the env-default captured at registration. Otherwise an admin-extended window prematurely drops in-flight entries — the bucket is deleted before the configured longer window expires, and subsequent requests aren't counted against the override.
+
+```ts
+// ❌ Wrong — sweeps using env window even when an admin override extends it
+const timer = setInterval(
+  () => sweepSlidingWindowBucket(buckets, Env.WINDOW_MS),  // captured at registration
+  Env.WINDOW_MS,
+);
+
+// ✅ Correct — schedule fixed; sweep parameter live
+const timer = setInterval(
+  () => sweepSlidingWindowBucket(buckets, getEffectiveWindowMs()),  // live per-tick
+  Env.WINDOW_MS,                                                    // cadence stays env
+);
+```
+
+**Two-axis decoupling:** schedule = static (env, captured once at registration), sweep parameter = live (read via resolver inside the callback).
+
+**Why:** KZO-198 Codex P2 #1. Admin extended `MARKET_DATA_PRICE_WINDOW_MS` from 60s (env default) to 600s via `app_config`. The sweep timer kept firing every 60s and deleted the bucket once the IP was idle for >60s. Subsequent requests started a fresh bucket — the longer override never enforced. Same pattern applied to search and invite-status limiters.
+
+**How to apply:** Any sliding-window or TTL-sweep limiter where the window length is admin-tunable but the schedule is not. Pre-PR check: every `setInterval(() => sweep(buckets, X), Y)` site — `X` should be a live resolver call, not a captured env constant.

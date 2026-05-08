@@ -106,6 +106,65 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 
 ---
 
+## Env-Proxy Pattern for Per-Test Mutation of Frozen Env Fields
+
+`Env` (in `libs/config/src/env.ts`) parses `process.env` once at module load and returns `Object.freeze({..._parsed, validateEnvConstraints})`. Any code that reads `Env.SOMETHING` captures the value at module-load time. Two consequences for tests:
+
+- `vi.stubEnv("SOMETHING", value)` mutates `process.env.SOMETHING` only — it does NOT change `Env.SOMETHING`.
+- A naive `vi.mock("@tw-portfolio/config")` factory that replaces `Env: { SOMETHING: TEST_VALUE, ... }` is static — you can't mutate it per-test.
+
+When a test file needs **per-test** mutation of an Env-read field (e.g., to drive different encryption keys, feature flags, or thresholds across `it()` blocks), wrap the original `Env` in a Proxy that consults a mutable `mockEnv` overlay at access time:
+
+```ts
+// At the top of the test file (BEFORE any imports of code-under-test)
+const mockEnv: Partial<Record<string, string | undefined>> = {
+  APP_CONFIG_ENCRYPTION_KEY: TEST_KEY,
+};
+
+vi.mock("@tw-portfolio/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+  return {
+    ...original,
+    Env: new Proxy(
+      { ...original.Env },
+      {
+        get(target, prop) {
+          if (prop in mockEnv) {
+            return (mockEnv as Record<string, unknown>)[prop as string];
+          }
+          return (target as Record<string | symbol, unknown>)[prop];
+        },
+      },
+    ),
+  };
+});
+
+// Code-under-test imported AFTER vi.mock so the mock takes effect:
+const { encryptSecret } = await import("../../../src/services/appConfig/encryption.js");
+
+beforeEach(() => {
+  mockEnv.APP_CONFIG_ENCRYPTION_KEY = TEST_KEY;  // reset overlay to default
+});
+```
+
+**Why this beats `vi.stubEnv`:** `vi.stubEnv` only touches `process.env`. A frozen `Env` object that read `process.env` at boot is unaffected. The Proxy reads `mockEnv[prop]` at call time — every consumer sees the current per-test value. Falls through to the original Env for any field NOT in `mockEnv`.
+
+**Why this beats a static `Env: { ...override }` factory:** A static factory captures the override at mock-evaluation time. Per-test mutation would require calling `vi.mock` again, which Vitest does not allow mid-file. The Proxy is a single mock factory; per-test mutations are normal property assignments on `mockEnv`.
+
+**When NOT to use:**
+- If the test file only needs a single fixed Env value, a static `Env: { ...original.Env, FIELD: VALUE }` factory is simpler.
+- If the code-under-test reads `process.env.X` directly (not `Env.X`), `vi.stubEnv` is the right tool.
+
+**Combine with method overrides:** for tests that need both per-test field mutation AND `Env.getDatabaseUrl()` / `Env.getRedisUrl()` overrides, layer the method replacements onto the Proxy target (or include them in `mockEnv` and route through the `get` trap).
+
+**Worker-pool watch-out:** A `vi.mock("@tw-portfolio/config")` at the top of one file CAN leak into other files sharing a Vitest worker if the runner reuses the module cache (observed once during KZO-198 Phase 1+2 — 53 cross-file failures, vanished on re-run). Mitigation if it recurs: pin `pool: "forks"` for affected files, or add `vi.unmock` / `vi.resetModules()` in `afterAll`. Not seen consistently; revisit only if flake repeats.
+
+**Why:** Discovered during KZO-198 Phase 1+2 while writing `appConfig/encryption.test.ts` and `appConfig/providerKeys.test.ts`. Tests needed to drive `APP_CONFIG_ENCRYPTION_KEY` differently per case (round-trip vs tampered ciphertext vs bad key). Static field overrides couldn't do it; `vi.stubEnv` couldn't reach the frozen `Env`. The Proxy pattern is the canonical solution and was approved for promotion by the Architect during Phase 3 triage.
+
+**Canonical references:** `apps/api/test/unit/appConfig/encryption.test.ts`, `apps/api/test/unit/appConfig/providerKeys.test.ts`.
+
+---
+
 ## Alias Resolution Order
 
 Vitest alias resolution is ordered — more specific package aliases must precede less specific ones. The first matching alias wins, so prefix clobbering occurs if a short alias appears before a longer one.

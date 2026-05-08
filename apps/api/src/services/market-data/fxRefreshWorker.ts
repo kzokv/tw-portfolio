@@ -1,4 +1,5 @@
 import type { JobWithMetadata } from "pg-boss";
+import { Env } from "@tw-portfolio/config";
 import type { Persistence } from "../../persistence/types.js";
 import type { FxRate, FxRateProvider, FxRefreshJobData } from "./types.js";
 import { RateLimitedError } from "./types.js";
@@ -8,8 +9,12 @@ import { classifyProviderError } from "./backfillWorker.js";
 
 /** KZO-164: pg-boss queue name. */
 export const FX_REFRESH_QUEUE = "fx-refresh";
-/** KZO-164: cron spec — daily at 22:00 UTC. By this hour CBC/RBA/ECB have published. */
-export const FX_REFRESH_CRON = "0 22 * * *";
+/**
+ * KZO-198: cron sourced from `Env.FX_REFRESH_CRON` (Tier 3, restart-required).
+ * Default `"0 22 * * *"` (daily 22:00 UTC) when env unset — by this hour
+ * CBC/RBA/ECB have published.
+ */
+export const FX_REFRESH_CRON = Env.FX_REFRESH_CRON;
 
 /**
  * KZO-164 Phase 1.5 invariant #4 — hardcoded for v1. KZO-170 (US) and KZO-171 (AU) will

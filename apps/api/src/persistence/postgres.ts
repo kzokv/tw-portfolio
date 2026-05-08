@@ -5917,34 +5917,205 @@ export class PostgresPersistence implements Persistence {
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
+    finmindApiTokenEncrypted: string | null;
+    twelveDataApiKeyEncrypted: string | null;
+    marketDataPriceWindowMs: number | null;
+    marketDataPriceLimit: number | null;
+    marketDataSearchWindowMs: number | null;
+    marketDataSearchLimit: number | null;
+    inviteStatusWindowMs: number | null;
+    inviteStatusLimit: number | null;
+    providerDownNotificationSuppressionMs: number | null;
+    providerErrorTrailRetentionDays: number | null;
+    providerRerunCooldownMs: number | null;
+    backfillRetryLimit: number | null;
+    backfillRetryDelaySeconds: number | null;
+    backfillFinmind402RetryMs: number | null;
+    dailyRefreshLookbackDays: number | null;
+    dailyRefreshPriority: number | null;
+    sseHeartbeatIntervalMs: number | null;
+    sseMaxConnectionsPerUser: number | null;
+    sseBufferDefaultTtlMs: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
       repair_cooldown_minutes: number | null;
       dashboard_performance_ranges: string[] | null;
       metadata_enrichment_mode: "unconditional" | "conditional" | null;
+      finmind_api_token: string | null;
+      twelve_data_api_key: string | null;
+      market_data_price_window_ms: number | null;
+      market_data_price_limit: number | null;
+      market_data_search_window_ms: number | null;
+      market_data_search_limit: number | null;
+      invite_status_window_ms: number | null;
+      invite_status_limit: number | null;
+      provider_down_notification_suppression_ms: number | string | null;
+      provider_error_trail_retention_days: number | null;
+      provider_rerun_cooldown_ms: number | string | null;
+      backfill_retry_limit: number | null;
+      backfill_retry_delay_seconds: number | null;
+      backfill_finmind_402_retry_ms: number | string | null;
+      daily_refresh_lookback_days: number | null;
+      daily_refresh_priority: number | null;
+      sse_heartbeat_interval_ms: number | null;
+      sse_max_connections_per_user: number | null;
+      sse_buffer_default_ttl_ms: number | string | null;
       updated_at: Date | string;
     }>(
-      "SELECT repair_cooldown_minutes, dashboard_performance_ranges, metadata_enrichment_mode, updated_at FROM public.app_config WHERE id = 1",
+      `SELECT
+         repair_cooldown_minutes, dashboard_performance_ranges, metadata_enrichment_mode,
+         finmind_api_token, twelve_data_api_key,
+         market_data_price_window_ms, market_data_price_limit,
+         market_data_search_window_ms, market_data_search_limit,
+         invite_status_window_ms, invite_status_limit,
+         provider_down_notification_suppression_ms, provider_error_trail_retention_days, provider_rerun_cooldown_ms,
+         backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
+         daily_refresh_lookback_days, daily_refresh_priority,
+         sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
+         updated_at
+       FROM public.app_config WHERE id = 1`,
     );
     if (r.rowCount === 0) {
-      console.warn("[app_config] row missing — falling back to env REPAIR_COOLDOWN_MINUTES");
+      console.warn("[app_config] row missing — falling back to env defaults");
       return {
         repairCooldownMinutes: null,
         dashboardPerformanceRanges: null,
         metadataEnrichmentMode: null,
+        finmindApiTokenEncrypted: null,
+        twelveDataApiKeyEncrypted: null,
+        marketDataPriceWindowMs: null,
+        marketDataPriceLimit: null,
+        marketDataSearchWindowMs: null,
+        marketDataSearchLimit: null,
+        inviteStatusWindowMs: null,
+        inviteStatusLimit: null,
+        providerDownNotificationSuppressionMs: null,
+        providerErrorTrailRetentionDays: null,
+        providerRerunCooldownMs: null,
+        backfillRetryLimit: null,
+        backfillRetryDelaySeconds: null,
+        backfillFinmind402RetryMs: null,
+        dailyRefreshLookbackDays: null,
+        dailyRefreshPriority: null,
+        sseHeartbeatIntervalMs: null,
+        sseMaxConnectionsPerUser: null,
+        sseBufferDefaultTtlMs: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
     const row = r.rows[0];
     const rawUpdatedAt = row.updated_at;
     const updatedAt = rawUpdatedAt instanceof Date ? rawUpdatedAt.toISOString() : new Date(rawUpdatedAt).toISOString();
+    // pg returns BIGINT as string by default. Coerce to number for the cache;
+    // values fit comfortably in JS Number range (≤ ~7 days in ms).
+    const num = (v: number | string | null): number | null =>
+      v === null ? null : typeof v === "number" ? v : Number(v);
     return {
       repairCooldownMinutes: row.repair_cooldown_minutes,
       dashboardPerformanceRanges: row.dashboard_performance_ranges,
       metadataEnrichmentMode: row.metadata_enrichment_mode,
+      finmindApiTokenEncrypted: row.finmind_api_token,
+      twelveDataApiKeyEncrypted: row.twelve_data_api_key,
+      marketDataPriceWindowMs: row.market_data_price_window_ms,
+      marketDataPriceLimit: row.market_data_price_limit,
+      marketDataSearchWindowMs: row.market_data_search_window_ms,
+      marketDataSearchLimit: row.market_data_search_limit,
+      inviteStatusWindowMs: row.invite_status_window_ms,
+      inviteStatusLimit: row.invite_status_limit,
+      providerDownNotificationSuppressionMs: num(row.provider_down_notification_suppression_ms),
+      providerErrorTrailRetentionDays: row.provider_error_trail_retention_days,
+      providerRerunCooldownMs: num(row.provider_rerun_cooldown_ms),
+      backfillRetryLimit: row.backfill_retry_limit,
+      backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
+      backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
+      dailyRefreshLookbackDays: row.daily_refresh_lookback_days,
+      dailyRefreshPriority: row.daily_refresh_priority,
+      sseHeartbeatIntervalMs: row.sse_heartbeat_interval_ms,
+      sseMaxConnectionsPerUser: row.sse_max_connections_per_user,
+      sseBufferDefaultTtlMs: num(row.sse_buffer_default_ttl_ms),
       updatedAt,
     };
+  }
+
+  async setAppConfigField(
+    field: import("./types.js").AppConfigPlainField,
+    value: number | null,
+  ): Promise<void> {
+    const { APP_CONFIG_PLAIN_COLUMNS } = await import("./types.js");
+    const column = APP_CONFIG_PLAIN_COLUMNS[field];
+    if (!column) {
+      throw new Error(`unknown AppConfigPlainField: ${field}`);
+    }
+    // Identifier interpolation is safe — `column` comes from a static const map.
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, ${column}, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET ${column} = $1, updated_at = NOW()`,
+      [value],
+    );
+  }
+
+  async setAppConfigEncryptedSecret(
+    field: "finmindApiToken" | "twelveDataApiKey",
+    plaintext: string | null,
+  ): Promise<void> {
+    const { encryptSecret } = await import("../services/appConfig/encryption.js");
+    const column = field === "finmindApiToken" ? "finmind_api_token" : "twelve_data_api_key";
+    const stored = plaintext === null ? null : encryptSecret(plaintext);
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, ${column}, updated_at)
+       VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET ${column} = $1, updated_at = NOW()`,
+      [stored],
+    );
+  }
+
+  async setAppConfigPatch(patch: import("./types.js").AppConfigPatch): Promise<void> {
+    const { APP_CONFIG_PLAIN_COLUMNS } = await import("./types.js");
+    const columns: string[] = [];
+    const values: Array<number | string | null> = [];
+
+    for (const [key, column] of Object.entries(APP_CONFIG_PLAIN_COLUMNS) as Array<[
+      import("./types.js").AppConfigPlainField,
+      string,
+    ]>) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
+        columns.push(column);
+        values.push(patch[key] ?? null);
+      }
+    }
+
+    // Tier 0 secrets — encrypt inline so plaintext never lives outside this
+    // method.
+    let encryptSecret: ((p: string) => string) | null = null;
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
+      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")
+    ) {
+      const mod = await import("../services/appConfig/encryption.js");
+      encryptSecret = mod.encryptSecret;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "finmindApiToken")) {
+      columns.push("finmind_api_token");
+      values.push(patch.finmindApiToken == null ? null : encryptSecret!(patch.finmindApiToken));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
+      columns.push("twelve_data_api_key");
+      values.push(patch.twelveDataApiKey == null ? null : encryptSecret!(patch.twelveDataApiKey));
+    }
+
+    if (columns.length === 0) return;
+
+    const insertCols = columns.join(", ");
+    const insertPlaceholders = columns.map((_, i) => `$${i + 1}`).join(", ");
+    const setClause = columns.map((c, i) => `${c} = $${i + 1}`).join(", ");
+    await this.pool.query(
+      `INSERT INTO public.app_config (id, ${insertCols}, updated_at)
+       VALUES (1, ${insertPlaceholders}, NOW())
+       ON CONFLICT (id) DO UPDATE SET ${setClause}, updated_at = NOW()`,
+      values,
+    );
   }
 
   async setRepairCooldownMinutes(value: number | null): Promise<void> {

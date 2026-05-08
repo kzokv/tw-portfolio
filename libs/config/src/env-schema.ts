@@ -87,6 +87,56 @@ export const envSchema = z.object({
   // affordance for AU (Yahoo `search()` per-query). 20/min is generous enough for
   // typeahead UX while keeping abuse off the upstream budget.
   MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
+
+  // ========================================================================
+  // KZO-198 — Hybrid env+app_config Tier A operational constants.
+  // Each of the env vars below is the fallback default used when the matching
+  // `app_config.<column>` is NULL. The DB override (when set) wins. See
+  // apps/api/src/services/appConfig/ for the per-category resolvers and
+  // db/migrations/047_kzo198_app_config_tier_a_constants.sql for the schema.
+  // ========================================================================
+
+  // KZO-198 Tier 0 — app-level encryption key for Tier 0 secrets stored in
+  // app_config (FinMind + Twelve Data API tokens). Raw 32-byte key encoded
+  // as 64 lowercase hex chars. Validated at boot in non-test runtimes via
+  // `Env.validateEnvConstraints()`. Generate with:
+  //   `openssl rand -hex 32`
+  // Rotation requires a re-encrypt migration (out of scope for KZO-198).
+  APP_CONFIG_ENCRYPTION_KEY: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+
+  // KZO-198 Tier 1 — rate-limit fallbacks for the existing per-IP limiters.
+  // The matching app_config columns override these when set.
+  MARKET_DATA_PRICE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  MARKET_DATA_PRICE_LIMIT: z.coerce.number().int().positive().default(30),
+  MARKET_DATA_SEARCH_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  INVITE_STATUS_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  INVITE_STATUS_LIMIT: z.coerce.number().int().positive().default(20),
+
+  // KZO-198 Tier 1 — provider-health levers.
+  PROVIDER_DOWN_NOTIFICATION_SUPPRESSION_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+  PROVIDER_ERROR_TRAIL_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  PROVIDER_RERUN_COOLDOWN_MS: z.coerce.number().int().positive().default(60 * 1000),
+
+  // KZO-198 Tier 1 / 2 — backfill knobs. RetryLimit and RetryDelay are the
+  // pg-boss queue defaults at registration time (eviction/queue cadence is
+  // env-only per `fastify-eviction-lifecycle-pattern.md`); the resolver layer
+  // exists for the admin DTO and any future use that benefits from live reads.
+  BACKFILL_RETRY_LIMIT: z.coerce.number().int().positive().default(3),
+  BACKFILL_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(60),
+  BACKFILL_FINMIND_402_RETRY_MS: z.coerce.number().int().positive().default(60_000),
+  DAILY_REFRESH_LOOKBACK_DAYS: z.coerce.number().int().positive().default(7),
+  DAILY_REFRESH_PRIORITY: z.coerce.number().int().nonnegative().default(10),
+
+  // KZO-198 Tier 1 / 2 — SSE knobs.
+  SSE_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
+  SSE_MAX_CONNECTIONS_PER_USER: z.coerce.number().int().positive().default(20),
+  SSE_BUFFER_DEFAULT_TTL_MS: z.coerce.number().int().positive().default(60_000),
+
+  // KZO-198 Tier 3 — env-only cron schedules. Restart-required to change
+  // (cron live-edit is explicitly out of scope per scope-todo "Out of scope").
+  CATALOG_SYNC_CRON: z.string().min(1).default("30 17 * * 1-5"),
+  FX_REFRESH_CRON: z.string().min(1).default("0 22 * * *"),
+  ANONYMOUS_SHARE_TOKEN_PURGE_CRON: z.string().min(1).default("0 4 * * *"),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

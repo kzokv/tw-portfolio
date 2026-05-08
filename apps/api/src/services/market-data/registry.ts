@@ -3,6 +3,10 @@ import type { MarketCode } from "@tw-portfolio/domain";
 import type { FxRateProvider, InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { RateLimiter } from "./rateLimiter.js";
 import {
+  getEffectiveFinmindApiToken,
+  getEffectiveTwelveDataApiKey,
+} from "../appConfig/providerKeys.js";
+import {
   FinMindMarketDataProvider,
   FinMindUsStockMarketDataProvider,
   FrankfurterFxRateProvider,
@@ -43,9 +47,18 @@ export interface MarketDataRegistry {
 export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   const finmindLimiter = new RateLimiter(env.FINMIND_RATE_LIMIT_PER_HOUR);
 
-  const finmindProvider: MarketDataProvider & InstrumentCatalogProvider = env.FINMIND_API_TOKEN
+  // KZO-198: real-vs-mock gate consults the `app_config` cache (via the
+  // resolver) BEFORE falling back to env. `buildApp` eagerly pre-warms the
+  // cache before calling this function, so a fresh deploy whose API token
+  // lives in `app_config.finmind_api_token` (rather than env) selects the
+  // real provider on the first run instead of degrading to mock.
+  // The provider's internal `get token()` re-reads per fetch (rotation
+  // remains live; no client rebuild needed).
+  const finmindBootstrapToken = getEffectiveFinmindApiToken() ?? env.FINMIND_API_TOKEN;
+
+  const finmindProvider: MarketDataProvider & InstrumentCatalogProvider = finmindBootstrapToken
     ? new FinMindMarketDataProvider({
-        token: env.FINMIND_API_TOKEN,
+        token: finmindBootstrapToken,
         baseUrl: env.FINMIND_BASE_URL,
         rateLimiter: finmindLimiter,
       })
@@ -57,9 +70,9 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
   // Mock branch uses `MockFinMindUsStockMarketDataProvider` with its default fixture
   // start (`2024-01-02`); tests that exercise truncation use the constructor variant
   // with `fixtureStartDate` directly rather than going through the registry.
-  const usStockProvider: MarketDataProvider & InstrumentCatalogProvider = env.FINMIND_API_TOKEN
+  const usStockProvider: MarketDataProvider & InstrumentCatalogProvider = finmindBootstrapToken
     ? new FinMindUsStockMarketDataProvider({
-        token: env.FINMIND_API_TOKEN,
+        token: finmindBootstrapToken,
         baseUrl: env.FINMIND_BASE_URL,
         rateLimiter: finmindLimiter,
       })
@@ -93,11 +106,13 @@ export function buildMarketDataRegistry(env: EnvConfig): MarketDataRegistry {
     : new YahooFinanceAuMarketDataProvider({ rateLimiter: yahooAuLimiter });
 
   const twelveDataAuRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
+  // KZO-198: same gate semantics as FinMind above — consult resolver first.
+  const twelveDataBootstrapKey = getEffectiveTwelveDataApiKey() ?? env.TWELVE_DATA_API_KEY;
   const twelveDataAuCatalog: InstrumentCatalogProvider =
-    env.AU_CATALOG_PROVIDER_MOCK || !env.TWELVE_DATA_API_KEY
+    env.AU_CATALOG_PROVIDER_MOCK || !twelveDataBootstrapKey
       ? new MockTwelveDataAuCatalogProvider({ yahooFallback: yahooAuProvider })
       : new TwelveDataAuCatalogProvider({
-          apiKey: env.TWELVE_DATA_API_KEY,
+          apiKey: twelveDataBootstrapKey,
           baseUrl: env.TWELVE_DATA_BASE_URL,
           rateLimiter: twelveDataAuRateLimiter,
           yahooFallback: yahooAuProvider,

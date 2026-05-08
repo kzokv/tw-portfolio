@@ -26,6 +26,66 @@ import type {
   ProfileDto,
 } from "@tw-portfolio/shared-types";
 
+/**
+ * KZO-198 — names of the plain (non-encrypted) Tier 1/2 columns that can be
+ * written via `setAppConfigField`. The set MUST stay in lockstep with the
+ * `app_config` schema (migration 047) and `AppConfigCacheEntry`.
+ */
+export type AppConfigPlainField =
+  | "marketDataPriceWindowMs"
+  | "marketDataPriceLimit"
+  | "marketDataSearchWindowMs"
+  | "marketDataSearchLimit"
+  | "inviteStatusWindowMs"
+  | "inviteStatusLimit"
+  | "providerDownNotificationSuppressionMs"
+  | "providerErrorTrailRetentionDays"
+  | "providerRerunCooldownMs"
+  | "backfillRetryLimit"
+  | "backfillRetryDelaySeconds"
+  | "backfillFinmind402RetryMs"
+  | "dailyRefreshLookbackDays"
+  | "dailyRefreshPriority"
+  | "sseHeartbeatIntervalMs"
+  | "sseMaxConnectionsPerUser"
+  | "sseBufferDefaultTtlMs";
+
+/**
+ * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
+ * is optional; absent keys are not touched. Tier 0 secret keys carry the
+ * plaintext (the implementation encrypts inline) or `null` to clear.
+ */
+export type AppConfigPatch = Partial<Record<AppConfigPlainField, number | null>> & {
+  finmindApiToken?: string | null;
+  twelveDataApiKey?: string | null;
+};
+
+/**
+ * Mapping from `AppConfigPlainField` to its underlying `app_config` column.
+ * Used by Postgres + Memory persistence to translate the camelCase API into
+ * snake_case SQL identifiers. Exported so route-layer audit metadata can echo
+ * the canonical column names if needed.
+ */
+export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
+  marketDataPriceWindowMs: "market_data_price_window_ms",
+  marketDataPriceLimit: "market_data_price_limit",
+  marketDataSearchWindowMs: "market_data_search_window_ms",
+  marketDataSearchLimit: "market_data_search_limit",
+  inviteStatusWindowMs: "invite_status_window_ms",
+  inviteStatusLimit: "invite_status_limit",
+  providerDownNotificationSuppressionMs: "provider_down_notification_suppression_ms",
+  providerErrorTrailRetentionDays: "provider_error_trail_retention_days",
+  providerRerunCooldownMs: "provider_rerun_cooldown_ms",
+  backfillRetryLimit: "backfill_retry_limit",
+  backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
+  backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
+  dailyRefreshLookbackDays: "daily_refresh_lookback_days",
+  dailyRefreshPriority: "daily_refresh_priority",
+  sseHeartbeatIntervalMs: "sse_heartbeat_interval_ms",
+  sseMaxConnectionsPerUser: "sse_max_connections_per_user",
+  sseBufferDefaultTtlMs: "sse_buffer_default_ttl_ms",
+};
+
 export interface ReadinessStatus {
   backend: "postgres" | "memory";
   postgres: boolean;
@@ -824,14 +884,35 @@ export interface Persistence {
   // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
   getRepairCooldownMinutes(): Promise<number | null>;
 
-  // App config (KZO-142 / KZO-159 / KZO-189) — read the raw DB overrides +
+  // App config (KZO-142 / KZO-159 / KZO-189 / KZO-198) — read the raw DB overrides +
   // updatedAt stamp. Routes combine this with getEffectiveRepairCooldownMinutes(),
   // the 3-tier range resolver, and getEffectiveMetadataEnrichmentMode() to
-  // expose the full AppConfigDto to clients.
+  // expose the full AppConfigDto to clients. KZO-198 added 19 nullable columns
+  // covering Tier 0 secrets (encrypted) + Tier 1/2 plain incident levers; the
+  // shape mirrors `AppConfigCacheEntry` so the cache can store the row directly.
   getAppConfig(): Promise<{
     repairCooldownMinutes: number | null;
     dashboardPerformanceRanges: string[] | null;
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
+    finmindApiTokenEncrypted: string | null;
+    twelveDataApiKeyEncrypted: string | null;
+    marketDataPriceWindowMs: number | null;
+    marketDataPriceLimit: number | null;
+    marketDataSearchWindowMs: number | null;
+    marketDataSearchLimit: number | null;
+    inviteStatusWindowMs: number | null;
+    inviteStatusLimit: number | null;
+    providerDownNotificationSuppressionMs: number | null;
+    providerErrorTrailRetentionDays: number | null;
+    providerRerunCooldownMs: number | null;
+    backfillRetryLimit: number | null;
+    backfillRetryDelaySeconds: number | null;
+    backfillFinmind402RetryMs: number | null;
+    dailyRefreshLookbackDays: number | null;
+    dailyRefreshPriority: number | null;
+    sseHeartbeatIntervalMs: number | null;
+    sseMaxConnectionsPerUser: number | null;
+    sseBufferDefaultTtlMs: number | null;
     updatedAt: string;
   }>;
 
@@ -855,6 +936,35 @@ export interface Persistence {
   // AU metadata enrichment mode. The route layer wraps this in an audit log
   // (action `app_config_updated`).
   setMetadataEnrichmentMode(value: "unconditional" | "conditional" | null): Promise<void>;
+
+  // App config (KZO-198) — generic per-field setter for Tier 1/2 plain
+  // overrides. `field` is the camelCase key matching `getAppConfig()`'s
+  // return shape; `value` is `null` to clear or the new value to set.
+  // Stamps `updated_at`. The route layer wraps this in an `app_config_updated`
+  // audit entry. Setters must be atomic (single UPSERT).
+  setAppConfigField(
+    field: AppConfigPlainField,
+    value: number | null,
+  ): Promise<void>;
+
+  // App config (KZO-198 Tier 0) — set (or clear, when `null`) an encrypted
+  // secret. Implementations call `encryptSecret(plaintext)` from
+  // `apps/api/src/services/appConfig/encryption.ts` inline so the plaintext
+  // never lives outside the persistence boundary. `null` clears the column.
+  // Stamps `updated_at`.
+  setAppConfigEncryptedSecret(
+    field: "finmindApiToken" | "twelveDataApiKey",
+    plaintext: string | null,
+  ): Promise<void>;
+
+  // App config (KZO-198) — aggregate patch setter. Applies any subset of the
+  // 17 Tier 1/2 plain fields and the 2 Tier 0 secrets in a single atomic
+  // write (Postgres: one UPSERT). Tier 0 secrets are passed as plaintext on
+  // the `finmindApiToken` / `twelveDataApiKey` keys; the implementation
+  // encrypts them inline so plaintext never crosses the persistence boundary.
+  // `null` on any key clears the column. Stamps `updated_at`. Route layer
+  // wraps the resulting diff in an `app_config_updated` audit entry.
+  setAppConfigPatch(patch: AppConfigPatch): Promise<void>;
 
   // User preferences (KZO-159 / 158A) — per-user JSONB preferences row.
   // `getUserPreferences` returns `{}` when no row exists (lazy — no insert

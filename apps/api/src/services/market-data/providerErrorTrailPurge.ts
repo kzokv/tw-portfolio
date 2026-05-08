@@ -5,7 +5,16 @@
 // `apps/api/src/lib/providerErrorTrailPurge.ts` and delegates here.
 
 import type { Persistence } from "../../persistence/types.js";
+import { getEffectiveErrorTrailRetentionDays } from "../appConfig/providerHealth.js";
 
+/**
+ * KZO-177 → KZO-198 — retention default is now resolved live via
+ * `getEffectiveErrorTrailRetentionDays()` (DB override → env). The constant
+ * remains exported for back-compat with integration tests that pass it
+ * directly as a numeric argument; new call sites should NOT use it.
+ *
+ * @deprecated use `getEffectiveErrorTrailRetentionDays()` instead.
+ */
 export const PROVIDER_ERROR_TRAIL_RETENTION_DAYS = 30;
 
 export interface PurgeOptions {
@@ -31,7 +40,7 @@ export async function purgeProviderErrorTrail(
   } else if (typeof options.olderThanMs === "number") {
     olderThanDays = options.olderThanMs / (24 * 60 * 60 * 1000);
   } else {
-    olderThanDays = PROVIDER_ERROR_TRAIL_RETENTION_DAYS;
+    olderThanDays = getEffectiveErrorTrailRetentionDays();
   }
   return persistence.pruneOldProviderErrorTrail(olderThanDays);
 }
