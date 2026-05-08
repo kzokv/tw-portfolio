@@ -69,6 +69,67 @@ describe("envSchema structural", () => {
   });
 });
 
+// KZO-200: envBool parsing — `z.coerce.boolean()` silently coerced `"false"`
+// to `true`. Every `*_MOCK` env var must parse strings predictably.
+describe("envBool — string-aware boolean parsing (KZO-200)", () => {
+  const mockKeys = [
+    "FX_PROVIDER_MOCK",
+    "AU_PROVIDER_MOCK",
+    "AU_CATALOG_PROVIDER_MOCK",
+  ] as const;
+
+  for (const key of mockKeys) {
+    describe(key, () => {
+      it("parses \"false\" → false", () => {
+        const result = envSchema.parse({ [key]: "false" });
+        expect(result[key]).toBe(false);
+      });
+
+      it("parses \"true\" → true", () => {
+        const result = envSchema.parse({ [key]: "true" });
+        expect(result[key]).toBe(true);
+      });
+
+      it("parses \"0\" → false", () => {
+        const result = envSchema.parse({ [key]: "0" });
+        expect(result[key]).toBe(false);
+      });
+
+      it("parses \"1\" → true", () => {
+        const result = envSchema.parse({ [key]: "1" });
+        expect(result[key]).toBe(true);
+      });
+
+      it("preserves boolean true input", () => {
+        const result = envSchema.parse({ [key]: true });
+        expect(result[key]).toBe(true);
+      });
+
+      it("preserves boolean false input", () => {
+        const result = envSchema.parse({ [key]: false });
+        expect(result[key]).toBe(false);
+      });
+
+      it("defaults unset (undefined) → false", () => {
+        const result = envSchema.parse({});
+        expect(result[key]).toBe(false);
+      });
+
+      it("rejects garbage string \"yes\" with a Zod parse error", () => {
+        expect(() => envSchema.parse({ [key]: "yes" })).toThrow();
+      });
+
+      it("rejects empty string with a Zod parse error", () => {
+        expect(() => envSchema.parse({ [key]: "" })).toThrow();
+      });
+
+      it("rejects mixed-case \"True\" with a Zod parse error", () => {
+        expect(() => envSchema.parse({ [key]: "True" })).toThrow();
+      });
+    });
+  }
+});
+
 // Group R: rootLocalSchema acceptance tests (QA-owned)
 describe("rootLocalSchema", () => {
   it("contains all envSchema keys", () => {

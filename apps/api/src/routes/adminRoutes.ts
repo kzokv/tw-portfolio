@@ -30,6 +30,7 @@ import {
 } from "../services/market-data/fxRefreshWorker.js";
 import { today_utc } from "../services/market-data/deriveFetchWindow.js";
 import { enqueueDailyRefresh } from "../services/market-data/dailyRefreshEnqueue.js";
+import { CATALOG_SYNC_QUEUE } from "../services/market-data/registerCatalogSyncWorker.js";
 import type { MarketCode } from "@tw-portfolio/domain";
 import type {
   AdminProvidersResponse,
@@ -796,6 +797,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "finmind-tw"
       | "finmind-us"
       | "yahoo-finance-au"
+      | "twelve-data-au"
       | "frankfurter";
     const existing = await app.persistence.getProviderHealthStatus(providerId);
     if (!existing) {
@@ -841,6 +843,23 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         );
       }
       tickerCount = STORED_QUOTES.length;
+    } else if (providerId === "twelve-data-au") {
+      // KZO-200: Twelve Data is the AU catalog provider (KZO-194). Re-run
+      // dispatches the catalog-sync queue for AU only — `pendingMarkets=["AU"]`
+      // skips TW/US so we don't re-enumerate FinMind catalogs on this button.
+      // Singleton policy collapses concurrent kicks (cron + manual rerun).
+      marketCode = "AU";
+      if (app.boss) {
+        jobId = await app.boss.send(
+          CATALOG_SYNC_QUEUE,
+          { pendingMarkets: ["AU"] },
+          { singletonKey: CATALOG_SYNC_QUEUE, priority: 5 },
+        );
+      }
+      // tickerCount intentionally 0 — the catalog-sync worker enumerates the
+      // upstream universe and reports `rawCount` in its own log lines; no
+      // per-rerun count is meaningful at the route layer.
+      tickerCount = 0;
     } else {
       marketCode = providerId === "finmind-tw" ? "TW" : providerId === "finmind-us" ? "US" : "AU";
       if (app.boss) {

@@ -20,6 +20,17 @@ export class ProvidersApiAssert extends ApiBaseAssert {
     await this.mxAssertEqual(body.providers.length, 4, "providers list length");
   }
 
+  /**
+   * KZO-200 — `twelve-data-au` row added (KZO-194 catalog provider). New
+   * canonical assertion. Existing callers using `hasFourProviders` are
+   * expected to migrate; that helper is retained for back-compat with old
+   * snapshot expectations but should not be used for new tests.
+   */
+  @Step()
+  async hasFiveProviders(body: AdminProvidersListBody): Promise<void> {
+    await this.mxAssertEqual(body.providers.length, 5, "providers list length");
+  }
+
   @Step()
   async providerStatusIs(
     body: AdminProvidersListBody,

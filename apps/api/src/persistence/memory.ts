@@ -301,12 +301,21 @@ export class MemoryPersistence implements Persistence {
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
   async init(): Promise<void> {
-    // KZO-177: pre-seed the four canonical providers, mirroring migration 046's
+    // KZO-177: pre-seed the canonical providers, mirroring migration 046's
     // seed insert. The aggregator assumes every providerId exists when the
     // workers start logging outcomes.
+    // KZO-200: `twelve-data-au` added (migration 048) — separate from
+    // `yahoo-finance-au` because it owns the AU catalog path (KZO-194) on a
+    // distinct cadence + budget.
     if (this.providerHealth.size === 0) {
       const now = new Date().toISOString();
-      for (const providerId of ["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"]) {
+      for (const providerId of [
+        "finmind-tw",
+        "finmind-us",
+        "yahoo-finance-au",
+        "twelve-data-au",
+        "frankfurter",
+      ]) {
         this.providerHealth.set(providerId, {
           providerId,
           status: "down",

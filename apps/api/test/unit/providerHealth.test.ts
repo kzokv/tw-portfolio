@@ -48,7 +48,13 @@ type Persistence = InstanceType<typeof MemoryPersistence>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const PROVIDERS = ["finmind-tw", "finmind-us", "yahoo-finance-au", "frankfurter"] as const;
+const PROVIDERS = [
+  "finmind-tw",
+  "finmind-us",
+  "yahoo-finance-au",
+  "twelve-data-au",
+  "frankfurter",
+] as const;
 
 async function seedHealthRow(
   persistence: Persistence,
