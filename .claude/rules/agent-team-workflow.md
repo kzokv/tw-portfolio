@@ -161,3 +161,63 @@ When the Architect respawns a silent Implementer per `.claude/rules/team-respawn
 - Team-Lead: when relaying the respawn intent to Dispatcher, explicitly say "park, don't kill the original." Track both agents in `state.json.teammates` (one as `unresponsive`, the other as `in_progress`).
 - Dispatcher: do NOT auto-flip the original's task status if a duplicate-name agent appears; both agents may legitimately exist in tmux for a window.
 - Force-stop the original only after either (a) the respawn agent's `[DONE]` is verified by the Architect, or (b) the original sends conflicting work that needs resolution.
+
+## Architect ratification discipline — quote the rule's strict-scope clause verbatim
+
+When ratifying an Implementer's "matches sibling precedent" or "matches existing pattern" claim during Phase 3 triage or Code Review, **quote the relevant rule's strict-scope clause verbatim** in the ratification message — do not paraphrase.
+
+The rule may have a narrower scope than the Implementer's claim implies. Paraphrasing during ratification can over-grant ratification beyond what the rule actually says, leading to a reversal cycle when the Code Reviewer or a later inspection reads the rule strictly.
+
+**Pattern:**
+```
+[ARCHITECT ratification]
+Implementer claims: "matches sibling cron precedent (CATALOG/FX/PURGE), env-setup wizard
+registration not needed."
+
+Rule strict-scope clause (verbatim from `env-setup-autogen-required-secrets.md`):
+> "For every new entry in `libs/config/src/env-schema.ts` with `.min(1)` / `.regex(...)` / no
+> `.default(...)` (i.e., would throw at `validateEnvConstraints` when missing): ..."
+
+Ratification: GRANTED. `ASX_GICS_REFRESH_CRON` has `.default('0 2 * * 0')`, so the rule's
+checklist does NOT apply. Sibling-cron precedent is consistent with the rule's scope.
+```
+
+This pattern catches scope mismatches at ratification time instead of during a Code Review reversal.
+
+**Why:** KZO-196 — Architect ratified Backend's claim that `ASX_GICS_REFRESH_CRON` not appearing in `envGroups` "matches sibling cron precedent." Code Reviewer initially flagged it as MEDIUM-1 missing-rule-compliance; Architect reversed the ratification (treating the finding as valid). On re-reading the rule strictly, the rule's checklist explicitly scopes to env vars WITHOUT `.default(...)`. `ASX_GICS_REFRESH_CRON` HAS a default, so the rule didn't apply — original ratification was correct. The reversal cycle cost a Phase 4 routing decision that had to be undone.
+
+**How to apply:**
+- Architect: at every Phase 3 triage where an Implementer cites a rule or precedent, quote the rule's most relevant sentence verbatim before granting/denying ratification.
+- Code Reviewer: if the Architect's ratification doesn't quote the rule, send `[QUESTION]` asking which clause is being applied. Don't reverse silently — surface the ambiguity for the Architect to resolve.
+
+## Dispatcher state-rollback prevention on context expiry
+
+When the Dispatcher's TaskList view clears (context window expiry, runtime restart), they MUST NOT roll back `state.json` to a prior phase based solely on TaskList absence. **`state.json` is the authoritative phase source; TaskList is a derived index.**
+
+**The wrong pattern (observed in KZO-196 — 3 occurrences in one run):**
+1. Dispatcher's context expires.
+2. TaskList returns empty.
+3. Dispatcher reconstructs Phase 1 from disk inventory ("backend files exist on disk; tasks must be done").
+4. Dispatcher writes `phase: "awaiting-phase-3-go"` and asks the Architect to issue Phase 3 GO.
+5. But state.json (before this rewrite) said `phase: "phase-3"` because the Architect had ALREADY fired the GO and the Validator was already running.
+6. Dispatcher's rollback creates an artificial "GO needs to fire again" loop that the Architect has to break with `[ARCHITECT:STATE-FIX]` envelopes.
+
+**The correct pattern:**
+
+On any Dispatcher context refresh / restart:
+1. **First**: read `state.json` from disk. The `phase` field is authoritative. Push a phase_history entry noting the context refresh.
+2. **Second**: read TaskList. If TaskList is empty but state.json says phase=phase-N with active teammates, the tasks need to be RE-CREATED to match the existing phase, not rolled back.
+3. **Third**: send a brief `[STATUS]` to the Architect summarizing the resync (NOT asking for a phase GO).
+
+```
+[STATUS] Context refreshed. state.json says phase=phase-3, validator + code-reviewer
+in_progress. TaskList was empty post-refresh; recreated Tasks #4 (validator) and #5
+(code-reviewer) retroactively, both in_progress. Continuing to poll for [DONE]s.
+```
+
+**Why:** KZO-196 — Dispatcher's TaskList cleared at least 3 times during the convergence loop. Each time the Dispatcher reconstructed phase from disk inventory and rolled back to "awaiting-phase-N-go," even when the Architect had already issued the GO. Each loop required an `[ARCHITECT:STATE-FIX]` envelope that explicitly named state.json as the authoritative source. The pattern wastes Architect cycles on coordination instead of design.
+
+**How to apply:**
+- Dispatcher spawn brief: include this rule verbatim. State.json is authoritative; never roll back phase based on TaskList absence.
+- Dispatcher: on every context refresh, the FIRST tool call is reading `state.json`. The SECOND is reading TaskList. Reconcile by recreating tasks to match state, not by rewriting state to match TaskList.
+- Architect: if the Dispatcher rolls back state, issue `[ARCHITECT:STATE-FIX]` once. If the rollback recurs, force-stop the Dispatcher and respawn with a brief that re-emphasizes this rule.

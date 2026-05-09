@@ -39,3 +39,25 @@ npx eslint . --max-warnings=0 && npm run typecheck && npm run test:all:full
 **Why:** The user explicitly defined this set. Incomplete test verification has caused regressions to slip through.
 
 **How to apply:** When verifying a feature branch is ready, run all seven. When a team agent reports test results, check that all seven suites are covered.
+
+## Stale `dist/` drift — first triage step when typecheck regresses across phases
+
+When `npm run typecheck` (or any chained `tsc --noEmit`) fails on a path that was green an hour ago — particularly when the failing imports cross a workspace boundary into `libs/*` — the **first triage action** is to rebuild dependent libs, NOT to assume a real regression:
+
+```bash
+rm -rf libs/*/dist && npm run build -w @tw-portfolio/config -w @tw-portfolio/shared-types -w libs/domain
+npm run typecheck
+```
+
+**Symptoms of stale dist drift:**
+- Adding a new export to `libs/shared-types` makes a downstream consumer's typecheck fail with `Property 'X' does not exist`.
+- A type narrowing that worked in Phase 1 fails in Phase 3 after lib edits.
+- Backend reports typecheck clean, but Frontend (or a sibling app) sees red on the same lib's types.
+- `tsc --build` works but `tsc --noEmit` from a consumer fails because consumer is reading `libs/*/dist` rather than source.
+
+**Why:** KZO-196 — Frontend Implementer reported `npm run typecheck` red on `apps/api/src/persistence/{memory,postgres}.ts` after Backend added the `gicsIndustryGroup` projection. Backend said the file was green locally. Root cause: Frontend's typecheck was reading stale `libs/config/dist/` and `libs/shared-types/dist/` from an earlier build; rebuilding those libs resolved it. False alarm cost a coordination cycle.
+
+**How to apply:**
+- Pre-PR debugging: when typecheck "regresses" between phases, FIRST `rm -rf libs/*/dist && npm run build -w @tw-portfolio/config -w @tw-portfolio/shared-types` before raising it as a real defect.
+- After any `libs/*/src/**` edit that adds a runtime export or changes a type signature, rebuild the lib's dist before claiming consumer-side typecheck green.
+- For team coordination: if a teammate reports typecheck red on a file outside their scope, ask "have you rebuilt libs/*/dist since the schema addition?" before triaging as cross-team blocker.
