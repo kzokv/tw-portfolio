@@ -88,6 +88,25 @@ export function parseAsxGicsCsv(text: string): RawAsxGicsRow[] {
     );
   }
 
+  // The live ASX feed (verified 2026-05-09) prefixes the CSV with a plain-text
+  // descriptive line (`ASX listed companies as at <date>`) followed by a blank
+  // line BEFORE the real header row. Those leading lines are not `#`-prefixed,
+  // so `csv-parse`'s `comment` option does not strip them. Without preprocessing
+  // they get parsed as a 1-column header row and the column lookup below fails
+  // with `asx_gics_csv_missing_column: ASX code`. Strip leading lines until we
+  // reach the first one that looks like the real header (contains a comma AND a
+  // recognized header token).
+  const HEADER_HINT = /\b(asx[_ ]?code|company[_ ]?name)\b/i;
+  const stripped = text.replace(/^﻿/, "").split(/\r?\n/);
+  let headerIdx = 0;
+  while (headerIdx < stripped.length) {
+    const line = stripped[headerIdx].trim();
+    if (line.length > 0 && line.includes(",") && HEADER_HINT.test(line)) break;
+    headerIdx += 1;
+  }
+  const normalized =
+    headerIdx < stripped.length ? stripped.slice(headerIdx).join("\n") : text;
+
   // `csv-parse/sync` honors BOM stripping when `bom: true`. CRLF is handled
   // automatically. We capture the normalized (lowercase, trimmed) header in
   // a closure variable so missing-column detection works even on header-only
@@ -95,16 +114,15 @@ export function parseAsxGicsCsv(text: string): RawAsxGicsRow[] {
   let normalizedHeader: string[] = [];
   let rows: Record<string, string>[];
   try {
-    rows = csvParseSync(text, {
+    rows = csvParseSync(normalized, {
       bom: true,
       columns: (header: string[]) => {
         normalizedHeader = header.map((h) => h.trim().toLowerCase());
         return normalizedHeader;
       },
-      // ASX feed and our test fixtures may include `# ...` lead-in comment
-      // lines. The live feed (verified 2026-05) does NOT include such lines,
-      // but fixture files do; treating `#`-prefixed lines as comments lets
-      // both shapes parse cleanly.
+      // Test fixtures use `#`-prefixed comment lines for documentation; the
+      // live feed uses plain-text descriptive prefix lines (stripped above).
+      // Keeping `comment: "#"` keeps fixtures parseable.
       comment: "#",
       relax_column_count: true,
       skip_empty_lines: true,

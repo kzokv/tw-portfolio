@@ -206,4 +206,50 @@ describe("KZO-196 — parseAsxGicsCsv", () => {
       expect(rows).toEqual([]);
     });
   });
+
+  describe("live ASX feed prefix shape", () => {
+    // Regression: live ASX feed (verified 2026-05-09) prefixes the CSV with a
+    // plain-text descriptive line + blank line BEFORE the real header row.
+    // Those leading lines are NOT `#`-prefixed, so csv-parse's `comment`
+    // option does not strip them. The parser must skip leading non-header
+    // lines until it reaches the real header.
+    it("strips a leading descriptive line + blank line before the real header", () => {
+      const csv = [
+        "ASX listed companies as at Sat May 09 21:33:05 AEST 2026",
+        "",
+        "Company name,ASX code,GICS industry group",
+        '"1414 DEGREES LIMITED","14D","Capital Goods"',
+        '"29METALS LIMITED","29M","Materials"',
+      ].join("\n");
+      const rows = parseAsxGicsCsv(csv);
+      expect(rows).toEqual<RawAsxGicsRow[]>([
+        {
+          ticker: "14D",
+          companyName: "1414 DEGREES LIMITED",
+          gicsIndustryGroup: "Capital Goods",
+        },
+        {
+          ticker: "29M",
+          companyName: "29METALS LIMITED",
+          gicsIndustryGroup: "Materials",
+        },
+      ]);
+    });
+
+    it("handles the live shape with CRLF line endings", () => {
+      const csv = [
+        "ASX listed companies as at Sat May 09 21:33:05 AEST 2026",
+        "",
+        "Company name,ASX code,GICS industry group",
+        '"1414 DEGREES LIMITED","14D","Capital Goods"',
+      ].join("\r\n");
+      const rows = parseAsxGicsCsv(csv);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toEqual({
+        ticker: "14D",
+        companyName: "1414 DEGREES LIMITED",
+        gicsIndustryGroup: "Capital Goods",
+      });
+    });
+  });
 });
