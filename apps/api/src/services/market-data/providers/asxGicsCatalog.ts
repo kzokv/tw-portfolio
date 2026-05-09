@@ -179,10 +179,30 @@ export class AsxGicsCatalogProvider implements AsxGicsProvider {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let res: Response;
     try {
-      res = await fetch(this.csvUrl, { signal: controller.signal });
+      // ASX is fronted by Imperva, which rejects requests without a
+      // recognizable User-Agent (silent `fetch failed` with no body). Send a
+      // real browser UA + Accept header so the CDN routes the request to the
+      // origin. The Accept-Language is a belt-and-suspenders signal — Imperva
+      // bot-fingerprint heuristics weight on multiple headers, not just UA.
+      res = await fetch(this.csvUrl, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          Accept: "text/csv,application/csv,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
     } catch (err) {
+      // undici wraps every transport failure in a generic `TypeError: fetch
+      // failed` with the real reason on `err.cause`. Surface both so operators
+      // can distinguish DNS / TLS / connection-reset / abort-on-timeout.
+      const cause =
+        err instanceof Error && "cause" in err && err.cause instanceof Error
+          ? `: ${err.cause.message}`
+          : "";
       throw new AsxGicsFetchError(
-        `asx_gics_fetch_failed: ${err instanceof Error ? err.message : String(err)}`,
+        `asx_gics_fetch_failed: ${err instanceof Error ? err.message : String(err)}${cause}`,
       );
     } finally {
       clearTimeout(timer);
