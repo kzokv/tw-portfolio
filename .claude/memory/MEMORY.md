@@ -49,8 +49,9 @@
 ## Promoted to .claude/rules/ (KZO-196)
 - `i18n-flat-record-dict-settings.md` — `dict.settings` stays flat `Record<string, string>`; nested objects break indexed-access JSX narrowing
 - `code-review-before-pr.md` (addendum) — type-augmentation `.d.ts` files must be explicitly included alongside new test files (`fastify.d.ts` 414-error cascade)
-- `agent-team-workflow.md` (addendum) — lock testid strings in `architect-design.md` at Phase 0; original-agent-revival-during-respawn — park, don't kill
+- `agent-team-workflow.md` (addendum) — lock testid strings in `architect-design.md` at Phase 0; original-agent-revival-during-respawn — park, don't kill; Architect ratification quotes rule strict-scope verbatim; Dispatcher state-rollback prevention on context expiry
 - `team-respawn-verify-not-regenerate.md` (addendum) — park, don't kill SOP; KZO-196 validated convergence between revived original + respawn VERIFY pass
+- `full-test-suite.md` (addendum) — stale `dist/` drift first-triage step before assuming a typecheck regression
 - `shared-types-barrel-turbopack.md` (companion section, by Wave 2) — relative runtime-submodule re-export resolution failure under direct-source path alias
 - `e2e-shared-memory-bars-ticker-hygiene.md` (addendum, by Wave 2) — `AUGICS*` ticker prefix reservation
 
