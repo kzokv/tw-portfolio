@@ -177,6 +177,29 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.catalog.itemCheckbox(ticker)).toBeChecked();
   }
 
+  // ── KZO-196: AU GICS sector filter ───────────────────────────────────────
+
+  @Step()
+  async sectorFilterIsVisible(): Promise<void> {
+    await expect(this.el.catalog.sectorSelect).toBeVisible();
+  }
+
+  @Step()
+  async sectorFilterIsHidden(): Promise<void> {
+    await expect(this.el.catalog.sectorSelect).toHaveCount(0);
+  }
+
+  @Step()
+  async industryLabelIsVisible(ticker: string, text: string | RegExp): Promise<void> {
+    await expect(this.el.catalog.itemIndustryLabel(ticker)).toBeVisible();
+    await expect(this.el.catalog.itemIndustryLabel(ticker)).toContainText(text);
+  }
+
+  @Step()
+  async industryLabelIsHidden(ticker: string): Promise<void> {
+    await expect(this.el.catalog.itemIndustryLabel(ticker)).toHaveCount(0);
+  }
+
   @Step()
   async manualTickerIsVisible(ticker: string): Promise<void> {
     await expect(this.el.tickers.manualTicker(ticker)).toBeVisible();

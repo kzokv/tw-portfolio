@@ -222,6 +222,15 @@ export class TwelveDataAuCatalogProvider implements InstrumentCatalogProvider {
         ticker: row.symbol,
         name: row.name,
         typeRaw: "ASX",
+        // KZO-196: the /etf branch must keep `"ETF"` here — `classifyInstrument`
+        // (libs/domain/src/classifyInstrument.ts) maps the AU `industryCategory`
+        // value at write-time to derive `instrument_type=ETF`. `catalogSync.ts`
+        // then persists `instrument_type` from the classifier and the raw
+        // `industry_category_raw` column from this same field; migration 050
+        // NULLs out historical AU `industry_category_raw` values, and the
+        // post-write SELECT projection drops the column from the catalog DTO.
+        // Per the architect ruling we keep the "ETF" sentinel here (it's the
+        // /stocks branch below that switches to empty string).
         industryCategory: "ETF",
         date: today,
       });
@@ -238,7 +247,11 @@ export class TwelveDataAuCatalogProvider implements InstrumentCatalogProvider {
         ticker: row.symbol,
         name: row.name,
         typeRaw: "ASX",
-        industryCategory: row.type,
+        // KZO-196: do not populate industry_category_raw for AU; classifier
+        // type lives in instrument_type. The TD `row.type` (e.g. "Common
+        // Stock", "REIT") still flows into the AU classifier via separate
+        // logic if any — but the persisted column is no longer carrying it.
+        industryCategory: "",
         date: today,
       });
     }

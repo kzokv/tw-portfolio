@@ -49,6 +49,7 @@ const CBA_INSTRUMENT = {
   barsBackfillStatus: "pending",
   lastRepairAt: null,
   repairAvailableAt: null,
+        gicsIndustryGroup: null,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

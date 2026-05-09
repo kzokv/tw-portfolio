@@ -7,6 +7,7 @@
     "moduleResolution": "NodeNext"
   },
   "include": [
+    "../src/types/fastify.d.ts",
     "http/**/*.ts",
     "globalTeardown.ts",
     "integration/user-preferences.integration.test.ts",
@@ -22,6 +23,8 @@
     "integration/tradingCalendar.integration.test.ts",
     "unit/twelveDataAuProvider.test.ts",
     "integration/auCatalogSyncTwelveData.integration.test.ts",
-    "integration/auLicMetadataDelegation.integration.test.ts"
+    "integration/auLicMetadataDelegation.integration.test.ts",
+    "unit/asxGicsCsvParser.test.ts",
+    "integration/asxGicsCatalogSync.integration.test.ts"
   ]
 }

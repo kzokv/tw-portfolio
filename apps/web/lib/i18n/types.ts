@@ -482,6 +482,14 @@ export interface AppDictionary {
     tickersFilterStock: string;
     tickersFilterEtf: string;
     tickersFilterBondEtf: string;
+    // KZO-196 — AU sector / GICS enrichment. The sector / industry-group
+    // display-name records live on the sibling `gics` dictionary so the
+    // `settings` map remains a flat string lookup (consumed by indexed
+    // accessors elsewhere). String templates only — never functions — per
+    // `.claude/rules/nextjs-i18n-serialization.md`.
+    tickersAllSectors: string;
+    tickersFilterBySector: string;
+    tickersGicsOtherBucket: string;
     // KZO-188 — AU ticker discovery (sheet + combobox)
     tickersSearchLiveBadge: string;
     tickersSearchLiveSearching: string;
@@ -551,6 +559,15 @@ export interface AppDictionary {
     customizeRangesCloseLabel: string;
     customizeRangesToggleOnLabel: string;
     customizeRangesToggleOffLabel: string;
+  };
+  // KZO-196 — GICS sector / industry-group display dictionaries. Kept as a
+  // top-level sibling of `settings` (rather than nested) so `settings` stays a
+  // flat `Record<string,string>` and existing indexed-access call sites
+  // (e.g. AccountsListSection's `dict.settings[field.label]`) keep their
+  // narrowed `string` return type.
+  gics: {
+    sectors: Record<string, string>;
+    industryGroups: Record<string, string>;
   };
   dividends: {
     pageTitle: string;

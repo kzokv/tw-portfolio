@@ -50,6 +50,8 @@ export function fakePersistenceWithAppConfig(
     catalogAbsenceThreshold: null,
     catalogAbsenceGuardPercent: null,
     catalogAbsenceGuardFloor: null,
+    // KZO-196 — AU GICS sync cron override.
+    asxGicsRefreshCron: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

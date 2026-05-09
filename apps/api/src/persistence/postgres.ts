@@ -5939,6 +5939,7 @@ export class PostgresPersistence implements Persistence {
     catalogAbsenceThreshold: number | null;
     catalogAbsenceGuardPercent: number | null;
     catalogAbsenceGuardFloor: number | null;
+    asxGicsRefreshCron: string | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -5967,6 +5968,7 @@ export class PostgresPersistence implements Persistence {
       catalog_absence_threshold: number | null;
       catalog_absence_guard_percent: number | string | null;
       catalog_absence_guard_floor: number | null;
+      asx_gics_refresh_cron: string | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -5980,6 +5982,7 @@ export class PostgresPersistence implements Persistence {
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
          catalog_absence_threshold, catalog_absence_guard_percent, catalog_absence_guard_floor,
+         asx_gics_refresh_cron,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -6011,6 +6014,7 @@ export class PostgresPersistence implements Persistence {
         catalogAbsenceThreshold: null,
         catalogAbsenceGuardPercent: null,
         catalogAbsenceGuardFloor: null,
+        asxGicsRefreshCron: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -6047,6 +6051,7 @@ export class PostgresPersistence implements Persistence {
       catalogAbsenceThreshold: row.catalog_absence_threshold,
       catalogAbsenceGuardPercent: num(row.catalog_absence_guard_percent),
       catalogAbsenceGuardFloor: row.catalog_absence_guard_floor,
+      asxGicsRefreshCron: row.asx_gics_refresh_cron,
       updatedAt,
     };
   }
@@ -6920,8 +6925,11 @@ export class PostgresPersistence implements Persistence {
       market_code: string;
       bars_backfill_status: string;
       last_repair_at: string | null;
+      // KZO-196 — GICS industry-group projection.
+      gics_industry_group: string | null;
     }>(
-      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status, last_repair_at::text
+      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status, last_repair_at::text,
+              gics_industry_group
        FROM market_data.instruments i ${where}
        ORDER BY ticker, market_code`,
       params,
@@ -6934,6 +6942,8 @@ export class PostgresPersistence implements Persistence {
       marketCode: row.market_code,
       barsBackfillStatus: row.bars_backfill_status,
       lastRepairAt: row.last_repair_at,
+      // KZO-196 — null when the GICS sync has not enriched this row yet.
+      gicsIndustryGroup: row.gics_industry_group ?? null,
     }));
   }
 

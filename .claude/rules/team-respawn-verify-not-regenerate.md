@@ -61,3 +61,22 @@ A separate incident (QA went silent overnight) self-resolved before respawn was 
 - **When any teammate exceeds the 8-minute unresponsive threshold and has been working for >30 minutes**: run the disk inventory before writing the respawn brief. Never assume "nothing landed."
 - **The respawn brief subject line**: always include `[RESPAWN: VERIFY-NOT-REGENERATE]` or `[RESPAWN: PARTIAL]` so the respawned agent immediately knows its context.
 - **Tier applies**: all tiers (Tier 1 Architect self-inventory, Tier 2-3 Dispatcher + Architect collaboration on triage).
+
+## Park, don't kill — the original agent stays alive during respawn
+
+When the respawn agent is dispatched, **leave the original (silent) tmux pane parked**. Do NOT call `TaskStop` or `shutdown_request` on the original until the respawn agent reports `[DONE]` cleanly. The original may revive mid-respawn and add value:
+
+- It may carry partial in-flight work or memory notes the respawn's `git diff` scan would miss
+- Its convergence with the respawn agent's verification gives stronger ratification than one alone
+- Premature termination silently loses any context the original was holding
+
+**Validated in KZO-196:** Backend went silent 34 min. Respawn (`backend-implementer-2`) issued with VERIFY-NOT-REGENERATE brief. Original `backend-implementer` revived ~30s later and reported its own `[DONE]` against the same on-disk files. The respawn agent verified disk state, found nothing to do, and reported `[DONE: zero-touch]`. Two converging confirmations + a real-time data point that the SOP saved compute (no work regenerated).
+
+**Operational SOP:**
+1. Architect issues respawn brief to a new agent name.
+2. Original continues to exist; mark `state.json.teammates.<name>.status = "unresponsive"`.
+3. If original revives, send `[HOLD]` ("respawn agent is verifying; pause until they report [DONE]") to prevent concurrent file writes.
+4. After respawn agent's `[DONE]` is ratified, the original is safe to terminate.
+5. If original revives with substantively different work AFTER respawn ratification, treat as Phase 4 finding routing — Architect chooses which version to keep.
+
+The full Architect SOP for park-don't-kill lives in `.claude/rules/agent-team-workflow.md` § "Original-agent-revival-during-respawn — park, don't kill."

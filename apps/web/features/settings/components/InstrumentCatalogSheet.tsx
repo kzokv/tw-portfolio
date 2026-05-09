@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type UIEvent } from "react";
-import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
+import {
+  type InstrumentCatalogItemDto,
+  type MarketCode,
+  gicsSectors,
+  gicsIndustryGroups,
+  industryGroupsForSector,
+} from "@tw-portfolio/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { useDebouncedValue } from "../../../lib/hooks/useDebouncedValue";
@@ -13,6 +19,17 @@ import { ArrowLeft, Lock, Search, X } from "lucide-react";
 
 type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
 type MarketChip = "ALL" | MarketCode;
+// KZO-196 — `null` = "All sectors". Visible only when marketChip === "AU".
+// Carries the canonical sector name (e.g. "Financials") so it feeds straight
+// into `industryGroupsForSector(...)` from `@tw-portfolio/shared-types`.
+type SectorFilter = string | null;
+
+// KZO-196 — Inverse lookup `industryGroup → displayKey`, built once per
+// module load. Used for rendering the per-row industry-group label via
+// `dict.settings.gicsIndustryGroups[displayKey]`.
+const INDUSTRY_GROUP_DISPLAY_KEY: ReadonlyMap<string, string> = new Map(
+  gicsIndustryGroups.map((g) => [g.industryGroup, g.displayKey] as const),
+);
 
 interface InstrumentCatalogSheetProps {
   instruments: InstrumentCatalogItemDto[];
@@ -45,6 +62,9 @@ export function InstrumentCatalogSheet({
   // KZO-188: market chip filters the catalog client-side; default `ALL`
   // shows every market just like before this ticket.
   const [marketChip, setMarketChip] = useState<MarketChip>("ALL");
+  // KZO-196: AU-only sector filter. `null` = "All sectors". Resets whenever
+  // the user moves off the AU chip so it never silently narrows TW/US/ALL.
+  const [sectorFilter, setSectorFilter] = useState<SectorFilter>(null);
 
   // KZO-188: live-search state (only fires when chip === "AU" AND filtered
   // catalog count is 0). The state is cleared whenever the chip moves off
@@ -74,8 +94,24 @@ export function InstrumentCatalogSheet({
     if (typeFilter !== "ALL") {
       results = results.filter((i) => i.instrumentType === typeFilter);
     }
+    // KZO-196: AU-only sector filter expands the selected sector to its
+    // industry-groups (the level GICS data is actually keyed at) and keeps
+    // catalog rows whose `gicsIndustryGroup` is in that set.
+    //
+    // Search bypass — when the user has typed a query, the sector narrow is
+    // skipped so a search hit for a ticker outside the active sector still
+    // renders. This is the "live-search bypass" idiom from the locked scope:
+    // search is the primary intent; the sector filter is only the default
+    // browse aid. The live-results render path (`visibleLiveResults` below)
+    // already bypasses sector by construction.
+    if (marketChip === "AU" && sectorFilter !== null && !search) {
+      const allowed = new Set(industryGroupsForSector(sectorFilter));
+      results = results.filter(
+        (i) => i.gicsIndustryGroup != null && allowed.has(i.gicsIndustryGroup),
+      );
+    }
     return results;
-  }, [instruments, marketChip, search, typeFilter]);
+  }, [instruments, marketChip, search, typeFilter, sectorFilter]);
 
   // Live results pass through the SAME type filter as catalog rows; rows
   // hidden by the filter are dropped silently.
@@ -90,6 +126,16 @@ export function InstrumentCatalogSheet({
   useEffect(() => {
     setVisibleCount(100);
   }, [filtered, filteredLiveResults]);
+
+  // KZO-196: clear the sector filter whenever the user navigates away from
+  // the AU market chip. Without this, switching AU → ALL → AU would silently
+  // re-apply a stale sector narrow (and the dropdown is hidden for non-AU
+  // markets, so the user has no way to inspect or clear it).
+  useEffect(() => {
+    if (marketChip !== "AU" && sectorFilter !== null) {
+      setSectorFilter(null);
+    }
+  }, [marketChip, sectorFilter]);
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
@@ -258,6 +304,48 @@ export function InstrumentCatalogSheet({
         </div>
       </div>
 
+      {/* KZO-196 — AU-only sector dropdown. Hidden (not disabled) for
+          ALL/TW/US so the chrome doesn't suggest a no-op control. */}
+      {marketChip === "AU" && (
+        <div className="pb-3">
+          <label
+            htmlFor="catalog-sector-filter"
+            className="mb-1 block text-xs font-medium text-slate-500"
+          >
+            {dict.settings.tickersFilterBySector}
+          </label>
+          <select
+            id="catalog-sector-filter"
+            value={sectorFilter ?? ""}
+            onChange={(e) => setSectorFilter(e.target.value === "" ? null : e.target.value)}
+            data-testid="catalog-sector-filter"
+            className={fieldClassName}
+          >
+            <option value="" data-testid="catalog-sector-option-all">
+              {dict.settings.tickersAllSectors}
+            </option>
+            {gicsSectors.map((sector) => {
+              // The option value is the canonical sector NAME because
+              // `industryGroupsForSector(...)` from shared-types keys on the
+              // English name, not the displayKey. The label is i18n-resolved.
+              // Architect's locked testid: `catalog-sector-option-{key}` where
+              // {key} is the lowercased sector key — derived by stripping the
+              // `gics_sector_` prefix from `displayKey`.
+              const optionKey = sector.displayKey.replace(/^gics_sector_/, "");
+              return (
+                <option
+                  key={sector.displayKey}
+                  value={sector.sector}
+                  data-testid={`catalog-sector-option-${optionKey}`}
+                >
+                  {dict.gics.sectors[sector.displayKey] ?? sector.sector}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
+
       {/* Results count — only when catalog rows are visible */}
       {showCountLine && (
         <p className="mb-2 text-xs text-slate-400">
@@ -308,6 +396,26 @@ export function InstrumentCatalogSheet({
                         {instrument.name ?? "—"}
                       </span>
                     </div>
+                    {/* KZO-196: render industry-group (level 2). Unknown
+                        groups bucketize to "Other" — never throw. Sector
+                        (level 1) is intentionally NOT rendered per scope. */}
+                    {instrument.gicsIndustryGroup != null && (() => {
+                      const displayKey = INDUSTRY_GROUP_DISPLAY_KEY.get(
+                        instrument.gicsIndustryGroup,
+                      );
+                      const label = displayKey
+                        ? dict.gics.industryGroups[displayKey] ??
+                          dict.settings.tickersGicsOtherBucket
+                        : dict.settings.tickersGicsOtherBucket;
+                      return (
+                        <p
+                          className="mt-0.5 truncate text-[11px] text-slate-400"
+                          data-testid={`catalog-row-industry-group-${instrument.ticker}`}
+                        >
+                          {label}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                     {instrument.instrumentType}

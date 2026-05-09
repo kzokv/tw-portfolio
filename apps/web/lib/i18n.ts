@@ -16,13 +16,18 @@ export { formatRecomputeMessage } from "../features/portfolio/i18n";
 export function getDictionary(locale: LocaleCode): AppDictionary {
   const localeKey = locale === "zh-TW" ? "zh-TW" : "en";
 
+  const settingsBlock = settingsI18n[localeKey];
   return {
     ...commonI18n[localeKey],
     ...cashLedgerI18n[localeKey],
     ...dashboardI18n[localeKey],
     ...dividendsI18n[localeKey],
     ...notificationsI18n[localeKey],
-    ...settingsI18n[localeKey],
+    ...settingsBlock,
+    // KZO-196 — `gics` lives on `settingsI18n` but the spread above does not
+    // re-emit narrowly-typed sibling keys; pinning explicitly keeps the
+    // returned `AppDictionary["gics"]` typing intact.
+    gics: settingsBlock.gics,
     ...portfolioI18n[localeKey],
     ...sharingI18n[localeKey],
     ...layoutI18n[localeKey],

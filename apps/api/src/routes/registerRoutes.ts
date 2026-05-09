@@ -1483,6 +1483,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             barsBackfillStatus: z.string(),
             lastRepairAt: z.string().nullable().optional(),
             delistedAt: z.string().optional(),
+            // KZO-196 — optional GICS industry-group label (AU only). Lets E2E
+            // specs seed the column without invoking the asx-gics-sync worker.
+            gicsIndustryGroup: z.string().nullable().optional(),
           }),
         ),
       })
@@ -1552,6 +1555,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           "yahoo-finance-au",
           "twelve-data-au",
           "frankfurter",
+          // KZO-196 — ASX GICS catalog provider for E2E seed of the admin
+          // /providers row (run-now button + status badge tests).
+          "asx-gics-csv",
         ]),
         status: z.enum(["healthy", "degraded", "down"]).optional(),
         lastSuccessfulRun: z.string().nullable().optional(),

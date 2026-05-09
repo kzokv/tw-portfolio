@@ -330,6 +330,20 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.catalog.marketChip(market));
   }
 
+  // ── KZO-196: AU GICS sector filter ───────────────────────────────────────
+
+  /**
+   * Select a GICS sector in the AU catalog sheet's sector dropdown. Pass the
+   * empty string to reset to "All sectors".
+   *
+   * Requires the AU market chip to be active (`clickMarketChip("AU")`); the
+   * dropdown is hidden for ALL/TW/US per scope-todo.
+   */
+  @Step()
+  async selectSectorFilter(sector: string): Promise<void> {
+    await this.el.catalog.sectorSelect.selectOption(sector);
+  }
+
   /**
    * Pre-attach a wait for the PUT /monitored-tickers response BEFORE clicking
    * the save button. Returns the response promise — caller awaits it after the

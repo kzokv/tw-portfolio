@@ -110,6 +110,10 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     liveUnavailableMessage: Locator;
     // KZO-188: in-flight live-search indicator
     liveSearchingMessage: Locator;
+    // KZO-196: AU-only GICS sector filter dropdown
+    sectorSelect: Locator;
+    // KZO-196: per-row GICS industry-group label
+    itemIndustryLabel: (ticker: string) => Locator;
   };
   footer: {
     saveButton: Locator;
@@ -366,6 +370,18 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           "catalog-live-loading",
           "Catalog Live Searching Indicator",
         ),
+        // KZO-196: AU-only GICS sector filter dropdown (rendered only when
+        // `marketChip === "AU"`). Architect-locked testid:
+        // `catalog-sector-filter`.
+        sectorSelect: this.locate("catalog-sector-filter", "Catalog Sector Filter"),
+        // KZO-196: per-row industry-group label (rendered only when
+        // `gicsIndustryGroup != null`). Architect-locked testid:
+        // `catalog-row-industry-group-{ticker}`.
+        itemIndustryLabel: (ticker: string) =>
+          this.locate(
+            `catalog-row-industry-group-${ticker}`,
+            `Catalog Row Industry Group ${ticker}`,
+          ),
       },
       footer: {
         saveButton: this.locate("settings-save-button", "Save Settings Button"),

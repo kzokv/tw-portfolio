@@ -827,7 +827,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "finmind-us"
       | "yahoo-finance-au"
       | "twelve-data-au"
-      | "frankfurter";
+      | "frankfurter"
+      // KZO-196 — ASX GICS catalog provider; admin "Run now" enqueues the
+      // singleton-keyed `asx-gics-sync` queue (same job pg-boss runs on cron).
+      | "asx-gics-csv";
     const existing = await app.persistence.getProviderHealthStatus(providerId);
     if (!existing) {
       throw routeError(404, "provider_not_found", "Unknown provider id");
@@ -872,6 +875,23 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         );
       }
       tickerCount = STORED_QUOTES.length;
+    } else if (providerId === "asx-gics-csv") {
+      // KZO-196: enqueue the asx-gics-sync queue. Singleton policy means a
+      // concurrent admin click while a sync is in flight (or alongside the
+      // weekly cron tick) coalesces — `boss.send` returns null when an
+      // existing singleton job covers this work.
+      const { ASX_GICS_SYNC_QUEUE, ASX_GICS_SYNC_SINGLETON_KEY } = await import(
+        "../services/market-data/asxGicsSyncWorker.js"
+      );
+      marketCode = "AU";
+      if (app.boss) {
+        jobId = await app.boss.send(
+          ASX_GICS_SYNC_QUEUE,
+          {},
+          { singletonKey: ASX_GICS_SYNC_SINGLETON_KEY, priority: 5 },
+        );
+      }
+      tickerCount = 0;
     } else if (providerId === "twelve-data-au") {
       // KZO-200: Twelve Data is the AU catalog provider (KZO-194). Re-run
       // dispatches the catalog-sync queue for AU only — `pendingMarkets=["AU"]`

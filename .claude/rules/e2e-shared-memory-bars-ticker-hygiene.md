@@ -65,6 +65,13 @@ As of 2026-05-07 (KZO-194 — Twelve Data AU catalog provider):
 As of 2026-05-09 (KZO-195 — ASX delisting detection via consecutive-absence diff):
 - `AUDEL*` — synthetic prefix (`AUDEL01`, `AUDEL02`, `AUDEL90`, etc.) used by `apps/api/test/integration/auCatalogDelistingDetector.integration.test.ts` for absence-detection streak/guard/undelete/exclude test cases, and by `apps/api/test/http/specs/admin-instruments-aaa.http.spec.ts` and `apps/web/tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts` for undelete/exclude admin endpoint tests. Do not reuse for any non-KZO-195 spec.
 
+As of 2026-05-09 (KZO-196 — AU sector / GICS enrichment):
+- `AUGICS*` — synthetic prefix used across the GICS enrichment test surface. Do not reuse for any non-KZO-196 spec. Reserved tickers:
+  - `AUGICS01`–`AUGICS05` — E2E spec `apps/web/tests/e2e/specs/au-catalog-sector-filter-aaa.spec.ts` (sector-filter visibility, filter narrowing, live-search bypass, industry-group label render)
+  - `AUGICS99` — integration spec `apps/api/test/integration/asxGicsCatalogSync.integration.test.ts` ASX-only ticker case (unmatched ticker in DB — never in the CSV fixture)
+  - `AUGICSH00001`–`AUGICSH05001` — sanity-high case in the same integration spec (> 5 000 rows fixture; these tickers are synthetic header-row anchors)
+  - `AUGICSG1` / `TWGICSG1` — migration cleanup case in the same integration spec; `AUGICSG1` is an AU row expected to have `industry_category_raw` NULLed by migration 050; `TWGICSG1` is a TW row that must be left unchanged
+
 Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 
 ## Why not fix MemoryPersistence?
