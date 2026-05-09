@@ -512,6 +512,10 @@ const ADMIN_ROUTE_KEYS = new Set([
   // KZO-177: provider health admin surface.
   "GET /admin/providers",
   "POST /admin/providers/:providerId/rerun",
+  // KZO-195: admin instruments listing + overrides.
+  "GET /admin/instruments",
+  "POST /admin/instruments/:ticker/:marketCode/undelete",
+  "POST /admin/instruments/:ticker/:marketCode/exclude",
 ]);
 const IMPERSONATION_WRITE_ALLOWLIST = new Set([
   "POST /admin/users/:id/impersonate",

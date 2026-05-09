@@ -149,6 +149,13 @@ export const envSchema = z.object({
   SSE_MAX_CONNECTIONS_PER_USER: z.coerce.number().int().positive().default(20),
   SSE_BUFFER_DEFAULT_TTL_MS: z.coerce.number().int().positive().default(60_000),
 
+  // KZO-195 Tier 2 — absence-based delisting detection knobs (AU, with US
+  // flipping on later). All three have safe defaults so no auto-gen is needed
+  // (per `env-setup-autogen-required-secrets.md`).
+  CATALOG_ABSENCE_THRESHOLD: z.coerce.number().int().positive().default(3),
+  CATALOG_ABSENCE_GUARD_PERCENT: z.coerce.number().nonnegative().default(1.0),
+  CATALOG_ABSENCE_GUARD_FLOOR: z.coerce.number().int().nonnegative().default(5),
+
   // KZO-198 Tier 3 — env-only cron schedules. Restart-required to change
   // (cron live-edit is explicitly out of scope per scope-todo "Out of scope").
   CATALOG_SYNC_CRON: z.string().min(1).default("30 17 * * 1-5"),

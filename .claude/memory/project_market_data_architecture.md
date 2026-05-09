@@ -64,7 +64,21 @@ Reusing `fetchDataset` with empty params would include `data_id=` in the URL, wh
 - Failure handling: `RateLimitedError` re-thrown for outer reschedule (per `typed-transient-error-catch-audit.md`); HTTP 4xx/5xx throw for pg-boss retry; idempotent upsert preserves yesterday's catalog on transient failure.
 - Startup-tick (Critical Gap 2): `pgBoss.ts` enqueues a one-shot `boss.send(CATALOG_SYNC_QUEUE, {}, { singletonKey: CATALOG_SYNC_QUEUE })` immediately after `boss.schedule()`. Closes the post-deploy empty-catalog window without waiting for the next 17:30 UTC cron tick (load-bearing for Friday-evening deploys).
 - Commercial-use: TD Basic ToS §2.3(l) prohibits commercial use; commercialization swaps to EODHD ($399/mo Internal-Use tier) per the KZO-171 spike. Yahoo retirement also deferred to that swap — TD's free tier doesn't cover bars/dividends/quotes.
-- Deferred follow-ups: KZO-195 (delisting detection), KZO-196 (GICS/sector enrichment), KZO-197 (catalog-bootstrap orphan / provider-health "down" symptom).
+- Deferred follow-ups: KZO-196 (GICS/sector enrichment), KZO-197 (catalog-bootstrap orphan / provider-health "down" symptom). KZO-195 (delisting detection) shipped — see below.
+
+## Delisting detection (KZO-195)
+
+Two-flag capability gate on `InstrumentCatalogProvider` governs the detection mode per provider:
+- `supportsDelistingFeed: boolean` — TW (FinMind feed). Other providers `false`.
+- `absenceDetectionEnabled: boolean` — TD-AU only. Other providers `false`.
+
+Runtime gate in `runCatalogSync`: feed → absence → bare upsert. See `.claude/rules/capability-flag-polarity.md` for the polarity rationale.
+
+Schema (`market_data.instruments` post-migration 049): `last_seen_in_catalog_at TIMESTAMP NULL` (LIC discriminator — NULL = never claimed by bulk catalog), `absence_streak INTEGER NOT NULL DEFAULT 0`, `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` (admin-managed escape hatch). Backfill: AU rows where `is_provisional=FALSE` get `last_seen_in_catalog_at = updated_at`.
+
+Thresholds (Tier-2 hybrid env+app_config, mirroring KZO-198): `CATALOG_ABSENCE_THRESHOLD=3`, `CATALOG_ABSENCE_GUARD_PERCENT=1.0`, `CATALOG_ABSENCE_GUARD_FLOOR=5`. Resolvers in `apps/api/src/services/appConfig/catalogAbsence.ts`. Mass-delisting safety: trip when `absentCount > max(floor, prevCount × percent / 100)` → commit upserts only, skip bumps + stamps, fan out admin notification (severity warning).
+
+Admin reversal at `/admin/instruments` — `POST /admin/instruments/:ticker/:marketCode/{undelete,exclude}`. Audit-log actions: `instrument_undelete`, `instrument_exclusion_toggle`. See `docs/004-notes/kzo-195/transition-202605092200-asx-delisting-detection.md` for the full convergence story.
 
 ## InstrumentCatalogProvider interface (KZO-172)
 

@@ -2308,6 +2308,9 @@ export class MemoryPersistence implements Persistence {
     sseHeartbeatIntervalMs: number | null;
     sseMaxConnectionsPerUser: number | null;
     sseBufferDefaultTtlMs: number | null;
+    catalogAbsenceThreshold: number | null;
+    catalogAbsenceGuardPercent: number | null;
+    catalogAbsenceGuardFloor: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -2336,6 +2339,9 @@ export class MemoryPersistence implements Persistence {
       sseHeartbeatIntervalMs: p.sseHeartbeatIntervalMs ?? null,
       sseMaxConnectionsPerUser: p.sseMaxConnectionsPerUser ?? null,
       sseBufferDefaultTtlMs: p.sseBufferDefaultTtlMs ?? null,
+      catalogAbsenceThreshold: p.catalogAbsenceThreshold ?? null,
+      catalogAbsenceGuardPercent: p.catalogAbsenceGuardPercent ?? null,
+      catalogAbsenceGuardFloor: p.catalogAbsenceGuardFloor ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -2682,8 +2688,119 @@ export class MemoryPersistence implements Persistence {
     }));
   }
 
-  async upsertInstrumentCatalog(_instruments: CatalogInstrument[], _delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
-    return { upserted: 0, delisted: 0 };
+  async upsertInstrumentCatalog(
+    _instruments: CatalogInstrument[],
+    _delistings: DelistingRecord[],
+    _options?: import("./types.js").UpsertInstrumentCatalogOptions,
+  ): Promise<CatalogSyncResult> {
+    // KZO-195 — MemoryPersistence intentionally does not model the instrument
+    // catalog table (no integration concerns). Service-layer unit tests assert
+    // against the pure detector directly; the Postgres-backed integration
+    // suite (`auCatalogDelistingDetector.integration.test.ts`) is authoritative
+    // per `.claude/rules/test-placement-persistence-backend.md`.
+    return { upserted: 0, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] };
+  }
+
+  // KZO-195 — admin instrument overrides. MemoryPersistence does not model
+  // the catalog table; HTTP/E2E suites that need real assertions run against
+  // Postgres. These no-ops let the route layer compile/run on memory backend
+  // (returning a synthetic row for "found", or null for "not found"). Per
+  // `.claude/rules/test-placement-persistence-backend.md`, behavioral tests
+  // for these methods MUST be Postgres-backed integration tests.
+  private _adminInstrumentMemRows: Map<
+    string,
+    import("./types.js").AdminInstrumentRow
+  > = new Map();
+
+  private _adminInstrumentKey(ticker: string, marketCode: string): string {
+    return `${ticker}::${marketCode}`;
+  }
+
+  async instrumentAdminGet(
+    ticker: string,
+    marketCode: string,
+  ): Promise<import("./types.js").AdminInstrumentRow | null> {
+    return this._adminInstrumentMemRows.get(this._adminInstrumentKey(ticker, marketCode)) ?? null;
+  }
+
+  async listAdminInstruments(opts: {
+    marketCode: string;
+    page: number;
+    limit: number;
+  }): Promise<{
+    items: import("./types.js").AdminInstrumentRow[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = Math.max(1, Math.floor(opts.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(opts.limit) || 50));
+    const all = [...this._adminInstrumentMemRows.values()]
+      .filter((row) => row.marketCode === opts.marketCode)
+      .sort((a, b) => a.ticker.localeCompare(b.ticker));
+    const offset = (page - 1) * limit;
+    const items = all.slice(offset, offset + limit);
+    return { items, total: all.length, page, limit };
+  }
+
+  async undeleteInstrument(
+    ticker: string,
+    marketCode: string,
+    _actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const key = this._adminInstrumentKey(ticker, marketCode);
+    const existing = this._adminInstrumentMemRows.get(key);
+    const now = new Date().toISOString();
+    const next: import("./types.js").AdminInstrumentRow = existing
+      ? {
+          ...existing,
+          delistedAt: null,
+          statusReason: null,
+          absenceStreak: 0,
+          lastSeenInCatalogAt: now,
+          updatedAt: now,
+        }
+      : {
+          ticker,
+          marketCode,
+          name: null,
+          instrumentType: null,
+          delistedAt: null,
+          statusReason: null,
+          lastSeenInCatalogAt: now,
+          absenceStreak: 0,
+          delistingDetectionExcluded: false,
+          updatedAt: now,
+        };
+    this._adminInstrumentMemRows.set(key, next);
+    return next;
+  }
+
+  async setInstrumentDelistingDetectionExcluded(
+    ticker: string,
+    marketCode: string,
+    excluded: boolean,
+    _actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const key = this._adminInstrumentKey(ticker, marketCode);
+    const existing = this._adminInstrumentMemRows.get(key);
+    const now = new Date().toISOString();
+    const next: import("./types.js").AdminInstrumentRow = existing
+      ? { ...existing, delistingDetectionExcluded: excluded, updatedAt: now }
+      : {
+          ticker,
+          marketCode,
+          name: null,
+          instrumentType: null,
+          delistedAt: null,
+          statusReason: null,
+          lastSeenInCatalogAt: null,
+          absenceStreak: 0,
+          delistingDetectionExcluded: excluded,
+          updatedAt: now,
+        };
+    this._adminInstrumentMemRows.set(key, next);
+    return next;
   }
 
   // --- Notifications (KZO-132) — functional in-memory impl for E2E ---
@@ -2806,13 +2923,60 @@ export class MemoryPersistence implements Persistence {
       instrumentCatalogKey(instrument.ticker, instrument.marketCode),
       instrument,
     );
+    // KZO-195 — mirror into the admin-instruments map so `listAdminInstruments`
+    // (and the route's GET /admin/instruments) sees rows seeded via test
+    // helpers, including the E2E `/__e2e/seed-instruments` endpoint which
+    // passes a userId. Catalog instruments are global by design; the admin-row
+    // store is independent of the per-user catalog. Iter 8 (KZO-195) removed
+    // the iter-4 `if (!userId)` gate that suppressed mirror writes whenever
+    // the seeder threaded a userId — it left the admin endpoint blind to
+    // E2E-seeded rows. The lockstep clear in `_replaceInstruments` (also
+    // unconditional now) preserves the iter-4 invariant that admin overrides
+    // (exclusion, undelete) carry across re-seeds for matching keys.
+    const key = this._adminInstrumentKey(instrument.ticker, instrument.marketCode);
+    const existing = this._adminInstrumentMemRows.get(key);
+    const now = new Date().toISOString();
+    this._adminInstrumentMemRows.set(key, {
+      ticker: instrument.ticker,
+      marketCode: instrument.marketCode,
+      name: instrument.name,
+      instrumentType: instrument.instrumentType,
+      delistedAt: instrument.delistedAt ?? existing?.delistedAt ?? null,
+      statusReason: existing?.statusReason ?? null,
+      // Preserve admin-set absence-detection state across re-seeds
+      // (undelete / exclusion / streak) so test scenarios that seed catalog
+      // rows AFTER calling `setInstrumentDelistingDetectionExcluded` don't
+      // lose the admin override.
+      lastSeenInCatalogAt: existing?.lastSeenInCatalogAt ?? now,
+      absenceStreak: existing?.absenceStreak ?? 0,
+      delistingDetectionExcluded: existing?.delistingDetectionExcluded ?? false,
+      updatedAt: now,
+    });
   }
 
   /** @internal Test-only: replace the in-memory catalog with the provided instruments. */
   _replaceInstruments(instruments: MemoryInstrument[], userId?: string): void {
     const catalog = this._catalogForWrite(userId);
     catalog.clear();
+    // KZO-195 (iter 8) — snapshot admin overrides BEFORE clearing so the
+    // per-row `existing?.*` carry-over inside `_seedInstrument` can still
+    // restore exclusion / undelete / streak state for tickers present in
+    // the new replacement set. Tickers absent from `instruments` are
+    // intentionally dropped to keep the admin map in lockstep with the
+    // catalog. Catalog instruments are global by design — userId scope
+    // applies to the legacy per-user catalog map only, not the admin store.
+    const overrideSnapshot = new Map(this._adminInstrumentMemRows);
+    this._adminInstrumentMemRows.clear();
     for (const instrument of instruments) {
+      const key = this._adminInstrumentKey(instrument.ticker, instrument.marketCode);
+      const carry = overrideSnapshot.get(key);
+      if (carry) {
+        // Re-stamp the override so `_seedInstrument`'s `existing?.*` lookup
+        // sees it. `_seedInstrument` overwrites name / instrumentType /
+        // updatedAt but preserves absenceStreak / delistingDetectionExcluded
+        // / lastSeenInCatalogAt / statusReason via the same carry pattern.
+        this._adminInstrumentMemRows.set(key, carry);
+      }
       this._seedInstrument(instrument, userId);
     }
   }

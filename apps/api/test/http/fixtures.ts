@@ -10,6 +10,7 @@ import type { TestUser } from "@tw-portfolio/test-framework/core";
 import type {
   TAccountsApiAssistant,
   TAdminApiAssistant,
+  TAdminInstrumentsApiAssistant,
   TAnonymousShareTokensApiAssistant,
   TDividendsApiAssistant,
   TFeeProfilesApiAssistant,
@@ -28,6 +29,7 @@ import { createApiSessionTest } from "@tw-portfolio/test-api/fixtures/sessionBas
 import {
   AccountsEndpoint,
   AdminEndpoint,
+  AdminInstrumentsEndpoint,
   AnonymousShareTokensEndpoint,
   DividendsEndpoint,
   FeeProfilesEndpoint,
@@ -48,6 +50,7 @@ const base = createApiSessionTest("oauth");
 type THttpApiFixtures = {
   accountsApi: TAccountsApiAssistant;
   adminApi: TAdminApiAssistant;
+  adminInstrumentsApi: TAdminInstrumentsApiAssistant;
   anonymousShareTokensApi: TAnonymousShareTokensApiAssistant;
   dividendsApi: TDividendsApiAssistant;
   feeProfilesApi: TFeeProfilesApiAssistant;
@@ -79,6 +82,7 @@ export const test: THttpApiTest = base.extend<THttpApiFixtures>({
   profileApi: createApiFixture<TProfileApiAssistant>(ProfileEndpoint),
   accountsApi: createApiFixture<TAccountsApiAssistant>(AccountsEndpoint),
   adminApi: createApiFixture<TAdminApiAssistant>(AdminEndpoint),
+  adminInstrumentsApi: createApiFixture<TAdminInstrumentsApiAssistant>(AdminInstrumentsEndpoint),
   dividendsApi: createApiFixture<TDividendsApiAssistant>(DividendsEndpoint),
   feeProfilesApi: createApiFixture<TFeeProfilesApiAssistant>(FeeProfilesEndpoint),
   fxTransfersApi: createApiFixture<TFxTransfersApiAssistant>(FxTransfersEndpoint),

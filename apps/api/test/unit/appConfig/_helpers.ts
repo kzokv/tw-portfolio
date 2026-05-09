@@ -46,6 +46,10 @@ export function fakePersistenceWithAppConfig(
     sseHeartbeatIntervalMs: null,
     sseMaxConnectionsPerUser: null,
     sseBufferDefaultTtlMs: null,
+    // KZO-195 — absence detection knobs.
+    catalogAbsenceThreshold: null,
+    catalogAbsenceGuardPercent: null,
+    catalogAbsenceGuardFloor: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

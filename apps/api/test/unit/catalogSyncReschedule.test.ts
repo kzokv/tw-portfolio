@@ -40,6 +40,12 @@ function createProvider() {
     // false is correct. The catalog sync handler does not read this field; the
     // mock declares it for interface fidelity.
     supportsMetadataEnrichment: false,
+    // KZO-195 — both FinMind providers (TW=true, US=false) used here. We default
+    // to TW=true because the existing TW-path assertions in this file expect the
+    // provider-feed branch (no absence detector wired in). US is also `false` in
+    // production but the tests don't exercise the absence-detection branch.
+    supportsDelistingFeed: false,
+    absenceDetectionEnabled: false,
   };
 }
 
@@ -55,6 +61,9 @@ function createDeps() {
     upsertInstrumentCatalog: vi.fn(),
     getAllMonitoredTickers: vi.fn().mockResolvedValue([]),
     createRefreshBatch: vi.fn(),
+    // KZO-195 — admin notification fan-out deps (no-op defaults).
+    listAdminUserIds: vi.fn().mockResolvedValue([]),
+    createNotification: vi.fn().mockResolvedValue("notif-1"),
   };
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return { boss, twProvider, usProvider, catalogRegistry, persistence, log };
@@ -65,7 +74,7 @@ describe("catalog sync per-market reschedule (KZO-170 D12)", () => {
 
   it("runs for ALL markets (no pendingMarkets) when payload is the cron-default empty object", async () => {
     const deps = createDeps();
-    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 });
+    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] });
     const enqueueDailyRefreshFn = vi.fn().mockResolvedValue(0);
 
     const handler = createCatalogSyncHandler({
@@ -96,7 +105,7 @@ describe("catalog sync per-market reschedule (KZO-170 D12)", () => {
       if (catalogProvider === deps.usProvider) {
         throw new RateLimitedError({ msUntilAvailable: 60_000 });
       }
-      return { upserted: 1, delisted: 0 };
+      return { upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] };
     });
     const enqueueDailyRefreshFn = vi.fn().mockResolvedValue(0);
 
@@ -126,7 +135,7 @@ describe("catalog sync per-market reschedule (KZO-170 D12)", () => {
 
   it("processes only US when the job payload says pendingMarkets=['US']", async () => {
     const deps = createDeps();
-    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 });
+    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] });
     const enqueueDailyRefreshFn = vi.fn().mockResolvedValue(0);
 
     const handler = createCatalogSyncHandler({
@@ -224,7 +233,7 @@ describe("catalog sync per-market reschedule (KZO-170 D12)", () => {
       if (catalogProvider === deps.twProvider) {
         throw new Error("provider exploded");
       }
-      return { upserted: 1, delisted: 0 };
+      return { upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] };
     });
     const enqueueDailyRefreshFn = vi.fn().mockResolvedValue(0);
 

@@ -27,6 +27,9 @@ function createDeps() {
     // future code paths (or accidental same-mock reuse in metadata-aware tests)
     // see a correct value. TW = no-op metadata = false.
     supportsMetadataEnrichment: false,
+    // KZO-195 — TW (FinMind) is the only provider with a real delisting feed.
+    supportsDelistingFeed: true,
+    absenceDetectionEnabled: false,
   };
   const catalogRegistry = new Map([["TW", catalogProvider]]);
   const persistence = {
@@ -36,6 +39,10 @@ function createDeps() {
     // mock is never invoked, but the return value is set to the correct shape.
     getAllMonitoredTickers: vi.fn().mockResolvedValue([]),
     createRefreshBatch: vi.fn(),
+    // KZO-195 — admin notification fan-out deps. Default: empty admin list +
+    // no-op create. Tests that exercise the fan-out can override per-suite.
+    listAdminUserIds: vi.fn().mockResolvedValue([]),
+    createNotification: vi.fn().mockResolvedValue("notif-1"),
   };
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return { boss, catalogProvider, catalogRegistry, persistence, log };
@@ -44,7 +51,7 @@ function createDeps() {
 describe("catalog sync worker", () => {
   it("runs catalog sync and then enqueues the daily refresh chain", async () => {
     const deps = createDeps();
-    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 3, delisted: 1 });
+    const runCatalogSyncFn = vi.fn().mockResolvedValue({ upserted: 3, delisted: 1, absent: 0, guardTripped: false, absentTickers: [] });
     const enqueueDailyRefreshFn = vi.fn().mockResolvedValue(2);
 
     const handler = createCatalogSyncHandler({

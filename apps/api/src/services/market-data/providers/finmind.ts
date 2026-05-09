@@ -74,6 +74,10 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
   readonly providerId = "finmind-tw";
   /** KZO-190 — `fetchInstrumentMetadata` is a no-op returning null; consumes no slot. */
   readonly supportsMetadataEnrichment = false;
+  /** KZO-195 — FinMind TW publishes a real `TaiwanStockDelisting` feed. */
+  readonly supportsDelistingFeed = true;
+  /** KZO-195 (iter 9) — TW uses the provider feed; absence detector not wired in. */
+  readonly absenceDetectionEnabled = false;
   /** Bootstrap token from constructor config; KZO-198 resolver reads override per fetch. */
   private readonly bootstrapToken: string;
   private readonly baseUrl: string;

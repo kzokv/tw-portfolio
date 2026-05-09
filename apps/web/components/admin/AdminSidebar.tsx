@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, ClipboardList, Mail, Settings, Users } from "lucide-react";
+import { Activity, ClipboardList, LineChart, Mail, Settings, Users } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface AdminNavItem {
@@ -17,6 +17,7 @@ const adminNavItems: AdminNavItem[] = [
   { id: "invites", href: "/admin/invites", label: "Invites", icon: Mail },
   { id: "audit-log", href: "/admin/audit-log", label: "Audit Log", icon: ClipboardList },
   { id: "providers", href: "/admin/providers", label: "Providers", icon: Activity },
+  { id: "instruments", href: "/admin/instruments", label: "Instruments", icon: LineChart },
   { id: "settings", href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

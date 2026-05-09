@@ -1,3 +1,4 @@
+export * from "./admin/index.js";
 export * from "./layout/index.js";
 export * from "./settings/index.js";
 export * from "./auth/index.js";

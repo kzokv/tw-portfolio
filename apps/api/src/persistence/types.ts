@@ -48,7 +48,11 @@ export type AppConfigPlainField =
   | "dailyRefreshPriority"
   | "sseHeartbeatIntervalMs"
   | "sseMaxConnectionsPerUser"
-  | "sseBufferDefaultTtlMs";
+  | "sseBufferDefaultTtlMs"
+  // KZO-195 — Tier 2 hybrid env+app_config delisting-detection knobs.
+  | "catalogAbsenceThreshold"
+  | "catalogAbsenceGuardPercent"
+  | "catalogAbsenceGuardFloor";
 
 /**
  * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
@@ -84,6 +88,10 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   sseHeartbeatIntervalMs: "sse_heartbeat_interval_ms",
   sseMaxConnectionsPerUser: "sse_max_connections_per_user",
   sseBufferDefaultTtlMs: "sse_buffer_default_ttl_ms",
+  // KZO-195 — delisting detection knobs (Tier 2 hybrid).
+  catalogAbsenceThreshold: "catalog_absence_threshold",
+  catalogAbsenceGuardPercent: "catalog_absence_guard_percent",
+  catalogAbsenceGuardFloor: "catalog_absence_guard_floor",
 };
 
 export interface ReadinessStatus {
@@ -175,7 +183,15 @@ export type AuditLogAction =
   | "fx_transfer_created"
   | "fx_transfer_updated"
   | "fx_transfer_reversed"
-  | "provider_health_rerun";
+  | "provider_health_rerun"
+  // KZO-195 — admin overrides for absence-based delisting detection.
+  | "instrument_undelete"
+  | "instrument_exclusion_toggle"
+  // KZO-195 — persistence-side audit rows for absence-based stamps, streak
+  // bumps, and guard trips.
+  | "instrument_delisted_via_absence"
+  | "instrument_absence_streak_bumped"
+  | "instrument_absence_guard_tripped";
 
 export interface ShareGrantRecord {
   id: string;
@@ -334,6 +350,29 @@ export interface CatalogInstrument {
   marketCode: import("@tw-portfolio/domain").MarketCode;
 }
 
+/**
+ * KZO-195 — options bag for `upsertInstrumentCatalog`. Backward-compatible:
+ * callers that omit `absenceDetection` (TW provider-feed path) get the legacy
+ * upsert + delistings flow. The AU path (and US once flipped on) wires
+ * `absenceDetection.categorize` to the pure detector so the persistence layer
+ * can fold the diff-based detection into the same transaction.
+ */
+export interface UpsertInstrumentCatalogOptions {
+  absenceDetection?: {
+    marketCode: import("@tw-portfolio/domain").MarketCode;
+    /**
+     * Decide which absent rows should bump streak / cross threshold / trip the
+     * guard. See `apps/api/src/services/market-data/detectDelistingsByAbsence.ts`.
+     */
+    categorize: (
+      absent: import("../services/market-data/detectDelistingsByAbsence.js").AbsentRow[],
+      prevCatalogSize: number,
+    ) => import("../services/market-data/detectDelistingsByAbsence.js").DetectionPlan;
+    /** Audit actor for absence-stamped rows. Optional — `null` skips the actor field. */
+    actorUserId?: string | null;
+  };
+}
+
 export interface DelistingRecord {
   ticker: string;
   name: string;
@@ -343,6 +382,12 @@ export interface DelistingRecord {
   // `runCatalogSync` stamps this from the per-market sync invocation; older callers
   // that omit it preserve the legacy TW-only behavior via the postgres branch.
   marketCode?: import("@tw-portfolio/domain").MarketCode;
+  // KZO-195 — provenance discriminator. `provider_feed` (default) is the legacy
+  // TW path where the upstream provider explicitly publishes a delisting row.
+  // `absence_detected` is the diff-based path used by AU (and US once flipped on)
+  // where consecutive absence from the catalog sync triggers the stamp. Optional
+  // so callers that omit it default to `provider_feed` semantics.
+  source?: "provider_feed" | "absence_detected";
 }
 
 // ── Cash ledger listing (KZO-137) ────────────────────────────────────────────
@@ -400,9 +445,35 @@ export interface DividendLedgerListResult {
   aggregates: DividendLedgerAggregates;
 }
 
+/**
+ * KZO-195 — row shape returned by the admin instrument override routes.
+ * Carries the absence-detection state the admin UI needs to render the
+ * undelete/exclude controls.
+ */
+export interface AdminInstrumentRow {
+  ticker: string;
+  marketCode: string;
+  name: string | null;
+  instrumentType: string | null;
+  delistedAt: string | null;
+  statusReason: string | null;
+  lastSeenInCatalogAt: string | null;
+  absenceStreak: number;
+  delistingDetectionExcluded: boolean;
+  updatedAt: string;
+}
+
 export interface CatalogSyncResult {
   upserted: number;
   delisted: number;
+  // KZO-195 — counters for the diff-based delisting path. Always present in the
+  // result shape (zero when the sync ran without `absenceDetection` wired in,
+  // i.e. TW provider-feed path). When the mass-delisting guard trips, `delisted`
+  // is 0 and `guardTripped` is true; `absent` reports the candidate count and
+  // `absentTickers` lists them (truncated for log/notification readability).
+  absent: number;
+  guardTripped: boolean;
+  absentTickers: string[];
 }
 
 // ── Provider health (KZO-177) ────────────────────────────────────────────────
@@ -913,6 +984,10 @@ export interface Persistence {
     sseHeartbeatIntervalMs: number | null;
     sseMaxConnectionsPerUser: number | null;
     sseBufferDefaultTtlMs: number | null;
+    // KZO-195 — Tier 2 absence-based delisting detection knobs.
+    catalogAbsenceThreshold: number | null;
+    catalogAbsenceGuardPercent: number | null;
+    catalogAbsenceGuardFloor: number | null;
     updatedAt: string;
   }>;
 
@@ -1020,7 +1095,41 @@ export interface Persistence {
   ): Promise<Omit<InstrumentCatalogItemDto, "repairAvailableAt">[]>;
 
   // Catalog sync
-  upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult>;
+  upsertInstrumentCatalog(
+    instruments: CatalogInstrument[],
+    delistings: DelistingRecord[],
+    options?: UpsertInstrumentCatalogOptions,
+  ): Promise<CatalogSyncResult>;
+
+  // KZO-195 — admin overrides for absence-based delisting detection.
+  // The route layer (`POST /admin/instruments/:ticker/:marketCode/{undelete,exclude}`)
+  // calls these. The persistence layer writes the audit row in the same
+  // transaction as the mutation, so the route is a thin pass-through.
+  instrumentAdminGet(ticker: string, marketCode: string): Promise<AdminInstrumentRow | null>;
+  undeleteInstrument(
+    ticker: string,
+    marketCode: string,
+    actorUserId: string,
+  ): Promise<AdminInstrumentRow>;
+  setInstrumentDelistingDetectionExcluded(
+    ticker: string,
+    marketCode: string,
+    excluded: boolean,
+    actorUserId: string,
+  ): Promise<AdminInstrumentRow>;
+  // KZO-195 — paginated admin listing for `/admin/instruments`. Filters by
+  // marketCode; returns items + total count + page/limit echo. Caller (route
+  // layer) layers the `thresholds` block on top of this.
+  listAdminInstruments(opts: {
+    marketCode: string;
+    page: number;
+    limit: number;
+  }): Promise<{
+    items: AdminInstrumentRow[];
+    total: number;
+    page: number;
+    limit: number;
+  }>;
 
   // KZO-164: FX rates (Frankfurter v2 ingestion). All three methods are required because
   // `fxRefreshWorker.ts` and the admin routes consume them through the `Persistence`

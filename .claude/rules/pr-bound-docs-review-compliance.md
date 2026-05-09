@@ -55,3 +55,13 @@ The lighter pass closed "clean" from its own scope — it wasn't wrong, just inc
 - Architect briefs to docs Code Reviewer in Wave 2 must enumerate the `git-pr-flow.md` required sections, not just say "review the PR draft."
 - The shutdown gate must include "PR draft passes `pr-gate.yml` body validation," not just "docs are accurate."
 - Companion to `agent-team-workflow.md` — this is the specific compliance check the Architect should add to Wave 2 task descriptions whenever a PR draft is in scope.
+
+## The structural-compliance brief is mandatory regardless of CR plan
+
+Brief structural compliance to the Technical Writer **every time** Wave 2 runs, even when a docs Code Reviewer is planned. The brief is what produces compliant output; the Code Reviewer is the safety net.
+
+**Why:** KZO-195 — user opted to skip the Wave 2 docs Code Reviewer and inspect the PR draft manually. The draft was structurally compliant on first delivery (`## Problem` separate from Summary, `## Testing` with `Evidence:` block, `## Risk/Rollback`, behavioral deltas table, renamed types table) — entirely because the Architect's writer brief had explicitly enumerated each required section verbatim. Had the brief been "write the PR description," the unreviewed draft would likely have failed CI on submission.
+
+**Rule:** the Architect's Wave 2 task description for the Technical Writer MUST list each `git-pr-flow.md §3-4` required section by name, even when CR is planned. The Code Reviewer can become the only safety net at any point (user decision, runtime failure, scope cut) — the brief must be sufficient on its own.
+
+**How to apply:** Wave 2 task descriptions for the Technical Writer always include the structural-compliance enumeration. Treat CR as additional defense-in-depth, not as the primary correctness gate.

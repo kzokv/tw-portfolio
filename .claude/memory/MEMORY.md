@@ -40,6 +40,12 @@
 - `vitest-config-patterns.md` (addendum) — Env-Proxy pattern for per-test mutation of frozen Env fields
 - `cash-ledger-act-warnings-cosmetic.md` — pre-existing CashLedgerClient act() stderr is known-noisy; skip in PR review
 
+## Promoted to .claude/rules/ (KZO-195)
+- `capability-flag-polarity.md` — prefer positive capability flags over negation when gating provider/market behavior; two booleans, not tri-valued enums
+- `test-placement-persistence-backend.md` (addendum) — MemoryPersistence dual-store mirror must be unconditional; admin-row stores are catalog-global by design
+- `exit-check-non-regression-checklist.md` (addendum) — empirical validation: 5-point checklist held under cumulative pressure (4 distinct flakes); ≥2 data points is non-waivable except infrastructure-class
+- `pr-bound-docs-review-compliance.md` (addendum) — structural-compliance brief to Technical Writer is mandatory regardless of CR plan; CR is defense-in-depth not the gate
+
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185

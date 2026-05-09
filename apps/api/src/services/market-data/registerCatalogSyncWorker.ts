@@ -55,7 +55,15 @@ export interface CatalogSyncWorkerDeps {
   boss: Pick<PgBoss, "send">;
   /** Per-market catalog registry. Replaces the `finmind` + `rateLimiter` deps (KZO-163). */
   catalogRegistry: Map<MarketCode, InstrumentCatalogProvider>;
-  persistence: Pick<Persistence, "upsertInstrumentCatalog" | "getAllMonitoredTickers" | "createRefreshBatch">;
+  persistence: Pick<
+    Persistence,
+    | "upsertInstrumentCatalog"
+    | "getAllMonitoredTickers"
+    | "createRefreshBatch"
+    // KZO-195 — admin notification fan-out on delisted>0 / guardTripped.
+    | "listAdminUserIds"
+    | "createNotification"
+  >;
   log: { info: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
   enqueueDailyRefreshFn?: typeof enqueueDailyRefresh;
   runCatalogSyncFn?: typeof runCatalogSync;
@@ -141,8 +149,66 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
         // KZO-163 HIGH-1 fix: pre-reserve 2 slots (catalog + delisting) per market to
         // prevent starvation under one-slot-at-a-time rate-limit replenishment.
         catalogProvider.reserveCapacity(2);
-        await runCatalogSyncFn({ catalogProvider, marketCode: market, persistence, log });
+        const result = await runCatalogSyncFn({ catalogProvider, marketCode: market, persistence, log });
         completedMarkets.push(market);
+
+        // KZO-195 (iter 9 / Codex P2) — admin notification fan-out.
+        // `result.delisted` increments on BOTH the provider-feed path (TW)
+        // AND the absence-detection path (AU). The two scenarios have different
+        // operator stories:
+        //   * Feed path: upstream provider explicitly published delisting
+        //     records — the operator just needs the count.
+        //   * Absence-detection path: the diff detector inferred the delisting
+        //     from N consecutive absences. The operator should know it was
+        //     detected (vs reported), and the candidate list is in
+        //     `result.absentTickers`.
+        // `result.absentTickers.length > 0` is the clean discriminator — it
+        // is empty for the feed path (which never populates `absentTickers`)
+        // and non-empty for the absence-detection path. Guard-tripped runs
+        // also populate `absentTickers` but bypass `result.delisted > 0` (no
+        // stamps applied).
+        if (result.delisted > 0 || result.guardTripped) {
+          try {
+            const adminIds = await persistence.listAdminUserIds();
+            const isAbsenceDetection = result.absentTickers.length > 0;
+            const severity: "info" | "warning" = result.guardTripped ? "warning" : "info";
+            const title = result.guardTripped
+              ? `Mass-delisting guard tripped (${market})`
+              : isAbsenceDetection
+                ? `${result.delisted} ticker(s) auto-delisted (${market})`
+                : `${result.delisted} ticker(s) marked delisted (provider feed, ${market})`;
+            const body = result.guardTripped
+              ? `Catalog sync flagged ${result.absent} candidates exceeding the safety ceiling. No streak bumps or stamps applied.`
+              : isAbsenceDetection
+                ? `Absence-based detection stamped ${result.delisted} ticker(s) delisted after consecutive absences from the catalog.`
+                : `Provider feed reported ${result.delisted} ticker(s) as delisted this run.`;
+            const detail = {
+              marketCode: market,
+              delisted: result.delisted,
+              absent: result.absent,
+              guardTripped: result.guardTripped,
+              absentTickers: result.absentTickers.slice(0, 50),
+            };
+            await Promise.all(
+              adminIds.map((userId) =>
+                persistence
+                  .createNotification({
+                    userId,
+                    severity,
+                    source: "delisting_detector",
+                    title,
+                    body,
+                    detail,
+                  })
+                  .catch((notifyErr: unknown) => {
+                    log.warn({ err: notifyErr, userId, market }, "delisting_notification_create_failed");
+                  }),
+              ),
+            );
+          } catch (notifyErr) {
+            log.warn({ err: notifyErr, market }, "delisting_notification_fanout_failed");
+          }
+        }
         // KZO-200: each market's catalog call lives on a distinct provider id
         // (TW/US → FinMind, AU → Twelve Data) — record successes per market
         // so the admin UI can show last_successful_run for each.

@@ -43,6 +43,13 @@ export const APP_CONFIG_BOUNDS = {
   // same source of truth. Keep `max=10080` (7 days in minutes) for back-compat
   // with the pre-existing PATCH bound (`apps/api/test/unit/admin-settings-schema.test.ts`).
   repairCooldownMinutes: { min: 1, max: 10080 },
+
+  // KZO-195 — absence-based delisting detection (Tier 2 hybrid).
+  // `catalogAbsenceGuardPercent` is not constrained to integer; the admin
+  // route schema uses a non-int Zod refinement for it.
+  catalogAbsenceThreshold: { min: 1, max: 30 },
+  catalogAbsenceGuardPercent: { min: 0, max: 100 },
+  catalogAbsenceGuardFloor: { min: 0, max: 1000 },
 } as const;
 
 export type AppConfigBoundsKey = keyof typeof APP_CONFIG_BOUNDS;

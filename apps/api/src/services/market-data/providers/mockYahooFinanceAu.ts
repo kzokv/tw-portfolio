@@ -123,6 +123,10 @@ export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider,
   readonly providerId = "yahoo-finance-au";
   /** KZO-190 — mirrors real `YahooFinanceAuMarketDataProvider`; `fetchInstrumentMetadata` consumes a slot. */
   readonly supportsMetadataEnrichment = true;
+  /** KZO-195 — mirrors real `YahooFinanceAuMarketDataProvider` capability flag. */
+  readonly supportsDelistingFeed = false;
+  /** KZO-195 (iter 9) — mirrors real provider. */
+  readonly absenceDetectionEnabled = false;
   readonly calls: Array<{
     method: string;
     ticker?: string;

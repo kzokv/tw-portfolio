@@ -56,6 +56,11 @@ export interface AppConfigCacheEntry {
   sseMaxConnectionsPerUser: number | null;
   sseBufferDefaultTtlMs: number | null;
 
+  // KZO-195 — absence-based delisting detection (Tier 2 hybrid).
+  catalogAbsenceThreshold: number | null;
+  catalogAbsenceGuardPercent: number | null;
+  catalogAbsenceGuardFloor: number | null;
+
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;
 }

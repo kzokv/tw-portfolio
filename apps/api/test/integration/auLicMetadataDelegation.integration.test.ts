@@ -106,6 +106,8 @@ function makeMockYahooFallback() {
   const yahooFallback = {
     providerId: "yahoo-finance-au",
     supportsMetadataEnrichment: true,
+    supportsDelistingFeed: false,
+    absenceDetectionEnabled: false,
     fetchInstrumentCatalog: vi.fn().mockResolvedValue([]),
     fetchDelistingHistory: vi.fn().mockResolvedValue([]),
     fetchInstrumentMetadata: fetchMetadataFn,
@@ -218,6 +220,8 @@ describePostgres(
         const yahooFallback = {
           providerId: "yahoo-finance-au",
           supportsMetadataEnrichment: true,
+          supportsDelistingFeed: false,
+    absenceDetectionEnabled: false,
           fetchInstrumentCatalog: vi.fn().mockResolvedValue([]),
           fetchDelistingHistory: vi.fn().mockResolvedValue([]),
           fetchInstrumentMetadata: vi.fn().mockRejectedValue(rateLimitErr),

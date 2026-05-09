@@ -86,6 +86,8 @@ function makeYahooStub(): InstrumentCatalogProvider {
   return {
     providerId: "yahoo-finance-au",
     supportsMetadataEnrichment: true,
+    supportsDelistingFeed: false,
+    absenceDetectionEnabled: false,
     fetchInstrumentCatalog: vi.fn().mockResolvedValue([]),
     fetchDelistingHistory: vi.fn().mockResolvedValue([]),
     fetchInstrumentMetadata: vi.fn().mockResolvedValue(null),

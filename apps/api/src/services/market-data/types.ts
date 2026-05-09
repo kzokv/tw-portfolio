@@ -167,6 +167,26 @@ export interface InstrumentCatalogProvider {
    * call → true. FinMind TW/US are no-ops returning null → false.
    */
   readonly supportsMetadataEnrichment: boolean;
+  /**
+   * KZO-195 — true iff this provider's `fetchDelistingHistory()` returns
+   * authoritative provider-feed delistings. When `false`, callers (i.e.
+   * `runCatalogSync`) MUST use the diff-based absence detector instead of
+   * trusting the empty/stub list. FinMind TW = `true`; FinMind US, Yahoo AU,
+   * Twelve Data AU = `false` (AU has no upstream delisting feed; US flips on
+   * via this same flag in a follow-up ticket).
+   */
+  readonly supportsDelistingFeed: boolean;
+  /**
+   * KZO-195 (iter 9 / Codex P1) — true iff the absence-based delisting
+   * detector should be wired in for this provider's catalog syncs. Independent
+   * of `supportsDelistingFeed`: a provider may have neither a feed nor
+   * absence detection (third branch — bare upsert with no detection state),
+   * a feed only, or absence detection only. Today only `TwelveDataAuCatalogProvider`
+   * sets this `true`; FinMind providers and Yahoo AU set `false` so a fresh
+   * catalog sync doesn't accidentally stamp `last_seen_in_catalog_at` for
+   * markets the AU detector wasn't designed to govern.
+   */
+  readonly absenceDetectionEnabled: boolean;
   /** Same semantics as `MarketDataProvider.reserveCapacity` — pre-flight check, no consume. */
   reserveCapacity(n: number): void;
 }

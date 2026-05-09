@@ -1577,7 +1577,7 @@ The catalog-sync cron (`30 17 * * 1-5`, post-AU-close) calls `TwelveDataAuCatalo
 
 **Startup-tick (KZO-194 critical gap 2):** `pgBoss.ts` enqueues a one-shot `boss.send(CATALOG_SYNC_QUEUE, {}, { singletonKey: ... })` at boot, immediately after registering the cron. Without this, a Friday-evening deploy would leave the AU catalog empty until Monday's 17:30 UTC cron tick (~72h gap).
 
-**LIC/CEF coverage gap:** Twelve Data's bulk endpoints do not include some Australian listed investment companies (AFI, ARG, AUI, etc.). These remain discoverable via `searchInstruments` (delegated to Yahoo's live `search()` per KZO-188) and enrich inline at first backfill via `fetchInstrumentMetadata` (also Yahoo-delegated). Users see them via autocomplete and can add them via transactions; they just don't appear in the bulk Browse Full Catalog grid.
+**LIC/CEF coverage gap:** Twelve Data's bulk endpoints do not include some Australian listed investment companies (AFI, ARG, AUI, etc.). These remain discoverable via `searchInstruments` (delegated to Yahoo's live `search()` per KZO-188) and enrich inline at first backfill via `fetchInstrumentMetadata` (also Yahoo-delegated). Users see them via autocomplete and can add them via transactions; they just don't appear in the bulk Browse Full Catalog grid. LIC instruments have `last_seen_in_catalog_at IS NULL` and are **never** candidates for auto-delisting (see §23).
 
 **Required env:** `TWELVE_DATA_API_KEY` (Twelve Data Basic). `TWELVE_DATA_BASE_URL` defaults to `https://api.twelvedata.com`. `TWELVE_DATA_RATE_LIMIT_PER_MINUTE` defaults to 8 (matches Basic tier). `AU_CATALOG_PROVIDER_MOCK=1` forces the mock; absence of `TWELVE_DATA_API_KEY` also routes to the mock (FinMind precedent).
 
@@ -1960,4 +1960,138 @@ SELECT
   backfill_retry_delay_seconds,
   backfill_finmind_402_retry_ms
 FROM app_config WHERE id = 1;
+```
+
+---
+
+## 23. KZO-195 deploy notes — ASX Delisting Detection
+
+### Migration
+
+`049_kzo195_absence_delisting_detection.sql` adds:
+
+- **Three columns to `market_data.instruments`:**
+  - `last_seen_in_catalog_at TIMESTAMP NULL` — stamped each sync run for AU instruments present in the Twelve Data catalog. `NULL` = LIC or manually-added instrument; these are **never** absence candidates.
+  - `absence_streak INTEGER NOT NULL DEFAULT 0` — consecutive missed catalog appearances. Reset to `0` when the instrument re-appears.
+  - `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` — admin-set exclusion flag; excluded instruments are never bumped or stamped.
+
+- **Three columns to `app_config`** (Tier 1 — admin-editable): `catalog_absence_threshold INT`, `catalog_absence_guard_percent NUMERIC(5,2)`, `catalog_absence_guard_floor INT`.
+
+- **Backfill:** `last_seen_in_catalog_at` is backfilled from `updated_at` for existing AU non-provisional instruments. TW/US rows are left `NULL` (outside the detection scope).
+
+- **`audit_log_action_check` constraint extended** with two new action codes: `instrument_undelete`, `instrument_exclusion_toggle`.
+
+Safe to re-run (columns added with `ADD COLUMN IF NOT EXISTS`). No destructive operations. No down migration.
+
+### How absence detection works (AU only)
+
+Each catalog-sync run for the AU market (Twelve Data provider):
+
+1. Present instruments are bulk-upserted and have `last_seen_in_catalog_at` stamped to `NOW()` and `absence_streak` reset to `0`.
+2. Absent instruments (had `last_seen_in_catalog_at IS NOT NULL` before this run, not in the current catalog) are collected.
+3. Excluded instruments (`delisting_detection_excluded = TRUE`) and LICs (`last_seen_in_catalog_at IS NULL`) are **removed from candidates**.
+4. Mass-delisting guard evaluated: if `candidates > max(guardFloor, prevCatalogSize × guardPercent / 100)` — the guard trips, no bumps/stamps occur, a `warning` admin notification fires.
+5. If guard does not trip: each candidate's `absence_streak` is incremented. Candidates whose `absence_streak + 1 >= threshold` have `delisted_at` stamped (`status_reason = 'absence_detected'`); an `instrument_undelete` audit row is written per stamped ticker.
+
+**TW and US are unaffected** — they use `supportsDelistingFeed=true` (TW) and `absenceDetectionEnabled=false` (US) respectively. See transition note §1 for the full capability flag taxonomy.
+
+### Threshold tuning
+
+Default values (env vars):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `CATALOG_ABSENCE_THRESHOLD` | `3` | Runs absent before auto-delisting |
+| `CATALOG_ABSENCE_GUARD_PERCENT` | `1.0` | % of catalog that triggers the mass-delisting guard |
+| `CATALOG_ABSENCE_GUARD_FLOOR` | `5` | Minimum absent instruments to trip the guard |
+
+**Adjust via admin UI:** Navigate to `/admin` → **Settings** → **Catalog Absence** section. Changes take effect on the next sync run (TTL cache ≤ 8 s). The **Reset to default (NULL)** button restores the env-var tier.
+
+**Adjust via env var:** set in `.env.prod` / deployment env and restart. Cron strings are unaffected (absence detection shares the existing `CATALOG_SYNC_CRON`).
+
+### Runbook: Mass-delisting guard tripped
+
+**Symptom:** Admin notification `severity=warning, source=delisting_detector` reading "Mass-delisting guard tripped (M absent of N catalog rows). No instruments auto-delisted."
+
+**What happened:** The Twelve Data API returned a catalog with more than `max(guardFloor, prevCatalogSize × guardPercent / 100)` absent instruments in a single run. No streaks were bumped and no instruments were stamped. The upsert (for present instruments) still committed.
+
+**Investigation steps:**
+
+1. **Check if the API returned a partial catalog.** Query:
+   ```sql
+   SELECT COUNT(*) FROM market_data.instruments
+   WHERE market_code = 'AU' AND last_seen_in_catalog_at >= NOW() - INTERVAL '1 hour';
+   ```
+   If this count is significantly below the normal ~2,439, the API likely returned a truncated response.
+
+2. **Check API logs** for `catalog_sync_provider_error` or rate-limit warnings around the time of the notification.
+
+3. **Wait for the next sync run.** The cron runs at `30 17 * * 1-5` (UTC). If the API is healthy on the next run, the guard will not trip again and normal streak tracking resumes. No instruments are harmed — the guard prevents false delistings.
+
+4. **If persistent:** raise `CATALOG_ABSENCE_GUARD_PERCENT` or `CATALOG_ABSENCE_GUARD_FLOOR` temporarily via `/admin/settings` to allow the sync to proceed. Review notification again on the next run.
+
+5. **If a genuine bulk exchange event occurred** (e.g. ASX mass-suspended a sector): clear the guard by raising the threshold, then manually verify each absent ticker. Use `/admin/instruments` to exclude tickers that are legitimately still trading despite the API gap.
+
+### Runbook: Instruments auto-delisted (info notification)
+
+**Symptom:** Admin notification `severity=info, source=delisting_detector` listing auto-delisted tickers.
+
+**Investigation:**
+
+1. Navigate to `/admin/instruments`. Filter by **Status: Delisted**.
+2. For each ticker: verify against ASX announcements. If the delisting is genuine, no action required.
+3. **If false positive (instrument still trading):** click **Undelete**. This clears `delisted_at`, resets `absence_streak = 0`, sets `last_seen_in_catalog_at = NOW()`, and writes an audit row. The instrument will be re-evaluated on the next sync run.
+4. **To prevent recurrence for a specific ticker:** click **Exclude** after undeleting. The instrument will never be auto-delisted again until explicitly re-included.
+
+### Runbook: When to undelete vs. exclude
+
+| Situation | Action |
+|---|---|
+| Instrument still actively trading; single transient API gap caused the delisting | Undelete. The next sync will re-stamp it and reset the streak. |
+| Instrument still trading; Twelve Data repeatedly drops it from the catalog | Undelete + Exclude. Prevents repeated false-positive notifications. |
+| Instrument genuinely delisted from ASX | Leave as delisted. No action needed. |
+| LIC / manually-added instrument showing as delisted | Should not happen — LICs have `last_seen_in_catalog_at = NULL` and are never candidates. If it does appear, file a bug. |
+
+### Admin UI location
+
+`/admin` → **Instruments** (new sidebar entry). The page displays all AU instruments with their absence/delisting state. A read-only threshold panel at the bottom links to `/admin/settings` for adjustments.
+
+**Audit log:** all undelete and exclusion-toggle actions are visible at `/admin/audit-log` with action codes `instrument_undelete` and `instrument_exclusion_toggle`.
+
+### Semantic note: `absent` counter vs. `absentTickers`
+
+`CatalogSyncResult.absent` (visible in API logs) counts **all** absent AU instruments in a sync run, including `delisting_detection_excluded = TRUE` rows. `absentTickers` (visible in admin notifications) contains only the non-excluded candidates. If logs show `absent=12` but the notification lists only 7 tickers, the delta (5) are excluded instruments. This is expected and intentional — the `absent` counter gives operators the full picture; `absentTickers` is the actionable subset.
+
+### Operational queries
+
+```sql
+-- Check recent absence-stamped delistings
+SELECT ticker, market_code, delisted_at, absence_streak, status_reason
+FROM market_data.instruments
+WHERE market_code = 'AU'
+  AND delisted_at IS NOT NULL
+  AND status_reason = 'absence_detected'
+ORDER BY delisted_at DESC
+LIMIT 20;
+
+-- Check current streak state for AU instruments
+SELECT ticker, absence_streak, last_seen_in_catalog_at, delisting_detection_excluded
+FROM market_data.instruments
+WHERE market_code = 'AU'
+  AND absence_streak > 0
+ORDER BY absence_streak DESC;
+
+-- Check current threshold settings (NULL = using env-var default)
+SELECT
+  catalog_absence_threshold,
+  catalog_absence_guard_percent,
+  catalog_absence_guard_floor
+FROM app_config WHERE id = 1;
+
+-- Audit log for instrument management actions
+SELECT actor_user_id, action, metadata->>'ticker' AS ticker, created_at
+FROM audit_log
+WHERE action IN ('instrument_undelete', 'instrument_exclusion_toggle')
+ORDER BY created_at DESC
+LIMIT 20;
 ```

@@ -32,6 +32,8 @@ const ACTION_LABELS: Record<string, string> = {
   impersonation_start: "Started impersonation",
   impersonation_end: "Ended impersonation",
   impersonation_blocked_write: "Blocked write while impersonating",
+  instrument_undelete: "Undeleted instrument",
+  instrument_exclusion_toggle: "Toggled instrument exclusion",
 };
 
 const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
@@ -66,6 +68,10 @@ const ACTION_CATEGORIES: { label: string; actions: string[] }[] = [
   {
     label: "Provider Health",
     actions: ["provider_health_rerun"],
+  },
+  {
+    label: "Instruments",
+    actions: ["instrument_undelete", "instrument_exclusion_toggle"],
   },
 ];
 
