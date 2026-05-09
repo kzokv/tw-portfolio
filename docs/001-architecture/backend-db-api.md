@@ -1540,6 +1540,45 @@ Market data route behavior:
 - TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. Only AU routes search through the Yahoo Finance `search()` SDK call.
 - AU catalog (KZO-194): sourced from `TwelveDataAuCatalogProvider` via `/stocks?exchange=ASX` + `/etf?exchange=ASX` (Twelve Data Basic free tier, ~2,439 rows after warrant filter). Yahoo Finance is retained for AU bars/dividends/metadata/search; the catalog provider delegates `fetchInstrumentMetadata` and `searchInstruments` to the Yahoo provider so per-ticker enrichment and live autocomplete are unchanged. LICs not present in Twelve Data bulk endpoints (e.g. AFI, ARG, AUI) remain discoverable via the Yahoo `searchInstruments` delegation and enrich inline at first backfill.
 
+**Delisting detection (KZO-195):**
+
+Each `InstrumentCatalogProvider` carries two orthogonal capability flags that govern how `runCatalogSync` handles instruments no longer in the catalog:
+
+| Flag | Meaning |
+|---|---|
+| `supportsDelistingFeed` | Provider delivers explicit delisting records (e.g. FinMind-TW publishes a `fetchDelistingHistory()` feed). The provider tells you which tickers left. |
+| `absenceDetectionEnabled` | Provider participates in diff-based absence detection. The system infers delistings by comparing the current catalog snapshot against previous runs. |
+
+`runCatalogSync` uses a 3-way gate:
+
+```
+if (provider.supportsDelistingFeed)     → Branch 1: TW feed path (explicit delisting records)
+else if (provider.absenceDetectionEnabled) → Branch 2: AU diff path (consecutive-absence counting)
+else                                    → Branch 3: bare upsert (US / Yahoo-AU — no auto-delisting)
+```
+
+**Branch 2 — AU diff-based detection flow (inside a single DB transaction):**
+
+1. Present instruments are bulk-upserted; `last_seen_in_catalog_at` is stamped, `absence_streak` reset to `0`.
+2. Absent instruments (those with `last_seen_in_catalog_at IS NOT NULL` but not present in this run) are SELECTed. LIC rows (`last_seen_in_catalog_at IS NULL`) and excluded rows (`delisting_detection_excluded = TRUE`) are filtered out.
+3. The pure `detectDelistingsByAbsence()` function evaluates the mass-delisting guard: if absent candidates exceed `max(guardFloor, prevCatalogSize × guardPercent / 100)`, no bumps or stamps occur and a `warning` admin notification is queued.
+4. If the guard does not trip: `absence_streak` is incremented for all candidates; candidates reaching `threshold` consecutive absences have `delisted_at` stamped (`status_reason = 'absence_detected'`), plus a per-ticker `instrument_undelete` audit row.
+
+**Effective threshold resolution** follows the KZO-198 Tier 1 hybrid pattern: `getEffectiveCatalogAbsenceThreshold()` / `getEffectiveCatalogAbsenceGuardPercent()` / `getEffectiveCatalogAbsenceGuardFloor()` read from the TTL cache (DB column → env var → hard default `3 / 1.0 / 5`).
+
+**Provider flag matrix (as of KZO-195):**
+
+| Provider | `supportsDelistingFeed` | `absenceDetectionEnabled` |
+|---|---|---|
+| `TwelveDataAuCatalogProvider` | `false` | `true` |
+| `FinMindMarketDataProvider` (TW) | `true` | `false` |
+| `FinMindUsStockMarketDataProvider` | `false` | `false` |
+| `YahooFinanceAuMarketDataProvider` | `false` | `false` |
+
+US enablement path (future): flip `FinMindUsStockMarketDataProvider.absenceDetectionEnabled = true` — no persistence changes required.
+
+**Admin surface:** `/admin/instruments` — paginated AU instrument list with undelete (`POST /admin/instruments/:ticker/:marketCode/undelete`) and exclude toggle (`POST /admin/instruments/:ticker/:marketCode/exclude`) actions. Threshold knobs at `/admin/settings` → Catalog Absence section. See `docs/002-operations/runbook.md §23` for the operational playbook.
+
 **Provider health (KZO-177):**
 
 The `providerHealth.ts` aggregator sits between workers and the DB, recording success/error/rate-limit outcomes after each provider call. Provider classes themselves stay pure — no health tracking inside `finmind.ts`, `yahooFinanceAu.ts`, etc.

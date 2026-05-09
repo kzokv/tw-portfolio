@@ -549,6 +549,14 @@ export interface AppConfigDto {
   backfillFinmind402RetryMs: number | null;
   effectiveBackfillFinmind402RetryMs: number;
 
+  // ── KZO-195 Tier 2 — Absence-based delisting detection (UI-editable) ───
+  catalogAbsenceThreshold: number | null;
+  effectiveCatalogAbsenceThreshold: number;
+  catalogAbsenceGuardPercent: number | null;
+  effectiveCatalogAbsenceGuardPercent: number;
+  catalogAbsenceGuardFloor: number | null;
+  effectiveCatalogAbsenceGuardFloor: number;
+
   // KZO-198 Tier 2 fields (dailyRefreshLookbackDays, dailyRefreshPriority,
   // sse{Heartbeat,MaxConn,BufferTtl}) are intentionally NOT in this DTO.
   // They are DB+SQL only per scope-todo — operators override via direct SQL.
@@ -764,6 +772,42 @@ export interface ProviderHealthStatusDto {
 
 export interface AdminProvidersResponse {
   providers: ProviderHealthStatusDto[];
+}
+
+// ── Admin instruments / delisting management (KZO-195) ──────────────────────
+
+export type AdminInstrumentStatus = "listed" | "delisted" | "excluded";
+
+export interface AdminInstrumentDto {
+  ticker: string;
+  marketCode: MarketCode;
+  name: string | null;
+  instrumentType: InstrumentType;
+  status: AdminInstrumentStatus;
+  /**
+   * Reason captured when the row was stamped delisted. For absence-detected
+   * rows this is `"absence_detected"`; provider-feed rows carry whatever
+   * reason the upstream feed provided (or `null`).
+   */
+  statusReason: string | null;
+  absenceStreak: number;
+  lastSeenInCatalogAt: string | null;
+  delistedAt: string | null;
+  delistingDetectionExcluded: boolean;
+}
+
+export interface AdminInstrumentsThresholdsDto {
+  catalogAbsenceThreshold: number;
+  catalogAbsenceGuardPercent: number;
+  catalogAbsenceGuardFloor: number;
+}
+
+export interface AdminInstrumentsResponse {
+  items: AdminInstrumentDto[];
+  total: number;
+  page: number;
+  limit: number;
+  thresholds: AdminInstrumentsThresholdsDto;
 }
 
 // ── Dividend ledger aggregates (KZO-135) ────────────────────────────────────

@@ -108,6 +108,19 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
   readonly providerId = "yahoo-finance-au";
   /** KZO-190 — `fetchInstrumentMetadata` is a real Yahoo `quote()` call; consumes one slot. */
   readonly supportsMetadataEnrichment = true;
+  /**
+   * KZO-195 — Yahoo AU has no delisting feed (KZO-172 spike §5). The catalog
+   * orchestrator routes AU through the absence detector instead. Note: this
+   * provider only owns AU bars/dividends/metadata; the AU catalog itself is
+   * sourced from Twelve Data (KZO-194), which also returns false here.
+   */
+  readonly supportsDelistingFeed = false;
+  /**
+   * KZO-195 (iter 9) — Yahoo AU only owns bars/dividends/metadata for AU; the
+   * AU catalog (and absence detector) is sourced from `TwelveDataAuCatalogProvider`.
+   * Wiring absence detection here would double-count the AU market.
+   */
+  readonly absenceDetectionEnabled = false;
   private readonly rateLimiter: RateLimiter;
   private readonly client: InstanceType<typeof YahooFinance>;
 

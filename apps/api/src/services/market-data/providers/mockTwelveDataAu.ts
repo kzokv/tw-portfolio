@@ -72,6 +72,10 @@ export class MockTwelveDataAuCatalogProvider implements InstrumentCatalogProvide
   readonly providerId = "twelve-data-au";
   /** KZO-190 — mirrors real provider; delegates to Yahoo's metadata enrichment path. */
   readonly supportsMetadataEnrichment = true;
+  /** KZO-195 — mirrors real `TwelveDataAuCatalogProvider`; AU has no delisting feed. */
+  readonly supportsDelistingFeed = false;
+  /** KZO-195 (iter 9) — mirrors real `TwelveDataAuCatalogProvider`. */
+  readonly absenceDetectionEnabled = true;
   readonly calls: Array<{
     method: string;
     ticker?: string;

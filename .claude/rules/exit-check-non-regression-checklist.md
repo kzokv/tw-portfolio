@@ -70,3 +70,16 @@ Without the checklist, the acceptance would have been a judgment call. With it, 
 - Even for "obvious" flakes — the checklist is fast (3-5 minutes) and produces a documentable ruling.
 - The Code Reviewer is a natural co-verifier for point (5); include in the exit-check triage message.
 - Companion rules: `validator-process-hygiene.md` (for ECONNREFUSED failures), `validator-activation-gate.md` (for unauthorized run data points).
+
+## Empirical validation: discipline scales under cumulative pressure
+
+KZO-195 produced **four** distinct stochastic suite-6 / suite-7 flakes across iters 4-7, each routed cleanly through the 5-point checklist with no devolution to "looks like a flake" judgment:
+
+- `tooltips-a11y-aaa.spec.ts:30` — triple-confirmed canonical (KZO-172 + KZO-195 iter 5 + iter 7 reset because of the iter-6 fix)
+- `dashboard-timeframe-aaa.spec.ts:192` (timeframe-L) — graduated from 1 → 5/5 ruling with iter 3 + iter 7 + iter 8 = **3 independent data points**
+- `monitored-tickers-aaa.spec.ts:64` — single occurrence iter 4, self-resolved iter 5 (correct: insufficient data, deferred ruling)
+- `account-fee-profiles-aaa.spec.ts:53` — single occurrence iter 7, deferred for 2nd data point (never came)
+
+**The lesson:** point 4 (≥2 data points) is the load-bearing safeguard. Under pressure to ship, the temptation is to rule from a single occurrence + the other 4 points satisfied. Don't. The KZO-195 case shows the checklist holds up across many flakes in one ticket precisely because the data-point requirement forces a true wait-and-see; the 4-point rulings (`monitored-tickers`, `account-fee-profiles`) correctly stayed deferred and never required action.
+
+**How to apply (reinforcement):** Even when the failure mode signature is unmistakable (timeout shape, hover/focus race, async network jitter), point 4 is non-waivable except in the explicit "infrastructure-class" case (ECONNRESET / ECONNREFUSED) where the rule already classifies on signature alone. For all other classes, defer the ruling until 2 occurrences land; if it self-resolves, the deferral cost was zero and the audit trail is cleaner.

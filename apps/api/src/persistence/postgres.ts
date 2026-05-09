@@ -5936,6 +5936,9 @@ export class PostgresPersistence implements Persistence {
     sseHeartbeatIntervalMs: number | null;
     sseMaxConnectionsPerUser: number | null;
     sseBufferDefaultTtlMs: number | null;
+    catalogAbsenceThreshold: number | null;
+    catalogAbsenceGuardPercent: number | null;
+    catalogAbsenceGuardFloor: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -5961,6 +5964,9 @@ export class PostgresPersistence implements Persistence {
       sse_heartbeat_interval_ms: number | null;
       sse_max_connections_per_user: number | null;
       sse_buffer_default_ttl_ms: number | string | null;
+      catalog_absence_threshold: number | null;
+      catalog_absence_guard_percent: number | string | null;
+      catalog_absence_guard_floor: number | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -5973,6 +5979,7 @@ export class PostgresPersistence implements Persistence {
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
+         catalog_absence_threshold, catalog_absence_guard_percent, catalog_absence_guard_floor,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -6001,6 +6008,9 @@ export class PostgresPersistence implements Persistence {
         sseHeartbeatIntervalMs: null,
         sseMaxConnectionsPerUser: null,
         sseBufferDefaultTtlMs: null,
+        catalogAbsenceThreshold: null,
+        catalogAbsenceGuardPercent: null,
+        catalogAbsenceGuardFloor: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -6034,6 +6044,9 @@ export class PostgresPersistence implements Persistence {
       sseHeartbeatIntervalMs: row.sse_heartbeat_interval_ms,
       sseMaxConnectionsPerUser: row.sse_max_connections_per_user,
       sseBufferDefaultTtlMs: num(row.sse_buffer_default_ttl_ms),
+      catalogAbsenceThreshold: row.catalog_absence_threshold,
+      catalogAbsenceGuardPercent: num(row.catalog_absence_guard_percent),
+      catalogAbsenceGuardFloor: row.catalog_absence_guard_floor,
       updatedAt,
     };
   }
@@ -6239,12 +6252,17 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
-  async upsertInstrumentCatalog(instruments: CatalogInstrument[], delistings: DelistingRecord[]): Promise<CatalogSyncResult> {
+  async upsertInstrumentCatalog(
+    instruments: CatalogInstrument[],
+    delistings: DelistingRecord[],
+    options?: import("./types.js").UpsertInstrumentCatalogOptions,
+  ): Promise<CatalogSyncResult> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
 
       let upserted = 0;
+      const presentTickers: string[] = [];
       if (instruments.length > 0) {
         const tickers: string[] = [];
         const names: string[] = [];
@@ -6265,6 +6283,7 @@ export class PostgresPersistence implements Persistence {
           finmindDates.push(inst.finmindDate);
           instrumentTypes.push(inst.instrumentType);
           marketCodes.push(inst.marketCode);
+          presentTickers.push(inst.ticker);
         }
 
         const result = await client.query(
@@ -6292,6 +6311,22 @@ export class PostgresPersistence implements Persistence {
         upserted = result.rowCount ?? 0;
       }
 
+      // KZO-195 — for absence-detection-capable markets, stamp present rows
+      // with `last_seen_in_catalog_at = NOW()` and reset their `absence_streak`.
+      // This MUST run before the absent-candidate SELECT so present rows are
+      // excluded from the candidate set (`last_seen < NOW()` filter below).
+      if (options?.absenceDetection && presentTickers.length > 0) {
+        await client.query(
+          `UPDATE market_data.instruments
+             SET last_seen_in_catalog_at = CURRENT_TIMESTAMP,
+                 absence_streak = 0,
+                 updated_at = CURRENT_TIMESTAMP
+           WHERE market_code = $1
+             AND ticker = ANY($2::text[])`,
+          [options.absenceDetection.marketCode, presentTickers],
+        );
+      }
+
       let delisted = 0;
       for (const d of delistings) {
         // KZO-170 S4: filter the delisting UPDATE by `market_code` when the caller
@@ -6316,10 +6351,328 @@ export class PostgresPersistence implements Persistence {
         }
       }
 
+      // KZO-195 — Absence detection branch (AU, plus US once flipped on).
+      let absent = 0;
+      let guardTripped = false;
+      let absentTickersResult: string[] = [];
+      if (options?.absenceDetection) {
+        const { marketCode, categorize, actorUserId } = options.absenceDetection;
+
+        // SELECT absent candidates: market matches, has been observed before,
+        // is not admin-excluded, is not already delisted, AND was not just
+        // stamped present in this transaction. The "not just-stamped" filter
+        // is `last_seen_in_catalog_at < CURRENT_TIMESTAMP` — any row we just
+        // updated above has `last_seen_in_catalog_at = CURRENT_TIMESTAMP`.
+        const absentRowsResult = await client.query<{
+          ticker: string;
+          absence_streak: number;
+          last_seen_in_catalog_at: Date | null;
+          delisting_detection_excluded: boolean;
+        }>(
+          `SELECT ticker, absence_streak, last_seen_in_catalog_at, delisting_detection_excluded
+             FROM market_data.instruments
+            WHERE market_code = $1
+              AND last_seen_in_catalog_at IS NOT NULL
+              AND last_seen_in_catalog_at < CURRENT_TIMESTAMP
+              AND delisted_at IS NULL`,
+          [marketCode],
+        );
+
+        const absentRows = absentRowsResult.rows.map((r) => ({
+          ticker: r.ticker,
+          absenceStreak: r.absence_streak,
+          lastSeenInCatalogAt:
+            r.last_seen_in_catalog_at instanceof Date
+              ? r.last_seen_in_catalog_at.toISOString()
+              : r.last_seen_in_catalog_at,
+          delistingDetectionExcluded: r.delisting_detection_excluded,
+        }));
+
+        // prevCatalogSize: count of non-excluded, non-delisted rows for this market.
+        const sizeResult = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+             FROM market_data.instruments
+            WHERE market_code = $1
+              AND delisted_at IS NULL
+              AND delisting_detection_excluded = FALSE`,
+          [marketCode],
+        );
+        const prevCatalogSize = Number(sizeResult.rows[0]?.count ?? "0");
+
+        const plan = categorize(absentRows, prevCatalogSize);
+        guardTripped = plan.guardTripped;
+        absentTickersResult = plan.absentTickers;
+
+        if (plan.guardTripped) {
+          // Persistence-side audit row — captures the candidate list. The
+          // route-layer also surfaces this via a notification fan-out.
+          await client.query(
+            `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+             VALUES ($1, $2, 'instrument_absence_guard_tripped', NULL, $3::jsonb, NULL)`,
+            [
+              randomUUID(),
+              actorUserId ?? null,
+              JSON.stringify({
+                marketCode,
+                candidateCount: absentRows.length,
+                prevCatalogSize,
+                absentTickers: plan.absentTickers.slice(0, 50),
+              }),
+            ],
+          );
+        } else {
+          if (plan.toBump.length > 0) {
+            await client.query(
+              `UPDATE market_data.instruments
+                  SET absence_streak = absence_streak + 1,
+                      updated_at = CURRENT_TIMESTAMP
+                WHERE market_code = $1
+                  AND ticker = ANY($2::text[])`,
+              [marketCode, plan.toBump],
+            );
+            // Per-bumped audit row.
+            for (const ticker of plan.toBump) {
+              await client.query(
+                `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+                 VALUES ($1, $2, 'instrument_absence_streak_bumped', NULL, $3::jsonb, NULL)`,
+                [
+                  randomUUID(),
+                  actorUserId ?? null,
+                  JSON.stringify({ ticker, marketCode }),
+                ],
+              );
+            }
+          }
+          if (plan.toStamp.length > 0) {
+            await client.query(
+              `UPDATE market_data.instruments
+                  SET delisted_at = CURRENT_TIMESTAMP,
+                      status_reason = 'absence_detected',
+                      updated_at = CURRENT_TIMESTAMP
+                WHERE market_code = $1
+                  AND ticker = ANY($2::text[])
+                  AND delisted_at IS NULL`,
+              [marketCode, plan.toStamp],
+            );
+            // Per-stamped audit row.
+            for (const ticker of plan.toStamp) {
+              await client.query(
+                `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+                 VALUES ($1, $2, 'instrument_delisted_via_absence', NULL, $3::jsonb, NULL)`,
+                [
+                  randomUUID(),
+                  actorUserId ?? null,
+                  JSON.stringify({ ticker, marketCode, source: "absence_detected" }),
+                ],
+              );
+            }
+            delisted += plan.toStamp.length;
+          }
+        }
+
+        absent = absentRows.length;
+      }
+
       await client.query("COMMIT");
-      return { upserted, delisted };
+      return { upserted, delisted, absent, guardTripped, absentTickers: absentTickersResult };
     } catch (err) {
       await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // KZO-195 — admin instrument overrides ────────────────────────────────────
+
+  private _mapAdminInstrumentRow(row: {
+    ticker: string;
+    market_code: string;
+    name: string | null;
+    instrument_type: string | null;
+    delisted_at: Date | string | null;
+    status_reason: string | null;
+    last_seen_in_catalog_at: Date | string | null;
+    absence_streak: number;
+    delisting_detection_excluded: boolean;
+    updated_at: Date | string;
+  }): import("./types.js").AdminInstrumentRow {
+    const toIso = (v: Date | string | null): string | null =>
+      v === null ? null : v instanceof Date ? v.toISOString() : new Date(v).toISOString();
+    return {
+      ticker: row.ticker,
+      marketCode: row.market_code,
+      name: row.name,
+      instrumentType: row.instrument_type,
+      delistedAt: toIso(row.delisted_at),
+      statusReason: row.status_reason,
+      lastSeenInCatalogAt: toIso(row.last_seen_in_catalog_at),
+      absenceStreak: row.absence_streak,
+      delistingDetectionExcluded: row.delisting_detection_excluded,
+      updatedAt: toIso(row.updated_at) ?? new Date(0).toISOString(),
+    };
+  }
+
+  async instrumentAdminGet(
+    ticker: string,
+    marketCode: string,
+  ): Promise<import("./types.js").AdminInstrumentRow | null> {
+    const r = await this.pool.query(
+      `SELECT ticker, market_code, name, instrument_type, delisted_at, status_reason,
+              last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at
+         FROM market_data.instruments
+        WHERE ticker = $1 AND market_code = $2`,
+      [ticker, marketCode],
+    );
+    if (r.rowCount === 0) return null;
+    return this._mapAdminInstrumentRow(r.rows[0]);
+  }
+
+  async listAdminInstruments(opts: {
+    marketCode: string;
+    page: number;
+    limit: number;
+  }): Promise<{
+    items: import("./types.js").AdminInstrumentRow[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = Math.max(1, Math.floor(opts.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(opts.limit) || 50));
+    const offset = (page - 1) * limit;
+    const totalRes = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+         FROM market_data.instruments
+        WHERE market_code = $1`,
+      [opts.marketCode],
+    );
+    const total = Number(totalRes.rows[0]?.count ?? "0");
+    const rowsRes = await this.pool.query(
+      `SELECT ticker, market_code, name, instrument_type, delisted_at, status_reason,
+              last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at
+         FROM market_data.instruments
+        WHERE market_code = $1
+        ORDER BY ticker ASC
+        LIMIT $2 OFFSET $3`,
+      [opts.marketCode, limit, offset],
+    );
+    const items = rowsRes.rows.map((row) => this._mapAdminInstrumentRow(row));
+    return { items, total, page, limit };
+  }
+
+  async undeleteInstrument(
+    ticker: string,
+    marketCode: string,
+    actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const before = await client.query<{
+        delisted_at: Date | string | null;
+        absence_streak: number;
+        last_seen_in_catalog_at: Date | string | null;
+        status_reason: string | null;
+      }>(
+        `SELECT delisted_at, absence_streak, last_seen_in_catalog_at, status_reason
+           FROM market_data.instruments
+          WHERE ticker = $1 AND market_code = $2`,
+        [ticker, marketCode],
+      );
+      if (before.rowCount === 0) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "instrument_not_found", `Instrument not found: ${ticker}/${marketCode}`);
+      }
+      const r = await client.query(
+        `UPDATE market_data.instruments
+            SET delisted_at = NULL,
+                status_reason = NULL,
+                absence_streak = 0,
+                last_seen_in_catalog_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE ticker = $1 AND market_code = $2
+          RETURNING ticker, market_code, name, instrument_type, delisted_at, status_reason,
+                    last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at`,
+        [ticker, marketCode],
+      );
+      const beforeRow = before.rows[0];
+      const beforeIso = (v: Date | string | null): string | null =>
+        v === null ? null : v instanceof Date ? v.toISOString() : new Date(v).toISOString();
+      await client.query(
+        `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+         VALUES ($1, $2, 'instrument_undelete', NULL, $3::jsonb, NULL)`,
+        [
+          randomUUID(),
+          actorUserId,
+          JSON.stringify({
+            ticker,
+            marketCode,
+            before: {
+              delistedAt: beforeIso(beforeRow.delisted_at),
+              absenceStreak: beforeRow.absence_streak,
+              statusReason: beforeRow.status_reason,
+              lastSeenInCatalogAt: beforeIso(beforeRow.last_seen_in_catalog_at),
+            },
+          }),
+        ],
+      );
+      await client.query("COMMIT");
+      return this._mapAdminInstrumentRow(r.rows[0]);
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async setInstrumentDelistingDetectionExcluded(
+    ticker: string,
+    marketCode: string,
+    excluded: boolean,
+    actorUserId: string,
+  ): Promise<import("./types.js").AdminInstrumentRow> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const before = await client.query<{ delisting_detection_excluded: boolean }>(
+        `SELECT delisting_detection_excluded
+           FROM market_data.instruments
+          WHERE ticker = $1 AND market_code = $2`,
+        [ticker, marketCode],
+      );
+      if (before.rowCount === 0) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "instrument_not_found", `Instrument not found: ${ticker}/${marketCode}`);
+      }
+      const r = await client.query(
+        `UPDATE market_data.instruments
+            SET delisting_detection_excluded = $3,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE ticker = $1 AND market_code = $2
+          RETURNING ticker, market_code, name, instrument_type, delisted_at, status_reason,
+                    last_seen_in_catalog_at, absence_streak, delisting_detection_excluded, updated_at`,
+        [ticker, marketCode, excluded],
+      );
+      await client.query(
+        `INSERT INTO audit_log (id, actor_user_id, action, target_user_id, metadata, ip_address)
+         VALUES ($1, $2, 'instrument_exclusion_toggle', NULL, $3::jsonb, NULL)`,
+        [
+          randomUUID(),
+          actorUserId,
+          JSON.stringify({
+            ticker,
+            marketCode,
+            before: { delistingDetectionExcluded: before.rows[0].delisting_detection_excluded },
+            after: { delistingDetectionExcluded: excluded },
+          }),
+        ],
+      );
+      await client.query("COMMIT");
+      return this._mapAdminInstrumentRow(r.rows[0]);
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
       throw err;
     } finally {
       client.release();

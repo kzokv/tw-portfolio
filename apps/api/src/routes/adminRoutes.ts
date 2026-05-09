@@ -81,6 +81,15 @@ function plainBoundedField(key: keyof typeof APP_CONFIG_BOUNDS) {
 }
 
 /**
+ * KZO-195 — non-int variant for `catalogAbsenceGuardPercent`. Zod's `.int()`
+ * is too strict for a percentage that may legitimately be 1.0 / 0.5 / etc.
+ */
+function plainBoundedDecimalField(key: keyof typeof APP_CONFIG_BOUNDS) {
+  const { min, max } = APP_CONFIG_BOUNDS[key];
+  return z.union([z.number().min(min).max(max), z.null()]).optional();
+}
+
+/**
  * KZO-198 Tier 0: a Tier 0 secret accepts a plaintext string within
  * `APP_CONFIG_SECRET_LENGTH` (denoting a rotation), or `null` to clear.
  * The plaintext is encrypted at the persistence boundary (never logged).
@@ -133,6 +142,11 @@ export const patchAdminSettingsSchema = z
     // ── KZO-198 Tier 0 — encrypted secrets (rotation flow) ──────────────
     finmindApiToken: tier0SecretField,
     twelveDataApiKey: tier0SecretField,
+
+    // ── KZO-195 Tier 2 — absence-based delisting detection ─────────────
+    catalogAbsenceThreshold: plainBoundedField("catalogAbsenceThreshold"),
+    catalogAbsenceGuardPercent: plainBoundedDecimalField("catalogAbsenceGuardPercent"),
+    catalogAbsenceGuardFloor: plainBoundedField("catalogAbsenceGuardFloor"),
   })
   .strict();
 
@@ -161,6 +175,10 @@ const TIER1_PLAIN_FIELDS = [
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
+  // KZO-195 — Tier 2 absence detection fields (admin-tunable via PATCH).
+  "catalogAbsenceThreshold",
+  "catalogAbsenceGuardPercent",
+  "catalogAbsenceGuardFloor",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
@@ -241,6 +259,17 @@ function buildAppConfigDtoFromRow(
     effectiveBackfillRetryDelaySeconds: row.backfillRetryDelaySeconds ?? Env.BACKFILL_RETRY_DELAY_SECONDS,
     backfillFinmind402RetryMs: row.backfillFinmind402RetryMs,
     effectiveBackfillFinmind402RetryMs: row.backfillFinmind402RetryMs ?? Env.BACKFILL_FINMIND_402_RETRY_MS,
+
+    // KZO-195 Tier 2 — absence-based delisting detection (UI-editable)
+    catalogAbsenceThreshold: row.catalogAbsenceThreshold,
+    effectiveCatalogAbsenceThreshold:
+      row.catalogAbsenceThreshold ?? Env.CATALOG_ABSENCE_THRESHOLD,
+    catalogAbsenceGuardPercent: row.catalogAbsenceGuardPercent,
+    effectiveCatalogAbsenceGuardPercent:
+      row.catalogAbsenceGuardPercent ?? Env.CATALOG_ABSENCE_GUARD_PERCENT,
+    catalogAbsenceGuardFloor: row.catalogAbsenceGuardFloor,
+    effectiveCatalogAbsenceGuardFloor:
+      row.catalogAbsenceGuardFloor ?? Env.CATALOG_ABSENCE_GUARD_FLOOR,
 
     // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
 
@@ -888,5 +917,107 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
     reply.code(202);
     return { status: "queued" as const, providerId, tickerCount, jobId };
+  });
+
+  // ── KZO-195 — Admin instruments listing + overrides ─────────────────────
+
+  app.get("/instruments", async (req): Promise<import("@tw-portfolio/shared-types").AdminInstrumentsResponse> => {
+    requireAdminRole(req);
+    const query = z
+      .object({
+        marketCode: z.enum(["TW", "US", "AU"]).default("AU"),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(req.query ?? {});
+
+    const { items, total, page, limit } = await app.persistence.listAdminInstruments({
+      marketCode: query.marketCode,
+      page: query.page,
+      limit: query.limit,
+    });
+
+    const {
+      getEffectiveCatalogAbsenceThreshold,
+      getEffectiveCatalogAbsenceGuardPercent,
+      getEffectiveCatalogAbsenceGuardFloor,
+    } = await import("../services/appConfig/catalogAbsence.js");
+
+    const dtoItems: import("@tw-portfolio/shared-types").AdminInstrumentDto[] = items.map((row) => {
+      const status: import("@tw-portfolio/shared-types").AdminInstrumentStatus = row.delistedAt
+        ? "delisted"
+        : row.delistingDetectionExcluded
+          ? "excluded"
+          : "listed";
+      return {
+        ticker: row.ticker,
+        marketCode: row.marketCode as import("@tw-portfolio/shared-types").MarketCode,
+        name: row.name,
+        // The persistence row carries `instrumentType` as `string | null`.
+        // Default unknown rows to "STOCK" — safest fallback for UI rendering.
+        instrumentType: (row.instrumentType ?? "STOCK") as import("@tw-portfolio/domain").InstrumentType,
+        status,
+        statusReason: row.statusReason,
+        absenceStreak: row.absenceStreak,
+        lastSeenInCatalogAt: row.lastSeenInCatalogAt,
+        delistedAt: row.delistedAt,
+        delistingDetectionExcluded: row.delistingDetectionExcluded,
+      };
+    });
+
+    return {
+      items: dtoItems,
+      total,
+      page,
+      limit,
+      thresholds: {
+        catalogAbsenceThreshold: getEffectiveCatalogAbsenceThreshold(),
+        catalogAbsenceGuardPercent: getEffectiveCatalogAbsenceGuardPercent(),
+        catalogAbsenceGuardFloor: getEffectiveCatalogAbsenceGuardFloor(),
+      },
+    };
+  });
+
+  //
+  // Both override routes (undelete + exclude) are admin-only via the standard
+  // `requireAdminRole` gate.
+  // They mutate `market_data.instruments` directly via dedicated persistence
+  // methods (see `instrumentAdminUndelete` / `instrumentAdminToggleExclude`)
+  // and write per-action audit rows so operator history is durable.
+
+  app.post("/instruments/:ticker/:marketCode/undelete", async (req) => {
+    requireAdminRole(req);
+    const { sessionUserId } = resolveAdminContext(req, app);
+    const { ticker, marketCode } = z
+      .object({
+        ticker: z.string().min(1).max(40),
+        marketCode: z.enum(["TW", "US", "AU"]),
+      })
+      .parse(req.params);
+
+    // Persistence layer owns existence checks AND audit-row write (KZO-195).
+    // Postgres throws routeError(404, "instrument_not_found", …) when the
+    // composite (ticker, market_code) row is missing; memory backend
+    // create-on-writes for test affordance.
+    return app.persistence.undeleteInstrument(ticker, marketCode, sessionUserId);
+  });
+
+  app.post("/instruments/:ticker/:marketCode/exclude", async (req) => {
+    requireAdminRole(req);
+    const { sessionUserId } = resolveAdminContext(req, app);
+    const { ticker, marketCode } = z
+      .object({
+        ticker: z.string().min(1).max(40),
+        marketCode: z.enum(["TW", "US", "AU"]),
+      })
+      .parse(req.params);
+    const body = z.object({ excluded: z.boolean() }).parse(req.body ?? {});
+
+    return app.persistence.setInstrumentDelistingDetectionExcluded(
+      ticker,
+      marketCode,
+      body.excluded,
+      sessionUserId,
+    );
   });
 };

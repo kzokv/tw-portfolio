@@ -108,6 +108,10 @@ export class MockFinMindUsStockMarketDataProvider implements MarketDataProvider,
   readonly providerId = "finmind-us";
   /** KZO-190 — mirrors real `FinMindUsStockMarketDataProvider`; `fetchInstrumentMetadata` no-op. */
   readonly supportsMetadataEnrichment = false;
+  /** KZO-195 — mirrors real `FinMindUsStockMarketDataProvider` capability flag (US currently provider-feed-less). */
+  readonly supportsDelistingFeed = false;
+  /** KZO-195 (iter 9) — mirrors real provider. */
+  readonly absenceDetectionEnabled = false;
   readonly calls: Array<{
     method: string;
     ticker?: string;

@@ -109,6 +109,13 @@ export class TwelveDataAuCatalogProvider implements InstrumentCatalogProvider {
    * `backfillWorker.ts` reads this flag to right-size `reserveCapacity`.
    */
   readonly supportsMetadataEnrichment = true;
+  /**
+   * KZO-195 — TD does not expose AU delisting reference data (`fetchDelistingHistory`
+   * returns []). The catalog orchestrator routes AU through the absence detector.
+   */
+  readonly supportsDelistingFeed = false;
+  /** KZO-195 (iter 9) — TD AU is the canonical source for AU absence detection. */
+  readonly absenceDetectionEnabled = true;
   /** Bootstrap key from constructor config; KZO-198 resolver reads override per fetch. */
   private readonly bootstrapApiKey: string;
   private readonly baseUrl: string;

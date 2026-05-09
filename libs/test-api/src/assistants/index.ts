@@ -1,5 +1,6 @@
 export * from "./accounts/index.js";
 export * from "./admin/index.js";
+export * from "./adminInstruments/index.js";
 export * from "./anonymous-share-tokens/index.js";
 export * from "./dividends/index.js";
 export * from "./feeProfiles/index.js";

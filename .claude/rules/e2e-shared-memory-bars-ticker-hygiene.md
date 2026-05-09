@@ -62,6 +62,9 @@ As of 2026-05-07 (KZO-194 — Twelve Data AU catalog provider):
 - `AUCAT*` — synthetic prefix used by `apps/web/tests/e2e/specs/au-catalog-browser-aaa.spec.ts` (chosen to avoid collision with `AUTEST`). Do not reuse.
 - `RIO`, `STW`, `SCG`, `NABPF`, `RYDAF`, `RIOWAR` — fixture tickers for `MockTwelveDataAuCatalogProvider` exported as `MOCK_TD_AU_CATALOG_TICKERS`. Used by `auCatalogSyncTwelveData.integration.test.ts` and `auStockBackfill.integration.test.ts` case 6. STW is the `/etf`-origin row; RIOWAR is the warrant filter probe.
 
+As of 2026-05-09 (KZO-195 — ASX delisting detection via consecutive-absence diff):
+- `AUDEL*` — synthetic prefix (`AUDEL01`, `AUDEL02`, `AUDEL90`, etc.) used by `apps/api/test/integration/auCatalogDelistingDetector.integration.test.ts` for absence-detection streak/guard/undelete/exclude test cases, and by `apps/api/test/http/specs/admin-instruments-aaa.http.spec.ts` and `apps/web/tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts` for undelete/exclude admin endpoint tests. Do not reuse for any non-KZO-195 spec.
+
 Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 
 ## Why not fix MemoryPersistence?

@@ -90,7 +90,7 @@ function createDeps() {
     // metadata enrichment. The default catalogProvider returns null so this is
     // never called in the existing tests; tests targeting the enrichment branch
     // override the catalogProvider mock.
-    persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 }) },
+    persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] }) },
     // KZO-170: `resolveMarketCode` was deleted entirely (heuristic removed).
     // Producers now stamp `marketCode` directly on `BackfillJobData`, and the
     // worker validates via Zod schema at handler entry.
@@ -643,7 +643,7 @@ describe("backfill handler trigger branching", () => {
       // catch — the AU happy-path test would still see status=ready but the
       // upsert would never be observed. The added `toHaveBeenCalledTimes(1)`
       // assertion in the happy-path test pins the contract.
-      persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0 }) },
+      persistence: { upsertInstrumentCatalog: vi.fn().mockResolvedValue({ upserted: 1, delisted: 0, absent: 0, guardTripped: false, absentTickers: [] }) },
       eventBus: { publishEvent: vi.fn().mockResolvedValue(undefined) },
       boss: { send: vi.fn().mockResolvedValue(undefined) },
       // KZO-189: implementation-coupled stub — defaults to "conditional".

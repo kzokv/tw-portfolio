@@ -92,6 +92,14 @@ export class FinMindUsStockMarketDataProvider implements MarketDataProvider, Ins
   readonly providerId = "finmind-us";
   /** KZO-190 — `fetchInstrumentMetadata` is a no-op returning null; consumes no slot. */
   readonly supportsMetadataEnrichment = false;
+  /**
+   * KZO-195 — FinMind US has no delisting dataset today; `fetchDelistingHistory()`
+   * returns []. Flag is wired so US can flip to absence-based detection via a
+   * follow-up ticket without touching the orchestrator.
+   */
+  readonly supportsDelistingFeed = false;
+  /** KZO-195 (iter 9) — US absence detection deferred to a follow-up ticket. */
+  readonly absenceDetectionEnabled = false;
   /** Bootstrap token from constructor config; KZO-198 resolver reads override per fetch. */
   private readonly bootstrapToken: string;
   private readonly baseUrl: string;

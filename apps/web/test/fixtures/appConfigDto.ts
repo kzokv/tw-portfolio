@@ -69,6 +69,14 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     // KZO-198 Tier 2 (dailyRefresh + SSE) is DB+SQL only and intentionally
     // absent from AppConfigDto. Operators override via direct SQL.
 
+    // KZO-195 — Tier 2 absence-based delisting detection
+    catalogAbsenceThreshold: null,
+    effectiveCatalogAbsenceThreshold: 3,
+    catalogAbsenceGuardPercent: null,
+    effectiveCatalogAbsenceGuardPercent: 1.0,
+    catalogAbsenceGuardFloor: null,
+    effectiveCatalogAbsenceGuardFloor: 5,
+
     // Tier 0 — encrypted secrets (sentinel)
     finmindApiTokenSet: false,
     twelveDataApiKeySet: false,
