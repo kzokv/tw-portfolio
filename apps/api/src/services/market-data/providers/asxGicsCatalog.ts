@@ -97,7 +97,7 @@ export function parseAsxGicsCsv(text: string): RawAsxGicsRow[] {
   // reach the first one that looks like the real header (contains a comma AND a
   // recognized header token).
   const HEADER_HINT = /\b(asx[_ ]?code|company[_ ]?name)\b/i;
-  const stripped = text.replace(/^﻿/, "").split(/\r?\n/);
+  const stripped = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   let headerIdx = 0;
   while (headerIdx < stripped.length) {
     const line = stripped[headerIdx].trim();
