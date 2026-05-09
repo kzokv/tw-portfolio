@@ -81,6 +81,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
         {
           ticker: "BHP",
@@ -90,6 +91,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
       ],
     });
@@ -124,6 +126,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
         {
           ticker: "BHP",
@@ -133,6 +136,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
       ],
     });
@@ -166,6 +170,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
       ],
     });
@@ -199,6 +204,7 @@ describe("InstrumentCombobox — KZO-169 ALL-mode disambiguation", () => {
           barsBackfillStatus: "ready",
           lastRepairAt: null,
           repairAvailableAt: null,
+        gicsIndustryGroup: null,
         },
       ],
     });

@@ -161,6 +161,12 @@ export const envSchema = z.object({
   CATALOG_SYNC_CRON: z.string().min(1).default("30 17 * * 1-5"),
   FX_REFRESH_CRON: z.string().min(1).default("0 22 * * *"),
   ANONYMOUS_SHARE_TOKEN_PURGE_CRON: z.string().min(1).default("0 4 * * *"),
+  // KZO-196 — AU GICS sync cron. ASX publishes the listed-companies CSV
+  // ~daily; weekly is sufficient since GICS classification changes are
+  // rare. Sundays 02:00 UTC (low-traffic window). Restart-required to
+  // change at the env level; admins can override via `app_config.asx_gics_refresh_cron`
+  // (also restart-required — pg-boss schedule is registered once at boot).
+  ASX_GICS_REFRESH_CRON: z.string().min(1).default("0 2 * * 0"),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

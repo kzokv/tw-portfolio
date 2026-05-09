@@ -61,6 +61,10 @@ export interface AppConfigCacheEntry {
   catalogAbsenceGuardPercent: number | null;
   catalogAbsenceGuardFloor: number | null;
 
+  // KZO-196 — AU GICS sync cron schedule (Tier A; restart-required).
+  // NULL means "fall back to Env.ASX_GICS_REFRESH_CRON".
+  asxGicsRefreshCron: string | null;
+
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;
 }

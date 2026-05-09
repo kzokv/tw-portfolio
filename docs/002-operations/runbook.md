@@ -2095,3 +2095,66 @@ WHERE action IN ('instrument_undelete', 'instrument_exclusion_toggle')
 ORDER BY created_at DESC
 LIMIT 20;
 ```
+
+## 24. KZO-196 deploy notes — AU GICS Sector Enrichment
+
+### What ships
+
+Migration `050_kzo196_gics_industry_group.sql` adds `gics_industry_group TEXT NULL` to `market_data.instruments` and `asx_gics_refresh_cron TEXT NULL` to `app_config`. The `asx-gics-csv` pg-boss worker enriches AU instruments with their S&P/MSCI GICS industry-group label from the ASX listed-companies CSV. The `InstrumentCatalogSheet` gains an AU-only sector dropdown for filtering by GICS sector.
+
+### Cron schedule
+
+| Setting | Value |
+|---|---|
+| Default schedule | `0 2 * * 0` (Sundays 02:00 UTC) |
+| Env var | `ASX_GICS_REFRESH_CRON` |
+| DB override | `app_config.asx_gics_refresh_cron` (NULL = use env; restart-required to take effect) |
+| Singleton key | `asx-gics-sync` (concurrent run-now clicks coalesce) |
+
+**Note:** unlike the catalog-sync cron, changing `app_config.asx_gics_refresh_cron` via the admin UI takes effect only after the next app restart — the schedule is read at boot during pg-boss queue registration, not per-tick.
+
+### Admin run-now button
+
+Navigate to `/admin` → **Providers** → locate the `asx-gics-csv` row → click **Run now**. The button enqueues the same singleton-keyed pg-boss job as the cron. Concurrent clicks coalesce; no duplicate runs will fire.
+
+### Failure modes
+
+| Failure | Error class | Behaviour |
+|---|---|---|
+| CSV HTTP failure / network timeout (30s) | `AsxGicsFetchError` | Worker marks `asx-gics-csv` provider as `down`; emits `gics_sync_failed` SSE; retries on next cron tick |
+| CSV missing `GICS industry group` column | `AsxGicsParseError` | Same as above; logged with `columnName` for diagnosis |
+| Parsed row count < 1 000 | sanity warn | Logged at `warn` level; sync proceeds; admin should investigate whether the ASX CSV source changed format |
+| Parsed row count > 5 000 | sanity warn | Same; sync proceeds |
+
+No audit log entry is written for cron-triggered runs (matches the sibling catalog-sync and FX-refresh cron behaviour). Admin run-now clicks write a `provider_health_rerun` audit row.
+
+### First-run expectations
+
+AU instruments will show `gics_industry_group = NULL` in the catalog until the first successful cron run (Sundays 02:00 UTC) or until an operator clicks **Run now**. The `InstrumentCatalogSheet` sector dropdown renders immediately but filtering results in zero rows until data is populated.
+
+### Operational queries
+
+```sql
+-- Check GICS coverage for AU instruments
+SELECT
+  gics_industry_group,
+  COUNT(*) AS count
+FROM market_data.instruments
+WHERE market_code = 'AU'
+GROUP BY gics_industry_group
+ORDER BY count DESC;
+
+-- Check provider health for asx-gics-csv
+SELECT status, last_successful_run, last_failed_run, error_count_24h, last_error_message
+FROM market_data.provider_health_status
+WHERE provider_id = 'asx-gics-csv';
+
+-- Check current cron override (NULL = using env default)
+SELECT asx_gics_refresh_cron FROM app_config WHERE id = 1;
+```
+
+### Rollback notes
+
+- Migration 050's `UPDATE industry_category_raw = NULL WHERE market_code = 'AU'` is one-way. If rolled back, AU rows will have a NULL `industry_category_raw` column. This is benign — the column was populated with Twelve Data classifier values that were redundant with `instrument_type`, and the front-end does not rely on `industry_category_raw`.
+- The `gics_industry_group` column is NULL-safe and removable via a new migration if the feature is reverted.
+- To disable the cron without a rollback: delete the pg-boss schedule via `DELETE FROM pgboss.schedule WHERE name = 'asx-gics-sync'` (takes effect immediately; the queue handler remains registered but no new ticks fire).

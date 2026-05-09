@@ -1,6 +1,6 @@
 import type { AppDictionary } from "../../lib/i18n/types";
 
-export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"> & {
+export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings" | "gics"> & {
   tooltips: Pick<AppDictionary["tooltips"], "settingsLocale" | "settingsCostBasis" | "settingsQuotePoll">;
 }> = {
   en: {
@@ -137,6 +137,12 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       tickersFilterStock: "Stock",
       tickersFilterEtf: "ETF",
       tickersFilterBondEtf: "Bond ETF",
+      // KZO-196 — AU sector / GICS enrichment. Three flat strings remain on
+      // `settings`; the sector / industry-group display dictionaries are
+      // siblings on `gics` (see below) so `settings` stays a flat string map.
+      tickersAllSectors: "All sectors",
+      tickersFilterBySector: "Filter by sector",
+      tickersGicsOtherBucket: "Other",
       // KZO-188 — AU ticker discovery (sheet + combobox)
       tickersSearchLiveBadge: "LIVE",
       tickersSearchLiveSearching: "Searching Yahoo Finance…",
@@ -209,6 +215,57 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       customizeRangesCloseLabel: "Close customize timeframes",
       customizeRangesToggleOnLabel: "{range} is visible — tap to hide",
       customizeRangesToggleOffLabel: "{range} is hidden — tap to show",
+    },
+    // KZO-196 — Display dictionaries for the 11 GICS sectors + 24 industry
+    // groups. Keys mirror `displayKey` values exported from
+    // `libs/shared-types/src/gics.ts` (snake_case `gics_sector_*` /
+    // `gics_ig_*`). Updating the GICS taxonomy requires updating both files
+    // in lockstep.
+    gics: {
+      sectors: {
+        gics_sector_energy: "Energy",
+        gics_sector_materials: "Materials",
+        gics_sector_industrials: "Industrials",
+        gics_sector_consumer_discretionary: "Consumer Discretionary",
+        gics_sector_consumer_staples: "Consumer Staples",
+        gics_sector_health_care: "Health Care",
+        gics_sector_financials: "Financials",
+        gics_sector_information_technology: "Information Technology",
+        gics_sector_communication_services: "Communication Services",
+        gics_sector_utilities: "Utilities",
+        gics_sector_real_estate: "Real Estate",
+      },
+      industryGroups: {
+        gics_ig_energy: "Energy",
+        gics_ig_materials: "Materials",
+        gics_ig_capital_goods: "Capital Goods",
+        gics_ig_commercial_professional_services: "Commercial & Professional Services",
+        gics_ig_transportation: "Transportation",
+        gics_ig_automobiles_components: "Automobiles & Components",
+        gics_ig_consumer_durables_apparel: "Consumer Durables & Apparel",
+        gics_ig_consumer_services: "Consumer Services",
+        gics_ig_consumer_discretionary_distribution_retail:
+          "Consumer Discretionary Distribution & Retail",
+        gics_ig_consumer_staples_distribution_retail:
+          "Consumer Staples Distribution & Retail",
+        gics_ig_food_beverage_tobacco: "Food, Beverage & Tobacco",
+        gics_ig_household_personal_products: "Household & Personal Products",
+        gics_ig_health_care_equipment_services: "Health Care Equipment & Services",
+        gics_ig_pharma_biotech_life_sciences:
+          "Pharmaceuticals, Biotechnology & Life Sciences",
+        gics_ig_banks: "Banks",
+        gics_ig_financial_services: "Financial Services",
+        gics_ig_insurance: "Insurance",
+        gics_ig_software_services: "Software & Services",
+        gics_ig_technology_hardware_equipment: "Technology Hardware & Equipment",
+        gics_ig_semiconductors: "Semiconductors & Semiconductor Equipment",
+        gics_ig_telecommunication_services: "Telecommunication Services",
+        gics_ig_media_entertainment: "Media & Entertainment",
+        gics_ig_utilities: "Utilities",
+        gics_ig_equity_reits: "Equity Real Estate Investment Trusts (REITs)",
+        gics_ig_real_estate_management_development:
+          "Real Estate Management & Development",
+      },
     },
     tooltips: {
       settingsLocale: "Switches all UI wording between English and Traditional Chinese.",
@@ -346,6 +403,11 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       tickersFilterStock: "股票",
       tickersFilterEtf: "ETF",
       tickersFilterBondEtf: "債券 ETF",
+      // KZO-196 — AU sector / GICS enrichment. Display records moved to the
+      // sibling `gics` key below.
+      tickersAllSectors: "全部產業",
+      tickersFilterBySector: "依產業篩選",
+      tickersGicsOtherBucket: "其他",
       // KZO-188 — AU ticker discovery (sheet + combobox)
       tickersSearchLiveBadge: "即時",
       tickersSearchLiveSearching: "搜尋 Yahoo Finance…",
@@ -416,6 +478,50 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       customizeRangesCloseLabel: "關閉自訂時間區段",
       customizeRangesToggleOnLabel: "{range} 顯示中 — 點擊隱藏",
       customizeRangesToggleOffLabel: "{range} 已隱藏 — 點擊顯示",
+    },
+    // KZO-196 — zh-TW GICS dictionaries. Same key shape as the en variant.
+    gics: {
+      sectors: {
+        gics_sector_energy: "能源",
+        gics_sector_materials: "原物料",
+        gics_sector_industrials: "工業",
+        gics_sector_consumer_discretionary: "非必需消費品",
+        gics_sector_consumer_staples: "必需消費品",
+        gics_sector_health_care: "醫療保健",
+        gics_sector_financials: "金融",
+        gics_sector_information_technology: "資訊科技",
+        gics_sector_communication_services: "通訊服務",
+        gics_sector_utilities: "公用事業",
+        gics_sector_real_estate: "不動產",
+      },
+      industryGroups: {
+        gics_ig_energy: "能源",
+        gics_ig_materials: "原物料",
+        gics_ig_capital_goods: "資本財",
+        gics_ig_commercial_professional_services: "商業與專業服務",
+        gics_ig_transportation: "運輸",
+        gics_ig_automobiles_components: "汽車與零組件",
+        gics_ig_consumer_durables_apparel: "耐久消費品與服飾",
+        gics_ig_consumer_services: "消費者服務",
+        gics_ig_consumer_discretionary_distribution_retail:
+          "非必需消費品配銷與零售",
+        gics_ig_consumer_staples_distribution_retail: "必需消費品配銷與零售",
+        gics_ig_food_beverage_tobacco: "食品、飲料與菸草",
+        gics_ig_household_personal_products: "家庭與個人用品",
+        gics_ig_health_care_equipment_services: "醫療器材與服務",
+        gics_ig_pharma_biotech_life_sciences: "製藥、生技與生命科學",
+        gics_ig_banks: "銀行",
+        gics_ig_financial_services: "金融服務",
+        gics_ig_insurance: "保險",
+        gics_ig_software_services: "軟體與服務",
+        gics_ig_technology_hardware_equipment: "科技硬體與設備",
+        gics_ig_semiconductors: "半導體與半導體設備",
+        gics_ig_telecommunication_services: "電信服務",
+        gics_ig_media_entertainment: "媒體與娛樂",
+        gics_ig_utilities: "公用事業",
+        gics_ig_equity_reits: "不動產投資信託 (REITs)",
+        gics_ig_real_estate_management_development: "不動產管理與開發",
+      },
     },
     tooltips: {
       settingsLocale: "切換整個介面的語言（英文 / 繁體中文）。",

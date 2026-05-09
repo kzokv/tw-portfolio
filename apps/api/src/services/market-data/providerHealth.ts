@@ -32,7 +32,11 @@ export type ProviderId =
   | "finmind-us"
   | "yahoo-finance-au"
   | "twelve-data-au"
-  | "frankfurter";
+  | "frankfurter"
+  // KZO-196 — ASX GICS catalog provider. Runs weekly (Sun 02:00 UTC) and
+  // performs enrichment-only UPDATEs on AU instrument rows. Health
+  // freshness uses the AU calendar.
+  | "asx-gics-csv";
 
 export type ProviderOutcomeKind = "success" | "rate_limit" | "error";
 
@@ -74,6 +78,9 @@ export function calendarMarketForProvider(providerId: ProviderId): MarketCode | 
     // its health-status freshness is measured against the AU calendar — same
     // settled-trading-day yardstick as `yahoo-finance-au`.
     case "twelve-data-au":
+      return "AU";
+    // KZO-196 — ASX GICS catalog runs against ASX, calendar-aligned with AU.
+    case "asx-gics-csv":
       return "AU";
     case "frankfurter":
       return "FX";

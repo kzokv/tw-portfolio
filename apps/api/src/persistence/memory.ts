@@ -108,6 +108,8 @@ interface MemoryInstrument {
   barsBackfillStatus: string;
   lastRepairAt?: string | null;
   delistedAt?: string;
+  /** KZO-196 — GICS industry-group label (AU only); null on non-AU and pre-sync rows. */
+  gicsIndustryGroup?: string | null;
 }
 
 type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
@@ -276,6 +278,8 @@ export class MemoryPersistence implements Persistence {
   private _twelveDataApiKeyEncrypted: string | null = null;
   /** KZO-198: Tier 1/2 plain overrides — keyed by AppConfigPlainField. */
   private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, number | null>> = {};
+  /** KZO-196: AU GICS sync cron override. null = use Env.ASX_GICS_REFRESH_CRON. */
+  private _asxGicsRefreshCron: string | null = null;
   /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
    *  construction so a fresh MemoryPersistence always has a non-null value. */
   private _appConfigUpdatedAt: string = new Date().toISOString();
@@ -315,6 +319,8 @@ export class MemoryPersistence implements Persistence {
         "yahoo-finance-au",
         "twelve-data-au",
         "frankfurter",
+        // KZO-196 — ASX GICS catalog provider seed row.
+        "asx-gics-csv",
       ]) {
         this.providerHealth.set(providerId, {
           providerId,
@@ -2311,6 +2317,7 @@ export class MemoryPersistence implements Persistence {
     catalogAbsenceThreshold: number | null;
     catalogAbsenceGuardPercent: number | null;
     catalogAbsenceGuardFloor: number | null;
+    asxGicsRefreshCron: string | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -2342,6 +2349,8 @@ export class MemoryPersistence implements Persistence {
       catalogAbsenceThreshold: p.catalogAbsenceThreshold ?? null,
       catalogAbsenceGuardPercent: p.catalogAbsenceGuardPercent ?? null,
       catalogAbsenceGuardFloor: p.catalogAbsenceGuardFloor ?? null,
+      // KZO-196 — AU GICS sync cron override (NULL = use env default).
+      asxGicsRefreshCron: this._asxGicsRefreshCron ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -2685,6 +2694,9 @@ export class MemoryPersistence implements Persistence {
       marketCode: i.marketCode,
       barsBackfillStatus: i.barsBackfillStatus,
       lastRepairAt: i.lastRepairAt ?? null,
+      // KZO-196 — GICS industry-group projection. Memory catalog mirrors the
+      // Postgres SELECT shape so suite-3/4/6 tests see the same DTO.
+      gicsIndustryGroup: i.gicsIndustryGroup ?? null,
     }));
   }
 

@@ -46,6 +46,14 @@
 - `exit-check-non-regression-checklist.md` (addendum) — empirical validation: 5-point checklist held under cumulative pressure (4 distinct flakes); ≥2 data points is non-waivable except infrastructure-class
 - `pr-bound-docs-review-compliance.md` (addendum) — structural-compliance brief to Technical Writer is mandatory regardless of CR plan; CR is defense-in-depth not the gate
 
+## Promoted to .claude/rules/ (KZO-196)
+- `i18n-flat-record-dict-settings.md` — `dict.settings` stays flat `Record<string, string>`; nested objects break indexed-access JSX narrowing
+- `code-review-before-pr.md` (addendum) — type-augmentation `.d.ts` files must be explicitly included alongside new test files (`fastify.d.ts` 414-error cascade)
+- `agent-team-workflow.md` (addendum) — lock testid strings in `architect-design.md` at Phase 0; original-agent-revival-during-respawn — park, don't kill
+- `team-respawn-verify-not-regenerate.md` (addendum) — park, don't kill SOP; KZO-196 validated convergence between revived original + respawn VERIFY pass
+- `shared-types-barrel-turbopack.md` (companion section, by Wave 2) — relative runtime-submodule re-export resolution failure under direct-source path alias
+- `e2e-shared-memory-bars-ticker-hygiene.md` (addendum, by Wave 2) — `AUGICS*` ticker prefix reservation
+
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185

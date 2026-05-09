@@ -988,6 +988,8 @@ export interface Persistence {
     catalogAbsenceThreshold: number | null;
     catalogAbsenceGuardPercent: number | null;
     catalogAbsenceGuardFloor: number | null;
+    // KZO-196 — Tier A AU GICS sync cron schedule override (NULL = use env).
+    asxGicsRefreshCron: string | null;
     updatedAt: string;
   }>;
 

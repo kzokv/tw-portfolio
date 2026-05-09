@@ -955,6 +955,8 @@ Current numbered migration inventory:
 - `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to support account ordering and migration backfill naming
 - `042_kzo183_account_scoped_fee_profiles.sql`: rescope `fee_profiles` from user-owned to account-owned, drop `account_fee_profile_overrides.market_code`, enforce same-account ownership with composite FKs, and add market-alignment guards for `trade_events` and `dividend_ledger_entries`
 - `044_kzo169_composite_market_pk.sql`: rewrites `market_data.instruments` to primary key `(ticker, market_code)`, rewrites `market_data.daily_bars` to primary key `(ticker, market_code, bar_date)`, adds `market_code` to `market_data.dividend_events`, and keys `user_monitored_tickers` by `(user_id, ticker, market_code)`
+- `049_kzo195_absence_delisting_detection.sql`: adds `last_seen_in_catalog_at TIMESTAMP NULL`, `absence_streak INTEGER NOT NULL DEFAULT 0`, `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` to `market_data.instruments`; adds `catalog_absence_threshold`, `catalog_absence_guard_percent`, `catalog_absence_guard_floor` to `app_config`; extends `audit_log_action_check` with `instrument_undelete` and `instrument_exclusion_toggle` action codes (KZO-195)
+- `050_kzo196_gics_industry_group.sql`: adds `gics_industry_group TEXT NULL` to `market_data.instruments` with a partial covering index on `(market_code, gics_industry_group) WHERE gics_industry_group IS NOT NULL`; one-time UPDATE nulling `industry_category_raw` for AU rows (KZO-194 cleanup); adds `asx_gics_refresh_cron TEXT NULL` to `app_config` for the Tier A cron-override column; seeds the `asx-gics-csv` row in `market_data.provider_health_status` (KZO-196)
 
 ### Transaction market selector and symbol disambiguation (KZO-169)
 
@@ -1579,6 +1581,37 @@ US enablement path (future): flip `FinMindUsStockMarketDataProvider.absenceDetec
 
 **Admin surface:** `/admin/instruments` — paginated AU instrument list with undelete (`POST /admin/instruments/:ticker/:marketCode/undelete`) and exclude toggle (`POST /admin/instruments/:ticker/:marketCode/exclude`) actions. Threshold knobs at `/admin/settings` → Catalog Absence section. See `docs/002-operations/runbook.md §23` for the operational playbook.
 
+**GICS enrichment (KZO-196):**
+
+The `asx-gics-csv` provider enriches AU instruments with their S&P/MSCI GICS industry-group label. It is orthogonal to the catalog-sync flow — it NEVER inserts rows; it only UPDATEs existing `market_data.instruments` rows by `(ticker, market_code='AU')`.
+
+`market_data.instruments.gics_industry_group` column (added in migration 050):
+
+| Property | Value |
+|---|---|
+| Type | `TEXT NULL` |
+| Source | `https://www.asx.com.au/asx/research/ASXListedCompanies.csv` via `AsxGicsCatalogProvider` |
+| Written by | `asxGicsSyncWorker` (enrichment-only UPDATE; NEVER INSERT) |
+| Leave-stale | AU tickers absent from the CSV keep their prior value; no NULL-reset |
+| Idempotent | UPDATE uses `IS DISTINCT FROM` — unchanged rows do not bump `updated_at` |
+| Batch size | ~500 rows/transaction |
+| Markets | AU only; TW/US rows are not touched |
+
+**GICS sync worker (`asx-gics-sync` pg-boss queue):**
+
+```text
+AsxGicsSyncWorker
+  → AsxGicsProvider.fetchGicsCatalog()         (fetches ASXListedCompanies.csv, parses CSV, throws AsxGicsFetchError / AsxGicsParseError)
+  → per-batch UPDATE market_data.instruments    (gics_industry_group WHERE IS DISTINCT FROM)
+  → providerHealth.recordOutcome('asx-gics-csv', outcome)
+  → sanity warn at < 1 000 or > 5 000 parsed rows (does not abort)
+  → emit gics_sync_started / gics_sync_completed / gics_sync_failed SSE events
+```
+
+**Cron schedule (Tier A):** env `ASX_GICS_REFRESH_CRON` (default `'0 2 * * 0'`, Sundays 02:00 UTC); overridable via `app_config.asx_gics_refresh_cron` DB column. Restart-required for the override to take effect (schedule is read at boot during pg-boss queue registration). Resolver: `getEffectiveAsxGicsRefreshCron()` follows the KZO-198 hybrid pattern (DB column → env var → hard default).
+
+**UI surface:** `InstrumentCatalogSheet` shows an AU-only sector dropdown (11 GICS sectors from `gicsSectors`). Selecting a sector filters catalog rows by `industryGroupsForSector(sector)`. Live-search results bypass the filter. Per-row industry-group label rendered when `gicsIndustryGroup != null`. Unknown industry-group values (not in the static `gicsIndustryGroups` map) are bucketed as "Other".
+
 **Provider health (KZO-177):**
 
 The `providerHealth.ts` aggregator sits between workers and the DB, recording success/error/rate-limit outcomes after each provider call. Provider classes themselves stay pure — no health tracking inside `finmind.ts`, `yahooFinanceAu.ts`, etc.
@@ -1603,8 +1636,8 @@ Two admin routes are served by `adminRoutes.ts`:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/admin/providers` | Returns all 4 provider rows + last 10 error trail entries per row |
-| `POST` | `/admin/providers/:providerId/rerun` | Enqueues a provider-wide daily refresh; 60s cooldown via `last_manual_rerun_at`; writes `provider_health_rerun` audit entry |
+| `GET` | `/admin/providers` | Returns all 6 provider rows (including `asx-gics-csv` added in KZO-196) + last 10 error trail entries per row |
+| `POST` | `/admin/providers/:providerId/rerun` | Enqueues a provider-wide daily refresh; 60s cooldown via `last_manual_rerun_at`; writes `provider_health_rerun` audit entry. For `asx-gics-csv`, enqueues the singleton-keyed `asx-gics-sync` pg-boss job |
 
 Holdings freshness (`dashboardFreshness.ts`):
 
@@ -1915,6 +1948,10 @@ POST /portfolio/dividends/postings
   - `ProviderErrorTrailEntryDto` (KZO-177) — `{ id, occurredAt, errorClass, errorMessage }`.
   - `AdminProvidersResponse = { providers: ProviderHealthStatusDto[] }` (KZO-177).
   - `DashboardOverviewHoldingDto` (KZO-177 extension) — adds `freshness: "current" | "stale_amber" | "stale_red"` and `freshnessTooltip: string | null`.
+  - `gicsSectors` (KZO-196) — ordered array of 11 GICS sector display names (post-2023 S&P/MSCI taxonomy).
+  - `gicsIndustryGroups` (KZO-196) — ordered array of 25 GICS industry-group entries `{ industryGroup, sector, displayKey }`.
+  - `sectorForIndustryGroup(industryGroup): string | null` / `industryGroupsForSector(sector): string[]` (KZO-196) — lookup helpers used by `InstrumentCatalogSheet` sector-filter dropdown. Content inlined into `index.ts` (webpack relative-import resolution constraint; KZO-202 tracks extraction to a separate `gics.ts` file once `extensionAlias` lands).
+  - `InstrumentCatalogRow.gicsIndustryGroup?: string` (KZO-196) — populated by the `asx-gics-csv` pg-boss worker from `ASXListedCompanies.csv`; `NULL` on TW/US rows and on AU rows not yet touched by the first sync run.
 
 ### Cross-cutting findings summary
 

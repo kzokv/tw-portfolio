@@ -11,6 +11,12 @@ interface SeedInstrument {
   marketCode: string;
   barsBackfillStatus: string;
   lastRepairAt?: string;
+  /**
+   * KZO-196 — optional GICS industry-group label seeded onto AU rows for
+   * sector-filter E2E coverage. Backend-side `/__e2e/seed-instruments`
+   * Zod schema is extended in the same wave to accept this field.
+   */
+  gicsIndustryGroup?: string | null;
 }
 
 export class SettingsArrange extends BaseArrange {

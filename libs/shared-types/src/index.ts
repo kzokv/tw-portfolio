@@ -7,6 +7,133 @@ import { z } from "zod";
 // client bundle. See `docs/004-notes/kzo-158/` for the incident context.
 export type * from "./events.js";
 
+// KZO-196 — GICS sector / industry-group taxonomy. Inlined into the barrel
+// (rather than re-exported from `./gics.ts`) because:
+//   * apps/web aliases `@tw-portfolio/shared-types` directly to this source
+//     file. Webpack/Turbopack does NOT perform `.js → .ts` extension
+//     substitution on relative imports without an explicit `extensionAlias`
+//     config, so `from "./gics.js"` cannot resolve at bundle time even though
+//     it is the correct emit shape for the API's NodeNext path.
+//   * Inlining preserves a single canonical export site and avoids forking
+//     resolution between webpack (no extension) and tsc NodeNext (`.js`).
+//   * `events.ts` (`export type *`) above is unaffected — type re-exports are
+//     erased by the bundler so the `.js` suffix is harmless. `gics` carries
+//     runtime values so the type-only escape hatch does not apply.
+
+export interface GicsSector {
+  /** Canonical English display name (e.g. `"Information Technology"`). */
+  readonly sector: string;
+  /** i18n key (snake_case); translations live in the web i18n dictionary. */
+  readonly displayKey: string;
+}
+
+export interface GicsIndustryGroup {
+  /** Canonical industry-group name (e.g. `"Software & Services"`). */
+  readonly industryGroup: string;
+  /** Parent sector name; matches one entry in `gicsSectors`. */
+  readonly sector: string;
+  /** i18n key for the industry-group display name. */
+  readonly displayKey: string;
+}
+
+/**
+ * The 11 GICS sectors in canonical S&P/MSCI ordering. Order is preserved on
+ * the wire so the UI renders consistently across locales.
+ */
+export const gicsSectors: readonly GicsSector[] = [
+  { sector: "Energy", displayKey: "gics_sector_energy" },
+  { sector: "Materials", displayKey: "gics_sector_materials" },
+  { sector: "Industrials", displayKey: "gics_sector_industrials" },
+  { sector: "Consumer Discretionary", displayKey: "gics_sector_consumer_discretionary" },
+  { sector: "Consumer Staples", displayKey: "gics_sector_consumer_staples" },
+  { sector: "Health Care", displayKey: "gics_sector_health_care" },
+  { sector: "Financials", displayKey: "gics_sector_financials" },
+  { sector: "Information Technology", displayKey: "gics_sector_information_technology" },
+  { sector: "Communication Services", displayKey: "gics_sector_communication_services" },
+  { sector: "Utilities", displayKey: "gics_sector_utilities" },
+  { sector: "Real Estate", displayKey: "gics_sector_real_estate" },
+];
+
+/**
+ * The 25 GICS industry groups (post-2023 taxonomy), each tagged with its
+ * parent sector. Display order mirrors the official S&P/MSCI ordering within
+ * each sector. The ASX CSV's `GICS industry group` column is expected to
+ * match one of these `industryGroup` strings verbatim (case-sensitive);
+ * unknown values are preserved at the persistence layer and bucketized to
+ * "Other" at render time.
+ */
+export const gicsIndustryGroups: readonly GicsIndustryGroup[] = [
+  // Energy (1)
+  { industryGroup: "Energy", sector: "Energy", displayKey: "gics_ig_energy" },
+  // Materials (1)
+  { industryGroup: "Materials", sector: "Materials", displayKey: "gics_ig_materials" },
+  // Industrials (3)
+  { industryGroup: "Capital Goods", sector: "Industrials", displayKey: "gics_ig_capital_goods" },
+  { industryGroup: "Commercial & Professional Services", sector: "Industrials", displayKey: "gics_ig_commercial_professional_services" },
+  { industryGroup: "Transportation", sector: "Industrials", displayKey: "gics_ig_transportation" },
+  // Consumer Discretionary (4)
+  { industryGroup: "Automobiles & Components", sector: "Consumer Discretionary", displayKey: "gics_ig_automobiles_components" },
+  { industryGroup: "Consumer Durables & Apparel", sector: "Consumer Discretionary", displayKey: "gics_ig_consumer_durables_apparel" },
+  { industryGroup: "Consumer Services", sector: "Consumer Discretionary", displayKey: "gics_ig_consumer_services" },
+  { industryGroup: "Consumer Discretionary Distribution & Retail", sector: "Consumer Discretionary", displayKey: "gics_ig_consumer_discretionary_distribution_retail" },
+  // Consumer Staples (3)
+  { industryGroup: "Consumer Staples Distribution & Retail", sector: "Consumer Staples", displayKey: "gics_ig_consumer_staples_distribution_retail" },
+  { industryGroup: "Food, Beverage & Tobacco", sector: "Consumer Staples", displayKey: "gics_ig_food_beverage_tobacco" },
+  { industryGroup: "Household & Personal Products", sector: "Consumer Staples", displayKey: "gics_ig_household_personal_products" },
+  // Health Care (2)
+  { industryGroup: "Health Care Equipment & Services", sector: "Health Care", displayKey: "gics_ig_health_care_equipment_services" },
+  { industryGroup: "Pharmaceuticals, Biotechnology & Life Sciences", sector: "Health Care", displayKey: "gics_ig_pharma_biotech_life_sciences" },
+  // Financials (3)
+  { industryGroup: "Banks", sector: "Financials", displayKey: "gics_ig_banks" },
+  { industryGroup: "Financial Services", sector: "Financials", displayKey: "gics_ig_financial_services" },
+  { industryGroup: "Insurance", sector: "Financials", displayKey: "gics_ig_insurance" },
+  // Information Technology (3)
+  { industryGroup: "Software & Services", sector: "Information Technology", displayKey: "gics_ig_software_services" },
+  { industryGroup: "Technology Hardware & Equipment", sector: "Information Technology", displayKey: "gics_ig_technology_hardware_equipment" },
+  { industryGroup: "Semiconductors & Semiconductor Equipment", sector: "Information Technology", displayKey: "gics_ig_semiconductors" },
+  // Communication Services (2)
+  { industryGroup: "Telecommunication Services", sector: "Communication Services", displayKey: "gics_ig_telecommunication_services" },
+  { industryGroup: "Media & Entertainment", sector: "Communication Services", displayKey: "gics_ig_media_entertainment" },
+  // Utilities (1)
+  { industryGroup: "Utilities", sector: "Utilities", displayKey: "gics_ig_utilities" },
+  // Real Estate (2)
+  { industryGroup: "Equity Real Estate Investment Trusts (REITs)", sector: "Real Estate", displayKey: "gics_ig_equity_reits" },
+  { industryGroup: "Real Estate Management & Development", sector: "Real Estate", displayKey: "gics_ig_real_estate_management_development" },
+];
+
+const _GICS_SECTOR_BY_INDUSTRY_GROUP: ReadonlyMap<string, string> = new Map(
+  gicsIndustryGroups.map((g) => [g.industryGroup, g.sector] as const),
+);
+
+const _GICS_INDUSTRY_GROUPS_BY_SECTOR: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, string[]>();
+  for (const g of gicsIndustryGroups) {
+    const existing = map.get(g.sector);
+    if (existing) {
+      existing.push(g.industryGroup);
+    } else {
+      map.set(g.sector, [g.industryGroup]);
+    }
+  }
+  return map;
+})();
+
+/**
+ * Look up the parent sector for an industry-group string. Returns `null` when
+ * the input is not in the canonical 25-group set. Case-sensitive.
+ */
+export function sectorForIndustryGroup(industryGroup: string): string | null {
+  return _GICS_SECTOR_BY_INDUSTRY_GROUP.get(industryGroup) ?? null;
+}
+
+/**
+ * Inverse lookup — returns the ordered list of industry-group names that fall
+ * under a given sector. Returns an empty array for unknown sectors.
+ */
+export function industryGroupsForSector(sector: string): readonly string[] {
+  return _GICS_INDUSTRY_GROUPS_BY_SECTOR.get(sector) ?? [];
+}
+
 // KZO-159 (158A) — Re-export the range parser + bounds resolver from
 // `@tw-portfolio/domain` so consumers (frontend AdminSettingsClient, API
 // routes) can import them alongside `dashboardPerformanceRangesSchema` from
@@ -711,6 +838,13 @@ export interface InstrumentCatalogItemDto {
   lastRepairAt: string | null;
   /** KZO-133: earliest ISO time the instrument can be repaired; null when no prior repair. */
   repairAvailableAt: string | null;
+  /**
+   * KZO-196 — GICS industry-group string sourced from the ASX
+   * `ASXListedCompanies.csv` feed (AU only). `null` when the feed has not yet
+   * synced the row (or for non-AU markets where the column is unpopulated).
+   * The UI bucketizes unknown values to "Other" — never throws.
+   */
+  gicsIndustryGroup: string | null;
 }
 
 // ── Notification types (KZO-132) ────────────────────────────────────────────

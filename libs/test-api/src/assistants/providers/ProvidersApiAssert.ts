@@ -31,6 +31,16 @@ export class ProvidersApiAssert extends ApiBaseAssert {
     await this.mxAssertEqual(body.providers.length, 5, "providers list length");
   }
 
+  /**
+   * KZO-196 — `asx-gics-csv` row added (ASX GICS catalog enrichment provider).
+   * Current canonical assertion. New tests should use this; `hasFiveProviders`
+   * is retained for back-compat.
+   */
+  @Step()
+  async hasSixProviders(body: AdminProvidersListBody): Promise<void> {
+    await this.mxAssertEqual(body.providers.length, 6, "providers list length");
+  }
+
   @Step()
   async providerStatusIs(
     body: AdminProvidersListBody,

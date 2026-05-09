@@ -115,3 +115,49 @@ If the answer is "remains the same as before," the assertion is out of scope for
 **Why:** KZO-189 Suite 4 iter 1 — QA modeled the `conditional × daily_refresh` (enrichment-skip) test case on the failure-path sibling in `backfill-handler-branching.test.ts`. The sibling's `expect(updateBackfillStatus).not.toHaveBeenCalledWith('BHP', 'ready')` was correct for the failure path but wrong for the skip path, where enrichment is skipped but the handler completes successfully — `updateBackfillStatus('BHP', 'ready')` IS called (unchanged from pre-KZO-189). The fix was 1-line removal in Phase 4; finding it cost a full convergence iteration.
 
 **How to apply:** QA self-check before `[DONE]`: for every `not.toHaveBeenCalled*` assertion in a new test case, confirm it is testing something that the new gate feature actually changes — not inherited from a sibling that tested something else entirely.
+
+## Lock testid strings in `architect-design.md` at Phase 0 (Architect SOP)
+
+When a ticket introduces new `data-testid` strings — for a new component, a new admin-row, a new dropdown, ANY responsive-dual-layout pair (table + card variants per `.claude/rules/responsive-dual-layout-testid-prefixes.md`), or any locator the QA E2E spec or page-object will reference — the Architect MUST enumerate the **locked** testid strings inside `.worklog/team/architect-design.md` BEFORE Phase 1 launches.
+
+The locked list lives in a "Locked testid strings" subsection of the Frontend section of architect-design.md and names the exact string per element (component file path + JSX role + testid string).
+
+**Why:** KZO-196 — the Frontend Implementer landed Phase 1 with internally-chosen testids (`catalog-sector-select`, `catalog-item-{ticker}-industry`). The Architect later issued the canonical strings (`catalog-sector-filter`, `catalog-row-industry-group-{ticker}`) post-DONE. Frontend then had to refactor the component, the page-object locators in `SettingsDrawerPage.ts`, AND the unit-test selectors in lockstep — a full coordination cycle that consumed compute, context, and a Phase 4-equivalent iteration. QA's TDD-red E2E spec also needed re-aligning (it was written against the original strings).
+
+The locked-testid-string convention is deterministic from existing rules:
+- Per-row testids: `<surface>-row-<id>` / `<surface>-row-card-<id>`
+- Per-action buttons: `<surface>-<action>-btn-<id>` / `-card-<id>` per responsive-dual-layout rule
+- New filter inputs / select elements: `<surface>-<field>-filter` (a `<select>` element with `id` + matching `htmlFor` label)
+- Per-row sub-element labels: `<surface>-row-<sub-element>-<id>`
+
+Naming the strings explicitly at Phase 0 turns "what testid will the FE component use?" from a coordination cost into a fact. QA can author E2E specs against locked strings without waiting for FE [DONE]; FE writes the component against the same strings without later refactor.
+
+**How to apply:**
+- Architect: every architect-design.md for a Tier 2/3 ticket introducing new UI surfaces or admin rows includes a "Locked testid strings" subsection listing each new testid by name. Mid-Phase 1 ad-hoc string locks are a process leak — they signal the design step skipped this enumeration.
+- Frontend Implementer: read the locked-testid subsection BEFORE writing any component testid. If a string isn't locked, send `[QUESTION]` to the Architect rather than picking one — pre-empting the refactor cycle.
+- QA: write E2E specs and page-object locators directly against the locked strings; do not invent fallback strings.
+- Code Reviewer: any PR adding a new `data-testid` whose value differs from the architect-design.md's locked string is a HIGH finding (process violation) — defer to the Architect for ratification or correction.
+
+## Original-agent-revival-during-respawn — park, don't kill (Architect SOP)
+
+When the Architect respawns a silent Implementer per `.claude/rules/team-respawn-verify-not-regenerate.md`, the original (timed-out) tmux pane may still be alive in the background. **Do NOT call `TaskStop` on the original until the respawn agent reports `[DONE]` cleanly.**
+
+**Reasons:**
+- The original agent may revive mid-respawn and continue writing — its output may be more authoritative than the respawn agent's VERIFY-only pass (the respawn agent intentionally does not regenerate work).
+- If both agents report `[DONE]` consistently against the same on-disk state, that's stronger ratification than one alone.
+- Killing the original prematurely loses any in-flight memory notes, terminal output, or partial work the original was holding in its context.
+
+**Pattern:**
+1. Architect issues respawn brief to a new agent name (e.g. `backend-implementer-2`).
+2. Original `backend-implementer` continues to exist in tmux, idle/silent.
+3. If original revives mid-respawn AND its work converges with the respawn agent's verification, issue a `[HOLD]` to the original ("respawn agent is verifying; pause until they report [DONE]") so both don't write to the same files concurrently.
+4. After the respawn agent's `[DONE]` lands and verification is clean, the original can be terminated safely (force-stop or shutdown_request).
+5. If the original revives with substantively different work after the respawn ratified, treat as Phase 4 finding routing — Architect chooses which version to keep.
+
+**Why:** KZO-196 — Backend Implementer went silent for 34 min. Architect issued respawn (`backend-implementer-2`) with VERIFY-NOT-REGENERATE brief. The original revived ~30s later and reported its own `[DONE]` with the same files green. The respawn agent verified disk state, found nothing to do, and reported `[DONE: zero-touch]`. Net result: two converging confirmations of the same on-disk work, plus a real-time data point that the disk-inventory step + park-don't-kill SOP actually saved compute (the respawn agent verified rather than regenerating ~456 LOC).
+
+**How to apply:**
+- Architect: respawn brief is always VERIFY-NOT-REGENERATE per `team-respawn-verify-not-regenerate.md`. Do NOT call TaskStop on the original concurrent with the respawn — leave it parked.
+- Team-Lead: when relaying the respawn intent to Dispatcher, explicitly say "park, don't kill the original." Track both agents in `state.json.teammates` (one as `unresponsive`, the other as `in_progress`).
+- Dispatcher: do NOT auto-flip the original's task status if a duplicate-name agent appears; both agents may legitimately exist in tmux for a window.
+- Force-stop the original only after either (a) the respawn agent's `[DONE]` is verified by the Architect, or (b) the original sends conflicting work that needs resolution.

@@ -12,6 +12,13 @@ import {
   ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE,
   registerAnonymousShareTokenPurgeWorker,
 } from "../services/registerAnonymousShareTokenPurgeWorker.js";
+import {
+  ASX_GICS_SYNC_QUEUE,
+  registerAsxGicsSyncWorker,
+} from "../services/market-data/asxGicsSyncWorker.js";
+import { getEffectiveAsxGicsRefreshCron } from "../services/appConfig/asxGicsCron.js";
+import { AsxGicsCatalogProvider } from "../services/market-data/providers/asxGicsCatalog.js";
+import { MockAsxGicsCatalogProvider } from "../services/market-data/providers/mockAsxGicsCatalog.js";
 import { handleBatchComplete } from "../services/notificationService.js";
 import type { AppInstance } from "../app.js";
 
@@ -135,6 +142,32 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     log: app.log,
   });
   await boss.schedule(ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE, ANONYMOUS_SHARE_TOKEN_PURGE_CRON, {});
+
+  // KZO-196 — ASX GICS catalog enrichment worker. Mock vs real selection
+  // mirrors `AU_CATALOG_PROVIDER_MOCK` because the GICS feed is part of the
+  // AU catalog story; environments running the mock TD AU provider should
+  // also use a deterministic GICS source for tests/dev. The cron schedule
+  // is read via `getEffectiveAsxGicsRefreshCron()` (DB override → env) per
+  // the app_config bootstrap pattern in `.claude/rules/fastify-app-config-bootstrap.md`.
+  // Eager pre-warm of the cache happened in `buildApp()` BEFORE this call,
+  // so the resolver returns the hot value here.
+  const asxGicsProvider = Env.AU_CATALOG_PROVIDER_MOCK
+    ? new MockAsxGicsCatalogProvider()
+    : new AsxGicsCatalogProvider();
+  await registerAsxGicsSyncWorker(app, boss, {
+    provider: asxGicsProvider,
+    pool,
+    log: app.log,
+    providerHealth: app.providerHealth,
+  });
+  // Queue-level singleton policy (set inside `registerAsxGicsSyncWorker`'s
+  // queue options) ensures cron + manual run-now collapses; no per-schedule
+  // `singletonKey` needed here.
+  await boss.schedule(
+    ASX_GICS_SYNC_QUEUE,
+    getEffectiveAsxGicsRefreshCron(),
+    {},
+  );
 
   app.boss = boss;
 
