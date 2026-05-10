@@ -111,7 +111,8 @@ test.describe.serial("admin metadata enrichment mode (KZO-189)", () => {
     await resetMetadataEnrichmentMode("A");
 
     // Actions — navigate to admin settings.
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: metadata-enrichment-mode moved into the catalog-metadata tab.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=catalog-metadata");
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
 
@@ -159,7 +160,8 @@ test.describe.serial("admin metadata enrichment mode (KZO-189)", () => {
     const admin = await resetMetadataEnrichmentMode("B");
 
     // Actions — navigate and change mode via the UI.
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: metadata-enrichment-mode moved into the catalog-metadata tab.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=catalog-metadata");
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
 
@@ -207,7 +209,8 @@ test.describe.serial("admin metadata enrichment mode (KZO-189)", () => {
     await patchMetadataEnrichmentMode(admin.cookieHeader, "unconditional");
 
     // Actions — navigate, select env default (''), save.
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: metadata-enrichment-mode moved into the catalog-metadata tab.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=catalog-metadata");
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
 

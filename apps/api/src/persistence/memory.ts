@@ -78,10 +78,13 @@ import type {
   ProviderHealthUpsert,
   UserRole,
 } from "./types.js";
+// KZO-199: anonymous-share token cap and retention are now resolver-backed
+// (DB override → env-fallback). Read at method invocation time so admin
+// PATCHes take effect on the next call without restart.
 import {
-  ANONYMOUS_SHARE_TOKEN_CAP,
-  ANONYMOUS_SHARE_TOKEN_RETENTION_MS,
-} from "../lib/anonymousShareToken.js";
+  getEffectiveAnonymousShareTokenCap,
+  getEffectiveAnonymousShareTokenRetentionMs,
+} from "../services/appConfig/sharing.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 interface MemoryNotification {
@@ -280,6 +283,14 @@ export class MemoryPersistence implements Persistence {
   private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, number | null>> = {};
   /** KZO-196: AU GICS sync cron override. null = use Env.ASX_GICS_REFRESH_CRON. */
   private _asxGicsRefreshCron: string | null = null;
+  /** KZO-199: Tier 2 SQL-only override for anonymous-share retention window.
+   *  null = use Env.ANONYMOUS_SHARE_TOKEN_RETENTION_MS. Memory backend exposes
+   *  no public setter; tests can mutate via `_anonymousShareTokenRetentionMs`
+   *  directly if needed. */
+  _anonymousShareTokenRetentionMs: number | null = null;
+  /** KZO-199: Tier 2 SQL-only override for PATCH /user-preferences body cap.
+   *  null = use Env.USER_PREFERENCES_MAX_BYTES. */
+  _userPreferencesMaxBytes: number | null = null;
   /** KZO-142: timestamp of the last app_config write (ISO 8601). Stamped at
    *  construction so a fresh MemoryPersistence always has a non-null value. */
   private _appConfigUpdatedAt: string = new Date().toISOString();
@@ -884,7 +895,7 @@ export class MemoryPersistence implements Persistence {
     }
 
     const activeCount = this._countActiveAnonymousShareTokens(input.ownerUserId);
-    if (activeCount >= ANONYMOUS_SHARE_TOKEN_CAP) {
+    if (activeCount >= getEffectiveAnonymousShareTokenCap()) {
       return { status: "cap_exceeded" };
     }
 
@@ -916,7 +927,7 @@ export class MemoryPersistence implements Persistence {
 
   async listAnonymousShareTokensForOwner(ownerUserId: string): Promise<AnonymousShareTokenRecord[]> {
     const now = Date.now();
-    const cutoff = now - ANONYMOUS_SHARE_TOKEN_RETENTION_MS;
+    const cutoff = now - getEffectiveAnonymousShareTokenRetentionMs();
     return this.anonymousShareTokens
       .filter((row) => row.ownerUserId === ownerUserId)
       .filter((row) => {
@@ -2325,6 +2336,11 @@ export class MemoryPersistence implements Persistence {
     catalogAbsenceGuardPercent: number | null;
     catalogAbsenceGuardFloor: number | null;
     asxGicsRefreshCron: string | null;
+    anonymousShareTokenCap: number | null;
+    anonymousShareRateLimitMax: number | null;
+    anonymousShareRateLimitWindowMs: number | null;
+    anonymousShareTokenRetentionMs: number | null;
+    userPreferencesMaxBytes: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -2360,6 +2376,15 @@ export class MemoryPersistence implements Persistence {
       catalogAbsenceGuardFloor: p.catalogAbsenceGuardFloor ?? null,
       // KZO-196 — AU GICS sync cron override (NULL = use env default).
       asxGicsRefreshCron: this._asxGicsRefreshCron ?? null,
+      // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+      anonymousShareTokenCap: p.anonymousShareTokenCap ?? null,
+      anonymousShareRateLimitMax: p.anonymousShareRateLimitMax ?? null,
+      anonymousShareRateLimitWindowMs: p.anonymousShareRateLimitWindowMs ?? null,
+      // KZO-199 — Tier 2 (DB+SQL only). Memory persistence doesn't surface a
+      // setter for these; they always resolve null and the resolver layer
+      // falls back to env. Postgres backend exposes them via direct SQL.
+      anonymousShareTokenRetentionMs: this._anonymousShareTokenRetentionMs ?? null,
+      userPreferencesMaxBytes: this._userPreferencesMaxBytes ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }

@@ -217,6 +217,9 @@ export class AppShellActions extends AppBaseActions {
   // (admin-settings-aaa.spec.ts) don't need updates.
   @Step()
   async toggleAdminSettingsOverride(enable: boolean): Promise<void> {
+    // KZO-199: repair-cooldown moved into the `backfill-repair` tab. Ensure
+    // that tab is active before interacting with the toggle.
+    await this.ensureAdminSettingsTabActive("backfill-repair");
     const toggle = this.el.testId("admin-settings-repair-cooldown-minutes-toggle");
     if (enable) {
       await this.mxCheck(toggle);
@@ -225,13 +228,31 @@ export class AppShellActions extends AppBaseActions {
     }
   }
 
+  /**
+   * KZO-199: helper to switch /admin/settings into a specific tab. Click the
+   * tab trigger only if the panel isn't already active (the rate-limits panel
+   * is the default and many tests target it without a prior click).
+   */
+  @Step()
+  async ensureAdminSettingsTabActive(slug: "rate-limits" | "sharing" | "provider-health" | "backfill-repair" | "catalog-metadata"): Promise<void> {
+    const panel = this.el.testId(`admin-settings-panel-${slug}`);
+    if (await panel.isVisible().catch(() => false)) return;
+    const trigger = this.el.testId(`admin-settings-tab-${slug}`);
+    await this.uiActions.click.perform(trigger);
+    await panel.waitFor({ state: "visible" });
+  }
+
   @Step()
   async fillAdminSettingsMinutes(value: string): Promise<void> {
+    // KZO-199: repair-cooldown lives in the backfill-repair tab.
+    await this.ensureAdminSettingsTabActive("backfill-repair");
     await this.mxFill(this.el.testId("admin-settings-repair-cooldown-minutes-input"), value);
   }
 
   @Step()
   async clickAdminSettingsSave(): Promise<void> {
+    // KZO-199: repair-cooldown lives in the backfill-repair tab.
+    await this.ensureAdminSettingsTabActive("backfill-repair");
     await this.uiActions.click.perform(
       this.el.testId("admin-settings-repair-cooldown-minutes-save-button"),
     );

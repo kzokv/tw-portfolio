@@ -16,6 +16,7 @@ const DEFAULT_BOUNDS: AppConfigDto["bounds"] = {
   providerDownNotificationSuppressionMs: { min: 60_000, max: 7 * 24 * 60 * 60 * 1000 },
   providerErrorTrailRetentionDays: { min: 1, max: 365 },
   providerRerunCooldownMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
+  yahooAuRerunCooldownMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
   backfillRetryLimit: { min: 0, max: 10 },
   backfillRetryDelaySeconds: { min: 1, max: 3_600 },
   backfillFinmind402RetryMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
@@ -25,6 +26,10 @@ const DEFAULT_BOUNDS: AppConfigDto["bounds"] = {
   sseMaxConnectionsPerUser: { min: 1, max: 1_000 },
   sseBufferDefaultTtlMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
   repairCooldownMinutes: { min: 1, max: 24 * 60 },
+  // KZO-199 — Tier 1 sharing knobs.
+  anonymousShareTokenCap: { min: 1, max: 1_000 },
+  anonymousShareRateLimitMax: { min: 1, max: 10_000 },
+  anonymousShareRateLimitWindowMs: { min: 1_000, max: 600_000 },
 };
 
 export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppConfigDto {
@@ -57,6 +62,8 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     effectiveProviderErrorTrailRetentionDays: 30,
     providerRerunCooldownMs: null,
     effectiveProviderRerunCooldownMs: 60_000,
+    yahooAuRerunCooldownMs: null,
+    effectiveYahooAuRerunCooldownMs: 30 * 60 * 1000,
 
     // Tier 1 — backfill
     backfillRetryLimit: null,
@@ -76,6 +83,14 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     effectiveCatalogAbsenceGuardPercent: 1.0,
     catalogAbsenceGuardFloor: null,
     effectiveCatalogAbsenceGuardFloor: 5,
+
+    // KZO-199 — Tier 1 sharing knobs
+    anonymousShareTokenCap: null,
+    effectiveAnonymousShareTokenCap: 20,
+    anonymousShareRateLimitMax: null,
+    effectiveAnonymousShareRateLimitMax: 30,
+    anonymousShareRateLimitWindowMs: null,
+    effectiveAnonymousShareRateLimitWindowMs: 300_000,
 
     // Tier 0 — encrypted secrets (sentinel)
     finmindApiTokenSet: false,

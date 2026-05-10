@@ -160,7 +160,8 @@ test.describe.serial("admin settings Tier A (KZO-198)", () => {
     await patchAdminSettings(admin.cookieHeader, { providerErrorTrailRetentionDays: 14 });
 
     // Actions — navigate.
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: provider-health knobs moved into the `provider-health` tab.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=provider-health");
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
 

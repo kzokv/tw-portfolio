@@ -80,3 +80,42 @@ Shell scripts in `package.json` that source `.env.local` unconditionally (`set -
 **Fix:** Remove `.env.local` sourcing from `dev` scripts. The web server only needs `NEXT_PUBLIC_*` vars (read by Next.js from `apps/web/.env.local`, not root `.env.local`).
 
 **How to apply:** If E2E webServer startup ever times out, check: (1) API/web server binds `::` not `0.0.0.0`, (2) no script in the webServer command chain sources `.env.local` unconditionally, (3) all `url`/`baseURL` fields in playwright.config.ts use `TestEnv.host`.
+
+---
+
+## Next.js `router.replace` is fire-and-forget — pair with `window.history.replaceState` for synchronous URL state
+
+`router.replace(...)` from `next/navigation` (Next.js App Router) updates the Next.js router state asynchronously — `useSearchParams()` consumers see the new value on the next render, but `page.url()` (Playwright) and `window.location.href` lag briefly. E2E specs that assert on `page.url().includes("?tab=…")` immediately after a click can fail on fast machines or in CI before the async update commits.
+
+**Symptom:** an E2E spec that clicks a tab/filter/option and asserts on the URL substring fails intermittently with "expected URL to contain `?tab=sharing`, got `?tab=rate-limits`" — passes in isolation, flakes in the full suite. The component IS updating, the URL IS eventually correct; the assertion just races the router commit.
+
+**Pattern — pair both updates:**
+
+```tsx
+// ❌ Wrong — page.url() lags briefly; E2E assertion races
+function onTabChange(slug: string) {
+  router.replace(`?tab=${slug}`, { scroll: false });
+}
+
+// ✅ Correct — synchronous URL update for assertions + Next.js router state for useSearchParams
+function onTabChange(slug: string) {
+  // Synchronous: page.url() / window.location.href update immediately for E2E
+  window.history.replaceState(null, "", `?tab=${slug}`);
+  // Async: keeps Next.js router state in sync for useSearchParams consumers
+  router.replace(`?tab=${slug}`, { scroll: false });
+}
+```
+
+**Why both calls?**
+- `window.history.replaceState` alone — `page.url()` updates synchronously, BUT `useSearchParams()` doesn't re-fire in the same component (Next.js doesn't observe direct History API mutations). Any sibling component reading `?tab=` via `useSearchParams` stays stale.
+- `router.replace` alone — `useSearchParams()` re-fires correctly, but `page.url()` lags. E2E assertions race.
+- Both — synchronous URL for assertions + correct Next.js state propagation. The cost is one extra browser API call; no observable downside.
+
+**Canonical reference:** `apps/web/components/admin/AdminSettingsClient.tsx` `onTabChange` handler (KZO-199). The Sharing tab `[tab-nav]` E2E spec failed on a fast machine asserting the URL substring immediately after the click. The pair-pattern fix landed in iter 2.
+
+**How to apply:**
+- Any component that uses `router.replace` or `router.push` to update query params AND has an E2E spec asserting on `page.url()` or `window.location.search` after the navigation.
+- Pre-PR check: `grep -rn "router\.\(replace\|push\)" apps/web/components` — any match where the same component is exercised by an E2E `page.url()` assertion needs the pair.
+- Does NOT apply to full-page navigations (`router.push("/some-other-page")`) — those go through Next.js's normal navigation pipeline and Playwright observes them correctly.
+
+**Why:** Discovered in KZO-199 iter 2. The locked tab restructure of `/admin/settings` introduced `?tab=<slug>` URL state. The `[tab-nav]` E2E spec in `apps/web/tests/e2e/specs-oauth/admin-settings-tier-b-aaa.spec.ts` clicked a tab trigger and asserted `expect(page.url()).toContain("tab=sharing")` immediately. The assertion raced `router.replace`'s async commit on fast runs. Adding the synchronous `replaceState` pair eliminated the flake without losing Next.js router-state correctness.

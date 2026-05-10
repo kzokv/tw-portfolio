@@ -66,3 +66,33 @@ const timer = setInterval(
 **Why:** KZO-198 Codex P2 #1. Admin extended `MARKET_DATA_PRICE_WINDOW_MS` from 60s (env default) to 600s via `app_config`. The sweep timer kept firing every 60s and deleted the bucket once the IP was idle for >60s. Subsequent requests started a fresh bucket — the longer override never enforced. Same pattern applied to search and invite-status limiters.
 
 **How to apply:** Any sliding-window or TTL-sweep limiter where the window length is admin-tunable but the schedule is not. Pre-PR check: every `setInterval(() => sweep(buckets, X), Y)` site — `X` should be a live resolver call, not a captured env constant.
+
+## Client-facing values derived from live-tunable knobs must read them live, too
+
+The "schedule static, parameter live" rule above governs the SWEEP parameter inside the eviction loop. The same principle extends to **any value derived from a live-tunable knob that is exposed to clients** — most commonly HTTP response headers like `Retry-After`, but also any `WWW-Authenticate` `realm`, `RateLimit-*` headers, and JSON `retryAfterMs` fields in error envelopes.
+
+```ts
+// ❌ Wrong — Retry-After reflects env-default even when admin extended the window
+reply.header("Retry-After", String(Math.ceil(Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS / 1000)));
+
+// ✅ Correct — Retry-After reflects the live effective window
+reply.header(
+  "Retry-After",
+  String(Math.ceil(getEffectiveAnonymousShareRateLimitWindowMs() / 1000)),
+);
+```
+
+**Failure mode**: admin extends a rate-limit window from 60s to 600s via `app_config`. The sweep parameter is correct (per the section above), so the bucket is preserved for 600s. But the rejection-path `Retry-After` header still reads `Env.X_WINDOW_MS / 1000 = 60` — telling clients to retry in 60s. Clients that respect `Retry-After` come back at 60s, hit a still-active bucket, and burn quota. The override is enforced server-side but communicated wrong client-side.
+
+**Audit recipe (extends the prior section's recipe):**
+
+```bash
+# Find every site that returns a window/limit value to clients:
+grep -rnE "(reply\.header.*Retry-After|reply\.header.*RateLimit|reply\.send.*retryAfterMs)" apps/api/src
+```
+
+For each match: the value passed in MUST be a `getEffective*()` resolver call, not `Env.*`.
+
+**Why:** KZO-199 Phase 3 CR MEDIUM-1. The Tier-A rate-limit work in KZO-198 correctly applied "schedule static, parameter live" to the sweep callback in `apps/api/src/lib/anonymousShareRateLimit.ts` but missed the `Retry-After` header in the rejection path at `apps/api/src/routes/registerRoutes.ts`. The header still read `Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS` directly, leaking env-default to clients even when the admin override was active. Fix landed in KZO-199 iter 2 — single-line resolver swap.
+
+**How to apply:** Any time a new live-tunable knob (`app_config` column with resolver) governs a value that is also surfaced to clients via response headers, error JSON, or SSE event payloads. The internal sweep parameter and the client-facing value must use the SAME resolver. Pre-PR check: for every new `getEffectiveX()` resolver, grep all uses — does any reach a `reply.header(...)` or `reply.send({...X...})` site? If so, verify it goes through the resolver, not `Env.X` directly.

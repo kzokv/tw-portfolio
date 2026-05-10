@@ -40,8 +40,13 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
 
   await boss.start();
 
-  // Data pool for backfill worker SQL operations
-  const pool = new pg.Pool({ connectionString, max: 2, application_name: "tw-portfolio-backfill" });
+  // Data pool for backfill worker SQL operations.
+  // KZO-199 — env-tunable (restart-required); default 2.
+  const pool = new pg.Pool({
+    connectionString,
+    max: Env.BACKFILL_POSTGRES_POOL_MAX,
+    application_name: "tw-portfolio-backfill",
+  });
 
   // KZO-163: providers + rate limiters now live inside `app.marketDataRegistry` (built in app.ts).
   // The backfill worker takes the marketData map; the catalog-sync worker takes the catalog map.

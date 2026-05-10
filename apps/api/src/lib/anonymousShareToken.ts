@@ -23,5 +23,7 @@ export function generateAnonymousShareToken(): string {
 
 export const ANONYMOUS_SHARE_TOKEN_LENGTH = TOKEN_LENGTH;
 export const ANONYMOUS_SHARE_TOKEN_REGEX = /^[A-Za-z0-9]{22}$/;
-export const ANONYMOUS_SHARE_TOKEN_CAP = 20;
-export const ANONYMOUS_SHARE_TOKEN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+// KZO-199: ANONYMOUS_SHARE_TOKEN_CAP and ANONYMOUS_SHARE_TOKEN_RETENTION_MS
+// constants removed. Use the resolver-backed helpers in
+// `apps/api/src/services/appConfig/sharing.ts` (DB override → env-fallback)
+// when reading the effective values at method-call time.

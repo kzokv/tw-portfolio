@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>KZO-199 Mockup — Admin Settings: tab restructure (5 tabs, Sharing tab new)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .panel { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .demo-label { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  /* Fake browser chrome */
+  .browser-chrome {
+    background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);
+    border-bottom: 1px solid rgb(203 213 225);
+  }
+  .url-pill {
+    background: white;
+    border: 1px solid rgb(203 213 225);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+  }
+
+  /* Tab triggers */
+  .tab-trigger {
+    position: relative;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    color: rgb(71 85 105);
+    font-weight: 500;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 120ms;
+  }
+  .tab-trigger:hover { color: rgb(15 23 42); }
+  .tab-trigger[aria-selected="true"] {
+    color: rgb(30 41 59);
+    font-weight: 600;
+  }
+  .tab-trigger[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 2px;
+    background: rgb(79 70 229);
+    border-radius: 1px 1px 0 0;
+  }
+  .tab-trigger:focus-visible {
+    outline: 2px solid rgb(99 102 241);
+    outline-offset: -2px;
+    border-radius: 4px;
+  }
+  .tab-badge {
+    margin-left: 0.4rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 0.125rem 0.375rem;
+    border-radius: 9999px;
+    background: rgb(220 252 231);
+    color: rgb(22 101 52);
+    text-transform: uppercase;
+  }
+
+  /* Form field */
+  .field-input {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.875rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgb(203 213 225);
+    border-radius: 6px;
+    background: white;
+    color: rgb(15 23 42);
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .field-input:hover { border-color: rgb(148 163 184); }
+  .field-input:focus {
+    outline: none;
+    border-color: rgb(79 70 229);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  }
+  .field-input::placeholder { color: rgb(148 163 184); }
+
+  .section-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(71 85 105);
+    background: rgb(241 245 249);
+    border: 1px solid rgb(226 232 240);
+    border-radius: 9999px;
+    padding: 0.25rem 0.625rem;
+  }
+
+  .new-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgb(22 101 52);
+    background: rgb(220 252 231);
+    border: 1px solid rgb(187 247 208);
+    border-radius: 9999px;
+    padding: 0.125rem 0.5rem;
+  }
+
+  .save-btn {
+    background: rgb(15 23 42);
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    transition: background 120ms, transform 80ms;
+  }
+  .save-btn:hover { background: rgb(30 41 59); }
+  .save-btn:active { transform: translateY(0.5px); }
+  .save-btn:focus-visible {
+    outline: 2px solid rgb(99 102 241);
+    outline-offset: 2px;
+  }
+
+  .panel-stub {
+    border: 1px dashed rgb(203 213 225);
+    background: rgb(248 250 252);
+    color: rgb(100 116 139);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    font-size: 0.875rem;
+  }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+<!-- Fake browser chrome to convey ?tab= URL state -->
+<div class="browser-chrome px-4 py-2 flex items-center gap-3">
+  <div class="flex gap-1.5">
+    <span class="h-3 w-3 rounded-full bg-rose-400/80"></span>
+    <span class="h-3 w-3 rounded-full bg-amber-400/80"></span>
+    <span class="h-3 w-3 rounded-full bg-emerald-400/80"></span>
+  </div>
+  <div class="url-pill flex-1 max-w-2xl mx-auto rounded-md px-3 py-1 text-xs text-slate-700 demo-label">
+    <span class="text-slate-400">https://</span>app.kzokv.local/admin/settings<span id="url-tab-state" class="text-slate-500">?tab=rate-limits</span>
+  </div>
+  <div class="text-xs text-slate-500 demo-label">KZO-199 mockup</div>
+</div>
+
+<main class="max-w-6xl mx-auto px-6 py-10 space-y-8">
+
+  <!-- Page header -->
+  <header class="space-y-2">
+    <div class="flex items-baseline gap-3">
+      <h1 class="text-2xl font-bold text-slate-900">Admin · Settings</h1>
+      <span class="text-xs demo-label text-slate-500">/admin/settings</span>
+    </div>
+    <p class="text-sm text-slate-600 max-w-3xl">
+      Runtime-tunable operational constants. Changes are written to
+      <code class="demo-label text-slate-800 bg-slate-100 px-1 py-0.5 rounded">app_config</code>
+      and audited.
+    </p>
+    <p class="text-xs text-slate-500">
+      Last edited 2026-05-08 by <span class="demo-label">keith@kzokv.local</span>
+    </p>
+  </header>
+
+  <!-- Tab container -->
+  <div class="panel bg-white rounded-lg overflow-hidden">
+
+    <!-- Tab list -->
+    <div
+      role="tablist"
+      data-testid="admin-settings-tabs"
+      class="flex items-end gap-1 px-4 border-b border-slate-200 bg-slate-50/60"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected="true"
+        aria-controls="panel-rate-limits"
+        data-tab="rate-limits"
+        data-testid="admin-settings-tab-rate-limits"
+        class="tab-trigger"
+      >Rate limits</button>
+
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-sharing"
+        data-tab="sharing"
+        data-testid="admin-settings-tab-sharing"
+        class="tab-trigger"
+      >Sharing<span class="tab-badge">new</span></button>
+
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-provider-health"
+        data-tab="provider-health"
+        data-testid="admin-settings-tab-provider-health"
+        class="tab-trigger"
+      >Provider health</button>
+
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-backfill-repair"
+        data-tab="backfill-repair"
+        data-testid="admin-settings-tab-backfill-repair"
+        class="tab-trigger"
+      >Backfill &amp; repair</button>
+
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="panel-catalog-metadata"
+        data-tab="catalog-metadata"
+        data-testid="admin-settings-tab-catalog-metadata"
+        class="tab-trigger"
+      >Catalog &amp; metadata</button>
+    </div>
+
+    <!-- Panels container -->
+    <div class="p-6">
+
+      <!-- ============================================================ -->
+      <!-- TAB: Rate limits (active by default)                          -->
+      <!-- ============================================================ -->
+      <section
+        id="panel-rate-limits"
+        role="tabpanel"
+        data-testid="admin-settings-panel-rate-limits"
+        class="space-y-8"
+      >
+        <!-- Section: Market data price -->
+        <div>
+          <div class="flex items-center gap-3 mb-1">
+            <h2 class="text-base font-semibold text-slate-800">Market data price</h2>
+            <span class="section-pill">tier 1</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4 max-w-xl">
+            Sliding-window per-IP rate limit on <code class="demo-label">/market-data/price</code>.
+            Sweep cadence is fixed at deploy; sweep parameter is read live from cache.
+          </p>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-4 max-w-2xl">
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Window (ms)</span>
+              <input
+                type="number"
+                placeholder="60000"
+                data-testid="admin-settings-input-marketDataPriceWindowMs"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1000 · max: 600000</span>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Limit per window</span>
+              <input
+                type="number"
+                placeholder="30"
+                data-testid="admin-settings-input-marketDataPriceLimit"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1 · max: 10000</span>
+            </label>
+          </div>
+        </div>
+
+        <hr class="border-slate-200" />
+
+        <!-- Section: Market data search -->
+        <div>
+          <div class="flex items-center gap-3 mb-1">
+            <h2 class="text-base font-semibold text-slate-800">Market data search</h2>
+            <span class="section-pill">tier 1</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4 max-w-xl">
+            Search-autocomplete rate limit. Per-IP, sliding window.
+          </p>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-4 max-w-2xl">
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Window (ms)</span>
+              <input
+                type="number"
+                placeholder="60000"
+                data-testid="admin-settings-input-marketDataSearchWindowMs"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1000 · max: 600000</span>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Limit per window</span>
+              <input
+                type="number"
+                placeholder="60"
+                data-testid="admin-settings-input-marketDataSearchLimit"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1 · max: 10000</span>
+            </label>
+          </div>
+        </div>
+
+        <hr class="border-slate-200" />
+
+        <!-- Section: Invite status -->
+        <div>
+          <div class="flex items-center gap-3 mb-1">
+            <h2 class="text-base font-semibold text-slate-800">Invite status</h2>
+            <span class="section-pill">tier 1</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4 max-w-xl">
+            Per-IP rate limit on the invite-status polling endpoint.
+          </p>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-4 max-w-2xl">
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Window (ms)</span>
+              <input
+                type="number"
+                placeholder="60000"
+                data-testid="admin-settings-input-inviteStatusWindowMs"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1000 · max: 600000</span>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Limit per window</span>
+              <input
+                type="number"
+                placeholder="20"
+                data-testid="admin-settings-input-inviteStatusLimit"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1 · max: 10000</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Save bar -->
+        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          <span class="text-xs text-slate-500">Each save writes one audit-log entry per changed field.</span>
+          <button type="button" class="save-btn" data-testid="admin-settings-save-rate-limits">Save</button>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- TAB: Sharing (KZO-199 new) — hidden by default                -->
+      <!-- ============================================================ -->
+      <section
+        id="panel-sharing"
+        role="tabpanel"
+        data-testid="admin-settings-panel-sharing"
+        class="space-y-8"
+        hidden
+      >
+        <div>
+          <div class="flex items-center gap-3 mb-1 flex-wrap">
+            <h2 class="text-base font-semibold text-slate-800">Anonymous share tokens</h2>
+            <span class="section-pill">tier 1</span>
+            <span class="new-badge">KZO-199 · new</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4 max-w-xl">
+            Per-owner active-token cap and per-IP rate limit on the public read-only
+            <code class="demo-label">GET /share/:token</code> endpoint. Token retention
+            (DB-only) and 90-day purge cron are tuned via SQL — not exposed here.
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 max-w-2xl">
+            <label class="block md:col-span-2">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Active tokens cap per owner</span>
+              <input
+                type="number"
+                placeholder="20"
+                data-testid="admin-settings-input-anonymousShareTokenCap"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1 · max: 1000</span>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Public-share GET rate-limit max <span class="text-slate-400 font-normal">(per IP per window)</span></span>
+              <input
+                type="number"
+                placeholder="30"
+                data-testid="admin-settings-input-anonymousShareRateLimitMax"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1 · max: 10000</span>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 mb-1">Public-share rate-limit window (ms)</span>
+              <input
+                type="number"
+                placeholder="300000"
+                data-testid="admin-settings-input-anonymousShareRateLimitWindowMs"
+                class="field-input"
+              />
+              <span class="block text-xs text-slate-500 mt-1 demo-label">min: 1000 · max: 600000</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Save bar -->
+        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          <span class="text-xs text-slate-500">Each save writes one audit-log entry per changed field.</span>
+          <button type="button" class="save-btn" data-testid="admin-settings-save-sharing">Save</button>
+        </div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- TAB: Provider health — stubbed                                -->
+      <!-- ============================================================ -->
+      <section
+        id="panel-provider-health"
+        role="tabpanel"
+        data-testid="admin-settings-panel-provider-health"
+        class="space-y-4"
+        hidden
+      >
+        <div class="flex items-center gap-3">
+          <h2 class="text-base font-semibold text-slate-800">Provider health</h2>
+          <span class="section-pill">tier 1</span>
+        </div>
+        <p class="text-xs text-slate-500 max-w-xl">
+          Down-notification suppression, error trail retention, generic rerun cooldown,
+          yahoo-AU rerun cooldown.
+        </p>
+        <div class="panel-stub">Existing KZO-198 / KZO-197 fields render here. <span class="demo-label">Mockup stub.</span></div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- TAB: Backfill & repair — stubbed                              -->
+      <!-- ============================================================ -->
+      <section
+        id="panel-backfill-repair"
+        role="tabpanel"
+        data-testid="admin-settings-panel-backfill-repair"
+        class="space-y-4"
+        hidden
+      >
+        <div class="flex items-center gap-3">
+          <h2 class="text-base font-semibold text-slate-800">Backfill &amp; repair</h2>
+          <span class="section-pill">tier 1</span>
+        </div>
+        <p class="text-xs text-slate-500 max-w-xl">
+          Backfill retry limit, retry delay, FinMind 402 retry, repair cooldown minutes.
+        </p>
+        <div class="panel-stub">Existing KZO-198 / KZO-133 fields render here. <span class="demo-label">Mockup stub.</span></div>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- TAB: Catalog & metadata — stubbed                             -->
+      <!-- ============================================================ -->
+      <section
+        id="panel-catalog-metadata"
+        role="tabpanel"
+        data-testid="admin-settings-panel-catalog-metadata"
+        class="space-y-4"
+        hidden
+      >
+        <div class="flex items-center gap-3">
+          <h2 class="text-base font-semibold text-slate-800">Catalog &amp; metadata</h2>
+          <span class="section-pill">tier 1</span>
+        </div>
+        <p class="text-xs text-slate-500 max-w-xl">
+          Catalog absence threshold, guard percent, guard floor, metadata enrichment mode.
+        </p>
+        <div class="panel-stub">Existing KZO-195 / KZO-189 fields render here. <span class="demo-label">Mockup stub.</span></div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- Side note about Tier 2/3 fields not in UI -->
+  <aside class="text-xs text-slate-500 max-w-3xl space-y-1 px-1">
+    <p>
+      <strong class="text-slate-700">Not in this UI:</strong>
+      Tier 2 fields (DB-only escape hatch) and Tier 3 fields (env-only, restart required).
+      KZO-199 Tier 2: <code class="demo-label">anonymous_share_token_retention_ms</code>,
+      <code class="demo-label">user_preferences_max_bytes</code>.
+      KZO-199 Tier 3: <code class="demo-label">POSTGRES_POOL_MAX</code>,
+      <code class="demo-label">BACKFILL_POSTGRES_POOL_MAX</code>.
+    </p>
+  </aside>
+
+</main>
+
+<script>
+  (function () {
+    const tablist = document.querySelector('[data-testid="admin-settings-tabs"]');
+    const triggers = tablist.querySelectorAll('[role="tab"]');
+    const panels = document.querySelectorAll('[role="tabpanel"]');
+    const urlState = document.getElementById('url-tab-state');
+
+    function activate(slug, { updateUrl = true } = {}) {
+      triggers.forEach((t) => {
+        const selected = t.dataset.tab === slug;
+        t.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+      panels.forEach((p) => {
+        const matches = p.id === `panel-${slug}`;
+        if (matches) p.removeAttribute('hidden');
+        else p.setAttribute('hidden', '');
+      });
+      if (urlState) urlState.textContent = `?tab=${slug}`;
+      if (updateUrl) {
+        try { history.replaceState(null, '', `?tab=${slug}`); } catch (_) {}
+      }
+    }
+
+    triggers.forEach((t) => {
+      t.addEventListener('click', () => activate(t.dataset.tab));
+      t.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const arr = Array.from(triggers);
+          const idx = arr.indexOf(t);
+          const next = e.key === 'ArrowRight'
+            ? arr[(idx + 1) % arr.length]
+            : arr[(idx - 1 + arr.length) % arr.length];
+          next.focus();
+          activate(next.dataset.tab);
+        }
+      });
+    });
+
+    // Pick up initial ?tab= on load
+    const initial = new URLSearchParams(location.search).get('tab');
+    if (initial && document.getElementById(`panel-${initial}`)) {
+      activate(initial, { updateUrl: false });
+    }
+  })();
+</script>
+
+</body>
+</html>

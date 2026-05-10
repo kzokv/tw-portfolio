@@ -54,7 +54,11 @@ export type AppConfigPlainField =
   // KZO-195 — Tier 2 hybrid env+app_config delisting-detection knobs.
   | "catalogAbsenceThreshold"
   | "catalogAbsenceGuardPercent"
-  | "catalogAbsenceGuardFloor";
+  | "catalogAbsenceGuardFloor"
+  // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+  | "anonymousShareTokenCap"
+  | "anonymousShareRateLimitMax"
+  | "anonymousShareRateLimitWindowMs";
 
 /**
  * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
@@ -96,6 +100,10 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   catalogAbsenceThreshold: "catalog_absence_threshold",
   catalogAbsenceGuardPercent: "catalog_absence_guard_percent",
   catalogAbsenceGuardFloor: "catalog_absence_guard_floor",
+  // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+  anonymousShareTokenCap: "anonymous_share_token_cap",
+  anonymousShareRateLimitMax: "anonymous_share_rate_limit_max",
+  anonymousShareRateLimitWindowMs: "anonymous_share_rate_limit_window_ms",
 };
 
 export interface ReadinessStatus {
@@ -790,7 +798,8 @@ export interface Persistence {
   materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]>;
   /**
    * Atomically create an anonymous share token, enforcing the per-owner active-token
-   * cap of {@link ANONYMOUS_SHARE_TOKEN_CAP}. On Postgres, serialised with a
+   * cap from `getEffectiveAnonymousShareTokenCap()` (DB override → env-fallback,
+   * default 20; KZO-199). On Postgres, serialised with a
    * transaction-scoped advisory lock keyed by owner; on memory, with a per-owner
    * async mutex. Returns `"cap_exceeded"` when the owner already holds the maximum
    * number of active tokens, or `"collision"` on a UNIQUE violation against the
@@ -1004,6 +1013,13 @@ export interface Persistence {
     catalogAbsenceGuardFloor: number | null;
     // KZO-196 — Tier A AU GICS sync cron schedule override (NULL = use env).
     asxGicsRefreshCron: string | null;
+    // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+    anonymousShareTokenCap: number | null;
+    anonymousShareRateLimitMax: number | null;
+    anonymousShareRateLimitWindowMs: number | null;
+    // KZO-199 — Tier 2 (DB+SQL only; NOT in PATCH or UI).
+    anonymousShareTokenRetentionMs: number | null;
+    userPreferencesMaxBytes: number | null;
     updatedAt: string;
   }>;
 

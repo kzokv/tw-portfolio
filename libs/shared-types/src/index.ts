@@ -667,6 +667,9 @@ export interface AppConfigDto {
   effectiveProviderErrorTrailRetentionDays: number;
   providerRerunCooldownMs: number | null;
   effectiveProviderRerunCooldownMs: number;
+  // KZO-197 — yahoo-finance-au-specific rerun cooldown override.
+  yahooAuRerunCooldownMs: number | null;
+  effectiveYahooAuRerunCooldownMs: number;
 
   // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
   backfillRetryLimit: number | null;
@@ -683,6 +686,14 @@ export interface AppConfigDto {
   effectiveCatalogAbsenceGuardPercent: number;
   catalogAbsenceGuardFloor: number | null;
   effectiveCatalogAbsenceGuardFloor: number;
+
+  // ── KZO-199 Tier 1 — Sharing (UI-editable) ─────────────────────────────
+  anonymousShareTokenCap: number | null;
+  effectiveAnonymousShareTokenCap: number;
+  anonymousShareRateLimitMax: number | null;
+  effectiveAnonymousShareRateLimitMax: number;
+  anonymousShareRateLimitWindowMs: number | null;
+  effectiveAnonymousShareRateLimitWindowMs: number;
 
   // KZO-198 Tier 2 fields (dailyRefreshLookbackDays, dailyRefreshPriority,
   // sse{Heartbeat,MaxConn,BufferTtl}) are intentionally NOT in this DTO.

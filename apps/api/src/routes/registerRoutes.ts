@@ -72,6 +72,9 @@ import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/appConfig/repairCooldown.js";
+import { getEffectiveUserPreferencesMaxBytes } from "../services/appConfig/requestLimits.js";
+import { getEffectiveAnonymousShareRateLimitWindowMs } from "../services/appConfig/sharing.js";
+import { APP_CONFIG_BOUNDS } from "../services/appConfig/bounds.js";
 import { RateLimitedError } from "../services/market-data/types.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { MockTwelveDataAuCatalogProvider } from "../services/market-data/providers/mockTwelveDataAu.js";
@@ -2255,11 +2258,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // ─────────────────────────────────────────────────────────────────────────
   // User preferences (KZO-159 / 158A) — per-session identity. Keys other than
   // `dashboardPerformanceRanges` are accepted as opaque values (forward-compat
-  // for 158C/158B). Null deletes a key. PATCH body is capped at 8 KiB to cap
-  // JSONB bloat; anything larger rejects with `payload_too_large`.
+  // for 158C/158B). Null deletes a key. PATCH body is capped to bound JSONB
+  // bloat; anything larger rejects with `payload_too_large`.
+  //
+  // KZO-199 (per `.claude/rules/fastify-eviction-lifecycle-pattern.md` §
+  // "schedule static, parameter live"): the Fastify route's `bodyLimit` is
+  // pinned to the bound max (1 MiB hard ceiling); the inner runtime check
+  // reads the resolver live so admin SQL overrides take effect on the next
+  // request.
   // ─────────────────────────────────────────────────────────────────────────
 
-  const USER_PREFERENCES_MAX_BYTES = 8192;
+  const USER_PREFERENCES_BODY_LIMIT_MAX = APP_CONFIG_BOUNDS.userPreferencesMaxBytes.max;
 
   // Strict per-key validation: every known top-level key gets an explicit
   // schema here. Unknown keys are rejected (`.strict()`). When 158B/158C add
@@ -2306,19 +2315,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.patch("/user-preferences", {
-    bodyLimit: USER_PREFERENCES_MAX_BYTES,
+    bodyLimit: USER_PREFERENCES_BODY_LIMIT_MAX,
   }, async (req) => {
     const userId = requireSessionUserId(req);
     // Enforce the byte budget explicitly here even though Fastify's bodyLimit
     // rejects at parse time — serializing the parsed body again gives a tight
     // upper bound and a predictable error shape for clients (Fastify's own
     // rejection surfaces as a 413 from the runtime, not a `routeError`).
+    //
+    // KZO-199: read the runtime cap LIVE from the resolver (DB override → env)
+    // so an admin SQL override takes effect on the next request. The Fastify
+    // bodyLimit above stays at the bound ceiling.
+    const effectiveCap = getEffectiveUserPreferencesMaxBytes();
     const rawBytes = Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8");
-    if (rawBytes > USER_PREFERENCES_MAX_BYTES) {
+    if (rawBytes > effectiveCap) {
       throw routeError(
         413,
         "payload_too_large",
-        `Request body exceeds ${USER_PREFERENCES_MAX_BYTES} bytes`,
+        `Request body exceeds ${effectiveCap} bytes`,
       );
     }
     const parsed = userPreferencePatchSchema.safeParse(req.body);
@@ -2555,9 +2569,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       assertAnonymousShareRateLimit(req.ip);
     } catch (error) {
       if ((error as { statusCode?: number; code?: string }).statusCode === 429) {
+        // KZO-199 Phase 4: read effective window LIVE so admin overrides via
+        // PATCH /admin/settings { anonymousShareRateLimitWindowMs } take effect
+        // for the Retry-After header. Per
+        // `.claude/rules/fastify-eviction-lifecycle-pattern.md` parameter-live.
         reply.header(
           "retry-after",
-          String(Math.ceil(Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS / 1000)),
+          String(Math.ceil(getEffectiveAnonymousShareRateLimitWindowMs() / 1000)),
         );
       }
       throw error;

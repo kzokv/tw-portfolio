@@ -241,7 +241,14 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
         className="border-b border-slate-200 last:border-0"
         data-testid={`provider-row-${localStatus.providerId}`}
       >
-        <td className="px-4 py-4 font-mono text-sm font-medium text-slate-900 break-all">
+        {/* KZO-199 — provider IDs and ISO timestamps stay non-wrapping with
+            `truncate + title`; descriptive cells (none in this row — error
+            messages live in the expanded ErrorTrail and already wrap) keep
+            the existing flow. */}
+        <td
+          className="truncate px-4 py-4 font-mono text-sm font-medium text-slate-900"
+          title={localStatus.providerId}
+        >
           <span className="inline-flex items-center gap-1.5">
             <span>{localStatus.providerId}</span>
             <TooltipInfo
@@ -255,10 +262,16 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
         <td className="px-4 py-4">
           <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
         </td>
-        <td className="px-4 py-4 text-sm text-slate-600">
+        <td
+          className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+          title={localStatus.lastSuccessfulRun ?? ""}
+        >
           {formatTimestamp(localStatus.lastSuccessfulRun)}
         </td>
-        <td className="px-4 py-4 text-sm text-slate-600">
+        <td
+          className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+          title={localStatus.lastFailedRun ?? ""}
+        >
           {formatTimestamp(localStatus.lastFailedRun)}
         </td>
         <td className="px-4 py-4 text-right text-sm text-slate-700">
@@ -324,11 +337,18 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
       className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
       data-testid={`provider-card-${localStatus.providerId}`}
     >
+      {/* KZO-199 iter 3 — provider IDs are opaque (truncate + title) and
+          ISO timestamps + numeric counts use the truncate variant of
+          CardDetail so the columns don't blow out the card on narrow
+          viewports. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t.providerLabel}</p>
-          <p className="mt-1 inline-flex items-center gap-1.5 break-all font-mono text-sm font-medium text-slate-900">
-            <span>{localStatus.providerId}</span>
+          <p
+            className="mt-1 inline-flex items-center gap-1.5 truncate font-mono text-sm font-medium text-slate-900"
+            title={localStatus.providerId}
+          >
+            <span className="truncate">{localStatus.providerId}</span>
             <TooltipInfo
               label={t.rerunTooltipTriggerLabel}
               content={resolveRerunTooltipContent(localStatus)}
@@ -345,11 +365,11 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <CardDetail label={t.lastSuccessLabel} value={formatTimestamp(localStatus.lastSuccessfulRun)} />
-        <CardDetail label={t.lastFailedLabel} value={formatTimestamp(localStatus.lastFailedRun)} />
-        <CardDetail label={t.errors24hLabel} value={String(localStatus.errorCount24h)} />
-        <CardDetail label={t.errors7dLabel} value={String(localStatus.errorCount7d)} />
-        <CardDetail label={t.rateLimits24hLabel} value={String(localStatus.rateLimitCount24h)} />
+        <CardDetail label={t.lastSuccessLabel} value={formatTimestamp(localStatus.lastSuccessfulRun)} truncate />
+        <CardDetail label={t.lastFailedLabel} value={formatTimestamp(localStatus.lastFailedRun)} truncate />
+        <CardDetail label={t.errors24hLabel} value={String(localStatus.errorCount24h)} truncate />
+        <CardDetail label={t.errors7dLabel} value={String(localStatus.errorCount7d)} truncate />
+        <CardDetail label={t.rateLimits24hLabel} value={String(localStatus.rateLimitCount24h)} truncate />
       </dl>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -386,11 +406,25 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
   );
 }
 
-function CardDetail({ label, value }: { label: string; value: string }) {
+function CardDetail({
+  label,
+  value,
+  truncate = false,
+}: {
+  label: string;
+  value: string;
+  /** KZO-199 iter 3 — opt-in non-wrapping mode for opaque IDs / ISO timestamps. */
+  truncate?: boolean;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-slate-900">{value}</dd>
+      <dd
+        className={`mt-1 text-sm font-medium text-slate-900 ${truncate ? "truncate" : "break-words"}`}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -408,9 +442,12 @@ export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{t.pageDescription}</p>
       </div>
 
-      <div className="hidden overflow-x-auto rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block">
+      {/* KZO-199 — drop horizontal scroll wrapper at the lg breakpoint; the
+          table cells now use `truncate + title` on opaque IDs/timestamps so
+          narrow desktop viewports don't paint a horizontal scrollbar. */}
+      <div className="hidden rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block">
         <table
-          className="min-w-[900px] border-collapse text-sm text-slate-700"
+          className="w-full table-fixed border-collapse text-sm text-slate-700"
           data-testid="admin-providers-table"
         >
           <thead>

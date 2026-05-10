@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, types, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
+import { Env } from "@tw-portfolio/config";
 import {
   calculateAppliedTaxComponents,
   materializeFeeProfileTaxRules,
@@ -101,10 +102,13 @@ import type {
   ProviderErrorClass,
   UserRole,
 } from "./types.js";
+// KZO-199: anonymous-share token cap and retention are now resolver-backed
+// (DB override → env-fallback). Read at method invocation time so admin
+// PATCHes take effect on the next call without restart.
 import {
-  ANONYMOUS_SHARE_TOKEN_CAP,
-  ANONYMOUS_SHARE_TOKEN_RETENTION_MS,
-} from "../lib/anonymousShareToken.js";
+  getEffectiveAnonymousShareTokenCap,
+  getEffectiveAnonymousShareTokenRetentionMs,
+} from "../services/appConfig/sharing.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 
 types.setTypeParser(types.builtins.DATE, (value: string) => value);
@@ -315,7 +319,8 @@ export class PostgresPersistence implements Persistence {
   constructor(private readonly options: PostgresPersistenceOptions) {
     this.pool = new Pool({
       connectionString: options.databaseUrl,
-      max: 20,
+      // KZO-199 — env-tunable (restart-required); default 20.
+      max: Env.POSTGRES_POOL_MAX,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 30_000,
     });
@@ -1491,7 +1496,7 @@ export class PostgresPersistence implements Persistence {
         [input.ownerUserId],
       );
       const activeCount = Number(countResult.rows[0]?.count ?? "0");
-      if (activeCount >= ANONYMOUS_SHARE_TOKEN_CAP) {
+      if (activeCount >= getEffectiveAnonymousShareTokenCap()) {
         await client.query("ROLLBACK");
         return { status: "cap_exceeded" };
       }
@@ -1550,7 +1555,7 @@ export class PostgresPersistence implements Persistence {
   }
 
   async listAnonymousShareTokensForOwner(ownerUserId: string): Promise<AnonymousShareTokenRecord[]> {
-    const retentionCutoff = new Date(Date.now() - ANONYMOUS_SHARE_TOKEN_RETENTION_MS).toISOString();
+    const retentionCutoff = new Date(Date.now() - getEffectiveAnonymousShareTokenRetentionMs()).toISOString();
     const result = await this.pool.query<{
       id: string;
       token: string;
@@ -5948,6 +5953,11 @@ export class PostgresPersistence implements Persistence {
     catalogAbsenceGuardPercent: number | null;
     catalogAbsenceGuardFloor: number | null;
     asxGicsRefreshCron: string | null;
+    anonymousShareTokenCap: number | null;
+    anonymousShareRateLimitMax: number | null;
+    anonymousShareRateLimitWindowMs: number | null;
+    anonymousShareTokenRetentionMs: number | null;
+    userPreferencesMaxBytes: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -5978,6 +5988,11 @@ export class PostgresPersistence implements Persistence {
       catalog_absence_guard_percent: number | string | null;
       catalog_absence_guard_floor: number | null;
       asx_gics_refresh_cron: string | null;
+      anonymous_share_token_cap: number | null;
+      anonymous_share_rate_limit_max: number | null;
+      anonymous_share_rate_limit_window_ms: number | null;
+      anonymous_share_token_retention_ms: number | string | null;
+      user_preferences_max_bytes: number | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -5993,6 +6008,8 @@ export class PostgresPersistence implements Persistence {
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
          catalog_absence_threshold, catalog_absence_guard_percent, catalog_absence_guard_floor,
          asx_gics_refresh_cron,
+         anonymous_share_token_cap, anonymous_share_rate_limit_max, anonymous_share_rate_limit_window_ms,
+         anonymous_share_token_retention_ms, user_preferences_max_bytes,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -6026,6 +6043,11 @@ export class PostgresPersistence implements Persistence {
         catalogAbsenceGuardPercent: null,
         catalogAbsenceGuardFloor: null,
         asxGicsRefreshCron: null,
+        anonymousShareTokenCap: null,
+        anonymousShareRateLimitMax: null,
+        anonymousShareRateLimitWindowMs: null,
+        anonymousShareTokenRetentionMs: null,
+        userPreferencesMaxBytes: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -6064,6 +6086,11 @@ export class PostgresPersistence implements Persistence {
       catalogAbsenceGuardPercent: num(row.catalog_absence_guard_percent),
       catalogAbsenceGuardFloor: row.catalog_absence_guard_floor,
       asxGicsRefreshCron: row.asx_gics_refresh_cron,
+      anonymousShareTokenCap: row.anonymous_share_token_cap,
+      anonymousShareRateLimitMax: row.anonymous_share_rate_limit_max,
+      anonymousShareRateLimitWindowMs: row.anonymous_share_rate_limit_window_ms,
+      anonymousShareTokenRetentionMs: num(row.anonymous_share_token_retention_ms),
+      userPreferencesMaxBytes: row.user_preferences_max_bytes,
       updatedAt,
     };
   }
