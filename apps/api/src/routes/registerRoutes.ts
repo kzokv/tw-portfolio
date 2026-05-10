@@ -4472,7 +4472,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Reset status to pending before enqueuing
-    await app.persistence.updateBackfillStatus(body.ticker, "pending");
+    await app.persistence.updateBackfillStatus(
+      body.ticker,
+      instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
+      "pending",
+    );
 
     await app.boss.send(
       BACKFILL_QUEUE,

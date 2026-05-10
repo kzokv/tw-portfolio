@@ -65,8 +65,11 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     // KZO-189: AU metadata enrichment gate — read every job (no cache) so admin
     // toggles take effect on the next backfill. Hybrid env+DB resolution.
     getEffectiveMetadataEnrichmentMode: () => Promise.resolve(getEffectiveMetadataEnrichmentMode()),
-    updateBackfillStatus: (ticker: string, status: import("@tw-portfolio/domain").BackfillStatus) =>
-      app.persistence.updateBackfillStatus(ticker, status),
+    updateBackfillStatus: (
+      ticker: string,
+      marketCode: import("@tw-portfolio/domain").MarketCode,
+      status: import("@tw-portfolio/domain").BackfillStatus,
+    ) => app.persistence.updateBackfillStatus(ticker, marketCode, status),
     updateLastRepairAt: (ticker: string) => app.persistence.updateLastRepairAt(ticker),
     getUsersMonitoringTicker: (ticker: string) => app.persistence.getUsersMonitoringTicker(ticker),
     createNotification: (notification: Parameters<typeof app.persistence.createNotification>[0]) =>

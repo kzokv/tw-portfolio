@@ -155,8 +155,16 @@ describePostgres("US backfill round-trip — bars only (KZO-170 D5 revised)", ()
       // enrichment path being exercised. Use "unconditional" so shouldEnrich=true
       // and the enrichment branch runs as a clean pass-through (matches pre-KZO-189).
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("unconditional"),
-      updateBackfillStatus: async (ticker: string, status: string) => {
-        await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
+      updateBackfillStatus: async (
+        ticker: string,
+        marketCode: import("@tw-portfolio/domain").MarketCode,
+        status: string,
+      ) => {
+        await persistence!.updateBackfillStatus(
+          ticker,
+          marketCode,
+          status as "ready" | "backfilling" | "failed" | "pending",
+        );
       },
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

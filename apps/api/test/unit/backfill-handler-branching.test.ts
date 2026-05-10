@@ -121,7 +121,7 @@ describe("backfill handler trigger branching", () => {
     ]);
 
     expect(deps.updateBackfillStatus).toHaveBeenCalledTimes(1);
-    expect(deps.updateBackfillStatus).toHaveBeenCalledWith("2330", "ready");
+    expect(deps.updateBackfillStatus).toHaveBeenCalledWith("2330", "TW", "ready");
     const barsCall = deps.provider.fetchBars.mock.calls[0] ?? [];
     const dividendsCall = deps.provider.fetchDividends.mock.calls[0] ?? [];
     expect(barsCall[0]).toBe("2330");
@@ -193,8 +193,8 @@ describe("backfill handler trigger branching", () => {
       ]),
     ).rejects.toThrow("No bars");
 
-    expect(deps.updateBackfillStatus).toHaveBeenNthCalledWith(1, "2330", "backfilling");
-    expect(deps.updateBackfillStatus).toHaveBeenNthCalledWith(2, "2330", "failed");
+    expect(deps.updateBackfillStatus).toHaveBeenNthCalledWith(1, "2330", "TW", "backfilling");
+    expect(deps.updateBackfillStatus).toHaveBeenNthCalledWith(2, "2330", "TW", "failed");
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(1, "user-9", "backfill_started", { ticker: "2330" });
     expect(deps.eventBus.publishEvent).toHaveBeenNthCalledWith(2, "user-9", "backfill_failed", {
       ticker: "2330",
@@ -231,7 +231,7 @@ describe("backfill handler trigger branching", () => {
       { startAfter: 30, singletonKey: "2330:TW", priority: 10 },
     );
     // Status must NOT flip to "failed" on a reschedule.
-    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "TW", "failed");
   });
 
   it("repair flow: emits repair lifecycle events and skips backfill status mutations", async () => {
@@ -469,7 +469,7 @@ describe("backfill handler trigger branching", () => {
       expect.objectContaining({ startAfter: 45, singletonKey: "2330:TW" }),
     );
     // Status must NOT flip — this is a reschedule, not a failure or success
-    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "failed");
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("2330", "TW", "failed");
     // fetchBars was actually called (unlike the old canConsume-false path which blocked before the call)
     expect(provider.fetchBars).toHaveBeenCalledWith("2330", expect.any(String), undefined);
   });
@@ -692,7 +692,7 @@ describe("backfill handler trigger branching", () => {
       expect.any(String),
       undefined,
     );
-    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
+    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "AU", "ready");
 
     // Reschedule was NOT called (this is a clean completion, not a retry).
     expect(deps.boss.send).not.toHaveBeenCalled();
@@ -719,8 +719,8 @@ describe("backfill handler trigger branching", () => {
     // The bars + dividends fetched successfully; status flipped to ready.
     expect(deps.auProvider.fetchBars).toHaveBeenCalledTimes(1);
     expect(deps.auProvider.fetchDividends).toHaveBeenCalledTimes(1);
-    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
-    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "failed");
+    expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "AU", "ready");
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "AU", "failed");
 
     // The metadata error was logged via warn (NOT thrown).
     expect(deps.log.warn).toHaveBeenCalled();
@@ -763,7 +763,7 @@ describe("backfill handler trigger branching", () => {
     );
 
     // Status must NOT flip to "failed" — this is a reschedule.
-    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "failed");
+    expect(deps.updateBackfillStatus).not.toHaveBeenCalledWith("BHP", "AU", "failed");
   });
 
   it("AU pre-1988 trade-date truncation: startDate before historyStartFor('AU') is replaced with the AU start", async () => {
@@ -877,7 +877,7 @@ describe("backfill handler trigger branching", () => {
       expect(deps.auProvider.reserveCapacity).toHaveBeenCalledWith(3);
       expect(deps.auProvider.fetchInstrumentMetadata).toHaveBeenCalledWith("BHP");
       expect(deps.persistence.upsertInstrumentCatalog).toHaveBeenCalledTimes(1);
-      expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "ready");
+      expect(deps.updateBackfillStatus).toHaveBeenLastCalledWith("BHP", "AU", "ready");
     });
 
     it("conditional × repair → enriches: reserveCapacity(3) (regression guard for ALLOW-list lock)", async () => {

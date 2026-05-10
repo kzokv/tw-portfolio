@@ -25,6 +25,11 @@
     "integration/auCatalogSyncTwelveData.integration.test.ts",
     "integration/auLicMetadataDelegation.integration.test.ts",
     "unit/asxGicsCsvParser.test.ts",
-    "integration/asxGicsCatalogSync.integration.test.ts"
+    "integration/asxGicsCatalogSync.integration.test.ts",
+    "unit/market-data/enqueueAuCatalogBarsBackfill.test.ts",
+    "unit/appConfig/providerHealthRerunCooldown.test.ts",
+    "integration/auCatalogRerunUnion.integration.test.ts",
+    "integration/adminProvidersAwaiting.integration.test.ts",
+    "integration/perProviderRerunCooldown.integration.test.ts"
   ]
 }

@@ -27,6 +27,10 @@ export const APP_CONFIG_BOUNDS = {
   providerDownNotificationSuppressionMs: { min: 60_000, max: 7 * 24 * 60 * 60 * 1000 },
   providerErrorTrailRetentionDays: { min: 1, max: 365 },
   providerRerunCooldownMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
+  // KZO-197 — yahoo-finance-au rerun cooldown override. Same window as the
+  // generic provider cooldown — 1 s minimum to allow tests to drive sub-cooldown
+  // sequences, 24 h maximum to prevent operator-lockout on misconfiguration.
+  yahooAuRerunCooldownMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
 
   // Tier 1 — backfill (UI-editable subset)
   backfillRetryLimit: { min: 0, max: 10 },

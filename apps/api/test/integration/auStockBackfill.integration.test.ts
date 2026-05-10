@@ -174,10 +174,12 @@ describePostgres("AU backfill round-trip — bars + dividends + metadata enrichm
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (
         ticker: string,
+        marketCode: import("@tw-portfolio/domain").MarketCode,
         status: string,
       ) => {
         await persistence!.updateBackfillStatus(
           ticker,
+          marketCode,
           status as "ready" | "backfilling" | "failed" | "pending",
         );
       },

@@ -74,7 +74,13 @@ export interface BackfillWorkerDeps {
    * Predicate: `shouldEnrich = (mode === "unconditional") || (trigger !== "daily_refresh")`.
    */
   getEffectiveMetadataEnrichmentMode: () => Promise<"unconditional" | "conditional">;
-  updateBackfillStatus: (ticker: string, status: BackfillStatus) => Promise<void>;
+  // KZO-197 P2-2: composite scope on (ticker, marketCode) so cross-listed
+  // siblings (e.g. BHP/AU vs BHP/US) are not silently mutated.
+  updateBackfillStatus: (
+    ticker: string,
+    marketCode: MarketCode,
+    status: BackfillStatus,
+  ) => Promise<void>;
   updateLastRepairAt?: (ticker: string) => Promise<void>;
   getUsersMonitoringTicker: (ticker: string) => Promise<string[]>;
   createNotification?: (notification: {
@@ -270,7 +276,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       );
 
       if (shouldSetBackfillingStatus) {
-        await updateBackfillStatus(ticker, "backfilling");
+        await updateBackfillStatus(ticker, market, "backfilling");
       }
 
       if (isRepair && userId) {
@@ -383,7 +389,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
       // Update status for non-repair/non-daily-refresh jobs.
       if (shouldSetReadyStatus) {
-        await updateBackfillStatus(ticker, "ready");
+        await updateBackfillStatus(ticker, market, "ready");
       }
 
       if (isDailyRefresh) {
@@ -397,11 +403,6 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
             }),
           ),
         );
-
-        // Batch tracking: record success and check fan-in completion
-        if (batchId && updateBatchTickerResult) {
-          await trackBatchResult(batchId, ticker, { status: "success", barsCount, dividendsCount }, log);
-        }
       } else if (isRepair && userId) {
         if (updateLastRepairAt) {
           await updateLastRepairAt(ticker);
@@ -432,6 +433,19 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           dividendsCount,
         });
       }
+
+      // KZO-197 P2-1: track batch fan-in for any job carrying a `batchId` —
+      // both daily-refresh AND admin_rerun-triggered AU catalog warm-up.
+      // Previously gated on `isDailyRefresh`, which left AU warm-up batches
+      // permanently incomplete (jobs ran but never reported into the batch).
+      if (batchId && updateBatchTickerResult) {
+        await trackBatchResult(
+          batchId,
+          ticker,
+          { status: "success", barsCount, dividendsCount },
+          log,
+        );
+      }
     } catch (err) {
       // KZO-163: provider rate limit → reschedule (NOT a retry). Status is left untouched
       // so the job effectively pauses until the limiter releases.
@@ -460,7 +474,7 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       });
 
       if (isLastRetry && shouldSetFailedStatus) {
-        await updateBackfillStatus(ticker, "failed");
+        await updateBackfillStatus(ticker, market, "failed");
       }
 
       if (isDailyRefresh) {
@@ -474,11 +488,6 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
               }),
             ),
           );
-
-          // Batch tracking: record failure and check fan-in completion
-          if (batchId && updateBatchTickerResult) {
-            await trackBatchResult(batchId, ticker, { status: "failed", reason }, log);
-          }
         }
       } else if (isRepair && userId) {
         await eventBus.publishEvent(userId, "repair_failed", {
@@ -506,6 +515,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
           reason,
           retriesExhausted: isLastRetry,
         });
+      }
+
+      // KZO-197 P2-1: track batch fan-in for terminal failures on any job
+      // carrying a `batchId`. Mirrors the success-path gate. Non-last retries
+      // do NOT report to the batch — the job will be retried by pg-boss.
+      if (isLastRetry && batchId && updateBatchTickerResult) {
+        await trackBatchResult(batchId, ticker, { status: "failed", reason }, log);
       }
 
       throw err; // Re-throw so pg-boss handles retry

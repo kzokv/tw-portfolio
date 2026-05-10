@@ -74,6 +74,13 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly code?: string,
+    /**
+     * Parsed value of the `Retry-After` response header (in seconds), if
+     * present and numeric. Surfaces server-driven retry advice to UI
+     * countdowns — see KZO-197 admin Providers cooldown handling.
+     * Undefined when the header is absent or unparseable.
+     */
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -242,7 +249,18 @@ async function parseError(res: Response, path: string): Promise<ApiError> {
   } catch {
     message = `Request failed: ${path}`;
   }
-  return new ApiError(message, res.status, code);
+  // Surface Retry-After (RFC 7231 §7.1.3 — delta-seconds form) so UI
+  // countdowns can honor server-driven retry advice instead of guessing
+  // from the configured per-provider cooldown.
+  let retryAfterSeconds: number | undefined;
+  const retryAfterRaw = res.headers.get("retry-after");
+  if (retryAfterRaw !== null) {
+    const parsed = Number.parseInt(retryAfterRaw, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      retryAfterSeconds = parsed;
+    }
+  }
+  return new ApiError(message, res.status, code, retryAfterSeconds);
 }
 
 function emitClientApiError(error: ApiError, path: string): void {

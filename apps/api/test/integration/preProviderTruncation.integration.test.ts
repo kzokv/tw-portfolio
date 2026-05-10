@@ -141,8 +141,16 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       // KZO-189: implementation-coupled stub. trigger="user_selection" →
       // shouldEnrich=true under "conditional", matching pre-KZO-189 behavior.
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
-      updateBackfillStatus: async (ticker: string, status: string) => {
-        await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
+      updateBackfillStatus: async (
+        ticker: string,
+        marketCode: import("@tw-portfolio/domain").MarketCode,
+        status: string,
+      ) => {
+        await persistence!.updateBackfillStatus(
+          ticker,
+          marketCode,
+          status as "ready" | "backfilling" | "failed" | "pending",
+        );
       },
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
       log: { info: logInfo, warn: vi.fn(), error: vi.fn() },
@@ -221,8 +229,16 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       // KZO-189: implementation-coupled stub. trigger="user_selection" →
       // shouldEnrich=true under "conditional", matching pre-KZO-189 behavior.
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
-      updateBackfillStatus: async (ticker: string, status: string) => {
-        await persistence!.updateBackfillStatus(ticker, status as "ready" | "backfilling" | "failed" | "pending");
+      updateBackfillStatus: async (
+        ticker: string,
+        marketCode: import("@tw-portfolio/domain").MarketCode,
+        status: string,
+      ) => {
+        await persistence!.updateBackfillStatus(
+          ticker,
+          marketCode,
+          status as "ready" | "backfilling" | "failed" | "pending",
+        );
       },
       getUsersMonitoringTicker: vi.fn().mockResolvedValue([]),
       log: { info: logInfo, warn: vi.fn(), error: vi.fn() },
