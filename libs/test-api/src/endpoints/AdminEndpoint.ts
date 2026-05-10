@@ -92,6 +92,8 @@ export interface TPatchAdminSettingsBody {
   providerDownNotificationSuppressionMs?: number | null;
   providerErrorTrailRetentionDays?: number | null;
   providerRerunCooldownMs?: number | null;
+  // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
+  yahooAuRerunCooldownMs?: number | null;
 
   // KZO-198 Tier 1 — backfill
   backfillRetryLimit?: number | null;
@@ -101,4 +103,9 @@ export interface TPatchAdminSettingsBody {
   // KZO-198 Tier 0 — encrypted secrets (rotation flow)
   finmindApiToken?: string | null;
   twelveDataApiKey?: string | null;
+
+  // KZO-199 Tier 1 — anonymous share token + rate-limit knobs
+  anonymousShareTokenCap?: number | null;
+  anonymousShareRateLimitMax?: number | null;
+  anonymousShareRateLimitWindowMs?: number | null;
 }

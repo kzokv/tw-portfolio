@@ -55,6 +55,11 @@
 - `shared-types-barrel-turbopack.md` (companion section, by Wave 2) — relative runtime-submodule re-export resolution failure under direct-source path alias
 - `e2e-shared-memory-bars-ticker-hygiene.md` (addendum, by Wave 2) — `AUGICS*` ticker prefix reservation
 
+## Promoted to .claude/rules/ (KZO-199)
+- `playwright-navigation-patterns.md` (addendum) — Next.js `router.replace` is fire-and-forget; pair with `window.history.replaceState` for synchronous URL state in E2E `page.url()` assertions
+- `fastify-eviction-lifecycle-pattern.md` (addendum) — client-facing values derived from live-tunable knobs (Retry-After header, error-envelope retryAfterMs) must use the live resolver, not Env.* — extends "schedule static, parameter live" to client-visible surface
+- `validator-activation-gate.md` (occurrence 4 + new failure class) — Architect-side envelope drop: gate held correctly but upstream `[ARCHITECT:GO]` was never sent; mitigation = per-recipient SendMessage + Dispatcher gate-status surfacing
+
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185

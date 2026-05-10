@@ -174,6 +174,33 @@ export const envSchema = z.object({
   // change at the env level; admins can override via `app_config.asx_gics_refresh_cron`
   // (also restart-required — pg-boss schedule is registered once at boot).
   ASX_GICS_REFRESH_CRON: z.string().min(1).default("0 2 * * 0"),
+
+  // ========================================================================
+  // KZO-199 — Hybrid env+app_config Tier B operational constants.
+  // Each env below is the fallback default for the matching `app_config.<col>`
+  // (NULL → use env). Bounds in `apps/api/src/services/appConfig/bounds.ts`.
+  // ========================================================================
+
+  // KZO-199 Tier 1 — sharing knobs.
+  // ANONYMOUS_SHARE_RATE_LIMIT_MAX / WINDOW_MS already exist above (KZO-147).
+  // ANONYMOUS_SHARE_TOKEN_CAP is the new fallback for app_config.anonymous_share_token_cap.
+  ANONYMOUS_SHARE_TOKEN_CAP: z.coerce.number().int().positive().default(20),
+
+  // KZO-199 Tier 2 — SQL-only retention window for terminated anonymous-share
+  // tokens. Must stay ≤ ANONYMOUS_SHARE_TOKEN_PURGE_DAYS * 86_400_000 to
+  // preserve the UI visibility guarantee (purge cron erases what we promised
+  // to show). Default 30 days; bounds [1d, 365d] enforced in `bounds.ts`.
+  ANONYMOUS_SHARE_TOKEN_RETENTION_MS: z.coerce.number().int().positive().default(30 * 24 * 60 * 60 * 1000),
+
+  // KZO-199 Tier 2 — request-body cap for PATCH /user-preferences. The Fastify
+  // route's static `bodyLimit` is fixed at the bound max (1 MiB); the runtime-
+  // tunable inner check uses `getEffectiveUserPreferencesMaxBytes()` so
+  // operators can tighten/loosen via `app_config.user_preferences_max_bytes`.
+  USER_PREFERENCES_MAX_BYTES: z.coerce.number().int().positive().default(8192),
+
+  // KZO-199 Tier 3 — env-only Postgres pool sizes (restart-required).
+  POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(20),
+  BACKFILL_POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(2),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

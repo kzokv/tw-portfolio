@@ -67,6 +67,14 @@ export interface AppConfigCacheEntry {
   // NULL means "fall back to Env.ASX_GICS_REFRESH_CRON".
   asxGicsRefreshCron: string | null;
 
+  // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+  anonymousShareTokenCap: number | null;
+  anonymousShareRateLimitMax: number | null;
+  anonymousShareRateLimitWindowMs: number | null;
+  // KZO-199 — Tier 2 (DB+SQL only; NOT in PATCH or UI).
+  anonymousShareTokenRetentionMs: number | null;
+  userPreferencesMaxBytes: number | null;
+
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;
 }

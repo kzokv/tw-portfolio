@@ -27,6 +27,14 @@ interface NumericOverrideRowProps {
   disabled?: boolean;
   /** PATCH the new value. `null` resets to env default. Throws on server error. */
   onSave: (next: number | null) => Promise<void>;
+  /**
+   * KZO-199: optional override for the input element's `data-testid`. Used
+   * when the architect locks a non-default input testid (e.g.
+   * `admin-settings-input-anonymousShareTokenCap` instead of the default
+   * `${testIdPrefix}-input`). Other testids (toggle, save, reset, badge,
+   * success, error) continue to derive from `fieldKey`.
+   */
+  inputTestId?: string;
 }
 
 function validate(raw: string, bounds: { min: number; max: number }): {
@@ -60,6 +68,7 @@ export function NumericOverrideRow({
   unit,
   disabled = false,
   onSave,
+  inputTestId,
 }: NumericOverrideRowProps) {
   const [overrideEnabled, setOverrideEnabled] = useState<boolean>(override !== null);
   const [input, setInput] = useState<string>(override !== null ? String(override) : "");
@@ -149,7 +158,7 @@ export function NumericOverrideRow({
               }}
               disabled={saving || disabled}
               className="w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              data-testid={`${testIdPrefix}-input`}
+              data-testid={inputTestId ?? `${testIdPrefix}-input`}
             />
             {unit && <span className="text-xs text-slate-500">{unit}</span>}
           </div>

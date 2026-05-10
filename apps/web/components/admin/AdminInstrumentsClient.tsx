@@ -165,26 +165,43 @@ function InstrumentRow({
       className="border-b border-slate-200 last:border-0"
       data-testid={`instrument-row-${instrument.ticker}`}
     >
-      <td className="px-4 py-4 font-mono text-sm font-medium text-slate-900">
+      {/* KZO-199 — opaque ID columns (ticker, marketCode, timestamps) stay
+          non-wrapping with `truncate + title`; descriptive columns (name,
+          statusReason) wrap with `break-words`. */}
+      <td
+        className="truncate px-4 py-4 font-mono text-sm font-medium text-slate-900"
+        title={instrument.ticker}
+      >
         {instrument.ticker}
       </td>
-      <td className="px-4 py-4 text-sm text-slate-700 break-words">
+      <td className="break-words px-4 py-4 text-sm text-slate-700">
         {instrument.name ?? t.notListedLabel}
       </td>
-      <td className="px-4 py-4 text-sm text-slate-700">{instrument.marketCode}</td>
+      <td
+        className="whitespace-nowrap px-4 py-4 text-sm text-slate-700"
+        title={instrument.marketCode}
+      >
+        {instrument.marketCode}
+      </td>
       <td className="px-4 py-4">
         <StatusBadge status={instrument.status} ticker={instrument.ticker} />
       </td>
-      <td className="px-4 py-4 text-right text-sm text-slate-700">
+      <td className="whitespace-nowrap px-4 py-4 text-right text-sm text-slate-700">
         {instrument.absenceStreak}
       </td>
-      <td className="px-4 py-4 text-sm text-slate-600">
+      <td
+        className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+        title={instrument.lastSeenInCatalogAt ?? ""}
+      >
         {formatTimestamp(instrument.lastSeenInCatalogAt)}
       </td>
-      <td className="px-4 py-4 text-sm text-slate-600">
+      <td
+        className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+        title={instrument.delistedAt ?? ""}
+      >
         {formatTimestamp(instrument.delistedAt)}
       </td>
-      <td className="px-4 py-4 text-sm text-slate-600">
+      <td className="break-words px-4 py-4 text-sm text-slate-600">
         {instrument.statusReason ?? t.notListedLabel}
       </td>
       <td className="px-4 py-4">
@@ -215,12 +232,19 @@ function InstrumentCard({
       className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
       data-testid={`instrument-card-${instrument.ticker}`}
     >
+      {/* KZO-199 iter 3 — opaque-ID columns (ticker, marketCode) and ISO
+          timestamp columns (lastSeen, delistedAt) use the non-wrapping
+          variant of CardDetail (`truncate + title`). Descriptive columns
+          (name, statusReason) keep `break-words`. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
             {t.tickerLabel}
           </p>
-          <p className="mt-1 break-all font-mono text-sm font-medium text-slate-900">
+          <p
+            className="mt-1 truncate font-mono text-sm font-medium text-slate-900"
+            title={instrument.ticker}
+          >
             {instrument.ticker}
           </p>
           <p className="mt-1 text-sm text-slate-700 break-words">
@@ -235,18 +259,21 @@ function InstrumentCard({
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <CardDetail label={t.marketLabel} value={instrument.marketCode} />
+        <CardDetail label={t.marketLabel} value={instrument.marketCode} truncate />
         <CardDetail
           label={t.absenceStreakLabel}
           value={String(instrument.absenceStreak)}
+          truncate
         />
         <CardDetail
           label={t.lastSeenLabel}
           value={formatTimestamp(instrument.lastSeenInCatalogAt)}
+          truncate
         />
         <CardDetail
           label={t.delistedAtLabel}
           value={formatTimestamp(instrument.delistedAt)}
+          truncate
         />
         <CardDetail
           label={t.statusReasonLabel}
@@ -267,11 +294,25 @@ function InstrumentCard({
   );
 }
 
-function CardDetail({ label, value }: { label: string; value: string }) {
+function CardDetail({
+  label,
+  value,
+  truncate = false,
+}: {
+  label: string;
+  value: string;
+  /** KZO-199 iter 3 — opt-in non-wrapping mode for opaque IDs / ISO timestamps. */
+  truncate?: boolean;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-slate-900">{value}</dd>
+      <dd
+        className={`mt-1 text-sm font-medium text-slate-900 ${truncate ? "truncate" : "break-words"}`}
+        title={truncate ? value : undefined}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -461,9 +502,14 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
           </div>
         ) : (
           <>
-            <div className="hidden overflow-x-auto lg:block">
+            {/* KZO-199: drop the horizontal scroll on the table wrapper at the
+                lg breakpoint; descriptive cells now wrap to their next line so
+                narrow desktop viewports (≥1024px but <1280px) don't paint a
+                horizontal scrollbar. Opaque-ID columns (ticker, marketCode,
+                timestamps) keep `whitespace-nowrap + title` to stay legible. */}
+            <div className="hidden lg:block">
               <table
-                className="min-w-[1100px] border-collapse text-sm text-slate-700"
+                className="w-full table-fixed border-collapse text-sm text-slate-700"
                 data-testid="admin-instruments-table"
               >
                 <thead>

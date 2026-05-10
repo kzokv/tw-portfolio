@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import {
-  ANONYMOUS_SHARE_TOKEN_CAP,
   ANONYMOUS_SHARE_TOKEN_REGEX,
   generateAnonymousShareToken,
 } from "../../src/lib/anonymousShareToken.js";
+// KZO-199: cap is now resolver-backed (DB → env). Read live; with no DB
+// override and no app_config row in MemoryPersistence the resolver returns
+// Env.getEffectiveAnonymousShareTokenCap() (default 20).
+import { getEffectiveAnonymousShareTokenCap } from "../../src/services/appConfig/sharing.js";
 import type { OAuthClaims } from "../../src/persistence/types.js";
 
 const baseAudit = { actorUserId: null, ipAddress: null } as const;
@@ -62,7 +65,7 @@ describe("MemoryPersistence — anonymous share tokens", () => {
 
   it("refuses to create a token when the owner already has 20 active tokens", async () => {
     // Arrange — fill the cap with active tokens
-    for (let i = 0; i < ANONYMOUS_SHARE_TOKEN_CAP; i += 1) {
+    for (let i = 0; i < getEffectiveAnonymousShareTokenCap(); i += 1) {
       const ok = await persistence.createAnonymousShareToken({
         ownerUserId: ownerId,
         token: generateAnonymousShareToken(),
@@ -73,7 +76,7 @@ describe("MemoryPersistence — anonymous share tokens", () => {
       expect(ok.status).toBe("ok");
     }
     const activeCount = await persistence.countActiveAnonymousShareTokensForOwner(ownerId);
-    expect(activeCount).toBe(ANONYMOUS_SHARE_TOKEN_CAP);
+    expect(activeCount).toBe(getEffectiveAnonymousShareTokenCap());
 
     // Act
     const overflow = await persistence.createAnonymousShareToken({

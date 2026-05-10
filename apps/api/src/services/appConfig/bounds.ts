@@ -54,6 +54,15 @@ export const APP_CONFIG_BOUNDS = {
   catalogAbsenceThreshold: { min: 1, max: 30 },
   catalogAbsenceGuardPercent: { min: 0, max: 100 },
   catalogAbsenceGuardFloor: { min: 0, max: 1000 },
+
+  // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
+  anonymousShareTokenCap: { min: 1, max: 1_000 },
+  anonymousShareRateLimitMax: { min: 1, max: 10_000 },
+  anonymousShareRateLimitWindowMs: { min: 1_000, max: 600_000 },
+  // KZO-199 — Tier 2 (NOT in PATCH schema, NOT in UI; documented for column
+  // comment + bodyLimit ceiling). Operators override via direct SQL.
+  anonymousShareTokenRetentionMs: { min: 24 * 60 * 60 * 1000, max: 365 * 24 * 60 * 60 * 1000 },
+  userPreferencesMaxBytes: { min: 256, max: 1_048_576 },
 } as const;
 
 export type AppConfigBoundsKey = keyof typeof APP_CONFIG_BOUNDS;

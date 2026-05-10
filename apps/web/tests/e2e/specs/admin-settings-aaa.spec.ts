@@ -7,7 +7,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
   });
 
   test("[admin settings]: sidebar Settings link has aria-current=page", async ({ appShell }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.assert.adminSettingsPageIsVisible();
     await appShell.assert.adminSettingsSidebarLinkIsCurrent();
@@ -16,7 +18,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
   test("[admin settings]: fresh state — toggle OFF and env-default badge visible", async ({
     appShell,
   }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.assert.adminSettingsPageIsVisible();
     await appShell.assert.adminSettingsOverrideToggleChecked(false);
@@ -26,7 +30,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
   test("[admin settings]: toggle ON → number input appears; env-default badge hidden", async ({
     appShell,
   }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.actions.toggleAdminSettingsOverride(true);
 
@@ -38,7 +44,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
     appShell,
     testUser,
   }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.actions.toggleAdminSettingsOverride(true);
     await appShell.actions.fillAdminSettingsMinutes("45");
@@ -56,7 +64,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
     appShell,
     testUser,
   }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.actions.toggleAdminSettingsOverride(true);
     await appShell.actions.fillAdminSettingsMinutes("60");
@@ -76,7 +86,9 @@ test.describe("admin settings — UI (KZO-142)", () => {
   test("[admin settings]: toggle ON + value 0 → validation error visible; Save disabled", async ({
     appShell,
   }) => {
-    await appShell.actions.navigateToRoute("/admin/settings");
+    // KZO-199: repair-cooldown moved into the backfill-repair tab; navigate
+    // directly so the panel is active before assertions/actions on its rows.
+    await appShell.actions.navigateToRoute("/admin/settings?tab=backfill-repair");
 
     await appShell.actions.toggleAdminSettingsOverride(true);
     await appShell.actions.fillAdminSettingsMinutes("0");

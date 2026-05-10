@@ -54,6 +54,13 @@ export function fakePersistenceWithAppConfig(
     catalogAbsenceGuardFloor: null,
     // KZO-196 — AU GICS sync cron override.
     asxGicsRefreshCron: null,
+    // KZO-199 — Tier-1 sharing knobs.
+    anonymousShareTokenCap: null,
+    anonymousShareRateLimitMax: null,
+    anonymousShareRateLimitWindowMs: null,
+    // KZO-199 — Tier-2 (SQL/DB-only) fields.
+    anonymousShareTokenRetentionMs: null,
+    userPreferencesMaxBytes: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

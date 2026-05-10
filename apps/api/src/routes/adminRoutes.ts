@@ -131,6 +131,8 @@ export const patchAdminSettingsSchema = z
     providerDownNotificationSuppressionMs: plainBoundedField("providerDownNotificationSuppressionMs"),
     providerErrorTrailRetentionDays: plainBoundedField("providerErrorTrailRetentionDays"),
     providerRerunCooldownMs: plainBoundedField("providerRerunCooldownMs"),
+    // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
+    yahooAuRerunCooldownMs: plainBoundedField("yahooAuRerunCooldownMs"),
 
     // ── KZO-198 Tier 1/2 — backfill ─────────────────────────────────────
     backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
@@ -150,6 +152,15 @@ export const patchAdminSettingsSchema = z
     catalogAbsenceThreshold: plainBoundedField("catalogAbsenceThreshold"),
     catalogAbsenceGuardPercent: plainBoundedDecimalField("catalogAbsenceGuardPercent"),
     catalogAbsenceGuardFloor: plainBoundedField("catalogAbsenceGuardFloor"),
+
+    // ── KZO-199 Tier 1 — sharing knobs ──────────────────────────────────
+    anonymousShareTokenCap: plainBoundedField("anonymousShareTokenCap"),
+    anonymousShareRateLimitMax: plainBoundedField("anonymousShareRateLimitMax"),
+    anonymousShareRateLimitWindowMs: plainBoundedField("anonymousShareRateLimitWindowMs"),
+
+    // KZO-199 Tier 2 fields (anonymousShareTokenRetentionMs,
+    // userPreferencesMaxBytes) are deliberately NOT in this PATCH schema —
+    // DB+SQL only. `.strict()` rejects them with a 400.
   })
   .strict();
 
@@ -175,6 +186,8 @@ const TIER1_PLAIN_FIELDS = [
   "providerDownNotificationSuppressionMs",
   "providerErrorTrailRetentionDays",
   "providerRerunCooldownMs",
+  // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
+  "yahooAuRerunCooldownMs",
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
@@ -182,6 +195,10 @@ const TIER1_PLAIN_FIELDS = [
   "catalogAbsenceThreshold",
   "catalogAbsenceGuardPercent",
   "catalogAbsenceGuardFloor",
+  // KZO-199 — Tier 1 sharing knobs (admin-tunable via PATCH).
+  "anonymousShareTokenCap",
+  "anonymousShareRateLimitMax",
+  "anonymousShareRateLimitWindowMs",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
@@ -254,6 +271,9 @@ function buildAppConfigDtoFromRow(
       row.providerErrorTrailRetentionDays ?? Env.PROVIDER_ERROR_TRAIL_RETENTION_DAYS,
     providerRerunCooldownMs: row.providerRerunCooldownMs,
     effectiveProviderRerunCooldownMs: row.providerRerunCooldownMs ?? Env.PROVIDER_RERUN_COOLDOWN_MS,
+    // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
+    yahooAuRerunCooldownMs: row.yahooAuRerunCooldownMs,
+    effectiveYahooAuRerunCooldownMs: row.yahooAuRerunCooldownMs ?? Env.YAHOO_AU_RERUN_COOLDOWN_MS,
 
     // KZO-198 Tier 1 — backfill
     backfillRetryLimit: row.backfillRetryLimit,
@@ -273,6 +293,17 @@ function buildAppConfigDtoFromRow(
     catalogAbsenceGuardFloor: row.catalogAbsenceGuardFloor,
     effectiveCatalogAbsenceGuardFloor:
       row.catalogAbsenceGuardFloor ?? Env.CATALOG_ABSENCE_GUARD_FLOOR,
+
+    // KZO-199 Tier 1 — sharing knobs (UI-editable)
+    anonymousShareTokenCap: row.anonymousShareTokenCap,
+    effectiveAnonymousShareTokenCap:
+      row.anonymousShareTokenCap ?? Env.ANONYMOUS_SHARE_TOKEN_CAP,
+    anonymousShareRateLimitMax: row.anonymousShareRateLimitMax,
+    effectiveAnonymousShareRateLimitMax:
+      row.anonymousShareRateLimitMax ?? Env.ANONYMOUS_SHARE_RATE_LIMIT_MAX,
+    anonymousShareRateLimitWindowMs: row.anonymousShareRateLimitWindowMs,
+    effectiveAnonymousShareRateLimitWindowMs:
+      row.anonymousShareRateLimitWindowMs ?? Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS,
 
     // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
 

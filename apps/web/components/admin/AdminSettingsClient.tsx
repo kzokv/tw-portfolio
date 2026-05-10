@@ -5,7 +5,8 @@
 // `NumericOverrideRow` component reads `min`/`max` from `config.bounds`
 // directly; no module-level constants are duplicated in this file.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   type AppConfigDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
@@ -14,9 +15,36 @@ import {
 import { patchJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { TabsRoot, TabsList, TabsTrigger, TabsContent } from "../ui/Tabs";
 import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
 import { NumericOverrideRow } from "./NumericOverrideRow";
 import { MaskedSecretInput } from "./MaskedSecretInput";
+
+// KZO-199 — locked tab structure. Architect-design.md §0:
+//   admin-settings-tabs                  — list container
+//   admin-settings-tab-{slug}            — trigger
+//   admin-settings-panel-{slug}          — panel
+const TAB_SLUGS = [
+  "rate-limits",
+  "sharing",
+  "provider-health",
+  "backfill-repair",
+  "catalog-metadata",
+] as const;
+type TabSlug = (typeof TAB_SLUGS)[number];
+const DEFAULT_TAB: TabSlug = "rate-limits";
+
+const TAB_LABELS: Record<TabSlug, string> = {
+  "rate-limits": "Rate limits",
+  "sharing": "Sharing",
+  "provider-health": "Provider health",
+  "backfill-repair": "Backfill & repair",
+  "catalog-metadata": "Catalog & metadata",
+};
+
+function isValidTabSlug(value: string | null): value is TabSlug {
+  return value !== null && (TAB_SLUGS as readonly string[]).includes(value);
+}
 
 interface AdminSettingsClientProps {
   initial: AppConfigDto;
@@ -52,6 +80,46 @@ function formatTimestamp(dateStr: string): string {
 
 export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   const [config, setConfig] = useState<AppConfigDto>(initial);
+
+  // ── KZO-199: Tab state synced to ?tab=<slug> URL query ────────────────────
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = isValidTabSlug(searchParams?.get("tab") ?? null)
+    ? (searchParams!.get("tab") as TabSlug)
+    : DEFAULT_TAB;
+  const [activeTab, setActiveTab] = useState<TabSlug>(initialTab);
+
+  // Sync local state if the URL changes (e.g. browser back/forward) without
+  // a remount.
+  useEffect(() => {
+    // Sync local `activeTab` from URL on browser back/forward (no remount).
+    // `activeTab` is in deps so the effect's stale closure can't overwrite a
+    // newer state; the inner `fromUrl !== activeTab` guard breaks any
+    // self-feedback (URL update → effect → setActiveTab is a no-op when the
+    // URL already matches).
+    const fromUrl = searchParams?.get("tab") ?? null;
+    if (isValidTabSlug(fromUrl) && fromUrl !== activeTab) {
+      setActiveTab(fromUrl);
+    }
+  }, [searchParams, activeTab]);
+
+  function handleTabChange(next: string) {
+    if (!isValidTabSlug(next)) return;
+    setActiveTab(next);
+    // Update URL synchronously via the History API so `page.url()` reflects
+    // `?tab=<slug>` immediately after the click (E2E spec asserts on it).
+    // Next.js's `router.replace` from `next/navigation` is fire-and-forget
+    // and briefly lags `page.url()`. Pair with `router.replace` so Next.js's
+    // internal router state stays in sync (covers cases where the URL is
+    // later read via `useSearchParams`).
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("tab", next);
+    const url = `/admin/settings?${params.toString()}`;
+    if (typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", url);
+    }
+    router.replace(url, { scroll: false });
+  }
 
   // ── Dashboard Timeframe Defaults section state (KZO-159) ───────────────────
   const [pendingRanges, setPendingRanges] = useState<string[]>(
@@ -230,25 +298,388 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
         </p>
       </div>
 
-      <Card data-testid="admin-settings-repair-cooldown-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Repair cooldown</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.
-            </p>
+      {/* KZO-199 — Tabs wrap the per-area knob groups. The Dashboard
+          Timeframe Defaults and Provider API keys cards remain outside the
+          Tabs (they cover whole-page concerns, not per-area knobs). */}
+      <TabsRoot value={activeTab} onValueChange={handleTabChange}>
+        <TabsList data-testid="admin-settings-tabs">
+          {TAB_SLUGS.map((slug) => (
+            <TabsTrigger
+              key={slug}
+              value={slug}
+              data-testid={`admin-settings-tab-${slug}`}
+            >
+              {TAB_LABELS[slug]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {/* ── Rate limits tab ───────────────────────────────────────────── */}
+        <TabsContent value="rate-limits" data-testid="admin-settings-panel-rate-limits">
+          <Card data-testid="admin-settings-rate-limits-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Rate limits</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.
+                </p>
+              </div>
+              <NumericOverrideRow
+                fieldKey="market-data-price-window-ms"
+                label="Market data price · window"
+                override={config.marketDataPriceWindowMs}
+                effective={config.effectiveMarketDataPriceWindowMs}
+                bounds={config.bounds.marketDataPriceWindowMs}
+                unit="ms"
+                onSave={(v) => patchAppConfigField("marketDataPriceWindowMs", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="market-data-price-limit"
+                label="Market data price · limit"
+                override={config.marketDataPriceLimit}
+                effective={config.effectiveMarketDataPriceLimit}
+                bounds={config.bounds.marketDataPriceLimit}
+                unit="req/window"
+                onSave={(v) => patchAppConfigField("marketDataPriceLimit", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="market-data-search-window-ms"
+                label="Market data search · window"
+                override={config.marketDataSearchWindowMs}
+                effective={config.effectiveMarketDataSearchWindowMs}
+                bounds={config.bounds.marketDataSearchWindowMs}
+                unit="ms"
+                onSave={(v) => patchAppConfigField("marketDataSearchWindowMs", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="market-data-search-limit"
+                label="Market data search · limit"
+                override={config.marketDataSearchLimit}
+                effective={config.effectiveMarketDataSearchLimit}
+                bounds={config.bounds.marketDataSearchLimit}
+                unit="req/window"
+                onSave={(v) => patchAppConfigField("marketDataSearchLimit", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="invite-status-window-ms"
+                label="Invite status · window"
+                override={config.inviteStatusWindowMs}
+                effective={config.effectiveInviteStatusWindowMs}
+                bounds={config.bounds.inviteStatusWindowMs}
+                unit="ms"
+                onSave={(v) => patchAppConfigField("inviteStatusWindowMs", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="invite-status-limit"
+                label="Invite status · limit"
+                override={config.inviteStatusLimit}
+                effective={config.effectiveInviteStatusLimit}
+                bounds={config.bounds.inviteStatusLimit}
+                unit="req/window"
+                onSave={(v) => patchAppConfigField("inviteStatusLimit", v)}
+              />
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ── Sharing tab (KZO-199 NEW) ─────────────────────────────────── */}
+        <TabsContent value="sharing" data-testid="admin-settings-panel-sharing">
+          <Card data-testid="admin-settings-sharing-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Sharing</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Anonymous-share-token cap and per-IP rate limits. Off = use the environment default.
+                </p>
+              </div>
+              <NumericOverrideRow
+                fieldKey="anonymousShareTokenCap"
+                label="Anonymous share token cap"
+                description="Maximum active anonymous share tokens per owner. New token requests above this fail with cap-exceeded."
+                override={config.anonymousShareTokenCap}
+                effective={config.effectiveAnonymousShareTokenCap}
+                bounds={config.bounds.anonymousShareTokenCap}
+                unit="tokens"
+                inputTestId="admin-settings-input-anonymousShareTokenCap"
+                onSave={(v) => patchAppConfigField("anonymousShareTokenCap", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="anonymousShareRateLimitMax"
+                label="Anonymous share rate limit · max"
+                description="Maximum requests per window for anonymous-share endpoints (per IP)."
+                override={config.anonymousShareRateLimitMax}
+                effective={config.effectiveAnonymousShareRateLimitMax}
+                bounds={config.bounds.anonymousShareRateLimitMax}
+                unit="req/window"
+                inputTestId="admin-settings-input-anonymousShareRateLimitMax"
+                onSave={(v) => patchAppConfigField("anonymousShareRateLimitMax", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="anonymousShareRateLimitWindowMs"
+                label="Anonymous share rate limit · window"
+                description="Sliding-window length for the anonymous-share rate limiter."
+                override={config.anonymousShareRateLimitWindowMs}
+                effective={config.effectiveAnonymousShareRateLimitWindowMs}
+                bounds={config.bounds.anonymousShareRateLimitWindowMs}
+                unit="ms"
+                inputTestId="admin-settings-input-anonymousShareRateLimitWindowMs"
+                onSave={(v) => patchAppConfigField("anonymousShareRateLimitWindowMs", v)}
+              />
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ── Provider health tab ───────────────────────────────────────── */}
+        <TabsContent value="provider-health" data-testid="admin-settings-panel-provider-health">
+          <Card data-testid="admin-settings-provider-health-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Provider health</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.
+                </p>
+              </div>
+              <NumericOverrideRow
+                fieldKey="provider-down-suppression-ms"
+                label="Down notification suppression"
+                description="Cooldown between repeat 'provider down' notifications for the same provider+market."
+                override={config.providerDownNotificationSuppressionMs}
+                effective={config.effectiveProviderDownNotificationSuppressionMs}
+                bounds={config.bounds.providerDownNotificationSuppressionMs}
+                unit="ms"
+                onSave={(v) => patchAppConfigField("providerDownNotificationSuppressionMs", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="provider-error-trail-retention-days"
+                label="Error trail retention"
+                description="Days of historical provider errors to keep before the purge cron evicts them."
+                override={config.providerErrorTrailRetentionDays}
+                effective={config.effectiveProviderErrorTrailRetentionDays}
+                bounds={config.bounds.providerErrorTrailRetentionDays}
+                unit="days"
+                onSave={(v) => patchAppConfigField("providerErrorTrailRetentionDays", v)}
+              />
+              <NumericOverrideRow
+                fieldKey="provider-rerun-cooldown-ms"
+                label="Re-run cooldown"
+                description="Minimum interval between admin-triggered re-runs for the same provider+market."
+                override={config.providerRerunCooldownMs}
+                effective={config.effectiveProviderRerunCooldownMs}
+                bounds={config.bounds.providerRerunCooldownMs}
+                unit="ms"
+                onSave={(v) => patchAppConfigField("providerRerunCooldownMs", v)}
+              />
+              {/* KZO-197 (surfaced in KZO-199 Phase 4) — yahoo-finance-au override. */}
+              <NumericOverrideRow
+                fieldKey="yahooAuRerunCooldownMs"
+                label="Yahoo Finance AU re-run cooldown"
+                description="Yahoo-AU-specific override for the re-run cooldown. Falls back to the generic re-run cooldown when off."
+                override={config.yahooAuRerunCooldownMs}
+                effective={config.effectiveYahooAuRerunCooldownMs}
+                bounds={config.bounds.yahooAuRerunCooldownMs}
+                unit="ms"
+                inputTestId="admin-settings-input-yahooAuRerunCooldownMs"
+                onSave={(v) => patchAppConfigField("yahooAuRerunCooldownMs", v)}
+              />
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* ── Backfill & repair tab (Repair cooldown + Backfill knobs) ─── */}
+        <TabsContent value="backfill-repair" data-testid="admin-settings-panel-backfill-repair">
+          <div className="space-y-6">
+            <Card data-testid="admin-settings-repair-cooldown-section">
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Repair cooldown</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.
+                  </p>
+                </div>
+                <NumericOverrideRow
+                  fieldKey="repair-cooldown-minutes"
+                  label="Cooldown"
+                  override={config.repairCooldownMinutes}
+                  effective={config.effectiveRepairCooldownMinutes}
+                  bounds={config.bounds.repairCooldownMinutes}
+                  unit="min"
+                  onSave={(v) => patchAppConfigField("repairCooldownMinutes", v)}
+                />
+              </div>
+            </Card>
+            <Card data-testid="admin-settings-backfill-section">
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Backfill</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.
+                  </p>
+                </div>
+                <NumericOverrideRow
+                  fieldKey="backfill-retry-limit"
+                  label="Retry limit"
+                  description="Maximum pg-boss retry attempts per backfill job before it is marked failed."
+                  override={config.backfillRetryLimit}
+                  effective={config.effectiveBackfillRetryLimit}
+                  bounds={config.bounds.backfillRetryLimit}
+                  unit="attempts"
+                  onSave={(v) => patchAppConfigField("backfillRetryLimit", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="backfill-retry-delay-seconds"
+                  label="Retry delay"
+                  description="Base backoff between failed retries. The reschedule path additionally honours provider Retry-After."
+                  override={config.backfillRetryDelaySeconds}
+                  effective={config.effectiveBackfillRetryDelaySeconds}
+                  bounds={config.bounds.backfillRetryDelaySeconds}
+                  unit="s"
+                  onSave={(v) => patchAppConfigField("backfillRetryDelaySeconds", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="backfill-finmind-402-retry-ms"
+                  label="FinMind 402 retry"
+                  description="Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue."
+                  override={config.backfillFinmind402RetryMs}
+                  effective={config.effectiveBackfillFinmind402RetryMs}
+                  bounds={config.bounds.backfillFinmind402RetryMs}
+                  unit="ms"
+                  onSave={(v) => patchAppConfigField("backfillFinmind402RetryMs", v)}
+                />
+              </div>
+            </Card>
           </div>
-          <NumericOverrideRow
-            fieldKey="repair-cooldown-minutes"
-            label="Cooldown"
-            override={config.repairCooldownMinutes}
-            effective={config.effectiveRepairCooldownMinutes}
-            bounds={config.bounds.repairCooldownMinutes}
-            unit="min"
-            onSave={(v) => patchAppConfigField("repairCooldownMinutes", v)}
-          />
-        </div>
-      </Card>
+        </TabsContent>
+
+        {/* ── Catalog & metadata tab (Metadata enrichment mode) ─────────── */}
+        <TabsContent value="catalog-metadata" data-testid="admin-settings-panel-catalog-metadata">
+          <div className="space-y-6">
+            {/* KZO-195 Tier-2 absence-based delisting detection (surfaced in
+                KZO-199 Phase 4 — DTO + PATCH already in place since KZO-195;
+                this surfaces them as admin-tunable rows). */}
+            <Card data-testid="admin-settings-catalog-absence-section">
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Absence-based delisting detection</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Thresholds that govern when a catalog instrument is auto-flagged as delisted.
+                    Off = use the environment defaults.
+                  </p>
+                </div>
+                <NumericOverrideRow
+                  fieldKey="catalogAbsenceThreshold"
+                  label="Absence threshold"
+                  description="Number of consecutive catalog-sync runs an instrument must be absent before being flagged delisted."
+                  override={config.catalogAbsenceThreshold}
+                  effective={config.effectiveCatalogAbsenceThreshold}
+                  bounds={config.bounds.catalogAbsenceThreshold}
+                  unit="runs"
+                  inputTestId="admin-settings-input-catalogAbsenceThreshold"
+                  onSave={(v) => patchAppConfigField("catalogAbsenceThreshold", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="catalogAbsenceGuardPercent"
+                  label="Absence guard · percent"
+                  description="Reject a catalog-sync diff that would mark more than this percent of the universe absent in a single run."
+                  override={config.catalogAbsenceGuardPercent}
+                  effective={config.effectiveCatalogAbsenceGuardPercent}
+                  bounds={config.bounds.catalogAbsenceGuardPercent}
+                  unit="%"
+                  inputTestId="admin-settings-input-catalogAbsenceGuardPercent"
+                  onSave={(v) => patchAppConfigField("catalogAbsenceGuardPercent", v)}
+                />
+                <NumericOverrideRow
+                  fieldKey="catalogAbsenceGuardFloor"
+                  label="Absence guard · floor"
+                  description="Minimum absent-row count below which the percent guard does not engage (small universes are forgiving)."
+                  override={config.catalogAbsenceGuardFloor}
+                  effective={config.effectiveCatalogAbsenceGuardFloor}
+                  bounds={config.bounds.catalogAbsenceGuardFloor}
+                  unit="rows"
+                  inputTestId="admin-settings-input-catalogAbsenceGuardFloor"
+                  onSave={(v) => patchAppConfigField("catalogAbsenceGuardFloor", v)}
+                />
+              </div>
+            </Card>
+
+            <Card data-testid="admin-settings-metadata-enrichment-mode-section">
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Metadata enrichment mode</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Controls whether AU instrument metadata (name, type) is enriched on every backfill or
+                  only on user-driven triggers. Use {`"Skip on daily refresh"`} to conserve the Yahoo
+                  budget when the daily-refresh cron sweeps every monitored ticker.
+                </p>
+              </div>
+
+              <div>
+                <label
+                  className="block text-sm font-medium text-slate-700"
+                  htmlFor="admin-settings-metadata-enrichment-mode-select"
+                >
+                  Mode
+                </label>
+                <select
+                  id="admin-settings-metadata-enrichment-mode-select"
+                  value={metadataEnrichmentMode}
+                  onChange={(e) => {
+                    setMetadataEnrichmentMode(e.target.value);
+                    setMetadataModeError(null);
+                    setMetadataModeSuccess(null);
+                  }}
+                  disabled={metadataModeSaving}
+                  className="mt-1 w-72 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  data-testid="admin-settings-metadata-enrichment-mode-select"
+                >
+                  <option value="">
+                    Use environment default ({config.effectiveMetadataEnrichmentMode})
+                  </option>
+                  <option value="unconditional">Always enrich (unconditional)</option>
+                  <option value="conditional">Skip on daily refresh (conditional)</option>
+                </select>
+                <p
+                  className="mt-2 text-xs text-slate-500"
+                  data-testid="admin-settings-metadata-enrichment-mode-effective"
+                >
+                  Effective: {config.effectiveMetadataEnrichmentMode}
+                  {config.metadataEnrichmentMode === null ? " (env default)" : " (admin override)"}
+                </p>
+              </div>
+
+              {metadataModeError && (
+                <p
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                  role="alert"
+                  data-testid="admin-settings-metadata-enrichment-mode-error"
+                >
+                  {metadataModeError}
+                </p>
+              )}
+
+              {metadataModeSuccess && (
+                <p
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+                  role="status"
+                  data-testid="admin-settings-metadata-enrichment-mode-success"
+                >
+                  {metadataModeSuccess}
+                </p>
+              )}
+
+                <div className="flex items-center justify-end">
+                  <Button
+                    onClick={() => void handleSaveMetadataMode()}
+                    disabled={metadataModeSaving}
+                    data-testid="admin-settings-metadata-enrichment-mode-save"
+                  >
+                    {metadataModeSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </TabsContent>
+      </TabsRoot>
 
       {/* ── KZO-159: Dashboard Timeframe Defaults section ─────────────────── */}
       <Card data-testid="timeframe-defaults-section">
@@ -390,234 +821,6 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               {timeframeSaving ? "Saving..." : "Save"}
             </Button>
           </div>
-        </div>
-      </Card>
-
-      {/* ── KZO-189: Metadata Enrichment Mode section ───────────────────── */}
-      <Card data-testid="admin-settings-metadata-enrichment-mode-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Metadata enrichment mode</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Controls whether AU instrument metadata (name, type) is enriched on every backfill or
-              only on user-driven triggers. Use {`"Skip on daily refresh"`} to conserve the Yahoo
-              budget when the daily-refresh cron sweeps every monitored ticker.
-            </p>
-          </div>
-
-          <div>
-            <label
-              className="block text-sm font-medium text-slate-700"
-              htmlFor="admin-settings-metadata-enrichment-mode-select"
-            >
-              Mode
-            </label>
-            <select
-              id="admin-settings-metadata-enrichment-mode-select"
-              value={metadataEnrichmentMode}
-              onChange={(e) => {
-                setMetadataEnrichmentMode(e.target.value);
-                setMetadataModeError(null);
-                setMetadataModeSuccess(null);
-              }}
-              disabled={metadataModeSaving}
-              className="mt-1 w-72 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-              data-testid="admin-settings-metadata-enrichment-mode-select"
-            >
-              <option value="">
-                Use environment default ({config.effectiveMetadataEnrichmentMode})
-              </option>
-              <option value="unconditional">Always enrich (unconditional)</option>
-              <option value="conditional">Skip on daily refresh (conditional)</option>
-            </select>
-            <p
-              className="mt-2 text-xs text-slate-500"
-              data-testid="admin-settings-metadata-enrichment-mode-effective"
-            >
-              Effective: {config.effectiveMetadataEnrichmentMode}
-              {config.metadataEnrichmentMode === null ? " (env default)" : " (admin override)"}
-            </p>
-          </div>
-
-          {metadataModeError && (
-            <p
-              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-              role="alert"
-              data-testid="admin-settings-metadata-enrichment-mode-error"
-            >
-              {metadataModeError}
-            </p>
-          )}
-
-          {metadataModeSuccess && (
-            <p
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-              role="status"
-              data-testid="admin-settings-metadata-enrichment-mode-success"
-            >
-              {metadataModeSuccess}
-            </p>
-          )}
-
-          <div className="flex items-center justify-end">
-            <Button
-              onClick={() => void handleSaveMetadataMode()}
-              disabled={metadataModeSaving}
-              data-testid="admin-settings-metadata-enrichment-mode-save"
-            >
-              {metadataModeSaving ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {/* ── KZO-198: Rate Limits section ────────────────────────────────── */}
-      <Card data-testid="admin-settings-rate-limits-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Rate limits</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.
-            </p>
-          </div>
-          <NumericOverrideRow
-            fieldKey="market-data-price-window-ms"
-            label="Market data price · window"
-            override={config.marketDataPriceWindowMs}
-            effective={config.effectiveMarketDataPriceWindowMs}
-            bounds={config.bounds.marketDataPriceWindowMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("marketDataPriceWindowMs", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="market-data-price-limit"
-            label="Market data price · limit"
-            override={config.marketDataPriceLimit}
-            effective={config.effectiveMarketDataPriceLimit}
-            bounds={config.bounds.marketDataPriceLimit}
-            unit="req/window"
-            onSave={(v) => patchAppConfigField("marketDataPriceLimit", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="market-data-search-window-ms"
-            label="Market data search · window"
-            override={config.marketDataSearchWindowMs}
-            effective={config.effectiveMarketDataSearchWindowMs}
-            bounds={config.bounds.marketDataSearchWindowMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("marketDataSearchWindowMs", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="market-data-search-limit"
-            label="Market data search · limit"
-            override={config.marketDataSearchLimit}
-            effective={config.effectiveMarketDataSearchLimit}
-            bounds={config.bounds.marketDataSearchLimit}
-            unit="req/window"
-            onSave={(v) => patchAppConfigField("marketDataSearchLimit", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="invite-status-window-ms"
-            label="Invite status · window"
-            override={config.inviteStatusWindowMs}
-            effective={config.effectiveInviteStatusWindowMs}
-            bounds={config.bounds.inviteStatusWindowMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("inviteStatusWindowMs", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="invite-status-limit"
-            label="Invite status · limit"
-            override={config.inviteStatusLimit}
-            effective={config.effectiveInviteStatusLimit}
-            bounds={config.bounds.inviteStatusLimit}
-            unit="req/window"
-            onSave={(v) => patchAppConfigField("inviteStatusLimit", v)}
-          />
-        </div>
-      </Card>
-
-      {/* ── KZO-198: Provider Health section ────────────────────────────── */}
-      <Card data-testid="admin-settings-provider-health-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Provider health</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.
-            </p>
-          </div>
-          <NumericOverrideRow
-            fieldKey="provider-down-suppression-ms"
-            label="Down notification suppression"
-            description="Cooldown between repeat 'provider down' notifications for the same provider+market."
-            override={config.providerDownNotificationSuppressionMs}
-            effective={config.effectiveProviderDownNotificationSuppressionMs}
-            bounds={config.bounds.providerDownNotificationSuppressionMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("providerDownNotificationSuppressionMs", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="provider-error-trail-retention-days"
-            label="Error trail retention"
-            description="Days of historical provider errors to keep before the purge cron evicts them."
-            override={config.providerErrorTrailRetentionDays}
-            effective={config.effectiveProviderErrorTrailRetentionDays}
-            bounds={config.bounds.providerErrorTrailRetentionDays}
-            unit="days"
-            onSave={(v) => patchAppConfigField("providerErrorTrailRetentionDays", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="provider-rerun-cooldown-ms"
-            label="Re-run cooldown"
-            description="Minimum interval between admin-triggered re-runs for the same provider+market."
-            override={config.providerRerunCooldownMs}
-            effective={config.effectiveProviderRerunCooldownMs}
-            bounds={config.bounds.providerRerunCooldownMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("providerRerunCooldownMs", v)}
-          />
-        </div>
-      </Card>
-
-      {/* ── KZO-198: Backfill section ───────────────────────────────────── */}
-      <Card data-testid="admin-settings-backfill-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Backfill</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.
-            </p>
-          </div>
-          <NumericOverrideRow
-            fieldKey="backfill-retry-limit"
-            label="Retry limit"
-            description="Maximum pg-boss retry attempts per backfill job before it is marked failed."
-            override={config.backfillRetryLimit}
-            effective={config.effectiveBackfillRetryLimit}
-            bounds={config.bounds.backfillRetryLimit}
-            unit="attempts"
-            onSave={(v) => patchAppConfigField("backfillRetryLimit", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="backfill-retry-delay-seconds"
-            label="Retry delay"
-            description="Base backoff between failed retries. The reschedule path additionally honours provider Retry-After."
-            override={config.backfillRetryDelaySeconds}
-            effective={config.effectiveBackfillRetryDelaySeconds}
-            bounds={config.bounds.backfillRetryDelaySeconds}
-            unit="s"
-            onSave={(v) => patchAppConfigField("backfillRetryDelaySeconds", v)}
-          />
-          <NumericOverrideRow
-            fieldKey="backfill-finmind-402-retry-ms"
-            label="FinMind 402 retry"
-            description="Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue."
-            override={config.backfillFinmind402RetryMs}
-            effective={config.effectiveBackfillFinmind402RetryMs}
-            bounds={config.bounds.backfillFinmind402RetryMs}
-            unit="ms"
-            onSave={(v) => patchAppConfigField("backfillFinmind402RetryMs", v)}
-          />
         </div>
       </Card>
 

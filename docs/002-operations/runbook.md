@@ -1816,22 +1816,37 @@ No CHECK constraints were added (SQL escape hatch preserved). All columns are nu
 
 ### Admin UI — Tier 1 knobs
 
-Navigate to **`/admin` → Settings** to adjust the following levers. Changes take effect on the next resolver read (≤ 8 s TTL cache propagation):
+Navigate to **`/admin` → Settings** to adjust the following levers. Changes take effect on the next resolver read (≤ 8 s TTL cache propagation).
 
-**Rate Limits section:**
+As of KZO-199, the Settings page is organised into **five tabs** (`?tab=<slug>` URL state). The default tab when no `?tab` query is present is **`rate-limits`**.
+
+**Tab: Rate Limits** (`?tab=rate-limits`)
 - Market data price: window (ms) and per-window cap
 - Market data search: window (ms)
 - Invite status: window (ms) and per-window cap
 
-**Provider Health section:**
+**Tab: Sharing** (`?tab=sharing`) — *added in KZO-199*
+- Anonymous-share token cap (max active tokens per owner)
+- Anonymous-share rate-limit max (requests per window, per IP)
+- Anonymous-share rate-limit window (ms)
+
+**Tab: Provider Health** (`?tab=provider-health`)
 - Down-notification suppression (ms)
 - Error trail retention (days)
-- Re-run cooldown (ms)
+- Re-run cooldown (ms) — generic, all providers except yahoo-finance-au
+- Yahoo-AU re-run cooldown (ms)
 
-**Backfill section:**
+**Tab: Backfill & Repair** (`?tab=backfill-repair`)
 - Retry limit (count)
 - Retry delay (seconds)
 - FinMind 402 retry delay (ms)
+- Repair cooldown (minutes)
+
+**Tab: Catalog & Metadata** (`?tab=catalog-metadata`)
+- Catalog absence threshold (consecutive missed syncs before delisting)
+- Absence guard percent (max % of catalog removable per sync)
+- Absence guard floor (minimum removable count regardless of percent)
+- Metadata enrichment mode (`unconditional` or `conditional`)
 
 Each field has a "Reset to default (NULL)" button that clears the DB override and causes the resolver to fall back to the env var default.
 
@@ -1852,7 +1867,9 @@ To clear a key (force env-fallback): click **Rotate** → leave the input blank 
 
 ### Tier 2 SQL escape hatch
 
-The 5 Tier 2 fields are not in the admin UI. Adjust them directly via SQL on the `app_config` singleton (id = 1). The API's TTL cache picks up the change within 8 s of the SQL write — no restart required.
+The Tier 2 fields are not in the admin UI. Adjust them directly via SQL on the `app_config` singleton (id = 1). The API's TTL cache picks up the change within 8 s of the SQL write — no restart required.
+
+**KZO-198 Tier 2 fields:**
 
 ```sql
 -- Daily-refresh lookback window (days)
@@ -1870,8 +1887,28 @@ UPDATE app_config SET sse_max_connections_per_user = 10, updated_at = NOW() WHER
 -- BufferedEventBus per-user event TTL (ms)
 UPDATE app_config SET sse_buffer_default_ttl_ms = 30000, updated_at = NOW() WHERE id = 1;
 
--- Reset any Tier 2 field to env-fallback
+-- Reset any KZO-198 Tier 2 field to env-fallback
 UPDATE app_config SET sse_heartbeat_interval_ms = NULL, updated_at = NOW() WHERE id = 1;
+```
+
+**KZO-199 Tier 2 fields** (added by migration 052):
+
+```sql
+-- How long a revoked/expired anonymous share token remains listable (ms)
+-- Default: 2592000000 (30 days). Bounds: [86400000 (1d), 31536000000 (365d)]
+-- ⚠ Retention coupling: keep ≤ ANONYMOUS_SHARE_TOKEN_PURGE_DAYS × 86400000
+--   to preserve UI visibility guarantee — purge cron deletes rows the UI would otherwise surface.
+UPDATE app_config SET anonymous_share_token_retention_ms = 604800000, updated_at = NOW() WHERE id = 1;
+-- (example: set to 7 days = 604800000 ms)
+
+-- Max body size (bytes) for PATCH /user-preferences
+-- Default: 8192. Bounds: [256, 1048576]. Fastify bodyLimit is fixed at 1 MiB (the bound ceiling).
+UPDATE app_config SET user_preferences_max_bytes = 65536, updated_at = NOW() WHERE id = 1;
+-- (example: raise to 64 KiB)
+
+-- Reset any KZO-199 Tier 2 field to env-fallback
+UPDATE app_config SET anonymous_share_token_retention_ms = NULL, updated_at = NOW() WHERE id = 1;
+UPDATE app_config SET user_preferences_max_bytes = NULL, updated_at = NOW() WHERE id = 1;
 ```
 
 **Note:** SQL writes do **not** stamp an audit_log entry. If audit trail is required, use the admin UI (Tier 1 fields only).
@@ -2250,3 +2287,93 @@ SELECT yahoo_au_rerun_cooldown_ms FROM public.app_config WHERE id = 1;
 - Migration 051 is additive (`ADD COLUMN IF NOT EXISTS ... NULL`). Rollback: `ALTER TABLE public.app_config DROP COLUMN IF EXISTS yahoo_au_rerun_cooldown_ms;`
 - Reverting the PR restores the old "Re-run now" path (monitored-refresh only; no-op on fresh deploy). Any already-enqueued `finmind-backfill` jobs run to completion — they are idempotent upserts and are not cancelled on rollback.
 - The `awaiting` badge reverts to `down` after PR revert (both states indicate no successful run; `down` is the pre-KZO-197 form).
+
+---
+
+## 26. KZO-199 deploy notes — Hybrid env+app_config for Tier B constants
+
+KZO-199 extends the KZO-198 Tier A pattern to cover seven Tier B operational constants. No new infrastructure is introduced; all cache, audit-log, and PATCH-handler machinery is reused.
+
+### Migration
+
+`052_kzo199_app_config_tier_b_constants.sql` adds **5 nullable columns** to the `app_config` singleton row:
+
+| Column | Type | Tier | Default (env fallback) |
+|---|---|---|---|
+| `anonymous_share_token_cap` | `INT NULL` | 1 — admin UI | `ANONYMOUS_SHARE_TOKEN_CAP` = 20 |
+| `anonymous_share_rate_limit_max` | `INT NULL` | 1 — admin UI | `ANONYMOUS_SHARE_RATE_LIMIT_MAX` = 30 |
+| `anonymous_share_rate_limit_window_ms` | `INT NULL` | 1 — admin UI | `ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS` = 300000 (5 min) |
+| `anonymous_share_token_retention_ms` | `BIGINT NULL` | 2 — SQL only | `ANONYMOUS_SHARE_TOKEN_RETENTION_MS` = 2592000000 (30 d) |
+| `user_preferences_max_bytes` | `INT NULL` | 2 — SQL only | `USER_PREFERENCES_MAX_BYTES` = 8192 (8 KiB) |
+
+All columns are nullable and additive — backward compatible with prior API images.
+
+Two Tier 3 (env-only, restart-required) pool-size env vars are also added:
+
+| Env var | Default | Wired to |
+|---|---|---|
+| `POSTGRES_POOL_MAX` | `20` | Main Postgres connection pool (`PostgresPersistence` constructor) |
+| `BACKFILL_POSTGRES_POOL_MAX` | `2` | pg-boss Postgres pool (`plugins/pgBoss.ts`) |
+
+### Admin UI — Sharing tab
+
+The new **Sharing tab** (`/admin/settings?tab=sharing`) surfaces the 3 Tier 1 sharing knobs:
+
+- **Anonymous-share token cap** — max active tokens per owner. Raising this value takes effect immediately (next `POST /share-tokens` call). Bounds: 1–1000.
+- **Anonymous-share rate-limit max** — requests per window per IP for anonymous-share endpoints. Bounds: 1–10000.
+- **Anonymous-share rate-limit window (ms)** — sliding-window length for the rate limiter. Bounds: 1000–600000 (1 s to 10 min).
+
+Each field has a "Reset to default (NULL)" button. Changes propagate within ≤ 8 s (TTL cache).
+
+**Observability:**
+
+```sql
+-- Current Tier 1 anonymous-share knobs (NULL = env default active)
+SELECT
+  anonymous_share_token_cap,
+  anonymous_share_rate_limit_max,
+  anonymous_share_rate_limit_window_ms
+FROM app_config WHERE id = 1;
+
+-- Current active token count per owner (should never exceed cap)
+SELECT owner_user_id, COUNT(*) AS active_count
+FROM anonymous_share_tokens
+WHERE revoked_at IS NULL AND expires_at > NOW()
+GROUP BY owner_user_id
+ORDER BY active_count DESC
+LIMIT 10;
+```
+
+### Tier 2 sharing escape hatches
+
+See §22 "Tier 2 SQL escape hatch → KZO-199 Tier 2 fields" for the SQL update commands.
+
+**Retention coupling reminder:** `anonymous_share_token_retention_ms` must stay ≤ `ANONYMOUS_SHARE_TOKEN_PURGE_DAYS × 86400000`. The purge cron (daily 04:00 UTC) physically deletes terminal rows; if the retention window is longer than the purge window, the UI would attempt to surface tokens that no longer exist in the DB.
+
+### Pool-size tuning
+
+Both pool-size env vars are **restart-required** — they are read once at startup, not per-request. The safe defaults (20 and 2) match the previous hardcoded values; no action is required on deploy.
+
+To tune:
+
+1. Set `POSTGRES_POOL_MAX` and/or `BACKFILL_POSTGRES_POOL_MAX` in the deployment environment.
+2. Restart the API service.
+3. Verify the pool size via `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'tw-portfolio%';`
+
+### `/admin/settings` tab restructure
+
+The Settings page is now organised into 5 tabs. Direct links:
+
+- `/admin/settings?tab=rate-limits` — market data + invite-status rate limits
+- `/admin/settings?tab=sharing` — anonymous-share token knobs *(KZO-199 new)*
+- `/admin/settings?tab=provider-health` — provider health + rerun cooldowns
+- `/admin/settings?tab=backfill-repair` — backfill retry + repair cooldown
+- `/admin/settings?tab=catalog-metadata` — catalog absence detection + metadata enrichment mode
+
+The default tab (no `?tab` query) is `rate-limits`. All existing per-field knobs are preserved; only the page layout changed.
+
+### Rollback notes
+
+- Migration 052 is additive (`ADD COLUMN IF NOT EXISTS ... NULL`). Rollback per-column: `UPDATE app_config SET <col> = NULL WHERE id = 1;` restores env-fallback immediately. Full schema rollback: `ALTER TABLE app_config DROP COLUMN IF EXISTS anonymous_share_token_cap, DROP COLUMN IF EXISTS anonymous_share_rate_limit_max, DROP COLUMN IF EXISTS anonymous_share_rate_limit_window_ms, DROP COLUMN IF EXISTS anonymous_share_token_retention_ms, DROP COLUMN IF EXISTS user_preferences_max_bytes;`
+- Reverting the API image restores the flat settings page layout; the 5 new columns are ignored by older images.
+- Pool-size env vars: removing `POSTGRES_POOL_MAX` / `BACKFILL_POSTGRES_POOL_MAX` restores the schema defaults (20 / 2) after a restart.
