@@ -880,7 +880,11 @@ export interface UnreadCountResponse {
 
 // ── Provider health (KZO-177) ───────────────────────────────────────────────
 
-export type ProviderHealthStatus = "healthy" | "degraded" | "down";
+// KZO-197 — `'awaiting'` widening: route layer derives this state when the
+// provider has neither a successful nor a failed run on record (fresh deploy).
+// The DB enum / persistence row shape is UNCHANGED — `'awaiting'` is purely a
+// route-side computed value rendered as a 4th status badge.
+export type ProviderHealthStatus = "healthy" | "degraded" | "down" | "awaiting";
 export type ProviderErrorClass = "rate_limit" | "http_4xx" | "http_5xx" | "network" | "parse" | "other";
 
 export interface ProviderErrorTrailEntryDto {
@@ -900,6 +904,13 @@ export interface ProviderHealthStatusDto {
   rateLimitCount24h: number;
   lastErrorMessage: string | null;
   lastManualRerunAt: string | null;
+  /**
+   * KZO-197 — per-provider rerun cooldown (ms) sourced from the server-side
+   * `getEffectiveProviderRerunCooldownMs(providerId)` resolver. The admin UI
+   * uses this to render the live tooltip-cooldown label and to set the 429
+   * countdown fallback. Always populated (never null).
+   */
+  rerunCooldownMs: number;
   updatedAt: string;
   recentErrors: ProviderErrorTrailEntryDto[];
 }

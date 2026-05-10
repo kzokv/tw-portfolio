@@ -72,6 +72,12 @@ As of 2026-05-09 (KZO-196 — AU sector / GICS enrichment):
   - `AUGICSH00001`–`AUGICSH05001` — sanity-high case in the same integration spec (> 5 000 rows fixture; these tickers are synthetic header-row anchors)
   - `AUGICSG1` / `TWGICSG1` — migration cleanup case in the same integration spec; `AUGICSG1` is an AU row expected to have `industry_category_raw` NULLed by migration 050; `TWGICSG1` is a TW row that must be left unchanged
 
+As of 2026-05-09 (KZO-197 — AU catalog warm-up bootstrap):
+- `AUWARM*` — synthetic prefix used across the AU catalog-rerun-union test surface (the `yahoo-finance-au` "Re-run now" button now performs a union of catalog warm-up + monitored refresh). Do not reuse for any non-KZO-197 spec. Reserved tickers:
+  - `AUWARM01`–`AUWARM05` — `apps/api/test/integration/auCatalogRerunUnion.integration.test.ts` fresh-deploy case: 5 AU `bars_backfill_status='pending'` rows with no monitored entries → catalog warm-up enqueues 5 jobs.
+  - `AUWARM06`–`AUWARM07` — same integration test post-warm-up case: 2 rows promoted to `bars_backfill_status='ready'` AND added to `user_monitored_tickers`; subsequent rerun produces 3 catalog-warm-up jobs (`AUWARM01`–`AUWARM03`) + 2 monitored-refresh jobs (`AUWARM06`–`AUWARM07`).
+  - `AUWARM08`–`AUWARM10` — reserved for `apps/web/tests/e2e/specs-oauth/provider-health-aaa.spec.ts` AU rerun case (seed `AUWARM08`–`AUWARM10` as `pending` so the click produces a non-zero `tickerCount` from the catalog warm-up branch).
+
 Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 
 ## Why not fix MemoryPersistence?

@@ -62,9 +62,10 @@ export async function seedDemoTransactions(persistence: Persistence, userId: str
   rebuildHoldingProjection(store);
   await persistence.saveStore(store);
 
-  // KZO-126: Demo instruments should show as 'ready' — no FinMind calls for demo users
+  // KZO-126: Demo instruments should show as 'ready' — no FinMind calls for demo users.
+  // Demo data is TW-only (priceCurrency: "TWD"), so marketCode is "TW".
   const demoTickers = [...new Set(transactions.map((tx) => tx.ticker))];
   for (const ticker of demoTickers) {
-    await persistence.updateBackfillStatus(ticker, "ready");
+    await persistence.updateBackfillStatus(ticker, "TW", "ready");
   }
 }

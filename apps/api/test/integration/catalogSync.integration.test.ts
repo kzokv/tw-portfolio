@@ -182,7 +182,7 @@ describePostgres("catalog sync persistence", () => {
     await persistence!.upsertInstrumentCatalog(sampleCatalog, []);
 
     // Advance backfill status to 'ready'
-    await persistence!.updateBackfillStatus("2330", "ready");
+    await persistence!.updateBackfillStatus("2330", "TW", "ready");
     const before = await persistence!.getInstrument("2330");
     expect(before!.barsBackfillStatus).toBe("ready");
 

@@ -1687,12 +1687,14 @@ The Re-run now button dispatches a provider-wide refresh job:
 
 - **`finmind-tw`:** enqueues daily-refresh for the TW market (all monitored TW tickers).
 - **`finmind-us`:** enqueues daily-refresh for the US market.
-- **`yahoo-finance-au`:** enqueues daily-refresh for the AU market.
+- **`yahoo-finance-au`:** dispatches a **union** of (a) catalog warm-up over `market_data.instruments WHERE market_code='AU' AND bars_backfill_status IN ('pending','failed') AND delisted_at IS NULL`, and (b) daily-refresh for all monitored AU tickers. On a fresh deploy this enqueues ~2,400 backfill jobs. See §25 for the full fresh-deploy warm-up runbook.
 - **`frankfurter`:** enqueues an FX-refresh job for all stored currency bases.
+- **`twelve-data-au`:** re-syncs the AU instrument catalog from Twelve Data (metadata only, no bars).
+- **`asx-gics-csv`:** re-runs the ASX GICS sector + industry-group enrichment from the S&P/ASX CSV.
 
-**60-second cooldown:** the button is rate-limited per provider via `last_manual_rerun_at` in the DB. A click within 60 s of a previous click returns `429 rate_limit_exceeded` with `Retry-After: 60`. This prevents accidental queue flooding.
+**Per-provider cooldown (KZO-197):** the cooldown is now per-provider. `yahoo-finance-au` defaults to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
 
-**Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. Visible at `/admin/audit-log`.
+**Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. For `yahoo-finance-au` only, the metadata also includes nested `catalogBackfill: { tickerCount, jobId }` and `monitoredRefresh: { tickerCount, jobId }` blocks (top-level `tickerCount` = sum; back-compat). Visible at `/admin/audit-log`.
 
 **Existing `/admin/fx-rates/refresh` is NOT deprecated** — it remains the path for targeted date-range FX backfills. Re-run now triggers a full current-day FX refresh.
 
@@ -1704,7 +1706,7 @@ The Re-run now button dispatches a provider-wide refresh job:
 | Auth required | Any authenticated user | Admin only |
 | Typical use | One ticker missing data after a manual trade entry | Provider-wide data lag (e.g., provider outage recovery) |
 | Audit | No audit log | `provider_health_rerun` audit entry |
-| Cooldown | Per-ticker cooldown (`REPAIR_COOLDOWN_MINUTES`) | 60 s per provider |
+| Cooldown | Per-ticker cooldown (`REPAIR_COOLDOWN_MINUTES`) | Per-provider (60 s most providers; 30 min for `yahoo-finance-au` default) |
 
 #### Error trail
 
@@ -2158,3 +2160,93 @@ SELECT asx_gics_refresh_cron FROM app_config WHERE id = 1;
 - Migration 050's `UPDATE industry_category_raw = NULL WHERE market_code = 'AU'` is one-way. If rolled back, AU rows will have a NULL `industry_category_raw` column. This is benign — the column was populated with Twelve Data classifier values that were redundant with `instrument_type`, and the front-end does not rely on `industry_category_raw`.
 - The `gics_industry_group` column is NULL-safe and removable via a new migration if the feature is reverted.
 - To disable the cron without a rollback: delete the pg-boss schedule via `DELETE FROM pgboss.schedule WHERE name = 'asx-gics-sync'` (takes effect immediately; the queue handler remains registered but no new ticks fire).
+
+---
+
+## 25. KZO-197 deploy notes — AU fresh-deploy warm-up + `awaiting` status
+
+### What ships
+
+Migration `051_kzo197_yahoo_au_rerun_cooldown.sql` adds `yahoo_au_rerun_cooldown_ms BIGINT NULL` to `public.app_config` (default `NULL` = use `Env.YAHOO_AU_RERUN_COOLDOWN_MS`, which defaults to 1,800,000 ms = 30 min).
+
+The `yahoo-finance-au` "Re-run now" button now dispatches a **union** of two disjoint sets:
+
+1. **Catalog warm-up** — one backfill job per `market_data.instruments` row where `market_code='AU' AND bars_backfill_status IN ('pending','failed') AND delisted_at IS NULL`. These rows have never had bars fetched. Full history is fetched from `1988-01-28` (Yahoo's BHP.AX `firstTradeDate`). Composite singleton key `${ticker}:AU` prevents duplicates on double-click.
+2. **Monitored refresh** — the existing `enqueueDailyRefresh({ marketFilter:'AU' })` path, refreshing only monitored AU tickers. This path was always present; on a fresh deploy where no AU tickers are monitored, it is a no-op that contributes `tickerCount=0`.
+
+After bars data lands, each instrument's `bars_backfill_status` advances to `ready`, and subsequent "Re-run now" clicks produce zero catalog warm-up jobs (the warm-up branch short-circuits on an empty candidate set).
+
+A new neutral-grey badge **"Awaiting first run"** (`awaiting` status) is shown for any provider whose `last_successful_run` and `last_failed_run` are both null. This is a route-layer projection — the `provider_health_status` table and its DB CHECK constraint are unchanged.
+
+### AU fresh-deploy warm-up checklist
+
+1. After deploying KZO-197 (or any fresh environment where the AU catalog has never backfilled), navigate to `/admin` → **Providers**.
+2. The `yahoo-finance-au` row shows **"Awaiting first run"** (neutral grey) — expected; no backfill has run yet.
+3. Click **Re-run now**. The response returns `tickerCount` = number of pending+failed AU instruments (~2,400 on a fully fresh catalog).
+4. Monitor job queue depth:
+   ```sql
+   SELECT COUNT(*) AS active_jobs
+   FROM pgboss.job
+   WHERE name = 'finmind-backfill'
+     AND data->>'marketCode' = 'AU'
+     AND state = 'active';
+   ```
+5. At Yahoo's self-imposed 60/min ceiling, ~2,400 jobs complete in approximately **40 minutes** of wall-clock time.
+6. Once the first job succeeds, `last_successful_run` is stamped and the badge updates to `healthy` (or `degraded`/`down` if errors occurred).
+
+**Note:** the warm-up is operator-initiated. Auto-triggering on deploy is deferred to **KZO-203**.
+
+### Per-provider cooldown
+
+| Provider | Cooldown (default) | DB-tunable via |
+|---|---|---|
+| `yahoo-finance-au` | 30 min (1,800,000 ms) | `app_config.yahoo_au_rerun_cooldown_ms` |
+| All other providers | 60 s (60,000 ms) | `app_config.provider_rerun_cooldown_ms` (global, KZO-177) |
+
+To adjust the AU cooldown without a redeploy:
+```sql
+UPDATE public.app_config
+SET yahoo_au_rerun_cooldown_ms = 300000   -- 5 min, for example
+WHERE id = 1;
+```
+The change takes effect on the next `GET /admin/providers` call (TTL cache refresh). No restart required.
+
+To reset to the env-default (30 min):
+```sql
+UPDATE public.app_config SET yahoo_au_rerun_cooldown_ms = NULL WHERE id = 1;
+```
+
+### Operational queries
+
+```sql
+-- Check AU warm-up progress
+SELECT
+  bars_backfill_status,
+  COUNT(*) AS count
+FROM market_data.instruments
+WHERE market_code = 'AU'
+GROUP BY bars_backfill_status
+ORDER BY bars_backfill_status;
+
+-- Check active AU backfill jobs
+SELECT COUNT(*) AS active
+FROM pgboss.job
+WHERE name = 'finmind-backfill'
+  AND data->>'marketCode' = 'AU'
+  AND state = 'active';
+
+-- Check yahoo-finance-au provider health
+SELECT status, last_successful_run, last_failed_run,
+       error_count_24h, last_manual_rerun_at
+FROM market_data.provider_health_status
+WHERE provider_id = 'yahoo-finance-au';
+
+-- Check current AU cooldown override (NULL = using env default = 30 min)
+SELECT yahoo_au_rerun_cooldown_ms FROM public.app_config WHERE id = 1;
+```
+
+### Rollback notes
+
+- Migration 051 is additive (`ADD COLUMN IF NOT EXISTS ... NULL`). Rollback: `ALTER TABLE public.app_config DROP COLUMN IF EXISTS yahoo_au_rerun_cooldown_ms;`
+- Reverting the PR restores the old "Re-run now" path (monitored-refresh only; no-op on fresh deploy). Any already-enqueued `finmind-backfill` jobs run to completion — they are idempotent upserts and are not cancelled on rollback.
+- The `awaiting` badge reverts to `down` after PR revert (both states indicate no successful run; `down` is the pre-KZO-197 form).

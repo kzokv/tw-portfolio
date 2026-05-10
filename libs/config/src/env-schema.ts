@@ -133,6 +133,13 @@ export const envSchema = z.object({
   PROVIDER_DOWN_NOTIFICATION_SUPPRESSION_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
   PROVIDER_ERROR_TRAIL_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   PROVIDER_RERUN_COOLDOWN_MS: z.coerce.number().int().positive().default(60 * 1000),
+  // KZO-197 — yahoo-finance-au rerun cooldown override fallback. The AU
+  // "Re-run now" button kicks BOTH the catalog warm-up and the monitored
+  // refresh; a 30-min default protects the Yahoo budget from operator
+  // re-clicks. The matching `app_config.yahoo_au_rerun_cooldown_ms` column
+  // overrides this when set. Other providers continue to use
+  // `PROVIDER_RERUN_COOLDOWN_MS` (60 s default).
+  YAHOO_AU_RERUN_COOLDOWN_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
 
   // KZO-198 Tier 1 / 2 — backfill knobs. RetryLimit and RetryDelay are the
   // pg-boss queue defaults at registration time (eviction/queue cadence is

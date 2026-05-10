@@ -5885,11 +5885,18 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
-  async updateBackfillStatus(ticker: string, status: import("@tw-portfolio/domain").BackfillStatus): Promise<void> {
+  async updateBackfillStatus(
+    ticker: string,
+    marketCode: import("@tw-portfolio/domain").MarketCode,
+    status: import("@tw-portfolio/domain").BackfillStatus,
+  ): Promise<void> {
+    // KZO-197 P2-2: composite scope on (ticker, marketCode). Without the
+    // market_code filter, a bare-ticker WHERE silently mutates cross-listed
+    // sibling rows (BHP/AU vs BHP/US, etc.).
     const extra = status === "ready" ? ", last_synced_at = CURRENT_TIMESTAMP" : "";
     await this.pool.query(
-      `UPDATE market_data.instruments SET bars_backfill_status = $1, updated_at = CURRENT_TIMESTAMP${extra} WHERE ticker = $2`,
-      [status, ticker],
+      `UPDATE market_data.instruments SET bars_backfill_status = $1, updated_at = CURRENT_TIMESTAMP${extra} WHERE ticker = $2 AND market_code = $3`,
+      [status, ticker, marketCode],
     );
   }
 
@@ -5928,6 +5935,7 @@ export class PostgresPersistence implements Persistence {
     providerDownNotificationSuppressionMs: number | null;
     providerErrorTrailRetentionDays: number | null;
     providerRerunCooldownMs: number | null;
+    yahooAuRerunCooldownMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -5957,6 +5965,7 @@ export class PostgresPersistence implements Persistence {
       provider_down_notification_suppression_ms: number | string | null;
       provider_error_trail_retention_days: number | null;
       provider_rerun_cooldown_ms: number | string | null;
+      yahoo_au_rerun_cooldown_ms: number | string | null;
       backfill_retry_limit: number | null;
       backfill_retry_delay_seconds: number | null;
       backfill_finmind_402_retry_ms: number | string | null;
@@ -5978,6 +5987,7 @@ export class PostgresPersistence implements Persistence {
          market_data_search_window_ms, market_data_search_limit,
          invite_status_window_ms, invite_status_limit,
          provider_down_notification_suppression_ms, provider_error_trail_retention_days, provider_rerun_cooldown_ms,
+         yahoo_au_rerun_cooldown_ms,
          backfill_retry_limit, backfill_retry_delay_seconds, backfill_finmind_402_retry_ms,
          daily_refresh_lookback_days, daily_refresh_priority,
          sse_heartbeat_interval_ms, sse_max_connections_per_user, sse_buffer_default_ttl_ms,
@@ -6003,6 +6013,7 @@ export class PostgresPersistence implements Persistence {
         providerDownNotificationSuppressionMs: null,
         providerErrorTrailRetentionDays: null,
         providerRerunCooldownMs: null,
+        yahooAuRerunCooldownMs: null,
         backfillRetryLimit: null,
         backfillRetryDelaySeconds: null,
         backfillFinmind402RetryMs: null,
@@ -6040,6 +6051,7 @@ export class PostgresPersistence implements Persistence {
       providerDownNotificationSuppressionMs: num(row.provider_down_notification_suppression_ms),
       providerErrorTrailRetentionDays: row.provider_error_trail_retention_days,
       providerRerunCooldownMs: num(row.provider_rerun_cooldown_ms),
+      yahooAuRerunCooldownMs: num(row.yahoo_au_rerun_cooldown_ms),
       backfillRetryLimit: row.backfill_retry_limit,
       backfillRetryDelaySeconds: row.backfill_retry_delay_seconds,
       backfillFinmind402RetryMs: num(row.backfill_finmind_402_retry_ms),
@@ -6790,6 +6802,25 @@ export class PostgresPersistence implements Persistence {
        ORDER BY i.ticker, i.market_code`,
     );
     return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
+  }
+
+  async listAuCatalogBarsBackfillCandidates(): Promise<Array<{ ticker: string; marketCode: "AU" }>> {
+    // KZO-197 — fresh-deploy AU catalog warm-up. Read directly from
+    // `market_data.instruments` (NOT the monitored set) because the
+    // bootstrap state has zero monitored AU tickers — the catalog rows
+    // exist (TW Twelve Data sync seeded them), they're just unbacked.
+    // Filter on `bars_backfill_status IN ('pending','failed')` and
+    // `delisted_at IS NULL` per scope-todo. Schema-qualified per
+    // `.claude/rules/integration-test-persistence-direct.md`.
+    const result = await this.pool.query<{ ticker: string }>(
+      `SELECT ticker
+         FROM market_data.instruments
+        WHERE market_code = 'AU'
+          AND bars_backfill_status IN ('pending', 'failed')
+          AND delisted_at IS NULL
+        ORDER BY ticker`,
+    );
+    return result.rows.map((row) => ({ ticker: row.ticker, marketCode: "AU" as const }));
   }
 
   async getUsersMonitoringTicker(ticker: string): Promise<string[]> {

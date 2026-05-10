@@ -116,10 +116,10 @@ describePostgres("daily refresh persistence queries", () => {
     const demoOnly = await createUser("demo-only@example.com", true);
     const mixedTickerDemo = await createUser("mixed-demo@example.com", true);
 
-    await persistence!.updateBackfillStatus("1101", "ready");
-    await persistence!.updateBackfillStatus("2330", "ready");
-    await persistence!.updateBackfillStatus("2603", "ready");
-    await persistence!.updateBackfillStatus("0050", "ready");
+    await persistence!.updateBackfillStatus("1101", "TW", "ready");
+    await persistence!.updateBackfillStatus("2330", "TW", "ready");
+    await persistence!.updateBackfillStatus("2603", "TW", "ready");
+    await persistence!.updateBackfillStatus("0050", "TW", "ready");
 
     // KZO-169: replaceManualSelections accepts `{ ticker, marketCode }[]`.
     await persistence!.replaceManualSelections(realManual.userId, [

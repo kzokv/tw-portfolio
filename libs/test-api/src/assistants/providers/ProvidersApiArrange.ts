@@ -12,7 +12,7 @@ export interface ProviderErrorTrailEntryShape {
 
 export interface ProviderHealthRowShape {
   providerId: string;
-  status: "healthy" | "degraded" | "down";
+  status: "healthy" | "degraded" | "down" | "awaiting";
   lastSuccessfulRun: string | null;
   lastFailedRun: string | null;
   errorCount24h: number;
@@ -22,6 +22,7 @@ export interface ProviderHealthRowShape {
   lastManualRerunAt: string | null;
   updatedAt: string;
   recentErrors: ProviderErrorTrailEntryShape[];
+  rerunCooldownMs: number;
 }
 
 export interface AdminProvidersListBody {

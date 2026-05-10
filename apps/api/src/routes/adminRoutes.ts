@@ -15,10 +15,13 @@ import { requireAdminRole } from "../lib/routeGuards.js";
 // `invalidate()` and would return env-fallback values for fields the user
 // just wrote. The resolver-based cache path is the source of truth for
 // source-code paths (rate-limit handlers, providers, etc.) — only the
-// admin DTO bypasses it. The `getEffectiveRerunCooldownMs()` import below
-// remains for the `/admin/providers/:id/rerun` cooldown gate (cache-correct
-// for that path).
-import { getEffectiveRerunCooldownMs } from "../services/appConfig/providerHealth.js";
+// admin DTO bypasses it. KZO-197: the `getEffectiveProviderRerunCooldownMs()`
+// import below remains for the `/admin/providers/:id/rerun` cooldown gate
+// AND the `GET /admin/providers` per-row `rerunCooldownMs` field
+// (cache-correct for both paths — the cache value is the same the rerun
+// gate consults, so DB ⇄ UI stay coherent under live PATCHes).
+import { getEffectiveProviderRerunCooldownMs } from "../services/appConfig/providerHealth.js";
+import { enqueueAuCatalogBarsBackfill } from "../services/market-data/enqueueAuCatalogBarsBackfill.js";
 import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
 import {
   invalidate as invalidateAppConfigCache,
@@ -783,6 +786,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           latestSettledTradingDay: latestSettled,
           errorCount24h,
         });
+        // KZO-197 — derive `'awaiting'` purely at the route layer when the
+        // provider has neither a successful nor a failed run on record (fresh
+        // deploy). Persistence row shape, `provider_health_status` table CHECK,
+        // and `recordOutcome` CAS reads remain unchanged — only the DTO gains
+        // the 4th state. Any single failed_run record flips the row to
+        // `computedStatus`, so there is no "awaiting + degraded" hybrid.
+        const status =
+          row.lastSuccessfulRun === null && row.lastFailedRun === null
+            ? "awaiting"
+            : computedStatus;
         const recentErrorDtos: ProviderErrorTrailEntryDto[] = recentErrors.map((e) => ({
           id: e.id,
           occurredAt: e.occurredAt,
@@ -791,7 +804,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         }));
         return {
           providerId: row.providerId,
-          status: computedStatus,
+          status,
           lastSuccessfulRun: row.lastSuccessfulRun,
           lastFailedRun: row.lastFailedRun,
           errorCount24h,
@@ -799,6 +812,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           rateLimitCount24h,
           lastErrorMessage: row.lastErrorMessage,
           lastManualRerunAt: row.lastManualRerunAt,
+          // KZO-197 — server-resolved per-provider rerun cooldown (ms).
+          // Frontend uses this to render the live tooltip-cooldown label
+          // and the 429 countdown fallback.
+          rerunCooldownMs: getEffectiveProviderRerunCooldownMs(row.providerId),
           updatedAt: row.updatedAt,
           recentErrors: recentErrorDtos,
         };
@@ -837,7 +854,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // (3) cooldown per provider — read live (KZO-198: DB override → env).
-    const cooldownMs = getEffectiveRerunCooldownMs();
+    // KZO-197 — per-provider cooldown dispatch. yahoo-finance-au reads the
+    // 30-min default (or app_config override); other providers fall back to
+    // the global 60-s `getEffectiveRerunCooldownMs()`.
+    const cooldownMs = getEffectiveProviderRerunCooldownMs(providerId);
     if (existing.lastManualRerunAt) {
       const elapsedMs = Date.now() - new Date(existing.lastManualRerunAt).getTime();
       if (elapsedMs < cooldownMs) {
@@ -864,6 +884,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     let tickerCount = 0;
     let marketCode: MarketCode | "FX" = "FX";
     let jobId: string | null = null;
+    // KZO-197 — yahoo-finance-au-only nested audit metadata. The two sub-paths
+    // (catalog warm-up + monitored refresh) ship as `{tickerCount, jobId}`
+    // each so the audit-log spec can verify both branches independently.
+    // Top-level `tickerCount` and `jobId` remain populated as the back-compat
+    // sum / first-non-null — KZO-177's audit spec asserts the flat shape and
+    // must keep passing for every other provider.
+    let auCatalogBackfill: { tickerCount: number; jobId: string | null } | null = null;
+    let auMonitoredRefresh: { tickerCount: number; jobId: string | null } | null = null;
 
     if (providerId === "frankfurter") {
       if (app.boss) {
@@ -909,8 +937,41 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       // upstream universe and reports `rawCount` in its own log lines; no
       // per-rerun count is meaningful at the route layer.
       tickerCount = 0;
+    } else if (providerId === "yahoo-finance-au") {
+      // KZO-197 — UNION of catalog warm-up + monitored refresh. The two sets
+      // are disjoint by definition: catalog warm-up enumerates `(pending,
+      // failed)` rows; monitored refresh consumes `ready` rows from the
+      // monitored set. Both run unconditionally (not gated on whether the
+      // other has any work).
+      //
+      // Single source of truth for audit metadata = helper return values.
+      // Memory-backend / E2E (`app.boss === null`) → both helpers return
+      // `{tickerCount:0, batchId:null}`, matching the locked scope-todo
+      // (line 23) and the FinMind/twelve-data/asx-gics-csv memory-mode shape.
+      marketCode = "AU";
+      const [catalog, monitored] = app.boss
+        ? await Promise.all([
+            enqueueAuCatalogBarsBackfill(app.boss, app.persistence, app.log, {
+              trigger: "admin_rerun",
+            }),
+            enqueueDailyRefresh(app.boss, app.persistence, app.log, {
+              marketFilter: "AU",
+              trigger: "admin_rerun",
+            }),
+          ])
+        : [
+            { tickerCount: 0, batchId: null as string | null },
+            { tickerCount: 0, batchId: null as string | null },
+          ];
+      auCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
+      auMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
+      tickerCount = catalog.tickerCount + monitored.tickerCount;
+      // Top-level `jobId` = first non-null. Preserves the back-compat single-id
+      // field that KZO-177 audit-log specs assert against; nested blocks carry
+      // both ids when both branches dispatched.
+      jobId = catalog.batchId ?? monitored.batchId ?? null;
     } else {
-      marketCode = providerId === "finmind-tw" ? "TW" : providerId === "finmind-us" ? "US" : "AU";
+      marketCode = providerId === "finmind-tw" ? "TW" : "US";
       if (app.boss) {
         const result = await enqueueDailyRefresh(
           app.boss,
@@ -923,15 +984,26 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // KZO-197 — yahoo-finance-au only: append the nested `catalogBackfill` +
+    // `monitoredRefresh` blocks. Other providers keep the flat audit shape so
+    // existing KZO-177 audit-log assertions stay green.
+    const auditMetadata: Record<string, unknown> = {
+      providerId,
+      marketCode: marketCode === "FX" ? null : marketCode,
+      tickerCount,
+      jobId,
+    };
+    if (auCatalogBackfill !== null) {
+      auditMetadata.catalogBackfill = auCatalogBackfill;
+    }
+    if (auMonitoredRefresh !== null) {
+      auditMetadata.monitoredRefresh = auMonitoredRefresh;
+    }
+
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
       action: "provider_health_rerun",
-      metadata: {
-        providerId,
-        marketCode: marketCode === "FX" ? null : marketCode,
-        tickerCount,
-        jobId,
-      },
+      metadata: auditMetadata,
       ipAddress,
     });
 

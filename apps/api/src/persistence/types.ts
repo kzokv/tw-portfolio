@@ -41,6 +41,8 @@ export type AppConfigPlainField =
   | "providerDownNotificationSuppressionMs"
   | "providerErrorTrailRetentionDays"
   | "providerRerunCooldownMs"
+  // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
+  | "yahooAuRerunCooldownMs"
   | "backfillRetryLimit"
   | "backfillRetryDelaySeconds"
   | "backfillFinmind402RetryMs"
@@ -80,6 +82,8 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   providerDownNotificationSuppressionMs: "provider_down_notification_suppression_ms",
   providerErrorTrailRetentionDays: "provider_error_trail_retention_days",
   providerRerunCooldownMs: "provider_rerun_cooldown_ms",
+  // KZO-197 — yahoo-finance-au rerun cooldown override.
+  yahooAuRerunCooldownMs: "yahoo_au_rerun_cooldown_ms",
   backfillRetryLimit: "backfill_retry_limit",
   backfillRetryDelaySeconds: "backfill_retry_delay_seconds",
   backfillFinmind402RetryMs: "backfill_finmind_402_retry_ms",
@@ -948,7 +952,15 @@ export interface Persistence {
   // safe for monomarket TW deployments and degrades to the first match
   // otherwise.
   getInstrument(ticker: string, marketCode?: string): Promise<InstrumentRow | null>;
-  updateBackfillStatus(ticker: string, status: BackfillStatus): Promise<void>;
+  // KZO-197 P2-2: scope status updates by (ticker, marketCode). The previous
+  // bare-ticker form silently mutated cross-listed sibling rows (e.g. BHP/AU
+  // vs BHP/US) when the AU catalog warm-up bulk-stamped statuses. All callers
+  // already have `marketCode` in scope via job data, instrument lookups, etc.
+  updateBackfillStatus(
+    ticker: string,
+    marketCode: MarketCode,
+    status: BackfillStatus,
+  ): Promise<void>;
   updateLastRepairAt(ticker: string): Promise<void>;
 
   // App config (KZO-133) — global settings. Returns null when unset (callers
@@ -976,6 +988,8 @@ export interface Persistence {
     providerDownNotificationSuppressionMs: number | null;
     providerErrorTrailRetentionDays: number | null;
     providerRerunCooldownMs: number | null;
+    /** KZO-197 — yahoo-finance-au rerun cooldown override (ms). NULL = use Env.YAHOO_AU_RERUN_COOLDOWN_MS (30 min default). */
+    yahooAuRerunCooldownMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -1070,6 +1084,16 @@ export interface Persistence {
   // directly. The Zod gatekeeper at the worker entry validates the value; the
   // catalog `i.market_code` join in postgres.ts is the authoritative source.
   getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]>;
+  /**
+   * KZO-197 — return AU instruments that need a bars-backfill (status `pending`
+   * or `failed`, not delisted). Used by the AU "Re-run now" button's catalog
+   * warm-up path. Read directly from `market_data.instruments` (NOT from the
+   * monitored set) so a fresh-deploy AU catalog can warm without any user
+   * having added a monitored ticker yet. Postgres impl uses the
+   * schema-qualified table name; memory impl reads from the canonical
+   * in-memory catalog map.
+   */
+  listAuCatalogBarsBackfillCandidates(): Promise<Array<{ ticker: string; marketCode: "AU" }>>;
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]>;
   // KZO-169: signature change — entries are now keyed by `(ticker, market_code)`

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>KZO-197 Mockup — Provider Health Badge: 4-state + per-provider tooltip</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .panel { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .demo-label { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  /* Tooltip polyfill (CSS-only mockup; production uses Radix Tooltip) */
+  .tt-trigger { position: relative; display: inline-flex; align-items: center; }
+  .tt-trigger:hover .tt-content,
+  .tt-trigger:focus-within .tt-content,
+  .tt-trigger.open .tt-content { opacity: 1; pointer-events: auto; transform: translateY(0); }
+  .tt-content {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+    min-width: 280px; max-width: 360px;
+    background: rgb(15 23 42); color: rgb(241 245 249);
+    border-radius: 6px; padding: 8px 12px;
+    font-size: 12px; line-height: 1.5;
+    opacity: 0; pointer-events: none; transform: translateY(-2px);
+    transition: opacity 120ms, transform 120ms;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+  .tt-content::before {
+    content: ""; position: absolute; bottom: 100%; left: 12px;
+    border: 6px solid transparent; border-bottom-color: rgb(15 23 42);
+  }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<main class="max-w-5xl mx-auto px-6 py-12 space-y-10">
+
+  <header>
+    <h1 class="text-2xl font-bold text-slate-900">KZO-197 — Provider Health: 4-state badge + per-provider tooltip</h1>
+    <p class="text-sm text-slate-600 mt-2">
+      Adds a 4th status state (<code class="demo-label text-slate-800 bg-slate-200 px-1.5 rounded">awaiting</code>)
+      derived at the admin route layer, AND a per-provider info-tooltip explaining what
+      "Re-run now" actually does for each provider — semantics now diverge by provider.
+    </p>
+  </header>
+
+  <!-- 4-state badge gallery -->
+  <section class="panel bg-white rounded-lg p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-slate-800">Badge gallery</h2>
+    <div class="flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"></span>Healthy
+        </span>
+        <span class="demo-label text-xs text-slate-500">existing</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-800">
+          <span class="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true"></span>Degraded
+        </span>
+        <span class="demo-label text-xs text-slate-500">existing</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-rose-100 text-rose-800">
+          <span class="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true"></span>Down
+        </span>
+        <span class="demo-label text-xs text-slate-500">existing</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+          <span class="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden="true"></span>Awaiting first run
+        </span>
+        <span class="demo-label text-xs text-emerald-700 font-semibold">NEW</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tooltip catalog -->
+  <section class="panel bg-white rounded-lg p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-slate-800">Per-provider Re-run tooltip — copy catalog</h2>
+    <p class="text-sm text-slate-600">
+      Reuses <code class="demo-label">apps/web/components/ui/TooltipInfo.tsx</code> (Radix-based,
+      already used in TopBar + AddTransactionCard). Trigger sits next to each provider name.
+      Hover to expand; demonstrated below as always-open for readability.
+    </p>
+    <p class="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+      <strong>Cooldown values shown below ("60s", "30 min") are illustrative renders.</strong>
+      Production tooltip strings carry a <code class="demo-label">{cooldown}</code> placeholder;
+      the value is fetched per-provider from <code class="demo-label">app_config</code> via
+      <code class="demo-label">getEffectiveProviderRerunCooldownMs(providerId)</code>, returned
+      to the client as <code class="demo-label">ProviderHealthStatusDto.rerunCooldownMs</code>,
+      and formatted at render time by <code class="demo-label">formatCooldownLabel(ms)</code>.
+      Admins changing the override in <code class="demo-label">app_config</code> see the new value on next page load.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+      <!-- finmind-tw -->
+      <div class="border border-slate-200 rounded-md p-4">
+        <div class="font-medium text-sm mb-2 demo-label">finmind-tw</div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Refreshes daily bars + dividends for monitored TW tickers via FinMind. Cooldown 60s.
+        </div>
+      </div>
+      <!-- finmind-us -->
+      <div class="border border-slate-200 rounded-md p-4">
+        <div class="font-medium text-sm mb-2 demo-label">finmind-us</div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Refreshes daily bars + dividends for monitored US tickers via FinMind. Cooldown 60s.
+        </div>
+      </div>
+      <!-- yahoo-finance-au -->
+      <div class="border border-emerald-300 rounded-md p-4 bg-emerald-50/40">
+        <div class="font-medium text-sm mb-2 demo-label">yahoo-finance-au <span class="text-emerald-700 text-xs ml-1 font-semibold">unique semantics</span></div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance.
+          Fresh deploys process ~2,400 jobs over ~40 min. Cooldown 30 min.
+        </div>
+      </div>
+      <!-- twelve-data-au -->
+      <div class="border border-slate-200 rounded-md p-4">
+        <div class="font-medium text-sm mb-2 demo-label">twelve-data-au</div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown 60s.
+        </div>
+      </div>
+      <!-- frankfurter -->
+      <div class="border border-slate-200 rounded-md p-4">
+        <div class="font-medium text-sm mb-2 demo-label">frankfurter</div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown 60s.
+        </div>
+      </div>
+      <!-- asx-gics-csv -->
+      <div class="border border-slate-200 rounded-md p-4">
+        <div class="font-medium text-sm mb-2 demo-label">asx-gics-csv</div>
+        <div class="bg-slate-900 text-slate-100 text-xs rounded-md px-3 py-2 leading-relaxed">
+          Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown 60s.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- example admin Providers row layout -->
+  <section class="panel bg-white rounded-lg p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-slate-800">Admin Providers tab — fresh deploy + tooltip in context</h2>
+
+    <div class="border border-slate-200 rounded-md overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="text-left px-4 py-2">Provider</th>
+            <th class="text-left px-4 py-2">Status</th>
+            <th class="text-left px-4 py-2">Last successful run</th>
+            <th class="text-right px-4 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr>
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                finmind-tw
+                <span class="tt-trigger">
+                  <button aria-label="What does Re-run now do for finmind-tw?" class="text-slate-400 hover:text-slate-600">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Refreshes daily bars + dividends for monitored TW tickers via FinMind. Cooldown 60s.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600">2026-05-09 22:00 UTC</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 hover:bg-slate-50">Re-run now</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                finmind-us
+                <span class="tt-trigger">
+                  <button aria-label="What does Re-run now do for finmind-us?" class="text-slate-400 hover:text-slate-600">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Refreshes daily bars + dividends for monitored US tickers via FinMind. Cooldown 60s.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600">2026-05-09 22:00 UTC</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 hover:bg-slate-50">Re-run now</button>
+            </td>
+          </tr>
+          <tr class="bg-slate-50/40">
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                yahoo-finance-au
+                <span class="tt-trigger open">
+                  <button aria-label="What does Re-run now do for yahoo-finance-au?" class="text-emerald-600 hover:text-emerald-800">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance. Fresh deploys process ~2,400 jobs over ~40 min. Cooldown 30 min.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+                <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>Awaiting first run
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600 italic">never</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+                Re-run now <span class="text-slate-400 font-normal">·</span> warm catalog
+              </button>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                twelve-data-au
+                <span class="tt-trigger">
+                  <button aria-label="What does Re-run now do for twelve-data-au?" class="text-slate-400 hover:text-slate-600">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown 60s.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+                <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>Awaiting first run
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600 italic">never</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 hover:bg-slate-50">Re-run now</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                frankfurter
+                <span class="tt-trigger">
+                  <button aria-label="What does Re-run now do for frankfurter?" class="text-slate-400 hover:text-slate-600">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown 60s.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600">2026-05-09 22:00 UTC</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 hover:bg-slate-50">Re-run now</button>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3 font-medium">
+              <span class="inline-flex items-center gap-1.5">
+                asx-gics-csv
+                <span class="tt-trigger">
+                  <button aria-label="What does Re-run now do for asx-gics-csv?" class="text-slate-400 hover:text-slate-600">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </button>
+                  <div class="tt-content">Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown 60s.</div>
+                </span>
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>Healthy
+              </span>
+            </td>
+            <td class="px-4 py-3 text-slate-600">2026-05-09 02:00 UTC</td>
+            <td class="px-4 py-3 text-right">
+              <button class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 hover:bg-slate-50">Re-run now</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-xs text-slate-500">
+      Tooltip on the <code class="demo-label">yahoo-finance-au</code> row is shown open for illustration.
+      In production it expands on hover/focus per Radix's <code class="demo-label">Tooltip</code> primitive.
+    </p>
+  </section>
+
+  <!-- 30-min cooldown indicator (mid-warm-up state) -->
+  <section class="panel bg-white rounded-lg p-6 space-y-4">
+    <h2 class="text-lg font-semibold text-slate-800">Mid-warm-up state (post-click, cooldown active)</h2>
+    <div class="border border-slate-200 rounded-md p-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="font-medium">yahoo-finance-au</span>
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-amber-100 text-amber-800">
+          <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Degraded
+        </span>
+        <span class="text-xs text-slate-500">first job(s) running, partial errors so far</span>
+      </div>
+      <button disabled class="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed">
+        Retry in 1742s
+      </button>
+    </div>
+    <p class="text-xs text-slate-500">
+      AU rerun cooldown defaulted to 30 min via the new <code class="demo-label">yahoo_au_rerun_cooldown_ms</code>
+      <code class="demo-label">app_config</code> column. Resolver
+      <code class="demo-label">getEffectiveProviderRerunCooldownMs(providerId)</code> falls back to the
+      global 60 s for every other provider.
+    </p>
+  </section>
+
+</main>
+</body>
+</html>

@@ -5,11 +5,14 @@ import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@tw-portfoli
 import { postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { TooltipInfo } from "../ui/TooltipInfo";
 import { cn } from "../../lib/utils";
+import { formatCooldownLabel } from "../../lib/formatCooldownLabel";
 
 // i18n strings — string templates only, no function values
 // (per .claude/rules/nextjs-i18n-serialization.md)
-const t = {
+// Flat Record<string, string> — per .claude/rules/i18n-flat-record-dict-settings.md
+const t: Record<string, string> = {
   pageTitle: "Provider Health",
   pageDescription: "Monitor market data provider status and trigger manual re-runs.",
   providerLabel: "Provider",
@@ -28,8 +31,44 @@ const t = {
   statusHealthy: "Healthy",
   statusDegraded: "Degraded",
   statusDown: "Down",
+  statusAwaiting: "Awaiting first run",
   neverLabel: "Never",
+  // Per-provider rerun tooltip strings — KZO-197.
+  // {cooldown} placeholder is interpolated via formatCooldownLabel(provider.rerunCooldownMs).
+  rerunTooltipFinmindTw:
+    "Refreshes daily bars + dividends for monitored TW tickers via FinMind. Cooldown {cooldown}.",
+  rerunTooltipFinmindUs:
+    "Refreshes daily bars + dividends for monitored US tickers via FinMind. Cooldown {cooldown}.",
+  rerunTooltipYahooFinanceAu:
+    "Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance. Fresh deploys process ~2,400 jobs over ~40 min. Cooldown {cooldown}.",
+  rerunTooltipTwelveDataAu:
+    "Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}.",
+  rerunTooltipFrankfurter:
+    "Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown {cooldown}.",
+  rerunTooltipAsxGicsCsv:
+    "Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown {cooldown}.",
+  rerunTooltipTriggerLabel: "About this provider's Re-run action",
 };
+
+/**
+ * Convert a kebab-case providerId (e.g. "yahoo-finance-au") into the
+ * PascalCase suffix used in the i18n dict keys ("YahooFinanceAu").
+ * Unknown providerIds simply return an empty-suffix key, which the caller
+ * handles via the `?? ""` fallback below.
+ */
+function pascalCase(input: string): string {
+  return input
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join("");
+}
+
+function resolveRerunTooltipContent(provider: ProviderHealthStatusDto): string {
+  const key = `rerunTooltip${pascalCase(provider.providerId)}`;
+  const template = t[key] ?? "";
+  return template.replace("{cooldown}", formatCooldownLabel(provider.rerunCooldownMs));
+}
 
 function formatTimestamp(ts: string | null): string {
   if (!ts) return t.neverLabel;
@@ -52,6 +91,7 @@ function StatusBadge({
         status === "healthy" && "bg-emerald-100 text-emerald-800",
         status === "degraded" && "bg-amber-100 text-amber-800",
         status === "down" && "bg-rose-100 text-rose-800",
+        status === "awaiting" && "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
       )}
       data-testid={`${testIdPrefix}-${providerId}`}
     >
@@ -61,10 +101,17 @@ function StatusBadge({
           status === "healthy" && "bg-emerald-500",
           status === "degraded" && "bg-amber-500",
           status === "down" && "bg-rose-500",
+          status === "awaiting" && "bg-slate-400",
         )}
         aria-hidden="true"
       />
-      {status === "healthy" ? t.statusHealthy : status === "degraded" ? t.statusDegraded : t.statusDown}
+      {status === "healthy"
+        ? t.statusHealthy
+        : status === "degraded"
+          ? t.statusDegraded
+          : status === "down"
+            ? t.statusDown
+            : t.statusAwaiting}
     </span>
   );
 }
@@ -84,7 +131,17 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
       setLocalStatus((prev) => ({ ...prev, lastManualRerunAt: new Date().toISOString() }));
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
-        const retryAfter = 60;
+        // Prefer the server's `Retry-After` advice (the route writes the
+        // *remaining* cooldown in seconds, which can be much shorter than
+        // the configured window if the user clicks near the cooldown's
+        // end). Fall back to `provider.rerunCooldownMs / 1000` only when
+        // the header is absent or unparseable.
+        const headerSeconds = err.retryAfterSeconds;
+        const fallbackSeconds = Math.max(1, Math.ceil(localStatus.rerunCooldownMs / 1000));
+        const retryAfter =
+          typeof headerSeconds === "number" && Number.isFinite(headerSeconds) && headerSeconds > 0
+            ? headerSeconds
+            : fallbackSeconds;
         setCooldownSecondsRemaining(retryAfter);
         const interval = setInterval(() => {
           setCooldownSecondsRemaining((prev) => {
@@ -99,7 +156,7 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
     } finally {
       setIsRerunning(false);
     }
-  }, [isRerunning, cooldownSecondsRemaining, localStatus.providerId]);
+  }, [isRerunning, cooldownSecondsRemaining, localStatus.providerId, localStatus.rerunCooldownMs]);
 
   const rerunLabel = isRerunning
     ? t.rerunningLabel
@@ -185,7 +242,15 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
         data-testid={`provider-row-${localStatus.providerId}`}
       >
         <td className="px-4 py-4 font-mono text-sm font-medium text-slate-900 break-all">
-          {localStatus.providerId}
+          <span className="inline-flex items-center gap-1.5">
+            <span>{localStatus.providerId}</span>
+            <TooltipInfo
+              label={t.rerunTooltipTriggerLabel}
+              content={resolveRerunTooltipContent(localStatus)}
+              triggerTestId={`provider-rerun-tooltip-trigger-${localStatus.providerId}`}
+              contentTestId={`provider-rerun-tooltip-content-${localStatus.providerId}`}
+            />
+          </span>
         </td>
         <td className="px-4 py-4">
           <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
@@ -262,8 +327,14 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t.providerLabel}</p>
-          <p className="mt-1 break-all font-mono text-sm font-medium text-slate-900">
-            {localStatus.providerId}
+          <p className="mt-1 inline-flex items-center gap-1.5 break-all font-mono text-sm font-medium text-slate-900">
+            <span>{localStatus.providerId}</span>
+            <TooltipInfo
+              label={t.rerunTooltipTriggerLabel}
+              content={resolveRerunTooltipContent(localStatus)}
+              triggerTestId={`provider-rerun-tooltip-trigger-card-${localStatus.providerId}`}
+              contentTestId={`provider-rerun-tooltip-content-card-${localStatus.providerId}`}
+            />
           </p>
         </div>
         <StatusBadge

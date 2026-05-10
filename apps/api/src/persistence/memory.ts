@@ -2266,8 +2266,14 @@ export class MemoryPersistence implements Persistence {
     };
   }
 
-  async updateBackfillStatus(_ticker: string, _status: import("@tw-portfolio/domain").BackfillStatus): Promise<void> {
-    // No-op in memory mode
+  async updateBackfillStatus(
+    _ticker: string,
+    _marketCode: import("@tw-portfolio/domain").MarketCode,
+    _status: import("@tw-portfolio/domain").BackfillStatus,
+  ): Promise<void> {
+    // No-op in memory mode (matches pre-KZO-197 behavior). Signature widened
+    // for P2-2 to scope by composite (ticker, marketCode) — the Postgres impl
+    // is the load-bearing path; memory keeps the no-op shape.
   }
 
   async updateLastRepairAt(ticker: string): Promise<void> {
@@ -2306,6 +2312,7 @@ export class MemoryPersistence implements Persistence {
     providerDownNotificationSuppressionMs: number | null;
     providerErrorTrailRetentionDays: number | null;
     providerRerunCooldownMs: number | null;
+    yahooAuRerunCooldownMs: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -2338,6 +2345,8 @@ export class MemoryPersistence implements Persistence {
       providerDownNotificationSuppressionMs: p.providerDownNotificationSuppressionMs ?? null,
       providerErrorTrailRetentionDays: p.providerErrorTrailRetentionDays ?? null,
       providerRerunCooldownMs: p.providerRerunCooldownMs ?? null,
+      // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
+      yahooAuRerunCooldownMs: p.yahooAuRerunCooldownMs ?? null,
       backfillRetryLimit: p.backfillRetryLimit ?? null,
       backfillRetryDelaySeconds: p.backfillRetryDelaySeconds ?? null,
       backfillFinmind402RetryMs: p.backfillFinmind402RetryMs ?? null,
@@ -2582,14 +2591,74 @@ export class MemoryPersistence implements Persistence {
   }
 
   async getAllMonitoredTickers(): Promise<{ ticker: string; marketCode: string }[]> {
-    // KZO-185: shape change to `{ticker, marketCode}` pairs. Memory backend
-    // has no users-monitored-tickers state; the empty array remains
-    // shape-compatible with consumers (daily-refresh cron, catalog sync).
-    return [];
+    // KZO-185: shape change to `{ticker, marketCode}` pairs.
+    //
+    // KZO-197: enumerate the per-user `monitoredTickers` map so the AU rerun
+    // union path can count monitored AU rows on the memory backend. Pre-KZO-197
+    // this returned `[]` unconditionally (documented as "memory backend has no
+    // users-monitored-tickers state"), which was correct only for the cron /
+    // daily-refresh callers (those call paths still no-op on memory because
+    // `app.boss === null`). The KZO-197 admin route now reads this directly to
+    // populate audit metadata regardless of `app.boss` state, so the empty
+    // return silently dropped the monitored-AU count to 0.
+    //
+    // De-duplicate across users (the persistence interface returns DISTINCT
+    // (ticker, marketCode) pairs — same contract as the Postgres impl).
+    //
+    // KZO-197 P3: mirror the Postgres filter `bars_backfill_status='ready'
+    // AND delisted_at IS NULL`. Without it, memory-backed E2E (with
+    // `app.boss` set) would enqueue work production excludes — pending /
+    // failed / delisted rows that the real refresh cron skips.
+    const seen = new Set<string>();
+    const out: { ticker: string; marketCode: string }[] = [];
+    for (const userMap of this.monitoredTickers.values()) {
+      for (const sel of userMap.values()) {
+        const key = `${sel.ticker}|${sel.marketCode}`;
+        if (seen.has(key)) continue;
+        const instrument = this.instruments.get(
+          instrumentCatalogKey(sel.ticker, sel.marketCode),
+        );
+        if (!instrument) continue;
+        if (instrument.barsBackfillStatus !== "ready") continue;
+        if (instrument.delistedAt) continue;
+        seen.add(key);
+        out.push({ ticker: sel.ticker, marketCode: sel.marketCode });
+      }
+    }
+    out.sort((a, b) => {
+      const t = a.ticker.localeCompare(b.ticker);
+      return t !== 0 ? t : a.marketCode.localeCompare(b.marketCode);
+    });
+    return out;
   }
 
   async getUsersMonitoringTicker(_ticker: string): Promise<string[]> {
     return [];
+  }
+
+  async listAuCatalogBarsBackfillCandidates(): Promise<Array<{ ticker: string; marketCode: "AU" }>> {
+    // KZO-197 — fresh-deploy AU warm-up. Read directly from the canonical
+    // in-memory catalog map (`this.instruments`), filter to AU instruments
+    // whose `barsBackfillStatus` is `pending` or `failed` and that aren't
+    // delisted. This is the memory-backend mirror of the Postgres
+    // `SELECT ticker FROM market_data.instruments WHERE market_code='AU'
+    // AND bars_backfill_status IN ('pending','failed') AND delisted_at IS NULL`.
+    //
+    // Per `.claude/rules/test-placement-persistence-backend.md` "MemoryPersistence
+    // dual-store mirror": the unconditional mirror in `_seedInstrument`
+    // (KZO-195 iter 8) keeps the admin store in lockstep, but this method
+    // reads from `this.instruments` because it's the source-of-truth that
+    // carries the live `barsBackfillStatus` field. The admin-row mirror
+    // does not track backfill status.
+    const rows: Array<{ ticker: string; marketCode: "AU" }> = [];
+    for (const inst of this.instruments.values()) {
+      if (inst.marketCode !== "AU") continue;
+      if (inst.delistedAt) continue;
+      if (inst.barsBackfillStatus !== "pending" && inst.barsBackfillStatus !== "failed") continue;
+      rows.push({ ticker: inst.ticker, marketCode: "AU" });
+    }
+    rows.sort((a, b) => a.ticker.localeCompare(b.ticker));
+    return rows;
   }
 
   async getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]> {

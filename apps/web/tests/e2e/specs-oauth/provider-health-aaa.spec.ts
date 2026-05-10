@@ -124,6 +124,11 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
       providerId: "yahoo-finance-au",
       status: "down",
       lastSuccessfulRun: null,
+      // KZO-197: route now derives `awaiting` when both `lastSuccessfulRun`
+      // and `lastFailedRun` are null. Real "down" providers always have a
+      // recent failed-run timestamp; reflect that here so the seeded `down`
+      // status survives the derivation.
+      lastFailedRun: new Date(Date.now() - 60_000).toISOString(),
       lastErrorMessage: "service unavailable",
     });
     // KZO-200: `twelve-data-au` is the AU catalog provider (KZO-194).
@@ -158,6 +163,9 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
       providerId: "finmind-tw",
       status: "down",
       lastSuccessfulRun: null,
+      // KZO-197: non-null `lastFailedRun` so the `awaiting` derivation
+      // doesn't override the seeded `down` status.
+      lastFailedRun: new Date(Date.now() - 60_000).toISOString(),
       lastErrorMessage: "boom",
     });
 
@@ -287,6 +295,85 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
     await appShell.assert.mxAssertTruthy(
       /provider/i.test(titleText),
       "shell title contains 'Provider'",
+    );
+  });
+});
+
+// ── KZO-197 — Awaiting badge + per-provider rerun tooltip ───────────────────
+
+test.describe.serial("KZO-197 — admin /admin/providers (awaiting + tooltip)", () => {
+  test("[KZO-197 awaiting]: AU row renders 'Awaiting first run' when both run timestamps are null", async ({
+    page,
+    appShell,
+  }) => {
+    await seedProviderHealthAsBrowser(page, {
+      providerId: "yahoo-finance-au",
+      status: "down",
+      lastSuccessfulRun: null,
+      lastFailedRun: null,
+    });
+
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    const badge = page.getByTestId("provider-status-badge-yahoo-finance-au").first();
+    await badge.waitFor({ state: "visible" });
+    const text = (await badge.textContent()) ?? "";
+    await appShell.assert.mxAssertTruthy(
+      /awaiting first run/i.test(text),
+      `awaiting badge text contains 'Awaiting first run' (got: ${text})`,
+    );
+  });
+
+  test("[KZO-197 tooltip-trigger]: every provider row exposes a tooltip-trigger info-icon (desktop)", async ({
+    page,
+    appShell,
+  }) => {
+    for (const id of PROVIDERS) {
+      await seedProviderHealthAsBrowser(page, {
+        providerId: id,
+        status: "healthy",
+        lastSuccessfulRun: new Date().toISOString(),
+      });
+    }
+
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    for (const id of PROVIDERS) {
+      const trigger = page.getByTestId(`provider-rerun-tooltip-trigger-${id}`).first();
+      await trigger.waitFor({ state: "visible" });
+    }
+  });
+
+  test("[KZO-197 tooltip-content]: hovering the AU trigger reveals locked AU copy with formatted cooldown", async ({
+    page,
+    appShell,
+  }) => {
+    await seedProviderHealthAsBrowser(page, {
+      providerId: "yahoo-finance-au",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+    });
+
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    const trigger = page.getByTestId("provider-rerun-tooltip-trigger-yahoo-finance-au").first();
+    await trigger.waitFor({ state: "visible" });
+    await trigger.hover();
+
+    const content = page.getByTestId("provider-rerun-tooltip-content-yahoo-finance-au").first();
+    await content.waitFor({ state: "visible" });
+    const text = (await content.textContent()) ?? "";
+    // Locked AU copy mentions Yahoo Finance + the 30-min cooldown.
+    await appShell.assert.mxAssertTruthy(
+      /yahoo finance/i.test(text),
+      `tooltip content references Yahoo Finance (got: ${text})`,
+    );
+    await appShell.assert.mxAssertTruthy(
+      /cooldown\s+30\s+min/i.test(text),
+      `tooltip content shows "Cooldown 30 min" (got: ${text})`,
     );
   });
 });
