@@ -1,17 +1,39 @@
-import type { DailyBar, QuoteSnapshot } from "@tw-portfolio/domain";
+import type { DailyBar, MarketCode, QuoteSnapshot } from "@tw-portfolio/domain";
 import type { Persistence } from "../../persistence/types.js";
 
+export interface QuoteSnapshotPair {
+  ticker: string;
+  marketCode?: MarketCode;
+}
+
 /**
- * Resolve quote snapshots for a list of tickers from the latest persisted daily bars.
+ * Resolve quote snapshots for a list of (ticker, marketCode) pairs.
  *
- * Fetches the latest 2 bars per ticker to compute derived fields (previousClose, change, changePercent).
- * Returns a map keyed by ticker with explicit nulls for tickers with no bars.
+ * Fetches the latest 2 bars per ticker to compute derived fields
+ * (previousClose, change, changePercent). Returns a map keyed by ticker
+ * with explicit nulls for tickers with no bars.
+ *
+ * KZO-191: provisional is now market-aware. A bar is provisional iff
+ * `barDate < settledByMarket.get(marketCode)`. Callers pre-resolve the
+ * per-market settled date via `tradingCalendarCache.latestSettledTradingDay`.
+ * Pairs without a resolvable `marketCode` (manual instruments, or callers
+ * like `/quotes` that don't carry market context) fall back to
+ * `isProvisional = false`.
  */
 export async function resolveQuoteSnapshots(
-  tickers: string[],
+  pairs: ReadonlyArray<QuoteSnapshotPair>,
   persistence: Persistence,
+  settledByMarket: ReadonlyMap<MarketCode, string>,
 ): Promise<Record<string, QuoteSnapshot | null>> {
-  if (tickers.length === 0) return {};
+  if (pairs.length === 0) return {};
+
+  const tickers = [...new Set(pairs.map((pair) => pair.ticker))];
+  const marketByTicker = new Map<string, MarketCode>();
+  for (const pair of pairs) {
+    if (pair.marketCode && !marketByTicker.has(pair.ticker)) {
+      marketByTicker.set(pair.ticker, pair.marketCode);
+    }
+  }
 
   const bars = await persistence.getLatestBars(tickers, 2);
 
@@ -52,7 +74,7 @@ export async function resolveQuoteSnapshots(
       changePercent,
       asOf: latest.barDate,
       source: latest.source,
-      isProvisional: computeIsProvisional(latest.barDate),
+      isProvisional: computeIsProvisional(latest.barDate, marketByTicker.get(ticker), settledByMarket),
     };
   }
 
@@ -60,21 +82,22 @@ export async function resolveQuoteSnapshots(
 }
 
 /**
- * Weekend-aware provisional check in TST (UTC+8).
- * If bar_date < today (TST) and today is a weekday, the bar is provisional.
- * On weekends, the latest bar is considered non-provisional.
+ * KZO-191: market-aware provisional check.
+ *
+ * A bar is provisional iff its date is before the latest settled trading day
+ * for its market. When `marketCode` is missing (manual instrument, or caller
+ * without market context like `/quotes`), or no settled date is supplied for
+ * the market, the bar is treated as non-provisional — matches the
+ * conservative default established by KZO-177's freshness DTO for
+ * unresolvable instruments.
  */
-function computeIsProvisional(barDate: string): boolean {
-  const now = new Date();
-  // Convert to TST (UTC+8)
-  const tstOffset = 8 * 60 * 60 * 1000;
-  const tstNow = new Date(now.getTime() + tstOffset);
-  const tstToday = tstNow.toISOString().slice(0, 10);
-  const dayOfWeek = tstNow.getUTCDay(); // 0=Sun, 6=Sat
-
-  // Weekend: treat latest bar as non-provisional
-  if (dayOfWeek === 0 || dayOfWeek === 6) return false;
-
-  // Weekday: provisional if bar_date is before today
-  return barDate < tstToday;
+function computeIsProvisional(
+  barDate: string,
+  marketCode: MarketCode | undefined,
+  settledByMarket: ReadonlyMap<MarketCode, string>,
+): boolean {
+  if (!marketCode) return false;
+  const settled = settledByMarket.get(marketCode);
+  if (!settled) return false;
+  return barDate < settled;
 }

@@ -33,7 +33,7 @@ import {
 import type { ImpersonationDto } from "@tw-portfolio/shared-types";
 import { Env } from "@tw-portfolio/config";
 import type { QuoteSnapshot } from "@tw-portfolio/domain";
-import { resolveQuoteSnapshots } from "../services/market-data/quoteSnapshotService.js";
+import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "../services/market-data/quoteSnapshotService.js";
 import {
   listCorporateActions,
   listDividendDeductionEntries,
@@ -1296,17 +1296,18 @@ function daysBeforeIsoDate(date: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-function isWeekendIsoDate(date: string): boolean {
-  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-  return day === 0 || day === 6;
-}
-
 function findMostRecentBar(bars: DailyBar[], requestedDate: string): DailyBar | null {
   const eligible = bars.filter((bar) => bar.barDate <= requestedDate);
   return eligible.at(-1) ?? null;
 }
 
-function buildPriceLookupResponse(bar: DailyBar, requestedDate: string) {
+// KZO-191: `reason` discriminator is now market-aware. `requestedDateIsTradingDay`
+// is resolved at the route handler via `tradingCalendarCache.isTradingDay(market, date)`
+// and threaded in. The `"weekend"` literal is retained for backwards compatibility
+// but its semantics widen to "non-trading day" (weekend OR holiday). When the cache
+// is empty (tests), `isTradingDayPure` falls through to a weekday check, so
+// existing weekend-fixture assertions stay green.
+function buildPriceLookupResponse(bar: DailyBar, requestedDate: string, requestedDateIsTradingDay: boolean) {
   if (bar.barDate === requestedDate) {
     return {
       close: bar.close,
@@ -1321,7 +1322,7 @@ function buildPriceLookupResponse(bar: DailyBar, requestedDate: string) {
     date: bar.barDate,
     source: bar.source,
     match: "previous" as const,
-    reason: isWeekendIsoDate(requestedDate) ? "weekend" as const : "no_bar" as const,
+    reason: requestedDateIsTradingDay ? "no_bar" as const : "weekend" as const,
   };
 }
 
@@ -1329,14 +1330,44 @@ function buildPriceLookupResponse(bar: DailyBar, requestedDate: string) {
 // returned bar's date matches the requested date — so the client treats every
 // FinMind hit as "we filled a gap" rather than "the DB had it." This is the
 // scope-locked behavior from KZO-160 §F2 step 4 (refined scope-todo).
-function buildFetchedPriceLookupResponse(bar: DailyBar, requestedDate: string) {
+function buildFetchedPriceLookupResponse(bar: DailyBar, requestedDate: string, requestedDateIsTradingDay: boolean) {
   return {
     close: bar.close,
     date: bar.barDate,
     source: bar.source,
     match: "previous" as const,
-    reason: isWeekendIsoDate(requestedDate) ? "weekend" as const : "no_bar" as const,
+    reason: requestedDateIsTradingDay ? "no_bar" as const : "weekend" as const,
   };
+}
+
+// KZO-191: helper for the 3 callers that have `store` context. Builds
+// `(ticker, marketCode?)` pairs from `store.instruments` and pre-resolves
+// `latestSettledTradingDay` once per distinct market.
+async function buildQuoteSnapshotInputs(
+  app: FastifyInstance,
+  store: Store,
+  tickers: ReadonlyArray<string>,
+  now: Date = new Date(),
+): Promise<{ pairs: QuoteSnapshotPair[]; settledByMarket: Map<MarketCode, string> }> {
+  const tickerToMarket = new Map<string, MarketCode>();
+  for (const inst of store.instruments) {
+    if (inst.marketCode === "TW" || inst.marketCode === "US" || inst.marketCode === "AU") {
+      tickerToMarket.set(inst.ticker, inst.marketCode);
+    }
+  }
+  const pairs: QuoteSnapshotPair[] = tickers.map((ticker) => {
+    const marketCode = tickerToMarket.get(ticker);
+    return marketCode ? { ticker, marketCode } : { ticker };
+  });
+  const distinctMarkets = new Set<MarketCode>();
+  for (const pair of pairs) {
+    if (pair.marketCode) distinctMarkets.add(pair.marketCode);
+  }
+  const settledByMarket = new Map<MarketCode, string>();
+  for (const market of distinctMarkets) {
+    settledByMarket.set(market, await app.tradingCalendarCache.latestSettledTradingDay(market, now));
+  }
+  return { pairs, settledByMarket };
 }
 
 async function opportunisticUpsertDailyBars(
@@ -2608,7 +2639,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           .map((holding) => holding.ticker),
       ),
     ];
-    const quotes = await resolveQuoteSnapshots(tickers, app.persistence);
+    const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, tickers);
+    const quotes = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
 
     // Owner display name fallback chain.
     const ownerDisplayName = owner.displayName
@@ -3172,11 +3204,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "invalid_date", "date must not be in the future");
     }
 
+    // KZO-191: resolve once, thread into both response builders. Replaces the
+    // weekend-only `isWeekendIsoDate` helper with the market-aware calendar.
+    const requestedDateIsTradingDay = await app.tradingCalendarCache.isTradingDay(
+      query.market_code,
+      query.date,
+    );
+
     const lookbackStartDate = daysBeforeIsoDate(query.date, 7);
     const storedBars = await app.persistence.getDailyBarsForTicker(query.ticker, lookbackStartDate, query.date);
     const storedMatch = findMostRecentBar(storedBars, query.date);
     if (storedMatch) {
-      return buildPriceLookupResponse(storedMatch, query.date);
+      return buildPriceLookupResponse(storedMatch, query.date, requestedDateIsTradingDay);
     }
 
     // KZO-163: route through the per-market provider registry. The provider's internal rate
@@ -3216,7 +3255,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     await opportunisticUpsertDailyBars(app, fetchedBars, market);
-    return buildFetchedPriceLookupResponse(fetchedMatch, query.date);
+    return buildFetchedPriceLookupResponse(fetchedMatch, query.date, requestedDateIsTradingDay);
   });
 
   /**
@@ -3673,8 +3712,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // KZO-180 review L1: prefs read parallelized with the quote-snapshot fetch
     // (both are I/O against the same persistence backend; neither depends on
     // the other). Saves one round-trip on the hot dashboard path.
+    // KZO-191: pair/settled-map construction folded into the parallel branch
+    // so the calendar lookups overlap with the persistence read.
     const [snapshotMap, prefs] = await Promise.all([
-      resolveQuoteSnapshots(symbols, app.persistence),
+      (async () => {
+        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+      })(),
       app.persistence.getUserPreferences(userId),
     ]);
     const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
@@ -3733,7 +3777,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .map((trade) => trade.ticker)
         .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
     )];
-    const snapshotMap = await resolveQuoteSnapshots(symbols, app.persistence);
+    const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+    const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
     const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
     // KZO-180: replaces `buildDashboardPerformance` with the FX-aware aggregator.
@@ -4291,7 +4336,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       throw routeError(400, "too_many_symbols", "No more than 20 symbols are allowed per request.");
     }
 
-    return resolveQuoteSnapshots(tickers, app.persistence);
+    // KZO-191: /quotes has no `store` context — pass pairs with no marketCode.
+    // Per the tolerant-pair contract in resolveQuoteSnapshots, missing
+    // marketCode → isProvisional=false (same fallback as manual instruments).
+    return resolveQuoteSnapshots(
+      tickers.map((ticker) => ({ ticker })),
+      app.persistence,
+      new Map(),
+    );
   });
 
   app.post("/ai/transactions/parse", async (req) => {
