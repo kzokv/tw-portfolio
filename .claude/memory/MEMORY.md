@@ -60,6 +60,14 @@
 - `fastify-eviction-lifecycle-pattern.md` (addendum) — client-facing values derived from live-tunable knobs (Retry-After header, error-envelope retryAfterMs) must use the live resolver, not Env.* — extends "schedule static, parameter live" to client-visible surface
 - `validator-activation-gate.md` (occurrence 4 + new failure class) — Architect-side envelope drop: gate held correctly but upstream `[ARCHITECT:GO]` was never sent; mitigation = per-recipient SendMessage + Dispatcher gate-status surfacing
 
+## KZO-192 — ECB/TARGET2 holiday awareness for synthetic FX market (2026-05-12)
+
+- **FX calendar shape:** `tradingCalendar.ts` now has 6 private helpers (no exports): `computeEasterSunday` (Meeus/Jones/Butcher Computus), `ECB_HOLIDAY_YEAR_CACHE` (lazy `Map<number, ReadonlySet<string>>`), `ecbHolidaysForYear`, `isEcbHoliday`, `isFxTradingDay`, `previousFxTradingDayOnOrBefore`. Inserted between `previousWeekdayOnOrBefore` and `latestTradingDateOnOrBefore`. All `function`-keyword, all private.
+- **FX-branch split is intentional:** `isTradingDayPure` and `tradingDaysBetweenPure` originally collapsed FX and equity-bootstrap (`tradingDates.size === 0`) into the same branch. They are now split so ECB-holiday semantics do NOT propagate to TW/US/AU equity bootstrap. Do NOT "clean up" this split.
+- **v1 limitation:** ECB one-off emergency closures (system migrations) NOT covered. If such an event occurs, mint a follow-on ticket; do NOT silently patch `ecbHolidaysForYear`.
+- **`dashboardFreshness.ts` not in FX scope:** that file does not traverse the FX calendar path. Stock stale-amber badges are unaffected by KZO-192. Only `/admin/providers` `frankfurter` row is affected.
+- **Timestamp sensitivity for FX rollback tests (rule candidate — needs 2nd data point):** `latestSettledTradingDayPure` tests that expect rollback must trace `resolveFxSettlementCandidate(input)` first. Post-publish (`T18:00Z`) input → candidate = same day; rollback fires only if the CANDIDATE itself is an ECB holiday (AC #1 Good Friday is correct). Pre-cluster tests → use `T15:00Z` so candidate = prior Sunday → rolls back through the cluster. QA caught this in KZO-192 when scope-todo listed `T18:00Z` inputs for Christmas and NYD but the expected values required pre-publish timestamps.
+
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis
 - [feedback_team_response_time_slas.md](feedback_team_response_time_slas.md) — `/team` Architect [TRIAGE] 5-min SLA + Validator [HEARTBEAT] during long suites — process refinements from KZO-185
