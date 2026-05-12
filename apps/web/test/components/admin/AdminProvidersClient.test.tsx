@@ -137,7 +137,7 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
     ).toMatch(/awaiting first run/i);
   });
 
-  it("(b) renders a tooltip-trigger info-icon for every provider (desktop and card)", () => {
+  it("(b) renders a popover-trigger on the provider name for every provider (desktop and card)", () => {
     const ids = [
       "finmind-tw",
       "finmind-us",
@@ -153,17 +153,23 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
 
     for (const id of ids) {
       expect(
-        document.querySelector(`[data-testid='provider-rerun-tooltip-trigger-${id}']`),
+        document.querySelector(`[data-testid='provider-help-trigger-${id}']`),
         `desktop trigger for ${id}`,
       ).not.toBeNull();
       expect(
-        document.querySelector(`[data-testid='provider-rerun-tooltip-trigger-card-${id}']`),
+        document.querySelector(`[data-testid='provider-help-trigger-card-${id}']`),
         `card trigger for ${id}`,
       ).not.toBeNull();
     }
   });
 
-  it("(b') tooltip-trigger button carries the locked aria-label", () => {
+  it("(b') popover-trigger button exposes the provider id as its accessible name (table + card)", () => {
+    // Codex adversarial review caught the prior regression: a generic
+    // `aria-label="About this provider's Re-run action"` overrode the visible
+    // provider id on every trigger, so screen-reader / voice-control users
+    // could not distinguish which row's name button they were targeting.
+    // The accessible name now comes from the button's visible text content
+    // (the provider id itself), which is what the user reads on screen.
     act(() =>
       root.render(
         <AdminProvidersClient
@@ -171,13 +177,21 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
         />,
       ),
     );
-    const trigger = document.querySelector(
-      "[data-testid='provider-rerun-tooltip-trigger-yahoo-finance-au']",
-    ) as HTMLElement | null;
-    expect(trigger).not.toBeNull();
-    expect(trigger!.getAttribute("aria-label")).toBe(
-      "About this provider's Re-run action",
-    );
+    for (const selector of [
+      "[data-testid='provider-help-trigger-yahoo-finance-au']",
+      "[data-testid='provider-help-trigger-card-yahoo-finance-au']",
+    ]) {
+      const trigger = document.querySelector(selector) as HTMLElement | null;
+      expect(trigger, `${selector} present`).not.toBeNull();
+      expect(
+        trigger!.hasAttribute("aria-label"),
+        `${selector} must NOT carry an aria-label override`,
+      ).toBe(false);
+      expect(
+        (trigger!.textContent ?? "").trim(),
+        `${selector} accessible name = visible text = provider id`,
+      ).toBe("yahoo-finance-au");
+    }
   });
 
   it("(d) 429 with Retry-After header → countdown honors header value (NOT rerunCooldownMs)", async () => {

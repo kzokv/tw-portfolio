@@ -341,12 +341,12 @@ test.describe.serial("KZO-197 — admin /admin/providers (awaiting + tooltip)", 
     await page.waitForLoadState("load");
 
     for (const id of PROVIDERS) {
-      const trigger = page.getByTestId(`provider-rerun-tooltip-trigger-${id}`).first();
+      const trigger = page.getByTestId(`provider-help-trigger-${id}`).first();
       await trigger.waitFor({ state: "visible" });
     }
   });
 
-  test("[KZO-197 tooltip-content]: hovering the AU trigger reveals locked AU copy with formatted cooldown", async ({
+  test("[KZO-197 popover-content]: clicking the AU trigger reveals locked AU copy with formatted cooldown", async ({
     page,
     appShell,
   }) => {
@@ -359,21 +359,23 @@ test.describe.serial("KZO-197 — admin /admin/providers (awaiting + tooltip)", 
     await appShell.actions.navigateToRoute("/admin/providers");
     await page.waitForLoadState("load");
 
-    const trigger = page.getByTestId("provider-rerun-tooltip-trigger-yahoo-finance-au").first();
+    // admin-ui-bugs: hover-tooltip on a `?` icon was replaced by a click
+    // popover anchored to the provider name itself.
+    const trigger = page.getByTestId("provider-help-trigger-yahoo-finance-au").first();
     await trigger.waitFor({ state: "visible" });
-    await trigger.hover();
+    await trigger.click();
 
-    const content = page.getByTestId("provider-rerun-tooltip-content-yahoo-finance-au").first();
+    const content = page.getByTestId("provider-help-popover-yahoo-finance-au").first();
     await content.waitFor({ state: "visible" });
     const text = (await content.textContent()) ?? "";
     // Locked AU copy mentions Yahoo Finance + the 30-min cooldown.
     await appShell.assert.mxAssertTruthy(
       /yahoo finance/i.test(text),
-      `tooltip content references Yahoo Finance (got: ${text})`,
+      `popover content references Yahoo Finance (got: ${text})`,
     );
     await appShell.assert.mxAssertTruthy(
       /cooldown\s+30\s+min/i.test(text),
-      `tooltip content shows "Cooldown 30 min" (got: ${text})`,
+      `popover content shows "Cooldown 30 min" (got: ${text})`,
     );
   });
 });
@@ -415,6 +417,149 @@ test.describe.serial("holdings freshness badge (KZO-177)", () => {
       await anyBadge.count(),
       0,
       "freshness badge absent",
+    );
+  });
+});
+
+// ── Admin UI Bugs — Popover interaction (click-to-show + dismiss) ─────────────
+//
+// Tests for the click-popover that replaces the hover-tooltip on provider name
+// cells. The popover trigger is the provider name button; testids are locked per
+// architect-design.md §2.
+//
+// Interaction model change: hover-to-show (TooltipInfo) → click-to-show (Radix
+// Popover on the provider name button itself).
+//
+// Coverage per `.claude/rules/responsive-dual-layout-testid-prefixes.md`:
+//   - Table variant (default 1280px viewport) — `provider-help-trigger-{id}`
+//   - Card variant (narrow <1024px viewport) — `provider-help-trigger-card-{id}`
+//
+// TDD-RED until the Implementer lands:
+//   - `apps/web/components/ui/Popover.tsx`
+//   - Popover wiring in `AdminProvidersClient.tsx` (table + card cells)
+//   Failing assertion: `waitFor({state:"visible"})` on `provider-help-trigger-*`
+//   times out because the testid does not exist in the current implementation.
+
+test.describe.serial("popover interaction — click-to-show + dismiss (admin-ui-bugs)", () => {
+  async function seedFinmindTwHealthy(page: Page): Promise<void> {
+    await seedProviderHealthAsBrowser(page, {
+      providerId: "finmind-tw",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+    });
+  }
+
+  test("[providers-popover-A]: click provider name (table) → popover opens", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    await page.getByTestId("provider-row-finmind-tw").waitFor({ state: "visible" });
+
+    // The provider name button is the popover trigger (locked testid per architect-design §2).
+    const trigger = page.getByTestId("provider-help-trigger-finmind-tw").first();
+    await trigger.waitFor({ state: "visible" });
+    await trigger.click();
+
+    // Popover content appears after click.
+    const content = page.getByTestId("provider-help-popover-finmind-tw").first();
+    await content.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await content.isVisible(),
+      "popover content visible after trigger click (table)",
+    );
+  });
+
+  test("[providers-popover-B]: outside click → popover closes (table)", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    // Open the popover.
+    const trigger = page.getByTestId("provider-help-trigger-finmind-tw").first();
+    await trigger.waitFor({ state: "visible" });
+    await trigger.click();
+
+    const content = page.getByTestId("provider-help-popover-finmind-tw").first();
+    await content.waitFor({ state: "visible" });
+
+    // Click the section heading — clearly outside the popover Portal.
+    await page.locator("h1").first().click();
+
+    // Radix Popover closes on any outside click.
+    await appShell.assert.mxAssertTruthy(
+      !(await content.isVisible()),
+      "popover dismissed after outside click (table)",
+    );
+  });
+
+  test("[providers-popover-C]: Escape key → popover closes (table)", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    // Open the popover.
+    const trigger = page.getByTestId("provider-help-trigger-finmind-tw").first();
+    await trigger.waitFor({ state: "visible" });
+    await trigger.click();
+
+    const content = page.getByTestId("provider-help-popover-finmind-tw").first();
+    await content.waitFor({ state: "visible" });
+
+    // Radix Popover traps the Escape key and closes.
+    await page.keyboard.press("Escape");
+
+    await appShell.assert.mxAssertTruthy(
+      !(await content.isVisible()),
+      "popover dismissed after Escape key (table)",
+    );
+  });
+
+  test("[providers-popover-D]: card trigger (narrow viewport) → popover opens + closes", async ({
+    page,
+    appShell,
+  }) => {
+    await seedFinmindTwHealthy(page);
+
+    // Switch to a narrow viewport so the card grid is shown and the table is
+    // hidden. The `lg:hidden` breakpoint is 1024px — use 768px to stay below.
+    // Per `.claude/rules/responsive-dual-layout-testid-prefixes.md`: card
+    // testids use `-card-` suffix: `provider-help-trigger-card-{id}`.
+    await page.setViewportSize({ width: 768, height: 1024 });
+
+    await appShell.actions.navigateToRoute("/admin/providers");
+    await page.waitForLoadState("load");
+
+    // Card grid is visible; desktop table is hidden.
+    await page.getByTestId("provider-card-finmind-tw").waitFor({ state: "visible" });
+
+    // Click the card trigger (locked -card- testid suffix).
+    const cardTrigger = page.getByTestId("provider-help-trigger-card-finmind-tw").first();
+    await cardTrigger.waitFor({ state: "visible" });
+    await cardTrigger.click();
+
+    // Card popover content appears.
+    const cardContent = page.getByTestId("provider-help-popover-card-finmind-tw").first();
+    await cardContent.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await cardContent.isVisible(),
+      "card popover content visible after card trigger click",
+    );
+
+    // Escape also closes the card popover.
+    await page.keyboard.press("Escape");
+    await appShell.assert.mxAssertTruthy(
+      !(await cardContent.isVisible()),
+      "card popover dismissed after Escape",
     );
   });
 });

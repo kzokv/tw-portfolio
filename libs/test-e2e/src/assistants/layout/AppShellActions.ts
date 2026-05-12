@@ -229,17 +229,45 @@ export class AppShellActions extends AppBaseActions {
   }
 
   /**
-   * KZO-199: helper to switch /admin/settings into a specific tab. Click the
-   * tab trigger only if the panel isn't already active (the rate-limits panel
+   * Helper to switch /admin/settings into a specific tab. Click the tab
+   * trigger only if the panel isn't already active (the rate-limits panel
    * is the default and many tests target it without a prior click).
+   *
+   * admin-ui-bugs: extended slug union to include `display-defaults` and
+   * `api-keys` (the Dashboard Timeframe Defaults and Provider API keys
+   * cards moved into their own dedicated tabs).
    */
   @Step()
-  async ensureAdminSettingsTabActive(slug: "rate-limits" | "sharing" | "provider-health" | "backfill-repair" | "catalog-metadata"): Promise<void> {
+  async ensureAdminSettingsTabActive(
+    slug:
+      | "rate-limits"
+      | "sharing"
+      | "provider-health"
+      | "backfill-repair"
+      | "catalog-metadata"
+      | "display-defaults"
+      | "api-keys",
+  ): Promise<void> {
     const panel = this.el.testId(`admin-settings-panel-${slug}`);
     if (await panel.isVisible().catch(() => false)) return;
     const trigger = this.el.testId(`admin-settings-tab-${slug}`);
     await this.uiActions.click.perform(trigger);
     await panel.waitFor({ state: "visible" });
+  }
+
+  /** Alias for `ensureAdminSettingsTabActive` — preferred call site name. */
+  @Step()
+  async navigateToAdminSettingsTab(
+    slug:
+      | "rate-limits"
+      | "sharing"
+      | "provider-health"
+      | "backfill-repair"
+      | "catalog-metadata"
+      | "display-defaults"
+      | "api-keys",
+  ): Promise<void> {
+    await this.ensureAdminSettingsTabActive(slug);
   }
 
   @Step()
@@ -273,6 +301,7 @@ export class AppShellActions extends AppBaseActions {
 
   @Step()
   async clickAdminTimeframeChip(range: string): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     await this.uiActions.click.perform(this.el.testId(`timeframe-chip-${range}`));
   }
 
@@ -283,6 +312,7 @@ export class AppShellActions extends AppBaseActions {
    */
   @Step()
   async dragAdminTimeframeChip(from: string, to: string): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     const order = await this.adminActiveTimeframeOrder();
     const fromIndex = order.indexOf(from);
     const toIndex = order.indexOf(to);
@@ -318,21 +348,25 @@ export class AppShellActions extends AppBaseActions {
 
   @Step()
   async fillAdminTimeframeAddInput(value: string): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     await this.mxFill(this.el.testId("timeframe-add-input"), value);
   }
 
   @Step()
   async clickAdminTimeframeAddButton(): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     await this.uiActions.click.perform(this.el.testId("timeframe-add-button"));
   }
 
   @Step()
   async clickAdminTimeframeReset(): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     await this.uiActions.click.perform(this.el.testId("timeframe-reset-button"));
   }
 
   @Step()
   async clickAdminTimeframeSave(): Promise<void> {
+    await this.ensureAdminSettingsTabActive("display-defaults");
     await this.uiActions.click.perform(this.el.testId("timeframe-save-button"));
   }
 

@@ -3,7 +3,7 @@
 // Lives in `specs-oauth/` because /admin/settings is admin-gated.
 //
 // Coverage:
-//   [tab-nav]  Tab navigation — 5 tabs render, default is `rate-limits`, URL
+//   [tab-nav]  Tab navigation — 7 tabs render, default is `rate-limits`, URL
 //              `?tab=sharing` switches to the sharing panel, testids locked per
 //              architect-design.md §0.
 //   [sharing-A] Sharing tab — set anonymousShareTokenCap = 1, save, verify
@@ -14,7 +14,7 @@
 //
 // Locked testids (architect-design.md §0):
 //   admin-settings-tabs
-//   admin-settings-tab-{slug} (rate-limits | sharing | provider-health | backfill-repair | catalog-metadata)
+//   admin-settings-tab-{slug} (rate-limits | sharing | provider-health | backfill-repair | catalog-metadata | display-defaults | api-keys)
 //   admin-settings-panel-{slug}
 //   admin-settings-input-anonymousShareTokenCap
 //   admin-settings-input-anonymousShareRateLimitMax
@@ -115,7 +115,7 @@ async function createShareToken(
 }
 
 test.describe.serial("admin settings Tier B — tab navigation + sharing knobs (KZO-199)", () => {
-  test("[tab-nav]: 5 tabs render; default is rate-limits; ?tab=sharing switches panel", async ({
+  test("[tab-nav]: 7 tabs render; default is rate-limits; ?tab=sharing switches panel", async ({
     appShell,
     page,
   }) => {
@@ -128,13 +128,17 @@ test.describe.serial("admin settings Tier B — tab navigation + sharing knobs (
     const tabsContainer = page.getByTestId("admin-settings-tabs");
     await tabsContainer.waitFor({ state: "visible" });
 
-    // ── 2. All 5 tab triggers are present ────────────────────────────────
+    // ── 2. All 7 tab triggers are present ────────────────────────────────
+    // admin-ui-bugs: added `display-defaults` + `api-keys` tabs after moving
+    // the two orphan cards inside <TabsRoot>.
     for (const slug of [
       "rate-limits",
       "sharing",
       "provider-health",
       "backfill-repair",
       "catalog-metadata",
+      "display-defaults",
+      "api-keys",
     ]) {
       const trigger = page.getByTestId(`admin-settings-tab-${slug}`);
       await trigger.waitFor({ state: "visible" });
@@ -347,5 +351,148 @@ test.describe.serial("admin settings Tier B — tab navigation + sharing knobs (
     await page.waitForLoadState("load");
     await page.getByTestId("admin-settings-panel-sharing").waitFor({ state: "visible" });
     await page.getByTestId(badgeTestId).waitFor({ state: "visible" });
+  });
+});
+
+// ── Admin UI Bugs — new tab coverage (display-defaults + api-keys) ────────────
+//
+// Tests that the two new tabs (`display-defaults` and `api-keys`) render
+// correctly and that the orphan cards that were previously outside <TabsRoot>
+// now live inside their respective tab panels.
+//
+// Locked testids (architect-design.md §2):
+//   admin-settings-tab-display-defaults   — tab trigger
+//   admin-settings-panel-display-defaults — tab panel
+//   admin-settings-tab-api-keys           — tab trigger
+//   admin-settings-panel-api-keys         — tab panel
+//   timeframe-defaults-section            — preserved; must be inside display-defaults panel
+//   admin-settings-provider-keys-section  — preserved; must be inside api-keys panel
+//
+// TDD-RED until the Implementer:
+//   1. Extends TAB_SLUGS in AdminSettingsClient.tsx with "display-defaults" + "api-keys"
+//   2. Moves the orphan <Card>s into <TabsContent value="display-defaults|api-keys">
+//   Failing assertion: waitFor({state:"visible"}) on `admin-settings-tab-display-defaults`
+//   times out because the tab slug is not yet in TAB_SLUGS.
+//
+// forceMount note: Tabs.tsx:62 uses forceMount so ALL panels are in the DOM
+// regardless of active tab. Playwright `isVisible()` still returns false for
+// inactive panels because Radix stamps `data-state="inactive"` and
+// `data-[state=inactive]:hidden` maps to CSS `display:none`.
+
+test.describe.serial("admin settings — display-defaults + api-keys tabs (admin-ui-bugs)", () => {
+  test("[tab-display-defaults-A]: clicking display-defaults tab shows timeframe-defaults-section inside panel", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings");
+    await appShell.assert.adminSettingsPageIsVisible();
+    await page.waitForLoadState("load");
+
+    // The new tab trigger must be present in the tab list.
+    const displayDefaultsTab = page.getByTestId("admin-settings-tab-display-defaults");
+    await displayDefaultsTab.waitFor({ state: "visible" });
+
+    // Click to activate the display-defaults tab.
+    await displayDefaultsTab.click();
+
+    // The panel becomes the active (visible) panel.
+    const panel = page.getByTestId("admin-settings-panel-display-defaults");
+    await panel.waitFor({ state: "visible" });
+
+    // The timeframe-defaults-section card must be INSIDE this panel (not outside TabsRoot).
+    const section = panel.getByTestId("timeframe-defaults-section");
+    await section.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await section.isVisible(),
+      "timeframe-defaults-section visible within display-defaults panel",
+    );
+
+    // URL should reflect ?tab=display-defaults (mirrors the existing tab-nav pattern).
+    await appShell.assert.mxAssertTruthy(
+      page.url().includes("tab=display-defaults"),
+      "URL contains tab=display-defaults after click",
+    );
+  });
+
+  test("[tab-api-keys-A]: clicking api-keys tab shows admin-settings-provider-keys-section inside panel", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings");
+    await appShell.assert.adminSettingsPageIsVisible();
+    await page.waitForLoadState("load");
+
+    // The new api-keys tab trigger must be present.
+    const apiKeysTab = page.getByTestId("admin-settings-tab-api-keys");
+    await apiKeysTab.waitFor({ state: "visible" });
+
+    // Click to activate.
+    await apiKeysTab.click();
+
+    // The api-keys panel becomes visible.
+    const panel = page.getByTestId("admin-settings-panel-api-keys");
+    await panel.waitFor({ state: "visible" });
+
+    // The provider-keys section must be INSIDE this panel (not outside TabsRoot).
+    const section = panel.getByTestId("admin-settings-provider-keys-section");
+    await section.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await section.isVisible(),
+      "admin-settings-provider-keys-section visible within api-keys panel",
+    );
+
+    // URL should reflect ?tab=api-keys.
+    await appShell.assert.mxAssertTruthy(
+      page.url().includes("tab=api-keys"),
+      "URL contains tab=api-keys after click",
+    );
+  });
+
+  test("[tab-display-defaults-B]: navigating to ?tab=display-defaults activates the panel", async ({
+    appShell,
+    page,
+  }) => {
+    // Direct URL navigation — mirrors the existing ?tab=sharing pattern in [tab-nav].
+    await appShell.actions.navigateToRoute("/admin/settings?tab=display-defaults");
+    await appShell.assert.adminSettingsPageIsVisible();
+    await page.waitForLoadState("load");
+
+    const panel = page.getByTestId("admin-settings-panel-display-defaults");
+    await panel.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await panel.isVisible(),
+      "display-defaults panel visible on direct URL navigation",
+    );
+
+    // Other panels must be inactive (not visible) — rate-limits is the default so
+    // it should NOT be visible when display-defaults is explicitly selected.
+    const rateLimitsPanel = page.getByTestId("admin-settings-panel-rate-limits");
+    await appShell.assert.mxAssertTruthy(
+      !(await rateLimitsPanel.isVisible()),
+      "rate-limits panel not visible when display-defaults tab is active",
+    );
+  });
+
+  test("[tab-api-keys-B]: navigating to ?tab=api-keys activates the panel", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings?tab=api-keys");
+    await appShell.assert.adminSettingsPageIsVisible();
+    await page.waitForLoadState("load");
+
+    const panel = page.getByTestId("admin-settings-panel-api-keys");
+    await panel.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertTruthy(
+      await panel.isVisible(),
+      "api-keys panel visible on direct URL navigation",
+    );
+
+    // Default rate-limits panel is inactive when api-keys is selected.
+    const rateLimitsPanel = page.getByTestId("admin-settings-panel-rate-limits");
+    await appShell.assert.mxAssertTruthy(
+      !(await rateLimitsPanel.isVisible()),
+      "rate-limits panel not visible when api-keys tab is active",
+    );
   });
 });
