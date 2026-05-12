@@ -55,6 +55,26 @@ Three self-activation incidents across KZO-172 (×2) and KZO-189 (×1), all befo
 - Dispatcher SOP: on phase advancement, after task creation, surface a `[DISPATCHER:GATE-STATUS]` snapshot every ~5 min listing each gated teammate + whether their `[GO]` has landed. Treat "pending GO past 5 min" as a soft escalation to Architect.
 - Main session SOP: when Architect's STATUS summarizes parallel `[GO]`s to N teammates, expect N TaskUpdate transitions to `in_progress` within ~2 min. If any teammate stays `pending`, nudge Architect to verify the envelope was actually sent.
 
+5. **Occurrence 5 (admin-ui-bugs / 2026-05-12) — Code Reviewer self-activated on the initial team-lead spawn briefing.** Before the Architect issued any `[ARCHITECT:GO]` envelope, the Code Reviewer interpreted its briefing message as authorization to start a Phase-3-style review pass against the in-flight Implementer diff. It produced a `[CODE-REVIEWER:DONE]` FIX-REQUIRED verdict with 3 HIGH + 2 MEDIUM findings — all wrong, because they were computed against an intermediate disk state (Bug 1 still in progress; stale `.next/standalone/` artifact matched the deprecated `provider-rerun-tooltip-*` testids in regex searches). The Architect verified disk truth via `git diff --stat` + targeted greps, issued `[HOLD]` to Code Reviewer; Code Reviewer self-disclosed the unauthorized run and discarded the review. One coordination round-trip wasted; no bad data propagated. The legitimate Phase 5 CR re-ran on the final post-Implementer state and produced a clean FIX-REQUIRED with 1 MEDIUM (indentation) + 1 LOW.
+
+**This is the same failure class as occurrences 1–3** (over-activation on ambient signals), but now demonstrated on Code Reviewer rather than Validator. The activation-gate protocol must apply to **both** roles.
+
+## Code Reviewer is gated by the same rules (added 2026-05-12 after Occurrence 5)
+
+The Code Reviewer MUST NOT self-activate on any of the following signals:
+
+- The initial team-lead spawn briefing (containing the role definition, scope-todo path, and architect-design path) is NOT activation. It is preparation — read the briefing, read the source files, then **wait** for `[ARCHITECT:GO]`.
+- Implementer or QA `[DONE]` messages from peers.
+- Dispatcher task-creation events or `TaskUpdate(in_progress)` flips on the CR's task.
+- The Architect's `[STATUS]` summaries to other teammates.
+- Any time-elapsed heuristic ("the team has been running for X minutes; surely Phase 3 has started").
+
+Activation requires an **explicit `[ARCHITECT:GO]` envelope addressed to `code-reviewer` by name** with the standard preamble. Pre-`[GO]` review work (file reads, mental modeling, locking on the diff to review) is fine, but no `[CODE-REVIEWER:DONE]` envelope may be sent without a legitimate GO.
+
+If the Code Reviewer produces results without a legitimate `[GO]`, the protocol is identical to the Validator's: results are DIRECTIONAL ONLY, self-disclose to the Architect, discard the review doc, and re-run fresh after the proper Phase 5 `[GO]` arrives.
+
+**Stale-artifact warning for Code Reviewer's early greps.** Even legitimate Phase 5 CR runs must verify regex matches against `git diff` / source paths, not against `.next/standalone/` or other build artifacts. Occurrence 5's HIGH-1 "Bug 1 entirely absent" finding was triggered by old `provider-rerun-tooltip-*` testids still living in the stale standalone bundle — a build artifact, not source. The CR brief should include: "Any regex hit inside `.next/`, `dist/`, or other build-output directories is NOT a finding. Scope greps to `apps/`, `libs/`, and `.claude/` source paths."
+
 **Operational cost:** each unauthorized run burns 8–12 minutes of compute and risks producing data that looks authoritative but reflects incomplete source state. KZO-74 (first recorded instance), KZO-172 (two additional instances), KZO-189 (one additional instance), and KZO-199 (architect-side envelope drop) establish this as a recurring pattern, not a one-off.
 
 The `[GO]` gate is also documented in `agent-team-workflow.md` ("Validator gating") but without the enumerated negation list. This rule adds the negation list and the preamble template — the parts that directly addressed occurrences 1 and 2.
