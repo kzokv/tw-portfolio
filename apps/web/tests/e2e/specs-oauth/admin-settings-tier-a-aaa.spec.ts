@@ -206,6 +206,8 @@ test.describe.serial("admin settings Tier A (KZO-198)", () => {
     await appShell.actions.navigateToRoute("/admin/settings");
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
+    // admin-ui-bugs: Provider API keys card moved into its own `api-keys` tab.
+    await appShell.actions.navigateToAdminSettingsTab("api-keys");
 
     const prefix = "admin-settings-finmind-api-token";
 
@@ -239,6 +241,8 @@ test.describe.serial("admin settings Tier A (KZO-198)", () => {
     await appShell.actions.reloadPage();
     await appShell.assert.adminSettingsPageIsVisible();
     await page.waitForLoadState("load");
+    // admin-ui-bugs: Provider API keys card moved into its own `api-keys` tab.
+    await appShell.actions.navigateToAdminSettingsTab("api-keys");
 
     await page.getByTestId(`${prefix}-mask`).waitFor({ state: "visible" });
     const reloadHtml = await page.content();

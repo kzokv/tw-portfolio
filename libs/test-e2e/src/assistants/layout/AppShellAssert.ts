@@ -361,14 +361,32 @@ export class AppShellAssert extends BaseAssert {
   // attribute. "Active" chips (`data-active="true"`) are the saved/pending
   // ranges; "Available" chips (`data-active="false"`) are predefined chips
   // not currently selected.
+  //
+  // admin-ui-bugs: the Timeframe Defaults section moved INSIDE the
+  // `admin-settings-panel-display-defaults` tab. Every helper that reads
+  // `timeframe-defaults-section` or `timeframe-chip-*` calls
+  // `ensureDisplayDefaultsTabActive()` first so caller specs do NOT need
+  // to learn about the new tab.
+
+  private async ensureDisplayDefaultsTabActive(): Promise<void> {
+    const panel = this.el.testId("admin-settings-panel-display-defaults");
+    if (await panel.isVisible().catch(() => false)) return;
+    const trigger = this.el.testId("admin-settings-tab-display-defaults");
+    if (await trigger.isVisible().catch(() => false)) {
+      await this.uiActions.click.perform(trigger);
+      await panel.waitFor({ state: "visible" }).catch(() => undefined);
+    }
+  }
 
   @Step()
   async adminTimeframeSectionIsVisible(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-defaults-section")).toBeVisible();
   }
 
   @Step()
   async adminTimeframeChipIsActive(range: string): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     const chip = this.el.testId(`timeframe-chip-${range}`);
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute("data-active", "true");
@@ -376,6 +394,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeChipIsInactive(range: string): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     // Either the chip is rendered as an "available" predefined chip
     // (`data-active="false"`), or it is not rendered at all — both
     // satisfy "not in the active list."
@@ -387,11 +406,13 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeChipIsAbsent(range: string): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId(`timeframe-chip-${range}`)).toHaveCount(0);
   }
 
   @Step()
   async adminTimeframeChipsInOrder(expected: string[]): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     const count = await this.el.adminActiveTimeframeChips.count();
     const actual: string[] = [];
     for (let i = 0; i < count; i += 1) {
@@ -405,31 +426,37 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeValidationErrorIsVisible(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-validation-error")).toBeVisible();
   }
 
   @Step()
   async adminTimeframeValidationErrorIsHidden(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-validation-error")).toHaveCount(0);
   }
 
   @Step()
   async adminTimeframeSaveButtonIsEnabled(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-save-button")).toBeEnabled();
   }
 
   @Step()
   async adminTimeframeSaveButtonIsDisabled(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-save-button")).toBeDisabled();
   }
 
   @Step()
   async adminTimeframeSaveSuccessIsVisible(): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.testId("timeframe-save-success")).toBeVisible();
   }
 
   @Step()
   async adminTimeframeDragHandleIsEnabled(range: string): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     // Waits for the dnd-kit SortableRangeList to fully hydrate on the client.
     // Pre-mount (SSR fallback) renders the drag handle as `disabled`; post-mount
     // (isMounted=true) renders it as enabled with live dnd-kit listeners.
@@ -438,6 +465,7 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async adminTimeframeFirstActiveChipIs(range: string): Promise<void> {
+    await this.ensureDisplayDefaultsTabActive();
     await expect(this.el.adminFirstActiveTimeframeChip)
       .toHaveAttribute("data-testid", `timeframe-chip-${range}`);
   }

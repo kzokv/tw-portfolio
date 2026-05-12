@@ -30,6 +30,8 @@ const TAB_SLUGS = [
   "provider-health",
   "backfill-repair",
   "catalog-metadata",
+  "display-defaults",
+  "api-keys",
 ] as const;
 type TabSlug = (typeof TAB_SLUGS)[number];
 const DEFAULT_TAB: TabSlug = "rate-limits";
@@ -40,6 +42,8 @@ const TAB_LABELS: Record<TabSlug, string> = {
   "provider-health": "Provider health",
   "backfill-repair": "Backfill & repair",
   "catalog-metadata": "Catalog & metadata",
+  "display-defaults": "Display defaults",
+  "api-keys": "API keys",
 };
 
 function isValidTabSlug(value: string | null): value is TabSlug {
@@ -298,9 +302,10 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
         </p>
       </div>
 
-      {/* KZO-199 — Tabs wrap the per-area knob groups. The Dashboard
-          Timeframe Defaults and Provider API keys cards remain outside the
-          Tabs (they cover whole-page concerns, not per-area knobs). */}
+      {/* Tabs wrap every per-area knob group, including Display defaults and
+          API keys. The KZO-199-era "intentionally outside tabs" framing was
+          reversed in admin-ui-bugs — both cards now live under their own
+          dedicated tab so they don't render under every active tab. */}
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
         <TabsList data-testid="admin-settings-tabs">
           {TAB_SLUGS.map((slug) => (
@@ -679,180 +684,186 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             </Card>
           </div>
         </TabsContent>
-      </TabsRoot>
 
-      {/* ── KZO-159: Dashboard Timeframe Defaults section ─────────────────── */}
-      <Card data-testid="timeframe-defaults-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Dashboard Timeframe Defaults</h2>
-            <p className="mt-1 text-sm text-slate-600">{TIMEFRAME_HELPER_TEXT}</p>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Active timeframes
-            </p>
-            {pendingRanges.length === 0 ? (
-              <p className="text-sm text-slate-500">No active timeframes — add at least one.</p>
-            ) : (
-              // KZO-161 (158C) F4a: dnd-kit retrofit. Drop-in replacement for
-              // the ↑/↓ arrow buttons — `timeframe-chip-{range}` testid is
-              // preserved (referenced by `[timeframe-A..J]`); `-up/-down` are
-              // intentionally dropped (no dnd-kit boundary-disabled concept).
-              // Remove-from-active happens via a click on the chip itself
-              // (SortableRangeList renders the chip as a button when
-              // `onToggleVisibility` is provided). `toggleTestId` is
-              // intentionally omitted — admin has one toggle affordance, the
-              // chip; the popover variant adds a second dedicated button.
-              <SortableRangeList
-                rows={pendingRanges.map<SortableRangeRow>((range) => ({
-                  range,
-                  active: true,
-                  disabled: timeframeSaving,
-                }))}
-                onReorder={reorderChips}
-                onToggleVisibility={(range) => toggleChip(range)}
-                dragHandleTestId={(r) => `timeframe-drag-handle-${r}`}
-                chipTestId={(r) => `timeframe-chip-${r}`}
-                toggleLabel={(r) => `Remove ${r} from active timeframes`}
-              />
-            )}
-          </div>
-
-          {availablePredefinedChips.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Available
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {availablePredefinedChips.map((range) => (
-                  <button
-                    key={range}
-                    type="button"
-                    aria-label={`Add ${range} to active timeframes`}
-                    onClick={() => toggleChip(range)}
+        {/* ── Display defaults tab (Dashboard Timeframe Defaults) ────────── */}
+        <TabsContent value="display-defaults" data-testid="admin-settings-panel-display-defaults">
+          {/* ── KZO-159: Dashboard Timeframe Defaults section ─────────────── */}
+          <Card data-testid="timeframe-defaults-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Dashboard Timeframe Defaults</h2>
+                <p className="mt-1 text-sm text-slate-600">{TIMEFRAME_HELPER_TEXT}</p>
+              </div>
+    
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Active timeframes
+                </p>
+                {pendingRanges.length === 0 ? (
+                  <p className="text-sm text-slate-500">No active timeframes — add at least one.</p>
+                ) : (
+                  // KZO-161 (158C) F4a: dnd-kit retrofit. Drop-in replacement for
+                  // the ↑/↓ arrow buttons — `timeframe-chip-{range}` testid is
+                  // preserved (referenced by `[timeframe-A..J]`); `-up/-down` are
+                  // intentionally dropped (no dnd-kit boundary-disabled concept).
+                  // Remove-from-active happens via a click on the chip itself
+                  // (SortableRangeList renders the chip as a button when
+                  // `onToggleVisibility` is provided). `toggleTestId` is
+                  // intentionally omitted — admin has one toggle affordance, the
+                  // chip; the popover variant adds a second dedicated button.
+                  <SortableRangeList
+                    rows={pendingRanges.map<SortableRangeRow>((range) => ({
+                      range,
+                      active: true,
+                      disabled: timeframeSaving,
+                    }))}
+                    onReorder={reorderChips}
+                    onToggleVisibility={(range) => toggleChip(range)}
+                    dragHandleTestId={(r) => `timeframe-drag-handle-${r}`}
+                    chipTestId={(r) => `timeframe-chip-${r}`}
+                    toggleLabel={(r) => `Remove ${r} from active timeframes`}
+                  />
+                )}
+              </div>
+    
+              {availablePredefinedChips.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Available
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {availablePredefinedChips.map((range) => (
+                      <button
+                        key={range}
+                        type="button"
+                        aria-label={`Add ${range} to active timeframes`}
+                        onClick={() => toggleChip(range)}
+                        disabled={timeframeSaving}
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        data-testid={`timeframe-chip-${range}`}
+                        data-active="false"
+                      >
+                        + {range}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+    
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="timeframe-add-input">
+                  Add custom range
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="timeframe-add-input"
+                    type="text"
+                    value={customInput}
+                    onChange={(e) => {
+                      setCustomInput(e.target.value);
+                      clearTimeframeFeedback();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && canAddCustom) {
+                        e.preventDefault();
+                        handleAddCustom();
+                      }
+                    }}
                     disabled={timeframeSaving}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    data-testid={`timeframe-chip-${range}`}
-                    data-active="false"
+                    placeholder="e.g. 5Y, 18M, ALL"
+                    className="w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    data-testid="timeframe-add-input"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleAddCustom}
+                    disabled={!canAddCustom}
+                    data-testid="timeframe-add-button"
                   >
-                    + {range}
-                  </button>
-                ))}
+                    Add
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Format: {`{n}M`}, {`{n}Y`}, YTD, or ALL. Months ≤ 240, years ≤ 50.
+                </p>
+              </div>
+    
+              {displayedTimeframeError && (
+                <p
+                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                  role="alert"
+                  data-testid="timeframe-validation-error"
+                >
+                  {displayedTimeframeError}
+                </p>
+              )}
+    
+              {timeframeSaveSuccess && (
+                <p
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+                  role="status"
+                  data-testid="timeframe-save-success"
+                >
+                  {timeframeSaveSuccess}
+                </p>
+              )}
+    
+              <div className="flex items-center justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleResetTimeframes()}
+                  disabled={timeframeSaving}
+                  data-testid="timeframe-reset-button"
+                >
+                  Reset to defaults
+                </Button>
+                <Button
+                  onClick={() => void handleSaveTimeframes()}
+                  disabled={!canSaveTimeframes}
+                  data-testid="timeframe-save-button"
+                >
+                  {timeframeSaving ? "Saving..." : "Save"}
+                </Button>
               </div>
             </div>
-          )}
+          </Card>
+        </TabsContent>
 
-          <div className="space-y-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="timeframe-add-input">
-              Add custom range
-            </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                id="timeframe-add-input"
-                type="text"
-                value={customInput}
-                onChange={(e) => {
-                  setCustomInput(e.target.value);
-                  clearTimeframeFeedback();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && canAddCustom) {
-                    e.preventDefault();
-                    handleAddCustom();
-                  }
-                }}
-                disabled={timeframeSaving}
-                placeholder="e.g. 5Y, 18M, ALL"
-                className="w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-                data-testid="timeframe-add-input"
+        {/* ── API keys tab (Provider API keys) ────────────────────────────── */}
+        <TabsContent value="api-keys" data-testid="admin-settings-panel-api-keys">
+          {/* ── KZO-198: Provider Keys section (Tier 0 — masked) ─────────── */}
+          <Card data-testid="admin-settings-provider-keys-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Provider API keys</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Encrypted secrets stored in <code>app_config</code>. Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.
+                </p>
+              </div>
+              <MaskedSecretInput
+                fieldKey="finmind-api-token"
+                label="FinMind API token"
+                description="Bearer token used by the TWSE/FinMind data provider."
+                isSet={config.finmindApiTokenSet}
+                secretLengthBounds={config.secretLengthBounds}
+                onRotate={(plaintext) => patchAppConfigField("finmindApiToken", plaintext)}
+                onClear={() => patchAppConfigField("finmindApiToken", null)}
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleAddCustom}
-                disabled={!canAddCustom}
-                data-testid="timeframe-add-button"
-              >
-                Add
-              </Button>
+              <MaskedSecretInput
+                fieldKey="twelve-data-api-key"
+                label="Twelve Data API key"
+                description="API key used by the AU catalog (Twelve Data) provider."
+                isSet={config.twelveDataApiKeySet}
+                secretLengthBounds={config.secretLengthBounds}
+                onRotate={(plaintext) => patchAppConfigField("twelveDataApiKey", plaintext)}
+                onClear={() => patchAppConfigField("twelveDataApiKey", null)}
+              />
             </div>
-            <p className="text-xs text-slate-500">
-              Format: {`{n}M`}, {`{n}Y`}, YTD, or ALL. Months ≤ 240, years ≤ 50.
-            </p>
-          </div>
-
-          {displayedTimeframeError && (
-            <p
-              className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-              role="alert"
-              data-testid="timeframe-validation-error"
-            >
-              {displayedTimeframeError}
-            </p>
-          )}
-
-          {timeframeSaveSuccess && (
-            <p
-              className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-              role="status"
-              data-testid="timeframe-save-success"
-            >
-              {timeframeSaveSuccess}
-            </p>
-          )}
-
-          <div className="flex items-center justify-end gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleResetTimeframes()}
-              disabled={timeframeSaving}
-              data-testid="timeframe-reset-button"
-            >
-              Reset to defaults
-            </Button>
-            <Button
-              onClick={() => void handleSaveTimeframes()}
-              disabled={!canSaveTimeframes}
-              data-testid="timeframe-save-button"
-            >
-              {timeframeSaving ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      {/* ── KZO-198: Provider Keys section (Tier 0 — masked) ────────────── */}
-      <Card data-testid="admin-settings-provider-keys-section">
-        <div className="space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Provider API keys</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Encrypted secrets stored in <code>app_config</code>. Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.
-            </p>
-          </div>
-          <MaskedSecretInput
-            fieldKey="finmind-api-token"
-            label="FinMind API token"
-            description="Bearer token used by the TWSE/FinMind data provider."
-            isSet={config.finmindApiTokenSet}
-            secretLengthBounds={config.secretLengthBounds}
-            onRotate={(plaintext) => patchAppConfigField("finmindApiToken", plaintext)}
-            onClear={() => patchAppConfigField("finmindApiToken", null)}
-          />
-          <MaskedSecretInput
-            fieldKey="twelve-data-api-key"
-            label="Twelve Data API key"
-            description="API key used by the AU catalog (Twelve Data) provider."
-            isSet={config.twelveDataApiKeySet}
-            secretLengthBounds={config.secretLengthBounds}
-            onRotate={(plaintext) => patchAppConfigField("twelveDataApiKey", plaintext)}
-            onClear={() => patchAppConfigField("twelveDataApiKey", null)}
-          />
-        </div>
-      </Card>
+          </Card>
+        </TabsContent>
+      </TabsRoot>
 
       <p className="text-xs text-slate-500" data-testid="admin-settings-last-updated">
         Last updated {formatTimestamp(config.updatedAt)} · Change will be recorded in the audit log

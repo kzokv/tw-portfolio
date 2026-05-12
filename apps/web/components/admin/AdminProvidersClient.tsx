@@ -5,7 +5,7 @@ import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@tw-portfoli
 import { postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { TooltipInfo } from "../ui/TooltipInfo";
+import { PopoverRoot, PopoverTrigger, PopoverContent } from "../ui/Popover";
 import { cn } from "../../lib/utils";
 import { formatCooldownLabel } from "../../lib/formatCooldownLabel";
 
@@ -47,7 +47,6 @@ const t: Record<string, string> = {
     "Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown {cooldown}.",
   rerunTooltipAsxGicsCsv:
     "Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown {cooldown}.",
-  rerunTooltipTriggerLabel: "About this provider's Re-run action",
 };
 
 /**
@@ -241,35 +240,44 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
         className="border-b border-slate-200 last:border-0"
         data-testid={`provider-row-${localStatus.providerId}`}
       >
-        {/* KZO-199 — provider IDs and ISO timestamps stay non-wrapping with
-            `truncate + title`; descriptive cells (none in this row — error
-            messages live in the expanded ErrorTrail and already wrap) keep
-            the existing flow. */}
+        {/* admin-ui-bugs (Bug 1): wrap convention — provider IDs use a
+            click-popover trigger on the name itself (replaces the prior
+            hover-tooltip `?` icon), and the surrounding cell allows
+            hyphen-driven wrap via `break-all`. Timestamp cells drop
+            `whitespace-nowrap` so locale strings split naturally on the
+            comma-space. <colgroup> widths size the columns. */}
         <td
-          className="truncate px-4 py-4 font-mono text-sm font-medium text-slate-900"
+          className="px-4 py-4 font-mono text-sm font-medium text-slate-900"
           title={localStatus.providerId}
         >
-          <span className="inline-flex items-center gap-1.5">
-            <span>{localStatus.providerId}</span>
-            <TooltipInfo
-              label={t.rerunTooltipTriggerLabel}
-              content={resolveRerunTooltipContent(localStatus)}
-              triggerTestId={`provider-rerun-tooltip-trigger-${localStatus.providerId}`}
-              contentTestId={`provider-rerun-tooltip-content-${localStatus.providerId}`}
-            />
-          </span>
+          <PopoverRoot>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                data-testid={`provider-help-trigger-${localStatus.providerId}`}
+                className="text-left break-all hover:text-indigo-700 cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded"
+              >
+                {localStatus.providerId}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              data-testid={`provider-help-popover-${localStatus.providerId}`}
+            >
+              {resolveRerunTooltipContent(localStatus)}
+            </PopoverContent>
+          </PopoverRoot>
         </td>
         <td className="px-4 py-4">
           <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
         </td>
         <td
-          className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+          className="px-4 py-4 text-sm text-slate-600"
           title={localStatus.lastSuccessfulRun ?? ""}
         >
           {formatTimestamp(localStatus.lastSuccessfulRun)}
         </td>
         <td
-          className="whitespace-nowrap px-4 py-4 text-sm text-slate-600"
+          className="px-4 py-4 text-sm text-slate-600"
           title={localStatus.lastFailedRun ?? ""}
         >
           {formatTimestamp(localStatus.lastFailedRun)}
@@ -337,24 +345,34 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
       className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
       data-testid={`provider-card-${localStatus.providerId}`}
     >
-      {/* KZO-199 iter 3 — provider IDs are opaque (truncate + title) and
-          ISO timestamps + numeric counts use the truncate variant of
-          CardDetail so the columns don't blow out the card on narrow
-          viewports. */}
+      {/* admin-ui-bugs (Bug 1): card variant follows the wrap convention.
+          Provider IDs render inside a click-popover trigger button so the
+          name itself opens the help text (replaces the hover-tooltip `?`
+          icon). Card uses `-card-` testid suffix per the dual-layout rule
+          in .claude/rules/responsive-dual-layout-testid-prefixes.md. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t.providerLabel}</p>
           <p
-            className="mt-1 inline-flex items-center gap-1.5 truncate font-mono text-sm font-medium text-slate-900"
+            className="mt-1 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-slate-900"
             title={localStatus.providerId}
           >
-            <span className="truncate">{localStatus.providerId}</span>
-            <TooltipInfo
-              label={t.rerunTooltipTriggerLabel}
-              content={resolveRerunTooltipContent(localStatus)}
-              triggerTestId={`provider-rerun-tooltip-trigger-card-${localStatus.providerId}`}
-              contentTestId={`provider-rerun-tooltip-content-card-${localStatus.providerId}`}
-            />
+            <PopoverRoot>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid={`provider-help-trigger-card-${localStatus.providerId}`}
+                  className="text-left break-all hover:text-indigo-700 cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded"
+                >
+                  {localStatus.providerId}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                data-testid={`provider-help-popover-card-${localStatus.providerId}`}
+              >
+                {resolveRerunTooltipContent(localStatus)}
+              </PopoverContent>
+            </PopoverRoot>
           </p>
         </div>
         <StatusBadge
@@ -442,14 +460,26 @@ export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{t.pageDescription}</p>
       </div>
 
-      {/* KZO-199 — drop horizontal scroll wrapper at the lg breakpoint; the
-          table cells now use `truncate + title` on opaque IDs/timestamps so
-          narrow desktop viewports don't paint a horizontal scrollbar. */}
+      {/* admin-ui-bugs (Bug 1): wrap convention. The table drops the lg-only
+          horizontal scroll wrapper from KZO-199; cells now wrap naturally
+          (`break-all` for provider IDs, default wrap for timestamps and
+          counts) instead of relying on `truncate`. <colgroup> sizes each
+          column explicitly so wrap breaks predictably across viewports. */}
       <div className="hidden rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block">
         <table
           className="w-full table-fixed border-collapse text-sm text-slate-700"
           data-testid="admin-providers-table"
         >
+          <colgroup>
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "110px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "70px" }} />
+            <col style={{ width: "70px" }} />
+            <col style={{ width: "70px" }} />
+            <col style={{ width: "150px" }} />
+          </colgroup>
           <thead>
             <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
               <th className="px-4 py-3 text-left font-medium">{t.providerLabel}</th>
