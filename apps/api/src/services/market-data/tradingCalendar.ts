@@ -84,6 +84,69 @@ function previousWeekdayOnOrBefore(date: string): string {
   return current;
 }
 
+// Meeus/Jones/Butcher anonymous-Gregorian Computus. Returns Easter Sunday as
+// ISO YYYY-MM-DD. Good Friday = Easter − 2, Easter Monday = Easter + 1.
+function computeEasterSunday(year: number): string {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+// The 6 TARGET2 closing days have been stable since 2002. ECB one-off
+// closures (e.g., system migrations) are NOT covered; mint a follow-on
+// ticket if such an event lands.
+const ECB_HOLIDAY_YEAR_CACHE = new Map<number, ReadonlySet<string>>();
+
+function ecbHolidaysForYear(year: number): ReadonlySet<string> {
+  const cached = ECB_HOLIDAY_YEAR_CACHE.get(year);
+  if (cached) return cached;
+  const easter = computeEasterSunday(year);
+  const goodFriday = addDaysIsoDate(easter, -2);
+  const easterMonday = addDaysIsoDate(easter, 1);
+  const yy = String(year);
+  const holidays = new Set<string>([
+    `${yy}-01-01`,
+    goodFriday,
+    easterMonday,
+    `${yy}-05-01`,
+    `${yy}-12-25`,
+    `${yy}-12-26`,
+  ]);
+  ECB_HOLIDAY_YEAR_CACHE.set(year, holidays);
+  return holidays;
+}
+
+function isEcbHoliday(date: string): boolean {
+  const year = Number(date.slice(0, 4));
+  return ecbHolidaysForYear(year).has(date);
+}
+
+function isFxTradingDay(date: string): boolean {
+  return isWeekdayIsoDate(date) && !isEcbHoliday(date);
+}
+
+function previousFxTradingDayOnOrBefore(date: string): string {
+  let current = date;
+  while (!isFxTradingDay(current)) {
+    current = addDaysIsoDate(current, -1);
+  }
+  return current;
+}
+
 function latestTradingDateOnOrBefore(tradingDates: ReadonlySet<string>, date: string): string | null {
   let latest: string | null = null;
   for (const tradingDate of tradingDates) {
@@ -146,7 +209,7 @@ function resolveLatestSettledTradingDay(
   options: SettleOptions = {},
 ): { date: string; usedFallback: boolean } {
   if (market === "FX") {
-    return { date: previousWeekdayOnOrBefore(resolveFxSettlementCandidate(now)), usedFallback: false };
+    return { date: previousFxTradingDayOnOrBefore(resolveFxSettlementCandidate(now)), usedFallback: false };
   }
 
   const candidateDate = resolveMarketSettlementCandidate(market, now, options);
@@ -178,7 +241,7 @@ export function tradingDaysBetweenPure(
   if (market === "FX" || tradingDates.size === 0) {
     let count = 0;
     for (let current = addDaysIsoDate(d1, 1); current <= d2; current = addDaysIsoDate(current, 1)) {
-      if (isWeekdayIsoDate(current)) count++;
+      if (market === "FX" ? isFxTradingDay(current) : isWeekdayIsoDate(current)) count++;
     }
     return count;
   }
@@ -195,7 +258,10 @@ export function isTradingDayPure(
   market: CalendarMarket,
   date: string,
 ): boolean {
-  if (market === "FX" || tradingDates.size === 0) {
+  if (market === "FX") {
+    return isFxTradingDay(date);
+  }
+  if (tradingDates.size === 0) {
     return isWeekdayIsoDate(date);
   }
   return tradingDates.has(date);
