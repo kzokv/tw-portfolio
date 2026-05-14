@@ -25,4 +25,35 @@ export class AccountsEndpoint extends BaseEndpoint {
       data,
       ...(headers ? { headers } : {}),
     });
+
+  // ui-enhancement — DELETE /accounts/:id (soft-delete; stamps deleted_at).
+  softDelete = (
+    accountId: string,
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.delete(apiUrl(`/accounts/${accountId}`), headers ? { headers } : {});
+
+  // ui-enhancement — POST /accounts/:id/restore (clears deleted_at; auto-renames on collision).
+  restore = (
+    accountId: string,
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.post(apiUrl(`/accounts/${accountId}/restore`), {
+      ...(headers ? { headers } : {}),
+    });
+
+  // ui-enhancement — POST /accounts/:id/purge (hard-purge with typed-name confirmation).
+  purge = (
+    accountId: string,
+    body: { confirmationName: string },
+    headers?: Record<string, string>,
+  ): Promise<APIResponse> =>
+    this.request.post(apiUrl(`/accounts/${accountId}/purge`), {
+      data: body,
+      ...(headers ? { headers } : {}),
+    });
+
+  // ui-enhancement — GET /accounts/deleted (list soft-deleted accounts for the user).
+  listDeleted = (headers?: Record<string, string>): Promise<APIResponse> =>
+    this.request.get(apiUrl("/accounts/deleted"), headers ? { headers } : {});
 }

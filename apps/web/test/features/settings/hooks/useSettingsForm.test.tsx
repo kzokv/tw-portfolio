@@ -340,3 +340,136 @@ describe("useSettingsForm — KZO-182 merge-on-grow", () => {
     expect(latest!.draft).toBeNull();
   });
 });
+
+describe("useSettingsForm — ui-enhancement (2026-05-14) P2-1 draft pruning", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let latest: HookReturn | null;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    latest = null;
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  function render(props: Omit<ProbeProps, "capture">) {
+    act(() => {
+      root.render(
+        <Probe
+          {...props}
+          capture={(hook) => {
+            latest = hook;
+          }}
+        />,
+      );
+    });
+  }
+
+  it("prunes draft entries for accounts removed by a soft-delete refresh", () => {
+    const settings = buildSettings();
+    const profileA = buildFeeProfile({ id: "fp-a", accountId: "acc-a" });
+    const profileB = buildFeeProfile({
+      id: "fp-b",
+      accountId: "acc-b",
+      name: "USD Default",
+      commissionCurrency: "USD",
+    });
+    const accountA = buildAccount({ id: "acc-a", feeProfileId: "fp-a" });
+    const accountB = buildAccount({
+      id: "acc-b",
+      feeProfileId: "fp-b",
+      defaultCurrency: "USD",
+    });
+
+    // Drawer opens with both accounts present.
+    render({
+      open: true,
+      settings,
+      accounts: [accountA, accountB],
+      feeProfiles: [profileA, profileB],
+      feeProfileBindings: [
+        { accountId: "acc-a", ticker: "2330", feeProfileId: "fp-a" },
+        { accountId: "acc-b", ticker: "AAPL", feeProfileId: "fp-b" },
+      ],
+    });
+
+    expect(latest!.draft!.accounts).toHaveLength(2);
+    expect(latest!.draft!.feeProfiles).toHaveLength(2);
+    expect(latest!.draft!.feeProfileBindings).toHaveLength(2);
+
+    // Soft-delete: account B disappears from the fresh fetch.
+    render({
+      open: true,
+      settings,
+      accounts: [accountA],
+      feeProfiles: [profileA, profileB], // server may still include orphan; FE must prune
+      feeProfileBindings: [
+        { accountId: "acc-a", ticker: "2330", feeProfileId: "fp-a" },
+      ],
+    });
+
+    // P2-1 invariant: every layer of the draft is pruned of acc-b refs.
+    expect(latest!.draft!.accounts.map((a) => a.id)).toEqual(["acc-a"]);
+    expect(latest!.draft!.feeProfiles.map((p) => p.id)).toEqual(["fp-a"]);
+    expect(latest!.draft!.feeProfileBindings.map((b) => b.accountId)).toEqual([
+      "acc-a",
+    ]);
+    expect(latest!.isDirty).toBe(false);
+  });
+
+  it("prunes per-symbol bindings owned by the removed account even when other accounts grow", () => {
+    const settings = buildSettings();
+    const profileA = buildFeeProfile({ id: "fp-a", accountId: "acc-a" });
+    const profileB = buildFeeProfile({
+      id: "fp-b",
+      accountId: "acc-b",
+      name: "USD Default",
+      commissionCurrency: "USD",
+    });
+
+    render({
+      open: true,
+      settings,
+      accounts: [
+        buildAccount({ id: "acc-a", feeProfileId: "fp-a" }),
+        buildAccount({ id: "acc-b", feeProfileId: "fp-b", defaultCurrency: "USD" }),
+      ],
+      feeProfiles: [profileA, profileB],
+      feeProfileBindings: [
+        { accountId: "acc-a", ticker: "2330", feeProfileId: "fp-a" },
+        { accountId: "acc-b", ticker: "AAPL", feeProfileId: "fp-b" },
+      ],
+    });
+
+    // Soft-delete acc-a AND a brand-new acc-c arrives in the same refresh.
+    const profileC = buildFeeProfile({
+      id: "fp-c",
+      accountId: "acc-c",
+      name: "AUD Default",
+      commissionCurrency: "AUD",
+    });
+    render({
+      open: true,
+      settings,
+      accounts: [
+        buildAccount({ id: "acc-b", feeProfileId: "fp-b", defaultCurrency: "USD" }),
+        buildAccount({ id: "acc-c", feeProfileId: "fp-c", defaultCurrency: "AUD" }),
+      ],
+      feeProfiles: [profileB, profileC],
+      feeProfileBindings: [{ accountId: "acc-b", ticker: "AAPL", feeProfileId: "fp-b" }],
+    });
+
+    expect(latest!.draft!.accounts.map((a) => a.id).sort()).toEqual(["acc-b", "acc-c"]);
+    expect(latest!.draft!.feeProfiles.map((p) => p.id).sort()).toEqual(["fp-b", "fp-c"]);
+    // The per-symbol binding for the purged acc-a must not survive.
+    expect(latest!.draft!.feeProfileBindings).toEqual([
+      { accountId: "acc-b", ticker: "AAPL", feeProfileId: "fp-b" },
+    ]);
+  });
+});

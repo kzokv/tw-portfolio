@@ -360,4 +360,45 @@ export class SettingsActions extends AppBaseActions {
       { timeout: 10_000 },
     );
   }
+
+  // ── ui-enhancement — Account deletion lifecycle ─────────────────────────
+
+  @Step()
+  async clickAccountDeleteButton(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.deleteButton(accountId));
+  }
+
+  @Step()
+  async confirmSoftDelete(): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.softDeleteConfirmButton);
+  }
+
+  @Step()
+  async cancelSoftDelete(): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.softDeleteCancelButton);
+  }
+
+  @Step()
+  async clickRecentlyDeletedRestore(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(
+      this.el.accountsList.recentlyDeletedRestoreButton(accountId),
+    );
+  }
+
+  @Step()
+  async clickRecentlyDeletedPurge(accountId: string): Promise<void> {
+    await this.uiActions.click.perform(
+      this.el.accountsList.recentlyDeletedPurgeButton(accountId),
+    );
+  }
+
+  @Step()
+  async fillPermanentDeleteConfirmation(name: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.accountsList.permanentDeleteInput, name);
+  }
+
+  @Step()
+  async confirmPermanentDelete(): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountsList.permanentDeleteConfirmButton);
+  }
 }

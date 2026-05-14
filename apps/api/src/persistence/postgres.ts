@@ -1735,9 +1735,14 @@ export class PostgresPersistence implements Persistence {
         [userId],
       ),
       this.pool.query(
+        // ui-enhancement: soft-deleted accounts (deleted_at IS NOT NULL) are
+        // excluded from the active store. They are surfaced separately via
+        // `listSoftDeletedAccounts` for the "Recently deleted" UI section and
+        // selected for hard-purge by the daily cron.
+        // [active-only filter ADDED]
         `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
          FROM accounts
-         WHERE user_id = $1
+         WHERE user_id = $1 AND deleted_at IS NULL
          ORDER BY id`,
         [userId],
       ),
@@ -1745,6 +1750,11 @@ export class PostgresPersistence implements Persistence {
       // migration 042; ownership flows fee_profiles.account_id → accounts →
       // users. Filter via JOIN through accounts.
       this.pool.query(
+        // ui-enhancement: when an account is soft-deleted, loadStore excludes
+        // it from `store.accounts` (active-only filter); the JOIN here MUST
+        // also exclude its fee profiles, otherwise `validateStoreInvariants`
+        // sees `profile.accountId` pointing at an account not in `accountIds`
+        // and throws on the next saveStore. [active-only filter ADDED]
         `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
                 fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
                 fp.commission_currency,
@@ -1753,7 +1763,7 @@ export class PostgresPersistence implements Persistence {
                 fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
          FROM fee_profiles fp
          JOIN accounts a ON a.id = fp.account_id
-         WHERE a.user_id = $1
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL
          ORDER BY fp.id`,
         [userId],
       ),
@@ -1774,6 +1784,7 @@ export class PostgresPersistence implements Persistence {
          JOIN trade_fee_policy_snapshots AS snapshot
            ON snapshot.id = trade_event.fee_policy_snapshot_id
          WHERE trade_event.user_id = $1
+           AND trade_event.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
          ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
         [userId],
       ),
@@ -1782,6 +1793,7 @@ export class PostgresPersistence implements Persistence {
                 lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          FROM lot_allocations
          WHERE user_id = $1
+           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
          ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
         [userId],
       ),
@@ -1797,6 +1809,7 @@ export class PostgresPersistence implements Persistence {
         `SELECT id, user_id, account_id, profile_id, status, created_at
          FROM recompute_jobs
          WHERE user_id = $1
+           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
          ORDER BY created_at, id`,
         [userId],
       ),
@@ -1807,6 +1820,7 @@ export class PostgresPersistence implements Persistence {
                 fx_rate_to_usd, fx_transfer_id::text AS fx_transfer_id
          FROM cash_ledger_entries
          WHERE user_id = $1
+           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
          ORDER BY entry_date, booked_at, id`,
         [userId],
       ),
@@ -2303,15 +2317,25 @@ export class PostgresPersistence implements Persistence {
       // accounts is the deferred owner-of-profile FK; the regular FK on
       // fee_profiles.account_id → accounts(id) cascades when an account is
       // deleted).
+      //
+      // ui-enhancement: PRESERVE soft-deleted rows (deleted_at IS NOT NULL).
+      // `loadStore` filters them out of `store.accounts`, so without this
+      // guard the cleanup would hard-delete every soft-deleted row on every
+      // saveStore — wiping the entire "Recently deleted" surface. The guard
+      // makes the cleanup active-only.
       if (accountIds.length) {
         await client.query(
           `DELETE FROM accounts
            WHERE user_id = $1
+             AND deleted_at IS NULL
              AND id <> ALL($2)`,
           [store.userId, accountIds],
         );
       } else {
-        await client.query(`DELETE FROM accounts WHERE user_id = $1`, [store.userId]);
+        await client.query(
+          `DELETE FROM accounts WHERE user_id = $1 AND deleted_at IS NULL`,
+          [store.userId],
+        );
       }
 
       // Step 4: UPSERT account_fee_profile_overrides. Per migration 042,
@@ -2341,17 +2365,23 @@ export class PostgresPersistence implements Persistence {
       // Step 5: DELETE stale fee_profiles. fee_profiles has no user_id
       // post-KZO-183 — scope deletes to profiles owned by accounts of the
       // current user that weren't included in the save set.
+      //
+      // ui-enhancement: PRESERVE fee profiles owned by soft-deleted accounts.
+      // loadStore filters them out of `store.feeProfiles`, so without the
+      // `a.deleted_at IS NULL` guard the cleanup would hard-delete them on
+      // every saveStore — leaving the soft-deleted account FK-orphaned and
+      // breaking hardPurgeAccount's eventual cascade. [active-only filter ADDED]
       if (feeProfileIds.length) {
         await client.query(
           `DELETE FROM fee_profiles
-           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1)
+           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
              AND id <> ALL($2)`,
           [store.userId, feeProfileIds],
         );
       } else {
         await client.query(
           `DELETE FROM fee_profiles
-           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1)`,
+           WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)`,
           [store.userId],
         );
       }
@@ -2691,11 +2721,16 @@ export class PostgresPersistence implements Persistence {
       reversal_of_cash_ledger_entry_id: string | null;
       booked_at: string | null;
     }>(
+      // ui-enhancement: filter wallet-replay inputs to active accounts so the
+      // memory backend (which delegates to the filtered loadStore) and the
+      // Postgres backend agree on the active-only invariant.
+      // [active-only filter ADDED]
       `SELECT id, account_id, currency, entry_date::text, amount::text,
               fx_rate_to_usd::text, fx_transfer_id::text, entry_type,
               reversal_of_cash_ledger_entry_id, booked_at
        FROM cash_ledger_entries c
        WHERE user_id = $1
+         AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
          AND reversal_of_cash_ledger_entry_id IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM cash_ledger_entries r
@@ -2723,9 +2758,15 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     scope?: { accountId: string; ticker: string },
   ): Promise<import("./types.js").SnapshotGenerationInputs> {
+    // ui-enhancement: the no-scope path aggregates across every owned account;
+    // it must exclude trade events belonging to soft-deleted accounts. The
+    // scoped path takes a single accountId — soft-deleted account IDs are
+    // unreachable from the UI (GET /accounts filters them) so the per-account
+    // filter is sufficient; we add the predicate to both branches for defense.
+    // [active-only filter ADDED]
     const tradeFilter = scope
       ? "user_id = $1 AND account_id = $2 AND ticker = $3"
-      : "user_id = $1";
+      : "user_id = $1 AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)";
     const tradeParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
     const tradesResult = await this.pool.query<{
       id: string; account_id: string; ticker: string; trade_type: string;
@@ -2747,9 +2788,11 @@ export class PostgresPersistence implements Persistence {
     // - received_cash_amount was dropped from dividend_ledger_entries in migration 010;
     //   the authoritative value is the sum of cash_ledger_entries with
     //   entry_type='DIVIDEND_RECEIPT' linked via related_dividend_ledger_entry_id.
+    // ui-enhancement — hide soft-deleted accounts' dividend entries from the
+    // snapshot aggregator. [active-only filter ADDED]
     const divFilter = scope
-      ? "account.user_id = $1 AND dle.account_id = $2 AND de.ticker = $3"
-      : "account.user_id = $1";
+      ? "account.user_id = $1 AND account.deleted_at IS NULL AND dle.account_id = $2 AND de.ticker = $3"
+      : "account.user_id = $1 AND account.deleted_at IS NULL";
     const divParams = scope ? [userId, scope.accountId, scope.ticker] : [userId];
     const divResult = await this.pool.query<{
       account_id: string; ticker: string; payment_date: string; amount: string;
@@ -2993,6 +3036,9 @@ export class PostgresPersistence implements Persistence {
            ORDER BY date DESC LIMIT 1
          ) fx ON s.currency <> $4
         WHERE s.user_id = $1
+          -- ui-enhancement — hide soft-deleted accounts' snapshot rows from the
+          -- aggregator. [active-only filter ADDED]
+          AND s.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
           AND s.snapshot_date >= $2::date
           AND s.snapshot_date <= $3::date
         GROUP BY s.snapshot_date
@@ -3724,12 +3770,15 @@ export class PostgresPersistence implements Persistence {
     try {
       await client.query("BEGIN");
       const ownershipResult = await client.query(
+        // ui-enhancement — ownership check rejects writes to soft-deleted
+        // accounts' ledger entries. [active-only filter ADDED]
         `SELECT 1
          FROM dividend_ledger_entries AS dle
          JOIN accounts AS account
            ON account.id = dle.account_id
          WHERE dle.id = $1
            AND account.user_id = $2
+           AND account.deleted_at IS NULL
          FOR UPDATE OF dle`,
         [ledgerEntryId, userId],
       );
@@ -3787,7 +3836,10 @@ export class PostgresPersistence implements Persistence {
        JOIN accounts AS account
          ON account.id = dle.account_id
        WHERE dle.id = $1
-         AND account.user_id = $2`,
+         AND account.user_id = $2
+         -- ui-enhancement — hide soft-deleted account ledger entries.
+         -- [active-only filter ADDED]
+         AND account.deleted_at IS NULL`,
       [dividendLedgerEntryId, userId],
     );
 
@@ -3885,6 +3937,9 @@ export class PostgresPersistence implements Persistence {
            ON account.id = dle.account_id
          WHERE dle.id = $1
            AND account.user_id = $2
+           -- ui-enhancement — block writes to soft-deleted account's posted
+           -- cash dividend rows. [active-only filter ADDED]
+           AND account.deleted_at IS NULL
          FOR UPDATE OF dle`,
         [dividendLedgerEntryId, userId],
       );
@@ -3947,6 +4002,9 @@ export class PostgresPersistence implements Persistence {
            ON event.id = dle.dividend_event_id
          WHERE dle.id = $1
            AND account.user_id = $2
+           -- ui-enhancement — block update on soft-deleted account dividend.
+           -- [active-only filter ADDED]
+           AND account.deleted_at IS NULL
          FOR UPDATE OF dle`,
         [input.dividendLedgerEntry.id, userId],
       );
@@ -4130,7 +4188,11 @@ export class PostgresPersistence implements Persistence {
          JOIN market_data.dividend_events AS event
            ON event.id = dle.dividend_event_id
         WHERE dle.superseded_at IS NULL
-          AND dle.reversal_of_dividend_ledger_entry_id IS NULL`,
+          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+          -- ui-enhancement — startup recompute scope skips soft-deleted
+          -- accounts. They will resume recompute on restore.
+          -- [active-only filter ADDED]
+          AND a.deleted_at IS NULL`,
     );
     return result.rows.map((row) => ({
       userId: String(row.user_id),
@@ -4164,6 +4226,9 @@ export class PostgresPersistence implements Persistence {
             WHERE dle.id = $1
               AND account.user_id = $2
               AND dle.account_id = $3
+              -- ui-enhancement — skip recompute writes for soft-deleted accounts.
+              -- [active-only filter ADDED]
+              AND account.deleted_at IS NULL
             FOR UPDATE OF dle`,
           [change.ledgerEntryId, userId, change.accountId],
         );
@@ -4312,6 +4377,7 @@ export class PostgresPersistence implements Persistence {
       ) AS receipts
         ON receipts.related_dividend_ledger_entry_id = dle.id
       WHERE account.user_id = $1
+        AND account.deleted_at IS NULL  -- ui-enhancement: hide soft-deleted accounts' dividend ledger entries [active-only filter ADDED]
         AND ($2::text IS NULL OR dle.account_id = $2)
         AND dle.superseded_at IS NULL
         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
@@ -4526,8 +4592,13 @@ export class PostgresPersistence implements Persistence {
       opts.entryType?.length ? opts.entryType : null, // $5
     ];
 
+    // ui-enhancement: filter out cash_ledger entries belonging to soft-deleted
+    // accounts. Without this, the cash-ledger list would surface entries for
+    // accounts the user can no longer see in the account picker.
+    // [active-only filter ADDED]
     const whereClause = `
       WHERE user_id = $1
+        AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
         AND ($2::text IS NULL OR account_id = $2)
         AND ($3::date IS NULL OR entry_date >= $3)
         AND ($4::date IS NULL OR entry_date <= $4)
@@ -4617,6 +4688,9 @@ export class PostgresPersistence implements Persistence {
        JOIN market_data.dividend_events AS event
          ON event.id = dle.dividend_event_id
        WHERE account.user_id = $1
+         -- ui-enhancement — exclude years derived solely from dividends on
+         -- soft-deleted accounts. [active-only filter ADDED]
+         AND account.deleted_at IS NULL
          AND event.payment_date IS NOT NULL
          AND dle.superseded_at IS NULL
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
@@ -5157,10 +5231,15 @@ export class PostgresPersistence implements Persistence {
   }
 
   private async listUserAccountIds(client: PoolClient, userId: string): Promise<string[]> {
+    // ui-enhancement: only ACTIVE accounts. saveAccountingStoreTx uses this
+    // list to scope its DELETE-then-INSERT round-trip on dividend/lot tables.
+    // Including soft-deleted IDs here would silently wipe their accounting
+    // data on every recompute call (the active in-memory accounting.facts
+    // doesn't carry rows for those accounts). [active-only filter ADDED]
     const result = await client.query<{ id: string }>(
       `SELECT id
        FROM accounts
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
        ORDER BY id`,
       [userId],
     );
@@ -5958,6 +6037,7 @@ export class PostgresPersistence implements Persistence {
     anonymousShareRateLimitWindowMs: number | null;
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
+    accountHardPurgeDays: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -5993,6 +6073,7 @@ export class PostgresPersistence implements Persistence {
       anonymous_share_rate_limit_window_ms: number | null;
       anonymous_share_token_retention_ms: number | string | null;
       user_preferences_max_bytes: number | null;
+      account_hard_purge_days: number | null;
       updated_at: Date | string;
     }>(
       `SELECT
@@ -6010,6 +6091,7 @@ export class PostgresPersistence implements Persistence {
          asx_gics_refresh_cron,
          anonymous_share_token_cap, anonymous_share_rate_limit_max, anonymous_share_rate_limit_window_ms,
          anonymous_share_token_retention_ms, user_preferences_max_bytes,
+         account_hard_purge_days,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -6048,6 +6130,7 @@ export class PostgresPersistence implements Persistence {
         anonymousShareRateLimitWindowMs: null,
         anonymousShareTokenRetentionMs: null,
         userPreferencesMaxBytes: null,
+        accountHardPurgeDays: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -6091,6 +6174,7 @@ export class PostgresPersistence implements Persistence {
       anonymousShareRateLimitWindowMs: row.anonymous_share_rate_limit_window_ms,
       anonymousShareTokenRetentionMs: num(row.anonymous_share_token_retention_ms),
       userPreferencesMaxBytes: row.user_preferences_max_bytes,
+      accountHardPurgeDays: row.account_hard_purge_days,
       updatedAt,
     };
   }
@@ -6764,7 +6848,11 @@ export class PostgresPersistence implements Persistence {
                 'position'::text AS source
          FROM lots l
          JOIN accounts a ON l.account_id = a.id
-         WHERE a.user_id = $1 AND l.open_quantity > 0
+         -- ui-enhancement — hide positions belonging to soft-deleted accounts
+         -- from the monitored-ticker set. Otherwise the daily-refresh cron and
+         -- backfill enqueue could still tickle tickers the user has retired.
+         -- [active-only filter ADDED]
+         WHERE a.user_id = $1 AND a.deleted_at IS NULL AND l.open_quantity > 0
        ),
        combined AS (
          SELECT ticker, market_code, source FROM manual
@@ -6816,7 +6904,10 @@ export class PostgresPersistence implements Persistence {
                 ) AS market_code
          FROM lots l
          JOIN accounts a ON a.id = l.account_id
-         WHERE l.open_quantity > 0
+         -- ui-enhancement — exclude positions in soft-deleted accounts from
+         -- the global monitored set (daily-refresh cron input).
+         -- [active-only filter ADDED]
+         WHERE a.deleted_at IS NULL AND l.open_quantity > 0
        )
        SELECT DISTINCT i.ticker, i.market_code
        FROM monitored m
@@ -6860,7 +6951,10 @@ export class PostgresPersistence implements Persistence {
          SELECT a.user_id
          FROM lots l
          JOIN accounts a ON a.id = l.account_id
-         WHERE l.ticker = $1 AND l.open_quantity > 0
+         -- ui-enhancement — hide soft-deleted accounts' positions from the
+         -- "who monitors this ticker?" fan-out used by backfill notifications.
+         -- [active-only filter ADDED]
+         WHERE l.ticker = $1 AND l.open_quantity > 0 AND a.deleted_at IS NULL
        )
        SELECT DISTINCT mu.user_id
        FROM monitored_users mu
@@ -7561,6 +7655,334 @@ export class PostgresPersistence implements Persistence {
     } finally {
       client.release();
     }
+  }
+
+  // ── ui-enhancement — Account lifecycle ──────────────────────────────────
+
+  async softDeleteAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ deletedAt: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Lock row and verify ownership.
+      const lookup = await client.query<{
+        name: string;
+        account_type: string;
+        default_currency: string;
+        deleted_at: Date | string | null;
+      }>(
+        `SELECT name, account_type, default_currency, deleted_at
+         FROM accounts
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [accountId, userId],
+      );
+      if (!lookup.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "account_not_found", "Account not found.");
+      }
+      const existingDeletedAt = lookup.rows[0].deleted_at;
+      if (existingDeletedAt !== null) {
+        // Idempotent — already soft-deleted.
+        await client.query("COMMIT");
+        const iso = existingDeletedAt instanceof Date
+          ? existingDeletedAt.toISOString()
+          : new Date(existingDeletedAt).toISOString();
+        return { deletedAt: iso };
+      }
+      const result = await client.query<{ deleted_at: Date | string }>(
+        `UPDATE accounts SET deleted_at = NOW()
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+         RETURNING deleted_at`,
+        [accountId, userId],
+      );
+      const deletedAtRaw = result.rows[0]!.deleted_at;
+      const deletedAt = deletedAtRaw instanceof Date
+        ? deletedAtRaw.toISOString()
+        : new Date(deletedAtRaw).toISOString();
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "account_soft_deleted",
+        targetUserId: userId,
+        metadata: {
+          ...auditInput.metadata,
+          accountId,
+          accountName: lookup.rows[0].name,
+          accountType: lookup.rows[0].account_type,
+          defaultCurrency: lookup.rows[0].default_currency,
+        },
+      });
+
+      await client.query("COMMIT");
+      return { deletedAt };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async restoreAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ accountId: string; finalName: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Lock + verify soft-deleted state.
+      const lookup = await client.query<{ name: string; deleted_at: Date | string | null }>(
+        `SELECT name, deleted_at FROM accounts
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [accountId, userId],
+      );
+      if (!lookup.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "account_not_found", "Account not found.");
+      }
+      if (lookup.rows[0].deleted_at === null) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "account_not_soft_deleted", "Account is not soft-deleted.");
+      }
+      const priorName = lookup.rows[0].name;
+
+      // Resolve name collision against ACTIVE accounts only.
+      const activeNamesResult = await client.query<{ name: string }>(
+        `SELECT name FROM accounts
+         WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId],
+      );
+      const activeNames = new Set(activeNamesResult.rows.map((r) => r.name));
+      let finalName = priorName;
+      if (activeNames.has(priorName)) {
+        finalName = `${priorName} (restored)`;
+        let suffix = 2;
+        while (activeNames.has(finalName) && suffix <= 20) {
+          finalName = `${priorName} (restored ${suffix})`;
+          suffix += 1;
+        }
+        if (activeNames.has(finalName)) {
+          await client.query("ROLLBACK");
+          throw routeError(
+            409,
+            "account_restore_name_unresolvable",
+            "Could not auto-rename restored account: too many name collisions (>20 candidates tried).",
+          );
+        }
+      }
+
+      await client.query(
+        `UPDATE accounts SET deleted_at = NULL, name = $3
+         WHERE id = $1 AND user_id = $2`,
+        [accountId, userId, finalName],
+      );
+
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "account_restored",
+        targetUserId: userId,
+        metadata: { ...auditInput.metadata, accountId, priorName, finalName },
+      });
+
+      await client.query("COMMIT");
+      return { accountId, finalName };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async hardPurgeAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+    options: { mustBeSoftDeleted?: boolean } = {},
+  ): Promise<void> {
+    const mustBeSoftDeleted = options.mustBeSoftDeleted ?? true;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // 1. Lock + verify ownership and state.
+      const lookup = await client.query<{
+        name: string;
+        account_type: string;
+        default_currency: string;
+        deleted_at: Date | string | null;
+      }>(
+        `SELECT name, account_type, default_currency, deleted_at
+         FROM accounts
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE`,
+        [accountId, userId],
+      );
+      if (!lookup.rows[0]) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "account_not_found", "Account not found.");
+      }
+      const { name, account_type, default_currency, deleted_at } = lookup.rows[0];
+      if (mustBeSoftDeleted && deleted_at === null) {
+        await client.query("ROLLBACK");
+        throw routeError(
+          404,
+          "account_not_soft_deleted",
+          "Account must be soft-deleted before cron-driven hard-purge.",
+        );
+      }
+      const deletedAtIso = deleted_at === null
+        ? null
+        : deleted_at instanceof Date
+          ? deleted_at.toISOString()
+          : new Date(deleted_at).toISOString();
+
+      // 2. Audit row BEFORE row deletion. audit_log.target_user_id has FK ON
+      // DELETE SET NULL, so the user row survives untouched and the entry is
+      // preserved past purge.
+      await this.appendAuditLogTx(client, {
+        ...auditInput,
+        action: "account_hard_purged",
+        targetUserId: userId,
+        metadata: {
+          ...auditInput.metadata,
+          accountId,
+          accountName: name,
+          accountType: account_type,
+          defaultCurrency: default_currency,
+          deletedAt: deletedAtIso,
+        },
+      });
+
+      // 3. Account-scoped child rows in dependency order (mirrors hardPurgeUser
+      // restricted to a single accountId). composite-FK currency_wallet_snapshots
+      // before accounts row. trade_fee_policy_snapshots intentionally LEFT in
+      // place (user-scoped; per-account snapshot scoping is non-trivial and
+      // adds zero user-observable benefit; reaped on user hard-purge or remain
+      // harmless. Same orphan tolerance pattern as fee_profiles).
+      await client.query("DELETE FROM daily_holding_snapshots WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM currency_wallet_snapshots WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM cash_ledger_entries WHERE account_id = $1", [accountId]);
+      await client.query(
+        `DELETE FROM lot_allocations
+         WHERE lot_id IN (SELECT id FROM lots WHERE account_id = $1)`,
+        [accountId],
+      );
+      await client.query("DELETE FROM lots WHERE account_id = $1", [accountId]);
+      await client.query(
+        `DELETE FROM dividend_deduction_entries
+         WHERE dividend_ledger_entry_id IN (
+           SELECT id FROM dividend_ledger_entries WHERE account_id = $1
+         )`,
+        [accountId],
+      );
+      // dividend_source_lines cascade from dividend_ledger_entries.
+      await client.query("DELETE FROM dividend_ledger_entries WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM corporate_actions WHERE account_id = $1", [accountId]);
+      await client.query("DELETE FROM trade_events WHERE account_id = $1", [accountId]);
+
+      // 4. fee_profiles + tax_rules + account_fee_profile_overrides cascade
+      // automatically via ON DELETE CASCADE on fee_profiles.account_id.
+      await client.query("DELETE FROM accounts WHERE id = $1 AND user_id = $2", [accountId, userId]);
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listSoftDeletedAccounts(
+    userId: string,
+  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>> {
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      name: string;
+      fee_profile_id: string;
+      default_currency: import("@tw-portfolio/shared-types").AccountDefaultCurrency;
+      account_type: import("@tw-portfolio/shared-types").AccountType;
+      deleted_at: Date | string;
+    }>(
+      `SELECT id, user_id, name, fee_profile_id, default_currency, account_type, deleted_at
+       FROM accounts
+       WHERE user_id = $1 AND deleted_at IS NOT NULL
+       ORDER BY deleted_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      feeProfileId: row.fee_profile_id,
+      defaultCurrency: row.default_currency,
+      accountType: row.account_type,
+      deletedAt: row.deleted_at instanceof Date
+        ? row.deleted_at.toISOString()
+        : new Date(row.deleted_at).toISOString(),
+    }));
+  }
+
+  async getAccountIncludingDeleted(
+    accountId: string,
+    userId: string,
+  ): Promise<
+    | (import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null })
+    | null
+  > {
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      name: string;
+      fee_profile_id: string;
+      default_currency: import("@tw-portfolio/shared-types").AccountDefaultCurrency;
+      account_type: import("@tw-portfolio/shared-types").AccountType;
+      deleted_at: Date | string | null;
+    }>(
+      `SELECT id, user_id, name, fee_profile_id, default_currency, account_type, deleted_at
+       FROM accounts
+       WHERE id = $1 AND user_id = $2`,
+      [accountId, userId],
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      feeProfileId: row.fee_profile_id,
+      defaultCurrency: row.default_currency,
+      accountType: row.account_type,
+      deletedAt: row.deleted_at === null
+        ? null
+        : row.deleted_at instanceof Date
+          ? row.deleted_at.toISOString()
+          : new Date(row.deleted_at).toISOString(),
+    };
+  }
+
+  async selectAccountsForHardPurge(
+    graceDays: number,
+  ): Promise<Array<{ accountId: string; userId: string }>> {
+    // graceDays is admin-tunable via app_config.account_hard_purge_days; the
+    // cron worker reads it AT TICK TIME and passes it in here. Parameterize
+    // the interval with `make_interval(days => $1)` (NOT string concatenation)
+    // to keep this query SQL-injection-safe.
+    const result = await this.pool.query<{ id: string; user_id: string }>(
+      `SELECT id, user_id FROM accounts
+       WHERE deleted_at IS NOT NULL
+         AND deleted_at < NOW() - make_interval(days => $1)
+       ORDER BY deleted_at ASC`,
+      [graceDays],
+    );
+    return result.rows.map((row) => ({ accountId: row.id, userId: row.user_id }));
   }
 
   async hasActiveJobs(userId: string): Promise<boolean> {

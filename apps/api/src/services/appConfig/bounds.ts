@@ -63,6 +63,12 @@ export const APP_CONFIG_BOUNDS = {
   // comment + bodyLimit ceiling). Operators override via direct SQL.
   anonymousShareTokenRetentionMs: { min: 24 * 60 * 60 * 1000, max: 365 * 24 * 60 * 60 * 1000 },
   userPreferencesMaxBytes: { min: 256, max: 1_048_576 },
+
+  // ui-enhancement — Tier B account-soft-delete grace period (days). Lower
+  // bound 1 (any positive integer permits "purge tomorrow" semantics for
+  // testing); upper bound 365 (1 year — matches the upstream Anonymous share
+  // token retention bound).
+  accountHardPurgeDays: { min: 1, max: 365 },
 } as const;
 
 export type AppConfigBoundsKey = keyof typeof APP_CONFIG_BOUNDS;

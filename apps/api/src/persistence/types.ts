@@ -58,7 +58,9 @@ export type AppConfigPlainField =
   // KZO-199 — Tier 1 sharing knobs (in PATCH schema, in UI).
   | "anonymousShareTokenCap"
   | "anonymousShareRateLimitMax"
-  | "anonymousShareRateLimitWindowMs";
+  | "anonymousShareRateLimitWindowMs"
+  // ui-enhancement — Tier B account-soft-delete grace period.
+  | "accountHardPurgeDays";
 
 /**
  * KZO-198 — aggregate patch shape accepted by `setAppConfigPatch`. Each key
@@ -104,6 +106,8 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   anonymousShareTokenCap: "anonymous_share_token_cap",
   anonymousShareRateLimitMax: "anonymous_share_rate_limit_max",
   anonymousShareRateLimitWindowMs: "anonymous_share_rate_limit_window_ms",
+  // ui-enhancement — Tier B account-soft-delete grace period.
+  accountHardPurgeDays: "account_hard_purge_days",
 };
 
 export interface ReadinessStatus {
@@ -203,7 +207,11 @@ export type AuditLogAction =
   // bumps, and guard trips.
   | "instrument_delisted_via_absence"
   | "instrument_absence_streak_bumped"
-  | "instrument_absence_guard_tripped";
+  | "instrument_absence_guard_tripped"
+  // ui-enhancement — account lifecycle audit actions.
+  | "account_soft_deleted"
+  | "account_restored"
+  | "account_hard_purged";
 
 export interface ShareGrantRecord {
   id: string;
@@ -1020,6 +1028,8 @@ export interface Persistence {
     // KZO-199 — Tier 2 (DB+SQL only; NOT in PATCH or UI).
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
+    // ui-enhancement — Tier B account-soft-delete grace period (NULL → env).
+    accountHardPurgeDays: number | null;
     updatedAt: string;
   }>;
 
@@ -1349,6 +1359,95 @@ export interface Persistence {
   softDeleteUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
   hardPurgeUser(userId: string, auditInput: Omit<AuditLogInput, "action">): Promise<void>;
   hasActiveJobs(userId: string): Promise<boolean>;
+
+  // ── ui-enhancement — Account lifecycle (soft-delete / restore / hard-purge) ──
+  /**
+   * Soft-delete an account: stamps `accounts.deleted_at = NOW()`. Idempotent
+   * (returns the existing `deletedAt` ISO if already soft-deleted). Throws
+   * `routeError(404, "account_not_found", ...)` when `(id, userId)` does not
+   * resolve. Account-scoped data is preserved; only the row's `deleted_at`
+   * column changes. Does NOT cancel pgboss jobs — daily-refresh etc. continue
+   * to fire and become silent no-ops because read paths filter `deleted_at`.
+   *
+   * Audit-log row `action="account_soft_deleted"` with metadata snapshot
+   * `{ accountName, accountType, defaultCurrency }` is inserted in the same
+   * transaction.
+   */
+  softDeleteAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ deletedAt: string }>;
+
+  /**
+   * Restore a soft-deleted account: clears `accounts.deleted_at`. If an
+   * *active* account already owns the same name, auto-rename to
+   * `"{originalName} (restored)"`. If that string ALSO collides, append
+   * `" (restored 2)"`, `" (restored 3)"`, ... up to N=20 (then throw
+   * `routeError(409, "account_restore_name_unresolvable", ...)`). The route
+   * layer surfaces the final name in the response payload + SSE event.
+   *
+   * Throws `routeError(404, ...)` if account not found or not soft-deleted.
+   * Audit: `"account_restored"` with metadata `{ priorName, finalName }`.
+   */
+  restoreAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ accountId: string; finalName: string }>;
+
+  /**
+   * Hard-purge a single account: deletes the account row and all
+   * account-scoped child data in dependency order. The user row is NOT
+   * touched. Audit `"account_hard_purged"` is inserted BEFORE row deletion
+   * (FK ON DELETE SET NULL on `audit_log.target_user_id` preserves the entry).
+   *
+   * Operates in a single transaction. Throws `routeError(404, ...)` if not
+   * found OR if `mustBeSoftDeleted=true` (default) AND `deleted_at IS NULL`.
+   *
+   * The cron path uses `mustBeSoftDeleted=true`; the "Permanently delete now"
+   * route uses `false` (soft-delete is applied inline by the route as a
+   * one-step transition).
+   */
+  hardPurgeAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+    options?: { mustBeSoftDeleted?: boolean },
+  ): Promise<void>;
+
+  /**
+   * List soft-deleted accounts for the given user, ordered by `deleted_at`
+   * DESC. Returns `AccountDto`-shaped rows plus `deletedAt`. Used by the
+   * "Recently deleted" UI section. Does NOT include hard-purged rows.
+   */
+  listSoftDeletedAccounts(
+    userId: string,
+  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>>;
+
+  /**
+   * Single-row helper that bypasses the `deleted_at IS NULL` filter. Used by
+   * the "Permanently delete now" route to load an already-active account or
+   * a soft-deleted one for typed-name confirmation. Returns `null` if not
+   * found.
+   */
+  getAccountIncludingDeleted(
+    accountId: string,
+    userId: string,
+  ): Promise<(import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null }) | null>;
+
+  /**
+   * Bulk hard-purge candidate selection for the daily cron. Returns rows
+   * where `deleted_at < NOW() - INTERVAL '<graceDays> days'`. The worker
+   * iterates and calls `hardPurgeAccount` in its own transaction per row.
+   * Worker reads `graceDays` via `getEffectiveAccountHardPurgeDays()` so
+   * admin overrides take effect on each tick (sweep-parameter-live per
+   * `fastify-eviction-lifecycle-pattern.md`).
+   */
+  selectAccountsForHardPurge(
+    graceDays: number,
+  ): Promise<Array<{ accountId: string; userId: string }>>;
+
   countActiveAdmins(): Promise<number>;
   listInvites(options: AdminInviteListOptions): Promise<AdminInviteListResponse>;
   listAuditLog(options: AdminAuditLogListOptions): Promise<AdminAuditLogResponse>;

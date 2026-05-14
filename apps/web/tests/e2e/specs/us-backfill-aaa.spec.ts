@@ -90,11 +90,14 @@ test("[transactions]: AAPL US trade against USD account → posted, recent table
   await transactions.assert.recentTransactionTickerIsVisible("AAPL");
 });
 
-test("[transactions]: AAPL US trade against TWD account is blocked by the no-account UX", async ({
+// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
+// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
+// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
+test("[transactions]: US chip on AAPL derives USD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
   settings,
   transactions,
 }) => {
-  // ── Arrange: seed AAPL US, no USD account exists (default user only has TWD) ─
+  // ── Arrange: seed AAPL US; default user only has TWD account ────────────
   await settings.arrange.seedInstruments([AAPL_US]);
 
   // ── Act ──────────────────────────────────────────────────────────────────
@@ -103,13 +106,7 @@ test("[transactions]: AAPL US trade against TWD account is blocked by the no-acc
   await transactions.actions.selectMarketChip("US");
   await transactions.actions.typeInTickerSearch("AAPL");
   await transactions.actions.selectTickerOption("AAPL", "US");
-  await transactions.actions.fillTradeDate("2024-06-14"); // G-CRIT-3
-  await transactions.actions.fillQuantity(10);
-  await transactions.actions.fillUnitPrice(195);
 
-  // ── Assert: KZO-169 no-account UX, deep-linked create-account with USD ──
+  // ── Assert: form-side chip → derived priceCurrency is USD. ───────────────
   await transactions.assert.priceCurrencyIs("USD");
-  await transactions.assert.noAccountErrorContains(/USD/);
-  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=USD/);
-  await transactions.assert.submitButtonIsDisabled();
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   AccountDefaultCurrency,
   AccountType,
@@ -20,14 +20,17 @@ import { InstrumentCombobox } from "./InstrumentCombobox";
 import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";
 
-// KZO-169: chip surface forces an explicit market choice (or All). Default
-// is derived from the user's account-currency mix per D8a:
-//   - all accounts share one currency → that currency's MarketCode
-//   - mixed-currency OR no accounts → "All"
-// `null` means "All" mode (cross-market autocomplete with disambiguation).
+// KZO-169: chip surface forces an explicit market choice. ui-enhancement
+// (2026-05-13) removed the "All" chip from the Record Transaction surface:
+// the chip now always commits a concrete `MarketCode` and is one-way driven
+// from the selected account's `defaultCurrency`. (The Settings → Tickers
+// catalog browser keeps its ALL chip — see `InstrumentCatalogSheet`.)
+// `MarketChip` keeps `null` as an *internal* state for the brief window
+// between mount and first account/derivation; user-visible chips are always
+// `MarketCode` literals. `MARKET_CHIPS` no longer contains `null`.
 export type MarketChip = MarketCode | null;
 
-const MARKET_CHIPS: ReadonlyArray<MarketChip> = ["TW", "US", "AU", null];
+const MARKET_CHIPS: ReadonlyArray<MarketCode> = ["TW", "US", "AU"];
 
 export interface TransactionAccountOption {
   id: string;
@@ -82,23 +85,21 @@ function resolvePriceHintCopy(dict: AppDictionary, locale: LocaleCode, hint: Tra
   return dict.priceHint.previous.no_bar.replace("{date}", formattedDate);
 }
 
-// KZO-169 (D8a): derive the chip default from the union of account currencies.
-// Single-currency user → that market; mixed or empty → All.
+// ui-enhancement (2026-05-13) — scope item 21: the default chip is the
+// first account's market (formerly: only-currency-or-null). Empty list
+// falls back to "TW" so the form always commits a concrete `MarketCode`
+// for new users before they create an account. Locale-agnostic — the
+// first-account heuristic mirrors how the dropdown lists accounts.
 export function deriveDefaultMarketChip(
   accounts: ReadonlyArray<{ defaultCurrency: AccountDefaultCurrency }>,
-): MarketChip {
+): MarketCode {
   if (accounts.length === 0) {
-    return null;
+    return "TW";
   }
-  const currencies = new Set(accounts.map((a) => a.defaultCurrency));
-  if (currencies.size > 1) {
-    return null;
-  }
-  const onlyCurrency = [...currencies][0];
   try {
-    return marketCodeFor(onlyCurrency);
+    return marketCodeFor(accounts[0].defaultCurrency);
   } catch {
-    return null;
+    return "TW";
   }
 }
 
@@ -140,11 +141,10 @@ function chipPillClassName(active: boolean, disabled: boolean): string {
   );
 }
 
-function chipLabel(dict: AppDictionary, chip: MarketChip): string {
+function chipLabel(dict: AppDictionary, chip: MarketCode): string {
   if (chip === "TW") return dict.transactions.marketChipTW;
   if (chip === "US") return dict.transactions.marketChipUS;
-  if (chip === "AU") return dict.transactions.marketChipAU;
-  return dict.transactions.marketChipAll;
+  return dict.transactions.marketChipAU;
 }
 
 export function AddTransactionCard({
@@ -168,56 +168,104 @@ export function AddTransactionCard({
     onChange({ ...value, [key]: nextValue });
   }
 
-  // KZO-169: chip lives at the top of the form. Initial value is derived
-  // from the user's account-currency mix. Keep the chip filter separate from
-  // the committed instrument market so "All" can remain selected after the
-  // user picks a specific market row.
-  const [explicitChip, setExplicitChip] = useState<MarketChip | undefined>(undefined);
+  // KZO-169 + ui-enhancement: chip lives at the top of the form. Initial
+  // value derives from the first account's market (or TW fallback for the
+  // zero-account state). The chip is one-way driven from the selected
+  // account but remains user-overridable via `handleChipChange` until the
+  // account changes again. `explicitChip` records the user's override (if
+  // any) so it survives reconciliation effects.
+  const [explicitChip, setExplicitChip] = useState<MarketCode | undefined>(undefined);
   const defaultChip = useMemo(
     () => deriveDefaultMarketChip(accountOptions),
     [accountOptions],
   );
-  const activeChip: MarketChip = explicitChip !== undefined
+  const activeChip: MarketCode = explicitChip !== undefined
     ? explicitChip
     : (value.marketCode ?? defaultChip);
 
-  // Derived trade currency comes from the specific chip while browsing or
-  // from the committed instrument in All mode.
-  const derivedMarket = activeChip ?? value.marketCode;
-  const derivedCurrency: AccountDefaultCurrency | null = derivedMarket ? currencyFor(derivedMarket) : null;
-  const filteredAccounts = useMemo(
-    () => filterAccountsByDerivedCurrency(accountOptions, derivedCurrency),
-    [accountOptions, derivedCurrency],
-  );
+  // ui-enhancement: chip is always a concrete `MarketCode` (ALL chip
+  // removed from this surface). Derived trade currency follows it directly.
+  const derivedMarket: MarketCode = activeChip;
+  const derivedCurrency: AccountDefaultCurrency = currencyFor(derivedMarket);
 
-  // KZO-169 (D8b): reconcile derived fields in one pass. Splitting account
-  // clearing and currency mirroring across separate effects lets stale
-  // snapshots overwrite each other when a chip change invalidates both.
-  const filteredAccountIds = useMemo(
-    () => filteredAccounts.map((a) => a.id).join("|"),
-    [filteredAccounts],
-  );
-
-  const noCompatibleAccount =
-    derivedCurrency !== null && filteredAccounts.length === 0;
+  // ui-enhancement (2026-05-13) — scope items 22–23 enforce a one-way
+  // `account → chip` binding. Previously (KZO-169) the dropdown was
+  // filtered to currency-compatible accounts (`chip → account`); that
+  // direction is now removed. The dropdown lists ALL of the user's
+  // accounts; picking one drives the chip via the auto-sync effect
+  // below. `filterAccountsByDerivedCurrency` stays exported because
+  // older callers (and tests) still use the helper.
+  const dropdownAccounts = accountOptions;
+  const noCompatibleAccount = accountOptions.length === 0;
 
   // KZO-169: priceCurrency input becomes purely derived. We mirror it back
   // into form state so consumers (history table, recompute) read a real value.
-  const displayCurrency: CurrencyCode | "" = derivedCurrency ?? value.priceCurrency ?? "";
-  useEffect(() => {
-    let nextValue: TransactionInput | null = null;
-    if (value.accountId && !filteredAccountIds.split("|").includes(value.accountId)) {
-      nextValue = { ...(nextValue ?? value), accountId: "" };
-    }
-    if (derivedCurrency && value.priceCurrency !== derivedCurrency) {
-      nextValue = { ...(nextValue ?? value), priceCurrency: derivedCurrency };
-    }
-    if (nextValue) {
-      onChange(nextValue);
-    }
-  }, [derivedCurrency, filteredAccountIds, value, onChange]);
+  const displayCurrency: CurrencyCode | "" = derivedCurrency;
 
-  const selectedAccount = filteredAccounts.find((account) => account.id === value.accountId);
+  // ui-enhancement (2026-05-13) — scope items 22–23: account → chip is a
+  // one-way binding. When the user selects a new account, the chip syncs
+  // to that account's market AND the committed ticker clears (the user is
+  // about to pick a new instrument scoped to the new market).
+  //
+  // `prevAccountIdRef` is a `useRef` (not state) so updating it does NOT
+  // re-trigger this effect; we only want to fire the auto-sync once per
+  // *real* user-driven account change. The ref starts at the initial
+  // accountId so first-mount does NOT trigger a spurious clear — a
+  // freshly-loaded form with `value.accountId="acc-tw"` is already in
+  // sync, not a "new account selection". Branch 2's chip/currency
+  // reconcile still runs every render via the same effect.
+  const prevAccountIdRef = useRef<string>(value.accountId);
+  useEffect(() => {
+    // Branch 1 — user-driven account change → chip auto-sync + ticker clear.
+    if (value.accountId && value.accountId !== prevAccountIdRef.current) {
+      prevAccountIdRef.current = value.accountId;
+      const account = accountOptions.find((a) => a.id === value.accountId);
+      if (account) {
+        let nextMarket: MarketCode | null = null;
+        try {
+          nextMarket = marketCodeFor(account.defaultCurrency);
+        } catch {
+          // fall through to branch 2
+        }
+        if (nextMarket) {
+          const formChanged =
+            value.marketCode !== nextMarket
+            || value.ticker.length > 0
+            || value.priceCurrency !== currencyFor(nextMarket);
+          setExplicitChip(nextMarket);
+          if (formChanged) {
+            onChange({
+              ...value,
+              marketCode: nextMarket,
+              ticker: "",
+              priceCurrency: currencyFor(nextMarket),
+            });
+          }
+          return; // defer reconcile to next render
+        }
+      }
+    }
+
+    // Track even on no-op so re-selection of the same id later doesn't
+    // double-fire after an intervening setValue from elsewhere.
+    prevAccountIdRef.current = value.accountId;
+
+    // Branch 2 — chip-driven priceCurrency reconcile. With the account
+    // dropdown no longer filtered by chip, the chip can only change via
+    // `handleChipChange`; that callback already handles its own clearing
+    // of `value.ticker` / `value.marketCode`. We still need to mirror
+    // `derivedCurrency` into `value.priceCurrency` so consumers see it.
+    if (value.priceCurrency !== derivedCurrency) {
+      onChange({ ...value, priceCurrency: derivedCurrency });
+    }
+  }, [
+    derivedCurrency,
+    value,
+    onChange,
+    accountOptions,
+  ]);
+
+  const selectedAccount = accountOptions.find((account) => account.id === value.accountId);
   const accountSelectTitle = selectedAccount ? formatAccountOptionLabel(selectedAccount) : "";
 
   const submitDisabled =
@@ -227,13 +275,13 @@ export function AddTransactionCard({
     !value.marketCode ||
     noCompatibleAccount;
 
-  function handleChipChange(nextChip: MarketChip) {
+  function handleChipChange(nextChip: MarketCode) {
     if (instrumentReadOnly) return;
     setExplicitChip(nextChip);
     const keepCommittedInstrument =
       value.ticker.trim().length > 0 &&
       value.marketCode !== null &&
-      (nextChip === null || nextChip === value.marketCode);
+      nextChip === value.marketCode;
 
     onChange({
       ...value,
@@ -256,10 +304,19 @@ export function AddTransactionCard({
   // server-rendered HTML is stable in tests where `window` may be undefined.
   const pathname =
     typeof window !== "undefined" ? window.location.pathname : "/dashboard";
-  const createAccountHref =
-    derivedCurrency
-      ? buildCreateAccountHref(pathname, derivedCurrency)
-      : null;
+  const createAccountHref = buildCreateAccountHref(pathname, derivedCurrency);
+
+  // ui-enhancement (2026-05-13) — 4-tuple gate for fee/tax sections.
+  // Replaces the old `feeEstimate ?` gate so the sections stay rendered
+  // during transient `feeEstimate == null` states (price mismatch race,
+  // pre-fetch). When the 4-tuple is satisfied the section renders; if
+  // `feeEstimate == null` the estimate label degrades to "—" + the
+  // sub-label "estimate unavailable" — override inputs stay editable.
+  const feeTuplelComplete =
+    value.accountId.length > 0
+    && value.ticker.trim().length > 0
+    && value.quantity > 0
+    && value.unitPrice > 0;
 
   const content = (
     <>
@@ -281,17 +338,16 @@ export function AddTransactionCard({
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={dict.transactions.marketTerm}>
           {MARKET_CHIPS.map((chip) => {
             const active = activeChip === chip;
-            const chipKey = chip ?? "ALL";
             return (
               <button
-                key={chipKey}
+                key={chip}
                 type="button"
                 role="radio"
                 aria-checked={active}
                 disabled={instrumentReadOnly}
                 onClick={() => handleChipChange(chip)}
                 className={chipPillClassName(active, instrumentReadOnly)}
-                data-testid={`tx-market-chip-${chipKey}`}
+                data-testid={`tx-market-chip-${chip}`}
               >
                 {chipLabel(dict, chip)}
               </button>
@@ -326,21 +382,19 @@ export function AddTransactionCard({
               <span>
                 {dict.transactions.noAccountForCurrency.replace(
                   "{currency}",
-                  derivedCurrency ?? "",
+                  derivedCurrency,
                 )}
               </span>
-              {createAccountHref ? (
-                <a
-                  href={createAccountHref}
-                  className="font-medium text-rose-700 underline hover:text-rose-900"
-                  data-testid="tx-create-account-link"
-                >
-                  {dict.transactions.createAccountLink.replace(
-                    "{currency}",
-                    derivedCurrency ?? "",
-                  )}
-                </a>
-              ) : null}
+              <a
+                href={createAccountHref}
+                className="font-medium text-rose-700 underline hover:text-rose-900"
+                data-testid="tx-create-account-link"
+              >
+                {dict.transactions.createAccountLink.replace(
+                  "{currency}",
+                  derivedCurrency,
+                )}
+              </a>
             </div>
           ) : (
             <select
@@ -350,14 +404,14 @@ export function AddTransactionCard({
               title={accountSelectTitle}
               className={fieldClassName}
               data-testid="tx-account-select"
-              disabled={filteredAccounts.length === 0}
+              disabled={dropdownAccounts.length === 0}
             >
-              {filteredAccounts.length === 0 ? (
+              {dropdownAccounts.length === 0 ? (
                 <option value="" disabled>
                   —
                 </option>
               ) : null}
-              {filteredAccounts.map((account) => (
+              {dropdownAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {formatAccountOptionLabel(account)}
                 </option>
@@ -527,17 +581,27 @@ export function AddTransactionCard({
         </label>
       </div>
 
-      {feeEstimate ? (
+      {feeTuplelComplete ? (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <section className="space-y-3 rounded-[20px] border border-slate-200 bg-slate-50/80 p-4" data-testid="commission-estimate-section">
             <div className="space-y-1">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.transactions.commissionEstimateTitle}</p>
               <p className="text-sm font-medium text-slate-900" data-testid="commission-estimate-value">
-                {dict.transactions.estimatedLabel.replace(
-                  "{amount}",
-                  formatCurrencyAmount(feeEstimate.commissionAmount, value.priceCurrency, locale),
-                )}
+                {feeEstimate
+                  ? dict.transactions.estimatedLabel.replace(
+                      "{amount}",
+                      formatCurrencyAmount(feeEstimate.commissionAmount, value.priceCurrency, locale),
+                    )
+                  : dict.transactions.estimatedUnavailable}
               </p>
+              {!feeEstimate ? (
+                <p
+                  className="text-[11px] text-slate-500"
+                  data-testid="commission-estimate-unavailable"
+                >
+                  {dict.transactions.estimateUnavailableSubLabel}
+                </p>
+              ) : null}
             </div>
             <input
               type="number"
@@ -556,11 +620,21 @@ export function AddTransactionCard({
               <div className="space-y-1">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.transactions.taxEstimateTitle}</p>
                 <p className="text-sm font-medium text-slate-900" data-testid="tax-estimate-value">
-                  {dict.transactions.estimatedLabel.replace(
-                    "{amount}",
-                    formatCurrencyAmount(feeEstimate.taxAmount, value.priceCurrency, locale),
-                  )}
+                  {feeEstimate
+                    ? dict.transactions.estimatedLabel.replace(
+                        "{amount}",
+                        formatCurrencyAmount(feeEstimate.taxAmount, value.priceCurrency, locale),
+                      )
+                    : dict.transactions.estimatedUnavailable}
                 </p>
+                {!feeEstimate ? (
+                  <p
+                    className="text-[11px] text-slate-500"
+                    data-testid="tax-estimate-unavailable"
+                  >
+                    {dict.transactions.estimateUnavailableSubLabel}
+                  </p>
+                ) : null}
               </div>
               <input
                 type="number"

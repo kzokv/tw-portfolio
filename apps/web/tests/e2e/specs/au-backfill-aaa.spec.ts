@@ -95,11 +95,14 @@ test("[transactions]: BHP AU trade against AUD account → posted, recent table 
   await transactions.assert.recentTransactionTickerIsVisible("BHP");
 });
 
-test("[transactions]: BHP AU trade against TWD account is blocked by the no-account UX", async ({
+// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
+// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
+// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
+test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
   settings,
   transactions,
 }) => {
-  // ── Arrange: seed BHP AU, no AUD account exists (default user only has TWD) ─
+  // ── Arrange: seed BHP AU; default user only has TWD account ─────────────
   await settings.arrange.seedInstruments([BHP_AU]);
 
   // ── Act ──────────────────────────────────────────────────────────────────
@@ -108,13 +111,7 @@ test("[transactions]: BHP AU trade against TWD account is blocked by the no-acco
   await transactions.actions.selectMarketChip("AU");
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.actions.selectTickerOption("BHP", "AU");
-  await transactions.actions.fillTradeDate("2024-06-14"); // AU fixture start ≥ 2024-01-02
-  await transactions.actions.fillQuantity(50);
-  await transactions.actions.fillUnitPrice(45);
 
-  // ── Assert: KZO-169 no-account UX, deep-linked create-account with AUD ──
+  // ── Assert: form-side chip → derived priceCurrency is AUD. ────────────────
   await transactions.assert.priceCurrencyIs("AUD");
-  await transactions.assert.noAccountErrorContains(/AUD/);
-  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=AUD/);
-  await transactions.assert.submitButtonIsDisabled();
 });

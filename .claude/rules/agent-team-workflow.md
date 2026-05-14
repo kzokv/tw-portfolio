@@ -221,3 +221,48 @@ in_progress. TaskList was empty post-refresh; recreated Tasks #4 (validator) and
 - Dispatcher spawn brief: include this rule verbatim. State.json is authoritative; never roll back phase based on TaskList absence.
 - Dispatcher: on every context refresh, the FIRST tool call is reading `state.json`. The SECOND is reading TaskList. Reconcile by recreating tasks to match state, not by rewriting state to match TaskList.
 - Architect: if the Dispatcher rolls back state, issue `[ARCHITECT:STATE-FIX]` once. If the rollback recurs, force-stop the Dispatcher and respawn with a brief that re-emphasizes this rule.
+
+## Architect (and Dispatcher) first-action-on-wake = re-poll, always
+
+Every wake — for ANY reason — the Architect's (and Dispatcher's) FIRST action MUST be: re-read inbox / `TaskList` / `state.json` before deciding what to do. Do **not** treat the most recent `[STATUS]` you sent as a polling baseline that means "nothing else needs my attention."
+
+**Why:** The hint channel (SendMessage notifications) is non-authoritative; the durable channel (`TaskUpdate` / `TaskList` / `state.json`) is. Notifications can be dropped, batched, or processed out of order. Skipping the re-poll on a wake where "nothing seems to have changed" is the canonical Architect-stall failure mode.
+
+**Source data point — ui-enhancement run (2026-05-13 → 2026-05-14):** Original `architect` agent stalled **5 separate times** in a single Tier 3 run. Each stall followed the same pattern: send a `[STATUS]`, go idle, fail to re-poll inbox on next wake even though Dispatcher had relayed `[*:DONE]` signals or gate-met confirmations. The failure mode persisted through 5 user-issued prods. User authorized force-stop + respawn after iter 3 of 5; `architect-2` was spawned with explicit polling-discipline instruction and carried convergence to clean iter-5 exit + Wave-2 docs CR + shutdown with **zero further stalls**.
+
+**How to apply:**
+
+- All Architect-role spawn prompts (any tier) MUST include this language verbatim:
+  > "Every wake, your FIRST action is re-poll of inbox + TaskList + state.json. Even if you sent a [STATUS] 30 seconds ago, re-check on each wake. If you find any [*:DONE] / [*:FIX_DONE_N] / [DISPATCHER:RELAY] / [DISPATCHER:STATUS] / [DISPATCHER:WAVE_LAUNCHED] message you haven't processed, process it immediately. Skipping the re-poll on a 'nothing seems to have changed' wake is the canonical Architect-stall failure mode — 5-stall precedent in ui-enhancement run, user-authorized force-stop required to recover."
+
+- All Dispatcher-role spawn prompts get the same clause adapted: "On every wake, re-read state.json then TaskList before deciding what to do."
+
+- Main session (team-lead) failure-mode detection: if Architect has been idle ≥10 minutes after a known Dispatcher relay or `[*:DONE]` message landed, send ONE concise prod with the pre-baked next-action embedded ("fire X to Y, then [STATUS] back"). If the prod doesn't unstall within 5 minutes, surface options to the user: (A) wait longer, (B) force-stop + respawn, (C) take over directly, (D) abort + manual finish.
+
+- Recovery precedent: `team-respawn-verify-not-regenerate.md` covers the respawn shape. The ui-enhancement run demonstrated that a respawn architect with **pre-baked triage in the brief** + explicit polling-discipline language can take over mid-convergence and complete cleanly. Memory consolidation from the original architect's staged memory file at `.worklog/team/memory/architect.md` is preserved for handover context.
+
+Companion rules: `team-respawn-verify-not-regenerate.md` (park-don't-kill SOP); `.claude/skills/team/references/message-protocol.md` (durable vs hint channel semantics).
+
+## Holistic audit pattern at 3rd-strike same-class findings
+
+When the convergence loop produces a 3rd consecutive iteration with the **same class** of finding (e.g., "missing X filter" appearing in iter-3, iter-4, and iter-5 CR rounds), the Architect's triage for that iteration MUST include a **holistic grep audit** of the entire surface where the class might apply — not another spot-fix-only routing on the named sites.
+
+**Why:** Spot-fixing individual call sites means each iteration may surface 1–2 more leaks indefinitely. The cost of continued spot-fix iterations exceeds the cost of one comprehensive audit. The audit also produces a durable artifact (commit message + scope-todo addendum) that future code reviews can grep against.
+
+**Source data point — ui-enhancement run, iter 5 (FINAL ceiling):** Pattern of soft-delete filter leaks:
+- iter 3 CR found 2 HIGHs in `getSnapshotGenerationInputs` + `getAggregatedSnapshotsInReportingCurrency`
+- iter 4 CR (holistic audit recommended by original architect's risk-hedge but not yet enforced) found 1 HIGH (`getMonitoredSet`) + 1 MEDIUM (`listDividendLedgerYears`)
+- iter 5 Backend was directed to do a comprehensive `grep -nE "FROM accounts|JOIN accounts" apps/api/src/persistence/postgres.ts` audit + per-match decision (apply filter / add justification comment / declare intentional exception).
+- **Result: 9 filter sites in total — 2 directed fixes + 7 defensive sites the spot-fix-only path would have missed entirely.** One of the 7 (`listUserAccountIds` ~5236) was on a replay path that, if hit without the filter, would have caused **real data loss** for soft-deleted accounts.
+
+**How to apply:**
+
+- Architect triage rule of thumb: **3rd consecutive iteration of same-class finding → mandate holistic grep audit** with per-match decision (apply filter / add justification comment / declare intentional exception). Reject another spot-fix-only routing.
+- Backend (or relevant implementer) MUST surface the grep output + decisions in their `[*:FIX_DONE_N]` summary so CR can verify the audit was actually performed and the decisions are reasonable.
+- Code Reviewer should grep the same pattern independently as part of their delta CR when audit is in scope, and flag any unaccounted matches as HIGH.
+
+**On structural refactors as an alternative:** The "third strike" data point is also evidence that the underlying API allows the class of bug — e.g., direct `WHERE user_id = $1` SQL without account-active-status filtering. A structural refactor (e.g., mandate all account-scoped reads flow through a single `active_account_ids` CTE; reject any direct SELECT without it) is a stronger guarantee but high blast radius. **Default decision: defer the refactor to a follow-up ticket** unless iteration ceiling is far from exhausted. The transition note's `## Follow-up: ...` section is the canonical place to record that deferred work + the original architect's risk-hedge proposal. Apply the holistic audit now for immediate correctness; structurally refactor later.
+
+**Generalizes beyond soft-delete:** apply to any recurring same-class finding (e.g., 3rd-strike missing route-guard, 3rd-strike missing rate-limit, 3rd-strike missing audit-log entry, 3rd-strike missing schema-qualified table name in raw SQL, 3rd-strike missing typed-error re-throw).
+
+Companion rules: `code-review-before-pr.md`, `team-phase-3-triage.md` (route holistic-audit findings + planned-Wave-2 docs items correctly).

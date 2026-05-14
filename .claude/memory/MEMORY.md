@@ -60,6 +60,10 @@
 - `fastify-eviction-lifecycle-pattern.md` (addendum) — client-facing values derived from live-tunable knobs (Retry-After header, error-envelope retryAfterMs) must use the live resolver, not Env.* — extends "schedule static, parameter live" to client-visible surface
 - `validator-activation-gate.md` (occurrence 4 + new failure class) — Architect-side envelope drop: gate held correctly but upstream `[ARCHITECT:GO]` was never sent; mitigation = per-recipient SendMessage + Dispatcher gate-status surfacing
 
+## Promoted to .claude/rules/ (ui-enhancement, 2026-05-14)
+- `agent-team-workflow.md` (addendum) — Architect (and Dispatcher) first-action-on-wake = re-poll inbox+TaskList+state.json, always; 5-stall canonical anti-pattern from ui-enhancement original architect; respawn with pre-baked triage is the canonical recovery
+- `agent-team-workflow.md` (addendum) — Holistic audit pattern at 3rd-strike same-class findings; iter-5 audit caught 7 defensive sites including critical `listUserAccountIds` data-loss path that spot-fix-only would have missed
+
 ## KZO-192 — ECB/TARGET2 holiday awareness for synthetic FX market (2026-05-12)
 
 - **FX calendar shape:** `tradingCalendar.ts` now has 6 private helpers (no exports): `computeEasterSunday` (Meeus/Jones/Butcher Computus), `ECB_HOLIDAY_YEAR_CACHE` (lazy `Map<number, ReadonlySet<string>>`), `ecbHolidaysForYear`, `isEcbHoliday`, `isFxTradingDay`, `previousFxTradingDayOnOrBefore`. Inserted between `previousWeekdayOnOrBefore` and `latestTradingDateOnOrBefore`. All `function`-keyword, all private.

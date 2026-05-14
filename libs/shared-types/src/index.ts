@@ -180,6 +180,17 @@ export interface UserSettings {
   locale: LocaleCode;
   costBasisMethod: CostBasisMethod;
   quotePollIntervalSeconds: number;
+  /**
+   * ui-enhancement (2026-05-14) — effective grace period (in days) for the
+   * soft-delete → hard-purge account cron. Mirrors
+   * `AppConfigDto.effectiveAccountHardPurgeDays` so the user-facing UI
+   * (`Settings → Accounts → Recently deleted`) can render the correct
+   * countdown when an admin overrides the env default via
+   * `app_config.account_hard_purge_days`. Optional so older API responses
+   * (pre-ui-enhancement) still decode; consumers default to
+   * `Env.ACCOUNT_HARD_PURGE_DAYS` (30) when absent.
+   */
+  effectiveAccountHardPurgeDays?: number;
 }
 
 // KZO-183: account-scoped fee profiles. `accountId` replaces the previous
@@ -694,6 +705,11 @@ export interface AppConfigDto {
   effectiveAnonymousShareRateLimitMax: number;
   anonymousShareRateLimitWindowMs: number | null;
   effectiveAnonymousShareRateLimitWindowMs: number;
+
+  // ── ui-enhancement Tier B — account lifecycle (UI-editable) ─────────────
+  /** Grace period (days) between soft-delete and hard-purge cron. NULL = use Env.ACCOUNT_HARD_PURGE_DAYS. */
+  accountHardPurgeDays: number | null;
+  effectiveAccountHardPurgeDays: number;
 
   // KZO-198 Tier 2 fields (dailyRefreshLookbackDays, dailyRefreshPriority,
   // sse{Heartbeat,MaxConn,BufferTtl}) are intentionally NOT in this DTO.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Copy, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Copy, Pencil, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import type {
   AccountDefaultCurrency,
   AccountDto,
@@ -12,6 +12,16 @@ import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { getCurrencyOptions } from "../../../lib/currencies";
 import { fromZhFoldValue, toZhFoldValue } from "../services/commissionDiscount";
+import { useEventStream } from "../../../hooks/useEventStream";
+import { AccountSoftDeleteModal, type AccountSoftDeleteWarnings } from "./AccountSoftDeleteModal";
+import { AccountPermanentDeleteModal } from "./AccountPermanentDeleteModal";
+import {
+  fetchSoftDeletedAccounts,
+  permanentlyDeleteAccount,
+  restoreAccount,
+  softDeleteAccount,
+  type SoftDeletedAccountDto,
+} from "../services/accountLifecycleService";
 import type {
   SettingsAccountBindingModel,
   SettingsProfileModel,
@@ -61,6 +71,31 @@ interface AccountsListSectionProps {
     patch: Partial<SettingsSecurityBindingModel>,
   ) => void;
   onRemoveBinding: (index: number) => void;
+  /**
+   * ui-enhancement (2026-05-13) — optional per-account warning signals
+   * surfaced inside the soft-delete confirmation modal. Caller computes
+   * from dashboard holdings / cash balances. When absent the modal still
+   * fires the `isLastActiveAccount` warning (computed from `accounts`).
+   */
+  accountWarnings?: Record<
+    string,
+    { hasOpenPositions?: boolean; hasNonZeroCash?: boolean }
+  >;
+  /**
+   * ui-enhancement — refresh parent-owned dashboard state after any
+   * soft-delete / restore / permanent-delete completes. Optional so
+   * existing test fixtures stay compatible.
+   */
+  onAccountsChanged?: () => void;
+  /**
+   * ui-enhancement (2026-05-14) — admin-tunable grace period (in days)
+   * for the soft-delete → hard-purge cron. Threaded from the API's
+   * effective-settings DTO (`effectiveAccountHardPurgeDays`). Drives the
+   * Recently-deleted countdown AND the header copy. Defaults to 30 so
+   * the UI works when the field is absent (e.g. legacy DTO shapes or
+   * pre-merge backend versions).
+   */
+  effectiveAccountHardPurgeDays?: number;
   dict: AppDictionary;
 }
 
@@ -136,6 +171,9 @@ export function AccountsListSection({
   onAddBinding,
   onUpdateBinding,
   onRemoveBinding,
+  accountWarnings,
+  onAccountsChanged,
+  effectiveAccountHardPurgeDays = 30,
   dict,
 }: AccountsListSectionProps) {
   // Rename UI state.
@@ -160,6 +198,52 @@ export function AccountsListSection({
   const [duplicateTargetAccountId, setDuplicateTargetAccountId] = useState<string | null>(null);
   const [duplicateSourceAccountId, setDuplicateSourceAccountId] = useState<string>("");
   const [duplicateSelected, setDuplicateSelected] = useState<Set<string>>(new Set());
+
+  // ui-enhancement (2026-05-13) — soft-delete + permanent-delete modal state.
+  // `softDeleteTargetAccount` is the row the user opted to delete (active
+  // account); `permanentDeleteTargetAccount` covers BOTH the
+  // "Permanently delete now" CTA from an active row and the per-row
+  // "Permanently delete now" CTA in the Recently-deleted subsection.
+  const [softDeleteTargetAccount, setSoftDeleteTargetAccount] = useState<AccountDto | null>(null);
+  const [softDeleteBusy, setSoftDeleteBusy] = useState(false);
+  const [softDeleteError, setSoftDeleteError] = useState<string | undefined>(undefined);
+  const [permanentDeleteTargetAccount, setPermanentDeleteTargetAccount] = useState<AccountDto | null>(null);
+  const [permanentDeleteBusy, setPermanentDeleteBusy] = useState(false);
+  const [permanentDeleteError, setPermanentDeleteError] = useState<string | undefined>(undefined);
+
+  // ui-enhancement — recently-deleted list. Always-on SSE per
+  // `.claude/rules/react-useEventStream-preconnect-pattern.md` ensures
+  // events arriving immediately after the mutation are captured. The
+  // refetch is debounced via a small in-flight guard.
+  const [softDeletedAccounts, setSoftDeletedAccounts] = useState<SoftDeletedAccountDto[]>([]);
+  const [restoreBusyById, setRestoreBusyById] = useState<Record<string, boolean>>({});
+
+  const refreshSoftDeleted = useCallback(async () => {
+    try {
+      const rows = await fetchSoftDeletedAccounts();
+      setSoftDeletedAccounts(rows);
+    } catch {
+      // Non-fatal — leave the list as-is. Toast/error UI surfaces are out
+      // of scope for the initial slice; a follow-up can wire a banner.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSoftDeleted();
+  }, [refreshSoftDeleted]);
+
+  useEventStream({
+    eventTypes: [
+      "account_soft_deleted",
+      "account_restored",
+      "account_hard_purged",
+    ],
+    onEvent: () => {
+      void refreshSoftDeleted();
+      onAccountsChanged?.();
+    },
+    enabled: true,
+  });
 
   const accountNames = useMemo(
     () =>
@@ -302,6 +386,101 @@ export function AccountsListSection({
 
   const isTraditionalChinese = activeLocale === "zh-TW";
 
+  // ui-enhancement — soft-delete entry point. Active-row Delete button →
+  // open the soft-delete modal pre-populated with the row's warnings.
+  function openSoftDeleteModal(account: AccountDto) {
+    setSoftDeleteError(undefined);
+    setSoftDeleteTargetAccount(account);
+  }
+
+  function closeSoftDeleteModal() {
+    if (softDeleteBusy) return;
+    setSoftDeleteTargetAccount(null);
+    setSoftDeleteError(undefined);
+  }
+
+  async function handleSoftDeleteConfirm() {
+    if (!softDeleteTargetAccount) return;
+    setSoftDeleteBusy(true);
+    setSoftDeleteError(undefined);
+    try {
+      await softDeleteAccount(softDeleteTargetAccount.id);
+      setSoftDeleteTargetAccount(null);
+      // SSE will refetch; also kick off an eager refresh + parent
+      // signal so the UI doesn't wait for the round-trip.
+      void refreshSoftDeleted();
+      onAccountsChanged?.();
+    } catch {
+      setSoftDeleteError(dict.settings.accountsDeleteError);
+    } finally {
+      setSoftDeleteBusy(false);
+    }
+  }
+
+  function openPermanentDeleteModal(account: AccountDto) {
+    setPermanentDeleteError(undefined);
+    setPermanentDeleteTargetAccount(account);
+  }
+
+  function closePermanentDeleteModal() {
+    if (permanentDeleteBusy) return;
+    setPermanentDeleteTargetAccount(null);
+    setPermanentDeleteError(undefined);
+  }
+
+  async function handlePermanentDeleteConfirm(typedName: string) {
+    if (!permanentDeleteTargetAccount) return;
+    setPermanentDeleteBusy(true);
+    setPermanentDeleteError(undefined);
+    try {
+      await permanentlyDeleteAccount(permanentDeleteTargetAccount.id, typedName);
+      setPermanentDeleteTargetAccount(null);
+      void refreshSoftDeleted();
+      onAccountsChanged?.();
+    } catch {
+      setPermanentDeleteError(dict.settings.accountsPurgeError);
+    } finally {
+      setPermanentDeleteBusy(false);
+    }
+  }
+
+  async function handleRestore(accountId: string) {
+    setRestoreBusyById((current) => ({ ...current, [accountId]: true }));
+    try {
+      await restoreAccount(accountId);
+      void refreshSoftDeleted();
+      onAccountsChanged?.();
+    } catch {
+      // Inline error per row is out of scope for the initial slice —
+      // the SSE refetch will keep the list state truthful; a banner is
+      // a follow-up. Leaving the row busy=false on error preserves the
+      // current best-effort UX.
+    } finally {
+      setRestoreBusyById((current) => {
+        const next = { ...current };
+        delete next[accountId];
+        return next;
+      });
+    }
+  }
+
+  function computeWarningsFor(account: AccountDto): AccountSoftDeleteWarnings {
+    const hint = accountWarnings?.[account.id];
+    return {
+      hasOpenPositions: hint?.hasOpenPositions ?? false,
+      hasNonZeroCash: hint?.hasNonZeroCash ?? false,
+      isLastActiveAccount: accounts.length === 1,
+    };
+  }
+
+  function timeRemainingDays(deletedAt: string): number {
+    const deletedMs = Date.parse(deletedAt);
+    if (Number.isNaN(deletedMs)) return effectiveAccountHardPurgeDays;
+    const elapsedMs = Date.now() - deletedMs;
+    const remainingMs = effectiveAccountHardPurgeDays * 24 * 60 * 60 * 1000 - elapsedMs;
+    return Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)));
+  }
+
   return (
     <section className="glass-inset space-y-3 rounded-[24px] p-4">
       <div className="space-y-1">
@@ -442,15 +621,28 @@ export function AccountsListSection({
                 </div>
 
                 {!isEditing ? (
-                  <button
-                    type="button"
-                    onClick={() => startRename(account)}
-                    className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-white/20 hover:text-white"
-                    data-testid="account-rename-icon"
-                    aria-label={dict.settings.accountRenameIconLabel}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => startRename(account)}
+                      className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-white/20 hover:text-white"
+                      data-testid="account-rename-icon"
+                      aria-label={dict.settings.accountRenameIconLabel}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    {/* ui-enhancement (2026-05-13) — Delete account button.
+                        Opens the soft-delete confirmation modal. */}
+                    <button
+                      type="button"
+                      onClick={() => openSoftDeleteModal(account)}
+                      className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-rose-300/40 hover:bg-rose-500/15 hover:text-rose-300"
+                      data-testid={`account-delete-btn-${account.id}`}
+                      aria-label={dict.settings.accountsDeleteBtn}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : null}
               </div>
 
@@ -910,6 +1102,100 @@ export function AccountsListSection({
           </div>
         </div>
       ) : null}
+
+      {/* ui-enhancement (2026-05-13) — Recently deleted (N) subsection.
+          Rendered below the active accounts list. Each row shows the
+          original account name, the time-remaining indicator, Restore,
+          and "Permanently delete now". Empty list → section is hidden
+          entirely. */}
+      {softDeletedAccounts.length > 0 ? (
+        <section
+          className="space-y-2 rounded-[18px] border border-white/10 bg-slate-950/30 p-4"
+          data-testid="recently-deleted-section"
+        >
+          <header data-testid="recently-deleted-header">
+            <h4 className="text-sm font-semibold text-ink">
+              {dict.settings.accountsRecentlyDeletedTitle
+                .replace("{count}", String(softDeletedAccounts.length))
+                .replace("{graceDays}", String(effectiveAccountHardPurgeDays))}
+            </h4>
+          </header>
+          <ul className="space-y-2">
+            {softDeletedAccounts.map((deleted) => {
+              const remaining = timeRemainingDays(deleted.deletedAt);
+              const restoreBusy = restoreBusyById[deleted.id] ?? false;
+              return (
+                <li
+                  key={deleted.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-white/10 bg-slate-950/40 px-3 py-2"
+                  data-testid={`recently-deleted-row-${deleted.id}`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink">{deleted.name}</p>
+                    <p
+                      className="text-[10px] text-slate-500"
+                      data-testid={`recently-deleted-time-remaining-${deleted.id}`}
+                    >
+                      {dict.settings.accountsTimeRemaining.replace(
+                        "{days}",
+                        String(remaining),
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleRestore(deleted.id)}
+                      disabled={restoreBusy}
+                      data-testid={`recently-deleted-restore-btn-${deleted.id}`}
+                    >
+                      <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                      {dict.settings.accountsRestoreBtn}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openPermanentDeleteModal(deleted)}
+                      data-testid={`recently-deleted-purge-btn-${deleted.id}`}
+                    >
+                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                      {dict.settings.accountsPurgeNowBtn}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      <AccountSoftDeleteModal
+        open={softDeleteTargetAccount !== null}
+        account={softDeleteTargetAccount}
+        warnings={
+          softDeleteTargetAccount
+            ? computeWarningsFor(softDeleteTargetAccount)
+            : { hasOpenPositions: false, hasNonZeroCash: false, isLastActiveAccount: false }
+        }
+        busy={softDeleteBusy}
+        error={softDeleteError}
+        onConfirm={() => void handleSoftDeleteConfirm()}
+        onCancel={closeSoftDeleteModal}
+        dict={dict}
+      />
+
+      <AccountPermanentDeleteModal
+        open={permanentDeleteTargetAccount !== null}
+        account={permanentDeleteTargetAccount}
+        busy={permanentDeleteBusy}
+        error={permanentDeleteError}
+        onConfirm={(typedName) => void handlePermanentDeleteConfirm(typedName)}
+        onCancel={closePermanentDeleteModal}
+        dict={dict}
+      />
     </section>
   );
 }

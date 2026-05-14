@@ -78,6 +78,18 @@ As of 2026-05-09 (KZO-197 — AU catalog warm-up bootstrap):
   - `AUWARM06`–`AUWARM07` — same integration test post-warm-up case: 2 rows promoted to `bars_backfill_status='ready'` AND added to `user_monitored_tickers`; subsequent rerun produces 3 catalog-warm-up jobs (`AUWARM01`–`AUWARM03`) + 2 monitored-refresh jobs (`AUWARM06`–`AUWARM07`).
   - `AUWARM08`–`AUWARM10` — reserved for `apps/web/tests/e2e/specs-oauth/provider-health-aaa.spec.ts` AU rerun case (seed `AUWARM08`–`AUWARM10` as `pending` so the click produces a non-zero `tickerCount` from the catalog warm-up branch).
 
+As of 2026-05-13 (ui-enhancement — account soft-delete and form fixes):
+- `ACCDEL*` — synthetic prefix for account-deletion fixture tickers. Do not reuse for any non-ui-enhancement spec. Reserved tickers:
+  - `ACCDEL01`, `ACCDEL02`, `ACCDEL03` — `apps/web/tests/e2e/specs-oauth/account-deletion-aaa.spec.ts`: seed BUY trade on each ticker into the test account; soft-delete account; verify holdings disappear from dashboard; restore account; verify holdings reappear.
+  - `ACCDEL04` — `apps/web/tests/e2e/specs-oauth/transaction-fee-tax-render-aaa.spec.ts`: 4-tuple gate fixture (any single ticker suffices; reserved to prevent collision).
+  - `ACCDEL05` — `apps/web/tests/e2e/specs-oauth/transaction-market-chip-aaa.spec.ts`: chip auto-sync fixture.
+
+Pre-PR grep for this prefix:
+```bash
+grep -rn '"ACCDEL0[1-5]"' apps/web/tests apps/api/test
+```
+Every match must be in the three specs above.
+
 Safe picks: any TWSE code (4-digit or 5-digit) not in the list above, any US ticker not in the US list above, or any ASX ticker not in the AU list above; grep first.
 
 ## Why not fix MemoryPersistence?

@@ -457,6 +457,34 @@ export interface AppDictionary {
     accountsListAtLeastOneProfile: string;
     accountsListNoProfilesYet: string;
     accountsListAccountSummary: string;
+    // ui-enhancement (2026-05-13) — account soft-delete + permanent-delete +
+    // recently-deleted subsection. Flat strings only per
+    // `.claude/rules/i18n-flat-record-dict-settings.md` —
+    // `dict.settings[field.label]` indexed-access call sites still resolve to
+    // a plain `string`. Templates use `{placeholder}` tokens; replace at call
+    // site via `.replace(...)` per
+    // `.claude/rules/nextjs-i18n-serialization.md`.
+    accountsDeleteBtn: string;
+    accountsSoftDeleteModalTitle: string;
+    accountsSoftDeleteModalBody: string;
+    accountsSoftDeleteWarningOpenPositions: string;
+    accountsSoftDeleteWarningCashBalance: string;
+    accountsSoftDeleteWarningLastAccount: string;
+    accountsSoftDeleteConfirm: string;
+    accountsSoftDeleteCancel: string;
+    accountsPermanentDeleteModalTitle: string;
+    accountsPermanentDeleteModalBody: string;
+    accountsPermanentDeleteInputLabel: string;
+    accountsPermanentDeleteConfirm: string;
+    accountsPermanentDeleteCancel: string;
+    accountsRecentlyDeletedTitle: string;
+    accountsRestoreBtn: string;
+    accountsPurgeNowBtn: string;
+    accountsTimeRemaining: string;
+    accountsRestoredRenameSuffix: string;
+    accountsDeleteError: string;
+    accountsRestoreError: string;
+    accountsPurgeError: string;
     closeWarning: string;
     tabProfile: string;
     profileDisplayNameLabel: string;
@@ -886,6 +914,11 @@ export interface AppDictionary {
     taxEstimateTitle: string;
     estimatedLabel: string;
     overrideAmountPlaceholder: string;
+    // ui-enhancement (2026-05-13) — fee/tax 4-tuple gate degradation copy.
+    // Rendered when the 4-tuple holds but `feeEstimate == null` (price
+    // mismatch / network race). Flat strings, no functions.
+    estimatedUnavailable: string;
+    estimateUnavailableSubLabel: string;
     // KZO-169: market_code chip selector + currency-aware account filter
     // strings. String-only per .claude/rules/nextjs-i18n-serialization.md —
     // {currency} placeholder replaced at call site via .replace().

@@ -2851,8 +2851,13 @@ describePostgres("postgres migrations", () => {
   // Per KZO-179 D2, no audit_log entry is written on POST /accounts; created_at
   // is the recoverability replacement. Per D3, the unique index is the
   // TOCTOU safety net (clean 409 UX is delivered by the route's pre-check).
+  //
+  // ui-enhancement: migration 053 REPLACES `ux_accounts_user_id_name` with the
+  // partial unique `ux_accounts_user_id_name_active WHERE deleted_at IS NULL`.
+  // Because `applyNumberedMigrations` runs every migration through 055, the
+  // assertion now reads the post-053 schema state.
 
-  it("KZO-179: migration 041 walk — accounts.created_at column + ux_accounts_user_id_name unique index", async () => {
+  it("KZO-179: migration 041 walk — accounts.created_at column + ux_accounts_user_id_name_active unique index (post-053)", async () => {
     await resetDatabase();
     await applyNumberedMigrations();
 
@@ -2876,7 +2881,7 @@ describePostgres("postgres migrations", () => {
     // Postgres normalizes DEFAULT NOW() to "now()". Match either form.
     expect(createdAtCol.rows[0].column_default).toMatch(/now\(\)/i);
 
-    // ── 2. ux_accounts_user_id_name unique index existence + columns ─────────
+    // ── 2. ux_accounts_user_id_name_active unique index existence + columns ─
 
     const indexRow = await pool.query<{
       indexname: string;
@@ -2891,13 +2896,22 @@ describePostgres("postgres migrations", () => {
        JOIN pg_index ix ON ix.indexrelid = i.oid
        JOIN pg_class t ON t.oid = ix.indrelid
        WHERE t.relname = 'accounts'
-         AND i.relname = 'ux_accounts_user_id_name'`,
+         AND i.relname = 'ux_accounts_user_id_name_active'`,
     );
     expect(indexRow.rows).toHaveLength(1);
     expect(indexRow.rows[0].is_unique).toBe(true);
     // The index definition must reference both user_id and name columns.
     expect(indexRow.rows[0].indexdef).toMatch(/user_id/);
     expect(indexRow.rows[0].indexdef).toMatch(/name/);
+    // ui-enhancement: partial-unique predicate restricts uniqueness to active
+    // (non-soft-deleted) rows so name reuse after soft-delete is permitted.
+    expect(indexRow.rows[0].indexdef).toMatch(/deleted_at IS NULL/i);
+    // The pre-053 index must no longer exist.
+    const oldIndexRow = await pool.query<{ count: string }>(
+      `SELECT count(*) AS count FROM pg_class
+       WHERE relname = 'ux_accounts_user_id_name'`,
+    );
+    expect(oldIndexRow.rows[0].count).toBe("0");
 
     // ── 3. Seed FK parents and verify created_at is auto-populated ───────────
 

@@ -7,6 +7,7 @@ import type { TAppShellAssistant } from "../assistants/layout/index.js";
 import type { TPortfolioAssistant } from "../assistants/portfolio/index.js";
 import type { TSettingsAssistant } from "../assistants/settings/index.js";
 import type { TTickerDetailAssistant } from "../assistants/tickers/index.js";
+import type { TTransactionsAssistant } from "../assistants/transactions/index.js";
 import { AuthErrorPage, BrowserSessionPage, LoginPage } from "../pages/auth/index.js";
 import { DashboardPage } from "../pages/dashboard/index.js";
 import { DividendCalendarPage } from "../pages/dividends/index.js";
@@ -14,6 +15,7 @@ import { AppShellPage } from "../pages/layout/index.js";
 import { PortfolioPage } from "../pages/portfolio/index.js";
 import { SettingsDrawerPage } from "../pages/settings/index.js";
 import { TickerDetailPage } from "../pages/tickers/index.js";
+import { TransactionsPage } from "../pages/transactions/index.js";
 
 import { test as base } from "./oauthBase.js";
 
@@ -27,6 +29,7 @@ export interface TOAuthPagesFixtures {
   session: TSessionAssistant;
   settings: TSettingsAssistant;
   ticker: TTickerDetailAssistant;
+  transactions: TTransactionsAssistant;
 }
 
 export const test = base.extend<TOAuthPagesFixtures>({
@@ -39,6 +42,7 @@ export const test = base.extend<TOAuthPagesFixtures>({
   settings: createWebFixture<TSettingsAssistant>(SettingsDrawerPage),
   portfolio: createWebFixture<TPortfolioAssistant>(PortfolioPage),
   ticker: createWebFixture<TTickerDetailAssistant>(TickerDetailPage),
+  transactions: createWebFixture<TTransactionsAssistant>(TransactionsPage),
 });
 
 export { expect } from "./oauthBase.js";

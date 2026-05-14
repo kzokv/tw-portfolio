@@ -13,6 +13,11 @@ import {
   registerAnonymousShareTokenPurgeWorker,
 } from "../services/registerAnonymousShareTokenPurgeWorker.js";
 import {
+  ACCOUNT_HARD_PURGE_CRON,
+  ACCOUNT_HARD_PURGE_QUEUE,
+  registerAccountHardPurgeWorker,
+} from "../services/registerAccountHardPurgeWorker.js";
+import {
   ASX_GICS_SYNC_QUEUE,
   registerAsxGicsSyncWorker,
 } from "../services/market-data/asxGicsSyncWorker.js";
@@ -150,6 +155,17 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     log: app.log,
   });
   await boss.schedule(ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE, ANONYMOUS_SHARE_TOKEN_PURGE_CRON, {});
+
+  // ui-enhancement — daily account hard-purge cron. Grace period is admin-
+  // tunable via app_config.account_hard_purge_days (default 30); the worker
+  // reads `getEffectiveAccountHardPurgeDays()` AT TICK TIME so PATCH /admin/
+  // settings overrides take effect without a redeploy.
+  await registerAccountHardPurgeWorker(app, boss, {
+    persistence: app.persistence,
+    eventBus: app.eventBus,
+    log: app.log,
+  });
+  await boss.schedule(ACCOUNT_HARD_PURGE_QUEUE, ACCOUNT_HARD_PURGE_CRON, {});
 
   // KZO-196 — ASX GICS catalog enrichment worker. Mock vs real selection
   // mirrors `AU_CATALOG_PROVIDER_MOCK` because the GICS feed is part of the

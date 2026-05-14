@@ -72,6 +72,7 @@ import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/appConfig/repairCooldown.js";
+import { getEffectiveAccountHardPurgeDays } from "../services/appConfig/accountLifecycle.js";
 import { getEffectiveUserPreferencesMaxBytes } from "../services/appConfig/requestLimits.js";
 import { getEffectiveAnonymousShareRateLimitWindowMs } from "../services/appConfig/sharing.js";
 import { APP_CONFIG_BOUNDS } from "../services/appConfig/bounds.js";
@@ -456,6 +457,10 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /notifications/read-all",
   "DELETE /notifications/:id",
   "PATCH /notifications/:id/escalate",
+  // ui-enhancement — account lifecycle mutations.
+  "DELETE /accounts/:id",
+  "POST /accounts/:id/restore",
+  "POST /accounts/:id/purge",
 ]);
 
 /**
@@ -493,6 +498,15 @@ const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
   "PUT /monitored-tickers",
   "POST /backfill/retry",
   "POST /backfill/repair",
+  // ui-enhancement — account lifecycle MUTATIONS. The grantee in a shared-
+  // portfolio context MUST NOT modify the owner's account state. GET
+  // /accounts/deleted is intentionally NOT here — it is a read, and the
+  // shared-context grantee is allowed to see the owner's "Recently deleted"
+  // list via x-context-user-id (the canonical switcher use case; see
+  // `apps/api/test/http/specs/account-lifecycle-role-guards-aaa.http.spec.ts`).
+  "DELETE /accounts/:id",
+  "POST /accounts/:id/restore",
+  "POST /accounts/:id/purge",
 ]);
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
@@ -2253,7 +2267,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/settings", async (req) => {
     const { store } = await loadUserStore(app, req);
-    return store.settings;
+    // ui-enhancement — surface the effective account-hard-purge grace period
+    // (Tier B) to the user-facing client so the "Recently deleted" countdown
+    // renders the admin-overridden value, not a hardcoded 30. The resolver
+    // walks DB override → env default; admin tunes via PATCH /admin/settings.
+    return {
+      ...store.settings,
+      effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
+    };
   });
 
   app.patch("/settings", async (req) => {
@@ -2268,7 +2289,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { store } = await loadUserStore(app, req);
     store.settings = { ...store.settings, ...body };
     await app.persistence.saveStore(store);
-    return store.settings;
+    // ui-enhancement — keep PATCH response shape in lockstep with GET /settings
+    // so client `bodiesEqual` round-trip assertions hold.
+    return {
+      ...store.settings,
+      effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
+    };
   });
 
   app.get("/profile", async (req) => {
@@ -3031,6 +3057,90 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     await app.persistence.saveStore(store);
     return account;
+  });
+
+  // ── ui-enhancement — account lifecycle routes ────────────────────────────
+  // DELETE /accounts/:id — soft-delete an active account. Stamps
+  // `accounts.deleted_at = NOW()`; the row is filtered out of subsequent
+  // active reads (loadStore filters `deleted_at IS NULL`) and surfaced via
+  // GET /accounts/deleted for the "Recently deleted" UI section. The daily
+  // hard-purge cron promotes the row to fully-purged after the configured
+  // grace period (default 30d; admin override via
+  // `app_config.account_hard_purge_days`).
+  app.delete("/accounts/:id", async (req, reply) => {
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { deletedAt } = await app.persistence.softDeleteAccount(params.id, userId, {
+      actorUserId: userId,
+      ipAddress: req.ip,
+      metadata: {},
+    });
+    await app.eventBus.publishEvent(userId, "account_soft_deleted", {
+      type: "account_soft_deleted" as const,
+      accountId: params.id,
+      deletedAt,
+    });
+    return reply.code(200).send({ accountId: params.id, deletedAt });
+  });
+
+  // POST /accounts/:id/restore — restore a soft-deleted account. On
+  // collision with an active account's name, persistence auto-renames to
+  // `"{name} (restored)"`, then `" (restored 2)"`, etc. up to 20 attempts;
+  // the route returns the resolved final name.
+  app.post("/accounts/:id/restore", async (req) => {
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { finalName } = await app.persistence.restoreAccount(params.id, userId, {
+      actorUserId: userId,
+      ipAddress: req.ip,
+      metadata: {},
+    });
+    await app.eventBus.publishEvent(userId, "account_restored", {
+      type: "account_restored" as const,
+      accountId: params.id,
+      finalName,
+    });
+    return { accountId: params.id, finalName };
+  });
+
+  // POST /accounts/:id/purge — typed-name confirmation hard-purge. Accepts
+  // active OR soft-deleted accounts (mustBeSoftDeleted=false). Mirrors the
+  // admin hard-purge-user typed-name UX. Cron path uses mustBeSoftDeleted=true.
+  app.post("/accounts/:id/purge", async (req) => {
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({ confirmationName: z.string().min(1).max(80) }).parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const account = await app.persistence.getAccountIncludingDeleted(params.id, userId);
+    if (!account) throw routeError(404, "account_not_found", "Account not found.");
+    if (account.name !== body.confirmationName) {
+      throw routeError(
+        400,
+        "confirmation_name_mismatch",
+        "Confirmation name does not match the account name.",
+      );
+    }
+    // ui-enhancement scope-grill Q4 — typed-name "Permanently delete now"
+    // applies to active accounts too (skip-wait shortcut per Mockup C).
+    // `mustBeSoftDeleted: false` is INTENTIONAL — not a bug. The cron path
+    // separately calls hardPurgeAccount with `mustBeSoftDeleted: true`.
+    await app.persistence.hardPurgeAccount(
+      params.id,
+      userId,
+      { actorUserId: userId, ipAddress: req.ip, metadata: {} },
+      { mustBeSoftDeleted: false },
+    );
+    await app.eventBus.publishEvent(userId, "account_hard_purged", {
+      type: "account_hard_purged" as const,
+      accountId: params.id,
+    });
+    return { accountId: params.id };
+  });
+
+  // GET /accounts/deleted — list soft-deleted accounts for "Recently deleted".
+  app.get("/accounts/deleted", async (req) => {
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return app.persistence.listSoftDeletedAccounts(userId);
   });
 
   app.post("/fx-transfers/estimate", async (req) => {

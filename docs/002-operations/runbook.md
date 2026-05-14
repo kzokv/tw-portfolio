@@ -2377,3 +2377,121 @@ The default tab (no `?tab` query) is `rate-limits`. All existing per-field knobs
 - Migration 052 is additive (`ADD COLUMN IF NOT EXISTS ... NULL`). Rollback per-column: `UPDATE app_config SET <col> = NULL WHERE id = 1;` restores env-fallback immediately. Full schema rollback: `ALTER TABLE app_config DROP COLUMN IF EXISTS anonymous_share_token_cap, DROP COLUMN IF EXISTS anonymous_share_rate_limit_max, DROP COLUMN IF EXISTS anonymous_share_rate_limit_window_ms, DROP COLUMN IF EXISTS anonymous_share_token_retention_ms, DROP COLUMN IF EXISTS user_preferences_max_bytes;`
 - Reverting the API image restores the flat settings page layout; the 5 new columns are ignored by older images.
 - Pool-size env vars: removing `POSTGRES_POOL_MAX` / `BACKFILL_POSTGRES_POOL_MAX` restores the schema defaults (20 / 2) after a restart.
+
+---
+
+## 27. ui-enhancement deploy notes — Account soft-delete and scheduled hard-purge cron
+
+### What ships
+
+Two-stage account deletion: a user-initiated soft-delete followed by a scheduled hard-purge cron. A "Permanently delete now" shortcut skips the grace period with a typed-name confirmation.
+
+**Migrations:**
+
+| File | Change |
+|---|---|
+| `053_uie_accounts_deleted_at.sql` | Adds `accounts.deleted_at TIMESTAMPTZ NULL` column + partial index `idx_accounts_deleted_at`. Replaces `ux_accounts_user_id_name` unique index with `ux_accounts_user_id_name_active` (partial — excludes soft-deleted rows) to allow name reuse after soft-delete. |
+| `054_uie_app_config_account_hard_purge_days.sql` | Adds `app_config.account_hard_purge_days INT NULL` Tier-B column. |
+| `055_uie_audit_log_account_actions.sql` | Extends `audit_log_action_check` CHECK constraint to include `account_soft_deleted`, `account_restored`, `account_hard_purged` action codes. |
+
+Migrations 053 and 054 are additive (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Migration 055 uses DROP + recreate on the CHECK constraint (idempotent across re-runs).
+
+### Account soft-delete and hard-purge operational model
+
+**Soft-delete (user-initiated):**
+- `DELETE /accounts/:id` stamps `accounts.deleted_at = NOW()`. Idempotent.
+- Account-scoped data (trades, lots, cash-ledger, dividends) is preserved on disk.
+- Every read path filters `WHERE accounts.deleted_at IS NULL` — the account disappears from all portfolio views immediately.
+- Snapshot policy: filter-on-read for historical snapshots (`daily_holding_snapshots`, `currency_wallet_snapshots`). Past snapshots are **not** recomputed on delete or restore.
+
+**Grace window (default 30 days):**
+- A soft-deleted account is recoverable via `POST /accounts/:id/restore` at any time within the grace window.
+- After the grace window, the daily cron selects the account as a purge candidate.
+
+**Hard-purge cron (daily, default 04:00 UTC):**
+- Queue: `account-hard-purge` (pg-boss singleton schedule).
+- Handler reads the live grace period via `getEffectiveAccountHardPurgeDays()` at tick time (sweep-parameter-live — admin overrides take effect on the next tick without a restart).
+- For each candidate, a single-transaction DELETE cascade removes all account-scoped child rows in FK-dependency order (see `docs/001-architecture/backend-db-api.md` §Account soft-delete lifecycle for the full 12-table cascade list).
+- Emits `account_hard_purged` SSE event per account purged.
+- Aggregate log at the end: `{ purged, errors, graceDays }`.
+
+**"Permanently delete now" shortcut:**
+- `POST /accounts/:id/purge` accepts `{ confirmationName }` — the user must type the account name verbatim.
+- Bypasses the grace window; hard-purges immediately in a single transaction.
+- Emits `account_hard_purged` SSE event.
+- Available for both active and soft-deleted accounts.
+
+**Restore:**
+- `POST /accounts/:id/restore` clears `deleted_at`.
+- If an active account already owns the same name, the restored account is auto-renamed to `"{originalName} (restored)"`, then `"(restored 2)"`, etc. (up to 20 attempts; 409 if unresolvable).
+- The final name is returned in the response and carried in the `account_restored` SSE event.
+
+### Env vars
+
+Both env vars have `.default(...)` and require a restart to change (cron schedule live-edit is out of scope).
+
+| Env var | Default | Notes |
+|---|---|---|
+| `ACCOUNT_HARD_PURGE_CRON` | `"0 4 * * *"` | Cron expression for the daily hard-purge job. Restart-required. |
+| `ACCOUNT_HARD_PURGE_DAYS` | `30` | Grace period fallback (days). Overridden by `app_config.account_hard_purge_days` without restart. |
+
+### Admin override — `app_config.account_hard_purge_days`
+
+Tier-B operational constant. Admin can change via **Settings → app_config** tab in the admin UI.
+
+| Column | Type | Tier | Env fallback |
+|---|---|---|---|
+| `account_hard_purge_days` | `INT NULL` | Tier B | `ACCOUNT_HARD_PURGE_DAYS` = 30 |
+
+Bounds: [1, 365]. Setting to `NULL` restores the env-fallback. Changes take effect on the **next cron tick** without a restart (live-tunable via `getEffectiveAccountHardPurgeDays()` resolver).
+
+SQL escape hatch:
+```sql
+-- Override to 60-day grace window:
+UPDATE app_config SET account_hard_purge_days = 60, updated_at = NOW() WHERE id = 1;
+-- Restore env-fallback:
+UPDATE app_config SET account_hard_purge_days = NULL, updated_at = NOW() WHERE id = 1;
+```
+
+### SSE events and audit log
+
+Three new events emitted on account lifecycle transitions:
+
+| Event / Audit code | Trigger | Payload |
+|---|---|---|
+| `account_soft_deleted` | Soft-delete route | `{ accountId, deletedAt }` |
+| `account_restored` | Restore route | `{ accountId, finalName }` |
+| `account_hard_purged` | Hard-purge route OR cron | `{ accountId }` |
+
+All three are recorded in `audit_log` with a metadata snapshot (`accountName`, `accountType`, `defaultCurrency`) captured **before** row deletion. The audit row persists post-purge via `audit_log.target_user_id FK ON DELETE SET NULL`.
+
+### Monitoring queries
+
+```sql
+-- Count soft-deleted accounts currently in the grace window:
+SELECT COUNT(*) AS pending_purge
+FROM accounts
+WHERE deleted_at IS NOT NULL
+  AND deleted_at > NOW() - INTERVAL '30 days';
+
+-- Accounts overdue for purge (exceeded default grace period):
+SELECT id, user_id, name, deleted_at
+FROM accounts
+WHERE deleted_at IS NOT NULL
+  AND deleted_at < NOW() - INTERVAL '30 days'
+ORDER BY deleted_at ASC;
+
+-- Recent account lifecycle audit events:
+SELECT created_at, action, metadata
+FROM audit_log
+WHERE action IN ('account_soft_deleted', 'account_restored', 'account_hard_purged')
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+### Rollback notes
+
+- Migration 053 + 054 are additive. Rollback: `ALTER TABLE accounts DROP COLUMN IF EXISTS deleted_at; ALTER TABLE app_config DROP COLUMN IF EXISTS account_hard_purge_days;` — then redeploy the prior image.
+- **Important:** if any accounts were hard-purged before rollback, that data is unrecoverable. Soft-deleted accounts (not yet hard-purged) are preserved in the `accounts` table and become visible again if `deleted_at` is cleared.
+- Soft-deletes are recoverable until the cron fires. Rollback timing: redeploy the prior image BEFORE the next 04:00 UTC cron tick to prevent further purges.
+- The partial unique index `ux_accounts_user_id_name_active` must be restored to the original `ux_accounts_user_id_name` if rolling back migration 053: `DROP INDEX IF EXISTS ux_accounts_user_id_name_active; CREATE UNIQUE INDEX ux_accounts_user_id_name ON accounts (user_id, name);`

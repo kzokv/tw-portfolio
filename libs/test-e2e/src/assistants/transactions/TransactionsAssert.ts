@@ -137,7 +137,11 @@ export class TransactionsAssert extends BaseAssert {
 
   @Step()
   async commissionEstimateIsHidden(): Promise<void> {
-    await expect(this.el.transactionForm.commissionEstimateSection).toBeHidden();
+    // ui-enhancement (2026-05-13): the 4-tuple render gate makes the section
+    // CONDITIONALLY rendered, not conditionally hidden. Asserting absence is
+    // the correct contract under the new behavior; `toBeHidden()` would fail
+    // because the element is not in the DOM.
+    await expect(this.el.transactionForm.commissionEstimateSection).toHaveCount(0);
   }
 
   @Step()
@@ -147,6 +151,64 @@ export class TransactionsAssert extends BaseAssert {
 
   @Step()
   async taxEstimateIsHidden(): Promise<void> {
-    await expect(this.el.transactionForm.taxEstimateSection).toBeHidden();
+    // ui-enhancement: tax section also gated by the 4-tuple + SELL discriminator.
+    await expect(this.el.transactionForm.taxEstimateSection).toHaveCount(0);
+  }
+
+  // ── ui-enhancement — Fee/tax 4-tuple gate + degradation + chip cleanup ──
+
+  @Step()
+  async commissionEstimateSectionIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.commissionEstimateSection).toBeVisible();
+  }
+
+  @Step()
+  async commissionEstimateSectionIsAbsent(): Promise<void> {
+    await expect(this.el.transactionForm.commissionEstimateSection).toHaveCount(0);
+  }
+
+  @Step()
+  async commissionEstimateUnavailableIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.commissionEstimateUnavailable).toBeVisible();
+  }
+
+  @Step()
+  async commissionOverrideInputIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.commissionOverrideInput).toBeVisible();
+  }
+
+  @Step()
+  async commissionOverrideValueIs(value: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.commissionOverrideInput).toHaveValue(value);
+  }
+
+  @Step()
+  async taxEstimateSectionIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.taxEstimateSection).toBeVisible();
+  }
+
+  @Step()
+  async taxEstimateSectionIsAbsent(): Promise<void> {
+    await expect(this.el.transactionForm.taxEstimateSection).toHaveCount(0);
+  }
+
+  @Step()
+  async marketChipIsVisible(market: "TW" | "US" | "AU"): Promise<void> {
+    await expect(this.el.transactionForm.marketChip(market)).toBeVisible();
+  }
+
+  @Step()
+  async marketChipIsAbsent(market: "TW" | "US" | "AU" | "ALL"): Promise<void> {
+    await expect(this.el.transactionForm.marketChip(market)).toHaveCount(0);
+  }
+
+  @Step()
+  async tickerComboboxValueIs(value: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.tickerCombobox).toHaveValue(value);
+  }
+
+  @Step()
+  async tickerComboboxValueIsNot(value: string): Promise<void> {
+    await expect(this.el.transactionForm.tickerCombobox).not.toHaveValue(value);
   }
 }

@@ -175,6 +175,16 @@ export const envSchema = z.object({
   // (also restart-required — pg-boss schedule is registered once at boot).
   ASX_GICS_REFRESH_CRON: z.string().min(1).default("0 2 * * 0"),
 
+  // ui-enhancement — Tier 3 env-only cron schedule for the daily account
+  // hard-purge cron. Restart-required (cron live-edit out of scope). Default
+  // 04:00 UTC matches the anonymous-share-token-purge precedent.
+  ACCOUNT_HARD_PURGE_CRON: z.string().min(1).default("0 4 * * *"),
+  // ui-enhancement — Tier B fallback grace period (days) between
+  // account_soft_deleted and cron-driven account_hard_purged. Admin override
+  // via `app_config.account_hard_purge_days`. Bounds: [1, 365] (enforced in
+  // bounds.ts).
+  ACCOUNT_HARD_PURGE_DAYS: z.coerce.number().int().positive().default(30),
+
   // ========================================================================
   // KZO-199 — Hybrid env+app_config Tier B operational constants.
   // Each env below is the fallback default for the matching `app_config.<col>`
