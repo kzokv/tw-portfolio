@@ -270,6 +270,8 @@ export function SettingsDrawer({
                     onAddBinding={form.addBinding}
                     onUpdateBinding={form.updateBinding}
                     onRemoveBinding={form.removeBinding}
+                    onAccountsChanged={onAccountsRefresh}
+                    effectiveAccountHardPurgeDays={settings?.effectiveAccountHardPurgeDays}
                     dict={dict}
                   />
                 </div>

@@ -309,4 +309,81 @@ export class SettingsAssert extends BaseAssert {
   async catalogLiveSearchUnavailableIsVisible(): Promise<void> {
     await expect(this.el.catalog.liveUnavailableMessage).toBeVisible();
   }
+
+  // ── ui-enhancement — Account deletion lifecycle ─────────────────────────
+
+  @Step()
+  async accountDeleteButtonIsVisible(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.deleteButton(accountId)).toBeVisible();
+  }
+
+  @Step()
+  async softDeleteModalIsVisible(): Promise<void> {
+    await expect(this.el.accountsList.softDeleteModal).toBeVisible();
+  }
+
+  @Step()
+  async softDeleteModalIsHidden(): Promise<void> {
+    await expect(this.el.accountsList.softDeleteModal).toHaveCount(0);
+  }
+
+  @Step()
+  async softDeleteWarningLastAccountIsVisible(): Promise<void> {
+    await expect(this.el.accountsList.softDeleteWarningLastAccount).toBeVisible();
+  }
+
+  @Step()
+  async softDeleteWarningLastAccountIsHidden(): Promise<void> {
+    await expect(this.el.accountsList.softDeleteWarningLastAccount).toHaveCount(0);
+  }
+
+  @Step()
+  async accountCardIsHidden(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.card(accountId)).toHaveCount(0);
+  }
+
+  @Step()
+  async accountCardIsVisible(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.card(accountId)).toBeVisible();
+  }
+
+  @Step()
+  async recentlyDeletedSectionIsVisible(): Promise<void> {
+    await expect(this.el.accountsList.recentlyDeletedSection).toBeVisible();
+  }
+
+  @Step()
+  async recentlyDeletedRowIsVisible(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.recentlyDeletedRow(accountId)).toBeVisible();
+  }
+
+  @Step()
+  async recentlyDeletedRowIsHidden(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.recentlyDeletedRow(accountId)).toHaveCount(0);
+  }
+
+  @Step()
+  async recentlyDeletedRestoreButtonIsVisible(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.recentlyDeletedRestoreButton(accountId)).toBeVisible();
+  }
+
+  @Step()
+  async recentlyDeletedPurgeButtonIsVisible(accountId: string): Promise<void> {
+    await expect(this.el.accountsList.recentlyDeletedPurgeButton(accountId)).toBeVisible();
+  }
+
+  @Step()
+  async permanentDeleteModalIsVisible(): Promise<void> {
+    await expect(this.el.accountsList.permanentDeleteModal).toBeVisible();
+  }
+
+  @Step()
+  async permanentDeleteConfirmButtonIsDisabled(): Promise<void> {
+    await expect(this.el.accountsList.permanentDeleteConfirmButton).toBeDisabled();
+  }
+
+  @Step()
+  async permanentDeleteConfirmButtonIsEnabled(): Promise<void> {
+    await expect(this.el.accountsList.permanentDeleteConfirmButton).toBeEnabled();
+  }
 }

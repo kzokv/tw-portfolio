@@ -28,9 +28,11 @@ export interface TTransactionFormElements {
   tradeDateInput: Locator;
   commissionEstimateSection: Locator;
   commissionEstimateValue: Locator;
+  commissionEstimateUnavailable: Locator;
   commissionOverrideInput: Locator;
   taxEstimateSection: Locator;
   taxEstimateValue: Locator;
+  taxEstimateUnavailable: Locator;
   taxOverrideInput: Locator;
   submitButton: Locator;
 }
@@ -78,9 +80,14 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
       tradeDateInput: this.locate("tx-trade-date-input", "Trade Date Input"),
       commissionEstimateSection: this.locate("commission-estimate-section", "Commission Estimate Section"),
       commissionEstimateValue: this.locate("commission-estimate-value", "Commission Estimate Value"),
+      commissionEstimateUnavailable: this.locate(
+        "commission-estimate-unavailable",
+        "Commission Estimate Unavailable",
+      ),
       commissionOverrideInput: this.locate("commission-override-input", "Commission Override Input"),
       taxEstimateSection: this.locate("tax-estimate-section", "Tax Estimate Section"),
       taxEstimateValue: this.locate("tax-estimate-value", "Tax Estimate Value"),
+      taxEstimateUnavailable: this.locate("tax-estimate-unavailable", "Tax Estimate Unavailable"),
       taxOverrideInput: this.locate("tax-override-input", "Tax Override Input"),
       submitButton: this.locate("tx-submit-button", "Submit Button"),
     };

@@ -162,6 +162,32 @@ export interface CurrencyWalletRecomputedEvent {
   }>;
 }
 
+/**
+ * ui-enhancement — account lifecycle events.
+ *
+ * Account soft-delete is a row mutation (sets `accounts.deleted_at`); the
+ * client refetches `GET /accounts` + `GET /accounts/deleted` on receipt.
+ * Restore and hard-purge follow the same refetch contract. `finalName` on
+ * restore lets the UI surface the post-collision-resolution name without a
+ * round-trip to `GET /accounts/deleted`.
+ */
+export interface AccountSoftDeletedEvent {
+  type: "account_soft_deleted";
+  accountId: string;
+  deletedAt: string; // ISO
+}
+
+export interface AccountRestoredEvent {
+  type: "account_restored";
+  accountId: string;
+  finalName: string; // post-collision-resolution
+}
+
+export interface AccountHardPurgedEvent {
+  type: "account_hard_purged";
+  accountId: string;
+}
+
 // Discriminated union
 export type SSEEvent =
   | HeartbeatEvent
@@ -182,7 +208,10 @@ export type SSEEvent =
   | DividendReconciliationChangedEvent
   | SnapshotsGeneratedEvent
   | WalletGenerationFailedEvent
-  | CurrencyWalletRecomputedEvent;
+  | CurrencyWalletRecomputedEvent
+  | AccountSoftDeletedEvent
+  | AccountRestoredEvent
+  | AccountHardPurgedEvent;
 
 // System types (used internally for SSE wire format)
 export type SSESystemEventType = "heartbeat" | "error";
@@ -203,5 +232,8 @@ export type SSEDomainEventType =
   | "dividend_reconciliation_changed"
   | "snapshots_generated"
   | "wallet_generation_failed"
-  | "currency_wallet_recomputed";
+  | "currency_wallet_recomputed"
+  | "account_soft_deleted"
+  | "account_restored"
+  | "account_hard_purged";
 export type SSEEventType = SSESystemEventType | SSEDomainEventType;

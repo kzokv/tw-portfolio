@@ -49,6 +49,17 @@ export class TransactionsActions extends AppBaseActions {
     await this.uiActions.fill.perform(this.el.transactionForm.tradeDateInput, date);
   }
 
+  // ── ui-enhancement — override inputs ────────────────────────────────────
+  @Step()
+  async fillCommissionOverride(value: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.transactionForm.commissionOverrideInput, value);
+  }
+
+  @Step()
+  async fillTaxOverride(value: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.transactionForm.taxOverrideInput, value);
+  }
+
   @Step()
   async openTickerCombobox(): Promise<void> {
     await this.mxFocus(this.el.transactionForm.tickerCombobox);

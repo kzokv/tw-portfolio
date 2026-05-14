@@ -72,5 +72,11 @@ test("[transactions form]: no price in db or provider window → unavailable hin
 
   await priceLookup;
   await transactions.assert.priceUnavailableHintIsVisible();
-  await transactions.assert.commissionEstimateIsHidden();
+  // ui-enhancement (2026-05-13) — the 4-tuple render gate keeps the commission
+  // section visible whenever {accountId, ticker, quantity>0, unitPrice>0}
+  // all hold. The form's DEFAULT_TRANSACTION pre-fills quantity=1000 +
+  // unitPrice=100, so even when the price lookup returns null the section
+  // RENDERS with the "estimate unavailable" degradation copy. Asserting on
+  // the degradation testid replaces the previous "section is hidden" path.
+  await transactions.assert.commissionEstimateUnavailableIsVisible();
 });

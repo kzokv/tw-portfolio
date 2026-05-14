@@ -312,6 +312,16 @@ export class MemoryPersistence implements Persistence {
    * count; this mutex matches that semantics in memory.
    */
   private readonly _providerCasLocks = new Map<string, Promise<void>>();
+  /**
+   * ui-enhancement — soft-deleted account shadow store, keyed by
+   * `${userId}:${accountId}`. The active `store.accounts` array (in `stores`)
+   * filters these out; the shadow stores the original AccountDto + `deletedAt`
+   * ISO so restore can roundtrip the row back into the active set.
+   */
+  private readonly softDeletedAccounts = new Map<
+    string,
+    import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }
+  >();
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
 
@@ -2341,6 +2351,7 @@ export class MemoryPersistence implements Persistence {
     anonymousShareRateLimitWindowMs: number | null;
     anonymousShareTokenRetentionMs: number | null;
     userPreferencesMaxBytes: number | null;
+    accountHardPurgeDays: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -2385,6 +2396,9 @@ export class MemoryPersistence implements Persistence {
       // falls back to env. Postgres backend exposes them via direct SQL.
       anonymousShareTokenRetentionMs: this._anonymousShareTokenRetentionMs ?? null,
       userPreferencesMaxBytes: this._userPreferencesMaxBytes ?? null,
+      // ui-enhancement — Tier B account-soft-delete grace period (uses the
+      // plain-fields map; setAppConfigField/Patch route through it).
+      accountHardPurgeDays: p.accountHardPurgeDays ?? null,
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -3294,6 +3308,12 @@ export class MemoryPersistence implements Persistence {
     this.monitoredTickers.delete(userId);
     this.notifications.delete(userId);
     this.instrumentsByUser.delete(userId);
+    // ui-enhancement — drop any soft-deleted account shadows owned by this user.
+    for (const key of [...this.softDeletedAccounts.keys()]) {
+      if (key.startsWith(`${userId}:`)) {
+        this.softDeletedAccounts.delete(key);
+      }
+    }
 
     // Remove holding snapshots for user
     const snapshotsToRemove = this.holdingSnapshots.filter((s) => s.userId === userId);
@@ -3346,6 +3366,244 @@ export class MemoryPersistence implements Persistence {
 
     // Remove user
     this.usersByEmail.delete(user.email);
+  }
+
+  // ── ui-enhancement — Account lifecycle ──────────────────────────────────
+
+  async softDeleteAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ deletedAt: string }> {
+    const shadowKey = `${userId}:${accountId}`;
+    const existingShadow = this.softDeletedAccounts.get(shadowKey);
+    if (existingShadow) {
+      // Idempotent — already soft-deleted.
+      return { deletedAt: existingShadow.deletedAt };
+    }
+    const store = this.stores.get(userId);
+    if (!store) {
+      throw routeError(404, "account_not_found", "Account not found.");
+    }
+    const idx = store.accounts.findIndex((acc) => acc.id === accountId);
+    if (idx === -1) {
+      throw routeError(404, "account_not_found", "Account not found.");
+    }
+    const account = store.accounts[idx];
+    const deletedAt = new Date().toISOString();
+    this.softDeletedAccounts.set(shadowKey, { ...account, deletedAt });
+    store.accounts.splice(idx, 1);
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "account_soft_deleted",
+      targetUserId: userId,
+      metadata: {
+        ...auditInput.metadata,
+        accountId,
+        accountName: account.name,
+        accountType: account.accountType,
+        defaultCurrency: account.defaultCurrency,
+      },
+    });
+
+    return { deletedAt };
+  }
+
+  async restoreAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+  ): Promise<{ accountId: string; finalName: string }> {
+    const shadowKey = `${userId}:${accountId}`;
+    const shadow = this.softDeletedAccounts.get(shadowKey);
+    if (!shadow) {
+      throw routeError(404, "account_not_found", "Account not found or not soft-deleted.");
+    }
+    const store = this.stores.get(userId);
+    if (!store) {
+      throw routeError(404, "account_not_found", "Account not found.");
+    }
+
+    const priorName = shadow.name;
+    const activeNames = new Set(store.accounts.map((acc) => acc.name));
+    let finalName = priorName;
+    if (activeNames.has(priorName)) {
+      finalName = `${priorName} (restored)`;
+      let suffix = 2;
+      while (activeNames.has(finalName) && suffix <= 20) {
+        finalName = `${priorName} (restored ${suffix})`;
+        suffix += 1;
+      }
+      if (activeNames.has(finalName)) {
+        throw routeError(
+          409,
+          "account_restore_name_unresolvable",
+          "Could not auto-rename restored account: too many name collisions (>20 candidates tried).",
+        );
+      }
+    }
+
+    // Strip deletedAt and adopt the final (possibly renamed) name.
+    const { deletedAt: _deletedAt, ...accountFields } = shadow;
+    void _deletedAt;
+    store.accounts.push({ ...accountFields, name: finalName });
+    this.softDeletedAccounts.delete(shadowKey);
+
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "account_restored",
+      targetUserId: userId,
+      metadata: { ...auditInput.metadata, accountId, priorName, finalName },
+    });
+
+    return { accountId, finalName };
+  }
+
+  async hardPurgeAccount(
+    accountId: string,
+    userId: string,
+    auditInput: Omit<AuditLogInput, "action">,
+    options: { mustBeSoftDeleted?: boolean } = {},
+  ): Promise<void> {
+    const mustBeSoftDeleted = options.mustBeSoftDeleted ?? true;
+    const shadowKey = `${userId}:${accountId}`;
+    const shadow = this.softDeletedAccounts.get(shadowKey);
+    const store = this.stores.get(userId);
+    const activeIdx = store
+      ? store.accounts.findIndex((acc) => acc.id === accountId)
+      : -1;
+
+    if (!shadow && activeIdx === -1) {
+      throw routeError(404, "account_not_found", "Account not found.");
+    }
+    if (mustBeSoftDeleted && !shadow) {
+      throw routeError(
+        404,
+        "account_not_soft_deleted",
+        "Account must be soft-deleted before cron-driven hard-purge.",
+      );
+    }
+
+    const account = shadow ?? store!.accounts[activeIdx];
+
+    // Audit BEFORE removal so the entry survives.
+    await this.appendAuditLog({
+      ...auditInput,
+      action: "account_hard_purged",
+      targetUserId: userId,
+      metadata: {
+        ...auditInput.metadata,
+        accountId,
+        accountName: account.name,
+        accountType: account.accountType,
+        defaultCurrency: account.defaultCurrency,
+        deletedAt: shadow ? shadow.deletedAt : null,
+      },
+    });
+
+    // Cascade account-scoped data from the in-memory store (mirrors Postgres
+    // explicit-DELETE list). fee profiles + overrides cascade with the
+    // account row.
+    if (store) {
+      const facts = store.accounting.facts;
+      const projections = store.accounting.projections;
+      facts.cashLedgerEntries = facts.cashLedgerEntries.filter((e) => e.accountId !== accountId);
+      facts.tradeEvents = facts.tradeEvents.filter((e) => e.accountId !== accountId);
+      const removedDividendIds = new Set(
+        facts.dividendLedgerEntries.filter((e) => e.accountId === accountId).map((e) => e.id),
+      );
+      facts.dividendLedgerEntries = facts.dividendLedgerEntries.filter(
+        (e) => e.accountId !== accountId,
+      );
+      facts.dividendDeductionEntries = facts.dividendDeductionEntries.filter(
+        (e) => !removedDividendIds.has(e.dividendLedgerEntryId),
+      );
+      facts.dividendSourceLines = facts.dividendSourceLines.filter(
+        (e) => !removedDividendIds.has(e.dividendLedgerEntryId),
+      );
+      facts.corporateActions = facts.corporateActions.filter((c) => c.accountId !== accountId);
+      const removedLotIds = new Set(
+        projections.lots.filter((l) => l.accountId === accountId).map((l) => l.id),
+      );
+      projections.lots = projections.lots.filter((l) => l.accountId !== accountId);
+      projections.lotAllocations = projections.lotAllocations.filter(
+        (l) => !removedLotIds.has(l.lotId),
+      );
+      store.feeProfiles = store.feeProfiles.filter((p) => p.accountId !== accountId);
+      store.feeProfileBindings = store.feeProfileBindings.filter(
+        (b) => b.accountId !== accountId,
+      );
+      if (activeIdx !== -1) {
+        store.accounts.splice(activeIdx, 1);
+      }
+    }
+
+    // KZO-115 / KZO-165 — top-level snapshot arrays scoped by accountId.
+    for (let i = this.holdingSnapshots.length - 1; i >= 0; i -= 1) {
+      if (this.holdingSnapshots[i].accountId === accountId) {
+        this.holdingSnapshots.splice(i, 1);
+      }
+    }
+    for (let i = this.currencyWalletSnapshots.length - 1; i >= 0; i -= 1) {
+      if (this.currencyWalletSnapshots[i].accountId === accountId) {
+        this.currencyWalletSnapshots.splice(i, 1);
+      }
+    }
+
+    this.softDeletedAccounts.delete(shadowKey);
+  }
+
+  async listSoftDeletedAccounts(
+    userId: string,
+  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>> {
+    const result: Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }> = [];
+    for (const [key, account] of this.softDeletedAccounts.entries()) {
+      if (key.startsWith(`${userId}:`)) {
+        result.push({ ...account });
+      }
+    }
+    // Sort by deletedAt DESC (most recent first).
+    result.sort((a, b) => (a.deletedAt < b.deletedAt ? 1 : a.deletedAt > b.deletedAt ? -1 : 0));
+    return result;
+  }
+
+  async getAccountIncludingDeleted(
+    accountId: string,
+    userId: string,
+  ): Promise<
+    | (import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null })
+    | null
+  > {
+    const shadow = this.softDeletedAccounts.get(`${userId}:${accountId}`);
+    if (shadow) {
+      return { ...shadow };
+    }
+    const store = this.stores.get(userId);
+    const active = store?.accounts.find((acc) => acc.id === accountId);
+    if (active) {
+      return { ...active, deletedAt: null };
+    }
+    return null;
+  }
+
+  async selectAccountsForHardPurge(
+    graceDays: number,
+  ): Promise<Array<{ accountId: string; userId: string }>> {
+    const cutoff = Date.now() - graceDays * 24 * 60 * 60 * 1000;
+    const result: Array<{ accountId: string; userId: string; deletedAt: string }> = [];
+    for (const [key, account] of this.softDeletedAccounts.entries()) {
+      if (new Date(account.deletedAt).getTime() < cutoff) {
+        const sepIdx = key.indexOf(":");
+        result.push({
+          userId: key.slice(0, sepIdx),
+          accountId: key.slice(sepIdx + 1),
+          deletedAt: account.deletedAt,
+        });
+      }
+    }
+    result.sort((a, b) => (a.deletedAt < b.deletedAt ? -1 : a.deletedAt > b.deletedAt ? 1 : 0));
+    return result.map(({ accountId, userId }) => ({ accountId, userId }));
   }
 
   async hasActiveJobs(_userId: string): Promise<boolean> {

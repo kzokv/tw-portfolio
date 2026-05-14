@@ -88,6 +88,11 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       taxEstimateTitle: "Securities Tax",
       estimatedLabel: "Estimated: {amount}",
       overrideAmountPlaceholder: "Override amount (optional)",
+      // ui-enhancement (2026-05-13): rendered when 4-tuple gate holds but
+      // `feeEstimate == null` (e.g. price-mismatch race) so the section
+      // doesn't disappear mid-edit.
+      estimatedUnavailable: "—",
+      estimateUnavailableSubLabel: "estimate unavailable",
       // KZO-169: market_code chip selector + currency-aware account filter.
       // Strings only per .claude/rules/nextjs-i18n-serialization.md.
       // `{currency}` placeholder replaced at call site via .replace().
@@ -188,6 +193,9 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       taxEstimateTitle: "證交稅",
       estimatedLabel: "預估：{amount}",
       overrideAmountPlaceholder: "覆寫金額（選填）",
+      // ui-enhancement — 4 元組條件成立但估算缺值時顯示。
+      estimatedUnavailable: "—",
+      estimateUnavailableSubLabel: "估算暫不可用",
       // KZO-169: market_code chip + 帳戶幣別過濾。chip 標籤保持 MarketCode
       // 字面值（TW / US / AU / All），符合 D5b 鎖定範圍。
       marketTerm: "市場",

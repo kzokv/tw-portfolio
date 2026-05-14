@@ -1102,6 +1102,72 @@ In addition to SQL constraints, `validateStoreInvariants` and `validateAccountin
 - Migration `016` (KZO-114) added `ON DELETE CASCADE` to four FKs referencing `trade_events(id)`: `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id` (self-referential), and `recompute_job_items.trade_event_id`. This enables hard-delete of trade events without manual cleanup.
 - `trade_events.fees_source` (migration `016`) distinguishes auto-calculated fees (`CALCULATED`) from user-supplied fees (`MANUAL`). PATCH routes use this to decide whether to recalculate fees or prompt for confirmation.
 
+### Account soft-delete lifecycle (ui-enhancement)
+
+Added in migration `053_uie_accounts_deleted_at.sql`. Accounts support a two-stage deletion model.
+
+#### `deleted_at` semantics
+
+`accounts.deleted_at TIMESTAMPTZ NULL`:
+- `NULL` — account is **active**.
+- Non-null — account is **soft-deleted**. Set by `DELETE /accounts/:id`. Cleared by `POST /accounts/:id/restore`.
+- Soft-deleted rows continue to exist in the table and hold their name slot (until the hard-purge cron fires).
+
+**Name-uniqueness handling:** the original `ux_accounts_user_id_name` unique index is replaced by a partial unique index `ux_accounts_user_id_name_active` that only covers rows where `deleted_at IS NULL`. This allows a new account to reuse a soft-deleted account's name without a DB-level collision.
+
+#### Read-path filter contract
+
+Every account-scoped read path adds `WHERE accounts.deleted_at IS NULL`. This applies to:
+
+- `GET /accounts` — active accounts list
+- `GET /dashboard` totals
+- `GET /portfolio/aggregate`
+- `GET /cash-ledger`, `GET /dividend-ledger`, `GET /transactions`
+- Snapshot reads (`daily_holding_snapshots`, `currency_wallet_snapshots`)
+- Share-view aggregates (anonymous public view)
+
+**Snapshot policy:** filter-on-read for historical snapshots. Do **not** recompute past `daily_portfolio_snapshots` or `currency_wallet_snapshots` on soft-delete or restore — the rows still exist on disk and are simply excluded by the read-path filter until the account is restored.
+
+The "Recently deleted" section (`GET /accounts/deleted`) is the only read path that explicitly selects `WHERE deleted_at IS NOT NULL`.
+
+#### Restore-window invariant
+
+An account is recoverable until the hard-purge cron fires. The cron selects accounts where:
+```sql
+deleted_at < NOW() - INTERVAL '<graceDays> days'
+```
+where `graceDays` is resolved live via `getEffectiveAccountHardPurgeDays()` (default 30, admin-tunable via `app_config.account_hard_purge_days`; see `docs/002-operations/runbook.md` §27).
+
+On restore, if an active account already holds the same name, the restored account is auto-renamed `"{originalName} (restored)"`, then `"(restored 2)"`, etc. (up to 20 attempts).
+
+#### Hard-purge cascade order
+
+`hardPurgeAccount` (in `apps/api/src/persistence/postgres.ts`) mirrors the `hardPurgeUser` pattern (see `postgres.ts:7463+`) restricted to account-scoped child rows. The user row is **not** touched. All operations run in a single transaction with the audit row inserted **before** any DELETE.
+
+Cascade order (FK-dependency-correct):
+
+| Step | Table | Mechanism |
+|---|---|---|
+| 1 | Audit snapshot | `INSERT INTO audit_log` (action=`account_hard_purged`) with account-name snapshot — before any DELETE |
+| 2 | `daily_holding_snapshots` | Explicit DELETE `WHERE account_id = $1` |
+| 3 | `currency_wallet_snapshots` | Explicit DELETE `WHERE account_id = $1` |
+| 4 | `cash_ledger_entries` | Explicit DELETE `WHERE account_id = $1` |
+| 5 | `lot_allocations` | Explicit DELETE via `lot_id IN (SELECT id FROM lots WHERE account_id = $1)` |
+| 6 | `lots` | Explicit DELETE `WHERE account_id = $1` |
+| 7 | `dividend_deduction_entries` | Explicit DELETE via `dividend_ledger_entry_id IN (...)` |
+| 8 | `dividend_ledger_entries` | Explicit DELETE `WHERE account_id = $1` |
+| 9 | `corporate_actions` | Explicit DELETE `WHERE account_id = $1` |
+| 10 | `trade_events` | Explicit DELETE `WHERE account_id = $1` |
+| 11 | `trade_fee_policy_snapshots` | Left in place (user-scoped orphans; reaped on user hard-purge) |
+| 12 | `account_fee_profile_overrides` | ON DELETE CASCADE from `accounts(id)` (auto) |
+| 13 | `fee_profiles` (where `account_id = $1`) | ON DELETE CASCADE from `accounts(id)` (auto) |
+| 14 | `tax_rules` | ON DELETE CASCADE via `fee_profiles` (auto) |
+| 15 | `accounts` row | Final explicit DELETE `WHERE id = $1 AND user_id = $2` |
+
+`dividend_source_lines` is covered by CASCADE from `dividend_ledger_entries`. `daily_portfolio_snapshots` has no `account_id` column and is user-scoped — not touched by per-account purge.
+
+Per `replay-position-history-invariants.md` §1: `hardPurgeAccount` must NOT use `saveStore`. It operates with targeted DELETEs in a single transaction (same invariant as `hardPurgeUser`).
+
 ## API
 
 ### HTTP runtime model

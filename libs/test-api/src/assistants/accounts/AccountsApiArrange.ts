@@ -19,4 +19,10 @@ export class AccountsApiArrange extends ApiBaseArrange {
 
     return accounts[0]!;
   }
+
+  // ui-enhancement — typed body for /accounts/deleted listing.
+  @Step()
+  async deletedAccounts(response: APIResponse): Promise<Record<string, unknown>[]> {
+    return (await this.body(response)) as Record<string, unknown>[];
+  }
 }

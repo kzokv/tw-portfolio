@@ -2,8 +2,15 @@
  * KZO-169 — Transaction form market_code selector + symbol disambiguation.
  *
  * Covers the browser-facing acceptance criteria that are not visible from the
- * HTTP suite: chip defaults, filtered autocomplete rows, ALL-mode suffixes,
- * account dropdown filtering, currency lock, and no-compatible-account UX.
+ * HTTP suite: chip defaults, filtered autocomplete rows, account dropdown
+ * filtering, currency lock, and no-compatible-account UX.
+ *
+ * ui-enhancement (2026-05-13) — Item 4: the user-facing "ALL" chip is removed
+ * from the transaction form (kept only in the settings catalog browser per
+ * locked scope). Default chip is now the first account's market, NOT ALL.
+ * Ambiguous-ticker disambiguation is exercised via the per-market chips
+ * (TW/US/AU) — the ALL-mode "BHP · AU" / "BHP · US" suffix path is no
+ * longer reachable from the transaction form.
  */
 
 import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
@@ -36,7 +43,7 @@ async function createAccount(
   await settings.actions.submitAccountCreate();
 }
 
-test("[transactions]: multi-currency user gets All chip, disambiguated BHP rows, and USD account filtering", async ({
+test("[transactions]: multi-currency user can disambiguate BHP via per-market chips + USD account filtering", async ({
   appShell,
   settings,
   transactions,
@@ -51,9 +58,10 @@ test("[transactions]: multi-currency user gets All chip, disambiguated BHP rows,
   await createAccount(settings, "AUD Brokerage", "AUD");
   await settings.actions.closeWithEscape();
 
-  // ── Assert: mixed account currencies default the chip to All ─────────────
+  // ── ui-enhancement: default chip = first account's market (TWD seeded
+  //    "Main" account is first → "TW"). The ALL chip is no longer rendered.
   await transactions.actions.navigateToTransactions();
-  await transactions.assert.selectedMarketChipIs("ALL");
+  await transactions.assert.selectedMarketChipIs("TW");
 
   // ── Act/Assert: AU chip filters autocomplete to AU-only BHP ──────────────
   await transactions.actions.selectMarketChip("AU");
@@ -61,23 +69,26 @@ test("[transactions]: multi-currency user gets All chip, disambiguated BHP rows,
   await transactions.assert.comboboxShowsOptions(1);
   await transactions.assert.comboboxOptionContains(/BHP/);
 
-  // ── Act/Assert: All chip shows both ambiguous rows with market suffixes ──
-  await transactions.actions.selectMarketChip("ALL");
+  // ── Act/Assert: switching to the US chip filters to the US-only BHP ──────
+  await transactions.actions.selectMarketChip("US");
   await transactions.actions.typeInTickerSearch("BHP");
-  await transactions.assert.comboboxShowsOptions(2);
-  await transactions.assert.comboboxOptionContains(/BHP\s*·\s*AU/);
-  await transactions.assert.comboboxOptionContains(/BHP\s*·\s*US/);
+  await transactions.assert.comboboxShowsOptions(1);
+  await transactions.assert.comboboxOptionContains(/BHP/);
 
-  // ── Act/Assert: selecting BHP·US locks currency + account dropdown ───────
+  // ── Act/Assert: selecting BHP·US locks the derived priceCurrency to USD.
+  //    ui-enhancement (2026-05-13) — the chip→account dropdown filter has
+  //    been removed (one-way binding account → chip per scope items 22–23).
+  //    The account dropdown now lists ALL of the user's accounts regardless
+  //    of chip; currency-mismatch enforcement lives server-side, covered by
+  //    `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
   await transactions.actions.selectTickerOption("BHP", "US");
-  await transactions.assert.selectedTickerContains(/BHP\s*·\s*US/);
   await transactions.assert.priceCurrencyIs("USD");
-  await transactions.assert.selectedAccountOptionsContain(/USD Brokerage/);
-  await transactions.assert.selectedAccountOptionsExclude(/Main/);
-  await transactions.assert.selectedAccountOptionsExclude(/AUD Brokerage/);
 });
 
-test("[transactions]: AU instrument with no AUD account renders create-account path and blocks submit", async ({
+// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
+// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
+// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
+test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
   settings,
   transactions,
 }) => {
@@ -90,9 +101,6 @@ test("[transactions]: AU instrument with no AUD account renders create-account p
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.actions.selectTickerOption("BHP", "AU");
 
-  // ── Assert: no compatible account state replaces the account dropdown ────
+  // ── Assert: form-side chip → derived priceCurrency is AUD. ───────────────
   await transactions.assert.priceCurrencyIs("AUD");
-  await transactions.assert.noAccountErrorContains(/AUD/);
-  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=AUD/);
-  await transactions.assert.submitButtonIsDisabled();
 });

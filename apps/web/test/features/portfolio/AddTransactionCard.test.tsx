@@ -48,7 +48,11 @@ const AUD_ACCOUNT: TransactionAccountOption = {
   accountType: "broker",
 };
 
-describe("deriveDefaultMarketChip — KZO-169 D8a", () => {
+describe("deriveDefaultMarketChip — ui-enhancement (2026-05-13)", () => {
+  // ui-enhancement scope items 20–22: ALL chip removed from the Record
+  // Transaction surface. Default chip is now the FIRST account's market
+  // (replaces only-currency-or-null semantics). Empty list → "TW" fallback.
+
   it("returns the matching MarketCode when all accounts share one currency (TW-only user)", () => {
     expect(deriveDefaultMarketChip([TWD_ACCOUNT, { ...TWD_ACCOUNT, id: "acc-tw-2" }])).toBe("TW");
   });
@@ -61,13 +65,13 @@ describe("deriveDefaultMarketChip — KZO-169 D8a", () => {
     expect(deriveDefaultMarketChip([AUD_ACCOUNT])).toBe("AU");
   });
 
-  it("returns null (All) for multi-currency users", () => {
-    expect(deriveDefaultMarketChip([TWD_ACCOUNT, USD_ACCOUNT])).toBe(null);
-    expect(deriveDefaultMarketChip([TWD_ACCOUNT, USD_ACCOUNT, AUD_ACCOUNT])).toBe(null);
+  it("returns the FIRST account's market for multi-currency users", () => {
+    expect(deriveDefaultMarketChip([TWD_ACCOUNT, USD_ACCOUNT])).toBe("TW");
+    expect(deriveDefaultMarketChip([USD_ACCOUNT, TWD_ACCOUNT, AUD_ACCOUNT])).toBe("US");
   });
 
-  it("returns null when accounts list is empty (NC5 — defensive fallback)", () => {
-    expect(deriveDefaultMarketChip([])).toBe(null);
+  it("returns 'TW' when accounts list is empty (defensive fallback per scope item 21)", () => {
+    expect(deriveDefaultMarketChip([])).toBe("TW");
   });
 });
 
@@ -130,7 +134,9 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     };
   }
 
-  it("renders all four chip pills (TW / US / AU / All)", () => {
+  it("renders the three market chip pills (TW / US / AU) without the removed ALL chip", () => {
+    // ui-enhancement (2026-05-13) — ALL chip removed from this surface.
+    // Settings → Tickers catalog browser keeps ALL.
     const html = renderToStaticMarkup(
       <AddTransactionCard
         value={valueWith({ accountId: "acc-tw", marketCode: "TW" })}
@@ -149,15 +155,17 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     expect(html).toContain('data-testid="tx-market-chip-TW"');
     expect(html).toContain('data-testid="tx-market-chip-US"');
     expect(html).toContain('data-testid="tx-market-chip-AU"');
-    expect(html).toContain('data-testid="tx-market-chip-ALL"');
+    expect(html).not.toContain('data-testid="tx-market-chip-ALL"');
   });
 
-  it("renders the inline no-account error block when derived currency has no compatible account (D8c)", () => {
-    // Multi-currency-derived-currency mismatch: chip = US, but only TWD account exists.
+  it("renders the inline no-account error block ONLY in the zero-account state (ui-enhancement)", () => {
+    // ui-enhancement (2026-05-13): the `account → chip` one-way binding
+    // removes the chip → account filter. The error block now triggers
+    // only when the user has zero accounts at all.
     const html = renderToStaticMarkup(
       <AddTransactionCard
-        value={valueWith({ marketCode: "US" })}
-        accountOptions={[TWD_ACCOUNT]}
+        value={valueWith({ marketCode: null })}
+        accountOptions={[]}
         pending={false}
         onChange={() => undefined}
         onSubmit={async () => undefined}
@@ -171,9 +179,33 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     );
     expect(html).toContain('data-testid="tx-no-account-error"');
     expect(html).toContain('data-testid="tx-create-account-link"');
-    expect(html).toContain("USD");
     // Account dropdown is NOT rendered in this state — replaced by the error block.
     expect(html).not.toContain('data-testid="tx-account-select"');
+  });
+
+  it("shows the account dropdown with ALL accounts regardless of chip (ui-enhancement)", () => {
+    // ui-enhancement: dropdown lists every account; chip auto-syncs to the
+    // selected account. Replaces the previous chip → account filter.
+    const html = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({ marketCode: "US" })}
+        accountOptions={[TWD_ACCOUNT, USD_ACCOUNT, AUD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+      />,
+    );
+    expect(html).toContain('data-testid="tx-account-select"');
+    expect(html).toContain('value="acc-tw"');
+    expect(html).toContain('value="acc-us"');
+    expect(html).toContain('value="acc-au"');
+    expect(html).not.toContain('data-testid="tx-no-account-error"');
   });
 
   it("does NOT render the no-account error when the chip matches an existing account currency", () => {

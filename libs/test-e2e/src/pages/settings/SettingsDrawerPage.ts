@@ -53,6 +53,24 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     profileEditButton: (profileId: string) => Locator;
     profileNameInput: (profileId: string) => Locator;
     profileEditDoneButton: (profileId: string) => Locator;
+    // ui-enhancement — Item 1: per-account Delete button + modals + recently-deleted.
+    deleteButton: (accountId: string) => Locator;
+    softDeleteModal: Locator;
+    softDeleteConfirmButton: Locator;
+    softDeleteCancelButton: Locator;
+    softDeleteWarningOpenPositions: Locator;
+    softDeleteWarningCashBalance: Locator;
+    softDeleteWarningLastAccount: Locator;
+    permanentDeleteModal: Locator;
+    permanentDeleteInput: Locator;
+    permanentDeleteConfirmButton: Locator;
+    permanentDeleteCancelButton: Locator;
+    recentlyDeletedSection: Locator;
+    recentlyDeletedHeader: Locator;
+    recentlyDeletedRow: (accountId: string) => Locator;
+    recentlyDeletedRestoreButton: (accountId: string) => Locator;
+    recentlyDeletedPurgeButton: (accountId: string) => Locator;
+    recentlyDeletedTimeRemaining: (accountId: string) => Locator;
   };
   profile: {
     section: Locator;
@@ -236,6 +254,74 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.locate(`accounts-profile-name-input-${profileId}`, `Profile Name Input (${profileId})`),
         profileEditDoneButton: (profileId: string) =>
           this.locate(`accounts-profile-edit-done-${profileId}`, `Profile Edit Done (${profileId})`),
+        // ui-enhancement — Item 1: per-account Delete + modals + recently-deleted.
+        deleteButton: (accountId: string) =>
+          this.locate(`account-delete-btn-${accountId}`, `Account Delete Button (${accountId})`),
+        softDeleteModal: this.locate("account-soft-delete-modal", "Soft Delete Modal"),
+        softDeleteConfirmButton: this.locate(
+          "account-soft-delete-confirm-btn",
+          "Soft Delete Confirm Button",
+        ),
+        softDeleteCancelButton: this.locate(
+          "account-soft-delete-cancel-btn",
+          "Soft Delete Cancel Button",
+        ),
+        softDeleteWarningOpenPositions: this.locate(
+          "account-soft-delete-warning-open-positions",
+          "Soft Delete Warning — Open Positions",
+        ),
+        softDeleteWarningCashBalance: this.locate(
+          "account-soft-delete-warning-cash-balance",
+          "Soft Delete Warning — Cash Balance",
+        ),
+        softDeleteWarningLastAccount: this.locate(
+          "account-soft-delete-warning-last-account",
+          "Soft Delete Warning — Last Account",
+        ),
+        permanentDeleteModal: this.locate(
+          "account-permanent-delete-modal",
+          "Permanent Delete Modal",
+        ),
+        permanentDeleteInput: this.locate(
+          "account-permanent-delete-input",
+          "Permanent Delete Typed-Name Input",
+        ),
+        permanentDeleteConfirmButton: this.locate(
+          "account-permanent-delete-confirm-btn",
+          "Permanent Delete Confirm Button",
+        ),
+        permanentDeleteCancelButton: this.locate(
+          "account-permanent-delete-cancel-btn",
+          "Permanent Delete Cancel Button",
+        ),
+        recentlyDeletedSection: this.locate(
+          "recently-deleted-section",
+          "Recently Deleted Section",
+        ),
+        recentlyDeletedHeader: this.locate(
+          "recently-deleted-header",
+          "Recently Deleted Header",
+        ),
+        recentlyDeletedRow: (accountId: string) =>
+          this.locate(
+            `recently-deleted-row-${accountId}`,
+            `Recently Deleted Row (${accountId})`,
+          ),
+        recentlyDeletedRestoreButton: (accountId: string) =>
+          this.locate(
+            `recently-deleted-restore-btn-${accountId}`,
+            `Recently Deleted Restore Button (${accountId})`,
+          ),
+        recentlyDeletedPurgeButton: (accountId: string) =>
+          this.locate(
+            `recently-deleted-purge-btn-${accountId}`,
+            `Recently Deleted Purge Button (${accountId})`,
+          ),
+        recentlyDeletedTimeRemaining: (accountId: string) =>
+          this.locate(
+            `recently-deleted-time-remaining-${accountId}`,
+            `Recently Deleted Time Remaining (${accountId})`,
+          ),
       },
       profile: {
         section: this.locate("profile-section", "Profile Section"),

@@ -3,9 +3,10 @@
  *
  * Verifies the DB-layer guarantees that back the POST /accounts route's
  * 409 path:
- *   - Migration 041's `ux_accounts_user_id_name` unique index exists and
- *     rejects duplicate `(user_id, name)` rows with PG `unique_violation`
- *     (SQLSTATE 23505).
+ *   - Migration 041's unique index — replaced by ui-enhancement migration 053
+ *     with the partial-unique `ux_accounts_user_id_name_active WHERE
+ *     deleted_at IS NULL` — exists and rejects duplicate active
+ *     `(user_id, name)` rows with PG `unique_violation` (SQLSTATE 23505).
  *   - `isUniqueViolation()` predicate correctly identifies the resulting
  *     error so the route's `try/catch` safety net can trigger 409.
  *   - Per-user scope is preserved (different users CAN have same name).
@@ -134,15 +135,21 @@ describePostgres("account-creation uniqueness — KZO-179 (postgres integration)
 
   // ── Migration 041: index + created_at ───────────────────────────────────────
 
-  it("ux_accounts_user_id_name unique index exists with the expected columns", async () => {
+  // ui-enhancement: migration 053 replaced `ux_accounts_user_id_name` with the
+  // partial unique `ux_accounts_user_id_name_active WHERE deleted_at IS NULL`,
+  // so name reuse after soft-delete is permitted while active duplicates are
+  // still rejected.
+  it("ux_accounts_user_id_name_active unique index exists with the expected columns and partial predicate", async () => {
     const { rows } = await pool.query<{ indexdef: string }>(
       `SELECT indexdef FROM pg_indexes
-       WHERE schemaname = 'public' AND indexname = 'ux_accounts_user_id_name'`,
+       WHERE schemaname = 'public' AND indexname = 'ux_accounts_user_id_name_active'`,
     );
     expect(rows).toHaveLength(1);
     // Index definition includes the (user_id, name) columns in that order.
     expect(rows[0].indexdef).toMatch(/UNIQUE INDEX/);
     expect(rows[0].indexdef).toMatch(/\(user_id,\s*name\)/);
+    // Partial predicate restricts uniqueness to active rows.
+    expect(rows[0].indexdef).toMatch(/deleted_at IS NULL/i);
   });
 
   it("accounts.created_at is NOT NULL with default now() (migration 041)", async () => {

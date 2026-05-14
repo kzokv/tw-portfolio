@@ -92,6 +92,11 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     anonymousShareRateLimitWindowMs: null,
     effectiveAnonymousShareRateLimitWindowMs: 300_000,
 
+    // ui-enhancement (2026-05-13) — Tier B grace period for account
+    // soft-delete → hard-purge cron.
+    accountHardPurgeDays: null,
+    effectiveAccountHardPurgeDays: 30,
+
     // Tier 0 — encrypted secrets (sentinel)
     finmindApiTokenSet: false,
     twelveDataApiKeySet: false,

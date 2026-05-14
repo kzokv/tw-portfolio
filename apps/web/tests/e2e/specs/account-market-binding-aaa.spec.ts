@@ -55,7 +55,14 @@ test("[settings drawer]: create account with United States currency card → mar
 
 // ─── AMB-2 ────────────────────────────────────────────────────────────────────
 
-test("[transactions]: BUY trade against TW-only accounts with US ticker MSFT is blocked by no-account UX", async ({
+// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
+// (scope items 22–23, one-way binding account → chip). The old
+// `tx-no-account-error` + create-account deep-link UX no longer fires on
+// chip-account mismatch (it now only fires when accountOptions.length===0).
+// Currency mismatch is enforced server-side at POST /portfolio/transactions
+// — see `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
+// This spec retains the form-side derivation check: chip → derived currency.
+test("[transactions]: US chip on MSFT derives USD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
   settings,
   transactions,
 }) => {
@@ -70,10 +77,8 @@ test("[transactions]: BUY trade against TW-only accounts with US ticker MSFT is 
     },
   ]);
 
-  // ── Act: navigate to transactions page and attempt the mismatch trade ─────
+  // ── Act ───────────────────────────────────────────────────────────────────
   await transactions.actions.navigateToTransactions();
-
-  // acc-1 is the default TWD/TW account — it is always the first option.
   await transactions.actions.selectFirstAccount();
   await transactions.assert.selectedAccountOptionContains(/Main/i);
 
@@ -81,15 +86,9 @@ test("[transactions]: BUY trade against TW-only accounts with US ticker MSFT is 
   await transactions.actions.selectMarketChip("US");
   await transactions.actions.typeInTickerSearch("MSFT");
   await transactions.actions.selectTickerOption("MSFT", "US");
-  await transactions.actions.fillTradeDate("2026-01-15");
-  await transactions.actions.fillQuantity(10);
-  await transactions.actions.fillUnitPrice(400);
 
-  // ── Assert: KZO-169 filters out incompatible accounts before submit ──────
-  // Server-side currency_mismatch remains covered by the HTTP suite; the form
-  // path should stop users earlier with the create-account deep link.
-  await transactions.assert.noAccountErrorContains(/USD/);
-  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=USD/);
+  // ── Assert: form-side chip → derived priceCurrency is USD. ────────────────
+  await transactions.assert.priceCurrencyIs("USD");
 });
 
 // ─── AMB-3 ────────────────────────────────────────────────────────────────────

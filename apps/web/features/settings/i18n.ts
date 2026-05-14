@@ -112,6 +112,36 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       accountsListAtLeastOneProfile: "Each account must keep at least one fee profile.",
       accountsListNoProfilesYet: "No fee profiles yet.",
       accountsListAccountSummary: "{type} · {currency} · {profileCount} profiles",
+      // ui-enhancement — account soft-delete + permanent-delete + recently-
+      // deleted subsection. Flat strings only (no nested Record under
+      // settings, no functions) per the corresponding rules.
+      accountsDeleteBtn: "Delete account",
+      accountsSoftDeleteModalTitle: "Delete account?",
+      accountsSoftDeleteModalBody:
+        "This account will move to Recently deleted for 30 days, then be permanently removed. Trades, cash entries, and snapshots stay attached until then — restore to bring everything back.",
+      accountsSoftDeleteWarningOpenPositions:
+        "This account has open positions. Soft-deleting will hide them from your dashboard until you restore the account.",
+      accountsSoftDeleteWarningCashBalance:
+        "This account has a non-zero cash balance. Soft-deleting will hide it from totals; restore to bring it back.",
+      accountsSoftDeleteWarningLastAccount:
+        "This is your only account. Soft-deleting will leave you with no active accounts.",
+      accountsSoftDeleteConfirm: "Move to Recently deleted",
+      accountsSoftDeleteCancel: "Cancel",
+      accountsPermanentDeleteModalTitle: "Permanently delete account?",
+      accountsPermanentDeleteModalBody:
+        "This will permanently remove the account and every trade, cash entry, lot, dividend record, and snapshot it owns. This cannot be undone. Type the account name to confirm.",
+      accountsPermanentDeleteInputLabel:
+        "Type the account name ({name}) to confirm",
+      accountsPermanentDeleteConfirm: "Permanently delete",
+      accountsPermanentDeleteCancel: "Cancel",
+      accountsRecentlyDeletedTitle: "Recently deleted ({count}) · auto-purged after {graceDays} days",
+      accountsRestoreBtn: "Restore",
+      accountsPurgeNowBtn: "Permanently delete now",
+      accountsTimeRemaining: "{days} days remaining",
+      accountsRestoredRenameSuffix: "{name} (restored)",
+      accountsDeleteError: "Failed to delete account. Please try again.",
+      accountsRestoreError: "Failed to restore account. Please try again.",
+      accountsPurgeError: "Failed to permanently delete account. Please try again.",
       closeWarning: "You have unsaved changes. Closing now will discard your edits.",
       tabProfile: "Profile",
       profileDisplayNameLabel: "Display Name",
@@ -378,6 +408,33 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       accountsListAtLeastOneProfile: "每個帳戶至少需保留一個費率設定檔。",
       accountsListNoProfilesYet: "尚無費率設定檔。",
       accountsListAccountSummary: "{type} · {currency} · {profileCount} 個設定檔",
+      // ui-enhancement — 帳戶軟刪除 + 永久刪除 + 最近刪除子區塊。
+      accountsDeleteBtn: "刪除帳戶",
+      accountsSoftDeleteModalTitle: "確定刪除這個帳戶？",
+      accountsSoftDeleteModalBody:
+        "此帳戶會先移到「最近刪除」保留 30 天，之後才永久移除。期間交易、現金紀錄與快照都會保留；隨時可以還原。",
+      accountsSoftDeleteWarningOpenPositions:
+        "此帳戶仍有未平倉部位。軟刪除後會從儀表板隱藏，還原後可再次顯示。",
+      accountsSoftDeleteWarningCashBalance:
+        "此帳戶有非零現金餘額。軟刪除後會從總計中隱藏，還原即可恢復。",
+      accountsSoftDeleteWarningLastAccount:
+        "這是你唯一的帳戶,軟刪除後將沒有任何啟用中的帳戶。",
+      accountsSoftDeleteConfirm: "移到「最近刪除」",
+      accountsSoftDeleteCancel: "取消",
+      accountsPermanentDeleteModalTitle: "永久刪除帳戶？",
+      accountsPermanentDeleteModalBody:
+        "此操作會永久刪除帳戶及其所有交易、現金紀錄、持倉、股利資料與快照,且無法復原。請輸入帳戶名稱以確認。",
+      accountsPermanentDeleteInputLabel: "輸入帳戶名稱（{name}）以確認",
+      accountsPermanentDeleteConfirm: "永久刪除",
+      accountsPermanentDeleteCancel: "取消",
+      accountsRecentlyDeletedTitle: "最近刪除（{count}）· {graceDays} 天後自動永久刪除",
+      accountsRestoreBtn: "還原",
+      accountsPurgeNowBtn: "立即永久刪除",
+      accountsTimeRemaining: "剩餘 {days} 天",
+      accountsRestoredRenameSuffix: "{name}（已還原）",
+      accountsDeleteError: "刪除帳戶失敗，請再試一次。",
+      accountsRestoreError: "還原帳戶失敗，請再試一次。",
+      accountsPurgeError: "永久刪除帳戶失敗,請再試一次。",
       closeWarning: "你有尚未儲存的變更，現在關閉會捨棄這些內容。",
       tabProfile: "個人資料",
       profileDisplayNameLabel: "顯示名稱",

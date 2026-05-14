@@ -75,6 +75,9 @@ export interface AppConfigCacheEntry {
   anonymousShareTokenRetentionMs: number | null;
   userPreferencesMaxBytes: number | null;
 
+  // ui-enhancement — account soft-delete grace period (Tier B; in PATCH + UI).
+  accountHardPurgeDays: number | null;
+
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;
 }

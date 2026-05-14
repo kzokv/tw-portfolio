@@ -149,25 +149,57 @@ export function useSettingsForm({
     const mergeFreshAccounts = (model: SettingsFormModel | null) => {
       if (!model) return model;
       const knownAccountIds = new Set(model.accounts.map((account) => account.id));
+      const liveAccountIds = new Set(accounts.map((account) => account.id));
       const freshAccounts = accounts.filter((account) => !knownAccountIds.has(account.id));
       const incomingProfilesById = new Map(feeProfiles.map((profile) => [profile.id, profile]));
       const accountsById = new Map(accounts.map((account) => [account.id, account]));
 
       let changed = freshAccounts.length > 0;
+
+      // ui-enhancement (2026-05-13) — P2-1: prune draft entries for accounts
+      // that have disappeared from the fresh fetch (e.g. soft-deleted by the
+      // Delete-account flow). Without this, an open-drawer Save serializes
+      // stale account / fee-profile / per-symbol-override entries to
+      // `PUT /settings/full`, where the route's `loadStore` lookup 404s for
+      // the missing account. We prune at three levels:
+      //   1. `accounts` (per-account draft binding model)
+      //   2. `feeProfiles` whose `accountId` no longer exists
+      //   3. `feeProfileBindings` (per-symbol overrides) whose `accountId`
+      //      no longer exists
+      //
+      // The "valid account id" set is computed POST-prune so subsequent
+      // additive merges (incoming profiles, profile stubs) cannot
+      // re-introduce orphans for the removed account.
+      const prunedDraftAccounts = model.accounts.filter((a) => liveAccountIds.has(a.id));
+      if (prunedDraftAccounts.length !== model.accounts.length) {
+        changed = true;
+      }
       const accountIdsAfterMerge = new Set([
-        ...model.accounts.map((account) => account.id),
+        ...prunedDraftAccounts.map((a) => a.id),
         ...freshAccounts.map((account) => account.id),
       ]);
 
-      const nextProfiles = model.feeProfiles.map((profile) => {
-        const incoming = incomingProfilesById.get(profile.id);
-        const account = accountsById.get(profile.accountId);
-        if (incoming && account && isAutoSeedProfileStub(profile, account)) {
-          changed = true;
-          return { ...incoming };
-        }
-        return profile;
-      });
+      const nextProfiles = model.feeProfiles
+        .filter((profile) => accountIdsAfterMerge.has(profile.accountId))
+        .map((profile) => {
+          const incoming = incomingProfilesById.get(profile.id);
+          const account = accountsById.get(profile.accountId);
+          if (incoming && account && isAutoSeedProfileStub(profile, account)) {
+            changed = true;
+            return { ...incoming };
+          }
+          return profile;
+        });
+      if (nextProfiles.length !== model.feeProfiles.length) {
+        changed = true;
+      }
+
+      const prunedBindings = model.feeProfileBindings.filter(
+        (binding) => accountIdsAfterMerge.has(binding.accountId),
+      );
+      if (prunedBindings.length !== model.feeProfileBindings.length) {
+        changed = true;
+      }
 
       const nextProfileIds = new Set(nextProfiles.map((profile) => profile.id));
       const incomingAdditions = feeProfiles
@@ -211,7 +243,7 @@ export function useSettingsForm({
       return {
         ...model,
         accounts: [
-          ...model.accounts,
+          ...prunedDraftAccounts,
           ...freshAccounts.map((account) => ({ id: account.id, feeProfileId: account.feeProfileId })),
         ],
         feeProfiles: [
@@ -219,6 +251,7 @@ export function useSettingsForm({
           ...incomingAdditions,
           ...profileStubs,
         ],
+        feeProfileBindings: prunedBindings,
       };
     };
 

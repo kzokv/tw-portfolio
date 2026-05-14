@@ -61,6 +61,8 @@ export function fakePersistenceWithAppConfig(
     // KZO-199 — Tier-2 (SQL/DB-only) fields.
     anonymousShareTokenRetentionMs: null,
     userPreferencesMaxBytes: null,
+    // ui-enhancement — Tier B account-soft-delete grace period.
+    accountHardPurgeDays: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

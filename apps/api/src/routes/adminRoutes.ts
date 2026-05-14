@@ -158,6 +158,9 @@ export const patchAdminSettingsSchema = z
     anonymousShareRateLimitMax: plainBoundedField("anonymousShareRateLimitMax"),
     anonymousShareRateLimitWindowMs: plainBoundedField("anonymousShareRateLimitWindowMs"),
 
+    // ── ui-enhancement Tier B — account lifecycle ───────────────────────
+    accountHardPurgeDays: plainBoundedField("accountHardPurgeDays"),
+
     // KZO-199 Tier 2 fields (anonymousShareTokenRetentionMs,
     // userPreferencesMaxBytes) are deliberately NOT in this PATCH schema —
     // DB+SQL only. `.strict()` rejects them with a 400.
@@ -199,6 +202,8 @@ const TIER1_PLAIN_FIELDS = [
   "anonymousShareTokenCap",
   "anonymousShareRateLimitMax",
   "anonymousShareRateLimitWindowMs",
+  // ui-enhancement — Tier B account-soft-delete grace period.
+  "accountHardPurgeDays",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function resolveAdminContext(req: FastifyRequest, _app: FastifyInstance) {
@@ -304,6 +309,10 @@ function buildAppConfigDtoFromRow(
     anonymousShareRateLimitWindowMs: row.anonymousShareRateLimitWindowMs,
     effectiveAnonymousShareRateLimitWindowMs:
       row.anonymousShareRateLimitWindowMs ?? Env.ANONYMOUS_SHARE_RATE_LIMIT_WINDOW_MS,
+
+    // ui-enhancement — Tier B account-soft-delete grace period (UI-editable)
+    accountHardPurgeDays: row.accountHardPurgeDays,
+    effectiveAccountHardPurgeDays: row.accountHardPurgeDays ?? Env.ACCOUNT_HARD_PURGE_DAYS,
 
     // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
 
