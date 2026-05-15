@@ -2,24 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * shadcn token contract (Phase 0). HSL channels in CSS vars; consumers
+ * wrap in hsl(). Light = :root, Dark = .dark, Density = data attribute.
+ * Status colors (success/danger/warning) do NOT shift with the accent
+ * preset — direction signals stay constant across all 8 + custom accents.
+ * ────────────────────────────────────────────────────────────────────── */
 :root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 238 84% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 36%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 47% 11%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 238 84% 60%;
+  --radius: 0.625rem;
+  --row-h: 36px;
+  --row-px: 12px;
+
+  /* Legacy alias bridge (deleted in Phase 7). Maps old css-var consumers to
+   * the new tokens so existing classes (`bg-bg`, `text-ink`, etc.) work.   */
+  --bg: hsl(var(--background));
+  --surface: hsl(var(--card));
+  --surface-soft: hsl(var(--muted));
+  --surface-glass: hsl(var(--card));
+  --text: hsl(var(--foreground));
+  --ink-muted: hsl(var(--muted-foreground));
+  --accent-strong: hsl(var(--primary));
+  --line: hsl(var(--border));
+  --danger: hsl(var(--destructive));
   color-scheme: light;
-  --bg: #eef3ff;
-  --surface: #ffffff;
-  --surface-soft: #e7efff;
-  --surface-glass: rgba(255, 255, 255, 0.82);
-  --text: #0f172a;
-  --muted: #64748b;
-  --accent: #4f46e5;
-  --accent-strong: #6366f1;
-  --line: rgba(148, 163, 184, 0.28);
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #fb7185;
+}
+
+.dark {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 238 84% 67%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 33% 17%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 45%;
+  --success-foreground: 222 47% 6%;
+  --warning: 38 92% 60%;
+  --warning-foreground: 222 47% 11%;
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --ring: 238 84% 67%;
+  color-scheme: dark;
+}
+
+/* Comfortable density opt-in. Default = compact. */
+[data-density="comfortable"] {
+  --row-h: 52px;
+  --row-px: 20px;
 }
 
 * {
   box-sizing: border-box;
+  border-color: hsl(var(--border));
 }
 
 html {
@@ -34,41 +100,31 @@ body {
 
 body {
   overflow-x: hidden;
+  font-family: var(--font-geist-sans), "Noto Sans TC", system-ui, sans-serif;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  text-wrap: pretty;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  font-family: var(--font-body), "Noto Sans TC", sans-serif;
-  color: var(--text);
-  background:
-    radial-gradient(circle at 12% 14%, rgba(99, 102, 241, 0.22), transparent 26%),
-    radial-gradient(circle at 88% 12%, rgba(96, 165, 250, 0.18), transparent 28%),
-    radial-gradient(circle at 50% 100%, rgba(191, 219, 254, 0.78), transparent 50%),
-    linear-gradient(180deg, #f7faff 0%, #eef4ff 44%, #e8f0ff 100%);
+h1, h2, h3, h4 {
+  font-family: var(--font-geist-sans), "Noto Sans TC", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  font-weight: 600;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.22) 1px, transparent 1px);
-  background-size: 80px 80px;
-  mask-image: radial-gradient(circle at center, black, transparent 82%);
-  opacity: 0.42;
+:lang(zh-TW) h1, :lang(zh-TW) h2, :lang(zh-TW) h3, :lang(zh-TW) h4 {
+  letter-spacing: 0;
 }
 
-h1,
-h2,
-h3,
-h4 {
-  font-family: var(--font-display), "Noto Serif TC", serif;
-  letter-spacing: -0.02em;
+.tabular, .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 ::selection {
-  background: rgba(79, 70, 229, 0.2);
+  background: hsl(var(--primary) / 0.2);
 }
 
 .glass-panel {
