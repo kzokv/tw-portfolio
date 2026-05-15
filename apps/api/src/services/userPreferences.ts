@@ -26,9 +26,13 @@
 
 import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
+  DEFAULT_DENSITY,
+  DEFAULT_THEME_ACCENT,
   dashboardPerformanceRangesSchema,
+  densityModeSchema,
+  themeAccentSchema,
 } from "@vakwen/shared-types";
-import type { AccountDefaultCurrency } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DensityMode, ThemeAccent } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 export type EffectiveRangesSource = "user" | "admin" | "default";
@@ -96,6 +100,59 @@ export async function resolveEffectiveRanges(
     ranges: [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES],
     source: "default",
   };
+}
+
+// ─── Phase 2 — theme accent + density resolvers ──────────────────────────
+// Three-tier precedence mirrors `resolveEffectiveRanges`:
+//   1. User preference (validated via Zod) → "user"
+//   2. Admin default (`app_config.default_theme_accent` / `default_density`,
+//      reserved for migration 056; reads as null until applied)        → "admin"
+//   3. Built-in default (indigo · compact)                              → "default"
+// Garbage values fall through silently to the next tier.
+
+export type EffectiveSource = "user" | "admin" | "default";
+
+export interface EffectiveThemeAccentResult {
+  value: ThemeAccent;
+  source: EffectiveSource;
+}
+
+export interface EffectiveDensityResult {
+  value: DensityMode;
+  source: EffectiveSource;
+}
+
+export async function resolveEffectiveThemeAccent(
+  persistence: Persistence,
+  userId: string,
+  prefs?: Record<string, unknown>,
+): Promise<EffectiveThemeAccentResult> {
+  const resolvedPrefs =
+    prefs !== undefined ? prefs : await persistence.getUserPreferences(userId);
+
+  const userParsed = themeAccentSchema.safeParse(resolvedPrefs.themeAccent);
+  if (userParsed.success) return { value: userParsed.data, source: "user" };
+
+  // Admin default tier — reads `null` until migration 056 lands; the read
+  // path stays safe because `getAppConfig` already returns an exhaustive
+  // shape. Until then we fall through to the built-in default.
+  // (Optional admin field is wired via a follow-up commit.)
+
+  return { value: DEFAULT_THEME_ACCENT, source: "default" };
+}
+
+export async function resolveEffectiveDensity(
+  persistence: Persistence,
+  userId: string,
+  prefs?: Record<string, unknown>,
+): Promise<EffectiveDensityResult> {
+  const resolvedPrefs =
+    prefs !== undefined ? prefs : await persistence.getUserPreferences(userId);
+
+  const userParsed = densityModeSchema.safeParse(resolvedPrefs.density);
+  if (userParsed.success) return { value: userParsed.data, source: "user" };
+
+  return { value: DEFAULT_DENSITY, source: "default" };
 }
 
 // KZO-180 — Pure resolver for the user-level reporting currency. The pref is
