@@ -1,37 +1,24 @@
-import { cva, type VariantProps } from "class-variance-authority";
+// Phase 1 adapter shim: preserves the existing project Button API
+// (`Button` default-export-as-named + `buttonVariants`) while delegating
+// rendering to the shadcn primitive at ./shadcn/button. Adds `type="button"`
+// default that the project relies on.
+//
+// The full shadcn variant + size matrix is available — old call sites that
+// passed variant="default"|"secondary"|"ghost" + size="default"|"sm" keep
+// working unchanged; new sites can use destructive/outline/link + xs/lg/icon.
+//
+// Deleted in Phase 7 once every consumer imports from "@/components/ui/shadcn/button".
+
 import { forwardRef, type ButtonHTMLAttributes } from "react";
-import { cn } from "../../lib/utils";
+import { Button as ShadcnButton, buttonVariants, type ButtonProps as ShadcnButtonProps } from "./shadcn/button";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-xl border text-sm font-medium transition duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(79,70,229,0.48)] focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:transform-none",
-  {
-    variants: {
-      variant: {
-        default:
-          "border-[rgba(79,70,229,0.22)] bg-[linear-gradient(135deg,#6366f1,#4f46e5)] text-white shadow-[0_18px_36px_rgba(79,70,229,0.24)] hover:border-[rgba(79,70,229,0.34)] hover:brightness-[1.04]",
-        secondary:
-          "border-slate-200 bg-white/88 text-slate-700 shadow-[0_10px_22px_rgba(148,163,184,0.12)] hover:border-slate-300 hover:bg-white",
-        ghost: "border-transparent bg-transparent text-slate-600 hover:bg-white/75 hover:text-slate-900",
-      },
-      size: {
-        default: "h-11 px-4",
-        sm: "h-9 px-3 text-xs",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  },
-);
-
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants>;
+export type ButtonProps = ShadcnButtonProps;
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant, size, type = "button", ...props },
+  { type = "button", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & ButtonProps,
   ref,
 ) {
-  return <button ref={ref} type={type} className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  return <ShadcnButton ref={ref} type={type} {...props} />;
 });
 
 export { Button, buttonVariants };

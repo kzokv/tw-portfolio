@@ -1,10 +1,16 @@
 "use client";
 
-import * as Dialog from "@radix-ui/react-dialog";
+// Phase 1 adapter shim: preserves the public Drawer API while routing through
+// shadcn's Sheet primitive (which itself wraps Radix Dialog). The bottom-on-
+// mobile / right-on-md+ shape, glass-panel surface, dirty-confirm-close
+// semantics, and existing data-testid contract all survive Phase 1.
+
+import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "./Button";
+import { Sheet, SheetPortal, SheetOverlay, SheetTitle } from "./shadcn/sheet";
 
 interface DrawerProps {
   open: boolean;
@@ -45,28 +51,26 @@ export function Drawer({
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => {
-      if (next) {
-        onOpenChange(true);
-        return;
-      }
-      requestClose();
-    }}
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          onOpenChange(true);
+          return;
+        }
+        requestClose();
+      }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/38 backdrop-blur-sm data-[state=open]:animate-fade-in-up" />
-        <Dialog.Content
+      <SheetPortal>
+        <SheetOverlay className="fixed inset-0 z-40 bg-slate-950/38 backdrop-blur-sm data-[state=open]:animate-fade-in-up" />
+        <SheetPrimitive.Content
           aria-describedby={undefined}
           aria-modal="true"
           onEscapeKeyDown={(event) => {
-            if (!confirmClose()) {
-              event.preventDefault();
-            }
+            if (!confirmClose()) event.preventDefault();
           }}
           onPointerDownOutside={(event) => {
-            if (!confirmClose()) {
-              event.preventDefault();
-            }
+            if (!confirmClose()) event.preventDefault();
           }}
           className={cn(
             "glass-panel !fixed inset-x-0 bottom-0 z-50 flex max-h-[90vh] w-full flex-col rounded-t-[32px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(244,248,255,0.96))] shadow-[0_28px_80px_rgba(15,23,42,0.18)] focus:outline-none md:inset-y-0 md:right-0 md:left-auto md:max-h-screen md:w-[30rem] md:rounded-none md:border-l md:border-t-0",
@@ -75,9 +79,7 @@ export function Drawer({
           data-testid="ui-drawer"
         >
           <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] px-4 py-4 md:px-5">
-            <Dialog.Title className="text-lg font-semibold text-slate-950">
-              {title}
-            </Dialog.Title>
+            <SheetTitle className="text-lg font-semibold text-slate-950">{title}</SheetTitle>
             <Button
               variant="secondary"
               size="sm"
@@ -99,8 +101,8 @@ export function Drawer({
               {footer}
             </div>
           ) : null}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </SheetPrimitive.Content>
+      </SheetPortal>
+    </Sheet>
   );
 }

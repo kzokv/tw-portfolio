@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { LoadingProgressBar } from "../components/ui/LoadingProgressBar";
 import { ThemeProvider } from "../components/theme-provider";
+import { Toaster } from "../components/ui/shadcn/sonner";
 
 const bodyClassName = `${GeistSans.variable} ${GeistMono.variable} min-h-screen bg-background text-foreground antialiased`;
 
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ThemeProvider>
           <LoadingProgressBar />
           {children}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>
