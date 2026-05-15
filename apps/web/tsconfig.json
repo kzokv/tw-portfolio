@@ -16,6 +16,9 @@
     "paths": {
       "@vakwen/shared-types": [
         "../../libs/shared-types/src/index.ts"
+      ],
+      "@/*": [
+        "./*"
       ]
     },
     "plugins": [
