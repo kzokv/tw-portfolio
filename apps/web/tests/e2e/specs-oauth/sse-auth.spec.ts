@@ -1,6 +1,6 @@
-import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthBase";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { apiUrl, openSseProbe, publishAndExpectSseEvent, waitForSseProbeResult } from "@tw-portfolio/test-e2e/utils";
+import { test, expect } from "@vakwen/test-e2e/fixtures/oauthBase";
+import { TestEnv } from "@vakwen/config/test";
+import { apiUrl, openSseProbe, publishAndExpectSseEvent, waitForSseProbeResult } from "@vakwen/test-e2e/utils";
 
 test.describe("SSE with OAuth session auth", () => {
   test("EventSource receives heartbeat with session cookie auth", async ({ page }) => {

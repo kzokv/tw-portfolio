@@ -6,7 +6,7 @@ import type {
   AccountDefaultCurrency,
   AccountDto,
   AccountType,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { ApiError } from "../../../lib/api";
 import { Button } from "../../../components/ui/Button";

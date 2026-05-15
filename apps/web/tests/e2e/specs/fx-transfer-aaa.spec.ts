@@ -19,7 +19,7 @@
  * - Assertions routed through assistant Assert helpers per AAA framework.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 const FX_DATE = "2026-04-01";
 

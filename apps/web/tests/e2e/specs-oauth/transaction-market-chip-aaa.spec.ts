@@ -12,7 +12,7 @@
 // covered by the web-unit spec `AddTransactionCard.uiEnhancement.test.tsx`
 // — see the live-DOM "chip auto-sync + ticker clear" test.)
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 test.describe("ui-enhancement — Market chip cleanup (Record Transaction)", () => {
   test("[no-all] tx-market-chip-ALL is never rendered", async ({ appShell, transactions }) => {

@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("notification center", () => {
   test("notification bell: visible in AppShell header", async ({ appShell }) => {

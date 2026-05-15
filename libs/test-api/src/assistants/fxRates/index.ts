@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { FxRatesApiActions } from "./FxRatesApiActions.js";
 import { FxRatesApiArrange } from "./FxRatesApiArrange.js";
 import { FxRatesApiAssert } from "./FxRatesApiAssert.js";

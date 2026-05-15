@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@vakwen/shared-types";
 import { useEventStream } from "../../../hooks/useEventStream";
 import {
   fetchInstrumentsCatalog,

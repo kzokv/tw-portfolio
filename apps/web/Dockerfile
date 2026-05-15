@@ -30,11 +30,11 @@ ENV NEXT_PUBLIC_AUTH_MODE=${NEXT_PUBLIC_AUTH_MODE}
 # - UV_THREADPOOL_SIZE=1 serialises filesystem operations during trace
 # - Increased heap avoids GC pressure that amplifies the race
 RUN UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
-    npm run build -w @tw-portfolio/config \
- && npm run build -w @tw-portfolio/domain \
- && npm run build -w @tw-portfolio/shared-types \
+    npm run build -w @vakwen/config \
+ && npm run build -w @vakwen/domain \
+ && npm run build -w @vakwen/shared-types \
  && UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
-    npm run build -w @tw-portfolio/web
+    npm run build -w @vakwen/web
 
 FROM node:24-alpine
 

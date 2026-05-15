@@ -1,10 +1,10 @@
 ---
 name: libs/config package structure and export rules
-description: How @tw-portfolio/config is structured, what it exports, and critical side-effect constraint
+description: How @vakwen/config is structured, what it exports, and critical side-effect constraint
 type: project
 ---
 
-`libs/config` is the shared environment config library (`@tw-portfolio/config`). Uses Zod for schema validation.
+`libs/config` is the shared environment config library (`@vakwen/config`). Uses Zod for schema validation.
 
 **Why:** Centralizes env loading, validation, and typed access across API, web, and scripts.
 
@@ -33,7 +33,7 @@ type: project
 
 ## Critical constraint
 
-Scripts that need schema introspection (like env-setup.ts) MUST import from `./env-schema.js`, NOT from the root `@tw-portfolio/config`. The root triggers `loadDotEnv()` and `envSchema.parse(process.env)` which corrupts the interactive session.
+Scripts that need schema introspection (like env-setup.ts) MUST import from `./env-schema.js`, NOT from the root `@vakwen/config`. The root triggers `loadDotEnv()` and `envSchema.parse(process.env)` which corrupts the interactive session.
 
 ## loadDotEnv() behavior
 

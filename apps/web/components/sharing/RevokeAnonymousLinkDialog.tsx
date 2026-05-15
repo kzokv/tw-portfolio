@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { ConfirmDialog } from "../admin/ConfirmDialog";
 

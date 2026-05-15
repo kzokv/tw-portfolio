@@ -2,7 +2,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { FastifyBaseLogger } from "fastify";
 import type { AppInstance } from "../app.js";
 import type { Persistence } from "../persistence/types.js";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { DEFAULT_MARKET_DATA_QUEUE_OPTIONS } from "./market-data/registerBackfillWorker.js";
 
 export const ANONYMOUS_SHARE_TOKEN_PURGE_QUEUE = "anonymous-share-token-purge";

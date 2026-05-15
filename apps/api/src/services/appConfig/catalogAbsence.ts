@@ -10,7 +10,7 @@
  * `app.ts` before any consumer runs, so these resolvers are safe to call
  * from `runCatalogSync` after `buildApp()` returns.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveCatalogAbsenceThreshold(): number {

@@ -1,6 +1,6 @@
 ---
-name: tw-portfolio architecture overview
-description: Monorepo structure, tech stack, workspace layout, and key architectural patterns for the Taiwan portfolio tracking application
+name: vakwen architecture overview
+description: Monorepo structure, tech stack, workspace layout, and key architectural patterns for the Vakwen multi-market portfolio intelligence application
 type: project
 ---
 

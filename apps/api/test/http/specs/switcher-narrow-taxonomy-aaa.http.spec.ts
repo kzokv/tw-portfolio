@@ -1,5 +1,5 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import type { NotificationDto } from "@tw-portfolio/shared-types";
+import { TestEnv } from "@vakwen/config/test";
+import type { NotificationDto } from "@vakwen/shared-types";
 import { transactionPayload } from "../../helpers/fixtures.js";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";

@@ -12,7 +12,7 @@
 ## Project context
 - [project_architecture.md](project_architecture.md) — Monorepo layout, tech stack, workspace structure, and core patterns
 - [project_env_setup_cli.md](project_env_setup_cli.md) — env-setup CLI: file layout, 4 targets, CLI flags, integration points
-- [project_libs_config_structure.md](project_libs_config_structure.md) — @tw-portfolio/config exports, side-effect constraint, loadDotEnv behavior
+- [project_libs_config_structure.md](project_libs_config_structure.md) — @vakwen/config exports, side-effect constraint, loadDotEnv behavior
 - [project_infrastructure.md](project_infrastructure.md) — QNAP deployment via Cloudflare WARP+SSH, 3 Docker compose environments, CI Docker validation, AUTH_MODE constraint
 - [project_nextjs_proxy_convention.md](project_nextjs_proxy_convention.md) — Next.js 16 (v16.1.6): proxy.ts replaces deprecated middleware.ts, auto-discovered at build time
 

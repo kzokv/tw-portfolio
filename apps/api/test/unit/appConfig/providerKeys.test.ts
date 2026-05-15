@@ -19,8 +19,8 @@ const mockEnv: {
 } = {
   APP_CONFIG_ENCRYPTION_KEY: TEST_APP_CONFIG_ENCRYPTION_KEY,
 };
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: new Proxy(
@@ -38,7 +38,7 @@ vi.mock("@tw-portfolio/config", async (importOriginal) => {
 });
 
 // Imports below resolve through the mock above.
-const { Env } = await import("@tw-portfolio/config");
+const { Env } = await import("@vakwen/config");
 const {
   _resetAppConfigCache,
   refresh,

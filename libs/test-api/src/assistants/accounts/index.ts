@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { AccountsApiActions } from "./AccountsApiActions.js";
 import { AccountsApiArrange } from "./AccountsApiArrange.js";
 import { AccountsApiAssert } from "./AccountsApiAssert.js";

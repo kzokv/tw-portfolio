@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { ZodError } from "zod";
-import { Env, type GoogleOAuthEnvConfig } from "@tw-portfolio/config";
+import { Env, type GoogleOAuthEnvConfig } from "@vakwen/config";
 import { createPersistence } from "./persistence/index.js";
 import type { Persistence } from "./persistence/types.js";
 import { createEventBus, type BufferedEventBus } from "./events/index.js";

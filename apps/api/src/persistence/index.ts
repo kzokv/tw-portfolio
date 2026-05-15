@@ -1,4 +1,4 @@
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { MemoryPersistence } from "./memory.js";
 import { PostgresPersistence } from "./postgres.js";
 import type { Persistence } from "./types.js";

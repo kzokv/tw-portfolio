@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import type { AccountDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
 import { DividendReviewClient } from "../../../components/dividends/DividendReviewClient";
 import { DashboardLoading } from "../../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../../components/layout/AppShell";

@@ -1,8 +1,8 @@
 import { expect } from "@playwright/test";
 import type { APIResponse } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import type { Constructor } from "@tw-portfolio/test-framework/core";
-import { GenericAssertMixin } from "@tw-portfolio/test-framework/mixins";
+import { Step } from "@vakwen/test-framework/decorators";
+import type { Constructor } from "@vakwen/test-framework/core";
+import { GenericAssertMixin } from "@vakwen/test-framework/mixins";
 
 export function ApiAssertMixin<TBase extends Constructor<object>>(Base: TBase) {
   const Mixed = GenericAssertMixin(Base);

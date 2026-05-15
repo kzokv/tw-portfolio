@@ -1,6 +1,6 @@
 import { expect, type Locator } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { AppShellPage } from "../../pages/layout/AppShellPage.js";
 import type { TSidebarDestination } from "../../pages/layout/SideNavigationComponent.js";

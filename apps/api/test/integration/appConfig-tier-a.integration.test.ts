@@ -23,14 +23,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Override the encryption key resolver. `Env` is parsed once at module load
 // and frozen — the only way to drive `Env.APP_CONFIG_ENCRYPTION_KEY` is to
-// proxy the mocked `@tw-portfolio/config` module. Pattern matches
+// proxy the mocked `@vakwen/config` module. Pattern matches
 // `apps/api/test/unit/appConfig/encryption.test.ts`.
 const TEST_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const mockEnv: { APP_CONFIG_ENCRYPTION_KEY?: string } = {
   APP_CONFIG_ENCRYPTION_KEY: TEST_KEY,
 };
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: new Proxy(
@@ -67,7 +67,7 @@ const { encryptSecret, decryptSecret } = await import(
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(

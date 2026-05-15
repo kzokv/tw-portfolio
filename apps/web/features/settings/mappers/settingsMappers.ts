@@ -1,4 +1,4 @@
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
 import type { SaveSettingsRequest, SettingsFormModel, SettingsProfileModel } from "../types/settingsUi";
 
 export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileModel {

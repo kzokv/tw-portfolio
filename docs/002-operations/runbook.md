@@ -1,6 +1,6 @@
 # Runbook
 
-Operational guide for deploying and operating the **tw-portfolio** stack: local development, production on the QNAP home lab, and related procedures.
+Operational guide for deploying and operating the **vakwen** stack: local development, production on the QNAP home lab, and related procedures.
 
 For system design details, see:
 - [System Architecture](../001-architecture/architecture.md) — monorepo layout, request lifecycle, deployment topology, build model
@@ -38,7 +38,7 @@ Tip: When `next dev` can't bind to `WEB_PORT` (default `3000` from `.env.example
 
 ### Build model
 
-- Workspace libraries (`@tw-portfolio/domain`, `@tw-portfolio/shared-types`) are **not** built during `npm install` / `npm ci`. `npm run onboard` now builds them before handing you the lockfile results, but you still need to run `npm run build -w libs/domain -w libs/shared-types` if you skip onboarding or if you edit those packages after the initial setup.
+- Workspace libraries (`@vakwen/domain`, `@vakwen/shared-types`) are **not** built during `npm install` / `npm ci`. `npm run onboard` now builds them before handing you the lockfile results, but you still need to run `npm run build -w libs/domain -w libs/shared-types` if you skip onboarding or if you edit those packages after the initial setup.
 - Local: `npm run dev:local:bypass:mem` (or any `dev:local:*` variant) from repo root starts the API and web dev servers. Onboarding already builds the workspace libs and the dev scripts will rebuild them when the outputs are missing, but rerun `npm run build -w libs/domain -w libs/shared-types` after editing those packages or if you skipped onboarding.
 - CI: `npm ci` then explicit `npm run build -w ...` steps for domain/shared-types/api (and web typecheck).
 - Production: Dockerfiles run `npm ci` then explicit `npm run build -w ...` in the same order; deploy builds images from the checked-out ref.
@@ -115,10 +115,10 @@ open http://localhost:3300
 curl http://localhost:4300/health/live
 
 # Connect to local postgres
-docker exec -it twp-local-postgres psql -U twp tw_portfolio
+docker exec -it vakwen-local-postgres psql -U vakwen vakwen
 
 # View logs
-docker compose -p twp-local -f infra/docker/docker-compose.local.yml logs -f twp-local-api
+docker compose -p vakwen-local -f infra/docker/docker-compose.local.yml logs -f vakwen-local-api
 ```
 
 #### Port mappings (host:container, +300 offset)
@@ -136,10 +136,10 @@ These ports avoid collision with host-level dev servers (`npm run dev:local:*` u
 
 ```bash
 # Stop and remove containers (keep volumes)
-docker compose -p twp-local -f infra/docker/docker-compose.local.yml down
+docker compose -p vakwen-local -f infra/docker/docker-compose.local.yml down
 
 # Stop, remove containers AND volumes (fresh start)
-docker compose -p twp-local -f infra/docker/docker-compose.local.yml down -v
+docker compose -p vakwen-local -f infra/docker/docker-compose.local.yml down -v
 ```
 
 #### OAuth in local Docker stack
@@ -210,7 +210,7 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
   - CI stack uses non-conflicting ports by default:
     - Postgres: `15432`
     - Redis: `16379`
-  - Existing stacks such as `twp-dev-postgres` (`5454`) and `twp-dev-redis` (`6363`) are untouched.
+  - Existing stacks such as `vakwen-dev-postgres` (`5454`) and `vakwen-dev-redis` (`6363`) are untouched.
 
 - **Mode-specific host routing**:
   - `test:integration:full:host`:
@@ -239,8 +239,8 @@ The script builds the target, restarts it (with `--no-deps` by default), runs a 
 - **Optional overrides**:
   - `CI_DB_PORT` (default `15432`)
   - `CI_REDIS_PORT` (default `16379`)
-  - `CI_DB_NAME` (default `tw_portfolio_ci`)
-  - `CI_COMPOSE_PROJECT` (default `twp-ci-integration`)
+  - `CI_DB_NAME` (default `vakwen_ci`)
+  - `CI_COMPOSE_PROJECT` (default `vakwen-ci-integration`)
   - `CI_TEST_HOST` (host mode only; explicit Docker-host IP/DNS override)
   - `KEEP_CI_STACK=1` keeps containers running for debugging
 
@@ -256,11 +256,11 @@ For architecture diagrams, topology, port mappings, resource limits, and CI pipe
 
 | Environment | Stack prefix | Example containers | Compose file |
 |-------------|--------------|--------------------|----|
-| `local` | `twp-local` | `twp-local-web`, `twp-local-api`, `twp-local-postgres` | `docker-compose.local.yml` |
-| `dev` | `twp-dev` | `twp-dev-web`, `twp-dev-api`, `twp-dev-postgres` | `docker-compose.dev.yml` |
-| `production` | `twp-prod` | `twp-prod-web`, `twp-prod-api`, `twp-prod-postgres` | `docker-compose.prod.yml` |
+| `local` | `vakwen-local` | `vakwen-local-web`, `vakwen-local-api`, `vakwen-local-postgres` | `docker-compose.local.yml` |
+| `dev` | `vakwen-dev` | `vakwen-dev-web`, `vakwen-dev-api`, `vakwen-dev-postgres` | `docker-compose.dev.yml` |
+| `production` | `vakwen-prod` | `vakwen-prod-web`, `vakwen-prod-api`, `vakwen-prod-postgres` | `docker-compose.prod.yml` |
 
-`IMAGE_TAG` is set by the deploy script (see Deploy script options). App images are environment-specific (`twp-prod-*` or `twp-dev-*`), while Postgres, Redis, and cloudflared use fixed upstream images.
+`IMAGE_TAG` is set by the deploy script (see Deploy script options). App images are environment-specific (`vakwen-prod-*` or `vakwen-dev-*`), while Postgres, Redis, and cloudflared use fixed upstream images.
 
 ---
 
@@ -268,7 +268,7 @@ For architecture diagrams, topology, port mappings, resource limits, and CI pipe
 
 1. **Clone the repo** on the QNAP (e.g. inside the `ubuntu-sshd` data mount):
    ```bash
-   cd ~ && git clone <repo-url> tw-portfolio
+   cd ~ && git clone <repo-url> vakwen
    ```
 
 2. **Create the environment file on the deploy host**:
@@ -289,7 +289,7 @@ For architecture diagrams, topology, port mappings, resource limits, and CI pipe
 
 5. **Deploy**:
    ```bash
-   cd ~/tw-portfolio
+   cd ~/vakwen
    bash infra/scripts/deploy.sh --environment production
    ```
 
@@ -366,8 +366,8 @@ Expected deployment inputs for this flow:
 
 This repository uses two deployment lanes:
 
-- `dev` -> [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy-dev.yml) -> GitHub Environment `dev`
-- `main` -> [`.github/workflows/deploy.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy.yml) -> GitHub Environment `production`
+- `dev` -> [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy-dev.yml) -> GitHub Environment `dev`
+- `main` -> [`.github/workflows/deploy.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy.yml) -> GitHub Environment `production`
 
 Expected promotion flow:
 
@@ -443,8 +443,8 @@ Host-side validation checklist:
    ```
 5. If the tunnel runs in Docker Compose, inspect the connector logs:
    ```bash
-   docker logs twp-prod-cloudflared --tail 100
-   docker logs twp-dev-cloudflared --tail 100
+   docker logs vakwen-prod-cloudflared --tail 100
+   docker logs vakwen-dev-cloudflared --tail 100
    ```
 6. If the tunnel runs as a host service, inspect the local service logs instead:
    ```bash
@@ -613,7 +613,7 @@ Concrete examples:
 
 - `DEPLOY_HOST=192.0.2.10`
 - `DEPLOY_USER=ubuntu`
-- `DEPLOY_PATH=/home/ubuntu/tw-portfolio`
+- `DEPLOY_PATH=/home/ubuntu/vakwen`
 - `CF_TEAM_NAME=example-team`
 
 Relationship to the deploy flow:
@@ -625,8 +625,8 @@ Relationship to the deploy flow:
 
 `DEPLOY_PATH` requirements:
 
-- Use an absolute path such as `/home/ubuntu/tw-portfolio`.
-- Do not use `~/tw-portfolio`.
+- Use an absolute path such as `/home/ubuntu/vakwen`.
+- Do not use `~/vakwen`.
 - The workflow quotes `DEPLOY_PATH` inside the remote SSH command, so `~` is treated literally and does not expand to the deploy user's home directory.
 - If `DEPLOY_PATH` uses `~`, the preflight step fails with exit code `1` because checks like `test -f '$DEPLOY_PATH/infra/scripts/deploy.sh'` cannot find the repo.
 
@@ -773,8 +773,8 @@ Both deploy workflows use the same hardened pattern:
 
 Current workflow triggers:
 
-- Dev deploys are manual-only via `workflow_dispatch` in [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy-dev.yml).
-- Production deploys run automatically after a successful `CI` run on `main` via [`.github/workflows/deploy.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy.yml).
+- Dev deploys are manual-only via `workflow_dispatch` in [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy-dev.yml).
+- Production deploys run automatically after a successful `CI` run on `main` via [`.github/workflows/deploy.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy.yml).
 
 Why the workflow passes both branch and SHA:
 
@@ -817,7 +817,7 @@ Deploys use the shared `infra/scripts/deploy.sh` entrypoint with an explicit `--
 When a change is merged into `dev`:
 
 1. GitHub runs `CI` on `dev`
-2. an operator manually runs [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy-dev.yml)
+2. an operator manually runs [`.github/workflows/deploy-dev.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy-dev.yml)
 3. the runner deploys the selected `dev` commit SHA to the `dev` environment
 4. the remote deploy script builds images tagged `latest`
 
@@ -826,7 +826,7 @@ When a change is merged into `dev`:
 When validated changes are merged into `main`:
 
 1. GitHub runs `CI` on `main`
-2. a successful `CI` run triggers [`.github/workflows/deploy.yml`](/home/ubuntu/github/tw-portfolio/.github/workflows/deploy.yml)
+2. a successful `CI` run triggers [`.github/workflows/deploy.yml`](/home/ubuntu/github/vakwen/.github/workflows/deploy.yml)
 3. the runner deploys the exact `main` commit SHA to the `production` environment
 4. the remote deploy script builds images tagged `latest`
 
@@ -834,7 +834,7 @@ When validated changes are merged into `main`:
 
 ```bash
 ssh ubuntu@192.0.2.10
-cd ~/tw-portfolio
+cd ~/vakwen
 bash infra/scripts/deploy.sh --environment production
 ```
 
@@ -854,7 +854,7 @@ bash infra/scripts/deploy.sh --environment production <commit-sha>
 | `-e`, `--environment ENV` | Deploy `production` or `dev` (default: `production`) |
 | `-b`, `--branch BRANCH` | Deploy from this branch (default: `main`; use `dev` for the dev lane) |
 | `-s`, `--select-branch` | Interactively choose deploy branch from `git branch -a` (requires a TTY) |
-| `-t`, `--image-tag TAG` | Use **TAG** for all app images in the selected environment (`twp-prod-*` or `twp-dev-*`). The GitHub Actions deploy workflows pass `latest` here. |
+| `-t`, `--image-tag TAG` | Use **TAG** for all app images in the selected environment (`vakwen-prod-*` or `vakwen-dev-*`). The GitHub Actions deploy workflows pass `latest` here. |
 | `-f`, `--force` | Allow deploy with uncommitted changes (use with care; uncommitted changes may be lost on checkout) |
 | `DEPLOY_SHA` | Optional. Commit SHA to deploy; must be reachable from the target branch. If omitted, script pulls latest from the branch. |
 
@@ -909,29 +909,29 @@ The deploy script waits up to 30s for the API and 20s for the web; if either fai
 Each run writes a timestamped log and container snapshots under the state directory:
 
 ```
-~/.local/state/tw-portfolio/<environment>/logs/deploy/
+~/.local/state/vakwen/<environment>/logs/deploy/
   deploy_YYYYMMDD_HHMMSS.log              # full deploy stdout+stderr
   deploy_YYYYMMDD_HHMMSS_containers/      # per-container log snapshots
-    twp-<environment>-api.log
-    twp-<environment>-web.log
-    twp-<environment>-postgres.log
+    vakwen-<environment>-api.log
+    vakwen-<environment>-web.log
+    vakwen-<environment>-postgres.log
     ...
 ```
 
-Logs older than 30 days are pruned automatically. Override the directory with `DEPLOY_LOG_DIR`, or set `TWP_STATE_DIR` as the base for both logs and backups.
+Logs older than 30 days are pruned automatically. Override the directory with `DEPLOY_LOG_DIR`, or set `VAKWEN_STATE_DIR` as the base for both logs and backups.
 
 ### Checking container logs
 
 ```bash
-docker logs twp-prod-api --tail 100 -f
-docker logs twp-prod-web --tail 100 -f
-docker logs twp-prod-postgres --tail 50
-docker logs twp-prod-redis --tail 50
-docker logs twp-prod-cloudflared --tail 50
+docker logs vakwen-prod-api --tail 100 -f
+docker logs vakwen-prod-web --tail 100 -f
+docker logs vakwen-prod-postgres --tail 50
+docker logs vakwen-prod-redis --tail 50
+docker logs vakwen-prod-cloudflared --tail 50
 
-docker logs twp-dev-api --tail 100 -f
-docker logs twp-dev-web --tail 100 -f
-docker logs twp-dev-postgres --tail 50
+docker logs vakwen-dev-api --tail 100 -f
+docker logs vakwen-dev-web --tail 100 -f
+docker logs vakwen-dev-postgres --tail 50
 ```
 
 ### 7.3 Maintenance Checklist
@@ -949,8 +949,8 @@ docker logs twp-dev-postgres --tail 50
   ```
 - Clean old app images carefully by environment prefix only:
   ```bash
-  docker images | grep '^twp-prod-'
-  docker images | grep '^twp-dev-'
+  docker images | grep '^vakwen-prod-'
+  docker images | grep '^vakwen-dev-'
   ```
 
 ---
@@ -963,20 +963,20 @@ The browser cannot resolve the API hostname. This is a **DNS / Cloudflare Tunnel
 
 1. **Confirm both tunnel hostnames**  
    In **Cloudflare Zero Trust** -> **Networks** -> **Tunnels** -> your tunnel -> **Public Hostname**:
-   - `twp-web.example.com` -> `http://twp-prod-web:3000`
-   - `twp-api.example.com` -> `http://twp-prod-api:4000`
+   - `vakwen-web.example.com` -> `http://vakwen-prod-web:3000`
+   - `vakwen-api.example.com` -> `http://vakwen-prod-api:4000`
    If the API hostname is missing, add it (same tunnel). Cloudflare will create the CNAME for the API subdomain.
 
 2. **Verify DNS from the same network as users**  
    From a machine using the same DNS as the browser (e.g. your laptop):
    ```bash
-   getent hosts twp-api.example.com
-   # or: nslookup twp-api.example.com
+   getent hosts vakwen-api.example.com
+   # or: nslookup vakwen-api.example.com
    ```
    If it does not resolve, fix in step 1 and allow TTL/propagation.
 
 3. **Ensure the zone is on Cloudflare**  
-   The domain hosting `twp-api.example.com` must be in Cloudflare so the tunnel can create CNAMEs. If DNS for that zone is elsewhere, create a CNAME for `twp-api.example.com` pointing to your tunnel’s address (for example `<tunnel-id>.cfargotunnel.com`), as shown in the tunnel’s Public Hostname list.
+   The domain hosting `vakwen-api.example.com` must be in Cloudflare so the tunnel can create CNAMEs. If DNS for that zone is elsewhere, create a CNAME for `vakwen-api.example.com` pointing to your tunnel’s address (for example `<tunnel-id>.cfargotunnel.com`), as shown in the tunnel’s Public Hostname list.
 
 After fixing DNS, no redeploy is needed; the web app already uses the correct API URL.
 
@@ -986,15 +986,15 @@ If the request to the API hostname shows **status 0** in DevTools and the page o
 
 1. **Check the API’s allowed origin** on the server:
    ```bash
-   docker exec twp-prod-api printenv ALLOWED_ORIGINS
+   docker exec vakwen-prod-api printenv ALLOWED_ORIGINS
    ```
-   It must be exactly `https://twp-web.example.com` (no trailing slash). It is set from `PUBLIC_DOMAIN_WEB` in `docker-compose.prod.yml`.
+   It must be exactly `https://vakwen-web.example.com` (no trailing slash). It is set from `PUBLIC_DOMAIN_WEB` in `docker-compose.prod.yml`.
 
-2. **Ensure `.env.prod` has** `PUBLIC_DOMAIN_WEB=twp-web.example.com` (no trailing slash), then redeploy so the API container gets the correct env.
+2. **Ensure `.env.prod` has** `PUBLIC_DOMAIN_WEB=vakwen-web.example.com` (no trailing slash), then redeploy so the API container gets the correct env.
 
 3. **Browser console**: Look for a CORS error (e.g. “blocked by CORS policy: No 'Access-Control-Allow-Origin' header”).
 
-4. **Quick test**: Open `https://twp-api.example.com/health/live` in a new tab. If it returns JSON, the API and DNS are fine and the issue is CORS for the web origin.
+4. **Quick test**: Open `https://vakwen-api.example.com/health/live` in a new tab. If it returns JSON, the API and DNS are fine and the issue is CORS for the web origin.
 
 ### 8.3 GitHub Actions deploy fails with `No route to host`
 
@@ -1014,8 +1014,8 @@ Useful commands:
 warp-cli --accept-tos status
 sudo systemctl status warp-svc --no-pager
 nc -vz 192.0.2.10 22
-docker logs twp-prod-cloudflared --tail 100
-docker logs twp-dev-cloudflared --tail 100
+docker logs vakwen-prod-cloudflared --tail 100
+docker logs vakwen-dev-cloudflared --tail 100
 ```
 
 Important:
@@ -1091,7 +1091,7 @@ To change auth mode for client-side JavaScript, update the `AUTH_MODE` variable 
 
 Server-side Next.js route handlers (e.g. `app/api/profile/route.ts`) run inside the Docker network and need to reach the API via the container hostname, not the host-published port or the external Cloudflare URL. Without this override, server-side fetches would hairpin through the public internet (web → Cloudflare edge → tunnel → API), adding latency and a fragile external dependency.
 
-`SERVER_API_BASE_URL` is set in all three compose files (`http://twp-{env}-api:4000`) and should not be added to the env files — it is a container-network-specific value.
+`SERVER_API_BASE_URL` is set in all three compose files (`http://vakwen-{env}-api:4000`) and should not be added to the env files — it is a container-network-specific value.
 
 ---
 
@@ -1106,7 +1106,7 @@ If the API or web health check fails after deploy, the script automatically roll
 To redeploy a known-good commit:
 
 ```bash
-cd ~/tw-portfolio
+cd ~/vakwen
 git log --oneline -5          # find the commit to roll back to
 bash infra/scripts/deploy.sh --environment production <commit-sha>
 bash infra/scripts/deploy.sh --environment dev --branch dev <commit-sha>
@@ -1121,8 +1121,8 @@ The script will checkout that SHA (if reachable from the current branch), use it
 Migrations are **not** automatically reversed by a code rollback. The deploy script takes a Postgres backup before every migration and restores it during automatic rollback. If automatic restore fails, restore manually from the state backup directory:
 
 ```bash
-gunzip -c ~/.local/state/tw-portfolio/production/backups/<latest>.sql.gz | docker exec -i twp-prod-postgres psql -U twp -d tw_portfolio
-gunzip -c ~/.local/state/tw-portfolio/dev/backups/<latest>.sql.gz | docker exec -i twp-dev-postgres psql -U twp -d tw_portfolio
+gunzip -c ~/.local/state/vakwen/production/backups/<latest>.sql.gz | docker exec -i vakwen-prod-postgres psql -U vakwen -d vakwen
+gunzip -c ~/.local/state/vakwen/dev/backups/<latest>.sql.gz | docker exec -i vakwen-dev-postgres psql -U vakwen -d vakwen
 ```
 
 Replace `<latest>` with the appropriate backup filename (e.g. the pre-migration backup).
@@ -1203,13 +1203,13 @@ bash infra/scripts/backup-postgres.sh --environment production
 bash infra/scripts/backup-postgres.sh --environment dev
 ```
 
-Backups are written to `~/.local/state/tw-portfolio/<environment>/backups/` (or `BACKUP_DIR` / `TWP_STATE_DIR` if set). Old backups are pruned per `RETAIN_DAYS` (default 30).
+Backups are written to `~/.local/state/vakwen/<environment>/backups/` (or `BACKUP_DIR` / `VAKWEN_STATE_DIR` if set). Old backups are pruned per `RETAIN_DAYS` (default 30).
 
 **Manual backup:**
 
 ```bash
-docker exec twp-prod-postgres pg_dump -U twp tw_portfolio | gzip > ~/.local/state/tw-portfolio/production/backups/tw_portfolio_$(date +%Y%m%d_%H%M%S).sql.gz
-docker exec twp-dev-postgres pg_dump -U twp tw_portfolio | gzip > ~/.local/state/tw-portfolio/dev/backups/tw_portfolio_$(date +%Y%m%d_%H%M%S).sql.gz
+docker exec vakwen-prod-postgres pg_dump -U vakwen vakwen | gzip > ~/.local/state/vakwen/production/backups/vakwen_$(date +%Y%m%d_%H%M%S).sql.gz
+docker exec vakwen-dev-postgres pg_dump -U vakwen vakwen | gzip > ~/.local/state/vakwen/dev/backups/vakwen_$(date +%Y%m%d_%H%M%S).sql.gz
 ```
 
 ---
@@ -1223,7 +1223,7 @@ Container recreation causes about **10–30 seconds** of downtime while `docker 
 ## 12. Security assumptions
 
 - **External TLS**: All public traffic is encrypted via the Cloudflare Tunnel. TLS terminates at Cloudflare’s edge; the tunnel uses an authenticated, encrypted connection to the `cloudflared` container.
-- **Internal traffic**: Communication between containers on the `twp-prod-net` and `twp-dev-net` Docker bridges (web -> api, api -> postgres, api -> redis) uses plaintext. This is acceptable because each bridge is isolated to the Docker host and not routable from the LAN.
+- **Internal traffic**: Communication between containers on the `vakwen-prod-net` and `vakwen-dev-net` Docker bridges (web -> api, api -> postgres, api -> redis) uses plaintext. This is acceptable because each bridge is isolated to the Docker host and not routable from the LAN.
 - **Postgres**: No `sslmode`; relies on Docker network isolation.
 - **Redis**: Password-authenticated, no TLS; relies on Docker network isolation.
 - If the deployment moves to a multi-host setup, internal TLS must be introduced.
@@ -2358,7 +2358,7 @@ To tune:
 
 1. Set `POSTGRES_POOL_MAX` and/or `BACKFILL_POSTGRES_POOL_MAX` in the deployment environment.
 2. Restart the API service.
-3. Verify the pool size via `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'tw-portfolio%';`
+3. Verify the pool size via `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'vakwen%';`
 
 ### `/admin/settings` tab restructure
 

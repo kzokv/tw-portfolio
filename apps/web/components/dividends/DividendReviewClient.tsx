@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import type { AccountDto, DividendLedgerAggregates, LocaleCode } from "@tw-portfolio/shared-types";
+import type { AccountDto, DividendLedgerAggregates, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";

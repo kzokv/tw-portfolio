@@ -1,5 +1,5 @@
 {
-  "name": "tw-portfolio",
+  "name": "vakwen",
   "private": true,
   "version": "0.1.0",
   "engines": {
@@ -12,7 +12,7 @@
     "libs/*"
   ],
   "scripts": {
-    "build": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/test-framework -w @tw-portfolio/test-e2e -w @tw-portfolio/test-api && npm run build -w @tw-portfolio/api -w @tw-portfolio/web",
+    "build": "npm run build -w @vakwen/config -w libs/domain -w libs/shared-types -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/test-api && npm run build -w @vakwen/api -w @vakwen/web",
     "dev": "bash scripts/help.sh dev",
     "dev:local:bypass:mem": "AUTH_MODE=dev_bypass PERSISTENCE_BACKEND=memory bash scripts/dev.sh dev:local:bypass:mem",
     "dev:local:bypass:pg": "AUTH_MODE=dev_bypass PERSISTENCE_BACKEND=postgres bash scripts/dev.sh dev:local:bypass:pg",
@@ -34,14 +34,14 @@
     "test:integration:full:container": "bash scripts/test-integration-ci-container.sh",
     "test:http:api": "npm run test:http --prefix apps/api",
     "test:e2e": "bash scripts/help.sh e2e",
-    "test:e2e:bypass:mem": "npm run test:e2e:bypass:mem -w @tw-portfolio/web",
-    "test:e2e:settings:parity": "npm run test:e2e:settings:parity -w @tw-portfolio/web",
-    "test:e2e:oauth:mem": "npm run test:e2e:oauth:mem -w @tw-portfolio/web",
-    "test:e2e:ci:bypass:mem": "npm run test:e2e:ci:bypass:mem -w @tw-portfolio/web",
-    "test:e2e:show-report": "npm run test:e2e:show-report -w @tw-portfolio/web",
+    "test:e2e:bypass:mem": "npm run test:e2e:bypass:mem -w @vakwen/web",
+    "test:e2e:settings:parity": "npm run test:e2e:settings:parity -w @vakwen/web",
+    "test:e2e:oauth:mem": "npm run test:e2e:oauth:mem -w @vakwen/web",
+    "test:e2e:ci:bypass:mem": "npm run test:e2e:ci:bypass:mem -w @vakwen/web",
+    "test:e2e:show-report": "npm run test:e2e:show-report -w @vakwen/web",
     "onboard": "bash scripts/onboard.sh",
     "install:full": "bash scripts/onboard.sh --install-only",
-    "typecheck": "npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types -w @tw-portfolio/test-framework -w @tw-portfolio/test-e2e -w @tw-portfolio/test-api -w @tw-portfolio/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/api/test/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json && npx tsc --noEmit -p apps/api/test/integration/tsconfig.json && npx tsc --noEmit -p apps/api/test/unit/tsconfig.json && npx tsc --noEmit -p apps/api/tsconfig.config.json",
+    "typecheck": "npm run build -w @vakwen/config -w libs/domain -w libs/shared-types -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/test-api -w @vakwen/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/api/test/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json && npx tsc --noEmit -p apps/api/test/integration/tsconfig.json && npx tsc --noEmit -p apps/api/test/unit/tsconfig.json && npx tsc --noEmit -p apps/api/tsconfig.config.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "env:setup": "tsx scripts/env-setup.ts",

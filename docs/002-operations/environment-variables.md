@@ -74,7 +74,7 @@ graph TD
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `DB_URL` | `postgres://app:app@localhost:5432/tw_portfolio` | Postgres connection string |
+| `DB_URL` | `postgres://app:app@localhost:5432/vakwen` | Postgres connection string |
 | `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
 
 ### OAuth
@@ -126,7 +126,7 @@ In addition to the configurable session cookie, the API emits two other cookies 
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `ALLOWED_ORIGINS` | `http://localhost:3000,https://twp-web.example.com` | Comma-separated CORS allowlist |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,https://vakwen-web.example.com` | Comma-separated CORS allowlist |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Rolling rate-limit window (ms) |
 | `RATE_LIMIT_MAX_MUTATIONS` | `60` | Max write operations per window |
 
@@ -144,7 +144,7 @@ In addition to the configurable session cookie, the API emits two other cookies 
 |----------|-------------|
 | `NEXT_PUBLIC_AUTH_MODE` | Client-side auth mode flag — baked into the JS bundle at build time |
 | `NEXT_PUBLIC_API_BASE_URL` | Client-side API URL (browser-accessible, e.g., `http://localhost:4000`) |
-| `SERVER_API_BASE_URL` | Server-side API URL (container-internal, e.g., `http://twp-prod-api:4000`) |
+| `SERVER_API_BASE_URL` | Server-side API URL (container-internal, e.g., `http://vakwen-prod-api:4000`) |
 
 `NEXT_PUBLIC_*` vars are inlined at **build time** by Next.js. Changing them requires a rebuild. `SERVER_API_BASE_URL` is read at runtime and set in compose `environment` blocks (not env files).
 
@@ -152,8 +152,8 @@ In addition to the configurable session cookie, the API emits two other cookies 
 
 | Variable | Description |
 |----------|-------------|
-| `PUBLIC_DOMAIN_WEB` | Public web hostname (e.g., `twp-web.example.com`) |
-| `PUBLIC_DOMAIN_API` | Public API hostname (e.g., `twp-api.example.com`) |
+| `PUBLIC_DOMAIN_WEB` | Public web hostname (e.g., `vakwen-web.example.com`) |
+| `PUBLIC_DOMAIN_API` | Public API hostname (e.g., `vakwen-api.example.com`) |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel authentication token |
 | `POSTGRES_USER` | Postgres superuser name |
 | `POSTGRES_PASSWORD` | Postgres superuser password |

@@ -4,7 +4,7 @@ description: Who the user is and how they work — role, expertise, working styl
 type: user
 ---
 
-The user is a senior software engineer building **tw-portfolio** — a personal finance portfolio tracker for TWSE (Taiwan Stock Exchange) stocks. The app tracks transactions, dividends, lot allocations, and historical market data.
+The user is a senior software engineer building **vakwen** — a personal finance portfolio tracker for TWSE (Taiwan Stock Exchange) stocks. The app tracks transactions, dividends, lot allocations, and historical market data.
 
 **Tech stack:** TypeScript monorepo, Next.js (web), Fastify (API), PostgreSQL, Playwright E2E, Vitest unit/integration, Docker on QNAP NAS.
 

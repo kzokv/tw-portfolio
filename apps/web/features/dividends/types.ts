@@ -4,7 +4,7 @@ import type {
   DividendSourceLine,
   InstrumentType,
   SourceCompositionStatus,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";
 export type DividendPostingStatus = "expected" | "posted" | "adjusted";

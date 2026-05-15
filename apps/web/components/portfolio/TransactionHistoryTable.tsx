@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Pencil, Trash2 } from "lucide-react";
-import type { LocaleCode, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPatch } from "../../features/portfolio/hooks/useTransactionMutations";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";

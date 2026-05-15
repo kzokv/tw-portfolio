@@ -7,7 +7,7 @@ import type {
   DividendSourceLine,
   LocaleCode,
   SourceCompositionStatus,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 interface SourceCompositionTabProps {
   sourceLines: DividendSourceLine[];
@@ -16,7 +16,7 @@ interface SourceCompositionTabProps {
   locale: LocaleCode;
 }
 
-// Duplicated from @tw-portfolio/domain to avoid runtime dep on domain lib in web.
+// Duplicated from @vakwen/domain to avoid runtime dep on domain lib in web.
 // Same pattern as NHI_RATE duplication in DividendPostingForm.tsx.
 const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
   "DIVIDEND_INCOME",

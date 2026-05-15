@@ -84,20 +84,20 @@ configure_environment() {
     local)
       COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.local.yml"
       ENV_FILE="$REPO_ROOT/infra/docker/.env.local"
-      STACK_PREFIX="twp-local"
-      COMPOSE_PROJECT="twp-local"
+      STACK_PREFIX="vakwen-local"
+      COMPOSE_PROJECT="vakwen-local"
       ;;
     dev)
       COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.dev.yml"
       ENV_FILE="$REPO_ROOT/infra/docker/.env.dev"
-      STACK_PREFIX="twp-dev"
-      COMPOSE_PROJECT="twp-dev"
+      STACK_PREFIX="vakwen-dev"
+      COMPOSE_PROJECT="vakwen-dev"
       ;;
     production)
       COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.prod.yml"
       ENV_FILE="$REPO_ROOT/infra/docker/.env.prod"
-      STACK_PREFIX="twp-prod"
-      COMPOSE_PROJECT="twp-prod"
+      STACK_PREFIX="vakwen-prod"
+      COMPOSE_PROJECT="vakwen-prod"
       ;;
     *)
       error_and_help "Unsupported environment: $ENVIRONMENT"

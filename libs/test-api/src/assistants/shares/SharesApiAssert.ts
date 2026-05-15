@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import type { AdminAuditLogEntryDto, NotificationDto } from "@tw-portfolio/shared-types";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import type { AdminAuditLogEntryDto, NotificationDto } from "@vakwen/shared-types";
+import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseAssert } from "../../mixins/index.js";
 import type { SharesEndpoint } from "../../endpoints/SharesEndpoint.js";
 import type { TShareCreateBody, TSharesListBody } from "./SharesApiArrange.js";

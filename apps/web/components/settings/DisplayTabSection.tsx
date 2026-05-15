@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AccountDefaultCurrency } from "@tw-portfolio/shared-types";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { ApiError, getJson, patchJson } from "../../lib/api";
 import { Button } from "../ui/Button";

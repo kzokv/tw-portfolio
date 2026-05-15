@@ -292,10 +292,10 @@ async function promptUrlComponents(
     console.log("  Compose DB_URL from components:\n");
     const host = await promptHost("DB", parsed?.hostname);
     const port = await input({ message: "  DB port:", default: parsed?.port ?? "5432" });
-    const user = await input({ message: "  DB user:", default: decodeURIComponent(parsed?.username ?? "") || "twp" });
+    const user = await input({ message: "  DB user:", default: decodeURIComponent(parsed?.username ?? "") || "vakwen" });
     const pw = await passwordPrompt({ message: "  DB password:" });
     if (!pw) return undefined;
-    const dbName = await input({ message: "  DB name:", default: parsed?.pathname?.slice(1) ?? "tw_portfolio" });
+    const dbName = await input({ message: "  DB name:", default: parsed?.pathname?.slice(1) ?? "vakwen" });
     const url = `postgres://${user}:${pw}@${host}:${port}/${dbName}`;
     console.log(`  → DB_URL composed (password masked)\n`);
     return url;

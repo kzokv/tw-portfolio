@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   name TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-SELECT pg_advisory_xact_lock(hashtext('tw_portfolio_schema_migrations'));
+SELECT pg_advisory_xact_lock(hashtext('vakwen_schema_migrations'));
 SQL
 
   if [ "$use_baseline" -eq 1 ]; then

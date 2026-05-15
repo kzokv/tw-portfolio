@@ -1,4 +1,4 @@
-import type { AccountDefaultCurrency, AccountType } from "@tw-portfolio/shared-types";
+import type { AccountDefaultCurrency, AccountType } from "@vakwen/shared-types";
 
 /**
  * KZO-167: pure helper that formats an account dropdown / summary chip

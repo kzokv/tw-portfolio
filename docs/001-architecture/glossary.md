@@ -1,6 +1,6 @@
 # Glossary
 
-Curated domain terms, project conventions, and system concepts used throughout the tw-portfolio codebase and documentation.
+Curated domain terms, project conventions, and system concepts used throughout the vakwen codebase and documentation.
 
 ---
 
@@ -56,7 +56,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Auth mode | The `AUTH_MODE` setting that selects the authentication strategy: `dev_bypass` (hardcoded identity) or `oauth` (Google OAuth + session cookies). |
 | HMAC session cookie | The session token format: `{userId}.{hmacSha256Signature}`. Signed with `SESSION_SECRET`; verified on every request in `oauth` mode. |
 | `__Host-` prefix | A cookie prefix that requires `Secure=true`, `Path=/`, and no `Domain` attribute. Used in HTTPS deployments for maximum cookie security. Dropped for HTTP environments. |
-| Cookie domain | The `COOKIE_DOMAIN` setting that enables cross-subdomain cookie sharing. Set to `.example.com` to share cookies between `twp-web.example.com` and `twp-api.example.com`. |
+| Cookie domain | The `COOKIE_DOMAIN` setting that enables cross-subdomain cookie sharing. Set to `.example.com` to share cookies between `vakwen-web.example.com` and `vakwen-api.example.com`. |
 | Demo mode | A feature that allows anonymous users to try the app without Google sign-in. Creates temporary demo users with seeded portfolio data. |
 | Demo user | A temporary user created by `POST /auth/demo/start` with `is_demo=true` and a TTL. Cleaned up by a periodic background job. |
 | External identity | A record in `user_external_identities` linking a user to an OAuth provider (e.g., Google). Stores `provider`, `provider_subject`, email, and display name. |
@@ -77,7 +77,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Context tag | The `[context]` annotation in `.env.example` that indicates which deployment contexts use a variable (e.g., `[all]`, `[docker:cloud]`, `[root:local]`). |
 | Edge Runtime | The V8-based serverless runtime used by Next.js middleware. Cannot import Node.js modules. Uses `env-web.ts` (not `env.ts`) for configuration. |
 | `NEXT_PUBLIC_*` | Next.js convention for client-exposed env vars. Values are inlined into the JavaScript bundle at **build time** — changing them requires a rebuild. |
-| `SERVER_API_BASE_URL` | The container-internal API URL used by Next.js SSR route handlers (e.g., `http://twp-prod-api:4000`). Avoids hairpinning through the public internet. |
+| `SERVER_API_BASE_URL` | The container-internal API URL used by Next.js SSR route handlers (e.g., `http://vakwen-prod-api:4000`). Avoids hairpinning through the public internet. |
 | Persistence backend | The `PERSISTENCE_BACKEND` setting: `postgres` for real SQL storage or `memory` for in-process test/dev storage. |
 | Deploy env | The `DEPLOY_ENV` setting: `local`, `dev`, or `production`. Selects the compose file and env file pair. |
 | Web build arg | A Docker build argument (`ARG`) that inlines `NEXT_PUBLIC_*` values into the Next.js client bundle at image build time. Must also be set in compose `environment` for server-side runtime access. |
@@ -90,10 +90,10 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | WARP | Cloudflare's client VPN used by the GitHub Actions runner to reach the private deploy host during CI/CD. |
 | `cloudflared` | The Cloudflare daemon that runs inside a Docker container on the QNAP host, maintaining the tunnel connection to Cloudflare's edge. |
 | Compose profile | A Docker Compose feature that groups optional services. The `migrate` profile includes the migration container, built only when `--profile migrate` is specified. |
-| Container network | The isolated Docker bridge network (`twp-prod-net`, `twp-dev-net`, `twp-local-net`) that allows containers within an environment to communicate. |
+| Container network | The isolated Docker bridge network (`vakwen-prod-net`, `vakwen-dev-net`, `vakwen-local-net`) that allows containers within an environment to communicate. |
 | Port offset | The +300 offset applied to local Docker host ports (e.g., 3000 -> 3300, 4000 -> 4300) to avoid collision with host-level dev servers. |
 | Hairpinning | When a container routes through the public internet to reach another container in the same network. Avoided by using `SERVER_API_BASE_URL` for container-to-container calls. |
-| Project prefix | The Docker Compose project name (`twp-local`, `twp-dev`, `twp-prod`) that namespaces all container names and networks for an environment. |
+| Project prefix | The Docker Compose project name (`vakwen-local`, `vakwen-dev`, `vakwen-prod`) that namespaces all container names and networks for an environment. |
 | `deploy.sh` | The shared deploy script at `infra/scripts/deploy.sh` that orchestrates checkout, build, backup, migrate, deploy, and health check phases. |
 | Health check | The post-deploy verification: API `/health/live` (30s timeout) and Web `/` (20s timeout). Failure triggers automatic rollback. |
 | Idempotency key | A Redis-backed key used by `POST /portfolio/transactions` and `POST /portfolio/dividends/postings` to prevent duplicate writes. Claimed before persistence, released on failure. |
@@ -130,7 +130,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | E2E bypass | Playwright E2E tests running with `AUTH_MODE=dev_bypass` and `PERSISTENCE_BACKEND=memory`. Tests in `specs/`. |
 | E2E OAuth | Playwright E2E tests running with `AUTH_MODE=oauth`. Tests in `specs-oauth/`. Uses `/__e2e/oauth-session` for session seeding. |
 | API HTTP tests | Playwright-based API contract tests running with `AUTH_MODE=oauth`, API-only (no web server). Tests in `apps/api/test/http/specs/`. Uses `libs/test-api` assistants. |
-| Auth mode override | A `vi.mock("@tw-portfolio/config")` pattern used in API tests to switch `AUTH_MODE` to `oauth` for tests that need session enforcement. |
+| Auth mode override | A `vi.mock("@vakwen/config")` pattern used in API tests to switch `AUTH_MODE` to `oauth` for tests that need session enforcement. |
 | Route protection test | A test that clears cookies, visits a protected page, and asserts redirect to `/login`. Must be placed in `specs-oauth/`, not `specs/`. |
 | Mock OAuth | The E2E test pattern where `/__e2e/oauth-session` creates a real session cookie without contacting Google, simulating an authenticated user. |
 | Integration test (host mode) | API integration tests run with `test:integration:full:host` against an isolated Postgres/Redis Docker stack, using host-network port routing. |
@@ -157,12 +157,12 @@ Curated domain terms, project conventions, and system concepts used throughout t
 
 | Term | Definition |
 |------|-----------|
-| KZO | The Linear project prefix for tw-portfolio tickets (e.g., KZO-77, KZO-78). |
+| KZO | The Linear project prefix for vakwen tickets (e.g., KZO-77, KZO-78). |
 | Policy authority | The nearest `AGENTS.md` file walking up from a touched file's directory. Contains build commands, code style, testing, and security rules. |
 | Frozen snapshot | A document in `docs/004-notes/` that records what was true at a specific point in time. Never updated after merge. |
 | Evergreen doc | A document in `docs/001-architecture/` or `docs/002-operations/` that is updated in place to reflect the current system state. |
 | Route error | The `routeError(statusCode, code, message)` pattern from `apps/api/src/lib/routeError.ts`. Always used instead of plain `throw new Error()` in service files. |
-| Workspace library | An npm workspace package under `libs/` (`@tw-portfolio/config`, `@tw-portfolio/domain`, `@tw-portfolio/shared-types`, `@tw-portfolio/test-framework`, `@tw-portfolio/test-e2e`, `@tw-portfolio/test-api`). Must be built before consuming apps/tests. |
+| Workspace library | An npm workspace package under `libs/` (`@vakwen/config`, `@vakwen/domain`, `@vakwen/shared-types`, `@vakwen/test-framework`, `@vakwen/test-e2e`, `@vakwen/test-api`). Must be built before consuming apps/tests. |
 | Tenancy root | The `users.id` column — the top-level key that scopes all user-owned data. Every query filters by user ID. |
 | ADR | Architecture Decision Record — a numbered document in `docs/003-adr/` that records a specific architectural decision and its rationale. Append-only. |
 | Transition guide | A document written at the end of a change arc that describes behavioral changes, migrations, or removals. Placed as the final numbered doc in a `docs/004-notes/` series. |

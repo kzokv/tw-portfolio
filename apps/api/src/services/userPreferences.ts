@@ -8,7 +8,7 @@
 //   2. Admin override (`app_config.dashboard_performance_ranges`) — returned
 //      verbatim with `source = "admin"` when set.
 //   3. Hardcoded default (`DEFAULT_DASHBOARD_PERFORMANCE_RANGES` from
-//      `@tw-portfolio/shared-types`) with `source = "default"`.
+//      `@vakwen/shared-types`) with `source = "default"`.
 //
 // The returned list is used for two things:
 //   - The `/user-preferences/effective-ranges` route (client timeframe picker).
@@ -27,8 +27,8 @@
 import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
-} from "@tw-portfolio/shared-types";
-import type { AccountDefaultCurrency } from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 export type EffectiveRangesSource = "user" | "admin" | "default";

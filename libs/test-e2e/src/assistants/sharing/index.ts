@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 
 import { AnonymousShareActions } from "./AnonymousShareActions.js";
 import { AnonymousShareArrange } from "./AnonymousShareArrange.js";

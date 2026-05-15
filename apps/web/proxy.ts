@@ -1,4 +1,4 @@
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { applyContextForwarding } from "./lib/proxyHeaders";

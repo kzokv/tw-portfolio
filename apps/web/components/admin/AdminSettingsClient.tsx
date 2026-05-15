@@ -11,7 +11,7 @@ import {
   type AppConfigDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { patchJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

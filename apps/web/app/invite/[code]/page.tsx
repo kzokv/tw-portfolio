@@ -1,4 +1,4 @@
-import type { ProfileDto } from "@tw-portfolio/shared-types";
+import type { ProfileDto } from "@vakwen/shared-types";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { Card } from "../../../components/ui/Card";

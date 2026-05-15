@@ -1,5 +1,5 @@
 import { getJson } from "../../../lib/api";
-import type { DashboardOverviewDto, DashboardPerformanceDto, DashboardPerformanceRange } from "@tw-portfolio/shared-types";
+import type { DashboardOverviewDto, DashboardPerformanceDto, DashboardPerformanceRange } from "@vakwen/shared-types";
 import type { DashboardSnapshot } from "../types";
 
 export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {

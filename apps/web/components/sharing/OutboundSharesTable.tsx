@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { OutboundShareRow, SharingPageData } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatDateLabel } from "../../lib/utils";

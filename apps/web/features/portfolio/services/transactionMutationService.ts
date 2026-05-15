@@ -4,7 +4,7 @@ import type {
   DeleteTransactionResponse,
   PatchTransactionResponse,
   PatchFeeConfirmationResponse,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 export async function previewImpact(
   tradeEventId: string,

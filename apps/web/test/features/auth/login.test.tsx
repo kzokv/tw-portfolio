@@ -9,7 +9,7 @@ vi.mock("react", async (importOriginal) => {
 });
 vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
-vi.mock("@tw-portfolio/config/web", () => ({
+vi.mock("@vakwen/config/web", () => ({
   WebEnv: { NEXT_PUBLIC_AUTH_MODE: "dev_bypass", SESSION_COOKIE_NAME: "__Host-g_auth_session" },
 }));
 vi.mock("../../../components/SignInButton", () => ({

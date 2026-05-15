@@ -1930,12 +1930,12 @@ POST /portfolio/dividends/postings
     - `dashboardReportingCurrency.ts` (KZO-180) — sibling dashboard aggregator translating summary KPIs and performance points into the resolved reporting currency
   - depends on persistence interface methods
   - depends on `marketData.ts` for quote fetch fallback
-  - depends on `@tw-portfolio/shared-types` for `dashboardPerformanceRangesSchema` and `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (KZO-159)
+  - depends on `@vakwen/shared-types` for `dashboardPerformanceRangesSchema` and `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (KZO-159)
 
 - `adminRoutes.ts`
   - depends on `requireAdminRole` and `appendAuditLog`
   - depends on persistence `getAppConfig`, `setRepairCooldownMinutes`, `setDashboardPerformanceRanges` (KZO-159)
-  - depends on `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types` (KZO-159)
+  - depends on `dashboardPerformanceRangesSchema` from `@vakwen/shared-types` (KZO-159)
   - depends on `getProviderHealthStatus`, `listProviderHealthStatuses`, `getProviderErrorTrail` for `GET /admin/providers` (KZO-177)
   - depends on `enqueueDailyRefresh({ marketFilter })` and `FX_REFRESH_QUEUE` for `POST /admin/providers/:providerId/rerun` (KZO-177)
 
@@ -1954,7 +1954,7 @@ POST /portfolio/dividends/postings
 #### Service layer
 
 - `portfolio.ts`
-  - depends on `@tw-portfolio/domain` fee and lot algorithms
+  - depends on `@vakwen/domain` fee and lot algorithms
   - depends on `accountingStore.ts` append/replace helpers
 
 - `dividends.ts`
@@ -1962,7 +1962,7 @@ POST /portfolio/dividends/postings
   - depends on store facts and projections to compute expected entitlement
 
 - `recompute.ts`
-  - depends on `@tw-portfolio/domain` fee calculators
+  - depends on `@vakwen/domain` fee calculators
   - depends on `accountingStore.ts` trade lookup and cash entry replacement
 
 - `userPreferences.ts` (KZO-159 / KZO-180)
@@ -1970,7 +1970,7 @@ POST /portfolio/dividends/postings
   - `resolveEffectiveRanges(persistence, userId)` → reads `getUserPreferences` + `getAppConfig` concurrently and applies 3-tier resolution
   - `resolveReportingCurrency(prefs)` → returns `"TWD" | "USD" | "AUD"`, defaulting invalid or missing prefs to `"TWD"`
   - consumed by `GET /user-preferences/effective-ranges` and the dynamic `z.enum` validator in `GET /dashboard/performance`
-  - depends on `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` and `dashboardPerformanceRangesSchema` from `@tw-portfolio/shared-types`
+  - depends on `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` and `dashboardPerformanceRangesSchema` from `@vakwen/shared-types`
 
 - `dashboardReportingCurrency.ts` (KZO-180)
   - translates `/dashboard/overview.summary` summary totals at the overview as-of date using per-source-currency `getFxRate(...)` calls
@@ -1996,13 +1996,13 @@ POST /portfolio/dividends/postings
 
 #### Shared libraries
 
-- `@tw-portfolio/domain` (`libs/domain/src/`)
+- `@vakwen/domain` (`libs/domain/src/`)
   - Pure business logic, no persistence or framework imports.
-  - `performanceRange.ts` (KZO-159) — `parsePerformanceRange(str) → ParsedRange | null`, `resolveRangeBounds(rangeString, asOf, earliestTradeDate?) → { startDate, endDate }`, `isValidPerformanceRange(str)`. Grammar: `YTD`, `ALL`, `nM` (n ≤ 240), `nY` (n ≤ 50), case-sensitive. Re-exported from `@tw-portfolio/shared-types` so frontend code can import from one package.
+  - `performanceRange.ts` (KZO-159) — `parsePerformanceRange(str) → ParsedRange | null`, `resolveRangeBounds(rangeString, asOf, earliestTradeDate?) → { startDate, endDate }`, `isValidPerformanceRange(str)`. Grammar: `YTD`, `ALL`, `nM` (n ≤ 240), `nY` (n ≤ 50), case-sensitive. Re-exported from `@vakwen/shared-types` so frontend code can import from one package.
   - Fee calculators (`fee.ts`): `calculateBuyFees`, `calculateSellFees`.
   - Lot algorithms: FIFO allocation helpers consumed by `accountingStore.ts`.
 
-- `@tw-portfolio/shared-types` (`libs/shared-types/src/`)
+- `@vakwen/shared-types` (`libs/shared-types/src/`)
   - Shared TypeScript types and Zod schemas for API contracts.
   - `DashboardPerformanceRange` (KZO-159) — widened from closed union to `string`; runtime-validated via `dashboardPerformanceRangesSchema`.
   - `dashboardPerformanceRangesSchema` (KZO-159) — `z.array(z.string()).min(1).max(12).refine(...)`. Single source of truth for range-list validation in admin settings, user preferences PATCH, and front-end AdminSettingsClient.

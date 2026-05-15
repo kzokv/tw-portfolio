@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { LocaleCode, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { Card } from "../ui/Card";

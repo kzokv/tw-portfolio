@@ -1,5 +1,5 @@
 import React from "react";
-import type { DashboardOverviewSummaryDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { DashboardOverviewSummaryDto, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 

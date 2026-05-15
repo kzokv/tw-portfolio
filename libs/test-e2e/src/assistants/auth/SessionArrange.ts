@@ -1,6 +1,6 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 
 import { extractCookieValue } from "../../utils/cookie.js";
 import { extractOAuthStateFromUrl, tamperSignedValue as tamperSignedValueUtil } from "../../utils/oauth.js";

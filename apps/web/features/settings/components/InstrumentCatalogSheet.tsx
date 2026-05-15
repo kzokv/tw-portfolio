@@ -7,7 +7,7 @@ import {
   gicsSectors,
   gicsIndustryGroups,
   industryGroupsForSector,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { useDebouncedValue } from "../../../lib/hooks/useDebouncedValue";
@@ -21,7 +21,7 @@ type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
 type MarketChip = "ALL" | MarketCode;
 // KZO-196 — `null` = "All sectors". Visible only when marketChip === "AU".
 // Carries the canonical sector name (e.g. "Financials") so it feeds straight
-// into `industryGroupsForSector(...)` from `@tw-portfolio/shared-types`.
+// into `industryGroupsForSector(...)` from `@vakwen/shared-types`.
 type SectorFilter = string | null;
 
 // KZO-196 — Inverse lookup `industryGroup → displayKey`, built once per

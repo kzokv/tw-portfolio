@@ -1,5 +1,5 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { extractCookieValue } from "@tw-portfolio/test-framework/shared";
+import { TestEnv } from "@vakwen/config/test";
+import { extractCookieValue } from "@vakwen/test-framework/shared";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

@@ -1,5 +1,5 @@
 import type { Response } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
 

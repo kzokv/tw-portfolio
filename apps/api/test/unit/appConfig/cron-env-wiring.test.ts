@@ -2,7 +2,7 @@
 // rather than inlined literals. Restart-required overrides (Tier 3) reach
 // the actual scheduler this way.
 import { describe, expect, it } from "vitest";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { CATALOG_SYNC_CRON } from "../../../src/services/market-data/registerCatalogSyncWorker.js";
 import { FX_REFRESH_CRON } from "../../../src/services/market-data/fxRefreshWorker.js";
 import { ANONYMOUS_SHARE_TOKEN_PURGE_CRON } from "../../../src/services/registerAnonymousShareTokenPurgeWorker.js";

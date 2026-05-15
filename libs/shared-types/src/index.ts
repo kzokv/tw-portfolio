@@ -9,7 +9,7 @@ export type * from "./events.js";
 
 // KZO-196 — GICS sector / industry-group taxonomy. Inlined into the barrel
 // (rather than re-exported from `./gics.ts`) because:
-//   * apps/web aliases `@tw-portfolio/shared-types` directly to this source
+//   * apps/web aliases `@vakwen/shared-types` directly to this source
 //     file. Webpack/Turbopack does NOT perform `.js → .ts` extension
 //     substitution on relative imports without an explicit `extensionAlias`
 //     config, so `from "./gics.js"` cannot resolve at bundle time even though
@@ -135,7 +135,7 @@ export function industryGroupsForSector(sector: string): readonly string[] {
 }
 
 // KZO-159 (158A) — Re-export the range parser + bounds resolver from
-// `@tw-portfolio/domain` so consumers (frontend AdminSettingsClient, API
+// `@vakwen/domain` so consumers (frontend AdminSettingsClient, API
 // routes) can import them alongside `dashboardPerformanceRangesSchema` from
 // a single package.
 export {
@@ -146,7 +146,7 @@ export {
   PERFORMANCE_RANGE_MAX_MONTHS,
   PERFORMANCE_RANGE_MAX_YEARS,
   type ParsedRange,
-} from "@tw-portfolio/domain";
+} from "@vakwen/domain";
 
 export type CostBasisMethod = "WEIGHTED_AVERAGE";
 export type LocaleCode = "en" | "zh-TW";

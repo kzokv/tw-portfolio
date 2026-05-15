@@ -23,8 +23,8 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
+import { TestEnv } from "@vakwen/config/test";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 function apiPath(p: string): string {
   return new URL(p, TestEnv.apiBaseUrl).href;

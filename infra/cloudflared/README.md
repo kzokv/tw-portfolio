@@ -7,12 +7,12 @@ Configure the tunnel routes in the Cloudflare Zero Trust dashboard.
 
 **Both hostnames are required.** If only the web hostname is added, the browser will fail to resolve the API hostname and you will see `net::ERR_NAME_NOT_RESOLVED` for API requests (e.g. `/settings`, `/portfolio/holdings`, `/settings/fee-config`).
 
-| Public hostname                    | Service                        |
-|------------------------------------|--------------------------------|
-| `twp-web.kzokvdevs.dpdns.org`     | `http://twp-prod-web:3000`      |
-| `twp-api.kzokvdevs.dpdns.org`     | `http://twp-prod-api:4000`      |
+| Public hostname                       | Service                            |
+|---------------------------------------|------------------------------------|
+| `vakwen-web.kzokvdevs.dpdns.org`     | `http://vakwen-prod-web:3000`      |
+| `vakwen-api.kzokvdevs.dpdns.org`     | `http://vakwen-prod-api:4000`      |
 
-The hostnames must be exactly `twp-web` and `twp-api` (not `twp-prod-web` / `twp-prod-api`), or they will not match `PUBLIC_DOMAIN_WEB` / `PUBLIC_DOMAIN_API` in `.env.prod` and the app will call hostnames that have no tunnel route (ERR_NAME_NOT_RESOLVED).
+The hostnames must be exactly `vakwen-web` and `vakwen-api` (not `vakwen-prod-web` / `vakwen-prod-api`), or they will not match `PUBLIC_DOMAIN_WEB` / `PUBLIC_DOMAIN_API` in `.env.prod` and the app will call hostnames that have no tunnel route (ERR_NAME_NOT_RESOLVED).
 
 ## Steps
 

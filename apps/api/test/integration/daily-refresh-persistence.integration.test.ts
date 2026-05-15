@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
-import type { Lot } from "@tw-portfolio/domain";
+import type { Lot } from "@vakwen/domain";
 import type { CatalogInstrument } from "../../src/persistence/types.js";
 import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
@@ -11,7 +11,7 @@ import { PostgresPersistence } from "../../src/persistence/postgres.js";
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(

@@ -1,4 +1,4 @@
-import { createWebFixture } from "@tw-portfolio/test-framework/config";
+import { createWebFixture } from "@vakwen/test-framework/config";
 
 import type { TAnonymousShareAssistant } from "../assistants/sharing/index.js";
 import { AnonymousSharePage } from "../pages/sharing/AnonymousSharePage.js";

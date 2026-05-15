@@ -1,14 +1,14 @@
 import type { APIResponse } from "@playwright/test";
-import type { TSessionAssistant } from "@tw-portfolio/test-e2e/assistants";
-import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
+import type { TSessionAssistant } from "@vakwen/test-e2e/assistants";
+import { test } from "@vakwen/test-e2e/fixtures/authPages";
 import {
   apiUrl,
   makeDeterministicIdToken,
   startInvitedOAuthAndGetState,
   startOAuthAndGetState,
   startOAuthAndGetTamperedState,
-} from "@tw-portfolio/test-e2e/utils";
-import { TestEnv } from "@tw-portfolio/config/test";
+} from "@vakwen/test-e2e/utils";
+import { TestEnv } from "@vakwen/config/test";
 
 const sessionCookieRequiresSecure = TestEnv.sessionCookieName.startsWith("__Host-");
 const firstSigninEmail = "e2e-user@example.com";

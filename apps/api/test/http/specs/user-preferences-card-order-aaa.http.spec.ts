@@ -12,7 +12,7 @@
 // Lives in the suite 8 (API HTTP tests) alongside user-preferences-aaa.http.spec.ts.
 // Uses the same `createOauthSession` helper from `./helpers/sharing.ts`.
 
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

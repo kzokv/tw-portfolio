@@ -1,8 +1,8 @@
 // vi.mock is hoisted before imports by Vitest. Override getDatabaseUrl/getRedisUrl
 // so buildApp picks up POSTGRES_TEST_DB_URL / POSTGRES_TEST_REDIS_URL (the vars the
 // managed CI stack exports) rather than the frozen Env.DB_URL parsed at module load time.
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: {
@@ -32,7 +32,7 @@ import { loadMigrationManifest } from "../../src/persistence/migrationManifest.j
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(

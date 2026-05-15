@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { AnonymousShareTokenDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { AnonymousShareTokenDto, LocaleCode } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatDateLabel } from "../../lib/utils";
 import { Button } from "../ui/Button";

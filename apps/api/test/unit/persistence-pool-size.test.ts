@@ -2,7 +2,7 @@
 // env vars instead of hardcoded literals.
 //
 // These tests do NOT spin up a real Postgres connection. They verify that the
-// source code references the correct Env symbols by mocking @tw-portfolio/config
+// source code references the correct Env symbols by mocking @vakwen/config
 // and asserting the pool constructor call receives the mocked value.
 //
 // `apps/api/src/persistence/postgres.ts` line ~318: `max: 20` → `max: Env.POSTGRES_POOL_MAX`
@@ -54,8 +54,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const CUSTOM_POOL_MAX = 7;
 const CUSTOM_BACKFILL_POOL_MAX = 3;
 
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: {
@@ -97,7 +97,7 @@ describe("pgBoss plugin pool size reads Env.BACKFILL_POSTGRES_POOL_MAX", () => {
   });
 
   it("Env.BACKFILL_POSTGRES_POOL_MAX is a positive integer", async () => {
-    const { Env } = await import("@tw-portfolio/config");
+    const { Env } = await import("@vakwen/config");
     expect(typeof Env.BACKFILL_POSTGRES_POOL_MAX).toBe("number");
     expect(Number.isInteger(Env.BACKFILL_POSTGRES_POOL_MAX)).toBe(true);
     expect(Env.BACKFILL_POSTGRES_POOL_MAX).toBeGreaterThan(0);

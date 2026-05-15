@@ -25,9 +25,9 @@ Same Postgres instance, dedicated `market_data` schema alongside `public` (ledge
 
 | Env | Postgres | Market data source | Calls FinMind? |
 |---|---|---|---|
-| Production | `twp-prod-postgres` on QNAP | Daily ingest job | Yes — sole writer |
-| Dev | `twp-dev-postgres` on QNAP | Auto-restore from prod dump | No |
-| Local | `twp-local-postgres` on Lume VM | Manual scp restore | No |
+| Production | `vakwen-prod-postgres` on QNAP | Daily ingest job | Yes — sole writer |
+| Dev | `vakwen-dev-postgres` on QNAP | Auto-restore from prod dump | No |
+| Local | `vakwen-local-postgres` on Lume VM | Manual scp restore | No |
 
 Locked ADR: `docs/004-notes/005-market-data/adr-202603251800-historical-data-store-topology.md`
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { LocaleCode, UserSettings } from "@tw-portfolio/shared-types";
+import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { getJson } from "../../lib/api";
 import { requireSession } from "../../lib/auth";
 import { SharingRouteProvider } from "../../components/sharing/SharingRouteProvider";

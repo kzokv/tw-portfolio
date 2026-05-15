@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { QuoteSnapshot } from "@tw-portfolio/domain";
+import type { QuoteSnapshot } from "@vakwen/domain";
 import type { Store } from "../../src/types/store.js";
 import { createStore } from "../../src/services/store.js";
 import { buildPublicShareView } from "../../src/services/publicShareView.js";

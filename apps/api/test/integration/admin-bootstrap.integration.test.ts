@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Mock Env to force AUTH_MODE=oauth + set INITIAL_ADMIN_EMAIL.
 // Static spread per demo-session.integration.test.ts — Env has non-configurable
 // properties so a Proxy would fail.
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: {

@@ -36,7 +36,7 @@
  *   - .claude/rules/e2e-seed-vs-reset-guards.md — inject-search-error uses assertE2ESeedEnabled.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("AU ticker discovery", () => {
   test.describe.configure({ mode: "default" });

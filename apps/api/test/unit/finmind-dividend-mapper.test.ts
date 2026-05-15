@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { FinMindMarketDataProvider } from "../../src/services/market-data/providers/finmind.js";
 import { RateLimiter } from "../../src/services/market-data/rateLimiter.js";
 
-vi.mock("@tw-portfolio/config", () => ({
+vi.mock("@vakwen/config", () => ({
   Env: { FINMIND_API_TOKEN: "test-token" },
 }));
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { MarketCode } from "@tw-portfolio/shared-types";
+import type { MarketCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn } from "../../lib/utils";
 import { fieldClassName } from "../ui/fieldStyles";

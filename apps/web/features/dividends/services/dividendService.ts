@@ -1,4 +1,4 @@
-import type { DividendLedgerAggregates } from "@tw-portfolio/shared-types";
+import type { DividendLedgerAggregates } from "@vakwen/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   DividendCalendarSnapshot,

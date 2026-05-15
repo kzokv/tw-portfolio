@@ -1,4 +1,4 @@
-import type { DailyBar, MarketCode, QuoteSnapshot } from "@tw-portfolio/domain";
+import type { DailyBar, MarketCode, QuoteSnapshot } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 
 export interface QuoteSnapshotPair {

@@ -4,8 +4,8 @@ import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
 import { verifySessionCookie } from "../../src/auth/googleOAuth.js";
 import { _resetDemoRateBuckets } from "../../src/routes/registerRoutes.js";
 
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: { ...original.Env, DEMO_MODE_ENABLED: "true" as const, DEMO_SESSION_TTL_SECONDS: 1800 },
@@ -60,7 +60,7 @@ describe("POST /auth/demo/start", () => {
   });
 
   it("demo user can access /settings with cookie", async () => {
-    const { Env } = await import("@tw-portfolio/config");
+    const { Env } = await import("@vakwen/config");
 
     const demoRes = await app.inject({
       method: "POST",
@@ -80,7 +80,7 @@ describe("POST /auth/demo/start", () => {
   });
 
   it("returns X-Session-Type: demo header on responses", async () => {
-    const { Env } = await import("@tw-portfolio/config");
+    const { Env } = await import("@vakwen/config");
 
     const demoRes = await app.inject({
       method: "POST",
@@ -218,7 +218,7 @@ describe("POST /__e2e/demo-session", () => {
   });
 
   it("returns 404 in production NODE_ENV", async () => {
-    const { Env } = await import("@tw-portfolio/config");
+    const { Env } = await import("@vakwen/config");
     const original = Env.NODE_ENV;
     try {
       (Env as Record<string, unknown>).NODE_ENV = "production";
@@ -244,7 +244,7 @@ describe("POST /auth/demo/start — disabled", () => {
     // Since we already mocked at module level, we need a different approach.
     // Instead, test by directly checking the route logic via a fresh app
     // where we temporarily override Env.
-    const { Env } = await import("@tw-portfolio/config");
+    const { Env } = await import("@vakwen/config");
     const originalValue = Env.DEMO_MODE_ENABLED;
 
     try {

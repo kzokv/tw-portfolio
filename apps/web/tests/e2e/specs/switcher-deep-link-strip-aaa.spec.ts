@@ -1,5 +1,5 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { TestEnv } from "@vakwen/config/test";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import {
   seedResolvedShareFromAdmin,
   seedTransactionForUser,

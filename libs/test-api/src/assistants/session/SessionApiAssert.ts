@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { UUID_V4_PATTERN, parseSessionCookie } from "@tw-portfolio/test-framework/shared";
+import { Step } from "@vakwen/test-framework/decorators";
+import { UUID_V4_PATTERN, parseSessionCookie } from "@vakwen/test-framework/shared";
 import { ApiBaseAssert } from "../../mixins/index.js";
 import type { SessionEndpoint } from "../../endpoints/SessionEndpoint.js";
 

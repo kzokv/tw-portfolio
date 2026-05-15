@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 
 export interface ShareNotificationDictionary {
   shareGranted: {

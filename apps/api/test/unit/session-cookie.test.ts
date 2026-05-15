@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import {
   signImpersonationCookie,
   signSessionCookie,

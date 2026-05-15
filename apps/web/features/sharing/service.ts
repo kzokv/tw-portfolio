@@ -5,7 +5,7 @@ import type {
   PendingShareInviteDto,
   ShareGrantDto,
   SharesListResponseDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { deleteJson, getJson, postJson } from "../../lib/api";
 import type {
   GrantShareResult,

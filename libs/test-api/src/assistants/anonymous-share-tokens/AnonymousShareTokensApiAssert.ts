@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import type { AdminAuditLogEntryDto } from "@tw-portfolio/shared-types";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import type { AdminAuditLogEntryDto } from "@vakwen/shared-types";
+import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseAssert } from "../../mixins/index.js";
 import type { AnonymousShareTokensEndpoint } from "../../endpoints/AnonymousShareTokensEndpoint.js";
 import type {

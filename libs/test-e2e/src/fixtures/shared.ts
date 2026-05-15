@@ -2,16 +2,16 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { APIRequestContext, Browser, Page, TestInfo } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { ActionLogger } from "@tw-portfolio/test-framework/logging";
-import { createUIActions } from "@tw-portfolio/test-framework/actions";
-import { TestUser } from "@tw-portfolio/test-framework/core";
-import type { TUIActions } from "@tw-portfolio/test-framework/core";
+import { TestEnv } from "@vakwen/config/test";
+import { ActionLogger } from "@vakwen/test-framework/logging";
+import { createUIActions } from "@vakwen/test-framework/actions";
+import { TestUser } from "@vakwen/test-framework/core";
+import type { TUIActions } from "@vakwen/test-framework/core";
 import {
   buildDisplayName,
   buildE2EUserId,
   extractCookieValue,
-} from "@tw-portfolio/test-framework/shared";
+} from "@vakwen/test-framework/shared";
 
 import { registerTestE2EAssistants } from "../config/mapper.js";
 import { appUrl } from "../utils/url.js";

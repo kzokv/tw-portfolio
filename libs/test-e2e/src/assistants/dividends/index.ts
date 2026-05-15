@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { DividendsActions } from "./DividendsActions.js";
 import { DividendsArrange } from "./DividendsArrange.js";
 import { DividendsAssert } from "./DividendsAssert.js";

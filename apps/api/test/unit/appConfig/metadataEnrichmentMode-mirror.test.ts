@@ -2,7 +2,7 @@
 // migrated path `apps/api/src/services/appConfig/metadataEnrichmentMode.ts`.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import {
   _resetAppConfigCache,
   refresh,

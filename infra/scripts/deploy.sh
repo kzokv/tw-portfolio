@@ -38,7 +38,7 @@ CONTAINER_NAMES=""
 STATE_BASE_DIR=""
 BACKUP_DIR=""
 DEPLOY_LOG_DIR=""
-LEGACY_BACKUP_DIR="${LEGACY_BACKUP_DIR:-/data/backups/tw-portfolio}"
+LEGACY_BACKUP_DIR="${LEGACY_BACKUP_DIR:-/data/backups/vakwen}"
 DEPLOY_LOG_FILE=""
 CONTAINER_LOG_DIR=""
 
@@ -88,7 +88,7 @@ cleanup_unused_images() {
     {
       docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
         | awk '
-            $1 ~ /^twp-[^:]+:/ { print $0; next }
+            $1 ~ /^vakwen-[^:]+:/ { print $0; next }
             $1 ~ /^(alpine|alpine\/[^:]+):/ { print $0; next }
             $1 ~ /:.*alpine/ { print $0 }
           '
@@ -97,11 +97,11 @@ cleanup_unused_images() {
   )"
 
   if [ -z "$candidate_refs" ]; then
-    log "No unused twp/alpine-related Docker images found for cleanup"
+    log "No unused vakwen/alpine-related Docker images found for cleanup"
     return 0
   fi
 
-  log "Removing unused twp/alpine-related Docker images..."
+  log "Removing unused vakwen/alpine-related Docker images..."
   while IFS= read -r image_ref; do
     [ -z "$image_ref" ] && continue
     candidate_label="${image_ref% *}"
@@ -122,9 +122,9 @@ $candidate_refs
 EOF
 
   if [ "$removed_any" = false ]; then
-    log "No removable twp/alpine-related Docker images found"
+    log "No removable vakwen/alpine-related Docker images found"
   else
-    log "Unused twp/alpine-related Docker image cleanup complete"
+    log "Unused vakwen/alpine-related Docker image cleanup complete"
   fi
 }
 
@@ -151,7 +151,7 @@ dc() {
 print_help() {
   cat <<EOF
 Description:
-  Deploy tw-portfolio services with Docker Compose, including migration, health checks, and rollback.
+  Deploy vakwen services with Docker Compose, including migration, health checks, and rollback.
 
 Usage: ${SCRIPT_PATH} [OPTIONS] [DEPLOY_SHA]
 
@@ -165,7 +165,7 @@ Options:
   DEPLOY_SHA                   CI-tested commit SHA to deploy from the target branch (optional)
 
 Requirements:
-  - Clean git working tree in the tw-portfolio repo (unless --force is used)
+  - Clean git working tree in the vakwen repo (unless --force is used)
   - Docker and docker compose available on PATH
   - Configured env file for the selected environment
   - Branch-based deploys follow the selected remote branch tip when DEPLOY_SHA is omitted
@@ -262,26 +262,26 @@ configure_environment() {
     production)
       COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.prod.yml"
       ENV_FILE="$REPO_ROOT/infra/docker/.env.prod"
-      STACK_PREFIX="twp-prod"
-      COMPOSE_PROJECT="twp-prod"
-      POSTGRES_CONTAINER="twp-prod-postgres"
-      REDIS_CONTAINER="twp-prod-redis"
-      MIGRATE_SERVICE="twp-prod-migrate"
-      API_CONTAINER="twp-prod-api"
-      WEB_CONTAINER="twp-prod-web"
-      CLOUDFLARED_CONTAINER="twp-prod-cloudflared"
+      STACK_PREFIX="vakwen-prod"
+      COMPOSE_PROJECT="vakwen-prod"
+      POSTGRES_CONTAINER="vakwen-prod-postgres"
+      REDIS_CONTAINER="vakwen-prod-redis"
+      MIGRATE_SERVICE="vakwen-prod-migrate"
+      API_CONTAINER="vakwen-prod-api"
+      WEB_CONTAINER="vakwen-prod-web"
+      CLOUDFLARED_CONTAINER="vakwen-prod-cloudflared"
       ;;
     dev)
       COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.dev.yml"
       ENV_FILE="$REPO_ROOT/infra/docker/.env.dev"
-      STACK_PREFIX="twp-dev"
-      COMPOSE_PROJECT="twp-dev"
-      POSTGRES_CONTAINER="twp-dev-postgres"
-      REDIS_CONTAINER="twp-dev-redis"
-      MIGRATE_SERVICE="twp-dev-migrate"
-      API_CONTAINER="twp-dev-api"
-      WEB_CONTAINER="twp-dev-web"
-      CLOUDFLARED_CONTAINER="twp-dev-cloudflared"
+      STACK_PREFIX="vakwen-dev"
+      COMPOSE_PROJECT="vakwen-dev"
+      POSTGRES_CONTAINER="vakwen-dev-postgres"
+      REDIS_CONTAINER="vakwen-dev-redis"
+      MIGRATE_SERVICE="vakwen-dev-migrate"
+      API_CONTAINER="vakwen-dev-api"
+      WEB_CONTAINER="vakwen-dev-web"
+      CLOUDFLARED_CONTAINER="vakwen-dev-cloudflared"
       ;;
     *)
       error_and_help "Unsupported environment: $ENVIRONMENT"
@@ -353,17 +353,17 @@ select_deploy_branch() {
 
 setup_state_dirs() {
   local default_home="${HOME:-$REPO_ROOT}"
-  local configured_root="${TWP_STATE_DIR:-$default_home/.local/state/tw-portfolio/$ENVIRONMENT}"
+  local configured_root="${VAKWEN_STATE_DIR:-$default_home/.local/state/vakwen/$ENVIRONMENT}"
   STATE_BASE_DIR="$configured_root"
   BACKUP_DIR="${BACKUP_DIR:-$STATE_BASE_DIR/backups}"
   DEPLOY_LOG_DIR="${DEPLOY_LOG_DIR:-$STATE_BASE_DIR/logs/deploy}"
-  export TWP_STATE_DIR="$STATE_BASE_DIR" BACKUP_DIR DEPLOY_LOG_DIR
+  export VAKWEN_STATE_DIR="$STATE_BASE_DIR" BACKUP_DIR DEPLOY_LOG_DIR
 }
 
 setup_deploy_log() {
   if ! mkdir -p "$DEPLOY_LOG_DIR"; then
     echo "ERROR: Cannot create DEPLOY_LOG_DIR at '$DEPLOY_LOG_DIR'" >&2
-    echo "Set DEPLOY_LOG_DIR or TWP_STATE_DIR to a writable path." >&2
+    echo "Set DEPLOY_LOG_DIR or VAKWEN_STATE_DIR to a writable path." >&2
     exit 1
   fi
   DEPLOY_LOG_FILE="$DEPLOY_LOG_DIR/deploy_${DEPLOY_TS}.log"
@@ -441,6 +441,66 @@ validate_preflight() {
   fi
 }
 
+# Rebrand cutover preflight (KZO-92): prevent the deploy from cutting over to
+# an empty `vakwen-${env}_pgdata` Postgres volume while the live data still
+# sits in `twp-${env}_pgdata`. Without this guard, an automated CI deploy
+# after the rebrand merge would bring up a healthy-but-empty stack — see
+# docs/004-notes/kzo-92/transition-202605141500-prod-cutover.md for the
+# manual cutover sequence the operator must run before the first rebrand
+# deploy, and the `.cutover-complete` sentinel that releases this gate.
+cutover_preflight() {
+  local env_suffix old_volume new_volume sentinel
+  case "$ENVIRONMENT" in
+    production) env_suffix="prod" ;;
+    dev) env_suffix="dev" ;;
+    *)
+      log "cutover_preflight: skipping for environment '$ENVIRONMENT' (only production/dev are guarded)"
+      return 0
+      ;;
+  esac
+
+  old_volume="twp-${env_suffix}_pgdata"
+  new_volume="${COMPOSE_PROJECT}_pgdata"
+  sentinel="${STATE_BASE_DIR}/.cutover-complete"
+
+  if ! docker volume inspect "$old_volume" >/dev/null 2>&1; then
+    # No legacy volume — clean state, no risk of cutting over to empty pgdata.
+    return 0
+  fi
+
+  if [ -f "$sentinel" ]; then
+    log "cutover_preflight: legacy volume '$old_volume' still present; sentinel '$sentinel' confirms cutover complete."
+    return 0
+  fi
+
+  if [ "${ALLOW_REBRAND_CUTOVER_BYPASS:-}" = "1" ]; then
+    log "cutover_preflight: ALLOW_REBRAND_CUTOVER_BYPASS=1 set — proceeding despite missing sentinel (legacy volume: $old_volume)."
+    return 0
+  fi
+
+  log "ERROR: rebrand cutover preflight failed."
+  log "  Legacy Postgres volume present:  $old_volume"
+  log "  New Postgres volume name:        $new_volume"
+  log "  Required cutover sentinel file:  $sentinel  (MISSING)"
+  log ""
+  log "This deploy would bring up the rebranded $COMPOSE_PROJECT stack against"
+  log "an empty '$new_volume' Postgres volume while the live data still resides"
+  log "in '$old_volume'. The new stack can pass health checks while serving an"
+  log "empty database — rollback semantics are unreliable from that state."
+  log ""
+  log "Resolution:"
+  log "  1. Complete the rebrand cutover (see docs/004-notes/kzo-92/transition-"
+  log "     202605141500-prod-cutover.md §3) and confirm '$new_volume' holds"
+  log "     the migrated data."
+  log "  2. Mark the cutover complete:"
+  log "       mkdir -p \"$(dirname "$sentinel")\""
+  log "       touch \"$sentinel\""
+  log "  3. Re-run this deploy."
+  log ""
+  log "Emergency bypass (NOT recommended): ALLOW_REBRAND_CUTOVER_BYPASS=1 bash $0 ..."
+  exit 2
+}
+
 checkout_deploy_ref() {
   local branch="$1"
   local sha="$2"
@@ -513,19 +573,30 @@ collect_compose_failure_diagnostics() {
 }
 
 restore_database_if_possible() {
-  local latest_backup=""
+  local latest_backup="" dir
   if docker ps --format '{{.Names}}' | grep -q "^${POSTGRES_CONTAINER}$"; then
-    latest_backup="$(ls -t "${BACKUP_DIR}"/*.sql.gz 2>/dev/null | head -1 || true)"
-    if [ -z "$latest_backup" ] && [ "$ENVIRONMENT" = "production" ]; then
-      latest_backup="$(ls -t "${LEGACY_BACKUP_DIR}"/*.sql.gz 2>/dev/null | head -1 || true)"
-    fi
+    # Search current → legacy → pre-rebrand. The pre-rebrand path
+    # `/data/backups/tw-portfolio` is retained as a rollback artifact so a
+    # failed first-rebrand deploy can still find the pre-cutover dump left
+    # behind by docs/004-notes/kzo-92/transition-202605141500-prod-cutover.md
+    # §3.3 (the dump file is moved to /data/backups/vakwen only after §3.9,
+    # so both paths can be authoritative during the rebrand window).
+    for dir in "${BACKUP_DIR}" "${LEGACY_BACKUP_DIR}" "/data/backups/tw-portfolio"; do
+      [ -z "$dir" ] && continue
+      [ -d "$dir" ] || continue
+      latest_backup="$(ls -t "$dir"/*.sql.gz 2>/dev/null | head -1 || true)"
+      if [ -n "$latest_backup" ]; then
+        log "Selected backup for restore: $latest_backup"
+        break
+      fi
+    done
 
     if [ -n "$latest_backup" ]; then
       log "Restoring database from $latest_backup..."
-      gunzip -c "$latest_backup" | docker exec -i "$POSTGRES_CONTAINER" psql -U "${POSTGRES_USER:-twp}" -d "${POSTGRES_DB:-tw_portfolio}" 2>/dev/null || \
+      gunzip -c "$latest_backup" | docker exec -i "$POSTGRES_CONTAINER" psql -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" 2>/dev/null || \
         log "WARNING: DB restore failed; manual restore may be needed"
     else
-      log "WARNING: No backup found for DB restore; schema may be inconsistent"
+      log "WARNING: No backup found for DB restore (searched BACKUP_DIR, LEGACY_BACKUP_DIR, /data/backups/tw-portfolio); schema may be inconsistent"
     fi
   fi
 }
@@ -553,7 +624,7 @@ rollback() {
   log "Waiting for postgres health (up to 30s)..."
   local pg_ok=false
   for _i in $(seq 1 30); do
-    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "${POSTGRES_USER:-twp}" -q 2>/dev/null; then
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -U "${POSTGRES_USER:-vakwen}" -q 2>/dev/null; then
       pg_ok=true
       break
     fi
@@ -616,6 +687,8 @@ fi
 log "Deploy started by $(whoami)@$(hostname)"
 log "Environment: $ENVIRONMENT"
 log "Branch: $BRANCH_NAME | Remote: $BRANCH_REMOTE | SHA arg: ${DEPLOY_SHA:-HEAD}"
+
+cutover_preflight
 
 PREVIOUS_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"
 PREVIOUS_SHA="$(git rev-parse HEAD)"
@@ -696,13 +769,13 @@ fi
 latest_migration="$(find "$REPO_ROOT/db/migrations" -maxdepth 1 -name '[0-9][0-9][0-9]_*.sql' -type f -exec basename {} \; | sort | tail -1)"
 if [ -n "$latest_migration" ]; then
   applied_check="$(docker exec "$POSTGRES_CONTAINER" \
-    psql -U "${POSTGRES_USER:-twp}" -d "${POSTGRES_DB:-tw_portfolio}" -Atqc \
+    psql -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -Atqc \
     "SELECT name FROM schema_migrations WHERE name = '${latest_migration}'" 2>/dev/null || true)"
   if [ "$applied_check" != "$latest_migration" ]; then
     log "ERROR: Post-migration verification failed — '$latest_migration' not found in schema_migrations"
     log "Applied migrations:"
     docker exec "$POSTGRES_CONTAINER" \
-      psql -U "${POSTGRES_USER:-twp}" -d "${POSTGRES_DB:-tw_portfolio}" -Atqc \
+      psql -U "${POSTGRES_USER:-vakwen}" -d "${POSTGRES_DB:-vakwen}" -Atqc \
       "SELECT name FROM schema_migrations ORDER BY name" 2>/dev/null || true
     collect_container_logs
     rollback

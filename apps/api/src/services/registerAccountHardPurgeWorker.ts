@@ -22,7 +22,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { AppInstance } from "../app.js";
 import type { EventBus } from "../events/types.js";
 import type { Persistence } from "../persistence/types.js";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getEffectiveAccountHardPurgeDays } from "./appConfig/accountLifecycle.js";
 import { DEFAULT_MARKET_DATA_QUEUE_OPTIONS } from "./market-data/registerBackfillWorker.js";
 

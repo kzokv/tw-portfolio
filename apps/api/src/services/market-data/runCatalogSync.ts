@@ -1,4 +1,4 @@
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { InstrumentCatalogProvider } from "./types.js";
 import type { Persistence, CatalogSyncResult } from "../../persistence/types.js";
 import { deduplicateInstruments, buildCatalogInstruments } from "./catalogSync.js";

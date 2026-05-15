@@ -1,5 +1,5 @@
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 
 const ONE_PIXEL_GIF_BASE64 = "R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
 

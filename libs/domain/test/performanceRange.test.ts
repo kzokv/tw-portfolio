@@ -26,7 +26,7 @@ import {
 import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 describe("parsePerformanceRange — valid forms", () => {
   it("parses YTD", () => {

@@ -9,7 +9,7 @@
  *     knows the providerId — keeps the AU 30-min default + DB override coherent
  *     with the generic 60-s default for everything else.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveDownNotificationSuppressionMs(): number {

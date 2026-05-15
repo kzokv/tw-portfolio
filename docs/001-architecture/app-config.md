@@ -90,7 +90,7 @@ When the cache expires, the next `getEntry()` triggers a background `refresh()` 
 
 **Gap (horizontal scaling):** when multiple API instances are running (or will run), a PATCH on Instance A calls `invalidateAppConfigCache()` on Instance A only. Instances B and C will continue to serve the pre-PATCH value until their TTLs expire (≤ 8 s stale window).
 
-**Acceptable for KZO-198:** the tw-portfolio stack currently runs a single API instance. 8 s stale reads across replicas are acceptable under this topology.
+**Acceptable for KZO-198:** the vakwen stack currently runs a single API instance. 8 s stale reads across replicas are acceptable under this topology.
 
 **KZO-121 path forward:** when horizontal scaling lands, `invalidateAppConfigCache()` should also publish a Redis pub/sub message. All instances subscribe and call their local `invalidateAppConfigCache()` on receipt. Options:
 

@@ -13,8 +13,8 @@ import {
 const mockEnv: { APP_CONFIG_ENCRYPTION_KEY?: string } = {
   APP_CONFIG_ENCRYPTION_KEY: TEST_APP_CONFIG_ENCRYPTION_KEY,
 };
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: new Proxy(

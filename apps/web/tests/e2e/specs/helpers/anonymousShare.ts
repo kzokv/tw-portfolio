@@ -1,5 +1,5 @@
 import { request as apiRequest, type APIRequestContext } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 /**
  * Run a callback with an isolated APIRequestContext. Required for all seed

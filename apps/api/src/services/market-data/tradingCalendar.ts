@@ -1,4 +1,4 @@
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 
 export interface SettleOptions {

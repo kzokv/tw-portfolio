@@ -2,11 +2,11 @@ import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 const LOCK_DIR = path.join(
   tmpdir(),
-  `tw-portfolio-${TestEnv.ports.api}-admin-timeframe.lock`,
+  `vakwen-${TestEnv.ports.api}-admin-timeframe.lock`,
 );
 
 function delay(ms: number): Promise<void> {

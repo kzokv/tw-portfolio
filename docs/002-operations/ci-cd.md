@@ -133,7 +133,7 @@ flowchart TD
 
 ### Logging
 
-Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/tw-portfolio/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically.
+Each deploy writes a timestamped log and per-container log snapshots to `~/.local/state/vakwen/<environment>/logs/deploy/`. Logs older than 30 days are pruned automatically.
 
 ---
 

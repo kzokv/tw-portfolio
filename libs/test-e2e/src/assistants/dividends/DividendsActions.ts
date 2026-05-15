@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { APIResponse, Response } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { DividendCalendarPage } from "../../pages/dividends/DividendCalendarPage.js";
 

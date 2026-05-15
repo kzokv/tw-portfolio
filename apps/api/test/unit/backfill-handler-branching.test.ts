@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 import type { JobWithMetadata } from "pg-boss";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { RawDailyBar, DividendRecord } from "../../src/services/market-data/types.js";
 import { RateLimitedError } from "../../src/services/market-data/types.js";
 import { BACKFILL_QUEUE, createBackfillHandler } from "../../src/services/market-data/backfillWorker.js";

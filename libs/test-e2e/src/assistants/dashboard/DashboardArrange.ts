@@ -1,6 +1,6 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 import { apiUrl } from "../../utils/url.js";
 
 import type { DashboardPage } from "../../pages/dashboard/DashboardPage.js";

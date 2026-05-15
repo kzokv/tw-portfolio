@@ -1,5 +1,5 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import type { TSessionApiAssistant } from "@tw-portfolio/test-api/assistants";
+import { TestEnv } from "@vakwen/config/test";
+import type { TSessionApiAssistant } from "@vakwen/test-api/assistants";
 import { test } from "../fixtures.js";
 
 const repairEndpoint = new URL("/backfill/repair", TestEnv.apiBaseUrl).href;

@@ -167,7 +167,7 @@ export const Env = Object.freeze({
   },
 
   getDatabaseUrl(): string {
-    return Env.DB_URL ?? `postgres://app:app@127.0.0.1:${Env.DB_PORT}/tw_portfolio`;
+    return Env.DB_URL ?? `postgres://app:app@127.0.0.1:${Env.DB_PORT}/vakwen`;
   },
 
   getRedisUrl(): string {

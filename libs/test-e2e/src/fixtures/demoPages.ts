@@ -1,4 +1,4 @@
-import { createWebFixture } from "@tw-portfolio/test-framework/config";
+import { createWebFixture } from "@vakwen/test-framework/config";
 
 import type { TSessionAssistant } from "../assistants/auth/index.js";
 import type { TDashboardAssistant } from "../assistants/dashboard/index.js";

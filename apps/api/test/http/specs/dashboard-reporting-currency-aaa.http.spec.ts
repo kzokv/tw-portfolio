@@ -25,10 +25,10 @@
  *   HTTP-5 specifically: single source currency with 0 resolved = "missing".
  */
 
-import { TestEnv } from "@tw-portfolio/config/test";
-import { createApiFixture } from "@tw-portfolio/test-api/config";
-import { FxRatesEndpoint } from "@tw-portfolio/test-api/endpoints";
-import type { TFxRatesApiAssistant } from "@tw-portfolio/test-api/assistants";
+import { TestEnv } from "@vakwen/config/test";
+import { createApiFixture } from "@vakwen/test-api/config";
+import { FxRatesEndpoint } from "@vakwen/test-api/endpoints";
+import type { TFxRatesApiAssistant } from "@vakwen/test-api/assistants";
 import { transactionPayload } from "../../helpers/fixtures.js";
 import { test as base } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";

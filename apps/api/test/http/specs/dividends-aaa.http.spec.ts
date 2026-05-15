@@ -1,4 +1,4 @@
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 import {
   dividendPostingPayload,
   dividendPostingUpdatePayload,

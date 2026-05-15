@@ -8,7 +8,7 @@
  * `.claude/rules/fastify-eviction-lifecycle-pattern.md` § "schedule static,
  * parameter live").
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveUserPreferencesMaxBytes(): number {

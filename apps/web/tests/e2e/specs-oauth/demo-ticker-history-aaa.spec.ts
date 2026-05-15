@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/demoPages";
+import { test } from "@vakwen/test-e2e/fixtures/demoPages";
 
 // Demo user data visibility tests. Uses demoBase fixture which bypasses the rate limiter.
 // Sign-in UI flow is tested in auth-demo-aaa.spec.ts.

@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserSettings } from "@tw-portfolio/shared-types";
+import type { UserSettings } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { fieldClassName } from "../../../components/ui/fieldStyles";
 import { TooltipInfo } from "../../../components/ui/TooltipInfo";

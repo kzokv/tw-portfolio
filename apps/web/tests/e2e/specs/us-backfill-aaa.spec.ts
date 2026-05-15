@@ -33,7 +33,7 @@
  *   - .claude/rules/playwright-web-bundle-rebuild.md — `npm run test:e2e:bypass:mem`.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 const AAPL_US = {
   ticker: "AAPL",

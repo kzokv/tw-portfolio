@@ -10,7 +10,7 @@ import {
   type InstrumentOptionDto,
   type LocaleCode,
   type SnapshotsGeneratedEvent,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { AddTransactionCard } from "../portfolio/AddTransactionCard";

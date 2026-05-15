@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 function isoDateForMonth(day: number, monthOffset = 0): string {
   const now = new Date();

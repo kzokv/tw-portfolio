@@ -1,4 +1,4 @@
-import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import type { AppConfigDto } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import { AdminSettingsClient } from "../../../components/admin/AdminSettingsClient";
 

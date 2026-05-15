@@ -6,7 +6,7 @@ import type {
   DashboardOverviewRecentDividendDto,
   DashboardOverviewUpcomingDividendDto,
   LocaleCode,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { Card } from "../ui/Card";

@@ -1,4 +1,4 @@
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { FxTransferPage } from "../../pages/fx-transfer/FxTransferPage.js";
 

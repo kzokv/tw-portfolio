@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DashboardPerformanceDto, DashboardPerformanceRange } from "@tw-portfolio/shared-types";
+import type { DashboardPerformanceDto, DashboardPerformanceRange } from "@vakwen/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchDashboardPerformance } from "../services/dashboardService";
 

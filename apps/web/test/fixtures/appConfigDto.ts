@@ -4,7 +4,7 @@
 // fixture mirrors a freshly-deployed state where every Tier 1/2 field is on
 // its env default and every Tier 0 secret is unset.
 
-import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import type { AppConfigDto } from "@vakwen/shared-types";
 
 const DEFAULT_BOUNDS: AppConfigDto["bounds"] = {
   marketDataPriceWindowMs: { min: 1_000, max: 600_000 },

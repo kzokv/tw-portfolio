@@ -1,4 +1,4 @@
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 
 import type { AnonymousSharePage } from "../../pages/sharing/AnonymousSharePage.js";
 

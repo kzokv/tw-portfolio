@@ -4,14 +4,14 @@ import { envSchema } from "./env-schema.js";
 const dockerBaseExtension = {
   PUBLIC_DOMAIN_WEB: z.string().min(1),
   PUBLIC_DOMAIN_API: z.string().min(1),
-  POSTGRES_USER: z.string().default("twp"),
+  POSTGRES_USER: z.string().default("vakwen"),
   POSTGRES_PASSWORD: z.string().min(1),
-  POSTGRES_DB: z.string().default("tw_portfolio"),
+  POSTGRES_DB: z.string().default("vakwen"),
   REDIS_PASSWORD: z.string().min(1),
   CLOUDFLARE_TUNNEL_TOKEN: z.string().min(1),
   PRIMARY_PROVIDER: z.string().default("mock-primary"),
   FALLBACK_PROVIDER: z.string().default("mock-fallback"),
-  TWP_STATE_DIR: z.string().optional(),
+  VAKWEN_STATE_DIR: z.string().optional(),
   BACKUP_DIR: z.string().optional(),
   DEPLOY_LOG_DIR: z.string().optional(),
   // Docker deployments route API and web through separate subdomains, so the session
@@ -39,9 +39,9 @@ export const dockerCloudSchema = envSchema.extend({
 // compose target passes ports as strings and only needs a narrow set of vars.
 export const dockerLocalSchema = z.object({
   // Database
-  POSTGRES_USER: z.string().default("twp"),
+  POSTGRES_USER: z.string().default("vakwen"),
   POSTGRES_PASSWORD: z.string().min(1),
-  POSTGRES_DB: z.string().default("tw_portfolio"),
+  POSTGRES_DB: z.string().default("vakwen"),
   // Redis
   REDIS_PASSWORD: z.string().min(1),
   // Application

@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle } from "lucide-react";
-import type { LocaleCode, PreviewImpactResponse } from "@tw-portfolio/shared-types";
+import type { LocaleCode, PreviewImpactResponse } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatNumber } from "../../lib/utils";
 import { Button } from "../ui/Button";

@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   validateSourceLineReconciliation,
   type InstrumentType,
-} from "@tw-portfolio/domain";
+} from "@vakwen/domain";
 import type {
   AccountDto,
   DividendSourceBucket,
   DividendSourceLine,
   SourceCompositionStatus,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import {
   listDividendLedgerEntries,
   listInventoryLots,

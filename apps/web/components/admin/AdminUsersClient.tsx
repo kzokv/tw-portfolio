@@ -7,7 +7,7 @@ import type {
   AdminUserListResponse,
   AdminUserStatus,
   UserRole,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getJson, patchJson, postJson, deleteJson, ApiError } from "../../lib/api";
 import { PROFILE_REFRESH_EVENT } from "../../features/profile/hooks/useProfile";
 import { Button } from "../ui/Button";

@@ -23,7 +23,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AccountDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
 import type {
   SettingsAccountBindingModel,
   SettingsProfileModel,

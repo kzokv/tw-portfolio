@@ -21,7 +21,7 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   UserSettings,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { useSettingsForm } from "../../../../features/settings/hooks/useSettingsForm";
 import { getDictionary } from "../../../../lib/i18n";
 

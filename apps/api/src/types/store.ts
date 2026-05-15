@@ -1,5 +1,5 @@
-import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@tw-portfolio/domain";
-import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@tw-portfolio/shared-types";
+import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@vakwen/domain";
+import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@vakwen/shared-types";
 
 // KZO-183: `marketCode` removed. Market is now derived from the binding's
 // account.defaultCurrency rather than stored on the binding. Per-symbol

@@ -5,7 +5,7 @@
  * Cache-pending / load-failure → `getAppConfigCacheEntry()` returns null and
  * we fall back to env. Never throws.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveAnonymousShareTokenCap(): number {

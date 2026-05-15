@@ -9,8 +9,8 @@
 // `GET /user-preferences/effective-ranges`.
 
 import { request as apiRequest } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { DEFAULT_DASHBOARD_PERFORMANCE_RANGES } from "@tw-portfolio/shared-types";
+import { TestEnv } from "@vakwen/config/test";
+import { DEFAULT_DASHBOARD_PERFORMANCE_RANGES } from "@vakwen/shared-types";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

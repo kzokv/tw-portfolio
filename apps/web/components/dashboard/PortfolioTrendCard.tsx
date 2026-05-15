@@ -7,7 +7,7 @@ import {
   type DashboardPerformanceRange,
   type LocaleCode,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";

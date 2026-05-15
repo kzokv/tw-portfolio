@@ -12,10 +12,10 @@
  *  - ageInDays correctly calculated against seeded data (uses /__e2e/seed-fx-rates)
  *  - Empty table returns { pairs: [], queriedAt }
  */
-import { createApiFixture } from "@tw-portfolio/test-api/config";
+import { createApiFixture } from "@vakwen/test-api/config";
 // TDD-red: FxRatesEndpoint and TFxRatesApiAssistant don't exist until Implementer lands slice 16
-import { FxRatesEndpoint } from "@tw-portfolio/test-api/endpoints";
-import type { TFxRatesApiAssistant } from "@tw-portfolio/test-api/assistants";
+import { FxRatesEndpoint } from "@vakwen/test-api/endpoints";
+import type { TFxRatesApiAssistant } from "@vakwen/test-api/assistants";
 import { test as base } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

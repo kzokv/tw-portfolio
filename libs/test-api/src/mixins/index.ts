@@ -1,4 +1,4 @@
-import { ApiAAABase } from "@tw-portfolio/test-framework/core";
+import { ApiAAABase } from "@vakwen/test-framework/core";
 
 export { ApiArrangeMixin } from "./ApiArrangeMixin.js";
 export { ApiActionsMixin, headersForCookie } from "./ApiActionsMixin.js";

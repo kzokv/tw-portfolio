@@ -41,7 +41,7 @@ function getFetchApiBaseUrl(): string {
   if (typeof window === "undefined") {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { WebEnv } = require("@tw-portfolio/config/web") as typeof import("@tw-portfolio/config/web");
+      const { WebEnv } = require("@vakwen/config/web") as typeof import("@vakwen/config/web");
       return WebEnv.SERVER_API_BASE_URL || getApiBaseUrl();
     } catch {
       return getApiBaseUrl();
@@ -117,7 +117,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { cookies } = require("next/headers") as typeof import("next/headers");
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { WebEnv } = require("@tw-portfolio/config/web") as typeof import("@tw-portfolio/config/web");
+      const { WebEnv } = require("@vakwen/config/web") as typeof import("@vakwen/config/web");
       const cookieStore = await cookies();
       const sessionValue = cookieStore.get(WebEnv.SESSION_COOKIE_NAME)?.value;
       const impersonationValue = cookieStore.get(IMPERSONATION_COOKIE_NAME)?.value;
@@ -395,7 +395,7 @@ export async function deleteJson<T>(
 }
 
 // ── Anonymous share token fetchers (KZO-147) ────────────────────────────────
-import type { AnonymousShareTokenDto } from "@tw-portfolio/shared-types";
+import type { AnonymousShareTokenDto } from "@vakwen/shared-types";
 
 export async function listAnonymousTokens(): Promise<AnonymousShareTokenDto[]> {
   const response = await getJson<{ tokens: AnonymousShareTokenDto[] }>("/share-tokens");

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents } from "./accountingStore.js";
 import { bookTradeSettlementRecompute } from "./cashLedgerService.js";

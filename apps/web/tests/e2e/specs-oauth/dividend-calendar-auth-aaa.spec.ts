@@ -1,5 +1,5 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { startInvitedOAuthAndGetState } from "@tw-portfolio/test-e2e/utils";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
+import { startInvitedOAuthAndGetState } from "@vakwen/test-e2e/utils";
 
 test.describe("dividend calendar auth", () => {
   test("dividends auth: unauthenticated visit → redirects to login with returnTo", async ({

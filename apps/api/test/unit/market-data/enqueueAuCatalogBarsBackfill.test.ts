@@ -26,7 +26,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKFILL_QUEUE } from "../../../src/services/market-data/backfillWorker.js";
 import { enqueueAuCatalogBarsBackfill } from "../../../src/services/market-data/enqueueAuCatalogBarsBackfill.js";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 
 describe("enqueueAuCatalogBarsBackfill (KZO-197)", () => {
   beforeEach(() => {

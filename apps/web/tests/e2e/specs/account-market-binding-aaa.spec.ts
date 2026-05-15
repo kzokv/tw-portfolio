@@ -23,7 +23,7 @@
  *   - Bundle rebuild via `npm run test:e2e:bypass:mem --prefix apps/web`.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // ─── AMB-1 ────────────────────────────────────────────────────────────────────
 

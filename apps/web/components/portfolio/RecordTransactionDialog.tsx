@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";

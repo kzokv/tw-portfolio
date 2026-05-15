@@ -1,5 +1,5 @@
 import { buildApp } from "./app.js";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { cleanupExpiredDemoUsers } from "./services/demoCleanup.js";
 import type { PostgresPersistence } from "./persistence/postgres.js";
 

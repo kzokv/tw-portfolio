@@ -4,7 +4,7 @@ import { noRawAction } from "./rules/no-raw-action.js";
 
 export default {
   meta: {
-    name: "@tw-portfolio/eslint-plugin-aaa",
+    name: "@vakwen/eslint-plugin-aaa",
     version: "0.1.0",
   },
   rules: {

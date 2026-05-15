@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
 import { verifySessionCookie } from "../../src/auth/googleOAuth.js";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 
 const testOAuthConfig: GoogleOAuthConfig = {
   clientId: "test-client-id",

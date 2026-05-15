@@ -1,5 +1,5 @@
 import { request as apiRequest, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 const E2E_USER_COOKIE = "tw_e2e_user";
 const E2E_USER_ROLE_COOKIE = "tw_e2e_user_role";

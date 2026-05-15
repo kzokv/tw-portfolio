@@ -4,15 +4,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool, types, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import {
   calculateAppliedTaxComponents,
   materializeFeeProfileTaxRules,
   projectLegacyFeeProfileTaxFields,
   type FeeProfile,
   type FeeProfileTaxRule,
-} from "@tw-portfolio/domain";
-import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
+} from "@vakwen/domain";
+import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
@@ -48,10 +48,10 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
-import { roundToDecimal } from "@tw-portfolio/domain";
-import type { Lot } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@vakwen/domain";
+import type { Lot } from "@vakwen/domain";
 import type { BookedTradeEvent } from "../types/store.js";
 import type {
   AdminAuditLogListOptions,
@@ -2986,7 +2986,7 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     startDate: string,
     endDate: string,
-    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
   ): Promise<AggregatedSnapshotPoint[]> {
     // D8 self-pair guard — `LEFT JOIN LATERAL ... ON s.currency <> $4`
     // gates the join so self-pair rows skip the FX lookup entirely. The
@@ -4714,7 +4714,7 @@ export class PostgresPersistence implements Persistence {
     try {
       await client.query("BEGIN");
       await this.ensureMigrationLedger(client);
-      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["tw_portfolio_schema_migrations"]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["vakwen_schema_migrations"]);
 
       const appliedResult = await client.query<{ name: string; checksum: string | null }>(
         "SELECT name, checksum FROM schema_migrations",
@@ -5950,7 +5950,7 @@ export class PostgresPersistence implements Persistence {
     const r = result.rows[0]!;
     return {
       ticker: r.ticker,
-      instrumentType: r.instrument_type as import("@tw-portfolio/domain").InstrumentType | null,
+      instrumentType: r.instrument_type as import("@vakwen/domain").InstrumentType | null,
       marketCode: r.market_code,
       name: r.name ?? undefined,
       isProvisional: r.is_provisional,
@@ -5960,9 +5960,9 @@ export class PostgresPersistence implements Persistence {
       finmindDate: r.finmind_date ?? undefined,
       delistedAt: r.delisted_at ?? undefined,
       statusReason: r.status_reason ?? undefined,
-      barsBackfillStatus: r.bars_backfill_status as import("@tw-portfolio/domain").BackfillStatus,
+      barsBackfillStatus: r.bars_backfill_status as import("@vakwen/domain").BackfillStatus,
       lastRepairAt: r.last_repair_at ?? undefined,
-      verificationStatus: r.verification_status as import("@tw-portfolio/domain").VerificationStatus,
+      verificationStatus: r.verification_status as import("@vakwen/domain").VerificationStatus,
       verificationNote: r.verification_note ?? undefined,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -5971,8 +5971,8 @@ export class PostgresPersistence implements Persistence {
 
   async updateBackfillStatus(
     ticker: string,
-    marketCode: import("@tw-portfolio/domain").MarketCode,
-    status: import("@tw-portfolio/domain").BackfillStatus,
+    marketCode: import("@vakwen/domain").MarketCode,
+    status: import("@vakwen/domain").BackfillStatus,
   ): Promise<void> {
     // KZO-197 P2-2: composite scope on (ticker, marketCode). Without the
     // market_code filter, a bare-ticker WHERE silently mutates cross-listed
@@ -7901,14 +7901,14 @@ export class PostgresPersistence implements Persistence {
 
   async listSoftDeletedAccounts(
     userId: string,
-  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>> {
+  ): Promise<Array<import("@vakwen/shared-types").AccountDto & { deletedAt: string }>> {
     const result = await this.pool.query<{
       id: string;
       user_id: string;
       name: string;
       fee_profile_id: string;
-      default_currency: import("@tw-portfolio/shared-types").AccountDefaultCurrency;
-      account_type: import("@tw-portfolio/shared-types").AccountType;
+      default_currency: import("@vakwen/shared-types").AccountDefaultCurrency;
+      account_type: import("@vakwen/shared-types").AccountType;
       deleted_at: Date | string;
     }>(
       `SELECT id, user_id, name, fee_profile_id, default_currency, account_type, deleted_at
@@ -7934,7 +7934,7 @@ export class PostgresPersistence implements Persistence {
     accountId: string,
     userId: string,
   ): Promise<
-    | (import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null })
+    | (import("@vakwen/shared-types").AccountDto & { deletedAt: string | null })
     | null
   > {
     const result = await this.pool.query<{
@@ -7942,8 +7942,8 @@ export class PostgresPersistence implements Persistence {
       user_id: string;
       name: string;
       fee_profile_id: string;
-      default_currency: import("@tw-portfolio/shared-types").AccountDefaultCurrency;
-      account_type: import("@tw-portfolio/shared-types").AccountType;
+      default_currency: import("@vakwen/shared-types").AccountDefaultCurrency;
+      account_type: import("@vakwen/shared-types").AccountType;
       deleted_at: Date | string | null;
     }>(
       `SELECT id, user_id, name, fee_profile_id, default_currency, account_type, deleted_at

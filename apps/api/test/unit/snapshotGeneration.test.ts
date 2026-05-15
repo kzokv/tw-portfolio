@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../../src/services/snapshotGeneration.js";
 import type { BookedTradeEvent } from "../../src/types/store.js";
-import type { DailyBar } from "@tw-portfolio/domain";
+import type { DailyBar } from "@vakwen/domain";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 
 let app: AppInstance;

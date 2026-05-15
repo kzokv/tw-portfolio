@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { roundToDecimal } from "@tw-portfolio/domain";
-import type { DailyBar } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@vakwen/domain";
+import type { DailyBar } from "@vakwen/domain";
 import type {
   Persistence,
   HoldingSnapshot,

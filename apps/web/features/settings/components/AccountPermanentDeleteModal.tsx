@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useState } from "react";
-import type { AccountDto } from "@tw-portfolio/shared-types";
+import type { AccountDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";

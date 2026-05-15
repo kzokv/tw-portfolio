@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test("[transactions settings]: rename account inline → selector shows renamed account with fee profile", async ({
   appShell,

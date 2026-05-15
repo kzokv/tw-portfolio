@@ -10,22 +10,22 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "paths": {
-      "@tw-portfolio/config/test": [
+      "@vakwen/config/test": [
         "../config/dist/test.d.ts"
       ],
-      "@tw-portfolio/test-framework": [
+      "@vakwen/test-framework": [
         "../test-framework/dist/index.d.ts"
       ],
-      "@tw-portfolio/test-framework/core": [
+      "@vakwen/test-framework/core": [
         "../test-framework/dist/core/index.d.ts"
       ],
-      "@tw-portfolio/test-framework/decorators": [
+      "@vakwen/test-framework/decorators": [
         "../test-framework/dist/decorators/index.d.ts"
       ],
-      "@tw-portfolio/test-framework/mixins": [
+      "@vakwen/test-framework/mixins": [
         "../test-framework/dist/mixins/index.d.ts"
       ],
-      "@tw-portfolio/test-framework/config": [
+      "@vakwen/test-framework/config": [
         "../test-framework/dist/config/index.d.ts"
       ]
     }

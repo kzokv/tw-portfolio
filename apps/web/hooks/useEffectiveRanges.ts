@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   type DashboardPerformanceRange,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getJson } from "../lib/api";
 
 /**

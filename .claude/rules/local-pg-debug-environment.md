@@ -12,7 +12,7 @@ When debugging any of these features, you MUST use a real Postgres backend — t
 The guide covers: Docker container startup, migration, host-level API startup with correct env vars, pg-boss job inspection queries, and known pitfalls (Lume VM Docker host IP, port mismatches, env file sourcing).
 
 **Quick start summary:**
-1. `docker compose --env-file infra/docker/.env.local -f infra/docker/docker-compose.local.yml up -d twp-local-postgres twp-local-redis`
+1. `docker compose --env-file infra/docker/.env.local -f infra/docker/docker-compose.local.yml up -d vakwen-local-postgres vakwen-local-redis`
 2. Run migrations with `--profile migrate`
 3. Check `DOCKER_HOST` — if in Lume VM, use `192.168.64.1` not `localhost` for DB/Redis URLs
 4. Start API on host with `PERSISTENCE_BACKEND=postgres AUTH_MODE=dev_bypass API_PORT=4100`

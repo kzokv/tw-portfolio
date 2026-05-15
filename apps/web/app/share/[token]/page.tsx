@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import type { PublicShareViewDto } from "@tw-portfolio/shared-types";
+import type { PublicShareViewDto } from "@vakwen/shared-types";
 import { Card } from "../../../components/ui/Card";
 import { API_BASE } from "../../../lib/api";
 import { resolveAuthLocale } from "../../../lib/authPages";

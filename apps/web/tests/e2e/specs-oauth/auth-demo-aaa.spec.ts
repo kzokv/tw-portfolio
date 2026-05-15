@@ -1,6 +1,6 @@
-import { E2E_ENDPOINTS } from "@tw-portfolio/test-e2e/constants";
-import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
-import { apiUrl } from "@tw-portfolio/test-e2e/utils";
+import { E2E_ENDPOINTS } from "@vakwen/test-e2e/constants";
+import { test } from "@vakwen/test-e2e/fixtures/authPages";
+import { apiUrl } from "@vakwen/test-e2e/utils";
 
 // Demo tests start from the login page without an existing session.
 // Uses noAuthBase fixture (no dev-bypass auth setup, no OAuth cookie).

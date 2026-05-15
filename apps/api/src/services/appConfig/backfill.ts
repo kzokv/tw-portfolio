@@ -7,7 +7,7 @@
  * The resolvers exist so the admin DTO can surface the effective values and
  * so future tickets that benefit from live reads have a single call surface.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveBackfillRetryLimit(): number {

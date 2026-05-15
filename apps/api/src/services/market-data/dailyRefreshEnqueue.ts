@@ -1,5 +1,5 @@
 import type { PgBoss } from "pg-boss";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 import type { BackfillJobData } from "./backfillWorker.js";
 import { BACKFILL_QUEUE } from "./backfillWorker.js";

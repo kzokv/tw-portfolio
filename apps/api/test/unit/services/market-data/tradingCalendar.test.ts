@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import {
   isTradingDayPure,
   latestSettledTradingDayPure,

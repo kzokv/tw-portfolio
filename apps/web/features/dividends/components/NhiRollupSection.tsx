@@ -7,11 +7,11 @@ import type {
   DividendSourceBucket,
   DividendSourceLine,
   LocaleCode,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { DividendLedgerEntryDetails } from "../types";
 import { Card } from "../../../components/ui/Card";
 
-// Duplicated from @tw-portfolio/domain — web avoids runtime dep on domain lib.
+// Duplicated from @vakwen/domain — web avoids runtime dep on domain lib.
 const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
   "DIVIDEND_INCOME",
   "INTEREST_INCOME",

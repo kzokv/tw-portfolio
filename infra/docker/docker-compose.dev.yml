@@ -1,18 +1,18 @@
 services:
-  twp-dev-postgres:
+  vakwen-dev-postgres:
     image: postgres:16
-    container_name: twp-dev-postgres
+    container_name: vakwen-dev-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-twp}
+      POSTGRES_USER: ${POSTGRES_USER:-vakwen}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-tw_portfolio}
+      POSTGRES_DB: ${POSTGRES_DB:-vakwen}
     volumes:
       - pgdata_dev:/var/lib/postgresql/data
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-twp} -d ${POSTGRES_DB:-tw_portfolio}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vakwen} -d ${POSTGRES_DB:-vakwen}"]
       interval: 10s
       timeout: 5s
       start_period: 20s
@@ -30,13 +30,13 @@ services:
     ports:
       - "5454:5432"
 
-  twp-dev-redis:
+  vakwen-dev-redis:
     image: redis:7
-    container_name: twp-dev-redis
+    container_name: vakwen-dev-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     healthcheck:
       test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
       interval: 10s
@@ -58,23 +58,23 @@ services:
     ports:
       - "6363:6379"
 
-  twp-dev-migrate:
+  vakwen-dev-migrate:
     profiles: ["migrate"]
     build:
       context: ../..
       dockerfile: db/Dockerfile.migrate
-    image: twp-dev-migrate:${IMAGE_TAG:-latest}
-    container_name: twp-dev-migrate
+    image: vakwen-dev-migrate:${IMAGE_TAG:-latest}
+    container_name: vakwen-dev-migrate
     depends_on:
-      twp-dev-postgres:
+      vakwen-dev-postgres:
         condition: service_healthy
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGHOST: twp-dev-postgres
-      PGUSER: ${POSTGRES_USER:-twp}
-      PGDATABASE: ${POSTGRES_DB:-tw_portfolio}
+      PGHOST: vakwen-dev-postgres
+      PGUSER: ${POSTGRES_USER:-vakwen}
+      PGDATABASE: ${POSTGRES_DB:-vakwen}
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     restart: "no"
     logging:
       driver: json-file
@@ -82,34 +82,34 @@ services:
         max-size: "5m"
         max-file: "3"
 
-  twp-dev-api:
+  vakwen-dev-api:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
       args:
         CACHE_BUST: ${CACHE_BUST:-0}
-    image: twp-dev-api:${IMAGE_TAG:-latest}
-    container_name: twp-dev-api
+    image: vakwen-dev-api:${IMAGE_TAG:-latest}
+    container_name: vakwen-dev-api
     restart: unless-stopped
     depends_on:
-      twp-dev-postgres:
+      vakwen-dev-postgres:
         condition: service_healthy
-      twp-dev-redis:
+      vakwen-dev-redis:
         condition: service_healthy
     env_file:
       - ${APP_ENV_FILE:-.env.dev}
     environment:
       NODE_ENV: production
-      DB_URL: postgres://${POSTGRES_USER:-twp}:${POSTGRES_PASSWORD}@twp-dev-postgres:5432/${POSTGRES_DB:-tw_portfolio}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@twp-dev-redis:6379
+      DB_URL: postgres://${POSTGRES_USER:-vakwen}:${POSTGRES_PASSWORD}@vakwen-dev-postgres:5432/${POSTGRES_DB:-vakwen}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@vakwen-dev-redis:6379
       API_PORT: "4000"
-      ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
-      APP_BASE_URL: https://${PUBLIC_DOMAIN_WEB:-twp-dev-web.kzokvdevs.dpdns.org}
-      GOOGLE_REDIRECT_URI: https://${PUBLIC_DOMAIN_API:-twp-dev-api.kzokvdevs.dpdns.org}/auth/google/callback
+      ALLOWED_ORIGINS: https://${PUBLIC_DOMAIN_WEB:-vakwen-dev-web.kzokvdevs.dpdns.org}
+      APP_BASE_URL: https://${PUBLIC_DOMAIN_WEB:-vakwen-dev-web.kzokvdevs.dpdns.org}
+      GOOGLE_REDIRECT_URI: https://${PUBLIC_DOMAIN_API:-vakwen-dev-api.kzokvdevs.dpdns.org}/auth/google/callback
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-g_auth_session}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.kzokvdevs.dpdns.org}
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health/live || exit 1"]
       interval: 15s
@@ -127,19 +127,19 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  twp-dev-web:
+  vakwen-dev-web:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
       args:
         CACHE_BUST: ${CACHE_BUST:-0}
-        NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-twp-dev-api.kzokvdevs.dpdns.org}
+        NEXT_PUBLIC_API_BASE_URL: https://${PUBLIC_DOMAIN_API:-vakwen-dev-api.kzokvdevs.dpdns.org}
         NEXT_PUBLIC_AUTH_MODE: oauth
-    image: twp-dev-web:${IMAGE_TAG:-latest}
-    container_name: twp-dev-web
+    image: vakwen-dev-web:${IMAGE_TAG:-latest}
+    container_name: vakwen-dev-web
     restart: unless-stopped
     depends_on:
-      twp-dev-api:
+      vakwen-dev-api:
         condition: service_healthy
     environment:
       NODE_ENV: production
@@ -152,9 +152,9 @@ services:
       NEXT_PUBLIC_AUTH_MODE: oauth
       DEMO_MODE_ENABLED: ${DEMO_MODE_ENABLED:-false}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.kzokvdevs.dpdns.org}
-      SERVER_API_BASE_URL: http://twp-dev-api:4000
+      SERVER_API_BASE_URL: http://vakwen-dev-api:4000
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
       interval: 15s
@@ -174,18 +174,18 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: twp-dev-cloudflared
+    container_name: vakwen-dev-cloudflared
     restart: unless-stopped
     depends_on:
-      twp-dev-web:
+      vakwen-dev-web:
         condition: service_healthy
-      twp-dev-api:
+      vakwen-dev-api:
         condition: service_healthy
     command: tunnel run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}
     networks:
-      - twp-dev-net
+      - vakwen-dev-net
     deploy:
       resources:
         limits:
@@ -201,5 +201,5 @@ volumes:
   pgdata_dev:
 
 networks:
-  twp-dev-net:
+  vakwen-dev-net:
     driver: bridge

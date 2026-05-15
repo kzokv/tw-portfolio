@@ -8,7 +8,7 @@ import type {
   FeeProfileDto,
   ProfileDto,
   UserSettings,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { FormEvent } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";

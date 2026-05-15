@@ -1,5 +1,5 @@
-import type { QuoteSnapshot } from "@tw-portfolio/domain";
-import type { PublicShareViewDto } from "@tw-portfolio/shared-types";
+import type { QuoteSnapshot } from "@vakwen/domain";
+import type { PublicShareViewDto } from "@vakwen/shared-types";
 import type { Store } from "../types/store.js";
 
 interface HoldingWithQuote {

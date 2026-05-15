@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { AdminApiActions } from "./AdminApiActions.js";
 import { AdminApiArrange } from "./AdminApiArrange.js";
 import { AdminApiAssert } from "./AdminApiAssert.js";

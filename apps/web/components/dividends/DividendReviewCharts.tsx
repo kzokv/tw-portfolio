@@ -13,7 +13,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import type { CurrencyExpectedReceived } from "@tw-portfolio/shared-types";
+import type { CurrencyExpectedReceived } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import {
   bucketByGranularity,

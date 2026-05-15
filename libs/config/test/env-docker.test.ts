@@ -9,8 +9,8 @@ const minCloudEnv = {
   POSTGRES_PASSWORD: "test-pw",
   REDIS_PASSWORD: "test-redis",
   CLOUDFLARE_TUNNEL_TOKEN: "test-token",
-  PUBLIC_DOMAIN_WEB: "twp-dev-web.kzokvdevs.dpdns.org",
-  PUBLIC_DOMAIN_API: "twp-dev-api.kzokvdevs.dpdns.org",
+  PUBLIC_DOMAIN_WEB: "vakwen-dev-web.kzokvdevs.dpdns.org",
+  PUBLIC_DOMAIN_API: "vakwen-dev-api.kzokvdevs.dpdns.org",
   COOKIE_DOMAIN: ".kzokvdevs.dpdns.org",
   DEPLOY_ENV: "dev",
   // Google OAuth: GOOGLE_REDIRECT_URI omitted — optional in schema (required at runtime via validateEnvConstraints)

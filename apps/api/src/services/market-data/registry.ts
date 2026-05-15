@@ -1,5 +1,5 @@
-import type { EnvConfig } from "@tw-portfolio/config";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { EnvConfig } from "@vakwen/config";
+import type { MarketCode } from "@vakwen/domain";
 import type { FxRateProvider, InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { RateLimiter } from "./rateLimiter.js";
 import {

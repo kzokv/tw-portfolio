@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // NOTE: seedDailyBars appends to a global (non-per-user) array in MemoryPersistence.
 // Use a unique synthetic ticker per charted case so snapshot walks do not inherit

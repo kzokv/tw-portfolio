@@ -1,5 +1,5 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import { E2E_ENDPOINTS } from "../../constants/index.js";
 import { extractCookieValue } from "../../utils/cookie.js";

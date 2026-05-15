@@ -7,8 +7,8 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
-      "@tw-portfolio/domain": resolve(rootDir, "src/index.ts"),
-      "@tw-portfolio/shared-types": resolve(
+      "@vakwen/domain": resolve(rootDir, "src/index.ts"),
+      "@vakwen/shared-types": resolve(
         rootDir,
         "../shared-types/src/index.ts",
       ),

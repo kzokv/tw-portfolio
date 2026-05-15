@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { roundToDecimal } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@vakwen/domain";
 import type {
   CashLedgerEntryForWalletReplay,
   CurrencyWalletSnapshot,

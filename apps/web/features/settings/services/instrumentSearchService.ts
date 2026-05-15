@@ -1,6 +1,6 @@
 "use client";
 
-import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MarketCode } from "@vakwen/shared-types";
 import { ApiError, getJson } from "../../../lib/api";
 
 /**

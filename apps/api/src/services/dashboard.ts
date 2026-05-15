@@ -5,9 +5,9 @@ import type {
   DashboardOverviewUpcomingDividendDto,
   IntegrityIssueDto,
   InstrumentOptionDto,
-} from "@tw-portfolio/shared-types";
-import { roundToDecimal } from "@tw-portfolio/domain";
-import type { QuoteSnapshot } from "@tw-portfolio/domain";
+} from "@vakwen/shared-types";
+import { roundToDecimal } from "@vakwen/domain";
+import type { QuoteSnapshot } from "@vakwen/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import type { Store } from "../types/store.js";

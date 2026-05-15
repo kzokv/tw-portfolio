@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import type { NotificationDto, NotificationListResponse } from "@tw-portfolio/shared-types";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import type { NotificationDto, NotificationListResponse } from "@vakwen/shared-types";
+import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseArrange } from "../../mixins/index.js";
 import type { NotificationsEndpoint } from "../../endpoints/NotificationsEndpoint.js";
 

@@ -1,5 +1,5 @@
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 import { apiUrl } from "../../utils/url.js";
 
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";

@@ -1,6 +1,6 @@
 // KZO-199 — Unit tests for sharing knob resolvers.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import {
   _resetAppConfigCache,
   refresh,

@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
+import { BasePage } from "@vakwen/test-framework/core";
 import { DeductionSubFormComponent, type TDeductionSubFormElements } from "./DeductionSubFormComponent.js";
 import { SourceLineSubFormComponent, type TSourceLineSubFormElements } from "./SourceLineSubFormComponent.js";
 

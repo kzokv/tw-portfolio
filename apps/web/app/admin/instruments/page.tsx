@@ -1,4 +1,4 @@
-import type { AdminInstrumentsResponse } from "@tw-portfolio/shared-types";
+import type { AdminInstrumentsResponse } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import { AdminInstrumentsClient } from "../../../components/admin/AdminInstrumentsClient";
 

@@ -1,5 +1,5 @@
 import type { JobWithMetadata } from "pg-boss";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import type { Persistence } from "../../persistence/types.js";
 import type { FxRate, FxRateProvider, FxRefreshJobData } from "./types.js";
 import { RateLimitedError } from "./types.js";

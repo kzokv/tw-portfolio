@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { AnonymousShareTokensApiActions } from "./AnonymousShareTokensApiActions.js";
 import { AnonymousShareTokensApiArrange } from "./AnonymousShareTokensApiArrange.js";
 import { AnonymousShareTokensApiAssert } from "./AnonymousShareTokensApiAssert.js";

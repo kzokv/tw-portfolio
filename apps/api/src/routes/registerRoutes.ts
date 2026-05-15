@@ -22,17 +22,17 @@ import {
   type ImpersonationCookieIdentity,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@tw-portfolio/domain";
-import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
-import { dashboardPerformanceRangesSchema, currencyFor, marketCodeFor } from "@tw-portfolio/shared-types";
+import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
+import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@vakwen/shared-types";
+import { dashboardPerformanceRangesSchema, currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../services/dashboardReportingCurrency.js";
-import type { ImpersonationDto } from "@tw-portfolio/shared-types";
-import { Env } from "@tw-portfolio/config";
-import type { QuoteSnapshot } from "@tw-portfolio/domain";
+import type { ImpersonationDto } from "@vakwen/shared-types";
+import { Env } from "@vakwen/config";
+import type { QuoteSnapshot } from "@vakwen/domain";
 import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "../services/market-data/quoteSnapshotService.js";
 import {
   listCorporateActions,
@@ -103,8 +103,8 @@ import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from 
 import { _resetMarketDataSearchBuckets, assertMarketDataSearchRateLimit, registerMarketDataSearchEviction } from "../lib/marketDataSearchRateLimit.js";
 import { registerProviderErrorTrailPurge } from "../lib/providerErrorTrailPurge.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
-import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@tw-portfolio/shared-types";
-import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
+import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@vakwen/shared-types";
+import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
 
 export const userScopedIdSchema = z
   .string()
@@ -2357,7 +2357,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       // KZO-180: user-level reporting currency. Stored as a JSONB key (no
       // migration); enum mirrors `AccountDefaultCurrency` from
-      // `@tw-portfolio/shared-types` (TWD/USD/AUD). `null` clears the key
+      // `@vakwen/shared-types` (TWD/USD/AUD). `null` clears the key
       // and the resolver falls back to the `'TWD'` default.
       reportingCurrency: z
         .union([z.enum(["TWD", "USD", "AUD"]), z.null()])
@@ -4654,7 +4654,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Reset status to pending before enqueuing
     await app.persistence.updateBackfillStatus(
       body.ticker,
-      instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
+      instrument.marketCode as import("@vakwen/domain").MarketCode,
       "pending",
     );
 
@@ -4662,7 +4662,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       BACKFILL_QUEUE,
       {
         ticker: body.ticker,
-        marketCode: instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
+        marketCode: instrument.marketCode as import("@vakwen/domain").MarketCode,
         userId,
         trigger: "retry",
       } satisfies BackfillJobData,
@@ -4739,7 +4739,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         BACKFILL_QUEUE,
         {
           ticker,
-          marketCode: instrument.marketCode as import("@tw-portfolio/domain").MarketCode,
+          marketCode: instrument.marketCode as import("@vakwen/domain").MarketCode,
           userId,
           trigger: "repair",
           startDate: body.startDate,

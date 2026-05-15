@@ -1,5 +1,5 @@
-import { test, expect } from "@tw-portfolio/test-e2e/fixtures/base";
-import { apiUrl, openSseProbe, publishAndExpectSseEvent, waitForSseProbeResult } from "@tw-portfolio/test-e2e/utils";
+import { test, expect } from "@vakwen/test-e2e/fixtures/base";
+import { apiUrl, openSseProbe, publishAndExpectSseEvent, waitForSseProbeResult } from "@vakwen/test-e2e/utils";
 
 test.describe("SSE event delivery", () => {
   test("synthetic endpoint publishes event and EventSource receives it", async ({ page, request, e2eUserId, testUser }) => {

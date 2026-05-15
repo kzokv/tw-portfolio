@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import { BaseEndpoint } from "@tw-portfolio/test-framework/core";
-import { apiUrl } from "@tw-portfolio/test-framework/shared";
+import { BaseEndpoint } from "@vakwen/test-framework/core";
+import { apiUrl } from "@vakwen/test-framework/shared";
 
 function withQuery(path: string, query?: Record<string, string | number | undefined>): string {
   if (!query) return apiUrl(path);

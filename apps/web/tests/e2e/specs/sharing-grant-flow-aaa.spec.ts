@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import { seedUser } from "./helpers/sharing";
 
 test.describe("sharing grant flow", () => {

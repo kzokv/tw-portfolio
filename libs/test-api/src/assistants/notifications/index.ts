@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { NotificationsApiActions } from "./NotificationsApiActions.js";
 import { NotificationsApiArrange } from "./NotificationsApiArrange.js";
 import { NotificationsApiAssert } from "./NotificationsApiAssert.js";

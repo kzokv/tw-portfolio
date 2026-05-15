@@ -1,4 +1,4 @@
-import { BaseArrange } from "@tw-portfolio/test-framework/mixins";
+import { BaseArrange } from "@vakwen/test-framework/mixins";
 
 import type { SharingPage } from "../../pages/sharing/SharingPage.js";
 

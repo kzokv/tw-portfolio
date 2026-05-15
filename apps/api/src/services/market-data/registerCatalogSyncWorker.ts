@@ -1,7 +1,7 @@
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import { z } from "zod";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import type { AppInstance } from "../../app.js";
 import type { Persistence } from "../../persistence/types.js";
 import type { InstrumentCatalogProvider } from "./types.js";
@@ -122,7 +122,7 @@ export function createCatalogSyncHandler(deps: CatalogSyncWorkerDeps) {
     // KZO-170 S6: locally narrow MarketCode to the literal union "TW"|"US"|"AU" so the
     // `satisfies CatalogSyncJobData` reschedule call below typechecks. The Zod schema
     // already enforces the runtime invariant; the cast is the bridge between the loose
-    // `MarketCode = string` from `@tw-portfolio/domain` and the strict shape the schema
+    // `MarketCode = string` from `@vakwen/domain` and the strict shape the schema
     // produces.
     const registeredMarkets = [...catalogRegistry.keys()] as StrictMarketCode[];
     const targetMarkets: StrictMarketCode[] = parsed.pendingMarkets ?? registeredMarkets;

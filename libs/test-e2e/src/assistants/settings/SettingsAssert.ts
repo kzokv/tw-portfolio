@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseAssert } from "@tw-portfolio/test-framework/mixins";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseAssert } from "@vakwen/test-framework/mixins";
 
 import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage.js";
 

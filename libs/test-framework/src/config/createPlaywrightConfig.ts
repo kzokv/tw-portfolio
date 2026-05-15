@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 import path from "node:path";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 type TWebServerMode = "full" | "api-only";
 
@@ -57,7 +57,7 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
   };
 
   const apiServer = {
-    command: "bash scripts/reclaim-e2e-server.sh api && npm run build -w @tw-portfolio/config -w libs/domain -w libs/shared-types && npx tsx watch apps/api/src/server.ts",
+    command: "bash scripts/reclaim-e2e-server.sh api && npm run build -w @vakwen/config -w libs/domain -w libs/shared-types && npx tsx watch apps/api/src/server.ts",
     url: `http://${host}:${apiPort}/health/live`,
     timeout: 60_000,
     cwd: repoRoot,

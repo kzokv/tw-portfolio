@@ -47,7 +47,7 @@ Surfaced during KZO-159 (158A) Task #5 full-suite gate. `libs/shared-types/src/i
 
 ## Companion: Relative runtime-submodule re-export resolution failure (KZO-196)
 
-A complementary failure mode arises when you try to extract runtime value exports into a **separate submodule file** (`gics.ts`) and re-export it via `export * from "./gics.js"` from the barrel. Under the standard Turbopack/webpack value-export audit (above), this looks safe — the barrel already has runtime exports, so adding another is routine. However, when `apps/web/tsconfig.json` aliases `@tw-portfolio/shared-types` to the direct source path (`libs/shared-types/src/index.ts`), webpack resolves the barrel *by filename*. A relative `./gics.js` import inside the barrel then fails to resolve because webpack looks for the file relative to the **aliased entry point**, not the physical disk path — there is no `gics.js` adjacent to the webpack-resolved path.
+A complementary failure mode arises when you try to extract runtime value exports into a **separate submodule file** (`gics.ts`) and re-export it via `export * from "./gics.js"` from the barrel. Under the standard Turbopack/webpack value-export audit (above), this looks safe — the barrel already has runtime exports, so adding another is routine. However, when `apps/web/tsconfig.json` aliases `@vakwen/shared-types` to the direct source path (`libs/shared-types/src/index.ts`), webpack resolves the barrel *by filename*. A relative `./gics.js` import inside the barrel then fails to resolve because webpack looks for the file relative to the **aliased entry point**, not the physical disk path — there is no `gics.js` adjacent to the webpack-resolved path.
 
 **The failure is invisible to `tsc --noEmit` and Vitest.** It only surfaces when Next.js runs through webpack/Turbopack at `next build` / E2E time.
 
@@ -61,13 +61,13 @@ A complementary failure mode arises when you try to extract runtime value export
 
 ### KZO-196 experience
 
-`libs/shared-types/src/gics.ts` was created with 11 sectors × 25 industry-group entries and four exported helpers. The barrel re-exported it via `export * from "./gics.js"`. All suites except Suite 6 (E2E) were green. Suite 6 failed on page load with a webpack module-not-found-style error because `apps/web/tsconfig.json`'s `@tw-portfolio/shared-types` alias resolved to `libs/shared-types/src/index.ts`, and webpack could not find `./gics.js` relative to that resolved path.
+`libs/shared-types/src/gics.ts` was created with 11 sectors × 25 industry-group entries and four exported helpers. The barrel re-exported it via `export * from "./gics.js"`. All suites except Suite 6 (E2E) were green. Suite 6 failed on page load with a webpack module-not-found-style error because `apps/web/tsconfig.json`'s `@vakwen/shared-types` alias resolved to `libs/shared-types/src/index.ts`, and webpack could not find `./gics.js` relative to that resolved path.
 
 **Resolution in KZO-196:** inlined the content into `index.ts` (option a). KZO-202 tracks the proper extraction once `extensionAlias` lands.
 
 ### How to apply
 
-- Before creating a new runtime-value submodule file in `libs/shared-types/src/` (or any package aliased by `apps/web/tsconfig.json`), verify whether `apps/web/tsconfig.json` uses a **direct-source alias** (e.g. `"@tw-portfolio/shared-types": ["libs/shared-types/src/index.ts"]`) or a **dist alias** (e.g. pointing at `dist/`).
+- Before creating a new runtime-value submodule file in `libs/shared-types/src/` (or any package aliased by `apps/web/tsconfig.json`), verify whether `apps/web/tsconfig.json` uses a **direct-source alias** (e.g. `"@vakwen/shared-types": ["libs/shared-types/src/index.ts"]`) or a **dist alias** (e.g. pointing at `dist/`).
 - If a direct-source alias is in place AND you want a separate submodule file: either use option (b) or (c), or inline the content into the barrel (option a) until the alias is updated.
 - The sibling rule (above the separator) covers the **first-value-export audit** when the barrel transitions from type-only to mixed. This companion covers the **relative-import resolution gap** for subsequent submodule additions.
 - KZO-202 is the follow-up ticket. Once it lands, `gics.ts` can be extracted and both rules should be updated to reflect the resolved alias strategy.

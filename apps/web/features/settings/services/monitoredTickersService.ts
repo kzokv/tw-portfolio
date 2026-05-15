@@ -1,6 +1,6 @@
 "use client";
 
-import type { InstrumentCatalogItemDto, InstrumentType, MonitoredTickerDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, InstrumentType, MonitoredTickerDto } from "@vakwen/shared-types";
 import { getJson, postJson, putJson } from "../../../lib/api";
 
 export interface MonitoredTickersResponse {

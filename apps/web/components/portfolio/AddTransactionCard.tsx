@@ -7,8 +7,8 @@ import type {
   CurrencyCode,
   LocaleCode,
   MarketCode,
-} from "@tw-portfolio/shared-types";
-import { currencyFor, marketCodeFor } from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
+import { currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { TooltipInfo } from "../ui/TooltipInfo";

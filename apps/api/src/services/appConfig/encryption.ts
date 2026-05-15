@@ -17,7 +17,7 @@
  * `try/catch` swallow `AppConfigDecryptError`.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 
 const ALG = "aes-256-gcm";
 const NONCE_LEN = 12;

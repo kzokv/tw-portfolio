@@ -1,7 +1,7 @@
 import type { APIResponse } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { extractCookieValue, parseSessionCookie } from "@tw-portfolio/test-framework/shared";
+import { TestEnv } from "@vakwen/config/test";
+import { Step } from "@vakwen/test-framework/decorators";
+import { extractCookieValue, parseSessionCookie } from "@vakwen/test-framework/shared";
 import { ApiBaseArrange } from "../../mixins/index.js";
 import type { SessionEndpoint } from "../../endpoints/SessionEndpoint.js";
 

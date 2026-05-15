@@ -5,8 +5,8 @@ import type {
   AdminInviteListItemDto,
   AdminInviteListResponse,
   AppConfigDto,
-} from "@tw-portfolio/shared-types";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+} from "@vakwen/shared-types";
+import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseArrange } from "../../mixins/index.js";
 import type { AdminEndpoint } from "../../endpoints/AdminEndpoint.js";
 

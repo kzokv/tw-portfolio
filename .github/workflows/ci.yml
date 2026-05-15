@@ -37,12 +37,12 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run build -w @tw-portfolio/config
-      - run: npm run build -w @tw-portfolio/domain
-      - run: npm run build -w @tw-portfolio/shared-types
-      - run: npm run build -w @tw-portfolio/api
-      - run: npm run build -w @tw-portfolio/test-framework
-      - run: npm run build -w @tw-portfolio/test-e2e
+      - run: npm run build -w @vakwen/config
+      - run: npm run build -w @vakwen/domain
+      - run: npm run build -w @vakwen/shared-types
+      - run: npm run build -w @vakwen/api
+      - run: npm run build -w @vakwen/test-framework
+      - run: npm run build -w @vakwen/test-e2e
       - run: npx tsc --noEmit -p apps/api/tsconfig.json
       - run: npx tsc --noEmit -p apps/web/tsconfig.json
 
@@ -55,8 +55,8 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run build -w @tw-portfolio/config
-      - run: npm run build -w @tw-portfolio/test-framework
+      - run: npm run build -w @vakwen/config
+      - run: npm run build -w @vakwen/test-framework
       - run: npm run test:unit
 
   integration-tests:
@@ -67,7 +67,7 @@ jobs:
         env:
           POSTGRES_USER: app
           POSTGRES_PASSWORD: app
-          POSTGRES_DB: tw_portfolio
+          POSTGRES_DB: vakwen
         ports:
           - 5432:5432
         options: >-
@@ -85,7 +85,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DB_URL: postgres://app:app@localhost:5432/tw_portfolio
+      DB_URL: postgres://app:app@localhost:5432/vakwen
       REDIS_URL: redis://localhost:6379
       PERSISTENCE_BACKEND: postgres
       AUTH_MODE: dev_bypass
@@ -97,9 +97,9 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run build -w @tw-portfolio/config
-      - run: npm run build -w @tw-portfolio/domain
-      - run: npm run build -w @tw-portfolio/shared-types
+      - run: npm run build -w @vakwen/config
+      - run: npm run build -w @vakwen/domain
+      - run: npm run build -w @vakwen/shared-types
       - run: npm run test:integration
 
   e2e-bypass:
@@ -114,9 +114,9 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run build -w @tw-portfolio/config
-      - run: npm run build -w @tw-portfolio/domain
-      - run: npm run build -w @tw-portfolio/shared-types
+      - run: npm run build -w @vakwen/config
+      - run: npm run build -w @vakwen/domain
+      - run: npm run build -w @vakwen/shared-types
       - run: npx playwright install --with-deps
       - run: npm run test:e2e:ci:bypass:mem --prefix apps/web
       - uses: actions/upload-artifact@v4
@@ -138,9 +138,9 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run build -w @tw-portfolio/config
-      - run: npm run build -w @tw-portfolio/domain
-      - run: npm run build -w @tw-portfolio/shared-types
+      - run: npm run build -w @vakwen/config
+      - run: npm run build -w @vakwen/domain
+      - run: npm run build -w @vakwen/shared-types
       - run: npx playwright install --with-deps
       - run: npm run test:e2e:ci:oauth:mem --prefix apps/web
       - uses: actions/upload-artifact@v4

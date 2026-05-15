@@ -20,9 +20,9 @@
  *   R7 — unknown provider id: 404 with body.error
  *   R9 — body.error carries the code (per service-error-pattern.md)
  */
-import { createApiFixture } from "@tw-portfolio/test-api/config";
-import { ProvidersEndpoint } from "@tw-portfolio/test-api/endpoints";
-import type { TProvidersApiAssistant } from "@tw-portfolio/test-api/assistants";
+import { createApiFixture } from "@vakwen/test-api/config";
+import { ProvidersEndpoint } from "@vakwen/test-api/endpoints";
+import type { TProvidersApiAssistant } from "@vakwen/test-api/assistants";
 import { test as base } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

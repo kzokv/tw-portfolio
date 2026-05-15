@@ -3,7 +3,7 @@
  * Unifies the session-minting logic shared by oauthBase and demoBase.
  */
 import { test as base } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 import { E2E_ENDPOINTS } from "../constants/index.js";
 import {
   buildUserFixtures,

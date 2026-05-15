@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Docker cleanup script for tw-portfolio (dev machine only).
+# Docker cleanup script for vakwen (dev machine only).
 #
 # What it does:
 #   1. Shows stopped containers and/or dangling images.

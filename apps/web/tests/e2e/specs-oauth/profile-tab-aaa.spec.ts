@@ -1,5 +1,5 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { makeDeterministicIdToken } from "@tw-portfolio/test-e2e/utils";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
+import { makeDeterministicIdToken } from "@vakwen/test-e2e/utils";
 
 test.describe("profile tab in settings drawer", () => {
   test("profile tab button is visible in settings drawer", async ({ appShell, settings }) => {

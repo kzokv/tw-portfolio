@@ -1,6 +1,6 @@
 "use client";
 
-import type { DashboardPerformanceDto, DashboardPerformancePointDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { DashboardPerformanceDto, DashboardPerformancePointDto, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { Card } from "../ui/Card";
 

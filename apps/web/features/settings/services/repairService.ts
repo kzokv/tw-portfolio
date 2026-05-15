@@ -1,5 +1,5 @@
 import { getJson, postJson } from "../../../lib/api";
-import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 
 export interface RepairTargetRequest {
   tickers: string[];

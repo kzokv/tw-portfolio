@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
-      POSTGRES_DB: tw_portfolio_ci
+      POSTGRES_DB: vakwen_ci
     ports:
       - "${CI_DB_PORT:-15432}:5432"
     volumes:
