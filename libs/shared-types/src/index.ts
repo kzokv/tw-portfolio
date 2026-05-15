@@ -436,6 +436,44 @@ export const dashboardPerformanceRangesSchema: z.ZodType<string[]> = z
     { message: "ranges_list_duplicate" },
   );
 
+// ─── Phase 2: theme accent + density ──────────────────────────────────────
+// Per ui-reshape design §3.2 (presets) and decisions #14 (custom). Status
+// colors (success/danger/warning) do NOT shift with accent — only --primary
+// and --ring mutate. See apps/web/lib/theme.ts for the runtime CSS-var setter.
+
+export const ACCENT_PRESETS = [
+  "indigo",
+  "violet",
+  "blue",
+  "cyan",
+  "emerald",
+  "amber",
+  "rose",
+  "slate",
+] as const;
+export type AccentPreset = (typeof ACCENT_PRESETS)[number];
+
+export type ThemeAccent =
+  | { kind: "preset"; preset: AccentPreset }
+  | { kind: "custom"; h: number; s: number; l: number };
+
+export const themeAccentSchema: z.ZodType<ThemeAccent> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("preset"), preset: z.enum(ACCENT_PRESETS) }),
+  z.object({
+    kind: z.literal("custom"),
+    h: z.number().int().min(0).max(360),
+    s: z.number().int().min(0).max(100),
+    l: z.number().int().min(0).max(100),
+  }),
+]);
+
+export const DENSITY_MODES = ["compact", "comfortable"] as const;
+export type DensityMode = (typeof DENSITY_MODES)[number];
+export const densityModeSchema: z.ZodType<DensityMode> = z.enum(DENSITY_MODES);
+
+export const DEFAULT_THEME_ACCENT: ThemeAccent = { kind: "preset", preset: "indigo" };
+export const DEFAULT_DENSITY: DensityMode = "compact";
+
 // KZO-180: 5 numeric fields are now `number | null` (not `number`/optional)
 // so that `fxAvailable === false` cleanly propagates a uniform "no value"
 // shape to the wire. `fxAvailable` is the per-point flag the UI reads to

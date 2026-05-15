@@ -24,7 +24,7 @@ import {
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@vakwen/shared-types";
-import { dashboardPerformanceRangesSchema, currencyFor, marketCodeFor } from "@vakwen/shared-types";
+import { dashboardPerformanceRangesSchema, densityModeSchema, themeAccentSchema, currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
   translateOverviewSummary,
@@ -2361,6 +2361,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // and the resolver falls back to the `'TWD'` default.
       reportingCurrency: z
         .union([z.enum(["TWD", "USD", "AUD"]), z.null()])
+        .optional(),
+      // ui-reshape Phase 2 — user-level theme accent + density. Stored as
+      // JSONB keys (no migration); shape validated by Zod from shared-types.
+      themeAccent: z
+        .union([themeAccentSchema, z.null()])
+        .optional(),
+      density: z
+        .union([densityModeSchema, z.null()])
         .optional(),
     })
     .strict();
