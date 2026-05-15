@@ -33,6 +33,27 @@ These decisions were already locked in `design-202605151200-locked-scope.md` (re
 - shadcn `Sonner` replaces the 5-banner toast pile.
 - Sortable cards preserved (load-bearing on `user_preferences.cardOrder.*`).
 
+## Addendum (2026-05-15 later) — feedback round 2
+
+| # | Topic | Decision | Affects |
+|---|---|---|---|
+| 13 | Profile widget placement | **Pulled out of topbar** into a fixed top-right corner widget (`position: fixed; top: 10px; right: 16px`). Bell + avatar+chevron sit in a single anchored "account zone" with subtle card-style background + border. Theme toggle + search + breadcrumbs stay in the topbar; corner widget is separate. Menu drops down from the avatar at `top: 56px right: 16px`. | All routes with shell |
+| 14 | Custom accent color | **9th swatch added** to the 8 presets: a conic-gradient color-wheel button that opens an inline hue + saturation slider + hex input with live AA-contrast indicator. Selected custom color persists per-account alongside `themeAccent` (extends `user_preferences.themeAccent` shape to also accept a hex string). | Settings → Display · Admin → Settings |
+
+### Implementation notes for #14
+
+Extend the `themeAccent` schema from a literal-union to a discriminated union:
+
+```ts
+type ThemeAccent =
+  | { kind: "preset"; preset: "indigo" | "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "slate" }
+  | { kind: "custom"; hue: number; saturation: number; lightness: number };
+```
+
+`hsl()` values applied to `--primary` and `--ring` at runtime. Light + dark variants of a custom color are derived by adjusting lightness (light: keep, dark: +7%). AA-contrast verifier runs client-side against `--background` and `--card`; if it fails, surface a "low contrast" warning but still allow apply.
+
+DB migration extends `user_preferences.theme_accent` from `TEXT` to `JSONB` (or separate columns `theme_accent_kind` + `theme_accent_h` + `_s` + `_l`).
+
 ## What this unlocks
 
 Decisions above are sufficient to generate mockups for every remaining route without further user input. Phase 0 + Phase 1 implementation can proceed against this combined record.

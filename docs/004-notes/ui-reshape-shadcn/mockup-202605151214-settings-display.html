@@ -50,15 +50,10 @@
     <a class="nav-item active"><span class="icon">⊕</span><span class="lbl">Settings</span></a>
   </aside>
   <div>
-    <header class="topbar">
+    <header class="topbar" style="padding-right: 110px;">
       <div class="crumbs"><span>Vakwen</span> <span>›</span> <span>Settings</span> <span>›</span> <span class="here">Display</span></div>
       <div class="cmd-trigger"><span>🔍</span><span>Search anything…</span><kbd>⌘K</kbd></div>
       <div class="theme-seg"><button title="Light">☀</button><button class="on">🌓</button><button>🌙</button></div>
-      <button class="btn btn-ghost btn-icon">🔔</button>
-      <button class="avatar-trigger" title="Account menu">
-        <div class="avatar">A</div>
-        <span class="chev">▼</span>
-      </button>
     </header>
     <div class="settings-shell">
       <nav class="settings-nav">
@@ -97,7 +92,7 @@
             <div class="desc">Sets the primary highlight color across buttons, links, and charts. Status colors (gain / loss / warning) are unaffected.</div>
           </div>
           <div class="row-control">
-            <div class="swatch-grid">
+            <div class="swatch-grid" style="grid-template-columns: repeat(9, 36px);">
               <button class="swatch on" style="background:hsl(238 84% 60%)" title="Indigo (default)"></button>
               <button class="swatch" style="background:hsl(262 83% 58%)" title="Violet"></button>
               <button class="swatch" style="background:hsl(217 91% 60%)" title="Blue"></button>
@@ -106,8 +101,46 @@
               <button class="swatch" style="background:hsl(35 92% 50%)" title="Amber"></button>
               <button class="swatch" style="background:hsl(347 77% 50%)" title="Rose"></button>
               <button class="swatch" style="background:hsl(222 47% 11%)" title="Slate"></button>
+              <button class="swatch custom-swatch" title="Custom color" style="background: conic-gradient(from 0deg, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(0 90% 55%));">
+                <span style="position:absolute; inset:0; display:grid; place-items:center; color:white; font-weight:700; font-size:18px; text-shadow: 0 1px 2px rgba(0,0,0,0.4);">+</span>
+              </button>
             </div>
-            <div class="muted text-xs">Indigo · default</div>
+            <div class="muted text-xs" style="margin-bottom:16px;">Indigo · default · or pick a custom hue ↓</div>
+
+            <div class="card card-tight" style="padding: 16px; max-width: 480px; background: hsl(var(--muted) / 0.3);">
+              <div class="text-sm font-semibold" style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                <span style="display:inline-block; width:18px; height:18px; border-radius:6px; background: conic-gradient(from 0deg, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(0 90% 55%));"></span>
+                Custom accent
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 100px; gap:12px; align-items:center; margin-bottom:12px;">
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Hue</label>
+                  <div style="position:relative; height:24px; border-radius:6px; background: linear-gradient(to right, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(360 90% 55%)); border: 1px solid hsl(var(--border));">
+                    <div style="position:absolute; top:-3px; left:38%; width:14px; height:30px; border-radius:3px; background:white; border: 2px solid hsl(var(--foreground)); box-shadow: 0 1px 3px rgba(0,0,0,0.2); transform: translateX(-7px);"></div>
+                  </div>
+                </div>
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Hex</label>
+                  <input type="text" value="#5B6FFF" style="width:100%; height:24px; padding:0 8px; border:1px solid hsl(var(--input)); border-radius:6px; background:hsl(var(--background)); color:hsl(var(--foreground)); font-family:'Geist Mono', ui-monospace, monospace; font-size:12px;" />
+                </div>
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 100px; gap:12px; align-items:center;">
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Saturation</label>
+                  <div style="position:relative; height:24px; border-radius:6px; background: linear-gradient(to right, hsl(238 0% 60%), hsl(238 100% 60%)); border: 1px solid hsl(var(--border));">
+                    <div style="position:absolute; top:-3px; left:84%; width:14px; height:30px; border-radius:3px; background:white; border: 2px solid hsl(var(--foreground)); box-shadow: 0 1px 3px rgba(0,0,0,0.2); transform: translateX(-7px);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; padding-top:18px;">
+                  <span style="display:inline-block; width:32px; height:32px; border-radius:8px; background:hsl(238 84% 60%); border:1px solid hsl(var(--border));"></span>
+                  <span class="badge badge-success" style="height:18px; font-size:10px;">AA ✓</span>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+                <button class="btn btn-sm">Reset to Indigo</button>
+                <button class="btn btn-sm btn-primary">Apply</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -150,6 +183,13 @@
       </section>
     </div>
   </div>
+</div>
+<div class="profile-corner">
+  <button class="btn btn-ghost btn-icon" title="Notifications">🔔</button>
+  <button class="avatar-trigger" title="Account menu">
+    <div class="avatar">A</div>
+    <span class="chev">▼</span>
+  </button>
 </div>
 </body>
 </html>

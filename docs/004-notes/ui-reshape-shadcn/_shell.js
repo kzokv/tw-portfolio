@@ -68,7 +68,7 @@
     </div>`;
 
   const topbarHtml = `
-    <header class="topbar">
+    <header class="topbar" style="padding-right: 110px;">
       ${crumbsHtml}
       <div class="cmd-trigger">
         <span>🔍</span>
@@ -80,27 +80,31 @@
         <button class="on" title="System">🌓</button>
         <button title="Dark">🌙</button>
       </div>
+    </header>`;
+
+  const profileCornerHtml = `
+    <div class="profile-corner">
       <button class="btn btn-ghost btn-icon" title="Notifications">🔔</button>
       <button class="avatar-trigger" title="Account menu">
         <div class="avatar">A</div>
         <span class="chev">▼</span>
       </button>
-      <div id="profile-menu" class="menu" style="display:${document.documentElement.dataset.menu === "open" ? "block" : "none"};">
-        <div class="menu-header">
-          <div class="name">Alex Lin</div>
-          <div class="email">alex@example.com</div>
-        </div>
-        <div class="menu-item">👤 Profile<span class="kbd">G&nbsp;P</span></div>
-        <div class="menu-item">⚙ Settings<span class="kbd">G&nbsp;S</span></div>
-        <div class="menu-item">↗ Sharing</div>
-        <div class="menu-divider"></div>
-        <div class="menu-item">↻ Recompute all positions<span class="kbd">⌘R</span></div>
-        <div class="menu-item">🌓 Theme · System</div>
-        <div class="menu-item">⌘ Command palette<span class="kbd">⌘K</span></div>
-        <div class="menu-divider"></div>
-        <div class="menu-item">⌫ Sign out</div>
+    </div>
+    <div id="profile-menu" class="menu" style="display:${document.documentElement.dataset.menu === "open" ? "block" : "none"};">
+      <div class="menu-header">
+        <div class="name">Alex Lin</div>
+        <div class="email">alex@example.com</div>
       </div>
-    </header>`;
+      <div class="menu-item">👤 Profile<span class="kbd">G&nbsp;P</span></div>
+      <div class="menu-item">⚙ Settings<span class="kbd">G&nbsp;S</span></div>
+      <div class="menu-item">↗ Sharing</div>
+      <div class="menu-divider"></div>
+      <div class="menu-item">↻ Recompute all positions<span class="kbd">⌘R</span></div>
+      <div class="menu-item">🌓 Theme · System</div>
+      <div class="menu-item">⌘ Command palette<span class="kbd">⌘K</span></div>
+      <div class="menu-divider"></div>
+      <div class="menu-item">⌫ Sign out</div>
+    </div>`;
 
   // Render
   const main = body.querySelector("main.main");
@@ -109,4 +113,9 @@
   wrap.innerHTML = sidebarHtml + `<div class="page-wrap">${topbarHtml}</div>`;
   body.insertBefore(wrap, main);
   wrap.querySelector(".page-wrap").appendChild(main);
+
+  // Profile corner (rendered last so it sits above shell)
+  const corner = document.createElement("div");
+  corner.innerHTML = profileCornerHtml;
+  while (corner.firstChild) body.appendChild(corner.firstChild);
 })();
