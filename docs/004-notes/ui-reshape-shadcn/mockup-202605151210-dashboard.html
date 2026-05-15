@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .hero { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .hero .stat-label { color: hsl(var(--muted-foreground)); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .hero .stat-value { font-size: 36px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; }
+  .hero .delta { font-size: 14px; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; }
+  .grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-2b { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .trend-svg { width: 100%; height: 180px; }
+  .ring-svg { width: 140px; height: 140px; flex-shrink: 0; }
+  .alloc-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; font-size: 13px; }
+  .alloc-row .dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+  .alloc-row .name { flex: 1; }
+  .alloc-row .pct { font-variant-numeric: tabular-nums; font-family: "Geist Mono", ui-monospace, monospace; color: hsl(var(--muted-foreground)); }
+  .mover-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 13px; border-top: 1px solid hsl(var(--border)); }
+  .mover-row:first-of-type { border-top: 0; }
+  .mover-row .sym { font-weight: 500; }
+  .mover-row .pct { font-family: "Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; font-size: 13px; }
+  .section-title { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+  .section-title a { color: hsl(var(--muted-foreground)); font-weight: 400; text-decoration: none; font-size: 12px; }
+  .fab {
+    position: fixed; right: 28px; bottom: 28px;
+    width: 48px; height: 48px; border-radius: 999px;
+    background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+    border: 0; cursor: pointer;
+    display: grid; place-items: center;
+    box-shadow: 0 8px 24px hsl(var(--primary) / 0.35);
+    font-size: 20px; line-height: 1;
+  }
+</style>
+<script>
+  const sp = new URLSearchParams(location.search);
+  if (sp.get("theme") === "dark") document.documentElement.classList.add("dark");
+</script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">V</div>
+      <span>Vakwen</span>
+    </div>
+    <a class="nav-item active"><span class="icon">▦</span> Dashboard</a>
+    <a class="nav-item"><span class="icon">◧</span> Portfolio</a>
+    <a class="nav-item"><span class="icon">↔</span> Transactions</a>
+    <a class="nav-item"><span class="icon">$</span> Cash ledger</a>
+    <a class="nav-item"><span class="icon">◔</span> Dividends</a>
+    <a class="nav-item"><span class="icon">↗</span> Sharing</a>
+    <div class="nav-section">Operator</div>
+    <a class="nav-item"><span class="icon">⚙</span> Admin</a>
+    <a class="nav-item"><span class="icon">⊕</span> Settings</a>
+  </aside>
+  <div>
+    <header class="topbar">
+      <div class="crumbs"><span>Vakwen</span> <span>›</span> <span class="here">Dashboard</span></div>
+      <div class="cmd-trigger">
+        <span>🔍</span>
+        <span>Search anything…</span>
+        <kbd>⌘K</kbd>
+      </div>
+      <div class="theme-seg">
+        <button title="Light">☀</button>
+        <button class="on" title="System">🌓</button>
+        <button title="Dark">🌙</button>
+      </div>
+      <button class="btn btn-ghost btn-icon" title="Notifications">🔔</button>
+      <div class="avatar">A</div>
+    </header>
+    <main class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Good afternoon, Alex</div>
+          <div class="muted text-sm">Snapshot as of 2026-05-15 16:30 GMT+8</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn">Customize</button>
+          <button class="btn btn-primary">+ Add transaction</button>
+        </div>
+      </div>
+
+      <section class="hero">
+        <div class="card">
+          <div class="stat-label">Total portfolio value</div>
+          <div class="stat-value mono">NT$ 4,182,300</div>
+          <div class="delta gain">▲ +NT$ 58,400 · +1.42% today</div>
+        </div>
+        <div class="card">
+          <div class="stat-label">Realized YTD</div>
+          <div class="stat-value mono">NT$ 312,840</div>
+          <div class="delta gain text-sm">+8.1% vs. cost basis</div>
+        </div>
+        <div class="card">
+          <div class="stat-label">Dividends YTD</div>
+          <div class="stat-value mono">NT$ 78,210</div>
+          <div class="delta text-sm muted">14 payments · 2 need review</div>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <div class="card">
+          <div class="section-title">
+            <span>Portfolio value · last 90 days</span>
+            <a href="#">View detail →</a>
+          </div>
+          <svg class="trend-svg" viewBox="0 0 600 180" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="trend" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="hsl(var(--primary))" stop-opacity="0.25" />
+                <stop offset="100%" stop-color="hsl(var(--primary))" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <path d="M0,140 C40,135 60,120 100,118 C140,116 170,128 210,108 C260,82 290,96 330,80 C370,66 400,72 440,52 C480,34 520,42 560,28 L600,22 L600,180 L0,180 Z" fill="url(#trend)" />
+            <path d="M0,140 C40,135 60,120 100,118 C140,116 170,128 210,108 C260,82 290,96 330,80 C370,66 400,72 440,52 C480,34 520,42 560,28 L600,22" fill="none" stroke="hsl(var(--primary))" stroke-width="2" />
+          </svg>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="btn btn-sm">1W</button>
+            <button class="btn btn-sm">1M</button>
+            <button class="btn btn-sm" style="background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); border-color: transparent;">3M</button>
+            <button class="btn btn-sm">YTD</button>
+            <button class="btn btn-sm">1Y</button>
+            <button class="btn btn-sm">All</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-title">
+            <span>Allocation</span>
+            <a href="#">All holdings →</a>
+          </div>
+          <div style="display:flex; gap:16px; align-items:center;">
+            <svg class="ring-svg" viewBox="0 0 42 42">
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--muted))" stroke-width="6"/>
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--primary))" stroke-width="6" stroke-dasharray="58 42" stroke-dashoffset="25" />
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--success))" stroke-width="6" stroke-dasharray="22 78" stroke-dashoffset="-33" />
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--warning))" stroke-width="6" stroke-dasharray="12 88" stroke-dashoffset="-55" />
+              <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--muted-foreground))" stroke-width="6" stroke-dasharray="8 92" stroke-dashoffset="-67" />
+            </svg>
+            <div style="flex:1">
+              <div class="alloc-row"><span class="dot" style="background:hsl(var(--primary))"></span><span class="name">TW Equities</span><span class="pct">58%</span></div>
+              <div class="alloc-row"><span class="dot" style="background:hsl(var(--success))"></span><span class="name">US Equities</span><span class="pct">22%</span></div>
+              <div class="alloc-row"><span class="dot" style="background:hsl(var(--warning))"></span><span class="name">ETF / Index</span><span class="pct">12%</span></div>
+              <div class="alloc-row"><span class="dot" style="background:hsl(var(--muted-foreground))"></span><span class="name">Cash (NT$/US$)</span><span class="pct">8%</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid-2b">
+        <div class="card">
+          <div class="section-title">
+            <span>Top movers · today</span>
+            <a href="#">All →</a>
+          </div>
+          <div class="mover-row"><span class="sym">2330 · TSMC</span><span class="pct gain">+2.41%</span></div>
+          <div class="mover-row"><span class="sym">AAPL · Apple</span><span class="pct gain">+1.18%</span></div>
+          <div class="mover-row"><span class="sym">0050 · Yuanta 50</span><span class="pct gain">+0.72%</span></div>
+          <div class="mover-row"><span class="sym">2454 · MediaTek</span><span class="pct loss">−0.34%</span></div>
+          <div class="mover-row"><span class="sym">VOO · Vanguard S&amp;P</span><span class="pct loss">−0.51%</span></div>
+        </div>
+        <div class="card">
+          <div class="section-title">
+            <span>Recent transactions</span>
+            <a href="#">All →</a>
+          </div>
+          <table class="dt">
+            <tbody>
+              <tr><td>2026-05-15</td><td><span class="badge badge-success">BUY</span></td><td>2330</td><td class="right num">100</td><td class="right num">NT$ 61,000</td></tr>
+              <tr><td>2026-05-13</td><td><span class="badge badge-primary">DIV</span></td><td>2330</td><td class="right num">—</td><td class="right num">NT$ 4,500</td></tr>
+              <tr><td>2026-05-09</td><td><span class="badge badge-danger">SELL</span></td><td>AAPL</td><td class="right num">50</td><td class="right num">US$ 9,420</td></tr>
+              <tr><td>2026-05-02</td><td><span class="badge badge-success">BUY</span></td><td>0050</td><td class="right num">200</td><td class="right num">NT$ 28,420</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<button class="fab" title="Add transaction">+</button>
+</body>
+</html>
