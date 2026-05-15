@@ -1,5 +1,17 @@
+// Phase 1 adapter shim: preserves the existing single-element `Card` API
+// (renders <section>) and exposes shadcn sub-components for new call sites.
+// Visual glass-panel treatment is preserved here; retired in Phase 7.
+
 import type { HTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
+
+export {
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "./shadcn/card";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (

@@ -33,6 +33,7 @@ export default defineConfig({
       "@vakwen/config": resolve(rootDir, "../../libs/config/src/index.ts"),
       "@vakwen/domain": resolve(rootDir, "../../libs/domain/src/index.ts"),
       "@vakwen/shared-types": resolve(rootDir, "../../libs/shared-types/src/index.ts"),
+      "@/": `${rootDir}/`,
     },
     extensions: [".ts", ".tsx"],
   },
