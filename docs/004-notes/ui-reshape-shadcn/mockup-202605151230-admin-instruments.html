@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Instruments</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .filter-row { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input[type=search] { flex:1; max-width:340px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; }
+  .filter-row select { height:34px; padding:0 28px 0 10px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; color:hsl(var(--foreground)); }
+  .market-pill { display:inline-flex; align-items:center; padding:1px 7px; border-radius:4px; font-size:10px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-weight:500; }
+  .status-cell .badge { font-size:10px; }
+</style>
+</head>
+<body data-admin data-section="admin-instruments" data-crumb-here="Instruments">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Instruments</div>
+      <div class="muted text-sm">8,420 instruments · 4 markets · catalog last refreshed 6h ago</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">↻ Re-sync catalog</button>
+      <button class="btn btn-primary">+ Add instrument</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Search by ticker, name, ISIN…" />
+    <select>
+      <option>All markets</option>
+      <option>TWSE</option>
+      <option>NYSE</option>
+      <option>NASDAQ</option>
+      <option>ASX</option>
+    </select>
+    <select>
+      <option>All sectors</option>
+      <option>Semiconductors</option>
+      <option>Banking</option>
+      <option>Energy</option>
+    </select>
+    <button class="chip on">All</button>
+    <button class="chip">Active</button>
+    <button class="chip">Delisted</button>
+    <button class="chip">Excluded</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm">⚙ More filters</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable">Ticker<span class="sort-ind">↕</span></th>
+          <th>Name</th>
+          <th>Market</th>
+          <th class="sortable">Sector<span class="sort-ind">↕</span></th>
+          <th>GICS Industry</th>
+          <th class="sortable">Backfill<span class="sort-ind">↕</span></th>
+          <th class="sortable">Status<span class="sort-ind">↕</span></th>
+          <th class="sortable sort-desc">Updated<span class="sort-ind">▼</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="font-medium">2330</td><td>TSMC</td><td><span class="market-pill">TWSE</span></td><td>Tech</td><td class="muted">Semiconductors</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">2m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">2454</td><td>MediaTek</td><td><span class="market-pill">TWSE</span></td><td>Tech</td><td class="muted">Semiconductors</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">2m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">0050</td><td>Yuanta Taiwan 50</td><td><span class="market-pill">TWSE</span></td><td>—</td><td class="muted">ETF / Equity Index</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">2m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">AAPL</td><td>Apple Inc.</td><td><span class="market-pill">NASDAQ</span></td><td>Tech</td><td class="muted">Technology Hardware</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">5m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">BHP</td><td>BHP Group</td><td><span class="market-pill">ASX</span></td><td>Materials</td><td class="muted">Metals &amp; Mining</td><td><span class="badge badge-warning">PARTIAL</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">42m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">VOO</td><td>Vanguard S&amp;P 500 ETF</td><td><span class="market-pill">NYSE</span></td><td>—</td><td class="muted">ETF</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">5m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">AUDEL90</td><td>Old Mining Corp</td><td><span class="market-pill">ASX</span></td><td>Materials</td><td class="muted">Metals &amp; Mining</td><td><span class="badge">N/A</span></td><td><span class="badge badge-danger">DELISTED</span></td><td class="muted text-xs">2025-11-02</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">RIOWAR</td><td>Rio Tinto Warrant</td><td><span class="market-pill">ASX</span></td><td>—</td><td class="muted">Warrant</td><td><span class="badge">SKIP</span></td><td><span class="badge">EXCLUDED</span></td><td class="muted text-xs">2026-05-09</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">2317</td><td>Hon Hai Precision</td><td><span class="market-pill">TWSE</span></td><td>Tech</td><td class="muted">Electronic Equipment</td><td><span class="badge badge-success">READY</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="muted text-xs">2m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:hsl(var(--muted-foreground));">
+      <span>Page 1 of 1,053 · 8,420 total</span>
+      <div style="display:flex; gap:6px;"><button class="btn btn-sm">← Prev</button><button class="btn btn-sm">Next →</button></div>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

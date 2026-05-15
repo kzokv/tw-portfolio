@@ -30,21 +30,23 @@
   const sp = new URLSearchParams(location.search);
   if (sp.get("theme") === "dark") document.documentElement.classList.add("dark");
   if (sp.get("density") === "comfortable") document.documentElement.dataset.density = "comfortable";
+  if (sp.get("sidebar") === "collapsed") document.documentElement.dataset.sidebar = "collapsed";
 </script>
 </head>
 <body>
 <div class="shell">
   <aside class="sidebar">
+    <button class="sidebar-toggle" title="Collapse sidebar">‹</button>
     <div class="sidebar-brand"><div class="logo">V</div><span>Vakwen</span></div>
-    <a class="nav-item"><span class="icon">▦</span> Dashboard</a>
-    <a class="nav-item"><span class="icon">◧</span> Portfolio</a>
-    <a class="nav-item active"><span class="icon">↔</span> Transactions</a>
-    <a class="nav-item"><span class="icon">$</span> Cash ledger</a>
-    <a class="nav-item"><span class="icon">◔</span> Dividends</a>
-    <a class="nav-item"><span class="icon">↗</span> Sharing</a>
+    <a class="nav-item"><span class="icon">▦</span><span class="lbl">Dashboard</span></a>
+    <a class="nav-item"><span class="icon">◧</span><span class="lbl">Portfolio</span></a>
+    <a class="nav-item active"><span class="icon">↔</span><span class="lbl">Transactions</span></a>
+    <a class="nav-item"><span class="icon">$</span><span class="lbl">Cash ledger</span></a>
+    <a class="nav-item"><span class="icon">◔</span><span class="lbl">Dividends</span></a>
+    <a class="nav-item"><span class="icon">↗</span><span class="lbl">Sharing</span></a>
     <div class="nav-section">Operator</div>
-    <a class="nav-item"><span class="icon">⚙</span> Admin</a>
-    <a class="nav-item"><span class="icon">⊕</span> Settings</a>
+    <a class="nav-item"><span class="icon">⚙</span><span class="lbl">Admin</span></a>
+    <a class="nav-item"><span class="icon">⊕</span><span class="lbl">Settings</span></a>
   </aside>
   <div>
     <header class="topbar">
@@ -52,7 +54,10 @@
       <div class="cmd-trigger"><span>🔍</span><span>Search anything…</span><kbd>⌘K</kbd></div>
       <div class="theme-seg"><button title="Light">☀</button><button class="on">🌓</button><button>🌙</button></div>
       <button class="btn btn-ghost btn-icon">🔔</button>
-      <div class="avatar">A</div>
+      <button class="avatar-trigger" title="Account menu">
+        <div class="avatar">A</div>
+        <span class="chev">▼</span>
+      </button>
     </header>
     <main class="main">
       <div class="page-header">
@@ -66,15 +71,17 @@
         </div>
       </div>
 
-      <div class="filter-row">
+      <div class="filter-row" style="align-items:center;">
         <button class="chip on">All</button>
         <button class="chip">Buy</button>
         <button class="chip">Sell</button>
         <button class="chip">Dividend</button>
         <button class="chip">Transfer</button>
-        <button class="chip">Last 30 days</button>
-        <button class="chip">Account: Personal</button>
+        <button class="chip">Fee</button>
+        <div style="flex:1"></div>
+        <button class="btn btn-sm">⚙ More filters <span class="badge badge-primary" style="height:18px; font-size:10px;">2</span></button>
       </div>
+      <div class="muted text-xs" style="margin-bottom:16px;">Active filters: <strong>Last 30 days</strong> · <strong>Account: Personal</strong> <button class="btn btn-ghost btn-sm" style="padding:0 4px; font-size:11px; height:18px;">Clear</button></div>
 
       <div class="card table-card">
         <div class="table-header-row">
@@ -90,14 +97,14 @@
         <table class="dt">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Ticker</th>
-              <th>Account</th>
-              <th class="right">Quantity</th>
-              <th class="right">Price</th>
-              <th class="right">Amount</th>
-              <th class="right">Fees</th>
+              <th class="sortable sort-desc">Date<span class="sort-ind">▼</span></th>
+              <th class="sortable">Type<span class="sort-ind">↕</span></th>
+              <th class="sortable">Ticker<span class="sort-ind">↕</span></th>
+              <th class="sortable">Account<span class="sort-ind">↕</span></th>
+              <th class="right sortable">Quantity<span class="sort-ind">↕</span></th>
+              <th class="right sortable">Price<span class="sort-ind">↕</span></th>
+              <th class="right sortable">Amount<span class="sort-ind">↕</span></th>
+              <th class="right sortable">Fees<span class="sort-ind">↕</span></th>
               <th></th>
             </tr>
           </thead>

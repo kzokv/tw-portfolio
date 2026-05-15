@@ -145,7 +145,8 @@ p, li, dd { text-wrap: pretty; margin: 0; }
 .gain { color: hsl(var(--success)); }
 .loss { color: hsl(var(--destructive)); }
 
-.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; transition: grid-template-columns 200ms; }
+[data-sidebar="collapsed"] .shell { grid-template-columns: 64px 1fr; }
 .sidebar {
   background: hsl(var(--card));
   border-right: 1px solid hsl(var(--border));
@@ -153,6 +154,7 @@ p, li, dd { text-wrap: pretty; margin: 0; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
 .sidebar-brand {
   display: flex;
@@ -162,6 +164,26 @@ p, li, dd { text-wrap: pretty; margin: 0; }
   font-weight: 600;
   font-size: 15px;
 }
+[data-sidebar="collapsed"] .sidebar { padding: 16px 8px; align-items: center; }
+[data-sidebar="collapsed"] .sidebar-brand { padding: 8px 0 20px; justify-content: center; gap: 0; }
+[data-sidebar="collapsed"] .sidebar-brand span:not(.logo) { display: none; }
+[data-sidebar="collapsed"] .nav-item { width: 36px; height: 36px; padding: 0; justify-content: center; overflow: hidden; white-space: nowrap; }
+[data-sidebar="collapsed"] .nav-item .lbl { display: none; }
+[data-sidebar="collapsed"] .nav-section { display: none; }
+.sidebar-toggle {
+  position: absolute;
+  top: 18px; right: -12px;
+  width: 24px; height: 24px;
+  border-radius: 999px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: grid; place-items: center;
+  font-size: 11px;
+  z-index: 2;
+}
+.sidebar-toggle:hover { color: hsl(var(--foreground)); }
 .sidebar-brand .logo {
   width: 28px; height: 28px;
   border-radius: 8px;
@@ -238,6 +260,39 @@ p, li, dd { text-wrap: pretty; margin: 0; }
   display: grid; place-items: center;
   font-size: 12px; font-weight: 600;
 }
+.avatar-trigger {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 6px 4px 4px; border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+}
+.avatar-trigger:hover { background: hsl(var(--muted)); border-color: hsl(var(--border)); }
+.avatar-trigger .chev { font-size: 9px; color: hsl(var(--muted-foreground)); }
+.menu {
+  position: absolute; top: calc(var(--topbar-h) - 4px); right: 24px;
+  min-width: 220px;
+  background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+  z-index: 10;
+}
+.dark .menu { box-shadow: 0 12px 32px rgba(0,0,0,0.4); }
+.menu .menu-header { padding: 10px 10px 12px; border-bottom: 1px solid hsl(var(--border)); margin-bottom: 6px; }
+.menu .menu-header .name { font-weight: 500; font-size: 13px; }
+.menu .menu-header .email { color: hsl(var(--muted-foreground)); font-size: 12px; }
+.menu .menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.menu .menu-item:hover { background: hsl(var(--muted)); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu .menu-divider { height: 1px; background: hsl(var(--border)); margin: 6px 4px; }
+.menu .menu-item.danger { color: hsl(var(--destructive)); }
 
 .main { padding: 24px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
@@ -254,7 +309,20 @@ table.dt thead th {
   padding: 10px var(--row-px);
   border-bottom: 1px solid hsl(var(--border));
   background: transparent;
+  user-select: none;
 }
+table.dt thead th.sortable { cursor: pointer; }
+table.dt thead th.sortable:hover { color: hsl(var(--foreground)); }
+table.dt thead th .sort-ind {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9px;
+  vertical-align: middle;
+  opacity: 0.35;
+  transition: opacity 120ms;
+}
+table.dt thead th.sortable:hover .sort-ind { opacity: 0.7; }
+table.dt thead th.sort-asc .sort-ind, table.dt thead th.sort-desc .sort-ind { opacity: 1; color: hsl(var(--primary)); }
 table.dt tbody td {
   height: var(--row-h);
   padding: 0 var(--row-px);

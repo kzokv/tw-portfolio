@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — You've been invited</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  body { min-height:100vh; display:grid; place-items:center; padding:24px; }
+  .auth-card { width:100%; max-width: 460px; padding: 36px; background: hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius: 16px; text-align: center; }
+  .brand-mark { width:56px; height:56px; border-radius:16px; background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.7)); color:hsl(var(--primary-foreground)); display:grid; place-items:center; font-size:24px; font-weight:700; margin: 0 auto 16px; }
+  .inviter-row { display:flex; align-items:center; gap:12px; padding:14px 16px; margin: 12px 0 20px; border:1px solid hsl(var(--border)); border-radius:calc(var(--radius)); background: hsl(var(--muted) / 0.4); text-align:left; }
+  .inviter-row .avatar { width:36px; height:36px; }
+  .perm-pill { display:inline-flex; align-items:center; padding:2px 10px; border-radius:999px; background: hsl(var(--primary) / 0.15); color:hsl(var(--primary)); font-size:11px; font-weight:500; }
+  .top-corner-theme { position: fixed; top:20px; right:20px; }
+  .btn-block { width:100%; height:44px; font-size:14px; }
+  .btn-block + .btn-block { margin-top:8px; }
+  .legal { margin-top:20px; font-size:11px; color:hsl(var(--muted-foreground)); }
+</style>
+<script>const sp=new URLSearchParams(location.search); if(sp.get("theme")==="dark") document.documentElement.classList.add("dark");</script>
+</head>
+<body>
+<div class="top-corner-theme">
+  <div class="theme-seg"><button>☀</button><button class="on">🌓</button><button>🌙</button></div>
+</div>
+<div class="auth-card">
+  <div class="brand-mark">V</div>
+  <h1 style="font-size:22px; margin-bottom:8px;">You've been invited to Vakwen</h1>
+  <p style="color:hsl(var(--muted-foreground)); font-size:14px; margin-bottom:0;">Accept to start tracking your portfolio.</p>
+
+  <div class="inviter-row">
+    <div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); display:grid; place-items:center; font-weight:600;">A</div>
+    <div style="flex:1;">
+      <div style="font-size:13px; font-weight:500;">Alex Lin invited you</div>
+      <div style="color:hsl(var(--muted-foreground)); font-size:12px;">alex@example.com · 2026-05-13</div>
+    </div>
+    <span class="perm-pill">Read-only</span>
+  </div>
+
+  <button class="btn btn-primary btn-block">
+    <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" opacity="0.9"/></svg>
+    Accept &amp; sign in with Google
+  </button>
+  <button class="btn btn-block">Decline</button>
+
+  <p class="legal">Invite code <span class="mono">VKW-A4F2</span> · expires 2026-05-23</p>
+  <p class="legal">By accepting you agree to our <a href="#" style="color:hsl(var(--foreground));">Terms</a> and <a href="#" style="color:hsl(var(--foreground));">Privacy</a>.</p>
+</div>
+</body>
+</html>

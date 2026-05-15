@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Sharing</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .tabs-row { display:flex; gap:4px; border-bottom:1px solid hsl(var(--border)); margin-bottom:20px; }
+  .tab { padding:10px 14px; font-size:14px; font-weight:500; cursor:pointer; border:0; background:transparent; color:hsl(var(--muted-foreground)); border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:6px; }
+  .tab.on { color:hsl(var(--foreground)); border-bottom-color: hsl(var(--primary)); }
+  .tab .count { display:inline-flex; align-items:center; padding:1px 7px; border-radius:999px; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); font-size:11px; font-weight:500; }
+  .tab.on .count { background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); }
+  .perm-pill { display:inline-flex; align-items:center; gap:4px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:500; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
+  .perm-pill.read { background: hsl(var(--success) / 0.15); color: hsl(var(--success)); }
+  .perm-pill.edit { background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); }
+</style>
+</head>
+<body data-section="sharing" data-crumb-here="Sharing">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Sharing</div>
+      <div class="muted text-sm">Grant or revoke portfolio access · manage public share links</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">↗ Share read-only link</button>
+      <button class="btn btn-primary">+ Invite collaborator</button>
+    </div>
+  </div>
+
+  <div class="tabs-row">
+    <button class="tab on">Outbound <span class="count">3</span></button>
+    <button class="tab">Inbound <span class="count">1</span></button>
+    <button class="tab">Anonymous links <span class="count">2</span></button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div style="padding:14px 20px; border-bottom:1px solid hsl(var(--border)); display:flex; align-items:center; justify-content:space-between;">
+      <div>
+        <div class="text-sm font-semibold">People with access to your portfolio</div>
+        <div class="muted text-xs">Active grants you control. Recipients see read-only views unless edit access is granted.</div>
+      </div>
+      <input type="search" placeholder="Filter by email…" style="width:240px; height:32px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px;" />
+    </div>
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable">Email<span class="sort-ind">↕</span></th>
+          <th class="sortable">Name<span class="sort-ind">↕</span></th>
+          <th class="sortable">Access<span class="sort-ind">↕</span></th>
+          <th class="sortable">Status<span class="sort-ind">↕</span></th>
+          <th class="sortable sort-desc">Granted<span class="sort-ind">▼</span></th>
+          <th class="sortable">Last viewed<span class="sort-ind">↕</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="font-medium">jenny@example.com</td><td>Jenny Chen</td><td><span class="perm-pill read">Read-only</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="num">2026-05-12</td><td class="muted">2h ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">accountant@firm.tw</td><td>—</td><td><span class="perm-pill read">Read-only</span></td><td><span class="badge badge-warning">PENDING</span></td><td class="num">2026-05-10</td><td class="muted">never</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">spouse@example.com</td><td>Sam Lin</td><td><span class="perm-pill edit">Edit</span></td><td><span class="badge badge-success">ACTIVE</span></td><td class="num">2026-04-30</td><td class="muted">12m ago</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:24px; padding:20px; border:1px dashed hsl(var(--border)); border-radius:calc(var(--radius)); background:hsl(var(--muted) / 0.3);">
+    <div class="text-sm font-semibold" style="margin-bottom:6px;">About sharing</div>
+    <div class="muted text-sm" style="line-height:1.6;">
+      Outbound grants give a Vakwen account read-only or edit access to your portfolio.
+      Anonymous links produce a public token-protected snapshot — no account required, no edit access, configurable expiry.
+      Revoke access at any time from the row menu.
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>
