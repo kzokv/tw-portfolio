@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Public share (visitor variant)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  body { background: hsl(var(--background)); }
+  .public-shell { max-width: 960px; margin: 0 auto; padding: 24px 32px 80px; }
+  .top-strip {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 0 24px;
+    border-bottom: 1px solid hsl(var(--border));
+    margin-bottom: 32px;
+  }
+  .top-strip .owner { display: flex; align-items: center; gap: 12px; }
+  .top-strip .owner .avatar { width: 36px; height: 36px; font-size: 14px; }
+  .top-strip .owner-meta { line-height: 1.3; }
+  .top-strip .owner-name { font-weight: 600; font-size: 15px; }
+  .top-strip .owner-sub { color: hsl(var(--muted-foreground)); font-size: 12px; }
+  .top-strip .right { display: flex; align-items: center; gap: 16px; }
+  .top-strip .brand { font-size: 12px; color: hsl(var(--muted-foreground)); display: flex; align-items: center; gap: 6px; }
+  .top-strip .brand .logo { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.7)); color: hsl(var(--primary-foreground)); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .read-only-tag { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+  .hero { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .hero .label { color: hsl(var(--muted-foreground)); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .hero .value { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; font-family: "Geist Mono", ui-monospace, monospace; }
+  .hero .delta { font-size: 14px; margin-top: 4px; }
+  .footer-cta {
+    margin-top: 48px;
+    padding: 32px;
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius));
+    text-align: center;
+    background: hsl(var(--muted) / 0.3);
+  }
+  .footer-cta h2 { margin-bottom: 8px; }
+  .footer-cta p { color: hsl(var(--muted-foreground)); font-size: 14px; margin-bottom: 16px; }
+</style>
+<script>
+  const sp = new URLSearchParams(location.search);
+  if (sp.get("theme") === "dark") document.documentElement.classList.add("dark");
+</script>
+</head>
+<body>
+<div class="public-shell">
+  <header class="top-strip">
+    <div class="owner">
+      <div class="avatar">A</div>
+      <div class="owner-meta">
+        <div class="owner-name">Alex Lin</div>
+        <div class="owner-sub">Portfolio snapshot · shared 2026-05-15</div>
+      </div>
+    </div>
+    <div class="right">
+      <span class="read-only-tag">Read-only</span>
+      <div class="brand"><div class="logo">V</div> Powered by Vakwen</div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="card">
+      <div class="label">Total portfolio value</div>
+      <div class="value">NT$ 4,182,300</div>
+      <div class="delta gain">▲ +NT$ 58,400 · +1.42% today</div>
+    </div>
+    <div class="card">
+      <div class="label">Holdings</div>
+      <div class="value" style="font-size:30px;">14 positions</div>
+      <div class="delta muted text-sm">across 3 markets</div>
+    </div>
+  </section>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid hsl(var(--border)); display:flex; align-items:center; justify-content:space-between;">
+      <div>
+        <div style="font-weight:600; font-size:14px;">Holdings</div>
+        <div class="muted text-xs">Sorted by value</div>
+      </div>
+      <div class="muted text-xs">Click a row for ticker detail</div>
+    </div>
+    <table class="dt">
+      <thead>
+        <tr><th>Ticker</th><th>Name</th><th>Market</th><th class="right">Quantity</th><th class="right">Avg cost</th><th class="right">Value</th><th class="right">P&amp;L</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="font-medium">2330</td><td>Taiwan Semi (TSMC)</td><td class="muted">TWSE</td><td class="right num">4,000</td><td class="right num">555.20</td><td class="right num">NT$ 2,440,000</td><td class="right num gain">+12.4%</td></tr>
+        <tr><td class="font-medium">0050</td><td>Yuanta Taiwan 50</td><td class="muted">TWSE</td><td class="right num">6,200</td><td class="right num">130.50</td><td class="right num">NT$ 882,300</td><td class="right num gain">+8.9%</td></tr>
+        <tr><td class="font-medium">AAPL</td><td>Apple Inc.</td><td class="muted">NASDAQ</td><td class="right num">225</td><td class="right num">172.40</td><td class="right num">US$ 42,390</td><td class="right num gain">+9.3%</td></tr>
+        <tr><td class="font-medium">VOO</td><td>Vanguard S&amp;P 500 ETF</td><td class="muted">NYSE</td><td class="right num">80</td><td class="right num">438.20</td><td class="right num">US$ 37,774</td><td class="right num gain">+7.7%</td></tr>
+        <tr><td class="font-medium">2454</td><td>MediaTek</td><td class="muted">TWSE</td><td class="right num">400</td><td class="right num">980.00</td><td class="right num">NT$ 410,000</td><td class="right num gain">+4.6%</td></tr>
+        <tr><td class="font-medium">BHP</td><td>BHP Group</td><td class="muted">ASX</td><td class="right num">450</td><td class="right num">39.80</td><td class="right num">A$ 18,945</td><td class="right num loss">−1.2%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer-cta">
+    <h2>Track your portfolio with Vakwen</h2>
+    <p>Multi-market support · automatic dividend reconciliation · no ads · free to start.</p>
+    <button class="btn btn-primary">Get started — sign up for free</button>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Transactions (compact DataTable)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 12px;
+    border: 1px solid hsl(var(--border)); border-radius: 999px;
+    font-size: 12px; cursor: pointer;
+    background: hsl(var(--card));
+  }
+  .chip.on { background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); border-color: hsl(var(--primary) / 0.3); }
+  .chip.on::before { content: "✓"; font-weight: 700; }
+  table.dt tbody td.actions { text-align: right; }
+  table.dt tbody td.actions button { opacity: 0.6; }
+  table.dt tbody tr:hover td.actions button { opacity: 1; }
+  .table-card { padding: 0; overflow: hidden; }
+  .table-header-row { padding: 16px 20px; border-bottom: 1px solid hsl(var(--border)); display: flex; align-items: center; justify-content: space-between; }
+  .table-footer-row { padding: 12px 20px; border-top: 1px solid hsl(var(--border)); display: flex; align-items: center; justify-content: space-between; color: hsl(var(--muted-foreground)); font-size: 12px; }
+  .density-switch { display: inline-flex; border: 1px solid hsl(var(--border)); border-radius: 8px; height: 28px; overflow: hidden; font-size: 11px; }
+  .density-switch button { background: transparent; border: 0; padding: 0 10px; cursor: pointer; color: hsl(var(--muted-foreground)); }
+  .density-switch button.on { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+</style>
+<script>
+  const sp = new URLSearchParams(location.search);
+  if (sp.get("theme") === "dark") document.documentElement.classList.add("dark");
+  if (sp.get("density") === "comfortable") document.documentElement.dataset.density = "comfortable";
+</script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand"><div class="logo">V</div><span>Vakwen</span></div>
+    <a class="nav-item"><span class="icon">▦</span> Dashboard</a>
+    <a class="nav-item"><span class="icon">◧</span> Portfolio</a>
+    <a class="nav-item active"><span class="icon">↔</span> Transactions</a>
+    <a class="nav-item"><span class="icon">$</span> Cash ledger</a>
+    <a class="nav-item"><span class="icon">◔</span> Dividends</a>
+    <a class="nav-item"><span class="icon">↗</span> Sharing</a>
+    <div class="nav-section">Operator</div>
+    <a class="nav-item"><span class="icon">⚙</span> Admin</a>
+    <a class="nav-item"><span class="icon">⊕</span> Settings</a>
+  </aside>
+  <div>
+    <header class="topbar">
+      <div class="crumbs"><span>Vakwen</span> <span>›</span> <span class="here">Transactions</span></div>
+      <div class="cmd-trigger"><span>🔍</span><span>Search anything…</span><kbd>⌘K</kbd></div>
+      <div class="theme-seg"><button title="Light">☀</button><button class="on">🌓</button><button>🌙</button></div>
+      <button class="btn btn-ghost btn-icon">🔔</button>
+      <div class="avatar">A</div>
+    </header>
+    <main class="main">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Transactions</div>
+          <div class="muted text-sm">128 records · 4 accounts</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn">Export CSV</button>
+          <button class="btn btn-primary">+ Add transaction</button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <button class="chip on">All</button>
+        <button class="chip">Buy</button>
+        <button class="chip">Sell</button>
+        <button class="chip">Dividend</button>
+        <button class="chip">Transfer</button>
+        <button class="chip">Last 30 days</button>
+        <button class="chip">Account: Personal</button>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-header-row">
+          <div class="text-sm muted">Showing 12 of 128</div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span class="text-xs muted">Density</span>
+            <div class="density-switch">
+              <button class="on">Compact</button>
+              <button>Comfortable</button>
+            </div>
+          </div>
+        </div>
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Ticker</th>
+              <th>Account</th>
+              <th class="right">Quantity</th>
+              <th class="right">Price</th>
+              <th class="right">Amount</th>
+              <th class="right">Fees</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="num">2026-05-15</td><td><span class="badge badge-success">BUY</span></td><td class="font-medium">2330</td><td class="muted">Personal</td><td class="right num">100</td><td class="right num">610.00</td><td class="right num">NT$ 61,000.00</td><td class="right num muted">28.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-05-13</td><td><span class="badge badge-primary">DIV</span></td><td class="font-medium">2330</td><td class="muted">Personal</td><td class="right num">—</td><td class="right num">4.50/sh</td><td class="right num">NT$ 4,500.00</td><td class="right num muted">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-05-09</td><td><span class="badge badge-danger">SELL</span></td><td class="font-medium">AAPL</td><td class="muted">Personal</td><td class="right num">50</td><td class="right num">188.40</td><td class="right num">US$ 9,420.00</td><td class="right num muted">12.10</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-05-07</td><td><span class="badge badge-primary">DIV</span></td><td class="font-medium">2454</td><td class="muted">Personal</td><td class="right num">—</td><td class="right num">3.20/sh</td><td class="right num">NT$ 1,920.00</td><td class="right num muted">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-05-02</td><td><span class="badge badge-success">BUY</span></td><td class="font-medium">0050</td><td class="muted">Spouse</td><td class="right num">200</td><td class="right num">142.10</td><td class="right num">NT$ 28,420.00</td><td class="right num muted">14.20</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-28</td><td><span class="badge">XFER</span></td><td class="font-medium">USD → TWD</td><td class="muted">Personal</td><td class="right num">2,000</td><td class="right num">31.25</td><td class="right num">NT$ 62,500.00</td><td class="right num muted">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-24</td><td><span class="badge badge-success">BUY</span></td><td class="font-medium">VOO</td><td class="muted">Personal</td><td class="right num">10</td><td class="right num">472.18</td><td class="right num">US$ 4,721.80</td><td class="right num muted">3.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-21</td><td><span class="badge badge-danger">SELL</span></td><td class="font-medium">2454</td><td class="muted">Personal</td><td class="right num">100</td><td class="right num">1,025.00</td><td class="right num">NT$ 102,500.00</td><td class="right num muted">48.20</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-18</td><td><span class="badge badge-success">BUY</span></td><td class="font-medium">BHP</td><td class="muted">AU Trust</td><td class="right num">150</td><td class="right num">42.10</td><td class="right num">A$ 6,315.00</td><td class="right num muted">8.80</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-15</td><td><span class="badge badge-primary">DIV</span></td><td class="font-medium">0050</td><td class="muted">Spouse</td><td class="right num">—</td><td class="right num">2.10/sh</td><td class="right num">NT$ 420.00</td><td class="right num muted">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-11</td><td><span class="badge badge-success">BUY</span></td><td class="font-medium">AAPL</td><td class="muted">Personal</td><td class="right num">25</td><td class="right num">185.20</td><td class="right num">US$ 4,630.00</td><td class="right num muted">3.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+            <tr><td class="num">2026-04-08</td><td><span class="badge">FEE</span></td><td class="font-medium">—</td><td class="muted">Personal</td><td class="right num">—</td><td class="right num">—</td><td class="right num">NT$ 250.00</td><td class="right num muted">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+          </tbody>
+        </table>
+        <div class="table-footer-row">
+          <span>Page 1 of 11</span>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-sm" disabled style="opacity:0.5">← Prev</button>
+            <button class="btn btn-sm">Next →</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>
