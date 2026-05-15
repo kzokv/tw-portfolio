@@ -11,6 +11,7 @@ import { UserAvatarButton } from "../profile/UserAvatarButton";
 import { NotificationBell } from "./NotificationBell";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { EscalationTooltip } from "./EscalationTooltip";
+import { ThemeToggle } from "./ThemeToggle";
 import { cn } from "../../lib/utils";
 
 export interface QuickSearchItem {
@@ -342,6 +343,10 @@ export function TopBar({
               )}
             </div>
           )}
+
+          <div className="shrink-0">
+            <ThemeToggle />
+          </div>
 
           <div className="shrink-0">
             <UserAvatarButton
