@@ -269,15 +269,39 @@ p, li, dd { text-wrap: pretty; margin: 0; }
 }
 .avatar-trigger:hover { background: hsl(var(--muted)); border-color: hsl(var(--border)); }
 .avatar-trigger .chev { font-size: 9px; color: hsl(var(--muted-foreground)); }
+.profile-corner {
+  position: fixed;
+  top: 10px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 20;
+}
+.profile-corner .btn-icon {
+  width: 36px; height: 36px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.profile-corner .avatar-trigger {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.profile-corner .avatar-trigger:hover { background: hsl(var(--muted)); }
+.dark .profile-corner .btn-icon, .dark .profile-corner .avatar-trigger { box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
 .menu {
-  position: absolute; top: calc(var(--topbar-h) - 4px); right: 24px;
-  min-width: 220px;
+  position: fixed; top: 56px; right: 16px;
+  min-width: 240px;
   background: hsl(var(--popover)); color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
   border-radius: 10px;
   padding: 6px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.12);
-  z-index: 10;
+  z-index: 25;
 }
 .dark .menu { box-shadow: 0 12px 32px rgba(0,0,0,0.4); }
 .menu .menu-header { padding: 10px 10px 12px; border-bottom: 1px solid hsl(var(--border)); margin-bottom: 6px; }
