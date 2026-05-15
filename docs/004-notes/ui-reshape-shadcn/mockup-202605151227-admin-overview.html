@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Overview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .kpi-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:24px; }
+  .kpi .label { color:hsl(var(--muted-foreground)); font-size:11px; text-transform:uppercase; letter-spacing:0.04em; }
+  .kpi .value { font-family:"Geist Mono", ui-monospace, monospace; font-size:24px; font-weight:600; margin-top:4px; }
+  .panel-grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+  .health-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-top:1px solid hsl(var(--border)); font-size:13px; }
+  .health-row:first-of-type { border-top:0; }
+  .dot { width:8px; height:8px; border-radius:999px; display:inline-block; margin-right:8px; vertical-align:middle; }
+  .dot.ok { background: hsl(var(--success)); }
+  .dot.warn { background: hsl(var(--warning)); }
+  .dot.bad { background: hsl(var(--destructive)); }
+</style>
+</head>
+<body data-admin data-section="admin" data-crumb-here="Overview">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Admin overview</div>
+      <div class="muted text-sm">Operator status · last refreshed 12 s ago</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">↻ Refresh</button>
+      <button class="btn">Maintenance mode</button>
+    </div>
+  </div>
+
+  <section class="kpi-grid">
+    <div class="card card-tight kpi"><div class="label">Active users</div><div class="value">2,148</div><div class="muted text-xs gain">+42 this week</div></div>
+    <div class="card card-tight kpi"><div class="label">Open invites</div><div class="value">17</div><div class="muted text-xs">3 expire today</div></div>
+    <div class="card card-tight kpi"><div class="label">Instruments</div><div class="value">8,420</div><div class="muted text-xs">TWSE · NYSE · NASDAQ · ASX</div></div>
+    <div class="card card-tight kpi"><div class="label">Failed jobs (24h)</div><div class="value" style="color:hsl(var(--warning));">6</div><div class="muted text-xs">all rate-limit recoverable</div></div>
+  </section>
+
+  <div class="panel-grid">
+    <div class="card">
+      <div class="section-title" style="font-size:13px; font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between;">
+        <span>Provider health</span>
+        <a href="#" style="color:hsl(var(--muted-foreground)); font-weight:400; font-size:12px;">All providers →</a>
+      </div>
+      <div class="health-row"><span><span class="dot ok"></span>FinMind (TWSE)</span><span class="muted">last sync 2m ago · 0 errors</span></div>
+      <div class="health-row"><span><span class="dot ok"></span>Twelve Data (US)</span><span class="muted">last sync 4m ago · 0 errors</span></div>
+      <div class="health-row"><span><span class="dot warn"></span>Yahoo Finance (AU)</span><span class="muted">429 retries · backfill paused</span></div>
+      <div class="health-row"><span><span class="dot ok"></span>ECB FX</span><span class="muted">daily refresh @ 16:00 UTC</span></div>
+      <div class="health-row"><span><span class="dot ok"></span>ASX GICS</span><span class="muted">weekly · last Sun</span></div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="font-size:13px; font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between;">
+        <span>Recent admin activity</span>
+        <a href="#" style="color:hsl(var(--muted-foreground)); font-weight:400; font-size:12px;">Audit log →</a>
+      </div>
+      <table class="dt" style="margin: -6px -12px;">
+        <tbody>
+          <tr><td class="num text-xs">12m ago</td><td><span class="badge badge-primary">role</span></td><td>Promoted jenny@ to operator</td></tr>
+          <tr><td class="num text-xs">1h ago</td><td><span class="badge">config</span></td><td>Updated rate limits · anonymous_share_rate_limit_window_ms</td></tr>
+          <tr><td class="num text-xs">3h ago</td><td><span class="badge badge-warning">invite</span></td><td>Revoked 2 expired invites</td></tr>
+          <tr><td class="num text-xs">yesterday</td><td><span class="badge">provider</span></td><td>Rotated FinMind API token</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

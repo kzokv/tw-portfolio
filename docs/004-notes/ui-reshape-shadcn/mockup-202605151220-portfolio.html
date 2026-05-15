@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Portfolio (Holdings)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .hero-thin { display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:20px; padding: 16px 20px; border:1px solid hsl(var(--border)); border-radius: calc(var(--radius)); background: hsl(var(--card)); }
+  .hero-thin .left { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  .hero-thin .title { font-size:18px; font-weight:600; }
+  .hero-thin .sub { color: hsl(var(--muted-foreground)); font-size:13px; }
+  .filter-row { display: flex; gap: 8px; align-items:center; margin-bottom: 16px; flex-wrap:wrap; }
+  .ticker-cell { display:flex; align-items:center; gap:8px; }
+  .market-pill { display:inline-flex; align-items:center; padding:1px 6px; border-radius:4px; font-size:10px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-weight:500; }
+  table.dt tbody tr { cursor:pointer; }
+  .freshness { display:inline-flex; align-items:center; gap:4px; }
+  .freshness::before { content:""; width:6px; height:6px; border-radius:999px; background: hsl(var(--success)); }
+  .freshness.stale::before { background: hsl(var(--warning)); }
+</style>
+</head>
+<body data-section="portfolio" data-crumb-here="Portfolio">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Portfolio</div>
+      <div class="muted text-sm">14 positions · 3 markets · last quote 2 min ago · <a href="#" style="color:hsl(var(--primary));">View dividends →</a></div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">↻ Recompute</button>
+      <button class="btn">Export</button>
+      <button class="btn btn-primary">+ Add transaction</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Filter holdings by ticker, name…" style="flex:1; max-width:320px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); font-size:13px;" />
+    <button class="chip on">All currencies</button>
+    <button class="chip">TWD</button>
+    <button class="chip">USD</button>
+    <button class="chip">AUD</button>
+    <div style="flex:1"></div>
+    <span class="muted text-xs">Density</span>
+    <div class="density-switch" style="display:inline-flex; border:1px solid hsl(var(--border)); border-radius:8px; height:28px; overflow:hidden; font-size:11px;">
+      <button class="on" style="background:hsl(var(--card)); border:0; padding:0 10px; box-shadow:inset 0 0 0 1px hsl(var(--border));">Compact</button>
+      <button style="background:transparent; border:0; padding:0 10px; color:hsl(var(--muted-foreground));">Comfortable</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable sort-desc">Value<span class="sort-ind">▼</span></th>
+          <th class="sortable">Ticker<span class="sort-ind">↕</span></th>
+          <th class="sortable">Market<span class="sort-ind">↕</span></th>
+          <th class="right sortable">Quantity<span class="sort-ind">↕</span></th>
+          <th class="right sortable">Avg cost<span class="sort-ind">↕</span></th>
+          <th class="right sortable">Price<span class="sort-ind">↕</span></th>
+          <th class="right sortable">P&amp;L %<span class="sort-ind">↕</span></th>
+          <th>Quote</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="right num font-medium">NT$ 2,440,000</td><td><span class="font-medium">2330</span> <span class="muted text-xs">TSMC</span></td><td><span class="market-pill">TWSE</span></td><td class="right num">4,000</td><td class="right num">555.20</td><td class="right num">610.00</td><td class="right num gain">+12.4%</td><td><span class="freshness text-xs muted">2m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">NT$ 882,300</td><td><span class="font-medium">0050</span> <span class="muted text-xs">Yuanta 50</span></td><td><span class="market-pill">TWSE</span></td><td class="right num">6,200</td><td class="right num">130.50</td><td class="right num">142.30</td><td class="right num gain">+8.9%</td><td><span class="freshness text-xs muted">2m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">US$ 42,390</td><td><span class="font-medium">AAPL</span> <span class="muted text-xs">Apple</span></td><td><span class="market-pill">NASDAQ</span></td><td class="right num">225</td><td class="right num">172.40</td><td class="right num">188.40</td><td class="right num gain">+9.3%</td><td><span class="freshness text-xs muted">5m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">NT$ 410,000</td><td><span class="font-medium">2454</span> <span class="muted text-xs">MediaTek</span></td><td><span class="market-pill">TWSE</span></td><td class="right num">400</td><td class="right num">980.00</td><td class="right num">1,025.00</td><td class="right num gain">+4.6%</td><td><span class="freshness text-xs muted">2m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">US$ 37,774</td><td><span class="font-medium">VOO</span> <span class="muted text-xs">Vanguard S&amp;P</span></td><td><span class="market-pill">NYSE</span></td><td class="right num">80</td><td class="right num">438.20</td><td class="right num">472.18</td><td class="right num gain">+7.7%</td><td><span class="freshness text-xs muted">5m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">A$ 18,945</td><td><span class="font-medium">BHP</span> <span class="muted text-xs">BHP Group</span></td><td><span class="market-pill">ASX</span></td><td class="right num">450</td><td class="right num">39.80</td><td class="right num">42.10</td><td class="right num loss">−1.2%</td><td><span class="freshness stale text-xs" style="color:hsl(var(--warning));">42m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="right num font-medium">NT$ 184,800</td><td><span class="font-medium">2317</span> <span class="muted text-xs">Hon Hai</span></td><td><span class="market-pill">TWSE</span></td><td class="right num">1,200</td><td class="right num">142.00</td><td class="right num">154.00</td><td class="right num gain">+8.5%</td><td><span class="freshness text-xs muted">2m ago</span></td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:hsl(var(--muted-foreground));">
+      <span>14 positions · scroll for more</span>
+      <span>Total: NT$ 4,182,300</span>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

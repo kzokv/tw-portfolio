@@ -37,16 +37,17 @@
 <body>
 <div class="shell">
   <aside class="sidebar">
+    <button class="sidebar-toggle" title="Collapse sidebar">‹</button>
     <div class="sidebar-brand"><div class="logo">V</div><span>Vakwen</span></div>
-    <a class="nav-item"><span class="icon">▦</span> Dashboard</a>
-    <a class="nav-item"><span class="icon">◧</span> Portfolio</a>
-    <a class="nav-item"><span class="icon">↔</span> Transactions</a>
-    <a class="nav-item"><span class="icon">$</span> Cash ledger</a>
-    <a class="nav-item"><span class="icon">◔</span> Dividends</a>
-    <a class="nav-item"><span class="icon">↗</span> Sharing</a>
+    <a class="nav-item"><span class="icon">▦</span><span class="lbl">Dashboard</span></a>
+    <a class="nav-item"><span class="icon">◧</span><span class="lbl">Portfolio</span></a>
+    <a class="nav-item"><span class="icon">↔</span><span class="lbl">Transactions</span></a>
+    <a class="nav-item"><span class="icon">$</span><span class="lbl">Cash ledger</span></a>
+    <a class="nav-item"><span class="icon">◔</span><span class="lbl">Dividends</span></a>
+    <a class="nav-item"><span class="icon">↗</span><span class="lbl">Sharing</span></a>
     <div class="nav-section">Operator</div>
-    <a class="nav-item"><span class="icon">⚙</span> Admin</a>
-    <a class="nav-item active"><span class="icon">⊕</span> Settings</a>
+    <a class="nav-item"><span class="icon">⚙</span><span class="lbl">Admin</span></a>
+    <a class="nav-item active"><span class="icon">⊕</span><span class="lbl">Settings</span></a>
   </aside>
   <div>
     <header class="topbar">
@@ -54,7 +55,10 @@
       <div class="cmd-trigger"><span>🔍</span><span>Search anything…</span><kbd>⌘K</kbd></div>
       <div class="theme-seg"><button title="Light">☀</button><button class="on">🌓</button><button>🌙</button></div>
       <button class="btn btn-ghost btn-icon">🔔</button>
-      <div class="avatar">A</div>
+      <button class="avatar-trigger" title="Account menu">
+        <div class="avatar">A</div>
+        <span class="chev">▼</span>
+      </button>
     </header>
     <div class="settings-shell">
       <nav class="settings-nav">
