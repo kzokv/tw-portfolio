@@ -1,5 +1,5 @@
-import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@tw-portfolio/domain";
-import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@vakwen/domain";
+import type { DividendLedgerAggregates, DividendSourceLine } from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
@@ -13,7 +13,7 @@ import type {
   Store,
   InstrumentDef,
 } from "../types/store.js";
-import type { DailyBar, MarketCode } from "@tw-portfolio/domain";
+import type { DailyBar, MarketCode } from "@vakwen/domain";
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -24,7 +24,7 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 /**
  * KZO-198 — names of the plain (non-encrypted) Tier 1/2 columns that can be
@@ -361,13 +361,13 @@ export interface CatalogInstrument {
   typeRaw: string;
   industryCategoryRaw: string;
   finmindDate: string;
-  instrumentType: import("@tw-portfolio/domain").InstrumentType | null;
+  instrumentType: import("@vakwen/domain").InstrumentType | null;
   // KZO-170 S4: per-row market code now required. The persistence layer threads
   // this through `unnest($N::text[])` (postgres.ts) and as the second composite-PK
   // column on `market_data.instruments` (post-KZO-169). Previously every row was
   // hardcoded `'TW'` at the SQL layer (`array_fill('TW'::text, ...)`); the stamp
   // now comes from the catalog source.
-  marketCode: import("@tw-portfolio/domain").MarketCode;
+  marketCode: import("@vakwen/domain").MarketCode;
 }
 
 /**
@@ -379,7 +379,7 @@ export interface CatalogInstrument {
  */
 export interface UpsertInstrumentCatalogOptions {
   absenceDetection?: {
-    marketCode: import("@tw-portfolio/domain").MarketCode;
+    marketCode: import("@vakwen/domain").MarketCode;
     /**
      * Decide which absent rows should bump streak / cross threshold / trip the
      * guard. See `apps/api/src/services/market-data/detectDelistingsByAbsence.ts`.
@@ -401,7 +401,7 @@ export interface DelistingRecord {
   // a TW delisting for ticker X would also flip a US instrument with the same ticker.
   // `runCatalogSync` stamps this from the per-market sync invocation; older callers
   // that omit it preserve the legacy TW-only behavior via the postgres branch.
-  marketCode?: import("@tw-portfolio/domain").MarketCode;
+  marketCode?: import("@vakwen/domain").MarketCode;
   // KZO-195 — provenance discriminator. `provider_feed` (default) is the legacy
   // TW path where the upstream provider explicitly publishes a delisting row.
   // `absence_detected` is the diff-based path used by AU (and US once flipped on)
@@ -1040,7 +1040,7 @@ export interface Persistence {
   // App config (KZO-159 / 158A) — set (or clear, when `null`) the admin
   // override for the user-facing dashboard timeframe picker. The route layer
   // validates the list shape via `dashboardPerformanceRangesSchema` from
-  // `@tw-portfolio/shared-types` and wraps this in an `app_config_updated`
+  // `@vakwen/shared-types` and wraps this in an `app_config_updated`
   // audit entry (see adminRoutes.ts).
   setDashboardPerformanceRanges(value: string[] | null): Promise<void>;
 
@@ -1284,7 +1284,7 @@ export interface Persistence {
     userId: string,
     startDate: string,
     endDate: string,
-    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
   ): Promise<AggregatedSnapshotPoint[]>;
   countHoldingSnapshotsAfterDate(userId: string, accountId: string, ticker: string, fromDate: string): Promise<number>;
   getHoldingSnapshotsForTicker(userId: string, accountId: string, ticker: string, startDate: string, endDate: string): Promise<HoldingSnapshot[]>;
@@ -1423,7 +1423,7 @@ export interface Persistence {
    */
   listSoftDeletedAccounts(
     userId: string,
-  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>>;
+  ): Promise<Array<import("@vakwen/shared-types").AccountDto & { deletedAt: string }>>;
 
   /**
    * Single-row helper that bypasses the `deleted_at IS NULL` filter. Used by
@@ -1434,7 +1434,7 @@ export interface Persistence {
   getAccountIncludingDeleted(
     accountId: string,
     userId: string,
-  ): Promise<(import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null }) | null>;
+  ): Promise<(import("@vakwen/shared-types").AccountDto & { deletedAt: string | null }) | null>;
 
   /**
    * Bulk hard-purge candidate selection for the daily cron. Returns rows

@@ -14,7 +14,7 @@ import type {
   DashboardOverviewHoldingDto,
   DashboardOverviewUpcomingDividendDto,
   DashboardOverviewRecentDividendDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type {
   AggregatedSnapshotPoint,
   Persistence,

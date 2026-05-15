@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { formatRecomputeMessage } from "../../../lib/i18n";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { confirmRecompute, previewRecompute } from "../services/portfolioService";

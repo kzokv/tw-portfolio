@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   AdminAuditLogEntryDto,
   AdminAuditLogResponse,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getJson } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

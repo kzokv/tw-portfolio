@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { ApiError } from "../../lib/api";
 import type { AccountWithLiveBalance } from "../../features/cash-ledger/services/cashLedgerService";

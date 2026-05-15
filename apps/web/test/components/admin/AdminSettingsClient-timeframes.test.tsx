@@ -11,7 +11,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import type { AppConfigDto } from "@vakwen/shared-types";
 
 const mockPatchJson = vi.fn();
 

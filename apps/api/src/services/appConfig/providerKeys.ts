@@ -17,7 +17,7 @@
  * Resolvers run on every fetch (no client rebuild on rotation) per scope-todo
  * Phase 3 — TTL cache is the only freshness lever.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { AppConfigDecryptError, decryptSecret } from "./encryption.js";
 import { getAppConfigCacheEntry } from "./cache.js";
 

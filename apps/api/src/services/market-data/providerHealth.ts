@@ -18,7 +18,7 @@
 // 24h-suppressed `provider_down` notifications + CAS-gated
 // `provider_recovered` notifications.
 
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { Persistence, ProviderErrorClass } from "../../persistence/types.js";
 import { getEffectiveDownNotificationSuppressionMs } from "../appConfig/providerHealth.js";
 import {

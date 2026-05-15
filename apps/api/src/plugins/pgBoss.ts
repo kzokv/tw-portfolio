@@ -1,7 +1,7 @@
 import { PgBoss } from "pg-boss";
 import pg from "pg";
-import { Env } from "@tw-portfolio/config";
-import type { MarketCode } from "@tw-portfolio/domain";
+import { Env } from "@vakwen/config";
+import type { MarketCode } from "@vakwen/domain";
 import { registerBackfillWorker } from "../services/market-data/registerBackfillWorker.js";
 import { CATALOG_SYNC_CRON, CATALOG_SYNC_QUEUE, registerCatalogSyncWorker } from "../services/market-data/registerCatalogSyncWorker.js";
 import { getEffectiveMetadataEnrichmentMode } from "../services/appConfig/metadataEnrichmentMode.js";
@@ -40,7 +40,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
 
   const connectionString = Env.getDatabaseUrl();
 
-  const boss = new PgBoss({ connectionString, application_name: "tw-portfolio-boss" });
+  const boss = new PgBoss({ connectionString, application_name: "vakwen-boss" });
   boss.on("error", (err: Error) => app.log.error(err, "pg-boss error"));
 
   await boss.start();
@@ -50,7 +50,7 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
   const pool = new pg.Pool({
     connectionString,
     max: Env.BACKFILL_POSTGRES_POOL_MAX,
-    application_name: "tw-portfolio-backfill",
+    application_name: "vakwen-backfill",
   });
 
   // KZO-163: providers + rate limiters now live inside `app.marketDataRegistry` (built in app.ts).
@@ -77,8 +77,8 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
     getEffectiveMetadataEnrichmentMode: () => Promise.resolve(getEffectiveMetadataEnrichmentMode()),
     updateBackfillStatus: (
       ticker: string,
-      marketCode: import("@tw-portfolio/domain").MarketCode,
-      status: import("@tw-portfolio/domain").BackfillStatus,
+      marketCode: import("@vakwen/domain").MarketCode,
+      status: import("@vakwen/domain").BackfillStatus,
     ) => app.persistence.updateBackfillStatus(ticker, marketCode, status),
     updateLastRepairAt: (ticker: string) => app.persistence.updateLastRepairAt(ticker),
     getUsersMonitoringTicker: (ticker: string) => app.persistence.getUsersMonitoringTicker(ticker),

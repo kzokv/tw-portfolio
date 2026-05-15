@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";

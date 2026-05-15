@@ -6,7 +6,7 @@ import type {
   AdminInstrumentDto,
   AdminInstrumentStatus,
   AdminInstrumentsResponse,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { ApiError, getJson, postJson } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

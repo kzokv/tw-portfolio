@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
-import type { NotificationDto } from "@tw-portfolio/shared-types";
+import type { NotificationDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { Button } from "../ui/Button";
 import { TooltipInfo } from "../ui/TooltipInfo";

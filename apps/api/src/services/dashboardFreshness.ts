@@ -9,8 +9,8 @@
 // per-(account, ticker) `latestBarDate` are looked up once per request, then
 // reused across holdings.
 
-import type { DashboardOverviewHoldingDto } from "@tw-portfolio/shared-types";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { DashboardOverviewHoldingDto } from "@vakwen/shared-types";
+import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { TradingCalendarCache } from "./market-data/tradingCalendar.js";
 import type { Store } from "../types/store.js";

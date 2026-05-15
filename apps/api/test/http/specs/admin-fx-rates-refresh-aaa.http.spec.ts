@@ -16,11 +16,11 @@
  *  - Queue unavailable (app.boss === null) returns 503 + code 'queue_unavailable'
  *  - Invariant 2: audit log entry written for manual trigger (action: 'admin_fx_rates_refresh')
  */
-import { TestEnv } from "@tw-portfolio/config/test";
-import { createApiFixture } from "@tw-portfolio/test-api/config";
+import { TestEnv } from "@vakwen/config/test";
+import { createApiFixture } from "@vakwen/test-api/config";
 // TDD-red: FxRatesEndpoint and TFxRatesApiAssistant don't exist until Implementer lands slice 16
-import { FxRatesEndpoint } from "@tw-portfolio/test-api/endpoints";
-import type { TFxRatesApiAssistant } from "@tw-portfolio/test-api/assistants";
+import { FxRatesEndpoint } from "@vakwen/test-api/endpoints";
+import type { TFxRatesApiAssistant } from "@vakwen/test-api/assistants";
 import { test as base } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 
@@ -38,7 +38,7 @@ function apiPath(p: string): string {
 
 async function createDemoSession(
   request: import("@playwright/test").APIRequestContext,
-  sessionApi: import("@tw-portfolio/test-api/assistants").TSessionApiAssistant,
+  sessionApi: import("@vakwen/test-api/assistants").TSessionApiAssistant,
 ): Promise<string> {
   const response = await request.post(apiPath("/__e2e/demo-session"));
   await sessionApi.assert.statusIs(response, 200);

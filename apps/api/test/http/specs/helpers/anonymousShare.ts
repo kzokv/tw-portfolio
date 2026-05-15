@@ -1,5 +1,5 @@
 import type { APIRequestContext } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 export interface TSeededAnonymousShareToken {
   id: string;

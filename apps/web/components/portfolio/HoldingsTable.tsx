@@ -3,7 +3,7 @@
 import React, { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import type { DashboardOverviewHoldingDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { DashboardOverviewHoldingDto, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";

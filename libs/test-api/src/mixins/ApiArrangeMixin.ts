@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import type { Constructor } from "@tw-portfolio/test-framework/core";
+import { Step } from "@vakwen/test-framework/decorators";
+import type { Constructor } from "@vakwen/test-framework/core";
 
 export function ApiArrangeMixin<TBase extends Constructor<object>>(Base: TBase) {
   return class extends Base {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSession } from "../../../lib/auth";
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 
 // In Docker, server-side route handlers fetch via container network (SERVER_API_BASE_URL),
 // not the host-published port. Falls back to NEXT_PUBLIC_API_BASE_URL for bare-metal dev.

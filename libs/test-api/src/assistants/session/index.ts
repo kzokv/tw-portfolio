@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { SessionApiActions } from "./SessionApiActions.js";
 import { SessionApiArrange } from "./SessionApiArrange.js";
 import { SessionApiAssert } from "./SessionApiAssert.js";

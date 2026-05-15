@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@tw-portfolio/shared-types";
+import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@vakwen/shared-types";
 import { postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

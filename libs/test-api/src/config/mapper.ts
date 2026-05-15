@@ -1,4 +1,4 @@
-import { apiAssistantRegistry } from "@tw-portfolio/test-framework/config";
+import { apiAssistantRegistry } from "@vakwen/test-framework/config";
 import { accountsApiAssistantFactory } from "../assistants/accounts/index.js";
 import { adminApiAssistantFactory } from "../assistants/admin/index.js";
 import { adminInstrumentsApiAssistantFactory } from "../assistants/adminInstruments/index.js";

@@ -19,10 +19,10 @@ COPY tsconfig.base.json ./
 COPY libs/ libs/
 COPY apps/api/ apps/api/
 
-RUN npm run build -w @tw-portfolio/config \
- && npm run build -w @tw-portfolio/domain \
- && npm run build -w @tw-portfolio/shared-types \
- && npm run build -w @tw-portfolio/api
+RUN npm run build -w @vakwen/config \
+ && npm run build -w @vakwen/domain \
+ && npm run build -w @vakwen/shared-types \
+ && npm run build -w @vakwen/api
 
 FROM node:24-alpine
 

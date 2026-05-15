@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { AccountDefaultCurrency, AccountType } from "@tw-portfolio/shared-types";
+import type { AccountDefaultCurrency, AccountType } from "@vakwen/shared-types";
 // Adjust import path if the Implementer places it elsewhere:
 import { formatAccountOption } from "../../../features/cash-ledger/utils/accountOptions.js";
 

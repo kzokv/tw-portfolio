@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("cash ledger", () => {
   test("page loads with seeded entries: trade creates settlement → table has rows and nav link visible", async ({

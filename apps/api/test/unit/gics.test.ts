@@ -2,7 +2,7 @@
  * KZO-196 — GICS taxonomy invariants. Co-located in `apps/api/test/unit/` (the
  * scope-todo's `libs/shared-types/test/gics.test.ts` would require bootstrapping
  * a vitest runner in shared-types; apps/api's vitest already aliases
- * `@tw-portfolio/shared-types` to source so tests run in suite 4).
+ * `@vakwen/shared-types` to source so tests run in suite 4).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -10,7 +10,7 @@ import {
   gicsIndustryGroups,
   sectorForIndustryGroup,
   industryGroupsForSector,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 
 describe("KZO-196 — GICS taxonomy", () => {
   it("exports exactly 11 GICS sectors", () => {

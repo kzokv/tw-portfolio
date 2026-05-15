@@ -1,6 +1,6 @@
 # Web App Environment Variable Pattern
 
-Always use `WebEnv` from `@tw-portfolio/config/web` in web app code, never raw `process.env` with hardcoded fallback strings.
+Always use `WebEnv` from `@vakwen/config/web` in web app code, never raw `process.env` with hardcoded fallback strings.
 
 **Why it matters:**
 This project uses typed env utilities: `Env` for the API, `WebEnv` for the web app. Hardcoding default strings (`"__Host-g_auth_session"`) in multiple files violates the single-source-of-truth principle and makes refactoring env configuration brittle.
@@ -14,17 +14,17 @@ const cookieName = process.env.SESSION_COOKIE_NAME ?? "__Host-g_auth_session";
 **Correct pattern:**
 ```ts
 // ✅ In apps/web/proxy.ts
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 const cookieName = WebEnv.SESSION_COOKIE_NAME;
 
 // ✅ In apps/web/lib/auth.ts (server component)
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 const cookieName = WebEnv.SESSION_COOKIE_NAME;
 ```
 
 **When adding new session-related env vars:**
 1. Add to `webEnvSchema` in `libs/config/src/env-web.ts`
-2. Rebuild `@tw-portfolio/config` package
+2. Rebuild `@vakwen/config` package
 3. Access via `WebEnv.YOUR_VAR` in web code
 4. **Critical:** `env-web.ts` must remain free of Node.js modules (no `fs`, `path`) to stay Edge Runtime compatible
 

@@ -5,7 +5,7 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   UserSettings,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { TransactionInput } from "../../components/portfolio/types";
 
 export interface DashboardSnapshot extends Omit<DashboardOverviewDto, "settings"> {

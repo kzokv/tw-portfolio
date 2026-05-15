@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 
 export function mapRecomputeStatus(locale: LocaleCode, status: string): string {

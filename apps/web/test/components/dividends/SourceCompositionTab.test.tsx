@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { SourceCompositionTab } from "../../../components/dividends/SourceCompositionTab";
 import { getDictionary } from "../../../lib/i18n";
-import type { DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { DividendSourceLine } from "@vakwen/shared-types";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;

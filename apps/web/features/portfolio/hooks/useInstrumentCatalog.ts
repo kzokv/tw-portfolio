@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { InstrumentCatalogItemDto, MarketCode } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MarketCode } from "@vakwen/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
 import {
   fetchTransactionInstrumentCatalog,

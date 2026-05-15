@@ -17,7 +17,7 @@
 // instrument catalog so `selectTickerOption` can commit a ticker value
 // (typing-only into the combobox does NOT commit `value.ticker`).
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 const ACCDEL04 = {
   ticker: "ACCDEL04",

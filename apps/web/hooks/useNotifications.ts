@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { NotificationDto, NotificationListResponse, UnreadCountResponse } from "@tw-portfolio/shared-types";
+import type { NotificationDto, NotificationListResponse, UnreadCountResponse } from "@vakwen/shared-types";
 import { deleteJson, getJson, patchJson } from "../lib/api";
 import { useEventStream } from "./useEventStream";
 

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 import { cookies, headers } from "next/headers";
 import { parseSessionCookie } from "./sessionCookie";
 

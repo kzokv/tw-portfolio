@@ -6,11 +6,11 @@
  * with other FX-rate tests sharing the memory backend.
  */
 import type { APIRequestContext } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 import type {
   TDividendsApiAssistant,
   TFxTransfersApiAssistant,
-} from "@tw-portfolio/test-api/assistants";
+} from "@vakwen/test-api/assistants";
 import {
   dividendPostingPayload,
   seededDividendEventPayload,

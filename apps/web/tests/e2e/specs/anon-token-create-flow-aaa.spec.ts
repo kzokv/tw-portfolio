@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("anonymous share links: create flow", () => {
   test("[anon token create]: sharing section C create 30d link → row renders with copy button", async ({

@@ -1,4 +1,4 @@
-import { webAssistantRegistry } from "@tw-portfolio/test-framework/config";
+import { webAssistantRegistry } from "@vakwen/test-framework/config";
 
 import { authErrorAssistantFactory, loginAssistantFactory, sessionAssistantFactory } from "../assistants/auth/index.js";
 import { cashLedgerAssistantFactory } from "../assistants/cash-ledger/index.js";

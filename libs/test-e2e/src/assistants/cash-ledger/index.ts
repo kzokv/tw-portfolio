@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { CashLedgerActions } from "./CashLedgerActions.js";
 import { CashLedgerArrange } from "./CashLedgerArrange.js";
 import { CashLedgerAssert } from "./CashLedgerAssert.js";

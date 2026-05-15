@@ -8,7 +8,7 @@
  * code stamped `cash_dividend_currency='TWD'`, which then failed the dividend
  * market-guard at `apps/api/src/services/dividends.ts:184` (`event.cashDividendCurrency
  * !== account.defaultCurrency`). KZO-170's contract is per-row currency derived
- * via `currencyFor(marketCode)` from `@tw-portfolio/shared-types`.
+ * via `currencyFor(marketCode)` from `@vakwen/shared-types`.
  *
  * Pure unit test pattern (mock the `pg.Pool`) — no Postgres dependency, so this
  * lives under `apps/api/test/unit/`. The SQL itself is exercised end-to-end in

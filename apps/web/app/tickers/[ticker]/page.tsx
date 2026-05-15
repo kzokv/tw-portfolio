@@ -10,9 +10,9 @@ import { StatChip } from "../../../components/ui/StatChip";
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { TickerHistoryClient } from "./TickerHistoryClient";
-import type { DashboardOverviewHoldingDto } from "@tw-portfolio/shared-types";
+import type { DashboardOverviewHoldingDto } from "@vakwen/shared-types";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
-import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 
 interface TickerHistoryPageProps {

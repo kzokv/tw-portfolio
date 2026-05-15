@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPlaywrightConfig } from "@tw-portfolio/test-framework/config";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { createPlaywrightConfig } from "@vakwen/test-framework/config";
+import { TestEnv } from "@vakwen/config/test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");

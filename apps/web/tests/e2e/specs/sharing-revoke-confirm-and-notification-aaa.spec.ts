@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import { seedResolvedShareFromAdmin, seedUser } from "./helpers/sharing";
 
 test.describe("sharing revoke + notification", () => {

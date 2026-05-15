@@ -48,7 +48,7 @@
  *   AAA framework + `e2e-aaa-guardrails.md`.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test("[settings drawer]: create USD Brokerage → both accounts visible in drawer + cash-ledger renders cleanly", async ({
   appShell,

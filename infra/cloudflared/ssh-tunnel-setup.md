@@ -65,7 +65,7 @@ Run that from a trusted machine on the same private network as the QNAP-side con
 
 ### 5. Set GitHub Actions environment secrets
 
-In the `tw-portfolio` repo, configure the `dev` and `production` GitHub Environments with these values:
+In the `vakwen` repo, configure the `dev` and `production` GitHub Environments with these values:
 
 | Secret                      | Value                                              |
 |-----------------------------|----------------------------------------------------|
@@ -76,12 +76,12 @@ In the `tw-portfolio` repo, configure the `dev` and `production` GitHub Environm
 | `CF_TEAM_NAME`              | Cloudflare Zero Trust team name only               |
 | `DEPLOY_HOST`               | Private deploy host or IP covered by the route     |
 | `DEPLOY_USER`               | `ubuntu`                                           |
-| `DEPLOY_PATH`               | Absolute path to the repo on QNAP (e.g. `/data/tw-portfolio`) |
+| `DEPLOY_PATH`               | Absolute path to the repo on QNAP (e.g. `/data/vakwen`) |
 
 Important:
 
 - `DEPLOY_PATH` must be an absolute path.
-- Do not use `~/tw-portfolio`.
+- Do not use `~/vakwen`.
 - The workflow quotes `DEPLOY_PATH` literally inside the remote SSH command, so `~` does not expand and the preflight file checks fail.
 
 ### 6. Create the GitHub Environments
@@ -126,4 +126,4 @@ Before running GitHub Actions deploys, confirm all of the following:
    - `infra/docker/.env.prod` for production
 7. The deploy user can run `docker compose`
 
-For the canonical workflow and troubleshooting guide, see [docs/002-operations/runbook.md](/home/ubuntu/github/tw-portfolio/docs/002-operations/runbook.md).
+For the canonical workflow and troubleshooting guide, see [docs/002-operations/runbook.md](/home/ubuntu/github/vakwen/docs/002-operations/runbook.md).

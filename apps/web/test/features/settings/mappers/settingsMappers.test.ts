@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
 import { toSaveSettingsRequest, toSettingsFormModel } from "../../../../features/settings/mappers/settingsMappers";
 
 const settings: UserSettings = {

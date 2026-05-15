@@ -20,10 +20,10 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { extractCookieValue } from "@tw-portfolio/test-framework/shared";
-import { test, expect } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { makeDeterministicIdToken } from "@tw-portfolio/test-e2e/utils";
+import { TestEnv } from "@vakwen/config/test";
+import { extractCookieValue } from "@vakwen/test-framework/shared";
+import { test, expect } from "@vakwen/test-e2e/fixtures/oauthPages";
+import { makeDeterministicIdToken } from "@vakwen/test-e2e/utils";
 
 function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;

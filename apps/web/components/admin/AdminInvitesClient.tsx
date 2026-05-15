@@ -6,7 +6,7 @@ import type {
   AdminInviteListResponse,
   InviteListStatus,
   UserRole,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getJson, postJson, deleteJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

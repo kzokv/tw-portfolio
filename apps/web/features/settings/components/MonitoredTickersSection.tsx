@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto, MonitoredTickerDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
 import { fieldClassName } from "../../../components/ui/fieldStyles";

@@ -207,7 +207,7 @@ KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wal
 
 ### Per-account currency and account type (KZO-167)
 
-KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`. Two new shared-type unions (`AccountDefaultCurrency`, `AccountType`) are added to `AccountDto` in `@tw-portfolio/shared-types`; the legacy `interface Account` in `apps/api/src/types/store.ts` is removed.
+KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`. Two new shared-type unions (`AccountDefaultCurrency`, `AccountType`) are added to `AccountDto` in `@vakwen/shared-types`; the legacy `interface Account` in `apps/api/src/types/store.ts` is removed.
 
 A new service module `apps/api/src/services/cashLedgerService.ts` enforces the cash-entry currency invariant on emission paths 1–3: a mismatch between `entry.currency` and `account.defaultCurrency` throws `routeError(400, "currency_mismatch", ...)`. The full-replay path (path 4, `replayPositionHistory.ts:161`) is explicitly exempt per `replay-position-history-invariants.md`. `PATCH /accounts/:id` adds optional `defaultCurrency` and `accountType` fields; a currency change is blocked with `409 currency_change_blocked` if the account has any existing cash entries or trade events. The `/cash-ledger` page now renders `Name (TWD · Broker)` chips in account dropdowns and summary headers.
 
@@ -249,7 +249,7 @@ Known gap: `POST /ai/transactions/confirm` does not trigger backfill (to be fixe
 │                           DEV (QNAP)                                      │
 │                                                                           │
 │  ┌─────────────────────────────────────────────────────────────────┐      │
-│  │              Fastify API  (twp-dev-api)                         │      │
+│  │              Fastify API  (vakwen-dev-api)                         │      │
 │  │                                                                 │      │
 │  │  pg-boss cron: 30 17 * * 1-5 (weekdays, 17:30 TST)             │      │
 │  │  ┌───────────────────────────────────────────────────┐          │      │
@@ -305,7 +305,7 @@ Known gap: `POST /ai/transactions/confirm` does not trigger backfill (to be fixe
 │  └─────────────────────────────┬───────────────────────────────────┘      │
 │                                ▼                                          │
 │  ┌──────────────────────────────────────────────┐                         │
-│  │  twp-dev-postgres                            │                         │
+│  │  vakwen-dev-postgres                            │                         │
 │  │                                              │                         │
 │  │  public schema (ledger)                      │                         │
 │  │  |-- trade_events                            │                         │
@@ -330,7 +330,7 @@ Known gap: `POST /ai/transactions/confirm` does not trigger backfill (to be fixe
                        ▼
 ┌──────────────────────────────────────────┐
 │  ┌──────────────────────┐                │
-│  │  twp-local-postgres  │                │
+│  │  vakwen-local-postgres  │                │
 │  │  market_data schema  │  <- restored   │
 │  │  (read-only copy)    │    manually    │
 │  └──────────────────────┘                │
@@ -371,7 +371,7 @@ Data flows:
 │  QNAP NAS (Docker)                                                           │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────┐      │
-│  │  twp-dev-web (Next.js, port 3333)                                 │      │
+│  │  vakwen-dev-web (Next.js, port 3333)                                 │      │
 │  │                                                                   │      │
 │  │  |-- SSR server components (cookies via next/headers)             │      │
 │  │  |-- proxy.ts -> forwards auth'd requests to API                  │      │
@@ -381,7 +381,7 @@ Data flows:
 │             │ HTTP (internal)                                                │
 │             ▼                                                                │
 │  ┌────────────────────────────────────────────────────────────────────┐      │
-│  │  twp-dev-api (Fastify, port 4000)                                 │      │
+│  │  vakwen-dev-api (Fastify, port 4000)                                 │      │
 │  │                                                                   │      │
 │  │  +-- Routes -----------------------+  +-- Plugins ---------------+│      │
 │  │  │ GET/POST /portfolio/*           │  │ @fastify/cors            ││      │
@@ -431,7 +431,7 @@ Data flows:
 │             │ SQL (pg)                                                       │
 │             ▼                                                                │
 │  ┌────────────────────────────────────────────────────────────────────┐      │
-│  │  twp-dev-postgres (port 5432)                                     │      │
+│  │  vakwen-dev-postgres (port 5432)                                     │      │
 │  │                                                                   │      │
 │  │  public schema (ledger)            |  market_data schema          │      │
 │  │  |-- users                         |  |-- instruments (3,071)     │      │
@@ -459,7 +459,7 @@ Data flows:
 │  LOCAL (Lume VM, macOS host)                                  │
 │                                                               │
 │  ┌─────────────────────────┐  ┌────────────────────────┐     │
-│  │ twp-local-postgres      │  │ Fastify API (dev mode) │     │
+│  │ vakwen-local-postgres      │  │ Fastify API (dev mode) │     │
 │  │ port 5732               │  │ AUTH_MODE=dev_bypass    │     │
 │  │ market_data (restored)  │  │ mock FinMind client     │     │
 │  │ public (local ledger)   │  │ boss = null (no cron)   │     │
@@ -489,17 +489,17 @@ Lume VM can reach QNAP directly (confirmed: VM pings QNAP). VM software: Lume.
 
 | Environment | Postgres location | Market data source | Calls FinMind? |
 |---|---|---|---|
-| **Dev** | `twp-dev-postgres` on QNAP | Daily ingest job (runs after 17:30 TST FinMind update) | **Yes** — sole writer (pre-prod) |
-| **Local** | `twp-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
+| **Dev** | `vakwen-dev-postgres` on QNAP | Daily ingest job (runs after 17:30 TST FinMind update) | **Yes** — sole writer (pre-prod) |
+| **Local** | `vakwen-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
 | **Production** | Not yet deployed | — | — |
 
 ### Environment matrix (post-launch)
 
 | Environment | Postgres location | Market data source | Calls FinMind? |
 |---|---|---|---|
-| **Production** | `twp-prod-postgres` on QNAP | Daily ingest job (runs after 17:30 TST FinMind update) | **Yes** — sole writer |
-| **Dev** | `twp-dev-postgres` on QNAP | Auto-restore from prod dump (QNAP shared filesystem, runs after ingest) | No |
-| **Local** | `twp-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
+| **Production** | `vakwen-prod-postgres` on QNAP | Daily ingest job (runs after 17:30 TST FinMind update) | **Yes** — sole writer |
+| **Dev** | `vakwen-dev-postgres` on QNAP | Auto-restore from prod dump (QNAP shared filesystem, runs after ingest) | No |
+| **Local** | `vakwen-local-postgres` on Lume VM | Manual restore via `scp` from QNAP | No |
 
 ### Snapshot distribution (pre-production)
 
@@ -518,10 +518,10 @@ When production is deployed, the dump flow becomes:
 **Prod -> Dev (automatic, same QNAP host):**
 ```bash
 # Runs as part of the post-ingest cron, after daily bars land
-docker exec twp-prod-postgres pg_dump -U $USER -n market_data --format=custom $DB \
+docker exec vakwen-prod-postgres pg_dump -U $USER -n market_data --format=custom $DB \
   > /share/backups/market_data/market_data_latest.dump
 
-docker exec -i twp-dev-postgres pg_restore -U $USER -n market_data --clean --if-exists -d $DB \
+docker exec -i vakwen-dev-postgres pg_restore -U $USER -n market_data --clean --if-exists -d $DB \
   < /share/backups/market_data/market_data_latest.dump
 ```
 
@@ -555,11 +555,11 @@ Scripted as `npm run market-data:backfill` (dev) and `npm run market-data:restor
 
 ### Schedule
 
-Both backups run after the daily bar ingest completes (post-17:30 TST). Pre-production, the source is `twp-dev-postgres`; post-launch, swap to `twp-prod-postgres`.
+Both backups run after the daily bar ingest completes (post-17:30 TST). Pre-production, the source is `vakwen-dev-postgres`; post-launch, swap to `vakwen-prod-postgres`.
 
 ```bash
 TIMESTAMP=$(date +%Y%m%d_%H%M)
-PG_CONTAINER=twp-dev-postgres  # Change to twp-prod-postgres post-launch
+PG_CONTAINER=vakwen-dev-postgres  # Change to vakwen-prod-postgres post-launch
 
 # Ledger (critical, timestamped, 30-day rotation)
 docker exec $PG_CONTAINER pg_dump -U $USER -n public --format=custom $DB \

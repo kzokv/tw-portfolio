@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { LocaleCode, TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPatch } from "../../features/portfolio/hooks/useTransactionMutations";
 import { Button } from "../ui/Button";

@@ -1,5 +1,5 @@
 import type { APIResponse } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
+import { Step } from "@vakwen/test-framework/decorators";
 import { ApiBaseActions } from "../../mixins/index.js";
 import type { QuotesEndpoint } from "../../endpoints/QuotesEndpoint.js";
 

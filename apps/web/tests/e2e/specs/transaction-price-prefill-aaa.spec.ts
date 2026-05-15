@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // Synthetic tickers per .claude/rules/e2e-shared-memory-bars-ticker-hygiene.md.
 // MemoryPersistence holds daily bars in a process-global array; reusing real

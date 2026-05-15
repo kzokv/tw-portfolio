@@ -34,7 +34,7 @@
  *     this module (consistent with architect-design §3 pseudocode).
  *   - wacFxToUsd: full precision here; caller rounds to 8dp at snapshot-write.
  */
-import { roundToDecimal } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@vakwen/domain";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
 

@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import { BaseEndpoint } from "@tw-portfolio/test-framework/core";
-import { apiUrl } from "@tw-portfolio/test-framework/shared";
+import { BaseEndpoint } from "@vakwen/test-framework/core";
+import { apiUrl } from "@vakwen/test-framework/shared";
 
 // KZO-177 (M1): error_count_24h / error_count_7d / rate_limit_count_24h are
 // computed-on-read from `market_data.provider_error_trail` and are NOT

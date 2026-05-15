@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { buttonVariants } from "../ui/Button";
 import type { SharingPageData } from "../../features/sharing/types";
 import { writeContextCookie } from "../../lib/context";

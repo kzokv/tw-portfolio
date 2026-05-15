@@ -1,4 +1,4 @@
-import type { LocaleCode, UserSettings } from "@tw-portfolio/shared-types";
+import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";

@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 test.describe("authenticated session", () => {
   test("dashboard loads at /dashboard after root redirect", async ({ dashboard }) => {

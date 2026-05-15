@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // createPersistence() reads Env.PERSISTENCE_BACKEND (field) and calls Env.getDatabaseUrl() /
 // Env.getRedisUrl() (methods) — both field overrides AND method replacements are required.
 // adminBootstrapInvite.ts also reads Env.APP_BASE_URL directly; pin it for stable stdout assertions.
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: {
@@ -36,7 +36,7 @@ const { loadMigrationManifest } = await import("../../src/persistence/migrationM
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(

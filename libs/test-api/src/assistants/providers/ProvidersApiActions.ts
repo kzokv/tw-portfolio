@@ -1,6 +1,6 @@
 import { request as apiRequest, type APIRequestContext, type APIResponse } from "@playwright/test";
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { apiUrl } from "@tw-portfolio/test-framework/shared";
+import { Step } from "@vakwen/test-framework/decorators";
+import { apiUrl } from "@vakwen/test-framework/shared";
 import { ApiBaseActions, headersForCookie } from "../../mixins/index.js";
 import type {
   ProviderHealthSeedInput,

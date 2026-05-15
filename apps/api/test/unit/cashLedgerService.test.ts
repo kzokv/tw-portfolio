@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import type { CashLedgerEntry, Store, Transaction } from "../../src/types/store.js";
-import type { AccountDto } from "@tw-portfolio/shared-types";
+import type { AccountDto } from "@vakwen/shared-types";
 import {
   assertCashEntryCurrencyMatchesAccount,
   bookCashLedgerEntry,

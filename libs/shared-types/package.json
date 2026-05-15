@@ -1,5 +1,5 @@
 {
-  "name": "@tw-portfolio/shared-types",
+  "name": "@vakwen/shared-types",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "test": "echo \"no tests\""
   },
   "dependencies": {
-    "@tw-portfolio/domain": "*",
+    "@vakwen/domain": "*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

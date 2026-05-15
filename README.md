@@ -1,6 +1,6 @@
-# Taiwan Portfolio Monorepo
+# Vakwen Monorepo
 
-MVP monorepo for Taiwan stock/ETF portfolio tracking with configurable fee/tax rules and weighted-average cost basis.
+Multi-market portfolio intelligence platform — covers Taiwan, US, and Australian markets today with configurable fee/tax rules and weighted-average cost basis. Roadmap expands toward AI copilot, automated analytics, and market monitoring.
 
 ## Structure
 
@@ -33,7 +33,7 @@ Use Node `24.13.0` or newer with npm `11.x` for this repo.
 
 1. Copy `.env.example` to `.env` (or use `npm run onboard` to do this automatically).
 2. Install dependencies: `npm run install:full` or `npm install`
-   - Onboarding already builds `@tw-portfolio/domain` and `@tw-portfolio/shared-types`. If you install dependencies without running `npm run onboard`, or if you edit either lib, rerun `npm run build -w libs/domain -w libs/shared-types` before starting the dev servers.
+   - Onboarding already builds `@vakwen/domain` and `@vakwen/shared-types`. If you install dependencies without running `npm run onboard`, or if you edit either lib, rerun `npm run build -w libs/domain -w libs/shared-types` before starting the dev servers.
 3. Choose one dev mode (`npm run dev` prints the full list):
    - `npm run dev:local:bypass:mem` — Fastest iteration, no auth, in-memory storage.
    - `npm run dev:local:bypass:pg` — Bypass auth, real Postgres. Start Postgres first: `docker compose -f infra/docker/docker-compose.yml up -d`.
@@ -71,7 +71,7 @@ The app supports a demo mode that lets visitors try the portfolio tracker withou
 
 - Set `DEMO_MODE_ENABLED=true` in your env to enable. Disabled by default.
 - `DEMO_SESSION_TTL_SECONDS` controls session lifetime (default 1800 = 30 min).
-- Demo users get 12 seeded transactions across 5 Taiwan stock/ETF symbols.
+- Demo users get 12 seeded transactions across 5 sample symbols.
 - An amber "You're using a demo session" banner appears on all pages for demo users.
 - Expired demo users and their data are cleaned up automatically every 15 minutes (Postgres only).
 - See `docs/002-operations/runbook.md` for operational procedures and `docs/004-notes/003-oauth-env-refactor/010-kzo-107-108-transition-guide.md` for full technical details.

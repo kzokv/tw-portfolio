@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Onboarding script for tw-portfolio (run from repo root).
+# Onboarding script for vakwen (run from repo root).
 #
 # What it does:
 #   1. Installs npm dependencies (npm ci if lockfile present, else npm install).
@@ -65,7 +65,7 @@ for arg in "$@"; do
   esac
 done
 
-echo "==> tw-portfolio onboarding (root: $REPO_ROOT)"
+echo "==> vakwen onboarding (root: $REPO_ROOT)"
 FAIL=0
 
 # ---------------------------------------------------------------------------

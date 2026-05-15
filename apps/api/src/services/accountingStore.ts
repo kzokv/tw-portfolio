@@ -1,5 +1,5 @@
-import { roundToDecimal } from "@tw-portfolio/domain";
-import type { Lot } from "@tw-portfolio/domain";
+import { roundToDecimal } from "@vakwen/domain";
+import type { Lot } from "@vakwen/domain";
 import type {
   AccountingPolicy,
   AccountingStore,
@@ -12,7 +12,7 @@ import type {
   LotAllocationProjection,
   Store,
 } from "../types/store.js";
-import type { DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { DividendSourceLine } from "@vakwen/shared-types";
 
 export function syncAccountingPolicy(store: Store): void {
   store.accounting.policy = buildAccountingPolicy();

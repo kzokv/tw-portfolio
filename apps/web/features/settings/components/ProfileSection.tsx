@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ProfileDto } from "@tw-portfolio/shared-types";
+import type { ProfileDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { UserCircle2 } from "lucide-react";
 import { ApiError, patchJson } from "../../../lib/api";

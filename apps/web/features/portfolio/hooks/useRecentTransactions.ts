@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { TransactionHistoryItemDto } from "@vakwen/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchTransactionHistory } from "../services/portfolioService";
 

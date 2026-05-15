@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { LocaleCode, UserRole } from "@tw-portfolio/shared-types";
+import type { LocaleCode, UserRole } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import {
   fetchSharingPageData,

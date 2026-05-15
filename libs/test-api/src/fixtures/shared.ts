@@ -1,7 +1,7 @@
 import type { APIRequestContext, TestInfo } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { TestUser } from "@tw-portfolio/test-framework/core";
-import { buildDisplayName, buildE2EUserId, extractCookieValue } from "@tw-portfolio/test-framework/shared";
+import { TestEnv } from "@vakwen/config/test";
+import { TestUser } from "@vakwen/test-framework/core";
+import { buildDisplayName, buildE2EUserId, extractCookieValue } from "@vakwen/test-framework/shared";
 import { registerTestApiAssistants } from "../config/mapper.js";
 
 registerTestApiAssistants();

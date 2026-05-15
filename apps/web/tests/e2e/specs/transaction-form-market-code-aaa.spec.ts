@@ -13,8 +13,8 @@
  * longer reachable from the transaction form.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
-import type { TSettingsAssistant } from "@tw-portfolio/test-e2e/assistants/settings";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
+import type { TSettingsAssistant } from "@vakwen/test-e2e/assistants/settings";
 
 const BHP_AU = {
   ticker: "BHP",

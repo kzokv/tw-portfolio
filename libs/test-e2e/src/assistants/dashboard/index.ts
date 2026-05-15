@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 
 import { DashboardActions } from "./DashboardActions.js";
 import { DashboardArrange } from "./DashboardArrange.js";

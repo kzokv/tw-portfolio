@@ -11,14 +11,14 @@
 
 ## Workspace Structure
 
-- `apps/api` — Fastify API server (`@tw-portfolio/api`)
-- `apps/web` — Next.js web app (`@tw-portfolio/web`)
-- `libs/config` — shared env, config, validation (`@tw-portfolio/config`)
-- `libs/domain` — domain logic (`@tw-portfolio/domain`)
-- `libs/shared-types` — shared TypeScript types (`@tw-portfolio/shared-types`)
-- `libs/test-framework` — generic, app-agnostic AAA test framework (`@tw-portfolio/test-framework`)
-- `libs/test-e2e` — app-specific web E2E assistants, pages, fixtures (`@tw-portfolio/test-e2e`)
-- `libs/test-api` — app-specific API HTTP endpoints, assistants, fixtures (`@tw-portfolio/test-api`)
+- `apps/api` — Fastify API server (`@vakwen/api`)
+- `apps/web` — Next.js web app (`@vakwen/web`)
+- `libs/config` — shared env, config, validation (`@vakwen/config`)
+- `libs/domain` — domain logic (`@vakwen/domain`)
+- `libs/shared-types` — shared TypeScript types (`@vakwen/shared-types`)
+- `libs/test-framework` — generic, app-agnostic AAA test framework (`@vakwen/test-framework`)
+- `libs/test-e2e` — app-specific web E2E assistants, pages, fixtures (`@vakwen/test-e2e`)
+- `libs/test-api` — app-specific API HTTP endpoints, assistants, fixtures (`@vakwen/test-api`)
 
 ## Repo-Specific Rules
 
@@ -85,7 +85,7 @@ Never declare "all tests pass" with a subset.
 
 **Cookie mode divergence:** OAuth fixtures use `cookieMode: "domain"` (global), demo uses `cookieMode: "url"` (scoped). Switching fixture bases changes cookie behavior silently.
 
-**Fixture barrel exports (`test-e2e/src/fixtures/index.ts`) are unused.** Specs import directly from specific fixture files (e.g., `@tw-portfolio/test-e2e/fixtures/appPages`).
+**Fixture barrel exports (`test-e2e/src/fixtures/index.ts`) are unused.** Specs import directly from specific fixture files (e.g., `@vakwen/test-e2e/fixtures/appPages`).
 
 ## Context7 Sources
 

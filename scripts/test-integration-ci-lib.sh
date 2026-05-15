@@ -3,10 +3,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="infra/docker/docker-compose.ci-integration.yml"
-COMPOSE_PROJECT="${CI_COMPOSE_PROJECT:-twp-ci-integration}"
+COMPOSE_PROJECT="${CI_COMPOSE_PROJECT:-vakwen-ci-integration}"
 CI_DB_PORT="${CI_DB_PORT:-15432}"
 CI_REDIS_PORT="${CI_REDIS_PORT:-16379}"
-CI_DB_NAME="${CI_DB_NAME:-tw_portfolio_ci}"
+CI_DB_NAME="${CI_DB_NAME:-vakwen_ci}"
 KEEP_CI_STACK="${KEEP_CI_STACK:-0}"
 
 INTEGRATION_CI_MODE=""
@@ -366,7 +366,7 @@ EOF
   fi
 
   log_ci "Running integration tests (test host: $TEST_HOST, db: $CI_DB_PORT, redis: $CI_REDIS_PORT)..."
-  TWP_MANAGED_CI_STACK=1 \
+  VAKWEN_MANAGED_CI_STACK=1 \
   RUN_POSTGRES_INTEGRATION=1 \
   POSTGRES_TEST_DB_URL="postgres://app:app@${TEST_HOST}:${CI_DB_PORT}/${CI_DB_NAME}" \
   POSTGRES_TEST_REDIS_URL="redis://${TEST_HOST}:${CI_REDIS_PORT}" \

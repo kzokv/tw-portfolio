@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { BasePage } from "@tw-portfolio/test-framework/core";
+import { BasePage } from "@vakwen/test-framework/core";
 
 import { TransactionFormComponent, type TTransactionFormElements } from "../shared/TransactionFormComponent.js";
 import { DeleteDialogComponent, type TDeleteDialogElements } from "./DeleteDialogComponent.js";

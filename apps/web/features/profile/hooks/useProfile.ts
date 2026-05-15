@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ImpersonationDto, ProfileDto } from "@tw-portfolio/shared-types";
+import type { ImpersonationDto, ProfileDto } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 
 // Re-export the canonical types so existing callers can import from this module

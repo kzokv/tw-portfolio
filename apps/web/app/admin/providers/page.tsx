@@ -1,4 +1,4 @@
-import type { AdminProvidersResponse } from "@tw-portfolio/shared-types";
+import type { AdminProvidersResponse } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import { AdminProvidersClient } from "../../../components/admin/AdminProvidersClient";
 

@@ -1,4 +1,4 @@
-import type { DashboardOverviewHoldingDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { DashboardOverviewHoldingDto, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";

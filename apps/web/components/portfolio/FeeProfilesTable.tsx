@@ -1,4 +1,4 @@
-import type { FeeProfileDto } from "@tw-portfolio/shared-types";
+import type { FeeProfileDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Card } from "../ui/Card";

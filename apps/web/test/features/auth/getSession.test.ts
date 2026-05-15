@@ -29,7 +29,7 @@ const mockWebEnv = {
   SESSION_SECRET: "test-session-secret-that-is-long-enough-32chars!!",
 };
 
-vi.mock("@tw-portfolio/config/web", () => ({
+vi.mock("@vakwen/config/web", () => ({
   get WebEnv() {
     return mockWebEnv;
   },

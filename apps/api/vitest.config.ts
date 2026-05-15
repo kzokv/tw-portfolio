@@ -29,9 +29,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@tw-portfolio/config": resolve(rootDir, "../../libs/config/src/index.ts"),
-      "@tw-portfolio/domain": resolve(rootDir, "../../libs/domain/src/index.ts"),
-      "@tw-portfolio/shared-types": resolve(rootDir, "../../libs/shared-types/src/index.ts"),
+      "@vakwen/config": resolve(rootDir, "../../libs/config/src/index.ts"),
+      "@vakwen/domain": resolve(rootDir, "../../libs/domain/src/index.ts"),
+      "@vakwen/shared-types": resolve(rootDir, "../../libs/shared-types/src/index.ts"),
     },
     extensions: [".ts"],
   },

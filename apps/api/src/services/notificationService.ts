@@ -1,4 +1,4 @@
-import type { NotificationSeverity } from "@tw-portfolio/shared-types";
+import type { NotificationSeverity } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 import type { EventBus } from "../events/types.js";
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type DashboardPerformanceRange,
   dashboardPerformanceRangesSchema,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { ApiError, getJson, patchJson } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { cn } from "../../lib/utils";

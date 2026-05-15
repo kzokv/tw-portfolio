@@ -1,4 +1,4 @@
-import type { CurrencyCode, MarketCode } from "@tw-portfolio/shared-types";
+import type { CurrencyCode, MarketCode } from "@vakwen/shared-types";
 
 export interface Holding {
   accountId: string;

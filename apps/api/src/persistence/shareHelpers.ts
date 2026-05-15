@@ -6,7 +6,7 @@
  * native row types (MemoryUser, PG row) at call sites.
  */
 
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { shareNotificationStrings } from "./shareNotificationStrings.js";
 
 export interface ShareUser {

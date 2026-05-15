@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../profile/hooks/useProfile";
 
 export type ShareListStatus = "active" | "pending" | "expired" | "revoked";

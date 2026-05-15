@@ -1,4 +1,4 @@
-import type { CurrencyExpectedReceived } from "@tw-portfolio/shared-types";
+import type { CurrencyExpectedReceived } from "@vakwen/shared-types";
 
 // ── Preset date resolution ─────────────────────────────────────────────────
 

@@ -18,8 +18,19 @@ const bodyFont = Plus_Jakarta_Sans({
 const bodyClassName = `${displayFont.variable} ${bodyFont.variable} min-h-screen bg-bg text-ink antialiased`;
 
 export const metadata = {
-  title: "TW Portfolio",
-  description: "Taiwan portfolio intelligence dashboard",
+  title: "Vakwen",
+  description: "Multi-market portfolio intelligence",
+  openGraph: {
+    title: "Vakwen",
+    description: "Multi-market portfolio intelligence",
+    siteName: "Vakwen",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Vakwen",
+    description: "Multi-market portfolio intelligence",
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

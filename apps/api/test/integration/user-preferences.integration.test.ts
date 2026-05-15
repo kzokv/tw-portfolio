@@ -30,14 +30,14 @@ const { PostgresPersistence } = await import("../../src/persistence/postgres.js"
 const { MemoryPersistence } = await import("../../src/persistence/memory.js");
 const { loadMigrationManifest } = await import("../../src/persistence/migrationManifest.js");
 const { resolveEffectiveRanges } = await import("../../src/services/userPreferences.js");
-const { DEFAULT_DASHBOARD_PERFORMANCE_RANGES } = await import("@tw-portfolio/shared-types");
+const { DEFAULT_DASHBOARD_PERFORMANCE_RANGES } = await import("@vakwen/shared-types");
 
 // ── Postgres integration guard ────────────────────────────────────────────────
 
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(

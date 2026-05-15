@@ -12,9 +12,9 @@ Deploys to QNAP NAS at 192.168.2.10. GitHub Actions reaches it via Cloudflare WA
 
 | Environment | File | Container prefix | Host ports |
 |-------------|------|-----------------|------------|
-| local | `docker-compose.local.yml` | `twp-local-*` | web 3300, api 4300, postgres 5732, redis 6679 |
-| dev | `docker-compose.dev.yml` | `twp-dev-*` | postgres 5454, redis 6363 (web/api via cloudflared) |
-| production | `docker-compose.prod.yml` | `twp-prod-*` | (via cloudflared) |
+| local | `docker-compose.local.yml` | `vakwen-local-*` | web 3300, api 4300, postgres 5732, redis 6679 |
+| dev | `docker-compose.dev.yml` | `vakwen-dev-*` | postgres 5454, redis 6363 (web/api via cloudflared) |
+| production | `docker-compose.prod.yml` | `vakwen-prod-*` | (via cloudflared) |
 
 ## CI/CD Flow
 

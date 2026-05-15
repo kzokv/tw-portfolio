@@ -7,7 +7,7 @@ import type {
   DashboardOverviewHoldingDto,
   DashboardOverviewSummaryDto,
   TransactionHistoryItemDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";

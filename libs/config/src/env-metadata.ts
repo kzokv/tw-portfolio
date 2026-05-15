@@ -78,7 +78,7 @@ export const dockerCloudGroups: EnvGroup[] = [
       "ACCOUNT_HARD_PURGE_DAYS",
     ],
   },
-  { label: "State paths", keys: ["TWP_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
+  { label: "State paths", keys: ["VAKWEN_STATE_DIR", "BACKUP_DIR", "DEPLOY_LOG_DIR"] },
 ];
 
 // Docker local groups — strict subset for docker-compose.local.yml

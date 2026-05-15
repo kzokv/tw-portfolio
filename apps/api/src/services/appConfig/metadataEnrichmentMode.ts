@@ -1,4 +1,4 @@
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 /**

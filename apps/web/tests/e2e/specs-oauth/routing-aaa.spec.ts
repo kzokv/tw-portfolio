@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
 
 test.describe("route redirects", () => {
   test("signed-in user at / is redirected to /dashboard", async ({ dashboard }) => {

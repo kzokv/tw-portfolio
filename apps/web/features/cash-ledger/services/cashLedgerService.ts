@@ -2,7 +2,7 @@ import type {
   AccountDefaultCurrency,
   AccountDto,
   AccountType,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { getJson, postJson } from "../../../lib/api";
 import type { CashLedgerListResponse, CashLedgerQuery } from "../types";
 

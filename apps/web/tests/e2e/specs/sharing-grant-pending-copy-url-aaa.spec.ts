@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("sharing grant pending copy URL", () => {
   test("[sharing grant]: unknown email → confirmation → copy-URL modal renders invite URL", async ({

@@ -8,7 +8,7 @@ import type {
   RecomputeCompleteEvent,
   RecomputeFailedEvent,
   SnapshotsGeneratedEvent,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { useEventStream } from "../../../hooks/useEventStream";
 import {

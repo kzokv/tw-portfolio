@@ -1,4 +1,4 @@
-import type { CurrencyCode } from "@tw-portfolio/shared-types";
+import type { CurrencyCode } from "@vakwen/shared-types";
 
 const DEFAULT_CURRENCY_OPTIONS: CurrencyCode[] = ["TWD", "USD", "JPY", "HKD", "CNY", "EUR"];
 

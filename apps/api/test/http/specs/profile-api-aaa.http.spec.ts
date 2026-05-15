@@ -1,4 +1,4 @@
-import { UUID_V4_PATTERN } from "@tw-portfolio/test-framework/shared";
+import { UUID_V4_PATTERN } from "@vakwen/test-framework/shared";
 import { test } from "../fixtures.js";
 
 test.describe("GET /profile and PATCH /profile", () => {

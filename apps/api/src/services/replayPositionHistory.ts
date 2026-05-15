@@ -1,5 +1,5 @@
-import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@tw-portfolio/domain";
-import type { Lot } from "@tw-portfolio/domain";
+import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain";
+import type { Lot } from "@vakwen/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
 import type { EventBus } from "../events/types.js";

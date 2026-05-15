@@ -1,4 +1,4 @@
-import type { BaseEndpoint, Constructor, TestUser } from "@tw-portfolio/test-framework/core";
+import type { BaseEndpoint, Constructor, TestUser } from "@vakwen/test-framework/core";
 
 export function createApiFixture<TAssistant>(
   EndpointClass: Constructor<BaseEndpoint>,

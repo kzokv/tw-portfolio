@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test("transaction combobox: search by ticker → submit updates the verification panel and recent ledger", async ({ settings, transactions }) => {
   await settings.arrange.seedInstruments([

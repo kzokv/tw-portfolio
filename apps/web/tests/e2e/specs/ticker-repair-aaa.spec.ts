@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("ticker detail repair", () => {
   test("header repair: open modal → submit bars-only request surfaces repair feedback", async ({ ticker }) => {

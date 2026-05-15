@@ -1,6 +1,6 @@
 "use client";
 
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { formatCurrencyAmount } from "../../lib/utils";
 import type { AppDictionary } from "../../lib/i18n";
 import type { FxTransferEstimate } from "../../features/fx-transfer/services/fxTransferService";

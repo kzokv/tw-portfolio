@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("sharing page", () => {
   test("[sharing page]: avatar menu shows sharing link → /sharing renders sections", async ({ appShell }) => {

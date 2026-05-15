@@ -7,7 +7,7 @@
 
 ## Build and test commands
 - Start local DB stack: `docker compose -f infra/docker/docker-compose.yml up -d`.
-- Run migration profile: `docker compose --project-name twp-dev -f infra/docker/docker-compose.dev.yml --env-file infra/docker/.env.dev --profile migrate run --rm twp-dev-migrate`.
+- Run migration profile: `docker compose --project-name vakwen-dev -f infra/docker/docker-compose.dev.yml --env-file infra/docker/.env.dev --profile migrate run --rm vakwen-dev-migrate`.
 - Run backup command before risky changes: `bash infra/scripts/backup-postgres.sh --environment dev`.
 - Run integration checks after schema changes: `npm run test:integration`.
 

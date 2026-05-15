@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { layoutI18n } from "../components/layout/i18n";
 import { cashLedgerI18n } from "../features/cash-ledger/i18n";
 import { dashboardI18n } from "../features/dashboard/i18n";

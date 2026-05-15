@@ -27,8 +27,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: { ...original.Env, AUTH_MODE: "oauth" as const },

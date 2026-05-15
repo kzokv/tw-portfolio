@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // NOTE: _seedDailyBars appends to a global (non-per-user) array in MemoryPersistence.
 // It is never cleared between tests. Tests that seed bars for the same ticker

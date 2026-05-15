@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { PgBoss, JobWithMetadata } from "pg-boss";
-import type { BackfillStatus, MarketCode } from "@tw-portfolio/domain";
+import type { BackfillStatus, MarketCode } from "@vakwen/domain";
 import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
 import type { CatalogInstrument, CatalogSyncResult, DelistingRecord } from "../../persistence/types.js";

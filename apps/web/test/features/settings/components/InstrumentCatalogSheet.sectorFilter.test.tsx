@@ -24,7 +24,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { InstrumentCatalogItemDto } from "@tw-portfolio/shared-types";
+import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 import { InstrumentCatalogSheet } from "../../../../features/settings/components/InstrumentCatalogSheet";
 import { getDictionary } from "../../../../lib/i18n";
 

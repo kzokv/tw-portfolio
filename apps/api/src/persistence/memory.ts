@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Lot } from "@tw-portfolio/domain";
-import type { DividendLedgerAggregates, DividendSourceLine } from "@tw-portfolio/shared-types";
+import type { Lot } from "@vakwen/domain";
+import type { DividendLedgerAggregates, DividendSourceLine } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
@@ -11,7 +11,7 @@ import type {
   MarketDataFacts,
   Store,
 } from "../types/store.js";
-import type { DailyBar, InstrumentType, MarketCode } from "@tw-portfolio/domain";
+import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
@@ -23,7 +23,7 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import {
   buildShareAuditMetadata,
@@ -320,7 +320,7 @@ export class MemoryPersistence implements Persistence {
    */
   private readonly softDeletedAccounts = new Map<
     string,
-    import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }
+    import("@vakwen/shared-types").AccountDto & { deletedAt: string }
   >();
 
   constructor(private readonly options: MemoryPersistenceOptions = {}) {}
@@ -1906,7 +1906,7 @@ export class MemoryPersistence implements Persistence {
     userId: string,
     startDate: string,
     endDate: string,
-    reportingCurrency: import("@tw-portfolio/shared-types").AccountDefaultCurrency,
+    reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency,
   ): Promise<AggregatedSnapshotPoint[]> {
     const byDate = new Map<string, HoldingSnapshot[]>();
     for (const s of this.holdingSnapshots) {
@@ -2275,11 +2275,11 @@ export class MemoryPersistence implements Persistence {
     const now = new Date().toISOString();
     return {
       ticker: instrument.ticker,
-      instrumentType: (instrument.instrumentType as import("@tw-portfolio/domain").InstrumentType) ?? null,
+      instrumentType: (instrument.instrumentType as import("@vakwen/domain").InstrumentType) ?? null,
       marketCode: instrument.marketCode,
       name: instrument.name ?? undefined,
       isProvisional: false,
-      barsBackfillStatus: instrument.barsBackfillStatus as import("@tw-portfolio/domain").BackfillStatus,
+      barsBackfillStatus: instrument.barsBackfillStatus as import("@vakwen/domain").BackfillStatus,
       lastRepairAt: instrument.lastRepairAt ?? undefined,
       verificationStatus: "unverified",
       createdAt: now,
@@ -2289,8 +2289,8 @@ export class MemoryPersistence implements Persistence {
 
   async updateBackfillStatus(
     _ticker: string,
-    _marketCode: import("@tw-portfolio/domain").MarketCode,
-    _status: import("@tw-portfolio/domain").BackfillStatus,
+    _marketCode: import("@vakwen/domain").MarketCode,
+    _status: import("@vakwen/domain").BackfillStatus,
   ): Promise<void> {
     // No-op in memory mode (matches pre-KZO-197 behavior). Signature widened
     // for P2-2 to scope by composite (ticker, marketCode) — the Postgres impl
@@ -3556,8 +3556,8 @@ export class MemoryPersistence implements Persistence {
 
   async listSoftDeletedAccounts(
     userId: string,
-  ): Promise<Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }>> {
-    const result: Array<import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string }> = [];
+  ): Promise<Array<import("@vakwen/shared-types").AccountDto & { deletedAt: string }>> {
+    const result: Array<import("@vakwen/shared-types").AccountDto & { deletedAt: string }> = [];
     for (const [key, account] of this.softDeletedAccounts.entries()) {
       if (key.startsWith(`${userId}:`)) {
         result.push({ ...account });
@@ -3572,7 +3572,7 @@ export class MemoryPersistence implements Persistence {
     accountId: string,
     userId: string,
   ): Promise<
-    | (import("@tw-portfolio/shared-types").AccountDto & { deletedAt: string | null })
+    | (import("@vakwen/shared-types").AccountDto & { deletedAt: string | null })
     | null
   > {
     const shadow = this.softDeletedAccounts.get(`${userId}:${accountId}`);

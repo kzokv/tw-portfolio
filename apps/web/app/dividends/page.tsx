@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { DividendCalendarClient } from "../../components/dividends/DividendCalendarClient";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";

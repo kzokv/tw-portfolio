@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // The ticker-history route and mutation replay path are still too heavy for
 // fullyParallel test fan-out within a single spec file. Keep one mutation

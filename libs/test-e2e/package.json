@@ -1,5 +1,5 @@
 {
-  "name": "@tw-portfolio/test-e2e",
+  "name": "@vakwen/test-e2e",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -132,8 +132,8 @@
   },
   "dependencies": {
     "@playwright/test": "^1.53.0",
-    "@tw-portfolio/config": "0.1.0",
-    "@tw-portfolio/test-framework": "0.1.0"
+    "@vakwen/config": "0.1.0",
+    "@vakwen/test-framework": "0.1.0"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.4.0",

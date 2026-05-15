@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 import { MarketDataApiActions } from "./MarketDataApiActions.js";
 import { MarketDataApiArrange } from "./MarketDataApiArrange.js";
 import { MarketDataApiAssert } from "./MarketDataApiAssert.js";

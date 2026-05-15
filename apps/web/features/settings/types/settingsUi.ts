@@ -1,4 +1,4 @@
-import type { CostBasisMethod, CurrencyCode, LocaleCode } from "@tw-portfolio/shared-types";
+import type { CostBasisMethod, CurrencyCode, LocaleCode } from "@vakwen/shared-types";
 
 export interface SettingsProfileModel {
   id: string;

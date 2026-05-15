@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { BasePage, type TElementLocatorHelpers } from "@tw-portfolio/test-framework/core";
+import { BasePage, type TElementLocatorHelpers } from "@vakwen/test-framework/core";
 
 /**
  * KZO-195 — POM for `/admin/instruments`. Per

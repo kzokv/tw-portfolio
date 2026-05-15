@@ -1,6 +1,6 @@
 // KZO-198 — Unit tests for providerHealth resolver category.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import {
   _resetAppConfigCache,
   refresh,

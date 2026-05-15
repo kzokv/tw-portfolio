@@ -1,4 +1,4 @@
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { InMemoryEventBus } from "./memory.js";
 import { RedisEventBus } from "./redis.js";
 import { BufferedEventBus } from "./buffered.js";

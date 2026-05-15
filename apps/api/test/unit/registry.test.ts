@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { EnvConfig } from "@tw-portfolio/config";
+import type { EnvConfig } from "@vakwen/config";
 import { buildMarketDataRegistry } from "../../src/services/market-data/registry.js";
 import {
   FinMindMarketDataProvider,

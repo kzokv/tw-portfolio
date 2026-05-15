@@ -19,7 +19,7 @@
  * Navigation follows `.claude/rules/playwright-navigation-patterns.md`:
  *   - `navigateToRoute` uses `waitUntil: "load"` internally — never `networkidle`.
  *
- * Bundle prerequisite: run `npm run build -w @tw-portfolio/web` or use
+ * Bundle prerequisite: run `npm run build -w @vakwen/web` or use
  * `npm run test:e2e:bypass:mem --prefix apps/web` to get a fresh bundle
  * (per `.claude/rules/playwright-web-bundle-rebuild.md`).
  *
@@ -30,7 +30,7 @@
  *   - .claude/rules/e2e-shared-memory-bars-ticker-hygiene.md — AUCAT prefix, no bar seeds.
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 /** Generate N synthetic AU ticker strings: "AUCAT001" ... "AUCAT{N}" */
 function generateAuTickers(n: number): string[] {

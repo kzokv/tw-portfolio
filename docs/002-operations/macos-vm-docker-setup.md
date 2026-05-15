@@ -1,6 +1,6 @@
 # macOS Guest VM Docker Setup and Troubleshooting
 
-This guide documents Docker connectivity pitfalls when running `tw-portfolio` integration CI from a **macOS guest VM** that talks to a Docker daemon on a **different host** (for example, the physical macOS machine).
+This guide documents Docker connectivity pitfalls when running `vakwen` integration CI from a **macOS guest VM** that talks to a Docker daemon on a **different host** (for example, the physical macOS machine).
 
 ## Topology
 

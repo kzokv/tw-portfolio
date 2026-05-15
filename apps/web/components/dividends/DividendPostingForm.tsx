@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatNumber } from "../../lib/utils";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
 import { fieldClassName } from "../ui/fieldStyles";
 import { useDividendPosting } from "../../features/dividends/hooks/useDividendPosting";
@@ -17,7 +17,7 @@ import type {
   DividendSourceLineInput,
 } from "../../features/dividends/types";
 import { SourceCompositionTab } from "./SourceCompositionTab";
-import type { DividendSourceBucket } from "@tw-portfolio/shared-types";
+import type { DividendSourceBucket } from "@vakwen/shared-types";
 
 interface DividendPostingFormProps {
   row: DividendCalendarRow;
@@ -50,7 +50,7 @@ const SOURCE_BUCKETS = [
 ] as const;
 
 // Mirrors libs/domain/src/dividend-deductions.ts. Kept in sync manually to
-// avoid adding a runtime dependency from the web app on @tw-portfolio/domain.
+// avoid adding a runtime dependency from the web app on @vakwen/domain.
 const NHI_RATE = 0.0211;
 const NHI_THRESHOLD_TWD = 20_000;
 const DEFAULT_BANK_FEE_TWD = 10;

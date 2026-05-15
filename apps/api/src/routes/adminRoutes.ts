@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { AppConfigDto } from "@tw-portfolio/shared-types";
+import type { AppConfigDto } from "@vakwen/shared-types";
 import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
-} from "@tw-portfolio/shared-types";
-import { Env } from "@tw-portfolio/config";
+} from "@vakwen/shared-types";
+import { Env } from "@vakwen/config";
 import { signImpersonationCookie } from "../auth/googleOAuth.js";
 import { routeError } from "../lib/routeError.js";
 import { requireAdminRole } from "../lib/routeGuards.js";
@@ -34,12 +34,12 @@ import {
 import { today_utc } from "../services/market-data/deriveFetchWindow.js";
 import { enqueueDailyRefresh } from "../services/market-data/dailyRefreshEnqueue.js";
 import { CATALOG_SYNC_QUEUE } from "../services/market-data/registerCatalogSyncWorker.js";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type {
   AdminProvidersResponse,
   ProviderHealthStatusDto,
   ProviderErrorTrailEntryDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import {
   calendarMarketForProvider,
   computeStatus,
@@ -1053,7 +1053,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   // ── KZO-195 — Admin instruments listing + overrides ─────────────────────
 
-  app.get("/instruments", async (req): Promise<import("@tw-portfolio/shared-types").AdminInstrumentsResponse> => {
+  app.get("/instruments", async (req): Promise<import("@vakwen/shared-types").AdminInstrumentsResponse> => {
     requireAdminRole(req);
     const query = z
       .object({
@@ -1075,19 +1075,19 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       getEffectiveCatalogAbsenceGuardFloor,
     } = await import("../services/appConfig/catalogAbsence.js");
 
-    const dtoItems: import("@tw-portfolio/shared-types").AdminInstrumentDto[] = items.map((row) => {
-      const status: import("@tw-portfolio/shared-types").AdminInstrumentStatus = row.delistedAt
+    const dtoItems: import("@vakwen/shared-types").AdminInstrumentDto[] = items.map((row) => {
+      const status: import("@vakwen/shared-types").AdminInstrumentStatus = row.delistedAt
         ? "delisted"
         : row.delistingDetectionExcluded
           ? "excluded"
           : "listed";
       return {
         ticker: row.ticker,
-        marketCode: row.marketCode as import("@tw-portfolio/shared-types").MarketCode,
+        marketCode: row.marketCode as import("@vakwen/shared-types").MarketCode,
         name: row.name,
         // The persistence row carries `instrumentType` as `string | null`.
         // Default unknown rows to "STOCK" — safest fallback for UI rendering.
-        instrumentType: (row.instrumentType ?? "STOCK") as import("@tw-portfolio/domain").InstrumentType,
+        instrumentType: (row.instrumentType ?? "STOCK") as import("@vakwen/domain").InstrumentType,
         status,
         statusReason: row.statusReason,
         absenceStreak: row.absenceStreak,

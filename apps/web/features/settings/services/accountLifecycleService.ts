@@ -1,4 +1,4 @@
-import type { AccountDto } from "@tw-portfolio/shared-types";
+import type { AccountDto } from "@vakwen/shared-types";
 import { deleteJson, getJson, postJson } from "../../../lib/api";
 
 /**

@@ -11,7 +11,7 @@ import type {
   FeeProfileBindingDto,
   FeeProfileDto,
   InstrumentCatalogItemDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";

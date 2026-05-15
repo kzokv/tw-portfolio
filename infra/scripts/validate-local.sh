@@ -6,7 +6,7 @@ SCRIPT_PATH="${0##*/}"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.local.yml"
-COMPOSE_PROJECT="twp-local"
+COMPOSE_PROJECT="vakwen-local"
 ENV_FILE="$REPO_ROOT/infra/docker/.env.local"
 
 TEARDOWN=false
@@ -55,7 +55,7 @@ wait_for_healthcheck() {
 }
 
 collect_failure_logs() {
-  local containers="twp-local-postgres twp-local-redis twp-local-api twp-local-web twp-local-migrate"
+  local containers="vakwen-local-postgres vakwen-local-redis vakwen-local-api vakwen-local-web vakwen-local-migrate"
   local c
 
   log ""
@@ -203,15 +203,15 @@ phase_done
 FAILED_PHASE="Start infrastructure"
 phase_start "Phase 3: Start infrastructure"
 
-if ! dc up -d twp-local-postgres twp-local-redis; then
+if ! dc up -d vakwen-local-postgres vakwen-local-redis; then
   echo "ERROR: Failed to start infrastructure services" >&2
   on_failure
 fi
 
 # Wait for Docker's own healthcheck to report healthy
 for i in $(seq 1 60); do
-  pg_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' twp-local-postgres 2>/dev/null || true)"
-  redis_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' twp-local-redis 2>/dev/null || true)"
+  pg_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' vakwen-local-postgres 2>/dev/null || true)"
+  redis_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' vakwen-local-redis 2>/dev/null || true)"
   if [ "$pg_status" = "healthy" ] && [ "$redis_status" = "healthy" ]; then
     log "Postgres and Redis are healthy"
     break
@@ -230,7 +230,7 @@ phase_done
 FAILED_PHASE="Database migrations"
 phase_start "Phase 4: Database migrations"
 
-if ! dc --profile migrate run --rm twp-local-migrate; then
+if ! dc --profile migrate run --rm vakwen-local-migrate; then
   echo "ERROR: Database migration failed" >&2
   on_failure
 fi
@@ -241,7 +241,7 @@ phase_done
 FAILED_PHASE="Start applications"
 phase_start "Phase 5: Start applications"
 
-if ! dc up -d twp-local-api twp-local-web; then
+if ! dc up -d vakwen-local-api vakwen-local-web; then
   echo "ERROR: Failed to start application services" >&2
   on_failure
 fi
@@ -255,20 +255,20 @@ phase_start "Phase 6: Health checks"
 API_HEALTHY=false
 WEB_HEALTHY=false
 
-if wait_for_healthcheck "twp-local-api" "http://127.0.0.1:4000/health/live" 30 "wget -qO-"; then
+if wait_for_healthcheck "vakwen-local-api" "http://127.0.0.1:4000/health/live" 30 "wget -qO-"; then
   API_HEALTHY=true
 fi
 if [ "$API_HEALTHY" = false ]; then
   log "ERROR: API failed health check after 30s"
-  dc logs --tail 50 twp-local-api || true
+  dc logs --tail 50 vakwen-local-api || true
 fi
 
-if wait_for_healthcheck "twp-local-web" "http://127.0.0.1:3000/" 20 "wget -qO-"; then
+if wait_for_healthcheck "vakwen-local-web" "http://127.0.0.1:3000/" 20 "wget -qO-"; then
   WEB_HEALTHY=true
 fi
 if [ "$WEB_HEALTHY" = false ]; then
   log "ERROR: Web failed health check after 20s"
-  dc logs --tail 50 twp-local-web || true
+  dc logs --tail 50 vakwen-local-web || true
 fi
 
 if [ "$API_HEALTHY" = false ] || [ "$WEB_HEALTHY" = false ]; then
@@ -283,19 +283,19 @@ phase_start "Phase 7: Demo session validation"
 
 # Check if demo mode is enabled in the API container's environment.
 # The env var comes from .env.local via env_file in compose.
-DEMO_ENABLED="$(docker exec twp-local-api sh -c 'echo ${DEMO_MODE_ENABLED:-false}' 2>/dev/null || true)"
+DEMO_ENABLED="$(docker exec vakwen-local-api sh -c 'echo ${DEMO_MODE_ENABLED:-false}' 2>/dev/null || true)"
 
 if [ "$DEMO_ENABLED" != "true" ]; then
   log "DEMO_MODE_ENABLED is not 'true' (got: ${DEMO_ENABLED:-<unset>}). Skipping demo validation."
   log "To enable: set DEMO_MODE_ENABLED=true in .env.local"
 else
   # 1. Start demo session via the API
-  DEMO_RESPONSE="$(docker exec twp-local-api \
+  DEMO_RESPONSE="$(docker exec vakwen-local-api \
     wget -qO- --post-data='' http://127.0.0.1:4000/auth/demo/start 2>/dev/null || true)"
 
   if [ -z "$DEMO_RESPONSE" ]; then
     log "ERROR: POST /auth/demo/start returned empty response"
-    dc logs --tail 20 twp-local-api || true
+    dc logs --tail 20 vakwen-local-api || true
     on_failure
   fi
 
@@ -326,12 +326,12 @@ else
   log "Demo session created: userId=$DEMO_USER_ID sessionType=$DEMO_SESSION_TYPE"
 
   # 3. Verify the session cookie grants access to a protected endpoint
-  DEMO_COOKIE="$(docker exec twp-local-api \
+  DEMO_COOKIE="$(docker exec vakwen-local-api \
     wget -qS --post-data='' http://127.0.0.1:4000/auth/demo/start 2>&1 \
     | grep -i 'set-cookie' | head -1 | sed 's/.*set-cookie: *//i' | cut -d';' -f1 || true)"
 
   if [ -n "$DEMO_COOKIE" ]; then
-    SETTINGS_STATUS="$(docker exec twp-local-api \
+    SETTINGS_STATUS="$(docker exec vakwen-local-api \
       wget -qO- --header "Cookie: ${DEMO_COOKIE}" \
       http://127.0.0.1:4000/settings 2>/dev/null \
       | grep -c '"userId"' || true)"

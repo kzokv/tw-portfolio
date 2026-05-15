@@ -1,5 +1,5 @@
-import { Step } from "@tw-portfolio/test-framework/decorators";
-import { BaseAssert } from "@tw-portfolio/test-framework/mixins";
+import { Step } from "@vakwen/test-framework/decorators";
+import { BaseAssert } from "@vakwen/test-framework/mixins";
 
 import type { BrowserSessionPage } from "../../pages/auth/BrowserSessionPage.js";
 

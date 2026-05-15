@@ -3,7 +3,7 @@ import type {
   InstrumentCatalogItemDto,
   MarketCode,
   TransactionHistoryItemDto,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { TransactionInput } from "../../../components/portfolio/types";
 
 // KZO-169: market_code query param accepted by GET /instruments. `null` /

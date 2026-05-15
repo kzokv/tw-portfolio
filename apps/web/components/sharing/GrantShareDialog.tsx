@@ -3,7 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Copy, Mail, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import { createShareGrant, resolveInviteUrl } from "../../features/sharing/service";
 import type { GrantShareResult } from "../../features/sharing/types";

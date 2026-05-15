@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 
 import { SettingsActions } from "./SettingsActions.js";
 import { SettingsArrange } from "./SettingsArrange.js";

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { routeError } from "../lib/routeError.js";
 import {
   CONTEXT_FALLBACK_HEADER,

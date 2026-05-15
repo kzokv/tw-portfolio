@@ -1,4 +1,4 @@
-import type { InstrumentType, MarketCode } from "@tw-portfolio/domain";
+import type { InstrumentType, MarketCode } from "@vakwen/domain";
 import { setStoreInstruments } from "./store.js";
 import type { Store, InstrumentDef } from "../types/store.js";
 

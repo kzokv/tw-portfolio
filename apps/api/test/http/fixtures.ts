@@ -1,4 +1,4 @@
-import { createApiFixture } from "@tw-portfolio/test-api/config";
+import { createApiFixture } from "@vakwen/test-api/config";
 import type {
   PlaywrightTestArgs,
   PlaywrightTestOptions,
@@ -6,7 +6,7 @@ import type {
   PlaywrightWorkerOptions,
   TestType,
 } from "@playwright/test";
-import type { TestUser } from "@tw-portfolio/test-framework/core";
+import type { TestUser } from "@vakwen/test-framework/core";
 import type {
   TAccountsApiAssistant,
   TAdminApiAssistant,
@@ -24,8 +24,8 @@ import type {
   TSharesApiAssistant,
   TSettingsApiAssistant,
   TTransactionsApiAssistant,
-} from "@tw-portfolio/test-api/assistants";
-import { createApiSessionTest } from "@tw-portfolio/test-api/fixtures/sessionBase";
+} from "@vakwen/test-api/assistants";
+import { createApiSessionTest } from "@vakwen/test-api/fixtures/sessionBase";
 import {
   AccountsEndpoint,
   AdminEndpoint,
@@ -43,7 +43,7 @@ import {
   SharesEndpoint,
   SettingsEndpoint,
   TransactionsEndpoint,
-} from "@tw-portfolio/test-api/endpoints";
+} from "@vakwen/test-api/endpoints";
 
 const base = createApiSessionTest("oauth");
 

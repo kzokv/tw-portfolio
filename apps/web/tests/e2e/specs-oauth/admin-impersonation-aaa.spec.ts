@@ -1,6 +1,6 @@
-import { TestEnv } from "@tw-portfolio/config/test";
-import { test } from "@tw-portfolio/test-e2e/fixtures/oauthPages";
-import { makeDeterministicIdToken } from "@tw-portfolio/test-e2e/utils";
+import { TestEnv } from "@vakwen/config/test";
+import { test } from "@vakwen/test-e2e/fixtures/oauthPages";
+import { makeDeterministicIdToken } from "@vakwen/test-e2e/utils";
 
 function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;

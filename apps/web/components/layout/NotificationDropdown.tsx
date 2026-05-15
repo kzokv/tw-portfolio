@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { AlertTriangle, Info, X, XCircle } from "lucide-react";
-import type { NotificationDto } from "@tw-portfolio/shared-types";
+import type { NotificationDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { Button } from "../ui/Button";
 

@@ -10,7 +10,7 @@
  *   - DB override (`app_config.account_hard_purge_days`) when present,
  *   - else `Env.ACCOUNT_HARD_PURGE_DAYS` (default 30).
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveAccountHardPurgeDays(): number {

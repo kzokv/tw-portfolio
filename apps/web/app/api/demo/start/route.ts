@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { WebEnv } from "@tw-portfolio/config/web";
+import { WebEnv } from "@vakwen/config/web";
 
 const API_BASE = WebEnv.SERVER_API_BASE_URL ?? WebEnv.NEXT_PUBLIC_API_BASE_URL;
 

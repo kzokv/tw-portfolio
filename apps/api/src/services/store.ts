@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FeeProfile, InstrumentRef } from "@tw-portfolio/domain";
+import type { FeeProfile, InstrumentRef } from "@vakwen/domain";
 import { buildAccountingPolicy } from "./accountingStore.js";
 import { createDefaultInstruments } from "./instrumentRegistry.js";
 import type { Store, InstrumentDef } from "../types/store.js";

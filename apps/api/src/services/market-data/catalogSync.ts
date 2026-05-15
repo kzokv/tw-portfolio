@@ -1,5 +1,5 @@
-import { classifyInstrument } from "@tw-portfolio/domain";
-import type { MarketCode } from "@tw-portfolio/domain";
+import { classifyInstrument } from "@vakwen/domain";
+import type { MarketCode } from "@vakwen/domain";
 import type { RawInstrumentInfo } from "./types.js";
 import type { CatalogInstrument } from "../../persistence/types.js";
 

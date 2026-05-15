@@ -1,7 +1,7 @@
 /**
  * KZO-198 — SSE knob resolvers. DB override wins; env-fallback otherwise.
  */
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 export function getEffectiveSseHeartbeatIntervalMs(): number {

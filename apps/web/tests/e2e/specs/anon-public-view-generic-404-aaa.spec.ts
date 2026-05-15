@@ -1,4 +1,4 @@
-import { publicPagesTest as test } from "@tw-portfolio/test-e2e/fixtures";
+import { publicPagesTest as test } from "@vakwen/test-e2e/fixtures";
 
 const UNKNOWN_TOKEN = "AbCdEfGhIjKlMnOpQrStUv";
 

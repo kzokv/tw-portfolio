@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
-import type { TransactionHistoryItemDto } from "@tw-portfolio/shared-types";
+import type { TransactionHistoryItemDto } from "@vakwen/shared-types";
 import {
   useTransactionMutations,
   type UseTransactionMutationsResult,

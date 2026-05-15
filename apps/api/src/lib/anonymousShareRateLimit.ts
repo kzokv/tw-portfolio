@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { routeError } from "./routeError.js";
 import { sweepSlidingWindowBucket } from "./slidingWindowBucket.js";
 import {

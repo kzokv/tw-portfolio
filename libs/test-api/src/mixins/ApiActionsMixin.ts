@@ -1,4 +1,4 @@
-import type { Constructor } from "@tw-portfolio/test-framework/core";
+import type { Constructor } from "@vakwen/test-framework/core";
 
 /** Symmetric with ArrangeMixin/AssertMixin — extend when shared action behavior emerges. */
 export function ApiActionsMixin<TBase extends Constructor<object>>(Base: TBase) {

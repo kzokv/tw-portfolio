@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AnonymousShareTokenDto, LocaleCode } from "@tw-portfolio/shared-types";
+import type { AnonymousShareTokenDto, LocaleCode } from "@vakwen/shared-types";
 import {
   ApiError,
   createAnonymousToken,

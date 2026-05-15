@@ -1,7 +1,7 @@
 "use client";
 
 import type { AppDictionary } from "../../../lib/i18n";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { formatCurrencyAmount, formatDateLabel } from "../../../lib/utils";
 import { Drawer } from "../../../components/ui/Drawer";
 import type { EnrichedCashLedgerEntry } from "../types";

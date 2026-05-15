@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { TestEnv } from "@tw-portfolio/config/test";
-import { apiUrl, extractCookieValue, makeDeterministicIdToken, parseSessionCookie, UUID_V4_PATTERN } from "@tw-portfolio/test-e2e/utils";
+import { TestEnv } from "@vakwen/config/test";
+import { apiUrl, extractCookieValue, makeDeterministicIdToken, parseSessionCookie, UUID_V4_PATTERN } from "@vakwen/test-e2e/utils";
 
 test.describe("/__e2e/oauth-session identity resolution", () => {
   test("response userId is a UUID (not Google sub)", async ({ request }) => {

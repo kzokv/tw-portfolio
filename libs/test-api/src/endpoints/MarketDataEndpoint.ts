@@ -1,6 +1,6 @@
 import type { APIResponse } from "@playwright/test";
-import { BaseEndpoint } from "@tw-portfolio/test-framework/core";
-import { apiUrl } from "@tw-portfolio/test-framework/shared";
+import { BaseEndpoint } from "@vakwen/test-framework/core";
+import { apiUrl } from "@vakwen/test-framework/shared";
 
 /**
  * KZO-170 (G-NC-6): HTTP-suite endpoint wrapper for `/market-data/price`.

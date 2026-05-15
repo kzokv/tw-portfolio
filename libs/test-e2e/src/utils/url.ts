@@ -1,1 +1,1 @@
-export { appUrl, apiUrl } from "@tw-portfolio/test-framework/shared";
+export { appUrl, apiUrl } from "@vakwen/test-framework/shared";

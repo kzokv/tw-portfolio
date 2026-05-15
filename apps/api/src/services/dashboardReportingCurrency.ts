@@ -27,8 +27,8 @@
  *   - `"missing"`  — every contributing row's pair failed.
  */
 
-import { resolveRangeBounds, roundToDecimal } from "@tw-portfolio/domain";
-import type { QuoteSnapshot } from "@tw-portfolio/domain";
+import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
+import type { QuoteSnapshot } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
   DashboardOverviewHoldingDto,
@@ -38,7 +38,7 @@ import type {
   DashboardPerformanceDto,
   DashboardPerformancePointDto,
   DashboardPerformanceRange,
-} from "@tw-portfolio/shared-types";
+} from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 interface PreTranslationOverviewSummary {

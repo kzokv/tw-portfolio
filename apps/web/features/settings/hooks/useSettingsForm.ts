@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@tw-portfolio/shared-types";
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { toSettingsFormModel } from "../mappers/settingsMappers";
 import {

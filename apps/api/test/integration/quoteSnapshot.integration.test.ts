@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Env is frozen at module load from .env.local (AUTH_MODE=oauth). Override to dev_bypass so
 // non-auth tests (TC-I1, TC-I3–TC-I5) don't get 401. Pattern: see sse.integration.test.ts.
-vi.mock("@tw-portfolio/config", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@tw-portfolio/config")>();
+vi.mock("@vakwen/config", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vakwen/config")>();
   return {
     ...original,
     Env: { ...original.Env, AUTH_MODE: "dev_bypass" as const },

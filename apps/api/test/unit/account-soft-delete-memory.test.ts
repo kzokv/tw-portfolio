@@ -16,7 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { createDefaultFeeProfile } from "../../src/services/store.js";
-import type { AccountDto } from "@tw-portfolio/shared-types";
+import type { AccountDto } from "@vakwen/shared-types";
 import type { OAuthClaims } from "../../src/persistence/types.js";
 
 const baseAudit = { actorUserId: null, ipAddress: null, metadata: {} } as const;

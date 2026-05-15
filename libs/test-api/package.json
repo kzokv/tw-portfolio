@@ -1,5 +1,5 @@
 {
-  "name": "@tw-portfolio/test-api",
+  "name": "@vakwen/test-api",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -64,8 +64,8 @@
   },
   "dependencies": {
     "@playwright/test": "^1.53.0",
-    "@tw-portfolio/config": "0.1.0",
-    "@tw-portfolio/test-framework": "0.1.0"
+    "@vakwen/config": "0.1.0",
+    "@vakwen/test-framework": "0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

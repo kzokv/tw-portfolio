@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { Env } from "@tw-portfolio/config";
+import { Env } from "@vakwen/config";
 import { createPersistence } from "../persistence/index.js";
 
 const emailSchema = z.string().trim().email().transform((value) => value.toLowerCase());

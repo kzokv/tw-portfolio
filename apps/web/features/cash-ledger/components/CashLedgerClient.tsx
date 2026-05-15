@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
-import type { LocaleCode } from "@tw-portfolio/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { formatCurrencyAmount, formatDateLabel } from "../../../lib/utils";
 import { useEventStream } from "../../../hooks/useEventStream";

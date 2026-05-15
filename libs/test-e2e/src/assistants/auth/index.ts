@@ -1,4 +1,4 @@
-import { createAssistantFactory } from "@tw-portfolio/test-framework/config";
+import { createAssistantFactory } from "@vakwen/test-framework/config";
 
 import { AuthErrorActions } from "./AuthErrorActions.js";
 import { AuthErrorArrange } from "./AuthErrorArrange.js";

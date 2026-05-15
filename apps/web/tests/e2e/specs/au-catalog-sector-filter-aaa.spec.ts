@@ -33,7 +33,7 @@
  *     bundle before running).
  */
 
-import { test } from "@tw-portfolio/test-e2e/fixtures/appPages";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 /**
  * Build a fixture catalog covering ≥3 sectors + a null-group row so the spec

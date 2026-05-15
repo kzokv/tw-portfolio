@@ -5,7 +5,7 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
 }> = {
   en: {
     topBar: {
-      productName: "Taiwan Portfolio",
+      productName: "Vakwen",
       title: "Market Ledger",
       titleTooltip: "Central workspace for portfolio state, trade history, and settings.",
       openSettingsLabel: "Open settings drawer",
@@ -37,13 +37,13 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     },
     hero: {
       eyebrow: "Operational Snapshot",
-      title: "Taiwan Portfolio Control Room",
+      title: "Vakwen Control Room",
       titleTooltip: "Live command center for trades, holdings, and fee/tax settings.",
       description: "Manage trades, audit holdings, and tune settings from one streamlined workspace.",
     },
     dashboardHome: {
       summaryEyebrow: "Daily Workspace",
-      summaryTitle: "Taiwan Portfolio Control Room",
+      summaryTitle: "Vakwen Control Room",
       summaryDescription: "Review portfolio shape, dividend flow, and open issues before you record the next transaction.",
       asOfLabel: "As of",
       accountCountLabel: "Accounts",
@@ -193,7 +193,7 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
   },
   "zh-TW": {
     topBar: {
-      productName: "台灣投資組合",
+      productName: "Vakwen",
       title: "市場帳本",
       titleTooltip: "投資組合狀態、交易紀錄與設定的集中工作區。",
       openSettingsLabel: "開啟設定抽屜",
@@ -225,13 +225,13 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     },
     hero: {
       eyebrow: "營運概覽",
-      title: "台灣投資組合控制台",
+      title: "Vakwen 控制台",
       titleTooltip: "交易、持倉與費稅設定的即時控制中心。",
       description: "在同一個工作區中管理交易、檢視持倉並調整設定。",
     },
     dashboardHome: {
       summaryEyebrow: "每日工作台",
-      summaryTitle: "台灣投資組合控制台",
+      summaryTitle: "Vakwen 控制台",
       summaryDescription: "先檢查持倉輪廓、股利進度與待處理事項，再新增交易。",
       asOfLabel: "更新時間",
       accountCountLabel: "帳戶數",

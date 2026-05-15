@@ -1,4 +1,4 @@
-import { test } from "@tw-portfolio/test-e2e/fixtures/authPages";
+import { test } from "@vakwen/test-e2e/fixtures/authPages";
 
 const FAKE_NOTIFICATION_ID = "fake-id";
 

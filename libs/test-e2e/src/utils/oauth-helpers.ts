@@ -1,5 +1,5 @@
 import type { TSessionAssistant } from "../assistants/auth/index.js";
-import { TestEnv } from "@tw-portfolio/config/test";
+import { TestEnv } from "@vakwen/config/test";
 
 /**
  * Starts an OAuth flow and extracts the state parameter.

@@ -7,7 +7,7 @@
 
 ## Build and test commands
 - Dev server: `npm run dev -w apps/api`.
-- Build package: `npm run build -w @tw-portfolio/api`.
+- Build package: `npm run build -w @vakwen/api`.
 - Run API tests: `npm run test -w apps/api`.
 - Run API HTTP tests: `npm run test:http -w apps/api`.
 - Run integration tests: `npm run test:integration -w apps/api`.

@@ -22,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Pool } from "pg";
 import type { JobWithMetadata } from "pg-boss";
-import type { MarketCode } from "@tw-portfolio/domain";
+import type { MarketCode } from "@vakwen/domain";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
 import {
@@ -34,7 +34,7 @@ import {
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
-const managedCiStack = process.env.TWP_MANAGED_CI_STACK === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 
 if (runPostgresIntegration && !managedCiStack) {
   throw new Error(
@@ -143,7 +143,7 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (
         ticker: string,
-        marketCode: import("@tw-portfolio/domain").MarketCode,
+        marketCode: import("@vakwen/domain").MarketCode,
         status: string,
       ) => {
         await persistence!.updateBackfillStatus(
@@ -231,7 +231,7 @@ describePostgres("pre-provider trade-date truncation (KZO-170 D13)", () => {
       getEffectiveMetadataEnrichmentMode: vi.fn().mockResolvedValue("conditional"),
       updateBackfillStatus: async (
         ticker: string,
-        marketCode: import("@tw-portfolio/domain").MarketCode,
+        marketCode: import("@vakwen/domain").MarketCode,
         status: string,
       ) => {
         await persistence!.updateBackfillStatus(

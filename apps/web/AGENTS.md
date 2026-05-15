@@ -7,7 +7,7 @@
 
 ## Build and test commands
 - Dev server: `npm run dev -w apps/web`.
-- Build package: `npm run build -w @tw-portfolio/web`.
+- Build package: `npm run build -w @vakwen/web`.
 - Start built app: `npm run start -w apps/web`.
 - Run web unit tests: `npm run test -w apps/web`.
 - Run web e2e suite from repo root: `npm run test:e2e:bypass:mem`.

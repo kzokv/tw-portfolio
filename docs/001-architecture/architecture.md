@@ -1,6 +1,6 @@
 # System Architecture
 
-This document describes the monorepo structure, request lifecycle, deployment topology, and build model for the tw-portfolio stack.
+This document describes the monorepo structure, request lifecycle, deployment topology, and build model for the vakwen stack.
 
 ---
 
@@ -8,7 +8,7 @@ This document describes the monorepo structure, request lifecycle, deployment to
 
 ```mermaid
 graph TD
-  ROOT[tw-portfolio monorepo]
+  ROOT[vakwen monorepo]
   ROOT --> APPS[apps/]
   ROOT --> LIBS[libs/]
   ROOT --> DB[db/]
@@ -124,7 +124,7 @@ graph TD
   CF[Cloudflare Zero Trust]
 
   subgraph QNAP["QNAP Host (192.168.x.x)"]
-    subgraph PROD["twp-prod-net"]
+    subgraph PROD["vakwen-prod-net"]
       PW[web :3000]
       PA[api :4000]
       PP[postgres :5432]
@@ -132,7 +132,7 @@ graph TD
       PCF[cloudflared]
     end
 
-    subgraph DEV["twp-dev-net"]
+    subgraph DEV["vakwen-dev-net"]
       DW[web :3000]
       DA[api :4000]
       DP[postgres :5432]
@@ -153,9 +153,9 @@ graph TD
 
 | Tier | Compose file | Project prefix | Network | Ingress |
 |------|-------------|----------------|---------|---------|
-| Local | `docker-compose.local.yml` | `twp-local` | `twp-local-net` | Host port mapping (+300 offset) |
-| Dev | `docker-compose.dev.yml` | `twp-dev` | `twp-dev-net` | Cloudflare Tunnel |
-| Production | `docker-compose.prod.yml` | `twp-prod` | `twp-prod-net` | Cloudflare Tunnel |
+| Local | `docker-compose.local.yml` | `vakwen-local` | `vakwen-local-net` | Host port mapping (+300 offset) |
+| Dev | `docker-compose.dev.yml` | `vakwen-dev` | `vakwen-dev-net` | Cloudflare Tunnel |
+| Production | `docker-compose.prod.yml` | `vakwen-prod` | `vakwen-prod-net` | Cloudflare Tunnel |
 
 ### Port mapping
 

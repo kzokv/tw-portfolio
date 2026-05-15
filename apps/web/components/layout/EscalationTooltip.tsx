@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { NotificationDto } from "@tw-portfolio/shared-types";
+import type { NotificationDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { patchJson } from "../../lib/api";
 import { Button } from "../ui/Button";
