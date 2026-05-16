@@ -17,7 +17,7 @@
 | 4 | Breadcrumbs | Per-page `useBreadcrumb([...])` hook + `<BreadcrumbProvider>` in AppShell | Handles dynamic segments (`/tickers/2330 → "TSMC (2330)"`). Fallback to pathname → label map for pages that don't call the hook. |
 | 5 | Settings layout | Two-pane: inner left sub-nav + content; sub-routes per section | Matches mockup verbatim. Each section is deep-linkable. |
 | 6 | Sections taxonomy | Mockup labels for sections with existing content only. API keys + Import/Export dropped (no current code) | Reuse what exists; don't ship dead routes. |
-| 7 | "General" tab split | Theme/accent/density/language → `/settings/display`; notification prefs → `/settings/notifications`; privacy bits → `/settings/privacy` | Mockup section names; today's `GeneralSettingsSection` splits accordingly. |
+| 7 | "General" tab split | ~~Theme/accent/density/language → `/settings/display`; notification prefs → `/settings/notifications`; privacy bits → `/settings/privacy`~~ **Superseded by §12 A5:** `GeneralSettingsSection.tsx` only holds `locale`+`costBasisMethod`+`quotePollIntervalSeconds` — no notification/privacy fields exist. `locale` + `quotePollIntervalSeconds` → `/settings/display`; `costBasisMethod` UI deleted (vestigial); Notifications + Privacy dropped from v1. | Mockup section names; today's `GeneralSettingsSection` splits accordingly. |
 | 8 | Mobile breakpoints | sm/md/lg all gate Phase 3 | Aligns with design-doc §1 ("responsive everywhere"). |
 | 9 | ⌘K "Add transaction" | Opens a Dialog overlay mounted in AppShell that renders `AddTransactionCard` with its own form state | Keeps quick-add accessible from any page. Separate from inline dashboard instance (which keeps its own draft until Phase 5). |
 | 10 | TopBar chrome | Rebuild `NotificationBell` (shadcn `Popover`) + `ProfileMenu` (`DropdownMenu` + `Avatar`) | Phase 3 is the right time. Avatar primitive (Wave B) consolidates `UserAvatarButton`'s hand-rolled initials/picture/error-fallback logic. |
@@ -59,10 +59,10 @@
 | `/settings` | Server redirect to `/settings/profile` |
 | `/settings/profile` | `ProfileSection` → display name (auto-save w/ confirm), email (read-only), picture URL (auto-save w/ confirm), language |
 | `/settings/accounts` | `AccountsListSection` — list, create, soft-delete, currency/fee-profile edits (auto-save w/ confirm for sensitive fields) |
-| `/settings/display` | `ThemeToggle` + `AccentSwatchPicker` + `DensityToggle` + `PerformanceRangesForm` + language (auto-save, no confirm) |
+| `/settings/display` | `ThemeToggle` + `AccentSwatchPicker` + `DensityToggle` + `PerformanceRangesForm` + language + **Calculations subsection (`quotePollIntervalSeconds`)** per §12 A5 (auto-save, no confirm) |
 | `/settings/tickers` | `MonitoredTickersSection` + `InstrumentCatalogSheet` (now full-page, not nested sheet). Auto-save w/ confirm |
-| `/settings/notifications` | New stub page; reads/writes `user_preferences.notificationPrefs` (whatever today's `GeneralSettingsSection` holds for notifications). Auto-save |
-| `/settings/privacy` | New stub page; holds sharing/privacy bits from today's `GeneralSettingsSection`. Auto-save |
+| ~~`/settings/notifications`~~ | **DROPPED from v1 per §12 A5.** Re-add when notification-preference schema lands. |
+| ~~`/settings/privacy`~~ | **DROPPED from v1 per §12 A5.** Re-add when privacy-controls scope lands. |
 
 ### 2.3 Admin pages (AdminShell mirror)
 
@@ -149,10 +149,10 @@ npx shadcn@latest add -c apps/web sidebar breadcrumb navigation-menu avatar prog
 | `apps/web/app/settings/layout.tsx` | New — server component; `requireSession()`; renders `<SettingsTwoPaneLayout>{children}</SettingsTwoPaneLayout>` |
 | `apps/web/app/settings/profile/page.tsx` | New — `<ProfileSettingsClient>` |
 | `apps/web/app/settings/accounts/page.tsx` | New — `<AccountsSettingsClient>` |
-| `apps/web/app/settings/display/page.tsx` | New — `<DisplaySettingsClient>` (theme + accent + density + ranges + language) |
+| `apps/web/app/settings/display/page.tsx` | New — `<DisplaySettingsClient>` (theme + accent + density + ranges + language + **Calculations subsection: `quotePollIntervalSeconds`** per §12 A5) |
 | `apps/web/app/settings/tickers/page.tsx` | New — `<TickersSettingsClient>` |
-| `apps/web/app/settings/notifications/page.tsx` | New — `<NotificationsSettingsClient>` (notification prefs split out of GeneralSettingsSection) |
-| `apps/web/app/settings/privacy/page.tsx` | New — `<PrivacySettingsClient>` (privacy bits from GeneralSettingsSection) |
+| ~~`apps/web/app/settings/notifications/page.tsx`~~ | **DROPPED per §12 A5** — not created in 3d. |
+| ~~`apps/web/app/settings/privacy/page.tsx`~~ | **DROPPED per §12 A5** — not created in 3d. |
 | `apps/web/components/settings/SettingsTwoPaneLayout.tsx` | New — inner sidebar (desktop) / top dropdown (mobile) + content area |
 | `apps/web/components/settings/SettingsNav.tsx` | New — inner nav with active-route highlight |
 | `apps/web/components/settings/SettingsMobileNav.tsx` | New — `<Select>` for `<md` viewports |
@@ -164,7 +164,7 @@ npx shadcn@latest add -c apps/web sidebar breadcrumb navigation-menu avatar prog
 | `apps/web/features/settings/hooks/useSettingsForm.ts` | **Delete**; per-section forms own their state |
 | `apps/web/features/settings/hooks/useSettingsSave.ts` | **Delete** |
 | `apps/web/features/settings/components/UnsavedChangesFooter.tsx` | **Delete** |
-| Existing section components (`ProfileSection`, `AccountsListSection`, `MonitoredTickersSection`, `GeneralSettingsSection`, `DisplayTabSection`) | Lift out of drawer wrapper; consume new `useAutoSave`/`useConfirmedSave` instead of the unified form. `GeneralSettingsSection` splits into Notifications + Privacy sections + Display additions |
+| Existing section components (`ProfileSection`, `AccountsListSection`, `MonitoredTickersSection`, `GeneralSettingsSection`, `DisplayTabSection`) | Lift out of drawer wrapper; consume new `useAutoSave`/`useConfirmedSave` instead of the unified form. **Per §12 A5: `GeneralSettingsSection.tsx` is DELETED — `locale` + `quotePollIntervalSeconds` move into `DisplaySettingsClient`; `costBasisMethod` UI deleted entirely (vestigial, one-option). Per §12 A6: `AccountsListSection` reskinned during 3d (drop legacy glass/radius markers); `ProfileSection` + `MonitoredTickersSection` mounted verbatim with Phase 7 reskin prereq.** |
 | `apps/api/src/routes/registerRoutes.ts` | Wire per-resource PATCH handlers if missing. Retire POST /settings handler |
 | API integration tests for POST /settings | Update or retire alongside endpoint |
 
@@ -308,16 +308,14 @@ This split avoids two testids on the same element (which would surface as a stri
 - `settings-layout` (root)
 - `settings-nav` (desktop inner sidebar)
 - `settings-nav-mobile` (`<md` select)
-- `settings-nav-item-{section}` for `section in [profile, accounts, display, tickers, notifications, privacy]`
+- `settings-nav-item-{section}` for `section in [profile, accounts, display, tickers]` **(per §12 A5 — `notifications` + `privacy` dropped from v1)**
 - `settings-section-{section}` (content area root, one per route)
 
 ### Per-section roots (preserve existing testids inside)
 - `settings-section-profile` wraps existing ProfileSection testids
 - `settings-section-accounts` wraps existing AccountsListSection testids
-- `settings-section-display` wraps Phase 2's `display-*` testids (`display-accent-swatch-*`, `display-theme-toggle`, etc.) + new `display-ranges-form`
+- `settings-section-display` wraps Phase 2's `display-*` testids (`display-accent-swatch-*`, `display-theme-toggle`, etc.) + new `display-ranges-form` + new `display-calculations-section` (per §12 A5)
 - `settings-section-tickers` wraps existing MonitoredTickersSection testids
-- `settings-section-notifications` (new)
-- `settings-section-privacy` (new)
 
 ### Add transaction dialog (⌘K action)
 - `add-transaction-dialog`
@@ -335,7 +333,7 @@ This split avoids two testids on the same element (which would surface as a stri
 
 | Endpoint | Status |
 |---|---|
-| `PATCH /user-preferences` | Exists. Extend to accept partial fields (theme accent, density, language, cardOrder, performanceRanges, notification prefs, privacy bits) |
+| `PATCH /user-preferences` | Exists. Extend to accept partial fields (theme accent, density, language, cardOrder, performanceRanges, `quotePollIntervalSeconds`). **Per §12 A5: no notification/privacy keys land in 3d.** |
 | `PATCH /profile` | New if missing. Accepts `displayName`, `pictureUrl` |
 | `PATCH /accounts/:id` | Exists. Auto-save uses partial body |
 | `PUT /monitored-tickers` | Exists. Confirmation-required save |
@@ -347,7 +345,7 @@ This split avoids two testids on the same element (which would surface as a stri
 
 ### 5.2 No DB schema changes in Phase 3
 
-All new section storage lives in existing `user_preferences.preferences` JSONB. Notification + privacy keys land as new fields inside the JSONB blob (no migration). Per `migration-strategy.md`, this avoids a new migration.
+All new section storage lives in existing `user_preferences.preferences` JSONB. **Per §12 A5: no notification/privacy keys land in 3d.** When those features scope later, keys will land in the same JSONB blob (no migration). Per `migration-strategy.md`, this avoids a new migration.
 
 If notification prefs need typed columns later, that's a follow-up ticket.
 
@@ -364,17 +362,18 @@ settingsNavProfileLabel
 settingsNavAccountsLabel
 settingsNavDisplayLabel
 settingsNavTickersLabel
-settingsNavNotificationsLabel
-settingsNavPrivacyLabel
-settingsNavGroupPersonalLabel  ("Personal")
-settingsNavGroupDataLabel      ("Data")
-settingsSectionNotificationsTitle / Description
-settingsSectionPrivacyTitle / Description
-settingsAutoSavedNotice         ("Saved")
-settingsAutoSavingNotice        ("Saving…")
-settingsAutoSaveFailedNotice    ("Couldn't save — check your input")
-profileFieldChangeConfirmTitle  ("Confirm profile change")
+# Per §12 A5 — Notifications + Privacy nav entries dropped from v1.
+# Group labels (Personal/Data) dropped — 4 entries don't need grouping.
+settingsAutoSavedNotice           ("Saved")
+settingsAutoSavingNotice          ("Saving…")
+settingsAutoSaveFailedNotice      ("Couldn't save — check your input")
+profileFieldChangeConfirmTitle    ("Confirm profile change")
+profilePictureChangeConfirmTitle  ("Update profile picture URL?")          # §12 A7
+profilePictureChangeConfirmBody   ("This image is visible to anyone you've shared your portfolio with.")  # §12 A7
 tickersBatchSaveButtonLabel
+settingsDisplayLanguageLabel      ("UI language")                          # §12 A5 — moved from former General
+settingsDisplayCalculationsLabel  ("Calculations")                         # §12 A5
+settingsDisplayCalculationsDescription  ("Pricing and refresh defaults applied across your portfolio.")  # §12 A5
 ```
 
 ### `apps/web/lib/i18n/types.ts` (no new top-level groups — extend `settings` flat record)
@@ -516,3 +515,279 @@ test(web): mobile breakpoint gate for sidebar + settings nav (Phase 3g)
 ```
 
 7 commits. Each independently verifiable.
+
+---
+
+## 12. Addendum (2026-05-16) — pre-3d clarifications
+
+**Status:** Pre-merge correction per `doc-management.md`. Locked via `/scope-grill` session 2026-05-16. Items deferred to a future `phase-4-spec` are listed in §13. **This addendum supersedes conflicting prose in §1–§6 + §3d wherever flagged below.**
+
+### A1. Decision #13 (corner widget) — formally rescinded
+
+The decisions-doc addendum "13: Profile widget placement" (`decisions-202605151245-audit-resolutions.md`) is **superseded by §1 Decision #10 above**. `<NotificationBell>` and `<ProfileMenu>` live **inside `<TopBar>`** (shipped in Phase 3c). The fixed-corner widget pattern is rejected.
+
+**Why:** The corner widget creates a separate stacking context for a focus-bearing menu, which conflicts with the breadcrumb's left-bound layout and the topbar's sticky-on-scroll behavior. The in-TopBar placement matches mockup 01 and the implemented shell.
+
+**How to apply:** Decisions-doc Decision #13 is back-annotated with "**Rescinded 2026-05-16**" pointing here. No code change — Phase 3c already shipped the in-TopBar arrangement.
+
+### A2. Recompute placement — three surfaces, AlertDialog interaction
+
+Decision #5 in `decisions-…audit-resolutions.md` said: "Global 'Recompute all' lives in **avatar menu and ⌘K**." This addendum amends:
+
+- **Avatar menu: NO Recompute entry.** Per §1 Decision #11, the avatar menu is identity-only.
+- **⌘K palette: YES — `action.recompute.all`.** Extends §3e command registry. Interaction is a shadcn **`AlertDialog`** (NOT `window.confirm`), reusing the existing `useRecomputeAction.runRecompute` preview+confirm chain.
+- **Per-page header button: retained on `/portfolio` only.** Mockup 13. Not added to other pages — Recompute is a power-user action; sprawling buttons clutters headers.
+- **Per-ticker row action: retained** per Decision #5 (`/portfolio` Holdings row menu, `/tickers/[ticker]` row).
+- **Phase 5 hand-off:** the floating + FAB Sheet quick-action panel (scope-todo Phase 5) inherits Recompute as a discoverable non-keyboard surface. Between Phase 3 and Phase 5, ⌘K is the only global discovery for non-`/portfolio` pages — acceptable because Recompute is a rare power-user action.
+
+**§3e command registry update (add to list):**
+
+```
+- action.recompute.all → opens shadcn AlertDialog → on confirm, fires existing
+  useRecomputeAction.runRecompute (preview + confirm); toast on success/error
+```
+
+i18n keys (extend §6):
+
+```
+commandPaletteActionRecomputeAll  ("Recompute all positions")
+recomputeConfirmTitle             ("Recompute all positions?")
+recomputeConfirmBody              ("This re-derives lots, allocations, and cash entries from your trade history. May take a few seconds.")
+recomputeConfirmCta               ("Recompute")
+recomputeCancelCta                ("Cancel")
+```
+
+Testids (extend §4 CommandPalette section):
+
+```
+- command-palette-item-action-recompute-all
+- recompute-confirm-dialog
+- recompute-confirm-dialog-cta
+- recompute-confirm-dialog-cancel
+```
+
+**Backend reality check (verified during grill):** No "recompute all" endpoint exists. Flow is `POST /portfolio/recompute/preview` (omit `profileId` + `accountId` filters) → `POST /portfolio/recompute/confirm` with the returned `jobId`. `useRecomputeAction.runRecompute` already encapsulates this — the ⌘K action invokes that hook verbatim. No new endpoint needed.
+
+**Keyboard shortcut:** No global `⌘R` binding (browser-reserved for page refresh). The ⌘K item is discoverable via search; no separate accelerator.
+
+### A3. Mockup 12 (profile menu) — menu CONTENTS marked stale
+
+`screenshots/12-dashboard-profile-menu-open.png` predates §1 Decision #11. The mockup's menu CONTENTS are stale:
+
+| Mockup entry | Status |
+|---|---|
+| Profile (G P) | ✓ kept (no G-prefix shortcut) |
+| Settings (G S) | ✗ removed — Settings is sidebar-only (Decision #11) |
+| Sharing | ✗ removed — reachable via sidebar nav |
+| Recompute all positions (⌘R) | ✗ removed — see A2 (⌘K only) |
+| Theme · System (single line) | ✗ rejected — keep 3 separate items per Phase 3c implementation |
+| Command palette (⌘K) | ✗ removed — ⌘K is already global; menu entry is redundant |
+| Sign out | ✓ kept |
+
+The **avatar trigger chevron** (`A▾`) depicted in mockups 01/03/13 etc. is **not stale** — A4 below ships it.
+
+`README.md`'s screenshot caption for `mockup-202605151210-dashboard.html?menu=open` should add: *"(profile menu contents superseded by `phase-3-spec` §1 Decision #11 + addendum A3 — implementation is the source of truth; chevron-on-trigger is shipped per A4)."*
+
+**No G-prefix keyboard shortcuts ship in Phase 3.** Shortcut hints in the mockup are aspirational. A shortcut registry (if it lands) is a follow-up ticket scoped against `keybindings-help` ergonomics.
+
+### A4. Avatar chevron (`A▾`) — ship
+
+Mockup 01/03/13 etc. render the avatar trigger as `A▾` with a small chevron. Phase 3c shipped just the circle. **Add the chevron** in 3d (or sooner as a one-line touch-up).
+
+Rationale: every signed-in mockup shows the chevron; conventional pattern (GitHub, Vercel, Linear, Stripe Dashboard all do this); discoverability case overrides the "a11y handles it" argument since the click affordance on a circular avatar is weak by default. Cost: 1 line of JSX.
+
+**Implementation:**
+
+```tsx
+// apps/web/components/profile/ProfileMenu.tsx — inside the trigger <Button>
+<Avatar className="h-9 w-9">…</Avatar>
+<ChevronDown className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+```
+
+No new testid; `topbar-profile-menu-trigger` still wraps both. `lucide-react` `ChevronDown` already in the project (used by sidebar collapse trigger).
+
+### A5. Settings sections — content slice + stubs dropped
+
+The phase-3-spec §1 Decision #7 said "notification prefs → `/settings/notifications`; privacy bits → `/settings/privacy`." Audit shows `GeneralSettingsSection.tsx` actually holds **`locale`, `costBasisMethod`, `quotePollIntervalSeconds`** — no notification or privacy fields exist in `UserSettings` today.
+
+**Resolution — actual slice:**
+
+| Current field (in `GeneralSettingsSection`) | New home | Save model |
+|---|---|---|
+| `locale` (UI language) | `/settings/display` (matches mockup 09 "Default UI language") | auto-save |
+| `costBasisMethod` | **Deleted entirely.** Type is `"WEIGHTED_AVERAGE"` literal — one option, vestigial. Schema field stays in `UserSettings` for future FIFO/LIFO; no UI exposes it until then. | n/a |
+| `quotePollIntervalSeconds` | `/settings/display` under "**Calculations**" subsection | auto-save w/ inline validate (must be ≥1) |
+
+`GeneralSettingsSection.tsx` is **deleted** in 3d. `locale` and `quotePollIntervalSeconds` move into `DisplaySettingsClient` as a second card below the theme/accent/density block.
+
+**`/settings/notifications` and `/settings/privacy` — DROPPED from v1.**
+
+Settings sidebar nav ships with **4 entries**: Profile · Accounts · Display · Tickers. Mockup 09 sidebar nav (Profile · Accounts · Display · Notifications · API keys · Import / Export · Privacy & sharing) is treated as a design vision, not a v1 target — only entries whose underlying feature exists or has clear scope ship in v1.
+
+**Rationale (locked via grill Q3):** "Coming soon" stub pages are user-hostile noise. A user clicking a sidebar item and getting a dead-end feels broken. Routes re-add when real content scopes (e.g., notification-category prefs alongside any future notification-preferences API; privacy controls alongside any future privacy work).
+
+**Update to §2.2 New routes table (this addendum supersedes earlier rows):**
+
+| Route | Content (this addendum supersedes the §2.2 entries it replaces) |
+|---|---|
+| `/settings` | Server redirect to `/settings/profile` (unchanged) |
+| `/settings/profile` | `ProfileSection` (unchanged visual; new container; display-name + picture confirmation per A7) |
+| `/settings/accounts` | `AccountsListSection` — **reskinned during 3d per A6** |
+| `/settings/display` | Theme + accent + density + performance ranges + **language** + **Calculations subsection (`quotePollIntervalSeconds` only)** |
+| `/settings/tickers` | `MonitoredTickersSection` (unchanged) |
+| ~~`/settings/notifications`~~ | **Dropped from v1.** Route not created. |
+| ~~`/settings/privacy`~~ | **Dropped from v1.** Route not created. |
+
+**Updates to §3d file list (supersedes the file entries it replaces):**
+- **Drop:** `apps/web/app/settings/notifications/page.tsx`
+- **Drop:** `apps/web/app/settings/privacy/page.tsx`
+- **Drop:** `NotificationsSettingsClient`, `PrivacySettingsClient` from the spec's "New" component list
+- **Update:** `GeneralSettingsSection.tsx` row from "splits accordingly" → "**deleted**; `locale` + `quotePollIntervalSeconds` move into `DisplaySettingsClient`; `costBasisMethod` UI deleted"
+
+**Updates to §4 testid list (supersedes the enumeration):**
+- `settings-nav-item-{section}` for `section in [profile, accounts, display, tickers]` only — **drop `notifications`, `privacy`**
+- **Drop** `settings-section-notifications` and `settings-section-privacy`
+
+**Updates to §6 i18n keys (supersedes the listed additions):**
+- **Drop:** `settingsNavNotificationsLabel`, `settingsNavPrivacyLabel`
+- **Drop:** `settingsNavGroupPersonalLabel`, `settingsNavGroupDataLabel` (4 entries don't need grouping)
+- **Drop:** `settingsSectionNotificationsTitle/Description`, `settingsSectionPrivacyTitle/Description`
+- **Add:** `settingsDisplayCalculationsLabel` ("Calculations")
+- **Add:** `settingsDisplayCalculationsDescription` ("Pricing and refresh defaults applied across your portfolio.")
+- **Add:** `settingsDisplayLanguageLabel` ("UI language") — moved from former "general" section
+
+**Decision #6 in §1 (sections taxonomy) stands** — API keys + Import/Export already dropped. This addendum extends that drop to Notifications + Privacy.
+
+### A6. /settings/{profile,accounts,tickers} — partial reskin only
+
+Phase 3d's section interior treatment:
+
+| Route | Inner section | 3d treatment |
+|---|---|---|
+| `/settings/profile` | `ProfileSection` (7 legacy aesthetic markers) | **Verbatim mount.** Reskin deferred to Phase 7 prereq. |
+| `/settings/accounts` | `AccountsListSection` (33 legacy aesthetic markers — highest density) | **Reskinned during 3d.** Drop `glass-panel`/`glass-inset`/`rounded-[22px]`/`text-ink-muted`/`text-slate-*` → shadcn tokens. ~2 hours of work. |
+| `/settings/tickers` | `MonitoredTickersSection` (25 legacy aesthetic markers) | **Verbatim mount.** Reskin deferred to Phase 7 prereq. |
+
+**Rationale (locked via grill Q5):** Accounts is the highest-traffic + highest-marker-density surface — reskinning it during 3d gives the visible biggest win. Profile (7 markers) is small enough to defer; Tickers (25 markers) is mid-density but its primary UI is the catalog browser, not the settings panel.
+
+**Phase 7 prerequisite (added to §13):** Profile + Tickers section interiors MUST be reskinned BEFORE Phase 7 alias-bridge deletion or those sections will render unstyled (legacy classes stop resolving).
+
+**Code Reviewer checklist for 3d:** verify that `ProfileSettingsClient` + `TickersSettingsClient` mount their inner sections verbatim (no re-styling), AND that `AccountsSettingsClient`'s inner section has dropped every legacy aesthetic marker.
+
+### A7. Picture URL sensitivity rationale (§3d sensitive-confirmation note)
+
+Spec §3d marks `pictureUrl` as confirmation-required. Rationale recorded here so the implementer doesn't second-guess:
+
+- The picture URL is rendered to **other users** in share-recipient contexts (`PortfolioSwitcher` inbound shares, future `/sharing` outbound rows with avatars).
+- Per `.claude/rules/provider-url-sanitization.md`, the URL is HTTPS-validated and rendered with `referrerPolicy="no-referrer"` + `onError` fallback. But a typo or compromised provider URL is visible to **collaborators**, not just the user.
+- Therefore the change deserves explicit confirmation (matches display-name treatment) — symmetric with how a display-name change is confirmed because it's visible to collaborators.
+
+**Confirmation modal copy (extend §6 i18n):**
+
+```
+profilePictureChangeConfirmTitle    ("Update profile picture URL?")
+profilePictureChangeConfirmBody     ("This image is visible to anyone you've shared your portfolio with.")
+```
+
+Reuses the same `useConfirmedSave` hook from §3d as display-name.
+
+### A8. Mobile viewport pixel sizes (§3g)
+
+§3g lists `viewport-sm` and `viewport-md` projects without pinning pixel dimensions. Pin to:
+
+| Project | Viewport (px) | Device approximation |
+|---|---|---|
+| `viewport-sm` | 375 × 667 | iPhone SE / standard small-phone portrait (smallest viable target) |
+| `viewport-md` | 768 × 1024 | iPad portrait |
+| `viewport-lg` (default) | 1280 × 720 | laptop default — covered by existing projects |
+
+Rationale:
+- 375 sits below Tailwind `sm` (640) — exercises the mobile Sheet path.
+- 768 sits at the `md` boundary — exercises the icon-only sidebar collapse.
+- Tablet landscape (1024) is the same shell as laptop; no separate project needed.
+
+**Playwright config addition (`apps/web/tests/e2e/playwright.config.ts` + `.oauth.config.ts`):**
+
+```ts
+projects: [
+  // ... existing chromium project
+  {
+    name: "chromium-mobile",
+    use: { ...devices["iPhone SE"], viewport: { width: 375, height: 667 } },
+    testMatch: /mobile-.*-aaa\.spec\.ts/,
+  },
+  {
+    name: "chromium-tablet",
+    use: { ...devices["iPad Mini"], viewport: { width: 768, height: 1024 } },
+    testMatch: /mobile-.*-aaa\.spec\.ts/,
+  },
+],
+```
+
+**Scope of mobile projects:** the `testMatch` filter scopes mobile/tablet runs to `mobile-*-aaa.spec.ts` only. The existing 100+ specs under `apps/web/tests/e2e/specs/` + `specs-oauth/` continue to run on the default desktop `chromium` project — they assume desktop viewport and would break under 375px width. Multiplying them 3× across viewports would balloon CI runtime.
+
+**Implementer choice:** the iPhone SE viewport (375 × 667) is the conservative smallest target. If user-testing surfaces issues on modern small phones (iPhone 14 = 390 × 844), swap the `chromium-mobile` device profile — a 1-line change.
+
+### A9. Sub-phase sequencing — DROPPED
+
+Earlier draft suggested flipping the order to `3f → 3e → 3d → 3g`. **Dropped via grill Q7.** Stick with §1 Decision #20 (`3d → 3e → 3f → 3g`).
+
+Rationale: the productivity gain was real but small (3f is ~30 min of work). The doc clarity cost of having two competing sequences was higher. Implementer can apply intra-phase judgment (e.g., starting 3f's verification commit while waiting for review on 3d) without doc amendment.
+
+---
+
+## 13. Deferred to `phase-4-spec` (write at Phase 3 close)
+
+The following items surfaced in the same audit but belong outside Phase 3. Listed here so they don't get lost.
+
+| Item | Belongs in |
+|---|---|
+| `/admin` overview page content (mockup 27) | `phase-4-spec` or `phase-5-spec` |
+| `/admin/settings` tab restructuring (mockup 29 adds Sessions & auth · Feature flags · Maintenance) | `phase-4-spec` |
+| `/tickers/[ticker]` chart + Fundamentals card + tabs (mockup 21) | `phase-6-spec` (chart) + follow-up ticket (Fundamentals data) |
+| `/sharing` new features: "Edit" access level, "Last viewed" column (mockup 19) | Separate feature ticket; mockup is aspirational |
+| Cash-ledger DataTable migration (mockup 15) | **Add to Phase 4 line item** — currently omitted from scope-todo Phase 4 |
+| Per-page header actions (Export, Recompute, +Add) (cross-cutting) | `phase-4-spec` — define `<PageHeader>` recipe |
+| Dashboard re-prioritization specifics (mockup 01) | `phase-5-spec` |
+| Dividends amber alert + 4 metric cards + status chip humanization (mockup 17) | `phase-5-spec` |
+| Public-share "click row for ticker detail" + theme toggle + CTA (mockup 05) | `phase-5-spec`; resolve Decision #6 (visitor theme toggle) |
+| AuthShell new features: "View public share link" on /login, "Decline invite" on /invite, request-ID on /auth/error | `phase-5-spec` |
+| Status / type chip taxonomy (cross-cutting) | `phase-4-spec` — chip variant table |
+| `<PageHeader>` + `<StatCard>` + `<FilterBar>` recipes (audit cross-cutting #1, 5, 6) | `phase-4-spec` |
+| `<Money>` adoption inventory | `phase-4-spec` — explicit migration item |
+| Empty / loading / error copy harmonization | `phase-4-spec` or `phase-5-spec` |
+| **Settings reskin prerequisite (added 2026-05-16 grill):** `/settings/profile` + `/settings/tickers` section interiors MUST be reskinned to drop `glass-panel`/`glass-inset`/legacy radii BEFORE Phase 7 alias-bridge deletion — sections will render unstyled otherwise | `phase-7-spec` gate |
+| `DashboardLoading` → shadcn `Skeleton` migration | `phase-7-spec` cleanup |
+| Adapter shim deletion timing | Pin in `phase-7-spec` (keep in Phase 7 or defer to follow-up ticket) |
+| Sortable card persistence reaffirmation | `phase-5-spec` risk register |
+| **Notifications + Privacy settings UI (dropped 2026-05-16 grill):** re-add `/settings/notifications` + `/settings/privacy` routes when underlying preference schemas + APIs land. Mockup 09 sidebar nav serves as the future-state reference. | Separate feature tickets — not phase-bound |
+
+**Scope-todo cross-link:** the `scope-todo-202605151201-phases.md` Phase 3 line item should add (pre-merge correction): *"See [`phase-3-spec-…shell-decomp.md`](./phase-3-spec-202605161110-shell-decomp.md) for sub-phase breakdown 3a–3g + Addendum §12."* Same pattern applied to Phase 4-7 when each spec lands.
+
+---
+
+## 13. Deferred to `phase-4-spec` (write at Phase 3 close)
+
+The following items surfaced in the same audit but belong outside Phase 3. Listed here so they don't get lost.
+
+| Item | Belongs in |
+|---|---|
+| `/admin` overview page content (mockup 27) | `phase-4-spec` or `phase-5-spec` |
+| `/admin/settings` tab restructuring (mockup 29 adds Sessions & auth · Feature flags · Maintenance) | `phase-4-spec` |
+| `/tickers/[ticker]` chart + Fundamentals card + tabs (mockup 21) | `phase-6-spec` (chart) + follow-up ticket (Fundamentals data) |
+| `/sharing` new features: "Edit" access level, "Last viewed" column (mockup 19) | Separate feature ticket; mockup is aspirational |
+| Cash-ledger DataTable migration (mockup 15) | **Add to Phase 4 line item** — currently omitted from scope-todo Phase 4 |
+| Per-page header actions (Export, Recompute, +Add) (cross-cutting) | `phase-4-spec` — define `<PageHeader>` recipe |
+| Dashboard re-prioritization specifics (mockup 01) | `phase-5-spec` |
+| Dividends amber alert + 4 metric cards + status chip humanization (mockup 17) | `phase-5-spec` |
+| Public-share "click row for ticker detail" + theme toggle + CTA (mockup 05) | `phase-5-spec`; resolve Decision #6 (visitor theme toggle) |
+| AuthShell new features: "View public share link" on /login, "Decline invite" on /invite, request-ID on /auth/error | `phase-5-spec` |
+| Status / type chip taxonomy (cross-cutting) | `phase-4-spec` — chip variant table |
+| `<PageHeader>` + `<StatCard>` + `<FilterBar>` recipes (audit cross-cutting #1, 5, 6) | `phase-4-spec` |
+| `<Money>` adoption inventory | `phase-4-spec` — explicit migration item |
+| Empty / loading / error copy harmonization | `phase-4-spec` or `phase-5-spec` |
+| `DashboardLoading` → shadcn `Skeleton` migration | `phase-7-spec` cleanup |
+| Adapter shim deletion timing | Pin in `phase-7-spec` (keep in Phase 7 or defer to follow-up ticket) |
+| Sortable card persistence reaffirmation | `phase-5-spec` risk register |
+
+**Scope-todo cross-link:** the `scope-todo-202605151201-phases.md` Phase 3 line item should add (pre-merge correction): *"See [`phase-3-spec-…shell-decomp.md`](./phase-3-spec-202605161110-shell-decomp.md) for sub-phase breakdown 3a–3g + Addendum §12."* Same pattern applied to Phase 4-7 when each spec lands.
