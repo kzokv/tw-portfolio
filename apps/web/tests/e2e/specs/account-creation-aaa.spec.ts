@@ -57,8 +57,7 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
 }) => {
   // ── Arrange ───────────────────────────────────────────────────────────────
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
   await settings.assert.accountCreateFormIsVisible();
 
   // Precondition: only the seeded "Main" account exists.
@@ -97,11 +96,13 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   await settings.actions.expandAccountCard(newAccount.id);
   await settings.assert.accountFeeProfileSelectHasNonEmptyValue(newAccount.id);
 
-  // ── Act: close drawer + navigate to /cash-ledger ──────────────────────────
-  await settings.actions.closeWithEscape();
-  await settings.assert.drawerIsClosed();
-
+  // ── Act: navigate away from /settings to /cash-ledger ────────────────────
+  // Phase 3d iter 2 — drawer-as-modal retired. Closing via Escape no longer
+  // navigates away from /settings; the explicit route nav below is the
+  // load-bearing "leave settings" step. `drawerIsClosed()` is URL-based and
+  // satisfies post-navigation.
   await appShell.actions.navigateToRoute("/cash-ledger");
+  await settings.assert.drawerIsClosed();
 
   // ── Assert (cash-ledger renders cleanly post-create) ──────────────────────
   // Drawer-state assertions above already prove POST /accounts + form +
@@ -111,8 +112,7 @@ test("[settings drawer]: create USD Brokerage → both accounts visible in drawe
   await cashLedger.assert.filterAccountSelectIsVisible();
 
   // ── Round-trip: re-open drawer, confirm new account persists ─────────────
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
   await settings.assert.accountNameLabelCountIs(2);
   await settings.assert.accountNameLabelContains(/USD Brokerage/i, 1);
 });

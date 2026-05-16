@@ -54,18 +54,32 @@ export function useBreadcrumbContext(): BreadcrumbContextValue {
  * Stringified-JSON dependency keeps the effect stable when callers pass
  * a literal array on each render — comparing element identity would cause
  * an infinite re-register loop.
+ *
+ * Phase 3d iter 3 root-cause fix: the effect deps depend on `setItems`
+ * (React-stable setState reference), NOT on `ctx` itself. `ctx` is the
+ * result of `useMemo([items], …)` inside `BreadcrumbProvider`, so its
+ * identity flips on every `setItems()` call — putting `ctx` in deps here
+ * created an infinite cycle: setItems → ctx changes → effect re-fires →
+ * setItems → … Surface symptom was a deterministic React #185
+ * "Maximum update depth" failure on the 3 `portfolio-snapshots-aaa`
+ * mutation-cluster specs (58, 103, 146) which navigate to
+ * `/tickers/[ticker]` after generating snapshots. Read-only specs (19,
+ * 199, 233) stay on `/dashboard` and don't mount `useBreadcrumb`.
  */
 export function useBreadcrumb(items: BreadcrumbItem[]): void {
   const ctx = useContext(BreadcrumbContext);
+  const setItems = ctx?.setItems ?? null;
   // Stringify is the cheapest stable signature for an array-of-objects.
   // Pages registering breadcrumbs typically have ≤4 items.
   const signature = JSON.stringify(items);
   useEffect(() => {
-    if (!ctx) return;
-    ctx.setItems(items);
+    if (!setItems) return;
+    setItems(items);
     return () => {
-      ctx.setItems(null);
+      setItems(null);
     };
     // signature drives the effect; `items` itself is captured by closure.
-  }, [signature, ctx]);
+    // setItems is the stable React setState reference; do NOT add `ctx`
+    // here — see header comment for the cycle explanation.
+  }, [signature, setItems]);
 }

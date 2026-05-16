@@ -30,7 +30,6 @@ interface BuildAppShellDataValueOptions {
   setCustomizeRangesOpen: (open: boolean) => void;
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
-  setDrawerOpen: (open: boolean) => void;
   contextRefreshSignal: number;
 }
 
@@ -58,7 +57,6 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     setCustomizeRangesOpen,
     generateSnapshots,
     isGeneratingSnapshots,
-    setDrawerOpen,
     contextRefreshSignal,
   } = options;
 
@@ -82,7 +80,6 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       setCustomizeRangesOpen,
       generateSnapshots,
       isGeneratingSnapshots,
-      setDrawerOpen,
       contextRefreshSignal,
     }),
     [
@@ -100,7 +97,6 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       recomputeAction,
       refetchEffectiveRanges,
       setCustomizeRangesOpen,
-      setDrawerOpen,
       setPerformanceRange,
       transactionAccountOptions,
       transactionSubmission,

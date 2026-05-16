@@ -43,7 +43,6 @@ export interface AppShellData {
   setCustomizeRangesOpen: (open: boolean) => void;
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
-  setDrawerOpen: (open: boolean) => void;
   // Bumped by AppShell whenever shared-context cookie changes (switcher
   // select, ?as= deep link, fallback revoke). DashboardClient /
   // TransactionsClient watch this and call their hook .refresh() so their

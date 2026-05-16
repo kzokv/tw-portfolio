@@ -28,12 +28,16 @@ export class SettingsArrange extends BaseArrange {
 
   @Step()
   async openAccountsTab(): Promise<void> {
+    // Phase 3d S9 — drawer-tab click replaced by nav-item click which
+    // triggers a Next.js full-page navigation to /settings/accounts.
     await this.uiActions.click.perform(this.el.tabs.accounts);
+    await this.el.section("accounts").waitFor({ state: "visible", timeout: 10_000 });
   }
 
   @Step()
   async openTickersTab(): Promise<void> {
     await this.uiActions.click.perform(this.el.tabs.tickers);
+    await this.el.section("tickers").waitFor({ state: "visible", timeout: 10_000 });
   }
 
   @Step()

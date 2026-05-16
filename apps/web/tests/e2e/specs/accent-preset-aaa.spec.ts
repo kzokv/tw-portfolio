@@ -18,8 +18,7 @@ test.describe("accent preset", () => {
     // Default accent (indigo, light) = "238 84% 60%".
     await appShell.assert.primaryAccentIs({ h: 238, s: 84, l: 60 });
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
     await appShell.assert.accentSwatchIsSelected("indigo");
 
     // Switch to Emerald → light HSL "158 64% 40%".
@@ -36,8 +35,7 @@ test.describe("accent preset", () => {
     await dashboard.assert.appIsReady();
     await appShell.actions.clickThemeToggle("light");
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
     await appShell.actions.clickAccentSwatch("rose");
     await appShell.assert.primaryAccentIs({ h: 347, s: 77, l: 50 });
 

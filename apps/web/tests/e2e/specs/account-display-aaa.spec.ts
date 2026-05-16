@@ -11,10 +11,10 @@ test("[transactions settings]: rename account inline → selector shows renamed 
   await transactions.actions.selectFirstAccount();
   await transactions.assert.selectedAccountOptionContains(/Main/i);
 
-  await appShell.actions.openSettingsDrawer();
-  // KZO-179: AccountsListSection (which hosts the rename-account UI)
-  // relocated from Fees → Accounts tab per scope-todo D1.
-  await settings.arrange.openAccountsTab();
+  // Phase 3d iter 2 — Accounts UI lives at /settings/accounts route.
+  // KZO-179: AccountsListSection (which hosts the rename-account UI) is
+  // mounted by AccountsSettingsClient on that route.
+  await appShell.actions.openSettingsSection("accounts");
 
   await settings.assert.accountNameLabelContains(/Main/i);
   await page.getByTestId("account-rename-icon").first().click();
@@ -37,7 +37,10 @@ test("[transactions settings]: rename account inline → selector shows renamed 
 
   await settings.assert.accountNameLabelContains("Primary Renamed");
 
-  await settings.actions.closeWithEscape();
+  // Phase 3d iter 2 — navigate back to /transactions to verify the rename
+  // propagated to the account selector. (Escape no longer "closes a drawer"
+  // — it has no effect on /settings/* routes.)
+  await appShell.actions.navigateToRoute("/transactions");
   await transactions.assert.selectedAccountOptionContains(/Primary Renamed/);
   await transactions.assert.selectedAccountOptionContains(/Default Broker/i);
 });

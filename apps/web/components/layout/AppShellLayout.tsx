@@ -1,8 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type {
-  AccountDefaultCurrency,
   LocaleCode,
   NotificationDto,
 } from "@vakwen/shared-types";
@@ -17,8 +17,6 @@ import { StatusToast } from "../ui/StatusToast";
 import type { QuickSearchItem } from "./QuickSearchPanel";
 import type { useDashboardData as useDashboardDataType } from "../../features/dashboard/hooks/useDashboardData";
 import type { useProfile as useProfileType } from "../../features/profile/hooks/useProfile";
-
-type SettingsTab = "profile" | "general" | "accounts" | "tickers" | "display";
 
 interface AppShellLayoutProps {
   initialSidebarOpen: boolean;
@@ -52,11 +50,11 @@ interface AppShellLayoutProps {
   // Ready / debug markers
   isClientReady: boolean;
   switcherLoaded: boolean;
-  // Settings drawer wiring
-  drawerOpen: boolean;
-  setDrawerOpen: (open: boolean) => void;
-  settingsInitialTab?: SettingsTab;
-  accountsPrefillCurrency?: AccountDefaultCurrency;
+  // Phase 3d S10 — drawer wiring removed. AppShellChrome no longer renders
+  // SettingsDrawer; the integrity dialog's "open settings" CTA navigates
+  // to /settings via useRouter. `onTimeframesSaved` + `onReportingCurrencySaved`
+  // remain here for the dashboard's own performance refresh signal path —
+  // they are no longer threaded through the chrome.
   onTimeframesSaved: () => void;
   onReportingCurrencySaved: () => void;
   children: ReactNode;
@@ -94,21 +92,19 @@ export function AppShellLayout({
   onClearGlobalError,
   isClientReady,
   switcherLoaded,
-  drawerOpen,
-  setDrawerOpen,
-  settingsInitialTab,
-  accountsPrefillCurrency,
-  onTimeframesSaved,
-  onReportingCurrencySaved,
+  onTimeframesSaved: _onTimeframesSaved,
+  onReportingCurrencySaved: _onReportingCurrencySaved,
   children,
 }: AppShellLayoutProps) {
-  const openDrawer = () => setDrawerOpen(true);
+  const router = useRouter();
+  // Phase 3d — avatar-menu Profile entry routes directly to /settings/profile.
+  // (Drawer-open path retired in S10.)
+  const openProfile = useCallback(() => router.push("/settings/profile"), [router]);
   return (
     <SidebarProvider defaultOpen={initialSidebarOpen}>
       <AppSidebar
         variant="user"
         role={profileData.profile?.role}
-        onOpenSettings={openDrawer}
         productName={uiDict.topBar.productName}
         switcherSlot={switcherSlot}
       />
@@ -129,7 +125,7 @@ export function AppShellLayout({
           markRead={markRead}
           markAllRead={markAllRead}
           dismiss={dismiss}
-          onOpenProfile={openDrawer}
+          onOpenProfile={openProfile}
         />
 
         <main
@@ -157,16 +153,9 @@ export function AppShellLayout({
           {switcherLoaded ? <div data-testid="switcher-data-ready" /> : null}
 
           <AppShellChrome
-            drawerOpen={drawerOpen}
-            onDrawerOpenChange={setDrawerOpen}
-            settingsInitialTab={settingsInitialTab}
-            accountsPrefillCurrency={accountsPrefillCurrency}
             dashboard={dashboard}
-            profileData={profileData}
             uiDict={uiDict}
             locale={locale}
-            onTimeframesSaved={onTimeframesSaved}
-            onReportingCurrencySaved={onReportingCurrencySaved}
           >
             {children}
           </AppShellChrome>

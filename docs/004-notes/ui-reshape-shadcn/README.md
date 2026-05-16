@@ -76,6 +76,8 @@ Rendered at 1440×900 (1280×900 for public share; 1100×800 for auth pages; 144
 |---|---|
 | ![](./screenshots/11-dashboard-sidebar-collapsed.png) | ![](./screenshots/12-dashboard-profile-menu-open.png) |
 
+*(profile menu contents superseded by `phase-3-spec` §12 A3 — implementation is the source of truth; chevron-on-trigger ships per A4).*
+
 ### Portfolio
 
 | Light | Dark |

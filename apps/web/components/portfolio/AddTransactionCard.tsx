@@ -117,18 +117,22 @@ export function filterAccountsByDerivedCurrency(
   return accounts.filter((account) => account.defaultCurrency === derivedCurrency);
 }
 
-// KZO-169 (NC4): build a settings-drawer URL that pre-selects the Accounts
-// tab AND pre-fills `defaultCurrency`. KZO-179's AccountCreateForm reads the
-// `accountsPrefillCurrency` query param via SettingsDrawer wiring.
+// Phase 3d S10 — the settings drawer is retired in favor of the
+// `/settings/*` routes. The inline "no account for this currency" CTA on
+// the transaction form deep-links into `/settings/accounts` and passes
+// `accountsPrefillCurrency` as a query param. `AccountsSettingsClient`
+// reads this via `useSearchParams()` and pre-selects the currency on the
+// embedded `<AccountCreateForm>`. The `pathname` argument is preserved
+// for back-compat with call sites (and the unit test signature) but is
+// ignored — the destination is always the absolute `/settings/accounts`
+// route, regardless of where the user clicked from.
 export function buildCreateAccountHref(
-  pathname: string,
+  _pathname: string,
   currency: AccountDefaultCurrency,
 ): string {
   const params = new URLSearchParams();
-  params.set("drawer", "settings");
-  params.set("settingsTab", "accounts");
   params.set("accountsPrefillCurrency", currency);
-  return `${pathname}?${params.toString()}`;
+  return `/settings/accounts?${params.toString()}`;
 }
 
 function chipPillClassName(active: boolean, disabled: boolean): string {

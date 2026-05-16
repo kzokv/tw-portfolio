@@ -926,6 +926,24 @@ export interface Persistence {
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;
   updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
+  /**
+   * ui-reshape Phase 3d S7 — set the user-overridable profile fields
+   * (`userDisplayName`, `userPictureUrl`). Each field is independently
+   * controlled:
+   *   - `undefined` (key absent) → leave unchanged
+   *   - `null` → clear the override (resolver falls back to provider value)
+   *   - non-null string → set the override
+   *
+   * Storage (LOCKED per architect-design §7.1): JSONB under
+   * `user_preferences.preferences.userProfile.{displayName, pictureUrl}`.
+   * No DB migration. Validation (HTTPS-only on `pictureUrl`, length on
+   * `displayName`) is enforced at the route layer per
+   * `.claude/rules/provider-url-sanitization.md`.
+   */
+  updateProfileFields(
+    userId: string,
+    fields: { displayName?: string | null; pictureUrl?: string | null },
+  ): Promise<ProfileDto>;
   getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]>;
   /**
    * KZO-173: distinct `bar_date` values from `market_data.daily_bars` for the

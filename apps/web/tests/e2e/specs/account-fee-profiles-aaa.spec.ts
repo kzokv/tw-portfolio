@@ -28,8 +28,7 @@ test("[settings drawer]: Accounts tab shows expandable card per account with pro
 }) => {
   // ── Arrange ───────────────────────────────────────────────────────────────
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   // ── Assert: exactly one card for the seeded "Main" account ────────────────
   await settings.assert.accountNameLabelCountIs(1);
@@ -56,8 +55,7 @@ test("[settings drawer]: add fee profile to account A → save → profile persi
 }) => {
   // ── Arrange ───────────────────────────────────────────────────────────────
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   // Create a second account so cross-contamination assertions are meaningful.
   await settings.actions.fillAccountCreateName("Second Account");
@@ -73,14 +71,16 @@ test("[settings drawer]: add fee profile to account A → save → profile persi
   await settings.actions.addFeeProfileToAccount("acc-1");
   await settings.assert.accountProfileCountIs("acc-1", 2);
 
-  // ── Act: save + close drawer ──────────────────────────────────────────────
+  // ── Act: save + navigate away ─────────────────────────────────────────────
+  // Phase 3d iter 2 — drawer-as-modal retired. We navigate to /dashboard
+  // to leave /settings/* (so `drawerIsClosed` URL-based assertion passes),
+  // then re-enter /settings/accounts to confirm persistence.
   await settings.actions.save();
-  await settings.actions.closeWithEscape();
+  await appShell.actions.navigateToRoute("/dashboard");
   await settings.assert.drawerIsClosed();
 
   // ── Assert: reopen → acc-1 has 2 profiles, second account has 1 ──────────
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   await settings.actions.expandAccountCard("acc-1");
   await settings.assert.accountProfileCountIs("acc-1", 2);
@@ -97,8 +97,7 @@ test("[settings drawer]: Duplicate from another account deep-copies source profi
 }) => {
   // ── Arrange: create account B ─────────────────────────────────────────────
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   await settings.actions.fillAccountCreateName("Account B");
   await settings.actions.selectAccountCreateType("broker");
@@ -125,14 +124,14 @@ test("[settings drawer]: Duplicate from another account deep-copies source profi
   // ── Assert: acc-1 now has 2 profiles ─────────────────────────────────────
   await settings.assert.accountProfileCountIs("acc-1", 2);
 
-  // ── Act: save + close ─────────────────────────────────────────────────────
+  // ── Act: save + navigate away ─────────────────────────────────────────────
+  // Phase 3d iter 2 — see AFP-2 above for the route-mode close pattern.
   await settings.actions.save();
-  await settings.actions.closeWithEscape();
+  await appShell.actions.navigateToRoute("/dashboard");
   await settings.assert.drawerIsClosed();
 
   // ── Assert: reopen → acc-1 has 2 profiles, account B still has 1 ─────────
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   await settings.actions.expandAccountCard("acc-1");
   await settings.assert.accountProfileCountIs("acc-1", 2);
@@ -149,8 +148,7 @@ test("[settings drawer]: search filter expands cards with matching profile names
 }) => {
   // ── Arrange: create account B and give it a distinctive profile name ──────
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
-  await settings.arrange.openAccountsTab();
+  await appShell.actions.openSettingsSection("accounts");
 
   await settings.actions.fillAccountCreateName("Account B");
   await settings.actions.selectAccountCreateType("broker");

@@ -1521,12 +1521,25 @@ export class MemoryPersistence implements Persistence {
     if (!memUser) {
       throw routeError(404, "not_found", "Profile not found");
     }
+    // ui-reshape Phase 3d S7 — read user overrides from
+    // user_preferences.preferences.userProfile JSONB. Returns null when
+    // unset; the route/UI resolver falls back to provider values.
+    const prefs = this.userPreferences.get(userId) ?? {};
+    const userProfile = isPlainObject(prefs.userProfile) ? prefs.userProfile : {};
+    const userDisplayName = typeof userProfile.displayName === "string"
+      ? userProfile.displayName
+      : null;
+    const userPictureUrl = typeof userProfile.pictureUrl === "string"
+      ? userProfile.pictureUrl
+      : null;
     return {
       userId: memUser.id,
       email: memUser.email,
       displayName: memUser.displayName,
       providerPictureUrl: memUser.providerPictureUrl,
       providerDisplayName: memUser.providerDisplayName,
+      userDisplayName,
+      userPictureUrl,
       linkedAt: null,
       lastSeenAt: null,
       role: memUser.role,
@@ -1550,6 +1563,47 @@ export class MemoryPersistence implements Persistence {
       memUser.email = normalizedEmail;
       this.usersByEmail.set(normalizedEmail, memUser);
     }
+    return this.getProfile(userId);
+  }
+
+  /**
+   * ui-reshape Phase 3d S7 — store user-overridable profile fields in the
+   * user_preferences JSONB blob under `userProfile`. Independent per-field
+   * semantics: undefined = leave, null = clear, string = set.
+   */
+  async updateProfileFields(
+    userId: string,
+    fields: { displayName?: string | null; pictureUrl?: string | null },
+  ): Promise<ProfileDto> {
+    const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
+    if (!memUser) {
+      throw routeError(404, "not_found", "Profile not found");
+    }
+    const prefs = this.userPreferences.get(userId) ?? {};
+    const existingUserProfile = isPlainObject(prefs.userProfile)
+      ? { ...prefs.userProfile }
+      : {};
+    if (fields.displayName !== undefined) {
+      if (fields.displayName === null) {
+        delete existingUserProfile.displayName;
+      } else {
+        existingUserProfile.displayName = fields.displayName;
+      }
+    }
+    if (fields.pictureUrl !== undefined) {
+      if (fields.pictureUrl === null) {
+        delete existingUserProfile.pictureUrl;
+      } else {
+        existingUserProfile.pictureUrl = fields.pictureUrl;
+      }
+    }
+    const next: Record<string, unknown> = { ...prefs };
+    if (Object.keys(existingUserProfile).length === 0) {
+      delete next.userProfile;
+    } else {
+      next.userProfile = existingUserProfile;
+    }
+    this.userPreferences.set(userId, next);
     return this.getProfile(userId);
   }
 

@@ -67,9 +67,6 @@ interface AppSidebarProps {
   variant?: AppSidebarVariant;
   /** Role from `/profile` — used to gate the Admin entry on the user variant. */
   role?: string;
-  /** Click handler used by the user variant's Settings nav-item; in Phase 3c
-   *  this still routes through `setDrawerOpen(true)` on the AppShell. */
-  onOpenSettings?: () => void;
   /** Visible product name in the brand header. Falls back to "Vakwen". */
   productName?: string;
   /** Brand subtitle. */
@@ -107,7 +104,6 @@ interface AppSidebarProps {
 export function AppSidebar({
   variant = "user",
   role,
-  onOpenSettings,
   productName = "Vakwen",
   productSubtitle,
   switcherSlot,
@@ -117,7 +113,7 @@ export function AppSidebar({
 
   const items: NavItem[] = variant === "admin"
     ? getAdminNavItems()
-    : getUserNavItems({ role, onOpenSettings });
+    : getUserNavItems({ role });
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
@@ -287,7 +283,7 @@ export function AppSidebar({
   );
 }
 
-function getUserNavItems({ role, onOpenSettings }: { role?: string; onOpenSettings?: () => void }): NavItem[] {
+function getUserNavItems({ role }: { role?: string }): NavItem[] {
   const items: NavItem[] = [
     { key: "dashboard", href: "/dashboard", label: "Dashboard", icon: Gauge },
     { key: "portfolio", href: "/portfolio", label: "Portfolio", icon: TrendingUp },
@@ -295,16 +291,14 @@ function getUserNavItems({ role, onOpenSettings }: { role?: string; onOpenSettin
     { key: "cash-ledger", href: "/cash-ledger", label: "Cash Ledger", icon: CreditCard },
     { key: "dividends", href: "/dividends", label: "Dividends", icon: LineChart },
     { key: "sharing", href: "/sharing", label: "Sharing", icon: Share2 },
-    // Settings in 3c still opens the drawer; 3d converts to /settings/*.
+    // Phase 3d S1 — Settings nav-item routes directly to /settings (the
+    // layout server-redirects to /settings/profile). The drawer-open
+    // onClick handler was retired alongside SettingsDrawer in S10.
     {
       key: "settings",
+      href: "/settings",
       label: "Settings",
       icon: Settings,
-      onClick: onOpenSettings,
-      // The drawer is opened via query param ?drawer=settings; treat the
-      // item as active when that query is present. usePathname() strips
-      // query so we approximate via direct match on `/settings` for the
-      // future-routed surface.
       isActiveOverride: (pathname) => pathname.startsWith("/settings"),
     },
   ];
