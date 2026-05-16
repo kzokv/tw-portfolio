@@ -701,4 +701,74 @@ export class AppShellAssert extends BaseAssert {
     // xl:col-span-2 resolves to "span 2 / span 2" or similar
     expect(gridColSpan, `card-${slug} grid-column`).toMatch(/span\s*2/);
   }
+
+  // ── ui-reshape Phase 2 — Theme · Accent · Density assertions ──────────────
+
+  /** Assert <html> carries (or omits) `class="dark"`. */
+  @Step()
+  async themeIs(mode: "light" | "dark"): Promise<void> {
+    const html = this.page.locator("html");
+    if (mode === "dark") {
+      await expect(html).toHaveClass(/(^|\s)dark(\s|$)/);
+    } else {
+      await expect(html).not.toHaveClass(/(^|\s)dark(\s|$)/);
+    }
+  }
+
+  /** Read the resolved --primary CSS variable from <html> (raw HSL string). */
+  async primaryAccentChannels(): Promise<string> {
+    return this.page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue("--primary").trim(),
+    );
+  }
+
+  /** Assert --primary HSL channels match the expected triplet. */
+  @Step()
+  async primaryAccentIs(hsl: { h: number; s: number; l: number }): Promise<void> {
+    const triplet = await this.primaryAccentChannels();
+    // Permit "238 84% 60%" or whitespace variants.
+    const expected = `${hsl.h} ${hsl.s}% ${hsl.l}%`;
+    expect(triplet, "--primary CSS var").toBe(expected);
+  }
+
+  /** Assert one preset accent swatch is currently selected. */
+  @Step()
+  async accentSwatchIsSelected(
+    preset: "indigo" | "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "slate",
+  ): Promise<void> {
+    await expect(this.el.testId(`display-accent-swatch-${preset}`)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  }
+
+  /** Assert the custom-accent panel is open. */
+  @Step()
+  async customAccentPanelIsVisible(): Promise<void> {
+    await expect(this.el.testId("display-custom-accent-panel")).toBeVisible();
+  }
+
+  /** Assert the custom-accent AA badge says pass (true) or fail (false). */
+  @Step()
+  async customAccentAaPasses(pass: boolean): Promise<void> {
+    const badge = this.el.testId("display-custom-accent-aa-badge");
+    if (pass) {
+      await expect(badge).toContainText(/✓/);
+    } else {
+      await expect(badge).toContainText(/⚠/);
+    }
+  }
+
+  /** Assert <html> has (or lacks) data-density="comfortable". */
+  @Step()
+  async densityIs(mode: "compact" | "comfortable"): Promise<void> {
+    const html = this.page.locator("html");
+    if (mode === "comfortable") {
+      await expect(html).toHaveAttribute("data-density", "comfortable");
+    } else {
+      // compact = absent attribute. Use evaluate to assert absence.
+      const hasAttr = await html.evaluate((el) => el.hasAttribute("data-density"));
+      expect(hasAttr, "html[data-density] absent for compact").toBe(false);
+    }
+  }
 }
