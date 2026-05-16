@@ -31,6 +31,8 @@ export class AppBaseActions extends BaseActions {
   @Step("Wait For App Ready")
   override async mxWaitForAppReady(timeoutMs = DEFAULT_APP_READY_TIMEOUT_MS): Promise<void> {
     await this.mxWaitForShellClientReady(timeoutMs);
-    await expect(this.page.getByTestId("topbar-title")).toBeVisible({ timeout: timeoutMs });
+    // Phase 3c: topbar-title H1 retired. Breadcrumb root is the new shell-ready
+    // visual marker — it is rendered by TopBar once the AppShell is fully hydrated.
+    await expect(this.page.getByTestId("breadcrumb-root")).toBeVisible({ timeout: timeoutMs });
   }
 }

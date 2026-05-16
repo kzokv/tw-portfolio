@@ -1,16 +1,16 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import type { NotificationDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { Button } from "../ui/Button";
-import { TooltipInfo } from "../ui/TooltipInfo";
-import { UserAvatarButton } from "../profile/UserAvatarButton";
+import { SidebarTrigger, useSidebar } from "../ui/shadcn/sidebar";
+import { Breadcrumb } from "./Breadcrumb";
+import { CommandPaletteTrigger } from "./CommandPaletteTrigger";
 import { NotificationBell } from "./NotificationBell";
-import { NotificationDropdown } from "./NotificationDropdown";
-import { EscalationTooltip } from "./EscalationTooltip";
+import { ProfileMenu } from "../profile/ProfileMenu";
 import { ThemeToggle } from "./ThemeToggle";
 import { cn } from "../../lib/utils";
 
@@ -24,24 +24,19 @@ export interface QuickSearchItem {
 }
 
 interface TopBarProps {
+  // Identity
   userId?: string;
   displayName?: string | null;
   pictureUrl?: string | null;
   email?: string | null;
   role?: string;
-  isDemo?: boolean;
-  onOpenSettings?: () => void;
-  onToggleNavigation?: () => void;
-  navigationOpen?: boolean;
-  onToggleDesktopNavigation?: () => void;
-  desktopNavigationCollapsed?: boolean;
-  productName: string;
-  title: string;
-  titleTooltip: string;
-  openSettingsLabel?: string;
-  sharingLabel: string;
-  signOutLabel: string;
+
+  // Profile menu wiring
+  onOpenProfile?: () => void;
   signOutHref: string;
+
+  // Search
+  searchItems: QuickSearchItem[];
   searchPlaceholder: string;
   searchLabel: string;
   searchEmptyLabel: string;
@@ -49,46 +44,46 @@ interface TopBarProps {
   searchTickersLabel: string;
   openSearchLabel: string;
   closeSearchLabel: string;
-  openNavigationLabel: string;
-  closeNavigationLabel: string;
-  expandSidebarLabel: string;
-  collapseSidebarLabel: string;
-  searchItems: QuickSearchItem[];
-  skeleton?: boolean;
+  /** Hide the inline search input (admin variant). */
+  hideSearch?: boolean;
+
+  // Notifications
   unreadCount?: number;
   notifications?: NotificationDto[];
   notificationDropdownOpen?: boolean;
-  onNotificationBellClick?: () => void;
+  onNotificationOpenChange?: (open: boolean) => void;
   onNotificationMarkRead?: (id: string) => void;
   onNotificationMarkAllRead?: () => void;
   onNotificationDismiss?: (id: string) => void;
-  onNotificationDropdownClose?: () => void;
   notificationDict?: AppDictionary;
-  /** Rendered between the title block and the desktop quick-search; typically the PortfolioSwitcher. */
-  portfolioSwitcher?: ReactNode;
-  sticky?: boolean;
-  mobileSearchTop?: number;
+  /** Hide the bell (e.g. admin shell). */
+  hideNotifications?: boolean;
 }
 
+/**
+ * Decomposed Phase 3c TopBar. Slots in order:
+ *   `<SidebarTrigger>` (desktop collapse) · `<Breadcrumb>` · inline search ·
+ *   `<CommandPaletteTrigger>` · `<NotificationBell>` · `<ProfileMenu>` ·
+ *   `<ThemeToggle>`.
+ *
+ * Brand link and PortfolioSwitcher have moved to `<AppSidebar>` (spec
+ * amendments #18 + #23). The page-title H1 block is dropped — the breadcrumb
+ * replaces it.
+ *
+ * Mobile-search drop-down renders as a position-relative panel below the
+ * input (spec §3, ResizeObserver dropped per design §3).
+ *
+ * Locked testids per design §2.
+ */
 export function TopBar({
   userId,
   displayName,
   pictureUrl,
   email,
   role,
-  isDemo = false,
-  onOpenSettings,
-  onToggleNavigation,
-  navigationOpen = false,
-  onToggleDesktopNavigation,
-  desktopNavigationCollapsed = false,
-  productName,
-  title,
-  titleTooltip,
-  openSettingsLabel,
-  sharingLabel,
-  signOutLabel,
+  onOpenProfile,
   signOutHref,
+  searchItems,
   searchPlaceholder,
   searchLabel,
   searchEmptyLabel,
@@ -96,27 +91,20 @@ export function TopBar({
   searchTickersLabel,
   openSearchLabel,
   closeSearchLabel,
-  openNavigationLabel,
-  closeNavigationLabel,
-  expandSidebarLabel,
-  collapseSidebarLabel,
-  searchItems,
-  skeleton = false,
+  hideSearch = false,
   unreadCount = 0,
   notifications = [],
   notificationDropdownOpen = false,
-  onNotificationBellClick,
+  onNotificationOpenChange,
   onNotificationMarkRead,
   onNotificationMarkAllRead,
   onNotificationDismiss,
-  onNotificationDropdownClose,
   notificationDict,
-  portfolioSwitcher,
-  sticky = true,
-  mobileSearchTop,
+  hideNotifications = false,
 }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { isMobile, setOpenMobile } = useSidebar();
   const [query, setQuery] = useState("");
   const [desktopSearchOpen, setDesktopSearchOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -138,7 +126,6 @@ export function TopBar({
         return haystack.includes(normalized);
       })
       : searchItems;
-
     const routes = source.filter((item) => item.kind === "route").slice(0, 3);
     const symbols = source.filter((item) => item.kind === "symbol").slice(0, normalized ? 8 : 6);
     return [...routes, ...symbols];
@@ -166,7 +153,6 @@ export function TopBar({
       setActiveIndex((current) => (displayedItems.length === 0 ? 0 : (current + 1) % displayedItems.length));
       return;
     }
-
     if (event.key === "ArrowUp") {
       event.preventDefault();
       setDesktopSearchOpen(true);
@@ -176,217 +162,153 @@ export function TopBar({
       });
       return;
     }
-
     if (event.key === "Enter" && displayedItems[activeIndex]) {
       event.preventDefault();
       selectItem(displayedItems[activeIndex]);
       return;
     }
-
     if (event.key === "Escape") {
       event.preventDefault();
       setDesktopSearchOpen(false);
       setMobileSearchOpen(false);
       return;
     }
-
     setDesktopSearchOpen(true);
   }
 
-  const desktopSearchPanel = (
-    <QuickSearchPanel
-      items={displayedItems}
-      activeIndex={activeIndex}
-      onActiveIndexChange={setActiveIndex}
-      onSelect={selectItem}
-      searchRoutesLabel={searchRoutesLabel}
-      searchTickersLabel={searchTickersLabel}
-      searchEmptyLabel={searchEmptyLabel}
-      dataTestId="topbar-search-results"
-    />
-  );
-
-  if (skeleton) {
-    return (
-      <header className={cn(sticky && "sticky top-0 z-20", "border-b border-slate-200/70 bg-[rgba(243,247,255,0.92)] backdrop-blur-xl")} aria-hidden="true" role="banner">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 px-4 py-4 md:px-8 md:py-5 xl:px-10">
-          <div className="min-w-0 flex-1">
-            <div className="skeleton-line h-3 w-28 rounded" />
-            <div className="skeleton-line skeleton-line--delay mt-3 h-9 w-52 rounded-2xl" />
-          </div>
-          <div className="hidden lg:block lg:w-[28rem]">
-            <div className="skeleton-line h-12 w-full rounded-full" />
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="skeleton-line h-12 w-12 shrink-0 rounded-full" />
-            <div className="skeleton-line h-12 w-12 shrink-0 rounded-full" />
-          </div>
-        </div>
-      </header>
-    );
-  }
-
   return (
-    <>
-      <header className={cn(sticky && "sticky top-0 z-20", "border-b border-slate-200/75 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl")} role="banner">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center gap-3 px-4 py-4 md:px-8 md:py-5 xl:px-10">
-          <Button
-            variant="secondary"
-            className="h-11 w-11 shrink-0 rounded-full lg:hidden"
-            onClick={onToggleNavigation}
-            aria-label={navigationOpen ? closeNavigationLabel : openNavigationLabel}
-            data-testid="mobile-nav-toggle"
-          >
-            {navigationOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </Button>
-          <Button
-            variant="secondary"
-            className="hidden h-11 w-11 shrink-0 rounded-full lg:inline-flex"
-            onClick={onToggleDesktopNavigation}
-            aria-label={desktopNavigationCollapsed ? expandSidebarLabel : collapseSidebarLabel}
-            data-testid="desktop-nav-toggle"
-          >
-            {desktopNavigationCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </Button>
+    <header
+      role="banner"
+      data-testid="topbar"
+      className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b border-border bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:gap-2 md:px-4"
+    >
+      <SidebarTrigger
+        data-testid="app-sidebar-trigger"
+        className="shrink-0"
+        aria-label="Toggle sidebar"
+      />
+      {isMobile ? (
+        // Preserves §8 item 13 — mobile brand-as-trigger. Tapping opens the
+        // sheet so the user lands inside the sidebar tree. The in-Sheet
+        // brand link (inside AppSidebar's SidebarHeader) handles desktop
+        // brand-link semantics; this element is the locator anchor for
+        // `app-sidebar-brand` on `<md`.
+        <Button
+          variant="ghost"
+          className="h-9 shrink-0 px-1.5 text-xs font-semibold"
+          onClick={() => setOpenMobile(true)}
+          data-testid="app-sidebar-brand"
+          aria-label="Open navigation"
+        >
+          V
+        </Button>
+      ) : null}
 
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-medium uppercase tracking-[0.36em] text-slate-500">{productName}</p>
-            <div className="mt-2 flex items-center gap-2">
-              <h1 className="truncate text-2xl font-semibold text-slate-950 sm:text-[2rem]" data-testid="topbar-title">
-                {title}
-              </h1>
-              <TooltipInfo
-                label={title}
-                content={titleTooltip}
-                triggerTestId="tooltip-app-title-trigger"
-                contentTestId="tooltip-app-title-content"
-              />
-            </div>
-            {portfolioSwitcher ? (
-              <div className="mt-3 md:hidden" data-testid="topbar-portfolio-switcher-slot-mobile">
-                {portfolioSwitcher}
+      <div className="min-w-0 flex-1" data-testid="topbar-breadcrumb">
+        <Breadcrumb />
+      </div>
+
+      {!hideSearch ? (
+        <>
+          {/* Desktop inline search */}
+          <div className="relative hidden lg:block lg:w-[20rem] xl:w-[24rem]">
+            <label className="block">
+              <span className="sr-only">{searchLabel}</span>
+              <span className="relative block">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  aria-label={searchLabel}
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setDesktopSearchOpen(true);
+                  }}
+                  onFocus={() => setDesktopSearchOpen(true)}
+                  onBlur={() => setTimeout(() => setDesktopSearchOpen(false), 150)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder={searchPlaceholder}
+                  className="h-9 w-full rounded-full border border-border bg-card pl-12 pr-3 text-sm text-foreground shadow-sm outline-none focus:ring-2 focus:ring-ring"
+                  data-testid="topbar-search-input"
+                />
+              </span>
+            </label>
+            {desktopSearchOpen ? (
+              <div
+                className="absolute inset-x-0 top-[calc(100%+0.5rem)] z-[80]"
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <QuickSearchPanel
+                  items={displayedItems}
+                  activeIndex={activeIndex}
+                  onActiveIndexChange={setActiveIndex}
+                  onSelect={selectItem}
+                  searchRoutesLabel={searchRoutesLabel}
+                  searchTickersLabel={searchTickersLabel}
+                  searchEmptyLabel={searchEmptyLabel}
+                  dataTestId="topbar-search-results"
+                />
               </div>
             ) : null}
           </div>
 
-          {portfolioSwitcher ? (
-            <div className="hidden shrink-0 md:block" data-testid="topbar-portfolio-switcher-slot">
-              {portfolioSwitcher}
-            </div>
-          ) : null}
-
-          <div className="hidden lg:block lg:w-full lg:max-w-[24rem] xl:max-w-[26rem]">
-            <div className="relative">
-              <label className="block">
-                <span className="sr-only">{searchLabel}</span>
-                <span className="relative block">
-                  <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    aria-label={searchLabel}
-                    value={query}
-                    onChange={(event) => {
-                      setQuery(event.target.value);
-                      setDesktopSearchOpen(true);
-                    }}
-                    onFocus={() => setDesktopSearchOpen(true)}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder={searchPlaceholder}
-                    className="field-base h-12 rounded-full border-slate-200/80 bg-white/72 !pl-14 pr-4 text-sm text-slate-800 shadow-[0_14px_30px_rgba(148,163,184,0.08)]"
-                    data-testid="topbar-search"
-                  />
-                </span>
-              </label>
-              {desktopSearchOpen ? (
-                <div
-                  className="absolute inset-x-0 top-[calc(100%+0.75rem)] z-[80]"
-                  onMouseDown={(event) => event.preventDefault()}
-                >
-                  {desktopSearchPanel}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
+          {/* Mobile/tablet search button */}
           <Button
             variant="secondary"
-            className="h-11 w-11 shrink-0 rounded-full lg:hidden"
+            className="h-10 w-10 shrink-0 rounded-full lg:hidden"
             aria-label={mobileSearchOpen ? closeSearchLabel : openSearchLabel}
             onClick={() => setMobileSearchOpen((current) => !current)}
             data-testid="topbar-search-button"
           >
             {mobileSearchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
           </Button>
+        </>
+      ) : null}
 
-          {onNotificationBellClick && (
-            <div className="relative shrink-0">
-              <NotificationBell
-                unreadCount={unreadCount}
-                onClick={onNotificationBellClick}
-                label={notificationDict?.notifications.bellLabel ?? "Notifications"}
-              />
-              {notificationDropdownOpen && notificationDict && onNotificationMarkRead && onNotificationMarkAllRead && onNotificationDismiss && onNotificationDropdownClose && (
-                <NotificationDropdown
-                  notifications={notifications}
-                  onMarkRead={onNotificationMarkRead}
-                  onMarkAllRead={onNotificationMarkAllRead}
-                  onDismiss={onNotificationDismiss}
-                  onClose={onNotificationDropdownClose}
-                  dict={notificationDict}
-                />
-              )}
-              {!notificationDropdownOpen && notificationDict && (
-                <EscalationTooltip
-                  notifications={notifications}
-                  onDismissed={() => { /* tooltip auto-hides */ }}
-                  dict={notificationDict}
-                />
-              )}
-            </div>
-          )}
+      <CommandPaletteTrigger />
 
-          <div className="hidden shrink-0 sm:block">
-            <ThemeToggle />
-          </div>
+      {!hideNotifications
+        && notificationDict
+        && onNotificationOpenChange
+        && onNotificationMarkRead
+        && onNotificationMarkAllRead
+        && onNotificationDismiss ? (
+        <NotificationBell
+          unreadCount={unreadCount}
+          notifications={notifications}
+          open={notificationDropdownOpen}
+          onOpenChange={onNotificationOpenChange}
+          onMarkRead={onNotificationMarkRead}
+          onMarkAllRead={onNotificationMarkAllRead}
+          onDismiss={onNotificationDismiss}
+          dict={notificationDict}
+        />
+      ) : null}
 
-          <div className="shrink-0">
-            <UserAvatarButton
-              userId={userId}
-              displayName={displayName}
-              pictureUrl={pictureUrl}
-              email={email}
-              role={role}
-              isDemo={isDemo}
-              onOpenSettings={onOpenSettings}
-              openSettingsLabel={openSettingsLabel}
-              sharingLabel={sharingLabel}
-              signOutLabel={signOutLabel}
-              signOutHref={signOutHref}
-            />
-          </div>
-        </div>
-      </header>
+      <div className="hidden shrink-0 md:block" data-testid="topbar-theme-toggle">
+        <ThemeToggle />
+      </div>
 
-      <div
-        className={cn(
-          "fixed inset-0 z-40 bg-slate-950/24 backdrop-blur-sm transition lg:hidden",
-          mobileSearchOpen ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-        aria-hidden="true"
-        onClick={() => setMobileSearchOpen(false)}
+      <ProfileMenu
+        userId={userId}
+        displayName={displayName}
+        pictureUrl={pictureUrl}
+        email={email}
+        role={role}
+        onOpenProfile={onOpenProfile}
+        signOutHref={signOutHref}
       />
-      <div
-        className={cn(
-          "fixed inset-x-0 z-50 px-4 transition lg:hidden",
-          mobileSearchOpen ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0",
-        )}
-        style={mobileSearchTop ? { top: `${mobileSearchTop}px` } : undefined}
-        data-testid="topbar-search-sheet"
-      >
-        <div className="glass-panel rounded-[30px] border border-slate-200/80 bg-[rgba(255,255,255,0.96)] p-4 shadow-[0_28px_70px_rgba(15,23,42,0.16)]">
+
+      {/* Mobile search sheet — position-relative panel below the topbar to
+          avoid the ResizeObserver chrome-height measurement (design §3). */}
+      {mobileSearchOpen ? (
+        <div
+          className="fixed inset-x-0 top-14 z-40 border-b border-border bg-background p-3 shadow-md lg:hidden"
+          data-testid="topbar-search-sheet"
+        >
           <label className="block">
             <span className="sr-only">{searchLabel}</span>
             <span className="relative block">
-              <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 aria-label={searchLabel}
                 value={query}
@@ -396,9 +318,9 @@ export function TopBar({
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
-                className="field-base h-12 rounded-full border-slate-300/80 bg-white/90 !pl-14 pr-4 text-sm text-slate-800"
+                className="h-10 w-full rounded-full border border-border bg-card pl-12 pr-3 text-sm text-foreground"
                 data-testid="topbar-search-sheet-input"
-                autoFocus={mobileSearchOpen}
+                autoFocus
               />
             </span>
           </label>
@@ -415,8 +337,8 @@ export function TopBar({
             />
           </div>
         </div>
-      </div>
-    </>
+      ) : null}
+    </header>
   );
 }
 
@@ -445,7 +367,7 @@ function QuickSearchPanel({
   if (items.length === 0) {
     return (
       <div
-        className="rounded-[26px] border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-[0_18px_40px_rgba(148,163,184,0.14)]"
+        className="rounded-[18px] border border-border bg-popover p-4 text-sm text-muted-foreground shadow-md"
         data-testid={dataTestId}
       >
         {searchEmptyLabel}
@@ -453,11 +375,9 @@ function QuickSearchPanel({
     );
   }
 
-  const itemOffset = 0;
-
   return (
     <div
-      className="rounded-[26px] border border-slate-200 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.14)]"
+      className="rounded-[18px] border border-border bg-popover p-2 shadow-lg"
       data-testid={dataTestId}
     >
       {routes.length > 0 ? (
@@ -465,12 +385,14 @@ function QuickSearchPanel({
           label={searchRoutesLabel}
           items={routes}
           activeIndex={activeIndex}
-          itemOffset={itemOffset}
+          itemOffset={0}
           onActiveIndexChange={onActiveIndexChange}
           onSelect={onSelect}
         />
       ) : null}
-      {routes.length > 0 && symbols.length > 0 ? <div className="my-2 border-t border-slate-200" aria-hidden="true" /> : null}
+      {routes.length > 0 && symbols.length > 0 ? (
+        <div className="my-2 border-t border-border" aria-hidden="true" />
+      ) : null}
       {symbols.length > 0 ? (
         <SearchGroup
           label={searchTickersLabel}
@@ -502,7 +424,7 @@ function SearchGroup({
 }) {
   return (
     <div>
-      <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{label}</p>
+      <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">{label}</p>
       <div className="grid gap-1">
         {items.map((item, index) => {
           const resolvedIndex = itemOffset + index;
@@ -514,18 +436,16 @@ function SearchGroup({
               onMouseEnter={() => onActiveIndexChange(resolvedIndex)}
               onClick={() => onSelect(item)}
               className={cn(
-                "flex w-full items-start justify-between gap-3 rounded-[20px] px-3 py-3 text-left transition",
-                active
-                  ? "bg-[rgba(79,70,229,0.1)] text-slate-950 shadow-[inset_0_0_0_1px_rgba(79,70,229,0.12)]"
-                  : "text-slate-700 hover:bg-slate-100/90",
+                "flex w-full items-start justify-between gap-3 rounded-[12px] px-3 py-2 text-left transition",
+                active ? "bg-accent text-accent-foreground" : "text-foreground hover:bg-accent/60",
               )}
               data-testid={`quick-search-item-${item.kind}-${item.id}`}
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold">{item.label}</span>
-                <span className="mt-1 block truncate text-xs text-slate-500">{item.description}</span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.description}</span>
               </span>
-              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {item.kind}
               </span>
             </button>

@@ -11,6 +11,7 @@ import {
 } from "../../../features/dividends/services/dividendService";
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
+import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { getDictionary } from "../../../lib/i18n";
 import { resolvePresetDates, type DatePreset } from "../../../components/dividends/dividendReviewUtils";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
@@ -62,10 +63,11 @@ function searchParamsToQuery(sp: Record<string, string | string[] | undefined>):
 }
 
 export default async function DividendReviewPage({ searchParams }: DividendReviewPageProps) {
-  const [sp, session, profile] = await Promise.all([
+  const [sp, session, profile, sidebarOpen] = await Promise.all([
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
+    readSidebarStateCookie(),
   ]);
 
   let locale: LocaleCode = "en";
@@ -98,7 +100,7 @@ export default async function DividendReviewPage({ searchParams }: DividendRevie
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile}>
+      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
         <DividendReviewClient
           initialData={initialData}
           dict={dict}

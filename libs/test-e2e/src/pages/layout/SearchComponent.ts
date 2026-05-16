@@ -14,7 +14,8 @@ export interface TSearchElements {
 export class SearchComponent extends BasePage<TSearchElements> {
   protected initializeElements(): void {
     this._elements = {
-      desktopSearch: this.locate("topbar-search", "Desktop Search Input"),
+      // 3c: renamed from topbar-search → topbar-search-input
+      desktopSearch: this.locate("topbar-search-input", "Desktop Search Input"),
       desktopResults: this.locate("topbar-search-results", "Desktop Search Results"),
       mobileSearchButton: this.locate("topbar-search-button", "Mobile Search Button"),
       mobileSheet: this.locate("topbar-search-sheet", "Mobile Search Sheet"),

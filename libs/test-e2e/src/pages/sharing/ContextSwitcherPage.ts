@@ -13,7 +13,10 @@ export interface TContextSwitcherElements {
 
 export class ContextSwitcherPage extends BasePage<TContextSwitcherElements> {
   protected initializeElements(): void {
-    const desktopSlot = this.page.getByTestId("topbar-portfolio-switcher-slot");
+    // Phase 3c: PortfolioSwitcher moved from TopBar into the sidebar header.
+    // The wrapper testid `topbar-portfolio-switcher-slot` is renamed to
+    // `app-sidebar-portfolio-switcher-slot` (per architect-design.md §2).
+    const desktopSlot = this.page.getByTestId("app-sidebar-portfolio-switcher-slot");
     this._elements = {
       switcherRoot: desktopSlot.getByTestId("portfolio-switcher"),
       dropdown: this.locate("portfolio-switcher-dropdown", "Portfolio context switcher dropdown"),

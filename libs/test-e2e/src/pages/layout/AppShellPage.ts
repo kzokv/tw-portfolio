@@ -15,10 +15,22 @@ export interface TAppShellElements extends TElementLocatorHelpers {
   topBar: TTopBarElements;
   sideNavigation: TSideNavigationElements;
   search: TSearchElements;
+  /** Brand link / mobile Sheet trigger. Phase 3c: was mobile-nav-toggle. */
   mobileNavToggle: Locator;
+  /** Mobile sidebar container (app-sidebar in Sheet context). Phase 3c rename. */
   mobileSidebar: Locator;
+  /** App sidebar root. Phase 3c: was desktop-sidebar → app-sidebar. */
   desktopSidebar: Locator;
+  /** Sidebar collapse trigger. Phase 3c: was desktop-nav-toggle → app-sidebar-trigger. */
   desktopNavToggle: Locator;
+  /** Admin warning rail — only rendered when AppSidebar variant="admin". Phase 3c. */
+  appSidebarRail: Locator;
+  /** Breadcrumb root <nav>. Phase 3c: replaces retired topbar-title H1. */
+  breadcrumbRoot: Locator;
+  /** Rightmost breadcrumb segment carrying aria-current="page". */
+  breadcrumbCurrentItem: Locator;
+  /** A breadcrumb segment by 0-based index. */
+  breadcrumbItem: (index: number) => Locator;
   settings: {
     drawer: Locator;
     localeValue: Locator;
@@ -49,19 +61,37 @@ export class AppShellPage extends BasePage<TAppShellElements> {
       topBar: new TopBarComponent(this.page).elements,
       sideNavigation: new SideNavigationComponent(this.page).elements,
       search: new SearchComponent(this.page).elements,
-      mobileNavToggle: this.locate("mobile-nav-toggle", "Mobile Nav Toggle"),
-      mobileSidebar: this.locate("mobile-sidebar", "Mobile Sidebar"),
-      desktopSidebar: this.locate("desktop-sidebar", "Desktop Sidebar"),
-      desktopNavToggle: this.locate("desktop-nav-toggle", "Desktop Nav Toggle"),
+      // 3c: mobile-nav-toggle → app-sidebar-brand (composite: link on ≥md, Sheet trigger on <md)
+      mobileNavToggle: this.locate("app-sidebar-brand", "App Sidebar Brand / Mobile Nav Trigger"),
+      // 3c: on mobile the sidebar Sheet uses the same app-sidebar testid
+      mobileSidebar: this.locate("app-sidebar", "App Sidebar (mobile Sheet context)"),
+      // 3c: desktop-sidebar → app-sidebar (shadcn Sidebar root)
+      desktopSidebar: this.locate("app-sidebar", "App Sidebar"),
+      // 3c: desktop-nav-toggle → app-sidebar-trigger (shadcn collapse ‹ button)
+      desktopNavToggle: this.locate("app-sidebar-trigger", "App Sidebar Trigger"),
+      // 3c: admin warning rail — only present on admin variant
+      appSidebarRail: this.locate("app-sidebar-rail", "App Sidebar Rail (admin only)"),
+      // 3c: breadcrumb root replaces the retired topbar-title H1
+      breadcrumbRoot: this.locate("breadcrumb-root", "Breadcrumb Root"),
+      breadcrumbCurrentItem: this.withDescription(
+        this.locate("breadcrumb-root").locator('[aria-current="page"]'),
+        "Breadcrumb Current Page Item",
+      ),
+      breadcrumbItem: (index: number) =>
+        this.withDescription(
+          this.locate(`breadcrumb-item-${index}`, `Breadcrumb Item ${index}`),
+          `Breadcrumb Item ${index}`,
+        ),
       settings: {
         drawer: this.locate("settings-drawer", "Settings Drawer"),
         localeValue: this.locate("settings-locale-value", "Locale Summary Value"),
         costBasisValue: this.locate("settings-cost-basis-value", "Cost Basis Summary Value"),
         quotePollValue: this.locate("settings-quote-poll-value", "Quote Poll Summary Value"),
       },
-      avatarImage: this.withinByCss(this.locate("avatar-button"), "img", "Avatar Image"),
+      // 3c: avatar-button → topbar-profile-menu-trigger
+      avatarImage: this.withinByCss(this.locate("topbar-profile-menu-trigger"), "img", "Avatar Image"),
       avatarInitials: this.withinByCss(
-        this.locate("avatar-button"),
+        this.locate("topbar-profile-menu-trigger"),
         "span[aria-hidden='true']",
         "Avatar Initials",
       ),

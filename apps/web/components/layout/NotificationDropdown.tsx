@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { AlertTriangle, Info, X, XCircle } from "lucide-react";
 import type { NotificationDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
@@ -11,7 +10,6 @@ interface NotificationDropdownProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDismiss: (id: string) => void;
-  onClose: () => void;
   dict: AppDictionary;
 }
 
@@ -33,41 +31,32 @@ function formatRelativeTime(isoDate: string, dict: AppDictionary["notifications"
   const diffMinutes = Math.floor(diffMs / 60_000);
   const diffHours = Math.floor(diffMs / 3_600_000);
   const diffDays = Math.floor(diffMs / 86_400_000);
-
   if (diffMinutes < 1) return dict.timeJustNow;
   if (diffMinutes < 60) return dict.timeMinutesAgo.replace("{count}", String(diffMinutes));
   if (diffHours < 24) return dict.timeHoursAgo.replace("{count}", String(diffHours));
   return dict.timeDaysAgo.replace("{count}", String(diffDays));
 }
 
+/**
+ * Notification dropdown body, rendered inside shadcn `PopoverContent`. The
+ * popover handles outside-click + escape natively, so the legacy
+ * `containerRef` + `mousedown` useEffect is gone.
+ *
+ * Locked testid `notification-popover-content` lives on the outer
+ * PopoverContent (see NotificationBell). This component renders the inner
+ * tree — item / empty-state testids preserved verbatim.
+ */
 export function NotificationDropdown({
   notifications,
   onMarkRead,
   onMarkAllRead,
   onDismiss,
-  onClose,
   dict,
 }: NotificationDropdownProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [onClose]);
-
   return (
-    <div
-      ref={containerRef}
-      className="absolute right-0 top-[calc(100%+0.75rem)] z-[80] w-[22rem] rounded-[26px] border border-slate-200 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.14)]"
-      data-testid="notification-dropdown"
-    >
+    <div className="p-3" data-testid="notification-popover-content">
       <div className="flex items-center justify-between px-2 pb-2">
-        <h3 className="text-sm font-semibold text-slate-950">{dict.notifications.dropdownTitle}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{dict.notifications.dropdownTitle}</h3>
         <Button
           variant="ghost"
           size="sm"
@@ -80,7 +69,10 @@ export function NotificationDropdown({
       </div>
 
       {notifications.length === 0 ? (
-        <div className="px-2 py-6 text-center text-sm text-slate-500" data-testid="notification-empty">
+        <div
+          className="px-2 py-6 text-center text-sm text-muted-foreground"
+          data-testid="notification-empty-state"
+        >
           {dict.notifications.emptyState}
         </div>
       ) : (
@@ -88,7 +80,7 @@ export function NotificationDropdown({
           {notifications.map((notification) => (
             <div
               key={notification.id}
-              className="group flex items-start gap-3 rounded-[20px] px-3 py-3 transition hover:bg-slate-50"
+              className="group flex items-start gap-3 rounded-[20px] px-3 py-3 transition hover:bg-accent"
               data-testid={`notification-item-${notification.id}`}
               role="button"
               tabIndex={0}
@@ -98,21 +90,24 @@ export function NotificationDropdown({
               <div className="mt-0.5">{severityIcon(notification.severity)}</div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-start gap-2">
-                  <p className="flex-1 truncate text-sm font-medium text-slate-900">{notification.title}</p>
+                  <p className="flex-1 truncate text-sm font-medium text-foreground">{notification.title}</p>
                   {!notification.readAt && (
-                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-indigo-500" data-testid={`notification-unread-${notification.id}`} />
+                    <span
+                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary"
+                      data-testid={`notification-unread-${notification.id}`}
+                    />
                   )}
                 </div>
                 {notification.body && (
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{notification.body}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">{notification.body}</p>
                 )}
-                <p className="mt-1 text-[11px] text-slate-400">
+                <p className="mt-1 text-[11px] text-muted-foreground/80">
                   {formatRelativeTime(notification.createdAt, dict.notifications)}
                 </p>
               </div>
               <button
                 type="button"
-                className="mt-0.5 rounded-full p-1 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                className="mt-0.5 rounded-full p-1 text-muted-foreground opacity-0 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
                 onClick={(e) => { e.stopPropagation(); onDismiss(notification.id); }}
                 aria-label={dict.actions.dismiss}
                 data-testid={`notification-dismiss-${notification.id}`}
