@@ -1,33 +1,25 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type AccountDefaultCurrency,
-  type AccountType,
   type DashboardPerformanceRange,
   type InstrumentOptionDto,
   type LocaleCode,
   type SnapshotsGeneratedEvent,
 } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
-import { AddTransactionCard } from "../portfolio/AddTransactionCard";
-import { HoldingsTable } from "../portfolio/HoldingsTable";
+import { cn } from "../../lib/utils";
 import type { TransactionInput } from "../portfolio/types";
 import { SettingsDrawer } from "../settings/SettingsDrawer";
-import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { Button } from "../ui/Button";
-import { Card } from "../ui/Card";
 import { API_PUBLIC, postJson } from "../../lib/api";
 import { TopBar, type QuickSearchItem } from "./TopBar";
 import { SideNavigation } from "./SideNavigation";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
 import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
-import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
-import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useSettingsSave } from "../../features/settings/hooks/useSettingsSave";
@@ -40,15 +32,6 @@ import {
   isRevokedSharingNotification,
 } from "../../lib/sharing-notification-matcher";
 import type { InboundShareCardItem } from "../../features/sharing/types";
-import { DividendsSection } from "../dashboard/DividendsSection";
-import { ActionCenterSection } from "../dashboard/ActionCenterSection";
-import { AllocationSnapshotCard } from "../dashboard/AllocationSnapshotCard";
-import { PortfolioTrendCard } from "../dashboard/PortfolioTrendCard";
-import { ReturnPercentCard } from "../dashboard/ReturnPercentCard";
-import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
-import { DASHBOARD_CARDS } from "../dashboard/cards";
-import { SortableCardGrid } from "./SortableCardGrid";
-import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { PortfolioSwitcher } from "./PortfolioSwitcher";
 import {
@@ -61,6 +44,8 @@ import { useSharedContextOwnerId } from "../../hooks/useSharedContextOwnerId";
 import { StatusToast } from "../ui/StatusToast";
 import { ApiClientErrorToast } from "./ApiClientErrorToast";
 import { ImpersonationBanner } from "./ImpersonationBanner";
+import { AppShellDataProvider, type AppShellData } from "./AppShellDataContext";
+import { CardLayoutResetProvider } from "./CardLayoutResetContext";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 type ViewportMode = "mobile" | "compact" | "wide";
@@ -151,14 +136,6 @@ export function AppShell({
   const currentContextOwnerId = useSharedContextOwnerId();
 
   const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
-  const performance = useDashboardPerformance({
-    range: performanceRange,
-    enabled: section === "dashboard",
-  });
-  const recentTransactions = useRecentTransactions({
-    limit: 6,
-    enabled: section === "transactions",
-  });
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation
     && profileData.profile.impersonation.active !== false
@@ -183,7 +160,13 @@ export function AppShell({
   // same dict key but mean something different. Guarding on a zero-length
   // portfolio keeps the owner-facing copy scoped to the empty-owner case.
   const hasOwnerEmptyPortfolio = isSharedContext && dashboard.holdings.length === 0;
-  const hasOwnerEmptyRecentTransactions = isSharedContext && recentTransactions.items.length === 0;
+  // Note: `recentLedgerEmpty` mutation is unconditional in shared context.
+  // The key is only consumed by RecentTransactionsCard's empty-state path
+  // (apps/web/components/dashboard/RecentTransactionsCard.tsx:42); when
+  // items exist the empty path doesn't render, so the override is harmless
+  // when items.length > 0. Pre-refactor AppShell gated this on items.length
+  // via `useRecentTransactions` — that hook now lives in TransactionsClient,
+  // so the items count isn't observable here. Net behaviour identical.
   const uiDict = useMemo(() => {
     if (!isSharedContext) return dict;
     return {
@@ -194,18 +177,15 @@ export function AppShell({
           holdingsEmpty: dict.switcher.sharedHoldingsEmpty.replace("{owner}", currentSharedOwnerLabel),
         }
         : dict.dashboardHome,
-      transactions: hasOwnerEmptyRecentTransactions
-        ? {
-          ...dict.transactions,
-          recentLedgerEmpty: dict.switcher.sharedTransactionsEmpty.replace("{owner}", currentSharedOwnerLabel),
-        }
-        : dict.transactions,
+      transactions: {
+        ...dict.transactions,
+        recentLedgerEmpty: dict.switcher.sharedTransactionsEmpty.replace("{owner}", currentSharedOwnerLabel),
+      },
     };
   }, [
     currentSharedOwnerLabel,
     dict,
     hasOwnerEmptyPortfolio,
-    hasOwnerEmptyRecentTransactions,
     isSharedContext,
   ]);
 
@@ -257,23 +237,21 @@ export function AppShell({
     }
   }, []);
 
+  const [contextRefreshSignal, setContextRefreshSignal] = useState(0);
+
   const refreshContextDependentData = useCallback(async () => {
     router.refresh();
+    setContextRefreshSignal((n) => n + 1);
     await Promise.allSettled([
       dashboard.refresh(),
       profileData.refresh(),
       refreshSwitcherData(),
-      section === "dashboard" ? performance.refresh() : Promise.resolve(),
-      section === "transactions" ? recentTransactions.refresh() : Promise.resolve(),
     ]);
   }, [
     dashboard,
-    performance,
     profileData,
-    recentTransactions,
     refreshSwitcherData,
     router,
-    section,
   ]);
 
   useEffect(() => {
@@ -367,17 +345,12 @@ export function AppShell({
 
   const refreshAfterTransaction = useCallback(async () => {
     await dashboard.refresh();
-    if (section === "transactions") {
-      await recentTransactions.refresh();
-    }
     // KZO-115: trade mutations trigger a scoped snapshot recompute inside
-    // scheduleReplayWithRetry; refresh the performance chart when we're on
-    // the dashboard so the chart reflects the new snapshots without the user
-    // having to navigate away and back.
-    if (section === "dashboard") {
-      await performance.refresh();
-    }
-  }, [dashboard.refresh, performance.refresh, recentTransactions.refresh, section]);
+    // scheduleReplayWithRetry. Signal page-scoped clients (DashboardClient's
+    // performance chart, TransactionsClient's recent ledger) to re-fetch
+    // so they reflect the new snapshots without remount.
+    setContextRefreshSignal((n) => n + 1);
+  }, [dashboard.refresh]);
 
   const transactionSubmission = useTransactionSubmission({
     initialValue: DEFAULT_TRANSACTION,
@@ -389,10 +362,9 @@ export function AppShell({
 
   const refreshAfterRecompute = useCallback(async () => {
     await dashboard.refresh();
-    if (section === "dashboard") {
-      await performance.refresh();
-    }
-  }, [dashboard.refresh, performance.refresh, section]);
+    // Signal DashboardClient's performance chart to re-fetch.
+    setContextRefreshSignal((n) => n + 1);
+  }, [dashboard.refresh]);
 
   const recomputeAction = useRecomputeAction({
     locale,
@@ -420,12 +392,13 @@ export function AppShell({
           .replace("{totalRows}", String(event.totalRows))
           .replace("{provisionalRows}", String(event.provisionalRows)),
       );
-      void performance.refresh();
+      // Signal DashboardClient to re-fetch the performance series so the
+      // chart reflects the newly-generated snapshots.
+      setContextRefreshSignal((n) => n + 1);
     },
     [
       dict.dashboardHome.snapshotsGeneratedMessage,
       dict.dashboardHome.snapshotsGenerationFailed,
-      performance.refresh,
     ],
   );
 
@@ -501,8 +474,6 @@ export function AppShell({
   }, [dashboard.refresh]);
 
   const isI18nReady = !!dashboard.settings || !!localeOverride;
-  const hasCustomChildren = children !== undefined;
-  const showPageSkeleton = !hasCustomChildren && (dashboard.isBootstrapping || !isI18nReady);
 
   const drawerOpen = searchParams.get("drawer") === "settings";
 
@@ -651,6 +622,50 @@ export function AppShell({
     window.localStorage.setItem(DESKTOP_NAV_STORAGE_KEY, String(nextValue));
   }
 
+  const appShellDataValue: AppShellData = useMemo(
+    () => ({
+      dashboard,
+      uiDict,
+      locale,
+      isSharedContext,
+      isBootstrapping: dashboard.isBootstrapping,
+      isI18nReady,
+      transactionSubmission,
+      mutations,
+      recomputeAction,
+      transactionAccountOptions,
+      performanceRange,
+      setPerformanceRange,
+      effectiveRanges,
+      refetchEffectiveRanges,
+      customizeRangesOpen,
+      setCustomizeRangesOpen,
+      generateSnapshots,
+      isGeneratingSnapshots,
+      setDrawerOpen,
+      contextRefreshSignal,
+    }),
+    [
+      contextRefreshSignal,
+      customizeRangesOpen,
+      dashboard,
+      effectiveRanges,
+      generateSnapshots,
+      isGeneratingSnapshots,
+      isI18nReady,
+      isSharedContext,
+      locale,
+      mutations,
+      performanceRange,
+      recomputeAction,
+      refetchEffectiveRanges,
+      setDrawerOpen,
+      transactionAccountOptions,
+      transactionSubmission,
+      uiDict,
+    ],
+  );
+
   return (
     <div className="app-shell relative min-h-screen min-w-0 overflow-x-clip">
       {isDemo && (
@@ -779,12 +794,8 @@ export function AppShell({
                       recomputeAction.setErrorMessage("");
                       void (async () => {
                         await dashboard.refresh();
-                        if (section === "dashboard") {
-                          await performance.refresh();
-                        }
-                        if (section === "transactions") {
-                          await recentTransactions.refresh();
-                        }
+                        // Signal child clients to re-fetch their page-scoped data.
+                        setContextRefreshSignal((n) => n + 1);
                       })().catch(() => undefined);
                     }}
                   >
@@ -847,36 +858,11 @@ export function AppShell({
             {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
             {switcherLoaded ? <div data-testid="switcher-data-ready" /> : null}
 
-            {showPageSkeleton ? (
-              <>
-                <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-                <DashboardLoading />
-              </>
-            ) : (
-              children ?? renderSection({
-                section,
-                dashboard,
-                dict: uiDict,
-                locale,
-                performance,
-                performanceRange,
-                setPerformanceRange,
-                effectiveRanges,
-                refetchEffectiveRanges,
-                recentTransactions,
-                transactionSubmission,
-                transactionAccountOptions,
-                recomputeAction,
-                setDrawerOpen,
-                recomputingSymbols: mutations.recomputingSymbols,
-                generateSnapshots,
-                isGeneratingSnapshots,
-                isSharedContext,
-                customizeRangesOpen,
-                setCustomizeRangesOpen,
-                cardLayoutResetCounts,
-              })
-            )}
+            <CardLayoutResetProvider value={cardLayoutResetCounts}>
+              <AppShellDataProvider value={appShellDataValue}>
+                {children ?? null}
+              </AppShellDataProvider>
+            </CardLayoutResetProvider>
           </main>
         </div>
       </div>
@@ -928,7 +914,9 @@ export function AppShell({
         // perf data so the labels/values flip in place without a remount.
         onReportingCurrencySaved={() => {
           void dashboard.refresh();
-          void performance.refresh();
+          // Signal DashboardClient to re-fetch its performance chart so
+          // the re-translated series replaces the old labels/values.
+          setContextRefreshSignal((n) => n + 1);
         }}
         // KZO-169 (NC4): deep-link prefill for the create-account flow.
         // AddTransactionCard's "no {currency} account" inline error builds a
@@ -940,513 +928,6 @@ export function AppShell({
   );
 }
 
-function renderSection({
-  section,
-  dashboard,
-  dict,
-  locale,
-  performance,
-  performanceRange,
-  setPerformanceRange,
-  effectiveRanges,
-  refetchEffectiveRanges,
-  recentTransactions,
-  transactionSubmission,
-  transactionAccountOptions,
-  recomputeAction,
-  setDrawerOpen,
-  recomputingSymbols,
-  generateSnapshots,
-  isGeneratingSnapshots,
-  isSharedContext,
-  customizeRangesOpen,
-  setCustomizeRangesOpen,
-  cardLayoutResetCounts,
-}: {
-  section: AppSection;
-  dashboard: ReturnType<typeof useDashboardData>;
-  dict: ReturnType<typeof getDictionary>;
-  locale: LocaleCode;
-  performance: ReturnType<typeof useDashboardPerformance>;
-  performanceRange: DashboardPerformanceRange;
-  setPerformanceRange: (range: DashboardPerformanceRange) => void;
-  effectiveRanges: DashboardPerformanceRange[];
-  refetchEffectiveRanges: () => void;
-  recentTransactions: ReturnType<typeof useRecentTransactions>;
-  transactionSubmission: ReturnType<typeof useTransactionSubmission>;
-  transactionAccountOptions: Array<{
-    id: string;
-    name: string;
-    feeProfileName: string;
-    defaultCurrency: AccountDefaultCurrency;
-    accountType?: AccountType;
-  }>;
-  recomputeAction: ReturnType<typeof useRecomputeAction>;
-  setDrawerOpen: (open: boolean) => void;
-  recomputingSymbols: Set<string>;
-  generateSnapshots: () => Promise<void>;
-  isGeneratingSnapshots: boolean;
-  isSharedContext: boolean;
-  customizeRangesOpen: boolean;
-  setCustomizeRangesOpen: (open: boolean) => void;
-  cardLayoutResetCounts: { dashboard: number; transactions: number; portfolio: number };
-}) {
-  const largestHolding = dashboard.holdings[0] ?? null;
-  const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
-  const quoteCoverageValue = dashboard.holdings.length === 0
-    ? "-"
-    : formatPercent((quotedHoldingCount / dashboard.holdings.length) * 100, locale);
-  const quoteCoverageDetail = dashboard.holdings.length === 0
-    ? dict.dashboardHome.holdingsEmpty
-    : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(dashboard.holdings.length, locale)}`;
-
-  if (section === "portfolio") {
-    return (
-      <div className="stagger grid min-w-0 gap-6">
-        <RouteHeroPanel
-          eyebrow={dict.navigation.portfolioLabel}
-          title={dict.dashboardHome.holdingsTitle}
-          description={dict.navigation.portfolioDescription}
-          testId="portfolio-intro"
-          metrics={[
-            {
-              label: dict.dashboardHome.largestPositionLabel,
-              value: largestHolding?.ticker ?? "-",
-              detail: largestHolding
-                ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.currency, locale)
-                : dict.dashboardHome.holdingsEmpty,
-            },
-            {
-              label: dict.dashboardHome.concentrationLabel,
-              value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
-                ? formatPercent(largestHolding.allocationPct, locale)
-                : "-",
-              detail: largestHolding ? largestHolding.accountId : dict.dashboardHome.holdingsEmpty,
-            },
-            {
-              label: dict.dashboardHome.holdingCountLabel,
-              value: formatNumber(dashboard.holdings.length, locale),
-              detail: dict.holdings.entries.replace("{count}", String(dashboard.holdings.length)),
-            },
-            {
-              label: dict.dashboardHome.quoteCoverageLabel,
-              value: quoteCoverageValue,
-              detail: quoteCoverageDetail,
-            },
-          ]}
-        />
-        {/*
-          KZO-162 — Portfolio cards rendered as a SortableCardGrid. Slugs
-          `holdings-table` and `dividends-section` are intentionally reused
-          from `DASHBOARD_CARDS` — same components, different `cardOrder.{key}`
-          namespace, so dashboard reorder and portfolio reorder are isolated.
-          To add a card here, append a `{slug, fullWidth}` entry AND add a
-          `case` to the switch below.
-        */}
-        <SortableCardGrid
-          key={`card-grid-portfolio-${cardLayoutResetCounts.portfolio}`}
-          orderKey="portfolio"
-          cards={[
-            { slug: "holdings-table", fullWidth: true },
-            { slug: "dividends-section", fullWidth: true },
-          ]}
-        >
-          {(slug) => {
-            switch (slug) {
-              case "holdings-table":
-                return (
-                  <HoldingsTable
-                    holdings={dashboard.holdings}
-                    dict={dict}
-                    locale={locale}
-                    recomputingSymbols={recomputingSymbols}
-                    showFreshnessBadge={!isSharedContext}
-                  />
-                );
-              case "dividends-section":
-                return (
-                  <DividendsSection
-                    upcoming={dashboard.dividends.upcoming}
-                    recent={dashboard.dividends.recent}
-                    dict={dict}
-                    locale={locale}
-                  />
-                );
-              default:
-                return null;
-            }
-          }}
-        </SortableCardGrid>
-      </div>
-    );
-  }
-
-  if (section === "transactions") {
-    return (
-      <div className="stagger grid min-w-0 gap-6">
-        <RouteHeroPanel
-          eyebrow={dict.navigation.transactionsLabel}
-          title={dict.transactions.title}
-          description={dict.navigation.transactionsDescription}
-          testId="transactions-intro"
-          metrics={[
-            {
-              label: dict.dashboardHome.accountCountLabel,
-              value: formatNumber(dashboard.summary.accountCount, locale),
-              detail: dict.navigation.transactionsLabel,
-            },
-            {
-              label: dict.dashboardHome.holdingCountLabel,
-              value: formatNumber(dashboard.summary.holdingCount, locale),
-              detail: dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount)),
-            },
-            {
-              label: dict.dashboardHome.issueCountLabel,
-              value: formatNumber(dashboard.summary.openIssueCount, locale),
-              detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,
-            },
-            {
-              label: dict.dashboardHome.quoteCoverageLabel,
-              value: quoteCoverageValue,
-              detail: quoteCoverageDetail,
-            },
-          ]}
-        />
-
-        {/*
-          KZO-162 — All three transactions cards (form/readonly + status + recent)
-          render through one SortableCardGrid. All slugs declare
-          `fullWidth: true` so they stack vertically and any can be reordered
-          to any position. The `transactions-add` slot renders the
-          AddTransactionCard normally and a read-only notice in shared context;
-          either way the slot stays in the saved order so a user's preferred
-          position survives context switches.
-          To add a card here, append a `{slug, fullWidth}` entry AND add a
-          `case` to the switch below.
-        */}
-        <SortableCardGrid
-          key={`card-grid-transactions-${cardLayoutResetCounts.transactions}`}
-          orderKey="transactions"
-          cards={[
-            { slug: "transactions-add", fullWidth: true },
-            { slug: "transactions-status", fullWidth: true },
-            { slug: "transactions-recent", fullWidth: true },
-          ]}
-        >
-          {(slug) => {
-            switch (slug) {
-              case "transactions-add":
-                return isSharedContext ? (
-                  <Card
-                    className="border border-rose-200 bg-rose-50/90 text-rose-700"
-                    data-testid="transactions-readonly"
-                  >
-                    <p role="status" aria-live="polite">{dict.switcher.readonlyDescription}</p>
-                  </Card>
-                ) : (
-                  <AddTransactionCard
-                    value={transactionSubmission.draftTransaction}
-                    accountOptions={transactionAccountOptions}
-                    pending={transactionSubmission.isSubmitting}
-                    onChange={(next) => {
-                      transactionSubmission.setMessage("");
-                      transactionSubmission.setDraftTransaction(next);
-                    }}
-                    onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
-                    onSubmit={transactionSubmission.submit}
-                    dict={dict}
-                    locale={locale}
-                    priceHint={transactionSubmission.priceHint}
-                    showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
-                    feeEstimate={transactionSubmission.feeEstimate}
-                  />
-                );
-              case "transactions-status":
-                return (
-                  <StatusStripCard
-                    eyebrow={dict.navigation.transactionsLabel}
-                    title={dict.transactions.verificationTitle}
-                    description={dict.transactions.verificationDescription}
-                    metrics={[
-                      {
-                        label: dict.dashboardHome.marketValueLabel,
-                        value: dashboard.summary.marketValueAmount !== null
-                          ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
-                          : dict.dashboardHome.noMarketValue,
-                      },
-                      {
-                        label: dict.dashboardHome.totalCostLabel,
-                        value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
-                      },
-                      {
-                        label: dict.dashboardHome.holdingCountLabel,
-                        value: formatNumber(dashboard.summary.holdingCount, locale),
-                      },
-                    ]}
-                    testId="transactions-verification-panel"
-                  />
-                );
-              case "transactions-recent":
-                return (
-                  <RecentTransactionsCard
-                    items={recentTransactions.items}
-                    locale={locale}
-                    dict={dict}
-                    isLoading={recentTransactions.isLoading}
-                    errorMessage={recentTransactions.errorMessage}
-                  />
-                );
-              default:
-                return null;
-            }
-          }}
-        </SortableCardGrid>
-      </div>
-    );
-  }
-
-  if (section === "dividends") {
-    return null;
-  }
-
-  if (section === "cash-ledger") {
-    return null;
-  }
-
-  return (
-    <div className="stagger grid min-w-0 gap-6">
-      <RouteHeroPanel
-        eyebrow={dict.navigation.dashboardLabel}
-        title={dict.dashboardHome.summaryTitle}
-        description={dict.dashboardHome.summaryDescription}
-        testId="dashboard-intro"
-        metrics={[
-          {
-            label: dict.dashboardHome.marketValueLabel,
-            value: dashboard.summary.marketValueAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: dashboard.summary.asOf ? formatDateLabel(dashboard.summary.asOf, locale) : dict.dashboardHome.asOfLabel,
-          },
-          {
-            label: dict.dashboardHome.concentrationLabel,
-            value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
-              ? formatPercent(largestHolding.allocationPct, locale)
-              : "-",
-            detail: largestHolding ? `${largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty,
-          },
-          {
-            label: dict.dashboardHome.unrealizedPnlLabel,
-            value: dashboard.summary.unrealizedPnlAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.unrealizedPnlAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
-          },
-          {
-            label: dict.dashboardHome.dailyChangeLabel,
-            value: dashboard.summary.dailyChangeAmount !== null
-              ? formatCurrencyAmount(dashboard.summary.dailyChangeAmount, dashboard.summary.reportingCurrency, locale)
-              : dict.dashboardHome.noMarketValue,
-            detail: dashboard.summary.dailyChangePercent !== null
-              ? formatPercent(dashboard.summary.dailyChangePercent, locale)
-              : "-",
-          },
-          {
-            label: dict.dashboardHome.issueCountLabel,
-            value: formatNumber(dashboard.summary.openIssueCount, locale),
-            detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,
-          },
-        ]}
-        // KZO-161 (158C) F4: hero pill row removed — `PortfolioTrendCard` is
-        // now the sole pill surface. `actions` stays typed for future use.
-      />
-
-      {/*
-        KZO-161 (158C) F5: dashboard cards rendered as one flat
-        `<SortableCardGrid>`. Render order is canonical ⋈ user-preference
-        `cardOrder.dashboard` (unknown slugs dropped, new slugs appended).
-        `ActionCenterSection` is also draggable (full-width slot at end of
-        canonical list). `key` bumps on Reset Layout to re-fetch.
-      */}
-      <SortableCardGrid
-        key={`card-grid-dashboard-${cardLayoutResetCounts.dashboard}`}
-        cards={DASHBOARD_CARDS}
-        orderKey="dashboard"
-      >
-        {(slug) => {
-          switch (slug) {
-            case "portfolio-trend":
-              return (
-                <PortfolioTrendCard
-                  data={performance.data}
-                  range={performanceRange}
-                  ranges={effectiveRanges}
-                  currency={dashboard.summary.reportingCurrency}
-                  locale={locale}
-                  dict={dict}
-                  isLoading={performance.isLoading}
-                  errorMessage={performance.errorMessage}
-                  onRangeChange={setPerformanceRange}
-                  onOpenCustomize={() => setCustomizeRangesOpen(true)}
-                />
-              );
-            case "allocation-snapshot":
-              return (
-                <AllocationSnapshotCard
-                  holdings={dashboard.holdings}
-                  locale={locale}
-                  dict={dict}
-                />
-              );
-            case "return-percent":
-              return (
-                <ReturnPercentCard
-                  data={performance.data}
-                  locale={locale}
-                  dict={dict}
-                  isLoading={performance.isLoading}
-                  errorMessage={performance.errorMessage}
-                />
-              );
-            case "holdings-table":
-              return (
-                <HoldingsTable
-                  holdings={dashboard.holdings}
-                  dict={dict}
-                  locale={locale}
-                  recomputingSymbols={recomputingSymbols}
-                  showFreshnessBadge={!isSharedContext}
-                />
-              );
-            case "dividends-section":
-              return (
-                <DividendsSection
-                  upcoming={dashboard.dividends.upcoming}
-                  recent={dashboard.dividends.recent}
-                  dict={dict}
-                  locale={locale}
-                />
-              );
-            case "action-center":
-              return (
-                <ActionCenterSection
-                  locale={locale}
-                  settings={dashboard.settings}
-                  integrityIssue={dashboard.actions.integrityIssue}
-                  pending={recomputeAction.isRunning}
-                  onRecompute={recomputeAction.runRecompute}
-                  onGenerateSnapshots={generateSnapshots}
-                  isGeneratingSnapshots={isGeneratingSnapshots}
-                  onOpenSettings={() => setDrawerOpen(true)}
-                  dict={dict}
-                  readOnly={isSharedContext}
-                  readOnlyMessage={dict.switcher.readonlyDescription}
-                />
-              );
-            default:
-              return null;
-          }
-        }}
-      </SortableCardGrid>
-
-      {customizeRangesOpen ? (
-        <CustomizeRangesPopover
-          variant="popover"
-          onClose={() => setCustomizeRangesOpen(false)}
-          onSaved={refetchEffectiveRanges}
-          copy={{
-            title: dict.settings.customizeRangesTitle,
-            activeSectionLabel: dict.settings.customizeRangesActiveLabel,
-            addCustomLabel: dict.settings.customizeRangesAddCustomLabel,
-            addCustomPlaceholder: dict.settings.customizeRangesAddPlaceholder,
-            addCustomHint: dict.settings.customizeRangesAddHint,
-            saveLabel: dict.settings.customizeRangesSaveLabel,
-            savingLabel: dict.settings.customizeRangesSavingLabel,
-            resetLabel: dict.settings.customizeRangesResetLabel,
-            saveSuccess: dict.settings.customizeRangesSaveSuccess,
-            saveError: dict.settings.customizeRangesSaveError,
-            closeLabel: dict.settings.customizeRangesCloseLabel,
-            toggleOnLabel: (range) =>
-              dict.settings.customizeRangesToggleOnLabel.replace("{range}", range),
-            toggleOffLabel: (range) =>
-              dict.settings.customizeRangesToggleOffLabel.replace("{range}", range),
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function RouteHeroPanel({
-  eyebrow,
-  title,
-  description,
-  metrics,
-  testId,
-  actions,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  metrics: Array<{ label: string; value: string; detail?: string }>;
-  testId: string;
-  actions?: ReactNode;
-}) {
-  return (
-    <section
-      className="glass-panel overflow-hidden rounded-[34px] border border-slate-200/85 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(231,238,255,0.96))] px-5 py-6 shadow-[0_30px_70px_rgba(79,70,229,0.12)] sm:px-6 sm:py-7 md:px-8"
-      data-testid={testId}
-    >
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.92fr)] xl:items-start">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-indigo-500/80">{eyebrow}</p>
-          <h2 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl">{title}</h2>
-          <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">{description}</p>
-          {actions ? <div className="mt-5">{actions}</div> : null}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-[24px] border border-indigo-100 bg-white/80 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">{metric.label}</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{metric.value}</p>
-              {metric.detail ? <p className="mt-2 text-sm text-slate-500">{metric.detail}</p> : null}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function StatusStripCard({
-  eyebrow,
-  title,
-  description,
-  metrics,
-  testId,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  metrics: Array<{ label: string; value: string }>;
-  testId?: string;
-}) {
-  return (
-    <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.94)]" data-testid={testId}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500/78">{eyebrow}</p>
-      <h2 className="mt-2 text-2xl text-slate-950">{title}</h2>
-      <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {metrics.map((metric) => (
-          <div key={metric.label} className="rounded-[22px] border border-slate-200 bg-slate-50/90 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{metric.label}</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">{metric.value}</p>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
 
 function buildInstrumentSearchDescription(symbol: InstrumentOptionDto): string {
   const instrument = symbol.instrumentType === "BOND_ETF"
