@@ -485,4 +485,55 @@ export class AppShellActions extends AppBaseActions {
       this.el.testId(`card-drag-handle-${to}`),
     );
   }
+
+  // ── ui-reshape Phase 2 — Theme · Accent · Density ─────────────────────────
+
+  /**
+   * Click one of the three theme-toggle buttons in the TopBar.
+   * Persists via next-themes localStorage ("vakwen-theme").
+   */
+  @Step()
+  async clickThemeToggle(mode: "light" | "system" | "dark"): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId(`theme-toggle-${mode}`));
+  }
+
+  /** Click one of the 8 preset accent swatches in Settings → Display. */
+  @Step()
+  async clickAccentSwatch(
+    preset: "indigo" | "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "slate",
+  ): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId(`display-accent-swatch-${preset}`));
+  }
+
+  /** Open the custom-color picker panel (9th swatch). */
+  @Step()
+  async openCustomAccentPicker(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("display-accent-swatch-custom"));
+    await expect(this.el.testId("display-custom-accent-panel")).toBeVisible();
+  }
+
+  /** Type a hex value into the custom-accent picker's hex input. */
+  @Step()
+  async setCustomAccentHex(hex: string): Promise<void> {
+    const input = this.el.testId("display-custom-accent-hex-input");
+    await input.fill(hex);
+  }
+
+  /** Click Apply in the custom-accent picker. */
+  @Step()
+  async applyCustomAccent(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("display-custom-accent-apply"));
+  }
+
+  /** Click Reset-to-Indigo in the custom-accent picker. */
+  @Step()
+  async resetCustomAccent(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("display-custom-accent-reset"));
+  }
+
+  /** Click Compact or Comfortable density toggle. */
+  @Step()
+  async clickDensityToggle(mode: "compact" | "comfortable"): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId(`display-density-toggle-${mode}`));
+  }
 }
