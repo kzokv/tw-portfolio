@@ -32,6 +32,7 @@ import { requestRepair } from "../../../features/settings/services/repairService
 import { getCooldownRemainingMinutes } from "../../../features/settings/utils/cooldown";
 import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
 import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
+import { useBreadcrumb } from "../../../components/layout/BreadcrumbProvider";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -75,6 +76,17 @@ export function TickerHistoryClient({
   transactionAccountFilter,
 }: TickerHistoryClientProps) {
   const router = useRouter();
+  // Per-page breadcrumb override (spec amendment #21). Display label uses the
+  // instrument name + ticker symbol when available, otherwise the ticker itself.
+  // The Portfolio parent segment keeps the breadcrumb actionable.
+  useBreadcrumb([
+    { label: dict.navigation.portfolioLabel, href: "/portfolio" },
+    {
+      label: instrument?.name
+        ? `${instrument.name} (${ticker})`
+        : ticker,
+    },
+  ]);
   const [isClientReady, setIsClientReady] = useState(false);
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isRepairDialogOpen, setIsRepairDialogOpen] = useState(false);
