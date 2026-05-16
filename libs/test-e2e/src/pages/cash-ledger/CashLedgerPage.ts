@@ -51,7 +51,8 @@ export class CashLedgerPage extends BasePage<TCashLedgerElements> {
           `Cash Ledger ${field} Column Header`,
         ),
       navLink: this.withDescription(
-        this.locate("desktop-sidebar").getByTestId("sidebar-link-cash-ledger"),
+        // Phase 3c: desktop-sidebar → app-sidebar; sidebar-link-cash-ledger → app-sidebar-nav-cash-ledger
+        this.locate("app-sidebar").getByTestId("app-sidebar-nav-cash-ledger"),
         "Cash Ledger Sidebar Link",
       ),
       pagination: this.locate("pagination", "Pagination Controls"),

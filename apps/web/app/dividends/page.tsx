@@ -7,6 +7,7 @@ import { fetchDashboardSnapshot } from "../../features/dashboard/services/dashbo
 import { fetchDividendCalendarSnapshot } from "../../features/dividends/services/dividendService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
+import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
 import { getDictionary } from "../../lib/i18n";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 
@@ -23,9 +24,10 @@ function currentMonthQuery(): { fromPaymentDate: string; toPaymentDate: string; 
 }
 
 export default async function DividendsPage() {
-  const [session, profile] = await Promise.all([
+  const [session, profile, sidebarOpen] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
+    readSidebarStateCookie(),
   ]);
 
   let locale: LocaleCode = "en";
@@ -46,7 +48,7 @@ export default async function DividendsPage() {
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile}>
+      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
         <DividendCalendarClient initialSnapshot={initialSnapshot} dict={dict} locale={locale} />
       </AppShell>
     </Suspense>

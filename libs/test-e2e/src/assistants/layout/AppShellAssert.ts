@@ -11,9 +11,73 @@ export class AppShellAssert extends BaseAssert {
     return this._instance.elements;
   }
 
+  /**
+   * Assert the breadcrumb (which replaces the retired topbar-title H1 in 3c)
+   * contains the expected text. The breadcrumb nav is found via topbar-breadcrumb.
+   * Specs in 3d that previously asserted page-title text should migrate to
+   * `breadcrumbCurrentItemContains()` for per-segment precision.
+   */
   @Step()
   async topBarTitleContains(text: string): Promise<void> {
-    await expect(this.el.topBar.title).toContainText(text);
+    // 3c: topbar-title H1 retired. breadcrumb wrapper replaces it.
+    await expect(this.el.topBar.breadcrumb).toContainText(text);
+  }
+
+  /**
+   * Assert the breadcrumb root <nav> is visible.
+   */
+  @Step()
+  async breadcrumbRootIsVisible(): Promise<void> {
+    await expect(this.el.breadcrumbRoot).toBeVisible();
+  }
+
+  /**
+   * Assert the rightmost breadcrumb item (aria-current="page") contains the
+   * given text. More precise than topBarTitleContains for multi-segment paths.
+   */
+  @Step()
+  async breadcrumbCurrentItemContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.breadcrumbCurrentItem).toContainText(text);
+  }
+
+  /**
+   * Assert the rightmost breadcrumb item (aria-current="page") is visible.
+   */
+  @Step()
+  async breadcrumbCurrentItemIsVisible(): Promise<void> {
+    await expect(this.el.breadcrumbCurrentItem).toBeVisible();
+  }
+
+  /**
+   * Assert the breadcrumb root contains the given text somewhere in its subtree.
+   */
+  @Step()
+  async breadcrumbContainsText(text: string | RegExp): Promise<void> {
+    await expect(this.el.breadcrumbRoot).toContainText(text);
+  }
+
+  /**
+   * Assert a breadcrumb segment by 0-based index is visible.
+   */
+  @Step()
+  async breadcrumbItemIsVisible(index: number): Promise<void> {
+    await expect(this.el.breadcrumbItem(index)).toBeVisible();
+  }
+
+  /**
+   * Assert a breadcrumb segment by 0-based index has aria-current="page".
+   */
+  @Step()
+  async breadcrumbItemIsCurrentPage(index: number): Promise<void> {
+    await expect(this.el.breadcrumbItem(index)).toHaveAttribute("aria-current", "page");
+  }
+
+  /**
+   * Assert a breadcrumb segment by 0-based index contains the given text.
+   */
+  @Step()
+  async breadcrumbItemContainsText(index: number, text: string | RegExp): Promise<void> {
+    await expect(this.el.breadcrumbItem(index)).toContainText(text);
   }
 
   @Step()
@@ -31,9 +95,16 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.desktopSidebar).toBeVisible();
   }
 
+  /**
+   * Assert the sidebar collapsed/expanded state.
+   * Phase 3c: shadcn Sidebar emits data-state="collapsed"|"expanded" (not data-collapsed).
+   */
   @Step()
   async desktopSidebarCollapsedStateIs(collapsed: boolean): Promise<void> {
-    await expect(this.el.desktopSidebar).toHaveAttribute("data-collapsed", String(collapsed));
+    await expect(this.el.desktopSidebar).toHaveAttribute(
+      "data-state",
+      collapsed ? "collapsed" : "expanded",
+    );
   }
 
   @Step()
@@ -41,10 +112,15 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.desktopNavToggle).toBeVisible();
   }
 
+  /**
+   * Assert a sidebar nav item has aria-current="page".
+   * Phase 3c: nav items renamed from sidebar-link-{dest} → app-sidebar-nav-{dest}.
+   * Both desktop and mobile share the app-sidebar container (mobile renders inside Sheet).
+   */
   @Step()
   async sidebarLinkIsCurrent(destination: string, mode: "desktop" | "mobile" = "desktop"): Promise<void> {
     const container = mode === "desktop" ? this.el.desktopSidebar : this.el.mobileSidebar;
-    await expect(container.getByTestId(`sidebar-link-${destination}`)).toHaveAttribute("aria-current", "page");
+    await expect(container.getByTestId(`app-sidebar-nav-${destination}`)).toHaveAttribute("aria-current", "page");
   }
 
   @Step()
@@ -94,9 +170,19 @@ export class AppShellAssert extends BaseAssert {
     await this.mxAssertLessThanOrEqual(scrollWidth, clientWidth + tolerance, "document scroll width");
   }
 
+  /**
+   * Assert the profile menu trigger (topbar-profile-menu-trigger) is focused.
+   * Phase 3c: element renamed from avatar-button → topbar-profile-menu-trigger.
+   */
   @Step()
   async avatarButtonIsFocused(): Promise<void> {
     await expect(this.el.topBar.avatarButton).toBeFocused();
+  }
+
+  /** Assert the topbar profile menu trigger is visible. */
+  @Step()
+  async profileMenuTriggerIsVisible(): Promise<void> {
+    await expect(this.el.topBar.avatarButton).toBeVisible();
   }
 
   @Step()
@@ -140,9 +226,15 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.testId("client-api-error")).toHaveCount(0);
   }
 
+  /**
+   * Assert the profile menu is open and shows the sign-out option.
+   * Phase 3c: avatar-menu-settings RETIRED (amendment #11). Settings moved to sidebar.
+   * Method kept for backward-compat; now checks profile-menu-sign-out only.
+   */
   @Step()
   async avatarMenuShowsSettingsAndSignOut(): Promise<void> {
-    await expect(this.el.topBar.avatarMenuSettings).toBeVisible();
+    // 3c: Settings link removed from profile menu (now in sidebar).
+    // Only sign-out is guaranteed; profile-menu-sign-out is the renamed locator.
     await expect(this.el.topBar.avatarMenuSignOut).toBeVisible();
   }
 
@@ -290,12 +382,37 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.testId("admin-settings-page")).toBeVisible();
   }
 
+  /**
+   * Assert the Settings nav item is active (aria-current="page") in the admin sidebar.
+   * Phase 3c: renamed from admin-sidebar-link-settings → app-sidebar-nav-settings.
+   */
   @Step()
   async adminSettingsSidebarLinkIsCurrent(): Promise<void> {
-    await expect(this.el.testId("admin-sidebar-link-settings").first()).toHaveAttribute(
+    await expect(this.el.testId("app-sidebar-nav-settings").first()).toHaveAttribute(
       "aria-current",
       "page",
     );
+  }
+
+  // ── Phase 3c — Admin warning rail assertions ─────────────────────────────
+
+  /**
+   * Assert the 3px admin warning rail is visible.
+   * app-sidebar-rail is only rendered when AppSidebar variant="admin".
+   * Expected on all /admin/* pages.
+   */
+  @Step()
+  async adminWarningRailIsVisible(): Promise<void> {
+    await expect(this.el.appSidebarRail).toBeVisible();
+  }
+
+  /**
+   * Assert the admin warning rail is absent (not in DOM).
+   * Expected on user-shell pages (non-admin routes).
+   */
+  @Step()
+  async adminWarningRailIsAbsent(): Promise<void> {
+    await expect(this.el.appSidebarRail).toHaveCount(0);
   }
 
   @Step()
@@ -479,7 +596,12 @@ export class AppShellAssert extends BaseAssert {
 
   @Step()
   async avatarMenuSharingLinkIsVisible(): Promise<void> {
-    await expect(this.el.testId("avatar-menu-sharing")).toBeVisible();
+    // Phase 3c amendment #11: avatar-menu Sharing entry RETIRED. Sidebar
+    // owns Sharing navigation now. The legacy helper assertion redirects
+    // to the sidebar's Sharing nav-item; the method name is preserved for
+    // spec compatibility (specs that call it still drive the same logical
+    // affordance — "sharing entry is reachable from the chrome").
+    await expect(this.el.testId("app-sidebar-nav-sharing")).toBeVisible();
   }
 
   @Step()

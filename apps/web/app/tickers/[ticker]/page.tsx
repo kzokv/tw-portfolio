@@ -9,6 +9,7 @@ import { AppShell } from "../../../components/layout/AppShell";
 import { StatChip } from "../../../components/ui/StatChip";
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
+import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import type { DashboardOverviewHoldingDto } from "@vakwen/shared-types";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
@@ -21,11 +22,12 @@ interface TickerHistoryPageProps {
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId }, session, profile] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId }, session, profile, sidebarOpen] = await Promise.all([
     params,
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
+    readSidebarStateCookie(),
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
@@ -47,7 +49,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   if (!dashboard) {
     return (
       <Suspense fallback={<DashboardLoading standalone />}>
-        <AppShell isDemo={session.isDemo} initialProfile={profile}>
+        <AppShell isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
           <p>
             Failed to load data for {ticker}.{" "}
             <Link href="/portfolio">Back to portfolio</Link>
@@ -87,7 +89,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell isDemo={session.isDemo} initialProfile={profile}>
+      <AppShell isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
         <TickerHistoryClient
           transactions={transactions}
           dict={dict}

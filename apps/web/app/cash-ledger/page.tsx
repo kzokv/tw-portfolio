@@ -7,13 +7,15 @@ import { fetchDashboardSnapshot } from "../../features/dashboard/services/dashbo
 import { fetchCashLedgerEntries } from "../../features/cash-ledger/services/cashLedgerService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
+import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
 import { getDictionary } from "../../lib/i18n";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 
 export default async function CashLedgerPage() {
-  const [session, profile] = await Promise.all([
+  const [session, profile, sidebarOpen] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
+    readSidebarStateCookie(),
   ]);
 
   let locale: LocaleCode = "en";
@@ -35,7 +37,7 @@ export default async function CashLedgerPage() {
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="cash-ledger" isDemo={session.isDemo} initialProfile={profile}>
+      <AppShell section="cash-ledger" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
         <CashLedgerClient initialData={initialData} dict={dict} locale={locale} />
       </AppShell>
     </Suspense>

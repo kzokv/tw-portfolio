@@ -37,13 +37,35 @@ export class AppShellActions extends AppBaseActions {
     await this.mxNavigateToRoute(path, TestEnv.appBaseUrl);
   }
 
+  /**
+   * Open the Settings drawer via the sidebar Settings nav-item.
+   * Phase 3c: avatar-menu-settings RETIRED (amendment #11). Settings is now
+   * accessible via app-sidebar-nav-settings which wires setDrawerOpen(true).
+   *
+   * On `<md` viewports the sidebar lives inside a shadcn Sheet (closed by
+   * default), so the Settings nav-item isn't in the DOM until the Sheet
+   * opens. Tapping `app-sidebar-brand` in the TopBar triggers the Sheet.
+   */
   @Step()
   async openSettingsDrawer(): Promise<void> {
     await this.mxWaitForAppReady();
-    await this.uiActions.click.perform(this.el.topBar.avatarButton);
-    await this.uiActions.wait.perform(this.el.topBar.avatarMenuSettings);
-    await this.uiActions.click.perform(this.el.topBar.avatarMenuSettings);
+    const viewport = this.page.viewportSize();
+    const isMobile = !!viewport && viewport.width < 768;
+    if (isMobile) {
+      await this.uiActions.click.perform(this.el.mobileNavToggle);
+      await expect(this.el.sideNavigation.settings).toBeVisible();
+    }
+    await this.uiActions.click.perform(this.el.sideNavigation.settings);
     await this.verifyDrawerOpened();
+  }
+
+  /**
+   * Alias for openSettingsDrawer() — preferred call site name post-3c.
+   * openSettingsDrawer() kept for backward-compat with existing spec call sites.
+   */
+  @Step()
+  async openSettingsViaSidebar(): Promise<void> {
+    await this.openSettingsDrawer();
   }
 
   private async verifyDrawerOpened(): Promise<void> {
@@ -67,28 +89,55 @@ export class AppShellActions extends AppBaseActions {
     await this.mxReloadPage();
   }
 
+  /**
+   * Reload and wait for shell readiness.
+   * Phase 3c: topbar-title H1 is removed. Replaced by breadcrumb. Wait on
+   * appReady + breadcrumb wrapper instead of the now-absent title element.
+   */
   @Step()
   async reloadShellPage(): Promise<void> {
     await this.mxReloadPage({ waitForReady: false });
     await expect(this.el.appReady).toBeAttached({ timeout: 20_000 });
-    await expect(this.el.topBar.title).toBeVisible({ timeout: 20_000 });
+    await expect(this.el.topBar.breadcrumb).toBeVisible({ timeout: 20_000 });
   }
 
   @Step()
   async toggleDesktopSidebar(): Promise<void> {
+    // 3c: desktopNavToggle → app-sidebar-trigger (shadcn collapse ‹ button)
     await this.uiActions.click.perform(this.el.desktopNavToggle);
   }
 
+  /**
+   * Click a nav item inside the open mobile sidebar Sheet.
+   * Phase 3c: renamed from sidebar-link-{dest} → app-sidebar-nav-{dest}.
+   * On mobile (<md), the Sheet renders the same app-sidebar content.
+   */
   @Step()
   async navigateViaMobileSidebar(destination: TSidebarDestination): Promise<void> {
-    await this.uiActions.click.perform(this.el.mobileSidebar.getByTestId(`sidebar-link-${destination}`));
+    // 3c: nav items are app-sidebar-nav-{destination} (no longer scoped to mobile-sidebar)
+    await this.uiActions.click.perform(this.el.mobileSidebar.getByTestId(`app-sidebar-nav-${destination}`));
     await this.mxWaitForAppReady();
   }
 
+  /**
+   * Open the mobile sidebar Sheet by clicking the brand link.
+   * Phase 3c: mobileNavToggle → app-sidebar-brand (composite trigger on <md).
+   */
   @Step()
   async openMobileNavigation(): Promise<void> {
     await this.uiActions.click.perform(this.el.mobileNavToggle);
-    await this.uiActions.wait.perform(this.el.mobileSidebar);
+    // Wait for the Sheet / sidebar to become interactive (nav items visible)
+    await this.uiActions.wait.perform(this.el.mobileSidebar.getByTestId("app-sidebar-nav-dashboard"));
+  }
+
+  /**
+   * Click a specific sidebar nav item by key.
+   * Phase 3c addition — covers all destinations in TSidebarDestination.
+   */
+  @Step()
+  async clickSidebarNavItem(key: TSidebarDestination): Promise<void> {
+    await this.uiActions.click.perform(this.el.sideNavigation[key]);
+    await this.mxWaitForAppReady();
   }
 
   @Step()
@@ -138,7 +187,10 @@ export class AppShellActions extends AppBaseActions {
 
   @Step()
   async clickAvatarMenuSharing(): Promise<void> {
-    await this.uiActions.click.perform(this.el.testId("avatar-menu-sharing"));
+    // Phase 3c amendment #11: the avatar-menu sharing entry is RETIRED.
+    // The sidebar now owns sharing navigation. Specs that previously called
+    // this helper now exercise the sidebar's Sharing nav-item directly.
+    await this.uiActions.click.perform(this.el.testId("app-sidebar-nav-sharing"));
   }
 
   @Step()

@@ -70,3 +70,12 @@ export function useAppShellData(): AppShellData {
   }
   return value;
 }
+
+/**
+ * Non-throwing variant — returns `null` outside the provider. Useful for
+ * leaf chrome components (e.g. the Breadcrumb) that render inside BOTH the
+ * user shell (with AppShellDataProvider) and the admin shell (without).
+ */
+export function useOptionalAppShellData(): AppShellData | null {
+  return useContext(AppShellDataCtx);
+}
