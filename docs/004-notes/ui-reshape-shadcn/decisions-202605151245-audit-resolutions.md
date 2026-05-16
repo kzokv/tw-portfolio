@@ -37,7 +37,7 @@ These decisions were already locked in `design-202605151200-locked-scope.md` (re
 
 | # | Topic | Decision | Affects |
 |---|---|---|---|
-| 13 | Profile widget placement | **Pulled out of topbar** into a fixed top-right corner widget (`position: fixed; top: 10px; right: 16px`). Bell + avatar+chevron sit in a single anchored "account zone" with subtle card-style background + border. Theme toggle + search + breadcrumbs stay in the topbar; corner widget is separate. Menu drops down from the avatar at `top: 56px right: 16px`. | All routes with shell |
+| 13 | Profile widget placement | ~~**Pulled out of topbar** into a fixed top-right corner widget (`position: fixed; top: 10px; right: 16px`). Bell + avatar+chevron sit in a single anchored "account zone" with subtle card-style background + border. Theme toggle + search + breadcrumbs stay in the topbar; corner widget is separate. Menu drops down from the avatar at `top: 56px right: 16px`.~~ **Rescinded 2026-05-16** per `phase-3-spec-202605161110-shell-decomp.md` §12 A1 — profile + bell stay inside `<TopBar>` (matches Phase 3c implementation, all signed-in mockups, and the Linear/GitHub/Vercel/Stripe convention). Avatar chevron retained per A4. | All routes with shell |
 | 14 | Custom accent color | **9th swatch added** to the 8 presets: a conic-gradient color-wheel button that opens an inline hue + saturation slider + hex input with live AA-contrast indicator. Selected custom color persists per-account alongside `themeAccent` (extends `user_preferences.themeAccent` shape to also accept a hex string). | Settings → Display · Admin → Settings |
 
 ### Implementation notes for #14
