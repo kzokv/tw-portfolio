@@ -225,6 +225,21 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayReportingCurrencyDescription:
         "Choose the currency your dashboard totals are rendered in. Per-holding values stay in each account's native currency.",
       displayReportingCurrencySaved: "Saved",
+      // ui-reshape Phase 2 — accent + density
+      displayAccentTitle: "Accent color",
+      displayAccentDescription:
+        "Sets the primary highlight across buttons, links, and charts. Status colors (gain / loss / warning) are unaffected.",
+      displayAccentCustom: "Custom",
+      displayAccentHex: "Hex",
+      displayAccentAaPass: "AA contrast ✓",
+      displayAccentAaFail: "AA contrast ⚠",
+      displayAccentApply: "Apply",
+      displayAccentReset: "Reset to Indigo",
+      displayDensityTitle: "Density",
+      displayDensityDescription:
+        "Affects table row heights and list spacing. Compact shows ~10–12 rows per laptop screen; Comfortable trades density for breathing room.",
+      displayDensityCompact: "Compact",
+      displayDensityComfortable: "Comfortable",
       resetAllLayoutsButton: "Reset all layouts",
       resetDashboardLayoutButton: "Reset dashboard layout",
       resetTransactionsLayoutButton: "Reset transactions layout",
@@ -516,6 +531,21 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayReportingCurrencyDescription:
         "選擇儀表板總計的顯示幣別。各持股仍以該帳戶的原幣顯示。",
       displayReportingCurrencySaved: "已儲存",
+      // ui-reshape Phase 2 — 主色 + 密度
+      displayAccentTitle: "主題色",
+      displayAccentDescription:
+        "設定按鈕、連結和圖表的主要強調色。狀態顏色（漲跌警告）不受影響。",
+      displayAccentCustom: "自訂",
+      displayAccentHex: "Hex",
+      displayAccentAaPass: "AA 對比 ✓",
+      displayAccentAaFail: "AA 對比 ⚠",
+      displayAccentApply: "套用",
+      displayAccentReset: "重設為靛藍",
+      displayDensityTitle: "密度",
+      displayDensityDescription:
+        "影響表格列高與清單間距。Compact 在筆電螢幕約 10–12 列；Comfortable 換取較舒適的留白。",
+      displayDensityCompact: "緊湊",
+      displayDensityComfortable: "舒適",
       resetAllLayoutsButton: "重設全部版面",
       resetDashboardLayoutButton: "重設儀表板版面",
       resetTransactionsLayoutButton: "重設交易版面",

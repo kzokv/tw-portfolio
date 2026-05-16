@@ -567,6 +567,19 @@ export interface AppDictionary {
     displayReportingCurrencyTitle: string;
     displayReportingCurrencyDescription: string;
     displayReportingCurrencySaved: string;
+    // ui-reshape Phase 2 — accent color + density toggle.
+    displayAccentTitle: string;
+    displayAccentDescription: string;
+    displayAccentCustom: string;
+    displayAccentHex: string;
+    displayAccentAaPass: string;
+    displayAccentAaFail: string;
+    displayAccentApply: string;
+    displayAccentReset: string;
+    displayDensityTitle: string;
+    displayDensityDescription: string;
+    displayDensityCompact: string;
+    displayDensityComfortable: string;
     // KZO-162 — per-page reset buttons (4 always-visible buttons in Display tab).
     resetAllLayoutsButton: string;
     resetDashboardLayoutButton: string;
