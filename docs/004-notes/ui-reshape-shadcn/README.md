@@ -10,6 +10,12 @@
 | [`scope-todo-202605151201-phases.md`](./scope-todo-202605151201-phases.md) | Phase-by-phase delivery plan (Phase 0 → Phase 7), file lists, verification gates. |
 | [`audit-202605151230-current-ui.md`](./audit-202605151230-current-ui.md) | Per-route audit of current UI: 20 routes + cross-cutting findings. |
 | [`decisions-202605151245-audit-resolutions.md`](./decisions-202605151245-audit-resolutions.md) | 12 audit-driven decisions that supersede / extend `design-…-locked-scope.md`. |
+| [`phase-2-spec-202605160815-theme-density.md`](./phase-2-spec-202605160815-theme-density.md) | Phase 2 sub-spec — theme · accent · density. |
+| [`phase-2-status-202605160950-handoff.md`](./phase-2-status-202605160950-handoff.md) | Phase 2 status handoff. |
+| [`phase-3-spec-202605161110-shell-decomp.md`](./phase-3-spec-202605161110-shell-decomp.md) | Phase 3 sub-spec — shell decomposition (sidebar · breadcrumb · command palette · TopBar split). |
+| [`transition-202605161250-phase-3ab.md`](./transition-202605161250-phase-3ab.md) | Transition note — Phase 3a (substrate) + 3b (children-driven AppShell). |
+| [`review-202605161200-phase-3ab.md`](./review-202605161200-phase-3ab.md) | Code review — Phase 3a + 3b. Verdict: CLEAN. |
+| [`review-202605161330-phase-3c.md`](./review-202605161330-phase-3c.md) | Code review — Phase 3c (sidebar + TopBar decomp). Verdict: FIX-REQUIRED → all four findings resolved pre-merge (see addendum). |
 
 ## Mockups (HTML)
 

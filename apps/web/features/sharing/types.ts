@@ -7,6 +7,8 @@ export interface SharingRouteContextValue {
   isDemo: boolean;
   locale: LocaleCode;
   profile: ProfileWithImpersonationDto;
+  /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
+  initialSidebarOpen: boolean;
 }
 
 export interface OutboundShareRow {

@@ -267,11 +267,23 @@ Per `.claude/rules/playwright-page-object-testid-drift.md`.
 - `profile-menu-content`
 - `profile-menu-header` (name + email)
 - `profile-menu-profile-link` → `/settings/profile`
-- `profile-menu-admin-link` → `/admin` (role-gated; preserves `avatar-menu-admin`)
+- `profile-menu-admin-link` → `/admin` (role-gated; preserves `avatar-menu-admin` — see clarification below)
 - `profile-menu-theme-light`, `profile-menu-theme-system`, `profile-menu-theme-dark`
 - `profile-menu-sign-out`
 
 **Note:** Existing `avatar-menu-settings` testid retires per Decision #11 — Settings is sidebar-only. Specs that reference `avatar-menu-settings` get updated in 3d alongside the drawer retirement; in 3c, the testid is removed from `ProfileMenu` and any spec still using it fails fast (acceptable because 3c precedes 3d and the drawer is still reachable from the new sidebar's Settings link).
+
+**`avatar-menu-admin` placement (clarification — pre-merge correction 2026-05-16):** The legacy `avatar-menu-admin` testid is intentionally on the **wrapper `<div>`** surrounding the `DropdownMenuItem`, NOT on the same element as the canonical `profile-menu-admin-link`. `getByTestId("avatar-menu-admin").click()` still navigates because the click bubbles to the descendant `<a>`. The shape is:
+
+```tsx
+<div data-testid="avatar-menu-admin">
+  <DropdownMenuItem asChild>
+    <a href="/admin" data-testid="profile-menu-admin-link">…</a>
+  </DropdownMenuItem>
+</div>
+```
+
+This split avoids two testids on the same element (which would surface as a strict-mode locator clash in any spec that anchors on the link). Specs that need the canonical locator use `profile-menu-admin-link`; specs not yet migrated continue to use `avatar-menu-admin`. Both surfaces resolve to the same navigation target.
 
 ### NotificationBell
 - `notification-bell-button`
