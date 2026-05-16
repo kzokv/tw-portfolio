@@ -49,8 +49,12 @@ export class AppShellActions extends AppBaseActions {
   @Step()
   async openSettingsDrawer(): Promise<void> {
     await this.mxWaitForAppReady();
-    const viewport = this.page.viewportSize();
-    const isMobile = !!viewport && viewport.width < 768;
+    // Detect "<md" viewport via the brand toggle's visibility (the brand
+    // button is rendered only on mobile in TopBar) rather than reading
+    // page.viewportSize() directly — keeps this AAA-compliant per
+    // `aaa/no-page-access`. On mobile, tap the brand to open the Sheet
+    // before clicking the in-Sheet Settings nav-item.
+    const isMobile = await this.el.mobileNavToggle.isVisible();
     if (isMobile) {
       await this.uiActions.click.perform(this.el.mobileNavToggle);
       await expect(this.el.sideNavigation.settings).toBeVisible();
