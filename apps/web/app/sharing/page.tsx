@@ -7,7 +7,7 @@ import { useSharingRouteContext } from "../../components/sharing/SharingRoutePro
 import { getDictionary } from "../../lib/i18n";
 
 export default function SharingPage() {
-  const { isDemo, locale, profile } = useSharingRouteContext();
+  const { isDemo, locale, profile, initialSidebarOpen } = useSharingRouteContext();
   const dict = useMemo(() => getDictionary(locale), [locale]);
 
   return (
@@ -18,6 +18,7 @@ export default function SharingPage() {
       descriptionOverride={dict.sharing.pageDescription}
       activeSectionOverride={null}
       initialProfile={profile}
+      initialSidebarOpen={initialSidebarOpen}
     >
       <SharingClient
         locale={locale}
