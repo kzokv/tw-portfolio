@@ -30,7 +30,13 @@ export function AccentApplier(): null {
   const { resolvedTheme } = useTheme();
 
   // Fetch on mount and apply.
+  // Skip on auth surfaces (/login, /auth/*) — getJson redirects on 401 which
+  // would break the returnTo/session_expired routing dance on the login flow.
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const path = window.location.pathname;
+      if (path === "/login" || path.startsWith("/auth/")) return;
+    }
     let cancelled = false;
     void getJson<PrefsResponse>("/user-preferences")
       .then((res) => {

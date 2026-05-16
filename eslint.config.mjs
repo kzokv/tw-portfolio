@@ -35,6 +35,7 @@ export default [
       '**/vitest-report/**',
       '.worktrees/**',
       '.claude/worktrees/**',
+      'docs/**/*.js',
     ],
   },
   eslint.configs.recommended,

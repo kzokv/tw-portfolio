@@ -515,8 +515,7 @@ export class AppShellActions extends AppBaseActions {
   /** Type a hex value into the custom-accent picker's hex input. */
   @Step()
   async setCustomAccentHex(hex: string): Promise<void> {
-    const input = this.el.testId("display-custom-accent-hex-input");
-    await input.fill(hex);
+    await this.uiActions.fill.perform(this.el.testId("display-custom-accent-hex-input"), hex);
   }
 
   /** Click Apply in the custom-accent picker. */

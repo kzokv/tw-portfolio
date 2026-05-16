@@ -707,11 +707,10 @@ export class AppShellAssert extends BaseAssert {
   /** Assert <html> carries (or omits) `class="dark"`. */
   @Step()
   async themeIs(mode: "light" | "dark"): Promise<void> {
-    const html = this.page.locator("html");
     if (mode === "dark") {
-      await expect(html).toHaveClass(/(^|\s)dark(\s|$)/);
+      await expect(this.el.htmlRoot).toHaveClass(/(^|\s)dark(\s|$)/);
     } else {
-      await expect(html).not.toHaveClass(/(^|\s)dark(\s|$)/);
+      await expect(this.el.htmlRoot).not.toHaveClass(/(^|\s)dark(\s|$)/);
     }
   }
 
@@ -762,12 +761,11 @@ export class AppShellAssert extends BaseAssert {
   /** Assert <html> has (or lacks) data-density="comfortable". */
   @Step()
   async densityIs(mode: "compact" | "comfortable"): Promise<void> {
-    const html = this.page.locator("html");
     if (mode === "comfortable") {
-      await expect(html).toHaveAttribute("data-density", "comfortable");
+      await expect(this.el.htmlRoot).toHaveAttribute("data-density", "comfortable");
     } else {
       // compact = absent attribute. Use evaluate to assert absence.
-      const hasAttr = await html.evaluate((el) => el.hasAttribute("data-density"));
+      const hasAttr = await this.el.htmlRoot.evaluate((el) => el.hasAttribute("data-density"));
       expect(hasAttr, "html[data-density] absent for compact").toBe(false);
     }
   }

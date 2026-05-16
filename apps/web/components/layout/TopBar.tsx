@@ -344,7 +344,7 @@ export function TopBar({
             </div>
           )}
 
-          <div className="shrink-0">
+          <div className="hidden shrink-0 sm:block">
             <ThemeToggle />
           </div>
 
