@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { DashboardClient } from "../../components/dashboard/DashboardClient";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
 import { requireSession } from "../../lib/auth";
@@ -12,7 +13,9 @@ export default async function DashboardPage() {
   ]);
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dashboard" isDemo={session.isDemo} initialProfile={profile} />
+      <AppShell section="dashboard" isDemo={session.isDemo} initialProfile={profile}>
+        <DashboardClient />
+      </AppShell>
     </Suspense>
   );
 }
