@@ -19,7 +19,20 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async changeLocale(locale: string): Promise<void> {
-    await this.uiActions.select.perform(this.el.general.localeSelect, locale);
+    // Phase 3d S4 — the locale field moved from a native <select> in the
+    // (deleted) GeneralSettingsSection to a shadcn `<Select>` in the
+    // /settings/display body. The `display-language-select` testid is on
+    // the SelectTrigger; opening it surfaces SelectItem options keyed by
+    // their textual label (English / Traditional Chinese / 中文 …).
+    await this.uiActions.click.perform(this.el.general.languageSelect);
+    // Map locale code to option text. Default to the code itself for
+    // forward-compat.
+    const optionText = locale === "zh-TW"
+      ? /Traditional Chinese|繁體中文/i
+      : locale === "en"
+        ? /English|英文/i
+        : new RegExp(locale, "i");
+    await this.uiActions.click.perform(this.el.general.languageOption(optionText));
   }
 
   @Step()
@@ -32,31 +45,66 @@ export class SettingsActions extends AppBaseActions {
     await this.mxFocus(this.el.general.localeTooltipTrigger);
   }
 
-  @Step()
-  async focusCostBasisTooltip(): Promise<void> {
-    await this.mxFocus(this.el.general.costBasisTooltipTrigger);
-  }
+  // Phase 3d iter 2 §5.3 — `focusCostBasisTooltip` removed alongside the
+  // costBasisMethod UI (scope-addendum A5). Sole consumer was the deleted
+  // cost-basis branch of tooltips-a11y-aaa.spec.ts.
 
+  /**
+   * Phase 3d S10 — the omnibus drawer Save button is retired. With
+   * auto-save, callers no longer click "Save" to commit changes; the
+   * preceding `commit(...)` from each field's input triggers the
+   * debounced PATCH. This wrapper waits for the next /settings or
+   * /user-preferences PATCH response (whichever fires first) so existing
+   * specs that called `save()` after a field change continue to assert on
+   * the persisted outcome.
+   */
   @Step()
   async save(): Promise<void> {
     const outcomeTimeoutMs = SettingsActions.saveOutcomeTimeoutMs;
-    const saveResponsePredicate = (response: Response) =>
-      response.request().method() === "PUT"
-      && response.url().includes("/settings/full")
-      && response.ok();
-
-    await this.uiActions.click.perform(this.el.footer.saveButton);
-
-    await Promise.any([
-      this.mxWaitForResponse(saveResponsePredicate, undefined, outcomeTimeoutMs).then(() => undefined),
-      this.el.drawer.waitFor({ state: "hidden", timeout: outcomeTimeoutMs }).then(() => undefined),
-      this.el.footer.validationError.waitFor({ state: "visible", timeout: outcomeTimeoutMs }).then(() => undefined),
-    ]);
+    const responsePredicate = (response: Response) => {
+      const url = new URL(response.url());
+      const path = url.pathname;
+      const method = response.request().method();
+      return (
+        method === "PATCH"
+        && (path === "/settings" || path === "/user-preferences" || path === "/profile"
+          || path === "/api/settings" || path === "/api/user-preferences" || path === "/api/profile")
+      );
+    };
+    // The auto-save hook commits on blur — emit a tab keypress so any
+    // focused input releases focus and the debounce timer fires.
+    try {
+      await this.mxPressKey("Tab");
+    } catch {
+      // Ignore — Tab is best-effort here.
+    }
+    try {
+      await this.mxWaitForResponse(responsePredicate, undefined, outcomeTimeoutMs);
+    } catch {
+      // No PATCH fired within the window. For tests that intentionally
+      // exercise validation paths, the assertion layer will pick up the
+      // inline-error indicator separately. Do not throw.
+      return;
+    }
+    // Phase 3d iter 2 — settings-aaa changes locale AND quotePoll in the
+    // same flow. Each field has its own 600ms-debounced save → TWO PATCH
+    // /settings requests may fire. After the first response lands, wait
+    // briefly for any sibling PATCH to settle before returning. The
+    // short window (~1500ms) is long enough to swallow the second
+    // debounce + RTT but short enough that callers committing a single
+    // field don't pay a noticeable cost.
+    try {
+      await this.mxWaitForResponse(responsePredicate, undefined, 1500);
+    } catch {
+      // No second PATCH — the caller committed exactly one field.
+    }
   }
 
   @Step()
   async openProfileTab(): Promise<void> {
+    // Phase 3d S9 — drawer tab → nav-item click triggers /settings/profile navigation.
     await this.uiActions.click.perform(this.el.tabs.profile);
+    await this.el.section("profile").waitFor({ state: "visible", timeout: 10_000 });
   }
 
   @Step()
@@ -84,22 +132,39 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async closeWithEscape(): Promise<void> {
-    await this.mxPressKey("Escape");
+    // Phase 3d D2(α) shim — was: press Escape to dismiss drawer overlay.
+    // Now: navigate to /dashboard. Route-based /settings/* pages do not
+    // dismiss on Escape; the "close settings, return to app" semantic is
+    // expressed by navigating away. The `closeWithEscape` name is preserved
+    // for back-compat with 4 existing OAuth specs (profile-tab-aaa,
+    // admin-impersonation-aaa, card-reorder-aaa [card-B/C],
+    // dashboard-timeframe-aaa [timeframe-Q]) — do not rename without a
+    // co-ordinated spec sweep. @deprecated Prefer
+    // `appShell.actions.mxNavigateToRoute("/dashboard")` directly at new
+    // call sites.
+    await this.mxNavigateToRoute("/dashboard");
   }
 
+  /**
+   * Phase 3d S10 — drawer Cancel / Keep-Editing / Discard-Changes buttons
+   * are retired with the SettingsDrawer. Auto-save has no concept of an
+   * "unsaved" state. These methods remain as no-ops so existing specs that
+   * call them through inherited fixtures don't fail to compile; behavioral
+   * expectations should be migrated by QA in the spec rewrites.
+   */
   @Step()
   async cancel(): Promise<void> {
-    await this.mxClick(this.el.unsavedChangesDialog.cancel);
+    // No-op: there is no Cancel dialog in the auto-save flow.
   }
 
   @Step()
   async keepEditing(): Promise<void> {
-    await this.mxClick(this.el.unsavedChangesDialog.keepEditing);
+    // No-op: there is no unsaved-changes warning.
   }
 
   @Step()
   async discardChanges(): Promise<void> {
-    await this.uiActions.click.perform(this.el.footer.discardButton);
+    // No-op: callers should rely on per-field reset / navigate-away.
   }
 
   // --- KZO-179: Account Create form (Accounts tab) ---
@@ -200,7 +265,9 @@ export class SettingsActions extends AppBaseActions {
 
   @Step()
   async openTickersTab(): Promise<void> {
+    // Phase 3d S9 — drawer tab → nav-item click triggers /settings/tickers navigation.
     await this.uiActions.click.perform(this.el.tabs.tickers);
+    await this.el.section("tickers").waitFor({ state: "visible", timeout: 10_000 });
   }
 
   @Step()

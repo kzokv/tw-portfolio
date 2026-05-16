@@ -23,7 +23,6 @@ import { useAppShellDataValue } from "./useAppShellDataValue";
 import { useSnapshotGeneration } from "./useSnapshotGeneration";
 import { useSharedContext } from "./useSharedContext";
 import { useAppNavigation } from "./useAppNavigation";
-import { useSettingsDrawerNav } from "./useSettingsDrawerNav";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
@@ -190,12 +189,6 @@ export function AppShell({
 
   const isI18nReady = !!dashboard.settings || !!localeOverride;
 
-  // Drawer URL state — owned here so TopBar/AppSidebar/IntegrityIssueDialog
-  // can all trigger it. The chrome bundle below consumes the value and
-  // renders the SettingsDrawer.
-  const { drawerOpen, settingsInitialTab, accountsPrefillCurrency, setDrawerOpen } =
-    useSettingsDrawerNav();
-
   useEffect(() => {
     transactionSubmission.setDraftTransaction((previous) => dashboard.synchronizeTransactionDraft(previous));
   }, [dashboard.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
@@ -237,7 +230,6 @@ export function AppShell({
     setCustomizeRangesOpen,
     generateSnapshots: snapshotGeneration.generateSnapshots,
     isGeneratingSnapshots: snapshotGeneration.isGeneratingSnapshots,
-    setDrawerOpen,
     contextRefreshSignal,
   });
 
@@ -300,10 +292,6 @@ export function AppShell({
             onClearGlobalError={handleClearGlobalError}
             isClientReady={isClientReady}
             switcherLoaded={switcherLoaded}
-            drawerOpen={drawerOpen}
-            setDrawerOpen={setDrawerOpen}
-            settingsInitialTab={settingsInitialTab}
-            accountsPrefillCurrency={accountsPrefillCurrency}
             onTimeframesSaved={refetchEffectiveRanges}
             onReportingCurrencySaved={handleReportingCurrencySaved}
           >

@@ -107,8 +107,9 @@ test.describe("ui-enhancement — Settings → Accounts deletion lifecycle", () 
       accountType: "broker",
     });
 
-    await appShell.actions.navigateToRoute("/dashboard?drawer=settings&settingsTab=accounts");
-    await settings.assert.drawerIsVisible();
+    // Phase 3d S2 — settings drawer retired; accounts UI lives at /settings/accounts.
+    // The subsequent assertion gates readiness implicitly.
+    await appShell.actions.navigateToRoute("/settings/accounts");
     await settings.assert.accountDeleteButtonIsVisible(target.id);
 
     // Act
@@ -146,8 +147,9 @@ test.describe("ui-enhancement — Settings → Accounts deletion lifecycle", () 
       accountType: "broker",
     });
 
-    await appShell.actions.navigateToRoute("/dashboard?drawer=settings&settingsTab=accounts");
-    await settings.assert.drawerIsVisible();
+    // Phase 3d S2 — settings drawer retired; accounts UI lives at /settings/accounts.
+    // The subsequent assertion gates readiness implicitly.
+    await appShell.actions.navigateToRoute("/settings/accounts");
     await settings.assert.recentlyDeletedRestoreButtonIsVisible(a.id);
 
     // Act
@@ -179,8 +181,9 @@ test.describe("ui-enhancement — Settings → Accounts deletion lifecycle", () 
     });
     await softDeleteAsBrowser(page, target.id);
 
-    await appShell.actions.navigateToRoute("/dashboard?drawer=settings&settingsTab=accounts");
-    await settings.assert.drawerIsVisible();
+    // Phase 3d S2 — settings drawer retired; accounts UI lives at /settings/accounts.
+    // The subsequent assertion gates readiness implicitly.
+    await appShell.actions.navigateToRoute("/settings/accounts");
     await settings.assert.recentlyDeletedPurgeButtonIsVisible(target.id);
 
     // Act + Assert — typed-name gate

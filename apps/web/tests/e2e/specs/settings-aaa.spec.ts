@@ -4,22 +4,33 @@ const getNextQuotePoll = (current: string): string => (current === "12" ? "10" :
 
 test.describe.configure({ mode: "default" });
 
+/**
+ * Phase 3d iter 2 (architect-locked) — rewritten from the drawer-era flow.
+ * Locale + quote-poll moved to `/settings/display` (architect §6.2);
+ * the omnibus Save button is retired in favor of auto-save (Decision #12).
+ *
+ * Test 1: navigate directly to /settings/display, commit two field
+ * changes via the auto-save flow (Tab blur triggers PATCH within the
+ * 600ms debounce), verify they persist across a sidebar nav + reload.
+ */
 test("settings persist across routes and reloads for the same seeded user", async ({
   appShell,
   settings,
 }) => {
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsDrawer();
+  await appShell.actions.openSettingsSection("display");
 
   const currentQuotePoll = await settings.actions.getQuotePollValue();
   const nextQuotePoll = getNextQuotePoll(currentQuotePoll);
   await settings.actions.changeLocale("zh-TW");
   await settings.actions.changeQuotePollInterval(nextQuotePoll);
+  // `save()` is the auto-save settler — emits Tab to release focus and
+  // waits for the next PATCH /settings or /user-preferences response.
   await settings.actions.save();
 
-  await settings.assert.drawerIsClosed();
-  await appShell.assert.topBarTitleContains("持倉");
-
+  // Per architect ruling — "drawer closed" is now "not on /settings/*".
+  // Navigate explicitly so the topbar-title assertion below resolves on the
+  // dashboard route, not on /settings.
   await appShell.actions.navigateViaSidebar("dashboard");
 
   await appShell.assert.isOnRoute("/dashboard");
@@ -32,24 +43,24 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
 });
 
-// KZO-183: the legacy Fees tab + cross-account FeeProfilesSection were
-// removed. The "invalid settings keep the drawer open + surface validation"
-// behavior is now exercised through a General-tab-reachable validation
-// (non-positive quote-poll interval), which the form save path enforces
-// regardless of which tab the user was on when entering the drawer.
-test("invalid settings keep the drawer open and surface validation", async ({
+/**
+ * Phase 3d iter 2 — invalid quote-poll input no longer "keeps the drawer
+ * open" (no drawer to keep open). Instead, auto-save's `validate` callback
+ * (Decision #13) blocks the PATCH and surfaces an inline `role="alert"`
+ * message next to the input. The user stays on /settings/display.
+ */
+test("invalid settings surface inline validation and do not navigate away", async ({
   appShell,
   settings,
 }) => {
   await appShell.actions.navigateToRoute("/transactions");
-  await appShell.actions.openSettingsDrawer();
+  await appShell.actions.openSettingsSection("display");
 
   // Quote poll must be a positive integer — `0` triggers
-  // `validationQuotePoll`, which is the General-tab-rooted path.
+  // `validationQuotePoll` in the useAutoSave validate callback.
   await settings.actions.changeQuotePollInterval("0");
   await settings.actions.save();
 
-  await appShell.assert.isOnRoute("drawer=settings");
   await settings.assert.validationErrorIsVisible();
-  await settings.assert.drawerIsVisible();
+  await settings.assert.drawerIsVisible(); // URL-based: still on /settings/display
 });

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import { LogOut, Monitor, Moon, Shield, Sun, UserCircle2 } from "lucide-react";
+import { ChevronDown, LogOut, Monitor, Moon, Shield, Sun, UserCircle2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/shadcn/avatar";
 import { Button } from "../ui/Button";
 import {
@@ -115,7 +115,7 @@ export function ProfileMenu({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="h-10 w-10 rounded-full border border-border bg-card p-0 shadow-sm hover:bg-card/90"
+          className="flex h-10 items-center gap-1 rounded-full border border-border bg-card p-0 pr-1 shadow-sm hover:bg-card/90"
           aria-label="User menu"
           data-testid="topbar-profile-menu-trigger"
         >
@@ -141,6 +141,11 @@ export function ProfileMenu({
               </span>
             </AvatarFallback>
           </Avatar>
+          {/* Phase 3 §12 A4 — chevron-on-trigger affordance. No new testid;
+              the existing `topbar-profile-menu-trigger` still resolves to the
+              outer <Button>. `aria-hidden` so screen readers ignore it
+              (`aria-label="User menu"` on the Button already announces intent). */}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
 

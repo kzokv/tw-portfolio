@@ -13,8 +13,7 @@ test.describe("accent custom", () => {
     await dashboard.assert.appIsReady();
     await appShell.actions.clickThemeToggle("light");
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
     await appShell.actions.openCustomAccentPicker();
     await appShell.assert.customAccentPanelIsVisible();
 
@@ -36,8 +35,7 @@ test.describe("accent custom", () => {
     await dashboard.assert.appIsReady();
     await appShell.actions.clickThemeToggle("light");
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
     await appShell.actions.openCustomAccentPicker();
     await appShell.actions.setCustomAccentHex("#22D3EE");
     await appShell.actions.applyCustomAccent();

@@ -165,19 +165,11 @@ const feeProfilePayloadSchema = z.object({
   commissionChargeMode: z.enum(["CHARGED_UPFRONT", "CHARGED_UPFRONT_REBATED_LATER"]),
 });
 
-// KZO-183: drafts now carry the owning `accountId` discriminator. The
-// settings bulk-save validates that every draft.accountId resolves to one of
-// the accounts in the body, AND that every account.feeProfileRef resolves
-// to a profile owned by that same account.
-const feeProfileDraftSchema = feeProfilePayloadSchema
-  .extend({
-    id: userScopedIdSchema.optional(),
-    tempId: userScopedIdSchema.optional(),
-    accountId: userScopedIdSchema,
-  })
-  .refine((value) => Boolean(value.id || value.tempId), {
-    message: "id or tempId is required for each fee profile draft",
-  });
+// KZO-183 → ui-reshape Phase 3d S8: `feeProfileDraftSchema` validated bulk
+// `PUT /settings/full` payloads (every draft.accountId had to resolve to one
+// of the accounts in the body, AND every account.feeProfileRef had to
+// resolve to a profile owned by that same account). The bulk-save endpoint
+// is now retired; the schema is removed alongside the handler.
 
 const feeBindingSchema = z.object({
   accountId: userScopedIdSchema,
@@ -428,7 +420,7 @@ const PUBLIC_ROUTE_KEYS = new Set([
 ]);
 const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /settings",
-  "PUT /settings/full",
+  // ui-reshape Phase 3d S8 — `PUT /settings/full` retired; per-resource PATCH.
   "PUT /settings/fee-config",
   "PATCH /profile",
   "POST /accounts",
@@ -474,7 +466,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
  */
 const WRITE_CONTEXT_GUARD_ROUTE_KEYS = new Set([
   "PATCH /settings",
-  "PUT /settings/full",
+  // ui-reshape Phase 3d S8 — `PUT /settings/full` retired; per-resource PATCH.
   "PUT /settings/fee-config",
   "POST /accounts",
   "PATCH /accounts/:id",
@@ -2306,10 +2298,101 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // ui-reshape Phase 3d S7 — PATCH /profile now accepts partial updates for
+  // email AND user-overridable identity fields (`displayName`, `pictureUrl`).
+  // All three keys are optional and independent:
+  //   - `email` absent → leave; present → update (existing semantics)
+  //   - `displayName` absent → leave; null → clear override; "" → null;
+  //     non-empty string ≤256 chars → set override
+  //   - `pictureUrl` absent → leave; null → clear override; "" → null;
+  //     HTTPS-only string → set override
+  //
+  // The Zod parse happens BEFORE any try block per
+  // `.claude/rules/typed-transient-error-catch-audit.md`; there are no inner
+  // try/catch sites here, so the parse error propagates straight to the
+  // Fastify handler as a 400 (via `routeError` from our pre-checks).
+  //
+  // HTTPS-only validation per `.claude/rules/provider-url-sanitization.md`:
+  // reject `http:`, `data:`, `javascript:`, file paths. Empty string is
+  // treated as a clear (null) so the UI can wire a "Remove picture" button
+  // to the same field by submitting "".
   app.patch("/profile", async (req) => {
     const userId = requireSessionUserId(req);
-    const body = z.object({ email: z.string().email().max(254) }).parse(req.body);
-    return app.persistence.updateProfileEmail(userId, body.email);
+
+    const profilePatchSchema = z
+      .object({
+        email: z.string().email().max(254).optional(),
+        displayName: z
+          .union([
+            z.string().max(256, "display_name_too_long"),
+            z.null(),
+          ])
+          .optional(),
+        pictureUrl: z
+          .union([z.string().max(2048, "picture_url_too_long"), z.null()])
+          .optional(),
+      })
+      .strict();
+
+    const parsed = profilePatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const message = issue?.message ?? "Invalid profile patch";
+      const code = message === "display_name_too_long"
+        ? "invalid_display_name"
+        : message === "picture_url_too_long"
+        ? "invalid_picture_url"
+        : "invalid_profile_patch";
+      throw routeError(400, code, message);
+    }
+    const body = parsed.data;
+
+    // Coerce empty strings to null (clear semantics). For pictureUrl, ALSO
+    // perform HTTPS-only validation after coercion — only non-empty strings
+    // reach the URL check.
+    const fields: { displayName?: string | null; pictureUrl?: string | null } = {};
+    if (body.displayName !== undefined) {
+      if (body.displayName === null || body.displayName.trim() === "") {
+        fields.displayName = null;
+      } else {
+        fields.displayName = body.displayName.trim();
+      }
+    }
+    if (body.pictureUrl !== undefined) {
+      if (body.pictureUrl === null || body.pictureUrl.trim() === "") {
+        fields.pictureUrl = null;
+      } else {
+        const candidate = body.pictureUrl.trim();
+        // HTTPS-only: reject http://, data:, javascript:, file paths.
+        if (!/^https:\/\//i.test(candidate)) {
+          throw routeError(
+            400,
+            "invalid_picture_url",
+            "Picture URL must use https://",
+          );
+        }
+        fields.pictureUrl = candidate;
+      }
+    }
+
+    // Email update path goes first; if both email and override fields are
+    // supplied, both apply in a single PATCH. `updateProfileEmail` returns
+    // the full ProfileDto, but we re-fetch via `updateProfileFields` if
+    // either override field changed to ensure the response reflects the
+    // final state.
+    let appliedEmail = false;
+    if (body.email !== undefined) {
+      await app.persistence.updateProfileEmail(userId, body.email);
+      appliedEmail = true;
+    }
+    if (fields.displayName !== undefined || fields.pictureUrl !== undefined) {
+      return app.persistence.updateProfileFields(userId, fields);
+    }
+    if (appliedEmail) {
+      return app.persistence.getProfile(userId);
+    }
+    // No-op PATCH (empty body or only-unknown keys filtered by `.strict()`).
+    return app.persistence.getProfile(userId);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -2687,182 +2770,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return view;
   });
 
-  app.put("/settings/full", async (req) => {
-    const body = z
-      .object({
-        settings: z.object({
-          locale: z.enum(["en", "zh-TW"]),
-          costBasisMethod: z.literal("WEIGHTED_AVERAGE"),
-          quotePollIntervalSeconds: z.number().int().positive().max(86_400),
-        }),
-        feeProfiles: z.array(feeProfileDraftSchema).max(100),
-        accounts: z
-          .array(
-            z.object({
-              id: userScopedIdSchema,
-              feeProfileRef: userScopedIdSchema,
-            }),
-          )
-          .max(200),
-        feeProfileBindings: z
-          .array(
-            z.object({
-              accountId: userScopedIdSchema,
-              ticker: tickerSchema,
-              feeProfileRef: userScopedIdSchema,
-            }),
-          )
-          .max(500),
-      })
-      .parse(req.body);
-
-    const { store } = await loadUserStore(app, req);
-    const draftStore = structuredClone(store);
-    const existingProfilesById = new Map(draftStore.feeProfiles.map((profile) => [profile.id, profile]));
-    const tempIdToProfileId = new Map<string, string>();
-    const nextProfiles: FeeProfile[] = [];
-
-    // KZO-183 D7 validation order — step 1: every fee_profile draft.accountId
-    // must resolve to one of body.accounts. Reject early so the user sees a
-    // specific 400 before the rest of the validation chain runs.
-    const bodyAccountIds = new Set(body.accounts.map((a) => a.id));
-    for (const draft of body.feeProfiles) {
-      if (!bodyAccountIds.has(draft.accountId)) {
-        throw routeError(
-          400,
-          "invalid_account",
-          `Fee profile draft references account ${draft.accountId} which is not in the request body.`,
-        );
-      }
-    }
-
-    for (const draft of body.feeProfiles) {
-      let targetId = draft.id;
-      if (!targetId) {
-        targetId = randomUUID();
-      } else {
-        const existingProfile = existingProfilesById.get(targetId);
-        if (!existingProfile) {
-          throw routeError(404, "fee_profile_not_found", `Fee profile ${targetId} was not found.`);
-        }
-        if (existingProfile.accountId !== draft.accountId) {
-          throw routeError(
-            400,
-            "invalid_fee_profile",
-            `Fee profile ${targetId} cannot be reassigned from account ${existingProfile.accountId} to account ${draft.accountId}.`,
-          );
-        }
-      }
-
-      if (draft.tempId) {
-        if (tempIdToProfileId.has(draft.tempId)) {
-          throw routeError(400, "duplicate_temp_id", `Duplicate tempId ${draft.tempId} was provided.`);
-        }
-        tempIdToProfileId.set(draft.tempId, targetId);
-      }
-
-      nextProfiles.push({
-        id: targetId,
-        accountId: draft.accountId,
-        name: draft.name,
-        boardCommissionRate: draft.boardCommissionRate,
-        commissionDiscountPercent: draft.commissionDiscountPercent,
-        minimumCommissionAmount: draft.minimumCommissionAmount,
-        commissionCurrency: draft.commissionCurrency,
-        commissionRoundingMode: draft.commissionRoundingMode,
-        taxRoundingMode: draft.taxRoundingMode,
-        stockSellTaxRateBps: draft.stockSellTaxRateBps,
-        stockDayTradeTaxRateBps: draft.stockDayTradeTaxRateBps,
-        etfSellTaxRateBps: draft.etfSellTaxRateBps,
-        bondEtfSellTaxRateBps: draft.bondEtfSellTaxRateBps,
-        commissionChargeMode: draft.commissionChargeMode,
-      });
-    }
-
-    if (nextProfiles.length === 0) {
-      throw routeError(400, "missing_fee_profiles", "At least one fee profile is required.");
-    }
-
-    const uniqueProfileIds = new Set(nextProfiles.map((profile) => profile.id));
-    if (uniqueProfileIds.size !== nextProfiles.length) {
-      throw routeError(400, "duplicate_fee_profile_id", "Duplicate fee profile IDs are not allowed.");
-    }
-
-    const profilesById = new Map(nextProfiles.map((profile) => [profile.id, profile]));
-    const resolveFeeProfileRef = (ref: string): string => {
-      const resolved = tempIdToProfileId.get(ref) ?? ref;
-      if (!profilesById.has(resolved)) {
-        throw routeError(400, "invalid_fee_profile", `Fee profile reference ${ref} is not valid.`);
-      }
-      return resolved;
-    };
-
-    const nextAccounts = draftStore.accounts.map((account) => ({ ...account }));
-    // KZO-183 D7 validation order — step 2: each account.feeProfileRef must
-    // resolve to a profile whose accountId === account.id.
-    for (const accountUpdate of body.accounts) {
-      const account = nextAccounts.find((item) => item.id === accountUpdate.id);
-      if (!account) {
-        throw routeError(404, "account_not_found", `Account ${accountUpdate.id} was not found.`);
-      }
-      const resolvedId = resolveFeeProfileRef(accountUpdate.feeProfileRef);
-      const resolvedProfile = profilesById.get(resolvedId)!;
-      if (resolvedProfile.accountId !== account.id) {
-        throw routeError(
-          400,
-          "invalid_fee_profile",
-          `Fee profile ${resolvedId} is not owned by account ${account.id}.`,
-        );
-      }
-      account.feeProfileId = resolvedId;
-    }
-
-    // KZO-183 D7 validation order — step 3: binding.accountId must reference
-    // a known account, then binding.feeProfileRef must resolve to a profile
-    // whose accountId === binding.accountId.
-    const knownAccountIds = new Set(nextAccounts.map((account) => account.id));
-    const resolvedBindings = body.feeProfileBindings.map((binding) => {
-      if (!knownAccountIds.has(binding.accountId)) {
-        throw routeError(400, "invalid_account", `Unknown account ${binding.accountId}`);
-      }
-      const resolvedId = resolveFeeProfileRef(binding.feeProfileRef);
-      const resolvedProfile = profilesById.get(resolvedId)!;
-      if (resolvedProfile.accountId !== binding.accountId) {
-        throw routeError(
-          400,
-          "invalid_fee_profile",
-          `Fee profile ${resolvedId} is not owned by account ${binding.accountId} for binding ${binding.ticker}.`,
-        );
-      }
-      return {
-        accountId: binding.accountId,
-        ticker: binding.ticker,
-        feeProfileId: resolvedId,
-      };
-    });
-
-    const nextBindings = normalizeBindings(resolvedBindings);
-
-    draftStore.settings = { ...draftStore.settings, ...body.settings };
-    draftStore.feeProfiles = nextProfiles;
-    draftStore.accounts = nextAccounts;
-    // KZO-183: step 3 above already validates each binding's accountId and
-    // composite-FK ownership; ensureBindingsAreValid would re-check the same
-    // shape and is the validation surface for the other two endpoints
-    // (PUT /settings/fee-config + PUT /fee-profile-bindings) which don't run
-    // the bulk-save step 3.
-    draftStore.feeProfileBindings = nextBindings;
-
-    assertStoreIntegrity(draftStore);
-    await app.persistence.saveStore(draftStore);
-
-    return {
-      settings: draftStore.settings,
-      accounts: draftStore.accounts,
-      feeProfiles: draftStore.feeProfiles,
-      feeProfileBindings: draftStore.feeProfileBindings,
-    };
-  });
+  // ui-reshape Phase 3d S8 — `PUT /settings/full` was the omnibus settings
+  // save endpoint. Retired in favor of per-resource PATCH:
+  //   - PATCH /settings        (locale, quotePollIntervalSeconds)
+  //   - PATCH /profile         (displayName, pictureUrl, email)
+  //   - PATCH /user-preferences (themeAccent, density, performanceRanges, ...)
+  //   - PATCH /accounts/:id    (account renames, currency changes)
+  //   - POST /fee-profiles + PATCH /fee-profiles/:id (fee profile mutations)
+  //   - PUT /settings/fee-config (account→fee-profile bindings + ticker overrides)
+  //
+  // The deleted handler accepted `{settings, feeProfiles, accounts, feeProfileBindings}`
+  // and full-replaced fee profiles, account fee-profile assignments, and
+  // bindings in one transaction. Migration path for callers: split into the
+  // per-resource calls above. See architect-design.md §7.2 + scope-todo
+  // "API surface (§5.1)". Tests previously using `PUT /settings/full` for
+  // setup (e.g. `portfolio.integration.test.ts`) now use `PUT /settings/fee-config`
+  // for the same purpose.
+  //
+  // No 410 Gone stub is registered; any in-flight client receives Fastify's
+  // default 404 which is the correct semantics for a removed endpoint. The
+  // route key is also removed from `WRITER_ROLE_ROUTE_KEYS` and
+  // `WRITE_CONTEXT_GUARD_ROUTE_KEYS` above (it would otherwise be dead config).
 
   app.get("/settings/fee-config", async (req) => {
     const { store } = await loadUserStore(app, req);

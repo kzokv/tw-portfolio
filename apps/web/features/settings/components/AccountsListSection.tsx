@@ -482,22 +482,22 @@ export function AccountsListSection({
   }
 
   return (
-    <section className="glass-inset space-y-3 rounded-[24px] p-4">
+    <section className="space-y-3 rounded-xl border border-border bg-card p-4">
       <div className="space-y-1">
-        <h3 className="text-lg font-semibold text-ink">{dict.settings.accountsListSectionTitle}</h3>
-        <p className="text-xs text-slate-400">{dict.settings.accountsListSectionDescription}</p>
+        <h3 className="text-lg font-semibold text-foreground">{dict.settings.accountsListSectionTitle}</h3>
+        <p className="text-xs text-muted-foreground">{dict.settings.accountsListSectionDescription}</p>
       </div>
 
       {/* KZO-183 E5 — top-of-tab search input. */}
       <div className="space-y-1">
         <label
           htmlFor="accounts-tab-search"
-          className="block text-xs font-medium text-slate-500"
+          className="block text-xs font-medium text-muted-foreground"
         >
           {dict.settings.accountsTabSearchLabel}
         </label>
         <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             id="accounts-tab-search"
             type="text"
@@ -543,15 +543,15 @@ export function AccountsListSection({
           return (
             <article
               key={account.id}
-              className="rounded-[18px] border border-white/10 bg-slate-950/35"
+              className="rounded-lg border border-border bg-card"
               data-testid={`accounts-card-${account.id}`}
             >
               {/* Header */}
-              <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3">
+              <div className="flex items-center gap-3 border-b border-border px-4 py-3">
                 <button
                   type="button"
                   onClick={() => toggleExpand(account.id)}
-                  className="text-slate-300 transition hover:text-white"
+                  className="text-muted-foreground transition hover:text-foreground"
                   aria-label={
                     expanded
                       ? dict.settings.accountsListCollapseLabel
@@ -598,12 +598,12 @@ export function AccountsListSection({
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
-                          className="font-medium text-ink"
+                          className="font-medium text-foreground"
                           data-testid="account-name-label"
                         >
                           {displayName}
                         </span>
-                        <span className="rounded-full border border-white/10 bg-slate-900/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
+                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                           {accountTypeLabel(account, dict)}
                         </span>
                         <span
@@ -613,7 +613,7 @@ export function AccountsListSection({
                           {marketBadgeLabel(account.defaultCurrency, dict)}
                         </span>
                       </div>
-                      <p className="text-[10px] text-slate-500">
+                      <p className="text-[10px] text-muted-foreground">
                         {formatAccountSummary(account, ownedProfiles.length, dict)}
                       </p>
                     </div>
@@ -625,7 +625,7 @@ export function AccountsListSection({
                     <button
                       type="button"
                       onClick={() => startRename(account)}
-                      className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-white/20 hover:text-white"
+                      className="rounded-full border border-border p-2 text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
                       data-testid="account-rename-icon"
                       aria-label={dict.settings.accountRenameIconLabel}
                     >
@@ -636,7 +636,7 @@ export function AccountsListSection({
                     <button
                       type="button"
                       onClick={() => openSoftDeleteModal(account)}
-                      className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:border-rose-300/40 hover:bg-rose-500/15 hover:text-rose-300"
+                      className="rounded-full border border-border p-2 text-muted-foreground transition hover:border-rose-300/40 hover:bg-rose-500/15 hover:text-rose-600"
                       data-testid={`account-delete-btn-${account.id}`}
                       aria-label={dict.settings.accountsDeleteBtn}
                     >
@@ -650,7 +650,7 @@ export function AccountsListSection({
                 <div className="space-y-4 px-4 py-4">
                   {/* Default fee profile selector (scoped to this account's profiles). */}
                   <div className="space-y-1">
-                    <label className="block text-xs text-slate-400">
+                    <label className="block text-xs text-muted-foreground">
                       {dict.settings.accountsListDefaultProfileLabel}
                     </label>
                     <select
@@ -672,7 +672,7 @@ export function AccountsListSection({
                         </option>
                       ))}
                     </select>
-                    <p className="text-[10px] text-slate-500">
+                    <p className="text-[10px] text-muted-foreground">
                       {dict.settings.accountsListDefaultProfileHint}
                     </p>
                   </div>
@@ -680,7 +680,7 @@ export function AccountsListSection({
                   {/* Inline fee profiles list. */}
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {dict.settings.accountsListProfilesSectionLabel}
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -709,7 +709,7 @@ export function AccountsListSection({
                     </div>
 
                     {ownedProfiles.length === 0 ? (
-                      <p className="rounded-[14px] border border-dashed border-white/15 bg-slate-950/40 px-3 py-3 text-xs text-slate-400">
+                      <p className="rounded-md border border-dashed border-border bg-muted px-3 py-3 text-xs text-muted-foreground">
                         {dict.settings.accountsListNoProfilesYet}
                       </p>
                     ) : (
@@ -719,18 +719,18 @@ export function AccountsListSection({
                           return (
                             <div
                               key={profile.id}
-                              className="rounded-[14px] border border-white/10 bg-slate-950/40 px-3 py-2"
+                              className="rounded-md border border-border bg-muted/50 px-3 py-2"
                               data-testid={`accounts-card-${account.id}-profile-${profile.id}`}
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="min-w-0">
                                   <p
-                                    className="text-sm font-medium text-ink truncate"
+                                    className="text-sm font-medium text-foreground truncate"
                                     data-testid={`accounts-profile-name-${profile.id}`}
                                   >
                                     {profile.name || dict.settings.accountsListProfileSummaryFallback}
                                   </p>
-                                  <p className="text-[10px] text-slate-500">
+                                  <p className="text-[10px] text-muted-foreground">
                                     {`${profile.boardCommissionRate}‰ commission · ${profile.commissionCurrency}`}
                                   </p>
                                 </div>
@@ -741,7 +741,7 @@ export function AccountsListSection({
                                       setEditingProfileId(isProfileEditing ? null : profile.id)
                                     }
                                     aria-label={dict.settings.accountsListEditProfileLabel}
-                                    className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
+                                    className="rounded p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
                                     data-testid={`accounts-profile-edit-${profile.id}`}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
@@ -750,7 +750,7 @@ export function AccountsListSection({
                                     type="button"
                                     onClick={() => onRemoveProfileFromAccount(account.id, profile.id)}
                                     aria-label={dict.settings.accountsListDeleteProfileLabel}
-                                    className="rounded p-1 text-slate-400 transition hover:bg-rose-500/15 hover:text-rose-400"
+                                    className="rounded p-1 text-muted-foreground transition hover:bg-rose-500/15 hover:text-rose-600"
                                     data-testid={`accounts-profile-remove-${profile.id}`}
                                     disabled={ownedProfiles.length <= 1}
                                   >
@@ -761,7 +761,7 @@ export function AccountsListSection({
 
                               {isProfileEditing ? (
                                 <div className="mt-3 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     {dict.settings.profileNameLabel}
                                     <input
                                       value={profile.name}
@@ -773,7 +773,7 @@ export function AccountsListSection({
                                     />
                                   </label>
 
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     <span>{dict.settings.profileDiscountLabel}</span>
                                     <input
                                       type="number"
@@ -796,7 +796,7 @@ export function AccountsListSection({
                                       className={fieldClassName}
                                       data-testid={`accounts-profile-discount-${profile.id}`}
                                     />
-                                    <p className="text-[11px] text-slate-500">
+                                    <p className="text-[11px] text-muted-foreground">
                                       {dict.settings.profileDiscountHint}
                                     </p>
                                   </label>
@@ -804,7 +804,7 @@ export function AccountsListSection({
                                   {PROFILE_FIELDS.map((field) => (
                                     <label
                                       key={field.key}
-                                      className="space-y-2 text-xs text-slate-400"
+                                      className="space-y-2 text-xs text-muted-foreground"
                                     >
                                       {dict.settings[field.label]}
                                       <input
@@ -824,7 +824,7 @@ export function AccountsListSection({
                                     </label>
                                   ))}
 
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     {dict.settings.profileCommissionCurrencyLabel}
                                     <select
                                       value={profile.commissionCurrency}
@@ -847,7 +847,7 @@ export function AccountsListSection({
                                     </select>
                                   </label>
 
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     {dict.settings.profileCommissionRoundLabel}
                                     <select
                                       value={profile.commissionRoundingMode}
@@ -866,7 +866,7 @@ export function AccountsListSection({
                                     </select>
                                   </label>
 
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     {dict.settings.profileTaxRoundLabel}
                                     <select
                                       value={profile.taxRoundingMode}
@@ -885,7 +885,7 @@ export function AccountsListSection({
                                     </select>
                                   </label>
 
-                                  <label className="space-y-2 text-xs text-slate-400">
+                                  <label className="space-y-2 text-xs text-muted-foreground">
                                     {dict.settings.profileChargeModeLabel}
                                     <select
                                       value={profile.commissionChargeMode}
@@ -930,7 +930,7 @@ export function AccountsListSection({
                   {/* Per-symbol overrides. */}
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         {dict.settings.accountsListOverridesSectionLabel}
                       </p>
                       <Button
@@ -947,7 +947,7 @@ export function AccountsListSection({
                     </div>
 
                     {accountOverrides.length === 0 ? (
-                      <p className="rounded-[14px] border border-dashed border-white/15 bg-slate-950/40 px-3 py-3 text-xs text-slate-400">
+                      <p className="rounded-md border border-dashed border-border bg-muted px-3 py-3 text-xs text-muted-foreground">
                         {dict.settings.accountsListOverridesEmptyState}
                       </p>
                     ) : (
@@ -955,7 +955,7 @@ export function AccountsListSection({
                         {accountOverrides.map(({ binding, index }) => (
                           <div
                             key={`${binding.accountId}-${binding.ticker}-${index}`}
-                            className="grid items-center gap-2 rounded-[14px] border border-white/10 bg-slate-950/40 px-3 py-2 lg:grid-cols-[140px_1fr_auto]"
+                            className="grid items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 lg:grid-cols-[140px_1fr_auto]"
                             data-testid={`accounts-override-row-${index}`}
                           >
                             <input
@@ -995,7 +995,7 @@ export function AccountsListSection({
                               type="button"
                               onClick={() => onRemoveBinding(index)}
                               aria-label={dict.settings.accountsListOverrideRemoveLabel}
-                              className="rounded p-1 text-slate-400 transition hover:bg-rose-500/15 hover:text-rose-400"
+                              className="rounded p-1 text-muted-foreground transition hover:bg-rose-500/15 hover:text-rose-600"
                               data-testid={`accounts-override-remove-${index}`}
                             >
                               <X className="h-3.5 w-3.5" />
@@ -1110,11 +1110,11 @@ export function AccountsListSection({
           entirely. */}
       {softDeletedAccounts.length > 0 ? (
         <section
-          className="space-y-2 rounded-[18px] border border-white/10 bg-slate-950/30 p-4"
+          className="space-y-2 rounded-lg border border-border bg-muted/30 p-4"
           data-testid="recently-deleted-section"
         >
           <header data-testid="recently-deleted-header">
-            <h4 className="text-sm font-semibold text-ink">
+            <h4 className="text-sm font-semibold text-foreground">
               {dict.settings.accountsRecentlyDeletedTitle
                 .replace("{count}", String(softDeletedAccounts.length))
                 .replace("{graceDays}", String(effectiveAccountHardPurgeDays))}
@@ -1127,13 +1127,13 @@ export function AccountsListSection({
               return (
                 <li
                   key={deleted.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-white/10 bg-slate-950/40 px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2"
                   data-testid={`recently-deleted-row-${deleted.id}`}
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink">{deleted.name}</p>
+                    <p className="text-sm font-medium text-foreground">{deleted.name}</p>
                     <p
-                      className="text-[10px] text-slate-500"
+                      className="text-[10px] text-muted-foreground"
                       data-testid={`recently-deleted-time-remaining-${deleted.id}`}
                     >
                       {dict.settings.accountsTimeRemaining.replace(

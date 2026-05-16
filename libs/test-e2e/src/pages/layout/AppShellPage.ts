@@ -83,7 +83,11 @@ export class AppShellPage extends BasePage<TAppShellElements> {
           `Breadcrumb Item ${index}`,
         ),
       settings: {
-        drawer: this.locate("settings-drawer", "Settings Drawer"),
+        // Phase 3d S10 — drawer deleted. `drawer` alias points at the
+        // two-pane layout root so legacy `drawer.toBeVisible()` assertions
+        // continue to work after `openSettingsDrawer()` navigates to
+        // /settings/profile.
+        drawer: this.locate("settings-layout", "Settings Two-Pane Layout (legacy drawer alias)"),
         localeValue: this.locate("settings-locale-value", "Locale Summary Value"),
         costBasisValue: this.locate("settings-cost-basis-value", "Cost Basis Summary Value"),
         quotePollValue: this.locate("settings-quote-poll-value", "Quote Poll Summary Value"),

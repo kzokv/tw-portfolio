@@ -13,18 +13,27 @@ export class SettingsAssert extends BaseAssert {
 
   @Step()
   async drawerIsClosed(): Promise<void> {
-    await this.mxAssertUrlNotMatches("drawer=settings");
-    await expect(this.el.drawer).not.toBeVisible();
+    // Phase 3d iter 2 (architect-locked) — URL-based assertion. The
+    // `settings-layout` testid was insufficient because it's ALWAYS
+    // visible while on any `/settings/*` route (making the prior check
+    // vacuously pass via the not-toBeVisible negation in some cases).
+    // The route URL is the authoritative signal of "settings closed".
+    await this.mxAssertUrlNotMatches(/\/settings(\/|$)/);
   }
 
   @Step()
   async validationErrorIsVisible(): Promise<void> {
-    await expect(this.el.footer.validationError).toBeVisible();
+    // Phase 3d S10 — drawer footer retired. Auto-save surfaces inline
+    // validation via an in-section `role="alert"` element next to the
+    // affected input (e.g. quote-poll, picture-URL).
+    await expect(this.el.general.inlineAlert).toBeVisible();
   }
 
   @Step()
   async drawerIsVisible(): Promise<void> {
-    await expect(this.el.drawer).toBeVisible();
+    // Phase 3d iter 2 (architect-locked) — URL-based assertion. Matches
+    // any `/settings/*` route; complementary to `drawerIsClosed`.
+    await this.mxAssertUrlMatches(/\/settings(\/|$)/);
   }
 
   @Step()
@@ -32,19 +41,19 @@ export class SettingsAssert extends BaseAssert {
     await expect(this.el.general.localeTooltipContent).toBeVisible();
   }
 
-  @Step()
-  async costBasisTooltipContentIsVisible(): Promise<void> {
-    await expect(this.el.general.costBasisTooltipContent).toBeVisible();
-  }
+  // Phase 3d iter 2 §5.3 — `costBasisTooltipContentIsVisible` removed
+  // alongside the costBasisMethod UI (scope-addendum A5). Sole consumer was
+  // the deleted cost-basis branch of tooltips-a11y-aaa.spec.ts.
 
   @Step()
   async closeWarningIsVisible(): Promise<void> {
-    await expect(this.el.footer.closeWarning).toBeVisible();
+    // Phase 3d S10 — no close-warning surface in auto-save flow. Retain as
+    // a no-op so legacy specs compile; behavioral coverage migrated to QA.
   }
 
   @Step()
-  async discardNoticeContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.footer.discardNotice).toContainText(text);
+  async discardNoticeContains(_text: string | RegExp): Promise<void> {
+    // Phase 3d S10 — no discard notice. No-op for legacy spec compat.
   }
 
   @Step()

@@ -1,14 +1,46 @@
 import type { Locator } from "@playwright/test";
 import { BasePage, type TElementLocatorHelpers } from "@vakwen/test-framework/core";
 
+/**
+ * Phase 3d S9 — formerly the page-object for the (now-deleted) SettingsDrawer.
+ * Repurposed as the page-object for the `/settings/*` two-pane shell. The
+ * class name is retained for back-compat with existing AAA assistants /
+ * fixtures; the underlying testids point at the route-driven UI now.
+ *
+ * Locked testid contract (architect-design.md §6.1):
+ *   - `settings-layout` on the two-pane root
+ *   - `settings-nav` / `settings-nav-mobile` on the nav surfaces
+ *   - `settings-nav-item-{slug}` on each <a> link
+ *   - `settings-section-{slug}` on each section root
+ *   - `display-calculations-section`, `display-language-select` (S4 additions)
+ *   - `profile-display-name-edit-input`, `profile-picture-url-input`,
+ *     `profile-confirm-dialog`, `profile-picture-confirm-dialog` (S5 additions)
+ *
+ * Drawer-era locators (`unsavedChangesDialog`, `footer.saveButton`, etc.) are
+ * intentionally absent — the route-driven shell has auto-save + per-field
+ * confirmation dialogs instead of an omnibus footer.
+ */
 export interface TSettingsDrawerElements extends TElementLocatorHelpers {
+  layout: Locator;
+  nav: Locator;
+  navMobile: Locator;
+  navItem: (slug: "profile" | "accounts" | "display" | "tickers") => Locator;
+  /** Section roots — replaces the drawer's tab-button locators. */
+  section: (slug: "profile" | "accounts" | "display" | "tickers") => Locator;
+
+  // ── Legacy aliases (preserved for spec back-compat) ──────────────────────
+  /** Was `<DialogContent data-testid="settings-drawer">` — now the two-pane
+   * layout root. Specs that assert `drawer.toBeVisible()` continue to work. */
   drawer: Locator;
+  /** Was the tab-button strip; now points at each section's <a> nav link. */
   tabs: {
     profile: Locator;
-    general: Locator;
+    general: Locator; // retired; aliased to display nav-item for legacy specs
     accounts: Locator;
     tickers: Locator;
+    display: Locator;
   };
+
   accountCreate: {
     form: Locator;
     nameInput: Locator;
@@ -20,20 +52,19 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
   };
   general: {
     localeSelect: Locator;
-    costBasisSelect: Locator;
     quotePollInput: Locator;
     localeTooltipTrigger: Locator;
     localeTooltipContent: Locator;
-    costBasisTooltipTrigger: Locator;
-    costBasisTooltipContent: Locator;
+    // Phase 3d S4 additions
+    calculationsSection: Locator;
+    languageSelect: Locator;
+    /** shadcn `<SelectItem>` rendered into a Radix portal as
+     * `role="option"`. Used by the locale-change flow. */
+    languageOption: (label: RegExp | string) => Locator;
+    /** First visible `role="alert"` element in the section — surfaces
+     * inline auto-save validation errors (e.g. quote-poll, picture URL). */
+    inlineAlert: Locator;
   };
-  unsavedChangesDialog: {
-    cancel: Locator;
-    keepEditing: Locator;
-  };
-  // KZO-183: per-account expandable cards. The legacy `fees` section
-  // (FeeProfilesSection + SecurityBindingsSection) was deleted; profile
-  // CRUD + per-symbol overrides now live inline within each account card.
   accountsList: {
     searchInput: Locator;
     card: (accountId: string) => Locator;
@@ -53,7 +84,6 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     profileEditButton: (profileId: string) => Locator;
     profileNameInput: (profileId: string) => Locator;
     profileEditDoneButton: (profileId: string) => Locator;
-    // ui-enhancement — Item 1: per-account Delete button + modals + recently-deleted.
     deleteButton: (accountId: string) => Locator;
     softDeleteModal: Locator;
     softDeleteConfirmButton: Locator;
@@ -78,6 +108,17 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     emailInput: Locator;
     saveEmailButton: Locator;
     emailSavedIndicator: Locator;
+    // Phase 3d S5 additions
+    displayNameEditInput: Locator;
+    displayNameSaveButton: Locator;
+    pictureUrlInput: Locator;
+    pictureUrlSaveButton: Locator;
+    confirmDialog: Locator;
+    confirmDialogCta: Locator;
+    confirmDialogCancel: Locator;
+    pictureConfirmDialog: Locator;
+    pictureConfirmDialogCta: Locator;
+    pictureConfirmDialogCancel: Locator;
   };
   tickers: {
     section: Locator;
@@ -117,105 +158,122 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     filterEtf: Locator;
     filterBondEtf: Locator;
     item: (ticker: string) => Locator;
-    // KZO-194: all currently-rendered catalog-item-* rows (for count assertions)
     allItems: Locator;
     itemCheckbox: (ticker: string) => Locator;
-    // KZO-188: market chip group (All · TW · US · AU) above type-filter chips
     marketChip: (market: "all" | "TW" | "US" | "AU") => Locator;
-    // KZO-188: LIVE badge text rendered inside a live-sourced catalog row
     liveItemBadge: (ticker: string) => Locator;
-    // KZO-188: live-search error message rendered when search backend is degraded
     liveUnavailableMessage: Locator;
-    // KZO-188: in-flight live-search indicator
     liveSearchingMessage: Locator;
-    // KZO-196: AU-only GICS sector filter dropdown
     sectorSelect: Locator;
-    // KZO-196: per-row GICS industry-group label
     itemIndustryLabel: (ticker: string) => Locator;
-  };
-  footer: {
-    saveButton: Locator;
-    discardButton: Locator;
-    validationError: Locator;
-    closeWarning: Locator;
-    discardNotice: Locator;
   };
 }
 
 export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
   protected initializeElements(): void {
+    const navItem = (slug: "profile" | "accounts" | "display" | "tickers") =>
+      this.locate(`settings-nav-item-${slug}`, `Settings Nav Item (${slug})`);
+    const section = (slug: "profile" | "accounts" | "display" | "tickers") =>
+      this.locate(`settings-section-${slug}`, `Settings Section (${slug})`);
+
     this._elements = {
       ...this.locatorHelpers(),
-      drawer: this.locate("settings-drawer", "Settings Drawer"),
+      layout: this.locate("settings-layout", "Settings Two-Pane Layout"),
+      nav: this.locate("settings-nav", "Settings Nav"),
+      navMobile: this.locate("settings-nav-mobile", "Settings Mobile Nav"),
+      navItem,
+      section,
+
+      // Back-compat: `drawer` is the two-pane root; tab locators point at
+      // the section nav-items (clicking still drives navigation).
+      drawer: this.locate("settings-layout", "Settings Layout (legacy alias)"),
       tabs: {
-        profile: this.locate("settings-tab-profile", "Profile Tab"),
-        general: this.locate("settings-tab-general", "General Tab"),
-        accounts: this.locate("settings-tab-accounts", "Accounts Tab"),
-        tickers: this.locate("settings-tab-tickers", "Tickers Tab"),
+        profile: navItem("profile"),
+        // General tab was retired (A5); aliased to display nav-item so
+        // legacy `settings.actions.openGeneralTab()` redirects there.
+        general: navItem("display"),
+        accounts: navItem("accounts"),
+        tickers: navItem("tickers"),
+        display: navItem("display"),
       },
+
       accountCreate: {
         form: this.locate("account-create-form", "Account Create Form"),
         nameInput: this.locate("account-create-name-input", "Account Create Name Input"),
-        typePill: (type: "broker" | "bank" | "wallet") =>
+        typePill: (type) =>
           this.locate(`account-create-type-${type}`, `Account Create Type Pill (${type})`),
-        currencyCard: (currency: "TWD" | "USD" | "AUD") =>
+        currencyCard: (currency) =>
           this.locate(
             `account-create-currency-${currency}`,
             `Account Create Market Card (${currency})`,
           ),
-        previewChip: this.locate(
-          "account-create-preview-chip",
-          "Account Create Preview Chip",
-        ),
+        previewChip: this.locate("account-create-preview-chip", "Account Create Preview Chip"),
         submit: this.locate("account-create-submit", "Account Create Submit"),
         error: this.locate("account-create-error", "Account Create Inline Error"),
       },
       general: {
-        localeSelect: this.locate("settings-locale-select", "Locale Select"),
-        costBasisSelect: this.locate("settings-cost-basis-select", "Cost Basis Method Select"),
+        localeSelect: this.locate("display-language-select", "Locale Select (legacy alias)"),
         quotePollInput: this.locate("settings-quote-poll-input", "Quote Poll Interval Input"),
-        localeTooltipTrigger: this.locate("tooltip-settings-locale-trigger", "Locale Tooltip Trigger"),
-        localeTooltipContent: this.locate("tooltip-settings-locale-content", "Locale Tooltip Content"),
-        costBasisTooltipTrigger: this.locate("tooltip-settings-cost-basis-trigger", "Cost Basis Tooltip Trigger"),
-        costBasisTooltipContent: this.locate("tooltip-settings-cost-basis-content", "Cost Basis Tooltip Content"),
-      },
-      unsavedChangesDialog: {
-        cancel: this.locateByRole("button", {
-          name: /Cancel|取消/,
-          description: "Unsaved Changes Cancel Button",
-        }),
-        keepEditing: this.locateByRole("button", {
-          name: /Keep Editing|繼續編輯/,
-          description: "Unsaved Changes Keep Editing Button",
-        }),
+        localeTooltipTrigger: this.locate(
+          "tooltip-settings-locale-trigger",
+          "Locale Tooltip Trigger",
+        ),
+        localeTooltipContent: this.locate(
+          "tooltip-settings-locale-content",
+          "Locale Tooltip Content",
+        ),
+        // Phase 3d iter 2 §5.3 — `costBasisMethod` UI deleted per scope-addendum
+        // A5; the cost-basis tooltip locators that previously sat here are
+        // removed (Code Reviewer M1 finding). The locale tooltip locators
+        // above are retained — Frontend §4.1 adds the matching DOM testids
+        // back to `/settings/display`, and tooltips-a11y-aaa.spec.ts asserts
+        // on them.
+        // Phase 3d S4 additions
+        calculationsSection: this.locate(
+          "display-calculations-section",
+          "Display Calculations Section",
+        ),
+        languageSelect: this.locate("display-language-select", "Display Language Select"),
+        languageOption: (label: RegExp | string) =>
+          this.locateByRole("option", {
+            name: label,
+            description: `Language Option (${label})`,
+          }),
+        inlineAlert: this.withDescription(
+          this.page.getByRole("alert").first(),
+          "Inline Validation Alert",
+        ),
       },
       accountsList: {
         searchInput: this.locate("accounts-tab-search", "Accounts Tab Search Input"),
-        card: (accountId: string) =>
+        card: (accountId) =>
           this.locate(`accounts-card-${accountId}`, `Accounts Card (${accountId})`),
-        cardToggle: (accountId: string) =>
-          this.locate(`accounts-card-${accountId}-toggle`, `Accounts Card Toggle (${accountId})`),
-        marketBadge: (accountId: string) =>
+        cardToggle: (accountId) =>
+          this.locate(
+            `accounts-card-${accountId}-toggle`,
+            `Accounts Card Toggle (${accountId})`,
+          ),
+        marketBadge: (accountId) =>
           this.locate(
             `accounts-card-${accountId}-market-badge`,
             `Accounts Card Market Badge (${accountId})`,
           ),
-        accountProfileSelect: (accountId: string) =>
+        accountProfileSelect: (accountId) =>
           this.locate(
             `settings-account-profile-${accountId}`,
             `Account Profile Select (${accountId})`,
           ),
-        addProfile: (accountId: string) =>
+        addProfile: (accountId) =>
           this.locate(
             `accounts-card-${accountId}-add-profile`,
             `Add Profile Button (${accountId})`,
           ),
-        duplicateCta: (accountId: string) =>
+        duplicateCta: (accountId) =>
           this.locate(
             `accounts-card-${accountId}-duplicate-cta`,
             `Duplicate-from-another-account CTA (${accountId})`,
           ),
-        addOverride: (accountId: string) =>
+        addOverride: (accountId) =>
           this.locate(
             `accounts-card-${accountId}-add-override`,
             `Add Override Button (${accountId})`,
@@ -233,29 +291,34 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           "accounts-duplicate-cancel",
           "Duplicate Cancel Button",
         ),
-        duplicateCheckbox: (profileId: string) =>
+        duplicateCheckbox: (profileId) =>
           this.locate(
             `accounts-duplicate-checkbox-${profileId}`,
             `Duplicate Profile Checkbox (${profileId})`,
           ),
-        profileRows: (accountId: string) =>
+        profileRows: (accountId) =>
           this.withDescription(
             this.page.locator(`[data-testid^="accounts-card-${accountId}-profile-"]`),
             `Profile Rows (${accountId})`,
           ),
-        profileRow: (accountId: string, profileId: string) =>
+        profileRow: (accountId, profileId) =>
           this.locate(
             `accounts-card-${accountId}-profile-${profileId}`,
             `Profile Row (${accountId}/${profileId})`,
           ),
-        profileEditButton: (profileId: string) =>
+        profileEditButton: (profileId) =>
           this.locate(`accounts-profile-edit-${profileId}`, `Profile Edit Button (${profileId})`),
-        profileNameInput: (profileId: string) =>
-          this.locate(`accounts-profile-name-input-${profileId}`, `Profile Name Input (${profileId})`),
-        profileEditDoneButton: (profileId: string) =>
-          this.locate(`accounts-profile-edit-done-${profileId}`, `Profile Edit Done (${profileId})`),
-        // ui-enhancement — Item 1: per-account Delete + modals + recently-deleted.
-        deleteButton: (accountId: string) =>
+        profileNameInput: (profileId) =>
+          this.locate(
+            `accounts-profile-name-input-${profileId}`,
+            `Profile Name Input (${profileId})`,
+          ),
+        profileEditDoneButton: (profileId) =>
+          this.locate(
+            `accounts-profile-edit-done-${profileId}`,
+            `Profile Edit Done (${profileId})`,
+          ),
+        deleteButton: (accountId) =>
           this.locate(`account-delete-btn-${accountId}`, `Account Delete Button (${accountId})`),
         softDeleteModal: this.locate("account-soft-delete-modal", "Soft Delete Modal"),
         softDeleteConfirmButton: this.locate(
@@ -302,22 +365,22 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           "recently-deleted-header",
           "Recently Deleted Header",
         ),
-        recentlyDeletedRow: (accountId: string) =>
+        recentlyDeletedRow: (accountId) =>
           this.locate(
             `recently-deleted-row-${accountId}`,
             `Recently Deleted Row (${accountId})`,
           ),
-        recentlyDeletedRestoreButton: (accountId: string) =>
+        recentlyDeletedRestoreButton: (accountId) =>
           this.locate(
             `recently-deleted-restore-btn-${accountId}`,
             `Recently Deleted Restore Button (${accountId})`,
           ),
-        recentlyDeletedPurgeButton: (accountId: string) =>
+        recentlyDeletedPurgeButton: (accountId) =>
           this.locate(
             `recently-deleted-purge-btn-${accountId}`,
             `Recently Deleted Purge Button (${accountId})`,
           ),
-        recentlyDeletedTimeRemaining: (accountId: string) =>
+        recentlyDeletedTimeRemaining: (accountId) =>
           this.locate(
             `recently-deleted-time-remaining-${accountId}`,
             `Recently Deleted Time Remaining (${accountId})`,
@@ -325,10 +388,51 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
       },
       profile: {
         section: this.locate("profile-section", "Profile Section"),
-        displayNameInput: this.locate("profile-display-name-input", "Profile Display Name Input"),
+        displayNameInput: this.locate(
+          "profile-display-name-input",
+          "Profile Display Name Input (readonly)",
+        ),
         emailInput: this.locate("profile-email-input", "Profile Email Input"),
         saveEmailButton: this.locate("profile-save-email", "Profile Save Email Button"),
-        emailSavedIndicator: this.locate("profile-email-saved", "Profile Email Saved Indicator"),
+        emailSavedIndicator: this.locate(
+          "profile-email-saved",
+          "Profile Email Saved Indicator",
+        ),
+        // Phase 3d S5 additions
+        displayNameEditInput: this.locate(
+          "profile-display-name-edit-input",
+          "Profile Display Name (editable)",
+        ),
+        displayNameSaveButton: this.locate(
+          "profile-display-name-save-button",
+          "Profile Display Name Save Button",
+        ),
+        pictureUrlInput: this.locate("profile-picture-url-input", "Profile Picture URL Input"),
+        pictureUrlSaveButton: this.locate(
+          "profile-picture-url-save-button",
+          "Profile Picture URL Save Button",
+        ),
+        confirmDialog: this.locate("profile-confirm-dialog", "Profile Field Confirm Dialog"),
+        confirmDialogCta: this.locate(
+          "profile-confirm-dialog-cta",
+          "Profile Field Confirm Dialog CTA",
+        ),
+        confirmDialogCancel: this.locate(
+          "profile-confirm-dialog-cancel",
+          "Profile Field Confirm Dialog Cancel",
+        ),
+        pictureConfirmDialog: this.locate(
+          "profile-picture-confirm-dialog",
+          "Profile Picture Confirm Dialog",
+        ),
+        pictureConfirmDialogCta: this.locate(
+          "profile-picture-confirm-dialog-cta",
+          "Profile Picture Confirm Dialog CTA",
+        ),
+        pictureConfirmDialogCancel: this.locate(
+          "profile-picture-confirm-dialog-cancel",
+          "Profile Picture Confirm Dialog Cancel",
+        ),
       },
       tickers: {
         section: this.locate("monitored-tickers-section", "Monitored Tickers Section"),
@@ -343,13 +447,13 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.page.getByText("Selections saved"),
           "Tickers Saved Message",
         ),
-        positionTicker: (ticker: string) =>
+        positionTicker: (ticker) =>
           this.locate(`position-ticker-${ticker}`, `Position Ticker ${ticker}`),
-        manualTicker: (ticker: string) =>
+        manualTicker: (ticker) =>
           this.locate(`manual-ticker-${ticker}`, `Manual Ticker ${ticker}`),
-        backfillBadge: (ticker: string) =>
+        backfillBadge: (ticker) =>
           this.locate(`backfill-badge-${ticker}`, `Backfill Badge ${ticker}`),
-        retryBackfillButton: (ticker: string) =>
+        retryBackfillButton: (ticker) =>
           this.locate(`retry-backfill-${ticker}`, `Retry Backfill Button ${ticker}`),
         repairModeButton: this.withDescription(
           this.page.getByTestId("repair-mode-toggle-btn"),
@@ -363,24 +467,21 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.page.getByTestId("repair-continue-btn"),
           "Repair Continue Button",
         ),
-        repairCheckboxRow: (ticker: string) =>
+        repairCheckboxRow: (ticker) =>
           this.withDescription(
             this.page.getByTestId(`repair-row-${ticker}`),
             `Repair Checkbox Row ${ticker}`,
           ),
-        repairSelection: (ticker: string) =>
+        repairSelection: (ticker) =>
           this.locate(`repair-selection-${ticker}`, `Repair Selection ${ticker}`),
-        repairCooldownHint: (ticker: string) =>
+        repairCooldownHint: (ticker) =>
           this.withDescription(
             this.page.getByTestId(`repair-cooldown-hint-${ticker}`),
             `Repair Cooldown Hint ${ticker}`,
           ),
       },
       repairModal: {
-        dialog: this.withDescription(
-          this.page.getByTestId("repair-modal"),
-          "Repair Modal",
-        ),
+        dialog: this.withDescription(this.page.getByTestId("repair-modal"), "Repair Modal"),
         startDateInput: this.withDescription(
           this.page.getByTestId("repair-start-date"),
           "Repair Start Date Input",
@@ -419,62 +520,35 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         filterStock: this.locate("catalog-filter-stock", "Catalog Filter Stock"),
         filterEtf: this.locate("catalog-filter-etf", "Catalog Filter ETF"),
         filterBondEtf: this.locate("catalog-filter-bond_etf", "Catalog Filter Bond ETF"),
-        item: (ticker: string) =>
-          this.locate(`catalog-item-${ticker}`, `Catalog Item ${ticker}`),
-        // KZO-194: all catalog-item-* rows currently rendered (respects the
-        // incremental-render window). Use for count assertions (≥N rows).
+        item: (ticker) => this.locate(`catalog-item-${ticker}`, `Catalog Item ${ticker}`),
         allItems: this.withDescription(
           this.page.locator('[data-testid^="catalog-item-"]'),
           "All Catalog Items",
         ),
-        itemCheckbox: (ticker: string) =>
+        itemCheckbox: (ticker) =>
           this.withinByCss(
             this.locate(`catalog-item-${ticker}`),
             "input[type=checkbox]",
             `Catalog Item Checkbox ${ticker}`,
           ),
-        // KZO-188: market chip group buttons (All · TW · US · AU).
-        // Implementer uses testid `catalog-market-chip-{market}` with lowercase
-        // market code (e.g. `catalog-market-chip-au`).
-        marketChip: (market: "all" | "TW" | "US" | "AU") =>
-          this.locate(
-            `catalog-market-chip-${market.toLowerCase()}`,
-            `Market Chip ${market}`,
-          ),
-        // KZO-188: LIVE badge for a live-sourced catalog row.
-        // Implementer uses a top-level testid `catalog-live-badge-{ticker}`
-        // (not nested inside the item row).
-        liveItemBadge: (ticker: string) =>
+        marketChip: (market) =>
+          this.locate(`catalog-market-chip-${market.toLowerCase()}`, `Market Chip ${market}`),
+        liveItemBadge: (ticker) =>
           this.locate(`catalog-live-badge-${ticker}`, `Live Badge ${ticker}`),
-        // KZO-188: error message rendered when live search backend is degraded
         liveUnavailableMessage: this.locate(
           "catalog-live-unavailable",
           "Catalog Live Unavailable Message",
         ),
-        // KZO-188: in-flight indicator while live search request is pending
         liveSearchingMessage: this.locate(
           "catalog-live-loading",
           "Catalog Live Searching Indicator",
         ),
-        // KZO-196: AU-only GICS sector filter dropdown (rendered only when
-        // `marketChip === "AU"`). Architect-locked testid:
-        // `catalog-sector-filter`.
         sectorSelect: this.locate("catalog-sector-filter", "Catalog Sector Filter"),
-        // KZO-196: per-row industry-group label (rendered only when
-        // `gicsIndustryGroup != null`). Architect-locked testid:
-        // `catalog-row-industry-group-{ticker}`.
-        itemIndustryLabel: (ticker: string) =>
+        itemIndustryLabel: (ticker) =>
           this.locate(
             `catalog-row-industry-group-${ticker}`,
             `Catalog Row Industry Group ${ticker}`,
           ),
-      },
-      footer: {
-        saveButton: this.locate("settings-save-button", "Save Settings Button"),
-        discardButton: this.locate("settings-discard-button", "Discard Settings Button"),
-        validationError: this.locate("settings-validation-error", "Settings Validation Error"),
-        closeWarning: this.locate("settings-close-warning", "Unsaved Changes Warning"),
-        discardNotice: this.locate("settings-discard-notice", "Discard Settings Notice"),
       },
     };
   }

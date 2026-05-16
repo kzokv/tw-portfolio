@@ -269,10 +269,9 @@ test.describe("card reorder (KZO-161 F5)", () => {
       await appShell.assert.cardIsVisible(slug);
     }
 
-    // Actions — open Settings Drawer → Display tab.
-    await appShell.actions.openSettingsDrawer();
-    await appShell.assert.settingsDisplayTabIsVisible();
-    await appShell.actions.clickSettingsDisplayTab();
+    // Actions — open /settings/display (route-based; replaces former drawer
+    // + tab-click pair per Phase 3d iter 2 D2(β)).
+    await appShell.actions.openSettingsSection("display");
 
     // Assert — Reset all layouts button visible in the Layout section.
     await appShell.assert.displayLayoutSectionIsVisible();
@@ -392,9 +391,9 @@ test.describe("card reorder (KZO-161 F5)", () => {
 
     await appShell.actions.navigateToRoute("/dashboard");
 
-    // Actions — open Display tab → click "Reset all layouts".
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    // Actions — open /settings/display → click "Reset all layouts"
+    // (route-based per Phase 3d iter 2 D2(β); replaces former drawer + tab).
+    await appShell.actions.openSettingsSection("display");
     await appShell.assert.displayLayoutSectionIsVisible();
     await appShell.assert.resetAllLayoutsButtonIsVisible();
     await appShell.actions.clickResetAllLayoutsButton();

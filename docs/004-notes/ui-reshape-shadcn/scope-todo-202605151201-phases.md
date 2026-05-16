@@ -92,6 +92,8 @@ Single ticket; phased delivery via sequential commits on the same branch. Each p
 
 **Goal:** retire 1458-line `AppShell` and 532-line `TopBar`. Replace with shadcn `Sidebar` block + decomposed top bar + ⌘K palette.
 
+*See [`phase-3-spec-…shell-decomp.md`](./phase-3-spec-202605161110-shell-decomp.md) for sub-phase breakdown 3a–3g + Addendum §12. Phase 3d landed 2026-05-17; Phase 3e/3f/3g deferred to follow-up sessions.*
+
 **Deliverables**
 
 - [ ] `npx shadcn@latest add -c apps/web sidebar breadcrumb navigation-menu avatar progress`

@@ -21,9 +21,6 @@ export class SettingsEndpoint extends BaseEndpoint {
       ...(headers ? { headers } : {}),
     });
 
-  putFull = (data: unknown, headers?: Record<string, string>): Promise<APIResponse> =>
-    this.request.put(apiUrl("/settings/full"), {
-      data,
-      ...(headers ? { headers } : {}),
-    });
+  // ui-reshape Phase 3d S8 — `putFull` (PUT /settings/full) removed.
+  // Callers migrate to per-resource patches or `putFeeConfig`.
 }

@@ -97,13 +97,16 @@ describe("filterAccountsByDerivedCurrency — KZO-169 D8b", () => {
   });
 });
 
-describe("buildCreateAccountHref — KZO-169 NC4 deep-link", () => {
-  it("encodes drawer + tab + currency params for the no-account inline error link", () => {
+describe("buildCreateAccountHref — KZO-169 NC4 deep-link (Phase 3d route-driven)", () => {
+  it("returns a /settings/accounts deep-link with the prefill currency, regardless of caller pathname", () => {
+    // Phase 3d S10 — settings drawer retired. Destination is now the
+    // absolute /settings/accounts route; pathname arg is preserved for
+    // back-compat but ignored.
     expect(buildCreateAccountHref("/dashboard", "USD")).toBe(
-      "/dashboard?drawer=settings&settingsTab=accounts&accountsPrefillCurrency=USD",
+      "/settings/accounts?accountsPrefillCurrency=USD",
     );
     expect(buildCreateAccountHref("/transactions", "AUD")).toBe(
-      "/transactions?drawer=settings&settingsTab=accounts&accountsPrefillCurrency=AUD",
+      "/settings/accounts?accountsPrefillCurrency=AUD",
     );
   });
 });

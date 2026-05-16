@@ -1,6 +1,11 @@
-import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
-import { patchJson, putJson } from "../../../lib/api";
-import type { SaveSettingsRequest } from "../types/settingsUi";
+import type {
+  AccountDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  ProfileDto,
+  UserSettings,
+} from "@vakwen/shared-types";
+import { patchJson } from "../../../lib/api";
 
 // ui-enhancement (2026-05-13) — account soft-delete / restore /
 // permanent-purge lifecycle endpoints live in `./accountLifecycleService.ts`
@@ -17,6 +22,54 @@ export async function renameAccount(accountId: string, name: string): Promise<Ac
   return patchJson<AccountDto>(`/accounts/${encodeURIComponent(accountId)}`, { name });
 }
 
-export async function saveFullSettings(request: SaveSettingsRequest): Promise<SaveSettingsResponse> {
-  return putJson<SaveSettingsResponse>("/settings/full", request);
+// ── Per-resource PATCH helpers (Phase 3d S3 / Decision #16) ─────────────────
+//
+// Replaces the legacy `saveFullSettings` (PUT /settings/full) omnibus call.
+// Each helper targets ONE resource so auto-save + confirmed-save flows can
+// commit narrow diffs without round-tripping the entire settings tree.
+
+/**
+ * Patch entries on the user-preferences JSONB column. Accepts any partial
+ * shape — `null` for a key clears it. Returns the updated preferences DTO
+ * (whatever shape the backend uses; callers typically don't read it back
+ * because they already hold the optimistic value).
+ */
+export async function patchUserPreferences<TResponse = unknown>(
+  patch: Record<string, unknown>,
+): Promise<TResponse> {
+  return patchJson<TResponse>("/user-preferences", patch);
+}
+
+/**
+ * Patch the profile. Backend extension (Phase 3d S7) accepts:
+ *   email?:       string
+ *   displayName?: string | null   // null clears the user override
+ *   pictureUrl?:  string | null   // null clears the user override
+ *
+ * HTTPS-only validation on `pictureUrl` per
+ * `.claude/rules/provider-url-sanitization.md` is enforced both client-side
+ * (call sites validate via `useConfirmedSave`'s `validate` callback) AND
+ * server-side. Returns the refreshed `ProfileDto`.
+ */
+export interface ProfileFieldPatch {
+  email?: string;
+  displayName?: string | null;
+  pictureUrl?: string | null;
+}
+
+export async function patchProfile(patch: ProfileFieldPatch): Promise<ProfileDto> {
+  return patchJson<ProfileDto>("/profile", patch);
+}
+
+/**
+ * Patch a single settings row (locale, costBasisMethod, quotePollIntervalSeconds).
+ * The legacy omnibus `PUT /settings/full` is retired in Phase 3d (S8 backend).
+ */
+export interface SettingsFieldPatch {
+  locale?: UserSettings["locale"];
+  quotePollIntervalSeconds?: number;
+}
+
+export async function patchSettings(patch: SettingsFieldPatch): Promise<UserSettings> {
+  return patchJson<UserSettings>("/settings", patch);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
@@ -18,6 +19,7 @@ import { ReturnPercentCard } from "./ReturnPercentCard";
 import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 
 export function DashboardClient() {
+  const router = useRouter();
   const {
     dashboard,
     uiDict: dict,
@@ -35,7 +37,6 @@ export function DashboardClient() {
     setCustomizeRangesOpen,
     generateSnapshots,
     isGeneratingSnapshots,
-    setDrawerOpen,
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("dashboard");
@@ -46,14 +47,24 @@ export function DashboardClient() {
   // (shared-context switch, trade mutation, recompute confirm, reporting-currency
   // save, snapshot generation, retry click). Initial mount skipped — the hook
   // performs its own first-load fetch.
+  //
+  // Phase 3d iter 2 §4.2 (architect-identified React #185 candidate) —
+  // capture `performance.refresh` in a ref so the effect depends ONLY on
+  // `contextRefreshSignal`. The previous form depended on `performance.refresh`
+  // directly; if its identity ever shifted on a re-render triggered by
+  // the refresh itself, the effect re-fired and looped (Maximum update
+  // depth exceeded). The ref form is cycle-safe even if `useDashboardPerformance`
+  // later changes its memoization shape.
   const firstSignalRef = useRef(true);
+  const refreshPerformanceRef = useRef(performance.refresh);
+  refreshPerformanceRef.current = performance.refresh;
   useEffect(() => {
     if (firstSignalRef.current) {
       firstSignalRef.current = false;
       return;
     }
-    void performance.refresh();
-  }, [contextRefreshSignal, performance.refresh]);
+    void refreshPerformanceRef.current();
+  }, [contextRefreshSignal]);
 
   if (isBootstrapping || !isI18nReady) {
     return (
@@ -190,7 +201,7 @@ export function DashboardClient() {
                   onRecompute={recomputeAction.runRecompute}
                   onGenerateSnapshots={generateSnapshots}
                   isGeneratingSnapshots={isGeneratingSnapshots}
-                  onOpenSettings={() => setDrawerOpen(true)}
+                  onOpenSettings={() => router.push("/settings")}
                   dict={dict}
                   readOnly={isSharedContext}
                   readOnlyMessage={dict.switcher.readonlyDescription}

@@ -3280,12 +3280,15 @@ export class PostgresPersistence implements Persistence {
       provider_display_name: string | null;
       linked_at: string | null;
       last_seen_at: string | null;
+      user_profile: { displayName?: unknown; pictureUrl?: unknown } | null;
     }>(
       `SELECT u.id AS user_id, u.email, u.display_name, u.role,
               e.provider_picture_url, e.provider_display_name,
-              e.linked_at, e.last_seen_at
+              e.linked_at, e.last_seen_at,
+              up.preferences->'userProfile' AS user_profile
        FROM users u
        LEFT JOIN user_external_identities e ON e.user_id = u.id AND e.provider = 'google'
+       LEFT JOIN public.user_preferences up ON up.user_id = u.id
        WHERE u.id = $1`,
       [userId],
     );
@@ -3293,12 +3296,24 @@ export class PostgresPersistence implements Persistence {
       throw routeError(404, "not_found", "Profile not found");
     }
     const row = result.rows[0];
+    // ui-reshape Phase 3d S7 — JSONB-backed user override storage. Narrow
+    // each field independently; reject non-string values gracefully (the
+    // JSONB blob is opaque on read, so we cannot assume shape).
+    const userProfileRaw = row.user_profile ?? {};
+    const userDisplayName = typeof userProfileRaw.displayName === "string"
+      ? userProfileRaw.displayName
+      : null;
+    const userPictureUrl = typeof userProfileRaw.pictureUrl === "string"
+      ? userProfileRaw.pictureUrl
+      : null;
     return {
       userId: row.user_id,
       email: row.email,
       displayName: row.display_name,
       providerPictureUrl: row.provider_picture_url,
       providerDisplayName: row.provider_display_name,
+      userDisplayName,
+      userPictureUrl,
       linkedAt: row.linked_at,
       lastSeenAt: row.last_seen_at,
       role: row.role,
@@ -3319,6 +3334,91 @@ export class PostgresPersistence implements Persistence {
       }
       throw err;
     }
+    return this.getProfile(userId);
+  }
+
+  /**
+   * ui-reshape Phase 3d S7 — JSONB-backed user override write. Per
+   * architect-design §7.1 LOCKED decision: storage lives in
+   * `user_preferences.preferences.userProfile.{displayName, pictureUrl}`,
+   * no DB migration. The CASE expression below has three branches per field:
+   *   - field undefined (not in `fields`)  → leave alone
+   *   - field === null                      → remove that JSONB key
+   *   - field === string                    → set/replace that JSONB key
+   * If both keys are removed and `userProfile` becomes empty (`{}`), the
+   * parent `userProfile` key is stripped via `jsonb_strip_nulls`-style cleanup
+   * by the route layer; here we keep the empty object — harmless on read.
+   *
+   * Validation (HTTPS-only on pictureUrl, length on displayName) is enforced
+   * at the route layer; this method assumes input has already been validated.
+   */
+  async updateProfileFields(
+    userId: string,
+    fields: { displayName?: string | null; pictureUrl?: string | null },
+  ): Promise<ProfileDto> {
+    // Confirm the user exists first — getProfile throws 404 otherwise.
+    const userExists = await this.pool.query<{ id: string }>(
+      `SELECT id FROM users WHERE id = $1`,
+      [userId],
+    );
+    if (userExists.rowCount === 0) {
+      throw routeError(404, "not_found", "Profile not found");
+    }
+
+    // Compute the next userProfile JSONB by reading current then merging.
+    const current = await this.pool.query<{ user_profile: Record<string, unknown> | null }>(
+      `SELECT preferences->'userProfile' AS user_profile
+       FROM public.user_preferences WHERE user_id = $1`,
+      [userId],
+    );
+    const existingUserProfile: Record<string, unknown> =
+      current.rowCount && current.rows[0].user_profile && typeof current.rows[0].user_profile === "object"
+        ? { ...current.rows[0].user_profile }
+        : {};
+    if (fields.displayName !== undefined) {
+      if (fields.displayName === null) {
+        delete existingUserProfile.displayName;
+      } else {
+        existingUserProfile.displayName = fields.displayName;
+      }
+    }
+    if (fields.pictureUrl !== undefined) {
+      if (fields.pictureUrl === null) {
+        delete existingUserProfile.pictureUrl;
+      } else {
+        existingUserProfile.pictureUrl = fields.pictureUrl;
+      }
+    }
+
+    // Upsert: keep top-level preferences merge semantics, but specifically
+    // replace (or strip) the `userProfile` sub-key.
+    const userProfileEmpty = Object.keys(existingUserProfile).length === 0;
+    if (userProfileEmpty) {
+      // Strip the userProfile key entirely.
+      await this.pool.query(
+        `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
+         VALUES ($1, '{}'::jsonb, NOW())
+         ON CONFLICT (user_id) DO UPDATE
+           SET preferences = public.user_preferences.preferences - 'userProfile',
+               updated_at = NOW()`,
+        [userId],
+      );
+    } else {
+      await this.pool.query(
+        `INSERT INTO public.user_preferences (user_id, preferences, updated_at)
+         VALUES ($1, jsonb_build_object('userProfile', $2::jsonb), NOW())
+         ON CONFLICT (user_id) DO UPDATE
+           SET preferences = jsonb_set(
+                 public.user_preferences.preferences,
+                 '{userProfile}',
+                 $2::jsonb,
+                 true
+               ),
+               updated_at = NOW()`,
+        [userId, JSON.stringify(existingUserProfile)],
+      );
+    }
+
     return this.getProfile(userId);
   }
 

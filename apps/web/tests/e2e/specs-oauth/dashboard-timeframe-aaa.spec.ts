@@ -518,14 +518,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
 
       await appShell.actions.navigateToRoute("/dashboard");
       // Ensure the page is fully hydrated at the mobile viewport before interacting.
-      // Without this, `openSettingsDrawer` can race against the React hydration and
-      // cause "Target page, context or browser has been closed" on slow machines.
+      // Without this, the subsequent navigation can race against React hydration
+      // and cause "Target page, context or browser has been closed" on slow
+      // machines.
       await page.waitForLoadState("load");
 
-      // Open Settings Drawer → Display tab.
-      await appShell.actions.openSettingsDrawer();
-      await appShell.assert.settingsDisplayTabIsVisible();
-      await appShell.actions.clickSettingsDisplayTab();
+      // Open /settings/display (route-based per Phase 3d iter 2 D2(β);
+      // replaces former drawer + tab-click pair).
+      await appShell.actions.openSettingsSection("display");
 
       // Assert — both sections render.
       await appShell.assert.displayTimeframesSectionIsVisible();

@@ -1,6 +1,18 @@
 import { feeProfilePayload } from "../../helpers/fixtures.js";
 import { test } from "../fixtures.js";
 
+// ui-reshape Phase 3d S8 — `PUT /settings/full` retired in favor of
+// per-resource PATCHes + `PUT /settings/fee-config`. Three tests removed:
+//   - "rejects legacy cost basis methods in PUT /settings/full" — route
+//     deleted; PATCH /settings rejection is covered by the test below.
+//   - "does not partially apply settings/full when bindings are invalid" —
+//     the "does not partially apply settings/fee-config when bindings are
+//     invalid" test in this file covers the same invariant on the
+//     replacement endpoint.
+//   - "generates profile UUIDs from temp IDs in full-save flow" — the
+//     `tempId` resolution feature was unique to the retired omnibus
+//     endpoint; per-resource fee-profile creation uses real ids only.
+
 test.describe("settings", () => {
   test("merges partial PATCH into existing settings", async ({ settingsApi }) => {
     const beforeResponse = await settingsApi.actions.getSettings();
@@ -32,73 +44,6 @@ test.describe("settings", () => {
 
     const lifoResponse = await settingsApi.actions.patchSettings({ costBasisMethod: "LIFO" });
     await settingsApi.assert.statusIs(lifoResponse, 400);
-  });
-
-  test("rejects legacy cost basis methods in PUT /settings/full", async ({ settingsApi }) => {
-    const settingsResponse = await settingsApi.actions.getSettings();
-    await settingsApi.assert.statusIs(settingsResponse, 200);
-    const settingsBody = await settingsApi.arrange.settingsBody(settingsResponse);
-
-    const feeConfigResponse = await settingsApi.actions.getFeeConfig();
-    await settingsApi.assert.statusIs(feeConfigResponse, 200);
-    const feeConfigBody = await settingsApi.arrange.feeConfigBody(feeConfigResponse);
-
-    const response = await settingsApi.actions.saveFull({
-      settings: {
-        locale: settingsBody.locale,
-        costBasisMethod: "FIFO",
-        quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-      },
-      feeProfiles: (feeConfigBody.feeProfiles as Record<string, unknown>[]).map((profile) => ({ ...profile })),
-      accounts: (feeConfigBody.accounts as Record<string, unknown>[]).map((account) => ({
-        id: account.id,
-        feeProfileRef: account.feeProfileId,
-      })),
-      feeProfileBindings: [],
-    });
-
-    await settingsApi.assert.statusIs(response, 400);
-  });
-
-  test("does not partially apply settings/full when bindings are invalid", async ({ settingsApi }) => {
-    const settingsResponse = await settingsApi.actions.getSettings();
-    await settingsApi.assert.statusIs(settingsResponse, 200);
-    const settingsBody = await settingsApi.arrange.settingsBody(settingsResponse);
-
-    const feeConfigResponse = await settingsApi.actions.getFeeConfig();
-    await settingsApi.assert.statusIs(feeConfigResponse, 200);
-    const feeConfigBody = await settingsApi.arrange.feeConfigBody(feeConfigResponse);
-    const feeProfiles = feeConfigBody.feeProfiles as Record<string, unknown>[];
-    const accounts = feeConfigBody.accounts as Record<string, unknown>[];
-
-    const failedSaveResponse = await settingsApi.actions.saveFull({
-      settings: {
-        locale: await settingsApi.arrange.nextLocale(settingsBody.locale),
-        costBasisMethod: settingsBody.costBasisMethod,
-        quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-      },
-      feeProfiles: feeProfiles.map((profile) => ({ ...profile })),
-      accounts: accounts.map((account) => ({
-        id: account.id,
-        feeProfileRef: account.feeProfileId,
-      })),
-      feeProfileBindings: [
-        {
-          accountId: "acc-missing",
-          ticker: "2330",
-          feeProfileRef: feeProfiles[0]?.id,
-        },
-      ],
-    });
-
-    await settingsApi.assert.statusIs(failedSaveResponse, 400);
-    const failedSaveBody = (await settingsApi.arrange.body(failedSaveResponse)) as Record<string, unknown>;
-    await settingsApi.assert.errorEquals(failedSaveBody, "invalid_account");
-
-    const settingsAfterResponse = await settingsApi.actions.getSettings();
-    await settingsApi.assert.statusIs(settingsAfterResponse, 200);
-    const settingsAfterBody = await settingsApi.arrange.settingsBody(settingsAfterResponse);
-    await settingsApi.assert.bodiesEqual(settingsAfterBody, settingsBody);
   });
 
   test("does not partially apply settings/fee-config when bindings are invalid", async ({
@@ -140,62 +85,8 @@ test.describe("settings", () => {
     );
   });
 
-  test("generates profile UUIDs from temp IDs in full-save flow", async ({ settingsApi }) => {
-    const settingsResponse = await settingsApi.actions.getSettings();
-    await settingsApi.assert.statusIs(settingsResponse, 200);
-    const settingsBody = await settingsApi.arrange.settingsBody(settingsResponse);
-
-    const feeConfigResponse = await settingsApi.actions.getFeeConfig();
-    await settingsApi.assert.statusIs(feeConfigResponse, 200);
-    const feeConfigBody = await settingsApi.arrange.feeConfigBody(feeConfigResponse);
-    const feeProfiles = feeConfigBody.feeProfiles as Record<string, unknown>[];
-    const accounts = feeConfigBody.accounts as Record<string, unknown>[];
-
-    const saveFullResponse = await settingsApi.actions.saveFull({
-      settings: {
-        locale: settingsBody.locale,
-        costBasisMethod: settingsBody.costBasisMethod,
-        quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-      },
-      feeProfiles: [
-        ...feeProfiles.map((profile) => ({ ...profile })),
-        {
-          tempId: "tmp-new-profile",
-          accountId: accounts[0]!.id,
-          name: "Temp Profile",
-          boardCommissionRate: 1.425,
-          commissionDiscountPercent: 60,
-          minimumCommissionAmount: 20,
-          commissionRoundingMode: "FLOOR",
-          taxRoundingMode: "FLOOR",
-          stockSellTaxRateBps: 30,
-          stockDayTradeTaxRateBps: 15,
-          etfSellTaxRateBps: 10,
-          bondEtfSellTaxRateBps: 0,
-          commissionChargeMode: "CHARGED_UPFRONT",
-        },
-      ],
-      accounts: accounts.map((account, index) => ({
-        id: account.id,
-        feeProfileRef: index === 0 ? "tmp-new-profile" : account.feeProfileId,
-      })),
-      feeProfileBindings: [],
-    });
-    await settingsApi.assert.statusIs(saveFullResponse, 200);
-    const saveFullBody = await settingsApi.arrange.feeConfigBody(saveFullResponse);
-
-    const firstAccount = (saveFullBody.accounts as Record<string, unknown>[])[0]!;
-    await settingsApi.assert.accountFeeProfileDiffers(
-      saveFullBody,
-      String(firstAccount.id),
-      "tmp-new-profile",
-    );
-    await settingsApi.assert.feeProfileExists(saveFullBody, firstAccount.feeProfileId);
-    await settingsApi.assert.feeProfileFieldEquals(
-      saveFullBody,
-      firstAccount.feeProfileId,
-      "commissionDiscountPercent",
-      60,
-    );
-  });
+  // ui-reshape Phase 3d S8 — "generates profile UUIDs from temp IDs in
+  // full-save flow" deleted. The tempId resolution feature was unique to
+  // the retired `PUT /settings/full` omnibus endpoint; per-resource fee
+  // profile creation (`POST /fee-profiles`) uses real database ids only.
 });

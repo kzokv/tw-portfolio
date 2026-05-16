@@ -13,8 +13,7 @@ test.describe("density toggle", () => {
 
     await appShell.assert.densityIs("compact");
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
 
     await appShell.actions.clickDensityToggle("comfortable");
     await appShell.assert.densityIs("comfortable");
@@ -27,8 +26,7 @@ test.describe("density toggle", () => {
     await dashboard.actions.navigateToDashboard();
     await dashboard.assert.appIsReady();
 
-    await appShell.actions.openSettingsDrawer();
-    await appShell.actions.clickSettingsDisplayTab();
+    await appShell.actions.openSettingsSection("display");
     await appShell.actions.clickDensityToggle("comfortable");
     await appShell.assert.densityIs("comfortable");
 

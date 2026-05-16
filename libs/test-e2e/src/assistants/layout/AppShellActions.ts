@@ -38,29 +38,17 @@ export class AppShellActions extends AppBaseActions {
   }
 
   /**
-   * Open the Settings drawer via the sidebar Settings nav-item.
-   * Phase 3c: avatar-menu-settings RETIRED (amendment #11). Settings is now
-   * accessible via app-sidebar-nav-settings which wires setDrawerOpen(true).
+   * Open the Settings page (Phase 3d — formerly opened a drawer; now
+   * navigates to `/settings/profile`, the default landing section).
    *
-   * On `<md` viewports the sidebar lives inside a shadcn Sheet (closed by
-   * default), so the Settings nav-item isn't in the DOM until the Sheet
-   * opens. Tapping `app-sidebar-brand` in the TopBar triggers the Sheet.
+   * Phase 3d iter 2 (architect-locked) — the method name `openSettingsDrawer`
+   * is retained as a back-compat shim. ~19 specs call this directly; they
+   * continue to work via the route navigation. New specs SHOULD use
+   * `openSettingsSection(slug)` for typed deep-link semantics.
    */
   @Step()
   async openSettingsDrawer(): Promise<void> {
-    await this.mxWaitForAppReady();
-    // Detect "<md" viewport via the brand toggle's visibility (the brand
-    // button is rendered only on mobile in TopBar) rather than reading
-    // page.viewportSize() directly — keeps this AAA-compliant per
-    // `aaa/no-page-access`. On mobile, tap the brand to open the Sheet
-    // before clicking the in-Sheet Settings nav-item.
-    const isMobile = await this.el.mobileNavToggle.isVisible();
-    if (isMobile) {
-      await this.uiActions.click.perform(this.el.mobileNavToggle);
-      await expect(this.el.sideNavigation.settings).toBeVisible();
-    }
-    await this.uiActions.click.perform(this.el.sideNavigation.settings);
-    await this.verifyDrawerOpened();
+    await this.openSettingsSection("profile");
   }
 
   /**
@@ -72,9 +60,32 @@ export class AppShellActions extends AppBaseActions {
     await this.openSettingsDrawer();
   }
 
-  private async verifyDrawerOpened(): Promise<void> {
-    await expect(this.el.settings.drawer).toBeVisible();
-    await expect(this.page).toHaveURL(/drawer=settings/);
+  /**
+   * Phase 3d S2 — navigate to `/settings/{slug}`. Waits for the two-pane
+   * `settings-layout` testid to attach so callers can immediately drive
+   * the rendered section.
+   */
+  @Step()
+  async navigateToSettingsSection(
+    slug: "profile" | "accounts" | "display" | "tickers",
+  ): Promise<void> {
+    await this.mxNavigateToRoute(`/settings/${slug}`, TestEnv.appBaseUrl);
+    await expect(this.el.settings.drawer).toBeVisible({ timeout: 10_000 });
+  }
+
+  /**
+   * Phase 3d iter 2 §4.1 (architect-locked) — typed deep-link helper for
+   * the route-driven `/settings/{section}` shell. Alias for
+   * `navigateToSettingsSection` with the architect's preferred call-site
+   * name; waits on the `settings-section-{slug}` testid (one layer deeper
+   * than `settings-layout`) so callers can immediately drive section UI.
+   */
+  @Step()
+  async openSettingsSection(
+    section: "profile" | "accounts" | "display" | "tickers",
+  ): Promise<void> {
+    await this.mxNavigateToRoute(`/settings/${section}`, TestEnv.appBaseUrl);
+    await this.el.testId(`settings-section-${section}`).waitFor({ state: "visible", timeout: 10_000 });
   }
 
   @Step()
@@ -480,12 +491,22 @@ export class AppShellActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.testId("timeframe-reset-btn"));
   }
 
-  // ── KZO-161 — Settings Drawer Display tab actions ─────────────────────────
+  // ── KZO-161 — Settings Display tab actions (Phase 3d S10 — repointed) ────
 
-  /** Open the Display tab inside the SettingsDrawer. */
+  /**
+   * Phase 3d iter 2 (architect-locked) — REPOINTED from the deleted
+   * `settings-tab-display` button click. Now navigates to `/settings/display`
+   * and waits for the section root. Existing specs-oauth callers
+   * (dashboard-timeframe, transactions-card-reorder, portfolio-card-reorder,
+   * dashboard-reporting-currency, card-reorder) continue working via this
+   * back-compat shim. New specs SHOULD use `openSettingsSection("display")`.
+   */
   @Step()
   async clickSettingsDisplayTab(): Promise<void> {
-    await this.uiActions.click.perform(this.el.testId("settings-tab-display"));
+    await this.openSettingsSection("display");
+    // Existing callers also expect the timeframes section to be visible
+    // (it's the Phase-2 DisplayTabSection rendered verbatim inside the
+    // route's DisplaySettingsClient).
     await expect(this.el.testId("display-timeframes-section")).toBeVisible();
   }
 

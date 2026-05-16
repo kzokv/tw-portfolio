@@ -600,6 +600,25 @@ export interface ProfileDto {
   displayName: string | null;
   providerPictureUrl: string | null;
   providerDisplayName: string | null;
+  /**
+   * ui-reshape Phase 3d (A7) — user-overridable display name. When non-null,
+   * the user has explicitly chosen a name distinct from `displayName`
+   * (which is provider-synced). UI renders `userDisplayName ?? displayName`.
+   * Stored in `user_preferences.preferences.userProfile.displayName` JSONB —
+   * no DB migration. `null` means "no override, use provider value".
+   */
+  userDisplayName: string | null;
+  /**
+   * ui-reshape Phase 3d (A7) — user-overridable picture URL. When non-null,
+   * the user has explicitly chosen a picture URL distinct from
+   * `providerPictureUrl` (which is provider-synced). UI renders
+   * `userPictureUrl ?? providerPictureUrl`. Stored in
+   * `user_preferences.preferences.userProfile.pictureUrl` JSONB — no DB
+   * migration. Always HTTPS-only on write per
+   * `.claude/rules/provider-url-sanitization.md`. `null` means "no override,
+   * use provider value".
+   */
+  userPictureUrl: string | null;
   linkedAt: string | null;
   lastSeenAt: string | null;
   role: UserRole;

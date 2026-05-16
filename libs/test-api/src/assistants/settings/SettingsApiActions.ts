@@ -37,10 +37,10 @@ export class SettingsApiActions extends ApiBaseActions {
     return this._instance.putFeeConfig(data, this.authHeaders);
   }
 
-  @Step()
-  async saveFull(data: unknown): Promise<APIResponse> {
-    return this._instance.putFull(data, this.authHeaders);
-  }
+  // ui-reshape Phase 3d S8 — `saveFull` (PUT /settings/full) removed; the
+  // route is retired in favor of per-resource patches. Callers migrate to
+  // `updateFeeConfig` (PUT /settings/fee-config) for fee-config setups or
+  // dedicated fee-profile / accounts endpoints for individual mutations.
 
   @Step()
   async getSettingsUnauthenticated(): Promise<APIResponse> {

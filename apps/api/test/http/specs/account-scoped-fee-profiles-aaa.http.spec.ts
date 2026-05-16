@@ -86,46 +86,11 @@ test.describe("account-scoped fee profiles (KZO-183)", () => {
     await settingsApi.assert.errorEquals(body, "invalid_fee_profile");
   });
 
-  test("[settings]: full save rejects cross-account profile ownership", async ({
-    accountsApi,
-    settingsApi,
-  }) => {
-    const accountResponse = await accountsApi.actions.createAccount({
-      name: "Full Save USD",
-      defaultCurrency: "USD",
-      accountType: "broker",
-    });
-    await accountsApi.assert.statusIs(accountResponse, 200);
-
-    const settingsResponse = await settingsApi.actions.getSettings();
-    await settingsApi.assert.statusIs(settingsResponse, 200);
-    const settingsBody = await settingsApi.arrange.settingsBody(settingsResponse);
-
-    const feeConfigResponse = await settingsApi.actions.getFeeConfig();
-    await settingsApi.assert.statusIs(feeConfigResponse, 200);
-    const feeConfig = await settingsApi.arrange.feeConfigBody(feeConfigResponse);
-    const accounts = feeConfig.accounts as Record<string, unknown>[];
-    const profiles = feeConfig.feeProfiles as Record<string, unknown>[];
-    const firstAccount = accounts.find((account) => account.id === "acc-1");
-    const secondAccount = accounts.find((account) => account.id !== "acc-1");
-    if (!firstAccount || !secondAccount) {
-      throw new Error("Expected seeded account plus created account");
-    }
-
-    const response = await settingsApi.actions.saveFull({
-      settings: settingsBody,
-      feeProfiles: profiles.map((profile) => ({ ...profile })),
-      accounts: accounts.map((account) => ({
-        id: account.id,
-        feeProfileRef: account.id === firstAccount.id ? secondAccount.feeProfileId : account.feeProfileId,
-      })),
-      feeProfileBindings: [],
-    });
-
-    await settingsApi.assert.statusIs(response, 400);
-    const body = (await settingsApi.arrange.body(response)) as Record<string, unknown>;
-    await settingsApi.assert.errorEquals(body, "invalid_fee_profile");
-  });
+  // ui-reshape Phase 3d S8 — "[settings]: full save rejects cross-account
+  // profile ownership" deleted. The retired `PUT /settings/full` endpoint
+  // covered the same invariant; the per-resource `PUT /settings/fee-config`
+  // test above ("rejects cross-account profile ownership") exercises the
+  // identical guard on the replacement endpoint.
 
   test("[transactions]: market/account mismatch returns currency_mismatch", async ({
     accountsApi,

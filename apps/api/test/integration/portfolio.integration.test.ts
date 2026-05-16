@@ -624,8 +624,9 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("uses weighted-average cost basis for partial sells", async () => {
-    const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
-    const feeConfigBody = feeConfig.json();
+    // ui-reshape Phase 3d S8 — `PUT /settings/full` retired. Replaced by
+    // POST /fee-profiles (which creates the profile scoped to acc-1) plus
+    // PUT /settings/fee-config to swap acc-1's fee_profile_id onto it.
     const zeroFeeProfileResponse = await app.inject({
       method: "POST",
       url: "/fee-profiles",
@@ -634,25 +635,11 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(zeroFeeProfileResponse.statusCode).toBe(200);
     const zeroFeeProfile = zeroFeeProfileResponse.json();
 
-    const settings = await app.inject({ method: "GET", url: "/settings" });
-    const settingsBody = settings.json();
     const saveFull = await app.inject({
       method: "PUT",
-      url: "/settings/full",
+      url: "/settings/fee-config",
       payload: {
-        settings: {
-          locale: settingsBody.locale,
-          costBasisMethod: settingsBody.costBasisMethod,
-          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-        },
-        feeProfiles: [
-          ...feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
-          { id: zeroFeeProfile.id, ...zeroFeeProfile },
-        ],
-        accounts: feeConfigBody.accounts.map((account: { id: string }) => ({
-          id: account.id,
-          feeProfileRef: zeroFeeProfile.id,
-        })),
+        accounts: [{ id: "acc-1", feeProfileId: zeroFeeProfile.id }],
         feeProfileBindings: [],
       },
     });
@@ -703,8 +690,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("records a realized loss when sell price is below weighted-average cost", async () => {
-    const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
-    const feeConfigBody = feeConfig.json();
+    // ui-reshape Phase 3d S8 — `PUT /settings/full` retired; see note above.
     const zeroFeeProfileResponse = await app.inject({
       method: "POST",
       url: "/fee-profiles",
@@ -713,25 +699,11 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     expect(zeroFeeProfileResponse.statusCode).toBe(200);
     const zeroFeeProfile = zeroFeeProfileResponse.json();
 
-    const settings = await app.inject({ method: "GET", url: "/settings" });
-    const settingsBody = settings.json();
     const saveFull = await app.inject({
       method: "PUT",
-      url: "/settings/full",
+      url: "/settings/fee-config",
       payload: {
-        settings: {
-          locale: settingsBody.locale,
-          costBasisMethod: settingsBody.costBasisMethod,
-          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-        },
-        feeProfiles: [
-          ...feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
-          { id: zeroFeeProfile.id, ...zeroFeeProfile },
-        ],
-        accounts: feeConfigBody.accounts.map((account: { id: string }) => ({
-          id: account.id,
-          feeProfileRef: zeroFeeProfile.id,
-        })),
+        accounts: [{ id: "acc-1", feeProfileId: zeroFeeProfile.id }],
         feeProfileBindings: [],
       },
     });
@@ -782,8 +754,6 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("applies per-symbol fee profile override before account fallback", async () => {
-    const settings = await app.inject({ method: "GET", url: "/settings" });
-    const settingsBody = settings.json();
     const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
     const feeConfigBody = feeConfig.json();
 
@@ -794,28 +764,22 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     const createdProfile = createdProfileResponse.json();
 
+    // ui-reshape Phase 3d S8 — `PUT /settings/full` retired. Per-symbol
+    // override is now set through PUT /settings/fee-config; account-level
+    // assignments are preserved verbatim.
     const saveFull = await app.inject({
       method: "PUT",
-      url: "/settings/full",
+      url: "/settings/fee-config",
       payload: {
-        settings: {
-          locale: settingsBody.locale,
-          costBasisMethod: settingsBody.costBasisMethod,
-          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-        },
-        feeProfiles: [
-          ...feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
-          { id: createdProfile.id, ...createdProfile },
-        ],
         accounts: feeConfigBody.accounts.map((account: { id: string; feeProfileId: string }) => ({
           id: account.id,
-          feeProfileRef: account.feeProfileId,
+          feeProfileId: account.feeProfileId,
         })),
         feeProfileBindings: [
           {
             accountId: feeConfigBody.accounts[0].id,
             ticker: "2330",
-            feeProfileRef: createdProfile.id,
+            feeProfileId: createdProfile.id,
           },
         ],
       },
@@ -835,8 +799,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("accepts decimal unit prices for ETF trades and computes correct cost basis", async () => {
-    const feeConfig = await app.inject({ method: "GET", url: "/settings/fee-config" });
-    const feeConfigBody = feeConfig.json();
+    // ui-reshape Phase 3d S8 — `PUT /settings/full` retired; see note above.
     const zeroFeeProfileResponse = await app.inject({
       method: "POST",
       url: "/fee-profiles",
@@ -844,25 +807,11 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     const zeroFeeProfile = zeroFeeProfileResponse.json();
 
-    const settings = await app.inject({ method: "GET", url: "/settings" });
-    const settingsBody = settings.json();
     await app.inject({
       method: "PUT",
-      url: "/settings/full",
+      url: "/settings/fee-config",
       payload: {
-        settings: {
-          locale: settingsBody.locale,
-          costBasisMethod: settingsBody.costBasisMethod,
-          quotePollIntervalSeconds: settingsBody.quotePollIntervalSeconds,
-        },
-        feeProfiles: [
-          ...feeConfigBody.feeProfiles.map((profile: { id: string } & Record<string, unknown>) => ({ ...profile })),
-          { id: zeroFeeProfile.id, ...zeroFeeProfile },
-        ],
-        accounts: feeConfigBody.accounts.map((account: { id: string }) => ({
-          id: account.id,
-          feeProfileRef: zeroFeeProfile.id,
-        })),
+        accounts: [{ id: "acc-1", feeProfileId: zeroFeeProfile.id }],
         feeProfileBindings: [],
       },
     });

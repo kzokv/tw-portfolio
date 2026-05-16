@@ -495,6 +495,16 @@ export interface AppDictionary {
     profileSavingEmail: string;
     profileEmailSaved: string;
     profileEmailError: string;
+    // Phase 3d S5 (A7) — display-name + picture URL confirmation copy.
+    profilePictureUrlLabel: string;
+    profilePictureUrlPlaceholder: string;
+    profilePictureUrlInvalid: string;
+    profileFieldChangeConfirmTitle: string;
+    profileFieldChangeConfirmBody: string;
+    profilePictureChangeConfirmTitle: string;
+    profilePictureChangeConfirmBody: string;
+    profileConfirmSave: string;
+    profileConfirmCancel: string;
     tabTickers: string;
     tickersSectionTitle: string;
     tickersSectionDescription: string;
@@ -580,6 +590,10 @@ export interface AppDictionary {
     displayDensityDescription: string;
     displayDensityCompact: string;
     displayDensityComfortable: string;
+    // Phase 3d S4 (A5) — language row + Calculations subsection on /settings/display
+    settingsDisplayLanguageLabel: string;
+    settingsDisplayCalculationsLabel: string;
+    settingsDisplayCalculationsDescription: string;
     // KZO-162 — per-page reset buttons (4 always-visible buttons in Display tab).
     resetAllLayoutsButton: string;
     resetDashboardLayoutButton: string;
