@@ -21,7 +21,7 @@
 | 8 | Mobile breakpoints | sm/md/lg all gate Phase 3 | Aligns with design-doc §1 ("responsive everywhere"). |
 | 9 | ⌘K "Add transaction" | Opens a Dialog overlay mounted in AppShell that renders `AddTransactionCard` with its own form state | Keeps quick-add accessible from any page. Separate from inline dashboard instance (which keeps its own draft until Phase 5). |
 | 10 | TopBar chrome | Rebuild `NotificationBell` (shadcn `Popover`) + `ProfileMenu` (`DropdownMenu` + `Avatar`) | Phase 3 is the right time. Avatar primitive (Wave B) consolidates `UserAvatarButton`'s hand-rolled initials/picture/error-fallback logic. |
-| 11 | Avatar dropdown | Header (name + email) + Profile link + Settings link + Theme switcher + Sign out. Role-gated Admin link preserved when `role === "admin"` | Matches existing testids (`avatar-menu-settings`, `avatar-menu-admin`); just retargets Settings to `/settings`. |
+| 11 | Avatar dropdown | Identity-only: Header (name + email) + Profile link + Theme switcher + Sign out. Role-gated Admin link preserved when `role === "admin"`. **NO Settings link.** Settings is sidebar-only. | Avatar is for identity actions; configuration belongs in the sidebar nav. Retires existing `avatar-menu-settings` testid. |
 | 12 | Save model | **Auto-save by default** (debounced on blur). **Explicit confirmation required for sensitive ops:** account currency/fee-profile change, profile fields (display name + picture), monitored tickers add/remove, account delete/restore/purge | Today's UnsavedChangesFooter + single Save button retire. Per-field commits via PATCH endpoints. |
 | 13 | Validation failure | Optimistic UI: keep invalid input visible with inline error; previous valid value persists in DB until input becomes valid | User keeps typing freely. No aggressive revert. No stuck-invalid-state in DB. |
 | 14 | Search UX | Inline type-in-place search panel stays in `TopBar` (today's pattern). ⌘K opens a separate modal `CommandDialog` sharing the same search index | Both UIs over one data source. Inline = quick filtering; modal = keyboard-first + action commands. |
@@ -31,6 +31,9 @@
 | 18 | Mobile sidebar trigger | Brand/logo doubles as trigger on `<md`. On `≥md`, brand routes to `/dashboard` | Cleaner TopBar — no separate hamburger icon. Same element, different click behavior gated by `useViewport()`. |
 | 19 | Mobile settings inner nav | Top dropdown/select with section labels; content fills screen | Familiar pattern; works with keyboard + screen readers; avoids nested-Sheet cognitive load. |
 | 20 | Sub-phase sequencing | 3a (primitives) → 3b (renderSection extraction, no visual) → 3c (new shell) → 3d (settings routes) → 3e (⌘K) → 3f (admin shell mirror) → 3g (mobile gate) | 3b is the load-bearing prerequisite the scope-todo omits. Sequencing keeps each commit independently verifiable. |
+| 21 | Breadcrumb fallback | Static pathname-to-title map in `apps/web/lib/breadcrumb-titles.ts`; pages override via `useBreadcrumb([...])` hook. Always renders something | Prevents missing breadcrumbs during per-page rollout. Map starts with all known routes (Dashboard, Portfolio, Transactions, Cash ledger, Dividends, Sharing, Tickers, Settings, Admin) and per-section admin routes. |
+| 22 | Inline search + ⌘K interaction | Pressing ⌘K while typing in the inline panel dismisses the inline panel and opens the modal `CommandDialog` pre-filled with the same query | Smooth handoff. Implementation: inline panel reads from same query state; ⌘K transfers state + closes inline + opens modal in one effect. |
+| 23 | PortfolioSwitcher placement | Sidebar header, BELOW brand link (Vakwen logo on top, switcher under it). Renders only when user has ≥1 inbound share. | Standard pattern (GitHub org switcher, Linear workspace switcher). Switcher is a "sub-context" under the persistent brand identity. Removes from TopBar (frees space for breadcrumb + search + ⌘K + chrome). |
 
 ---
 
@@ -264,10 +267,11 @@ Per `.claude/rules/playwright-page-object-testid-drift.md`.
 - `profile-menu-content`
 - `profile-menu-header` (name + email)
 - `profile-menu-profile-link` → `/settings/profile`
-- `profile-menu-settings-link` → `/settings` (preserves `avatar-menu-settings` legacy testid via `aria-label`)
 - `profile-menu-admin-link` → `/admin` (role-gated; preserves `avatar-menu-admin`)
 - `profile-menu-theme-light`, `profile-menu-theme-system`, `profile-menu-theme-dark`
 - `profile-menu-sign-out`
+
+**Note:** Existing `avatar-menu-settings` testid retires per Decision #11 — Settings is sidebar-only. Specs that reference `avatar-menu-settings` get updated in 3d alongside the drawer retirement; in 3c, the testid is removed from `ProfileMenu` and any spec still using it fails fast (acceptable because 3c precedes 3d and the drawer is still reachable from the new sidebar's Settings link).
 
 ### NotificationBell
 - `notification-bell-button`
