@@ -11,7 +11,6 @@ import {
   BreadcrumbItem as ShadBreadcrumbItem,
   BreadcrumbLink as ShadBreadcrumbLink,
   BreadcrumbList as ShadBreadcrumbList,
-  BreadcrumbPage as ShadBreadcrumbPage,
   BreadcrumbSeparator as ShadBreadcrumbSeparator,
 } from "../ui/shadcn/breadcrumb";
 
@@ -55,9 +54,28 @@ export function Breadcrumb() {
             <ShadBreadcrumbItem
               key={`${item.label}-${index}`}
               data-testid={`breadcrumb-item-${index}`}
+              // Stamp aria-current on the <li> for the active page so QA
+              // can locate it via testid + attribute without descending
+              // into shadcn's BreadcrumbPage <span>. shadcn's page <span>
+              // ALSO carries aria-current="page" for a11y; duplicating
+              // on the <li> is harmless and unblocks the
+              // `breadcrumbItemIsCurrentPage(index)` assertion.
+              aria-current={isLast ? "page" : undefined}
             >
               {isLast ? (
-                <ShadBreadcrumbPage>{item.label}</ShadBreadcrumbPage>
+                // Don't use shadcn `BreadcrumbPage` here — it stamps
+                // aria-current="page" on its inner <span>, which would
+                // collide with the aria-current we set on the <li> above
+                // (Playwright strict mode complains when 2 descendants
+                // match). The <li>'s aria-current is the single anchor
+                // for QA's `breadcrumbItemIsCurrentPage(index)` helper.
+                <span
+                  role="link"
+                  aria-disabled="true"
+                  className="font-normal text-foreground"
+                >
+                  {item.label}
+                </span>
               ) : item.href ? (
                 <ShadBreadcrumbLink asChild>
                   <Link href={item.href}>{item.label}</Link>

@@ -166,7 +166,16 @@ export function AppSidebar({
           onClick={() => {
             if (isMobile) setOpenMobile(false);
           }}
-          data-testid={isMobile ? undefined : "app-sidebar-brand"}
+          // The `app-sidebar-brand` testid lives ONLY on the TopBar mobile
+          // brand button (rendered when isMobile) — it is the mobile-nav
+          // toggle anchor. The in-Sidebar brand link here is a distinct
+          // element with its own testid so the page-object's
+          // `mobileNavToggle` locator returns false on desktop viewports.
+          // Were both elements to share `app-sidebar-brand`, a desktop
+          // `isVisible()` check would resolve true here and clicking would
+          // navigate to `/dashboard`, breaking helpers like
+          // `openSettingsDrawer` that conditionally tap the mobile toggle.
+          data-testid="app-sidebar-brand-link"
           className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-sidebar-accent"
           aria-label={isMobile ? `${productName} — close menu and go home` : `${productName} — go to dashboard`}
         >
