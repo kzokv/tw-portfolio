@@ -34,6 +34,7 @@ export interface TAppShellElements extends TElementLocatorHelpers {
   adminMetadataEnrichmentModeSelect: Locator;
   adminMetadataEnrichmentModeSave: Locator;
   adminMetadataEnrichmentModeEffective: Locator;
+  htmlRoot: Locator;
 }
 
 export class AppShellPage extends BasePage<TAppShellElements> {
@@ -99,6 +100,7 @@ export class AppShellPage extends BasePage<TAppShellElements> {
         "admin-settings-metadata-enrichment-mode-effective",
         "Admin Metadata Enrichment Mode Effective Value",
       ),
+      htmlRoot: this.withDescription(this.page.locator("html"), "HTML Root Element"),
     };
   }
 }
