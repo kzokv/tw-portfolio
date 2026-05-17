@@ -29,5 +29,7 @@ export const DASHBOARD_CARDS: ReadonlyArray<DashboardCard> = [
   { slug: "return-percent", fullWidth: false },
   { slug: "holdings-table", fullWidth: true },
   { slug: "dividends-section", fullWidth: true },
-  { slug: "action-center", fullWidth: true },
+  // Phase 5e — action-center removed; recompute/generate-snapshots moved
+  // to FloatingQuickActions (rendered by AppShell on /dashboard).
+  // mergeCardOrder drops the slug from existing user preferences.
 ] as const;

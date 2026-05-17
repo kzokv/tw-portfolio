@@ -5,13 +5,14 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type {
   DashboardPerformanceDto,
   DashboardOverviewHoldingDto,
-  DashboardOverviewSummaryDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
-import { SummarySection } from "../../../components/dashboard/SummarySection";
+// Phase 5d — SummarySection deleted; the dashboard hero is now a slim
+// 2-metric layout (DashboardHero + BiggestMoversCard). Tile-order behavior
+// no longer exists; the obsolete test below is also removed.
 import { AddTransactionCard } from "../../../components/portfolio/AddTransactionCard";
 import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
@@ -19,22 +20,7 @@ import { getDictionary } from "../../../lib/i18n";
 
 const dict = getDictionary("en");
 
-const summary: DashboardOverviewSummaryDto = {
-  asOf: "2026-03-13T00:00:00.000Z",
-  accountCount: 3,
-  holdingCount: 7,
-  totalCostAmount: 1_200_000,
-  // KZO-180: reportingCurrency replaces broken-by-design totalCostCurrency.
-  reportingCurrency: "TWD",
-  fxStatus: "complete",
-  marketValueAmount: 1_260_000,
-  unrealizedPnlAmount: 60_000,
-  dailyChangeAmount: 1_200,
-  dailyChangePercent: 0.0952,
-  upcomingDividendCount: 2,
-  upcomingDividendAmount: 3_500,
-  openIssueCount: 0,
-};
+// Phase 5d — `summary` fixture removed alongside SummarySection deletion.
 
 const holdings: DashboardOverviewHoldingDto[] = [
   {
@@ -138,15 +124,10 @@ describe("dashboard components", () => {
     container = null;
   });
 
-  it("renders summary cards in the requested order", () => {
-    const html = renderToStaticMarkup(<SummarySection summary={summary} dict={dict} locale="en" />);
-
-    expect(html.indexOf("Market Value")).toBeLessThan(html.indexOf("Unrealized P&amp;L"));
-    expect(html.indexOf("Unrealized P&amp;L")).toBeLessThan(html.indexOf("Upcoming Dividends"));
-    expect(html.indexOf("Upcoming Dividends")).toBeLessThan(html.indexOf("Total Cost"));
-    expect(html.indexOf("Total Cost")).toBeLessThan(html.indexOf("Open Positions"));
-    expect(html.indexOf("Open Positions")).toBeLessThan(html.indexOf("Accounts"));
-  });
+  // Phase 5d — "renders summary cards in the requested order" removed.
+  // The 7-tile SummarySection was deleted; the new DashboardHero is a
+  // slim 2-card layout (total + day Δ). Hero rendering is covered by
+  // the new E2E spec in Phase 5f (commit 5f).
 
   it("renders holdings with a current-price column and history link", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);

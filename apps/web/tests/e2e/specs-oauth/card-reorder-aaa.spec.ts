@@ -29,14 +29,15 @@ function apiPath(path: string): string {
   return new URL(path, TestEnv.apiBaseUrl).href;
 }
 
-/** Canonical slug order from DASHBOARD_CARDS (design doc §F5). */
+/** Canonical slug order from DASHBOARD_CARDS (design doc §F5).
+ *  Phase 5e removed the action-center card — recompute/snapshots moved to
+ *  FloatingQuickActions; mergeCardOrder drops the slug from user prefs. */
 const CANONICAL_SLUGS = [
   "portfolio-trend",
   "allocation-snapshot",
   "return-percent",
   "holdings-table",
   "dividends-section",
-  "action-center",
 ] as const;
 
 // ── Context-isolated helpers ──────────────────────────────────────────────────
@@ -299,7 +300,6 @@ test.describe("card reorder (KZO-161 F5)", () => {
       "return-percent",
       "holdings-table",
       "dividends-section",
-      "action-center",
     ]);
   });
 
