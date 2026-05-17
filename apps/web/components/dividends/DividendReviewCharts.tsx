@@ -11,7 +11,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer,
 } from "recharts";
 import type { CurrencyExpectedReceived } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
@@ -23,6 +22,7 @@ import {
   formatYAxis,
   type Granularity,
 } from "./dividendReviewUtils";
+import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 
 interface DividendReviewChartsProps {
   byMonth: Record<string, CurrencyExpectedReceived>;
@@ -33,8 +33,21 @@ interface DividendReviewChartsProps {
 
 type ChartTab = "monthly" | "accumulated" | "byTicker";
 
-const EXPECTED_COLOR = "#0ea5e9"; // sky-500
-const RECEIVED_COLOR = "#22c55e"; // green-500
+// Token-bound chart series colors. ChartContainer injects these as
+// CSS custom properties (`--color-expected` / `--color-received`) scoped
+// to the chart instance, so consumers reference via `var(--color-…)`.
+function buildChartConfig(dict: AppDictionary): ChartConfig {
+  return {
+    expected: {
+      label: dict.dividends.review.chart.expected,
+      color: "hsl(var(--chart-expected))",
+    },
+    received: {
+      label: dict.dividends.review.chart.received,
+      color: "hsl(var(--chart-received))",
+    },
+  };
+}
 
 function CurrencySelector({
   currencies,
@@ -127,6 +140,7 @@ function MonthlyBarChart({
     }
   }, [defaultGranularity]);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const chartConfig = useMemo(() => buildChartConfig(dict), [dict]);
 
   const data = useMemo(() => {
     const bucketed = bucketByGranularity(byMonth, granularity);
@@ -156,9 +170,13 @@ function MonthlyBarChart({
         <GranularityToggle value={granularity} onChange={setGranularity} dict={dict} />
         <CurrencySelector currencies={currencies} selected={currency} onChange={setCurrency} />
       </div>
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={data} data-testid="monthly-bar-chart">
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+      <ChartContainer
+        config={chartConfig}
+        className="h-[300px] w-full aspect-auto"
+        data-testid="monthly-bar-chart"
+      >
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="label" tick={{ fontSize: 12 }} />
           <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 12 }} />
           <Tooltip formatter={(value) => Number(value).toLocaleString()} />
@@ -166,17 +184,17 @@ function MonthlyBarChart({
           <Bar
             dataKey="expected"
             name={dict.dividends.review.chart.expected}
-            fill={EXPECTED_COLOR}
+            fill="var(--color-expected)"
             hide={hiddenSeries.has(dict.dividends.review.chart.expected)}
           />
           <Bar
             dataKey="received"
             name={dict.dividends.review.chart.received}
-            fill={RECEIVED_COLOR}
+            fill="var(--color-received)"
             hide={hiddenSeries.has(dict.dividends.review.chart.received)}
           />
         </BarChart>
-      </ResponsiveContainer>
+      </ChartContainer>
     </div>
   );
 }
@@ -205,6 +223,7 @@ function AccumulatedAreaChart({
     }
   }, [defaultGranularity]);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const chartConfig = useMemo(() => buildChartConfig(dict), [dict]);
 
   const data = useMemo(() => {
     const bucketed = bucketByGranularity(byMonth, granularity);
@@ -248,9 +267,13 @@ function AccumulatedAreaChart({
         <GranularityToggle value={granularity} onChange={setGranularity} dict={dict} />
         <CurrencySelector currencies={currencies} selected={currency} onChange={setCurrency} />
       </div>
-      <ResponsiveContainer width="100%" height={300}>
-        <AreaChart data={data} data-testid="accumulated-area-chart">
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+      <ChartContainer
+        config={chartConfig}
+        className="h-[300px] w-full aspect-auto"
+        data-testid="accumulated-area-chart"
+      >
+        <AreaChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="label" tick={{ fontSize: 12 }} />
           <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 12 }} />
           <Tooltip formatter={(value) => Number(value).toLocaleString()} />
@@ -259,8 +282,8 @@ function AccumulatedAreaChart({
             type="monotone"
             dataKey="expected"
             name={dict.dividends.review.chart.expected}
-            stroke={EXPECTED_COLOR}
-            fill={EXPECTED_COLOR}
+            stroke="var(--color-expected)"
+            fill="var(--color-expected)"
             fillOpacity={0.2}
             hide={hiddenSeries.has(dict.dividends.review.chart.expected)}
           />
@@ -268,13 +291,13 @@ function AccumulatedAreaChart({
             type="monotone"
             dataKey="received"
             name={dict.dividends.review.chart.received}
-            stroke={RECEIVED_COLOR}
-            fill={RECEIVED_COLOR}
+            stroke="var(--color-received)"
+            fill="var(--color-received)"
             fillOpacity={0.2}
             hide={hiddenSeries.has(dict.dividends.review.chart.received)}
           />
         </AreaChart>
-      </ResponsiveContainer>
+      </ChartContainer>
     </div>
   );
 }
@@ -295,6 +318,7 @@ function ByTickerBarChart({
     }
   }, [currencies]);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const chartConfig = useMemo(() => buildChartConfig(dict), [dict]);
 
   const data = useMemo(() => {
     return Object.entries(byTicker)
@@ -328,9 +352,13 @@ function ByTickerBarChart({
       <div className="flex flex-wrap items-center gap-2">
         <CurrencySelector currencies={currencies} selected={currency} onChange={setCurrency} />
       </div>
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={data} data-testid="by-ticker-bar-chart">
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+      <ChartContainer
+        config={chartConfig}
+        className="h-[300px] w-full aspect-auto"
+        data-testid="by-ticker-bar-chart"
+      >
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="label" tick={{ fontSize: 12 }} />
           <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 12 }} />
           <Tooltip formatter={(value) => Number(value).toLocaleString()} />
@@ -338,17 +366,17 @@ function ByTickerBarChart({
           <Bar
             dataKey="expected"
             name={dict.dividends.review.chart.expected}
-            fill={EXPECTED_COLOR}
+            fill="var(--color-expected)"
             hide={hiddenSeries.has(dict.dividends.review.chart.expected)}
           />
           <Bar
             dataKey="received"
             name={dict.dividends.review.chart.received}
-            fill={RECEIVED_COLOR}
+            fill="var(--color-received)"
             hide={hiddenSeries.has(dict.dividends.review.chart.received)}
           />
         </BarChart>
-      </ResponsiveContainer>
+      </ChartContainer>
     </div>
   );
 }
