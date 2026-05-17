@@ -8,6 +8,7 @@ import type { TransactionPatch } from "../../features/portfolio/hooks/useTransac
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { Card } from "../ui/Card";
 import { EditableTransactionRow } from "./EditableTransactionRow";
+import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
 
 interface TransactionHistoryTableProps {
   transactions: TransactionHistoryItemDto[];
@@ -33,89 +34,88 @@ export function TransactionHistoryTable({
   recomputingIds,
 }: TransactionHistoryTableProps) {
   const hasMutationActions = !!(onDeleteRequest || onEditStart);
+  const isSmallScreen = useIsSmallScreen();
 
   if (transactions.length === 0) {
     return (
       <Card data-testid="ticker-history-empty">
-        <p className="text-sm leading-6 text-slate-300">{dict.tickerHistory.emptyState}</p>
+        <p className="text-sm leading-6 text-muted-foreground">{dict.tickerHistory.emptyState}</p>
       </Card>
     );
   }
 
   return (
     <Card data-testid="ticker-history-table-section">
-      <div className="hidden overflow-x-auto overflow-y-hidden rounded-[22px] border border-slate-200 bg-white/92 lg:block">
-        <table className="min-w-[1080px] border-collapse text-sm text-slate-700" data-testid="ticker-history-table">
-          <thead>
-            <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.tradeDateLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.transactions.typeTerm}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.transactions.quantityTerm}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.commissionLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.taxLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.feeProfileLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.bookedAtLabel}</th>
-              {hasMutationActions && (
-                <th className="px-4 py-3 text-center font-medium">{dict.mutations.actionsColumnLabel}</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {transactions.map((transaction) => {
-              const isEditing = editingId === transaction.id;
-              const isRecomputing = recomputingIds?.has(transaction.id);
+      {/* Phase 4 — single-DOM responsive (drops legacy `lg:hidden` mobile cards).
+          Card-stack at <sm via useIsSmallScreen; scroll + sticky-date at <md
+          otherwise. Same `transaction-row` / `editable-transaction-row` /
+          `edit-transaction-button` / `delete-transaction-button` testids in
+          both renderings — only one variant is in DOM at a time. */}
+      {isSmallScreen ? (
+        <div className="grid gap-3">
+          {transactions.map((transaction) => {
+            const isEditing = editingId === transaction.id;
+            const isRecomputing = recomputingIds?.has(transaction.id);
 
-              if (isEditing && onEditSave && onEditCancel) {
-                return (
-                  <tr key={transaction.id} className="border-b border-slate-200 last:border-0 bg-indigo-50/40" data-testid="editable-transaction-row">
-                    <EditableTransactionRow
-                      transaction={transaction}
-                      locale={locale}
-                      dict={dict}
-                      onSave={(patch) => onEditSave(transaction.id, patch)}
-                      onCancel={onEditCancel}
-                    />
-                  </tr>
-                );
-              }
+            return (
+              <article
+                key={transaction.id}
+                className={cn(
+                  "rounded-xl border border-border bg-card p-4",
+                  isRecomputing && "opacity-40",
+                )}
+                data-testid={isEditing ? "editable-transaction-row" : "transaction-row"}
+              >
+                {isEditing && onEditSave && onEditCancel ? (
+                  <EditableTransactionRow
+                    transaction={transaction}
+                    locale={locale}
+                    dict={dict}
+                    onSave={(patch) => onEditSave(transaction.id, patch)}
+                    onCancel={onEditCancel}
+                    isMobile
+                  />
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-foreground">{transaction.ticker}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{formatDateLabel(transaction.tradeDate, locale)}</p>
+                      </div>
+                      <TypePill type={transaction.type} />
+                    </div>
 
-              return (
-                <tr
-                  key={transaction.id}
-                  className={cn(
-                    "border-b border-slate-200 last:border-0",
-                    isRecomputing && "opacity-40",
-                  )}
-                  data-testid="transaction-row"
-                >
-                  <td className="px-4 py-4">{formatDateLabel(transaction.tradeDate, locale)}</td>
-                  <td className="px-4 py-4 text-slate-600">{transaction.accountId}</td>
-                  <td className="px-4 py-4">
-                    <TypePill type={transaction.type} />
-                  </td>
-                  <td className="px-4 py-4 text-right">{formatNumber(transaction.quantity, locale)}</td>
-                  <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}</td>
-                  <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}</td>
-                  <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}</td>
-                  <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(transaction.realizedPnlAmount))}>
-                    {transaction.realizedPnlAmount === null
-                      ? dict.tickerHistory.noRealizedPnl
-                      : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
-                  </td>
-                  <td className="px-4 py-4 text-slate-600">{transaction.feeProfileName}</td>
-                  <td className="px-4 py-4 text-slate-600">
-                    {transaction.bookedAt ? formatDateLabel(transaction.bookedAt, locale) : dict.tickerHistory.noRealizedPnl}
-                  </td>
-                  {hasMutationActions && (
-                    <td className="px-4 py-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <HistoryDetail label={dict.holdings.accountTerm} value={transaction.accountId} />
+                      <HistoryDetail label={dict.transactions.quantityTerm} value={formatNumber(transaction.quantity, locale)} />
+                      <HistoryDetail
+                        label={dict.transactions.unitPriceTerm}
+                        value={formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}
+                      />
+                      <HistoryDetail
+                        label={dict.tickerHistory.commissionLabel}
+                        value={formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}
+                      />
+                      <HistoryDetail
+                        label={dict.tickerHistory.taxLabel}
+                        value={formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}
+                      />
+                      <HistoryDetail
+                        label={dict.tickerHistory.realizedPnlLabel}
+                        value={transaction.realizedPnlAmount === null
+                          ? dict.tickerHistory.noRealizedPnl
+                          : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
+                        valueClassName={getRealizedPnlTone(transaction.realizedPnlAmount)}
+                      />
+                      <HistoryDetail label={dict.tickerHistory.feeProfileLabel} value={transaction.feeProfileName} />
+                    </dl>
+
+                    {hasMutationActions && (
+                      <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
                         {onEditStart && (
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
                             title={dict.mutations.editTooltip}
                             onClick={() => onEditStart(transaction.id)}
                             disabled={isRecomputing}
@@ -127,7 +127,7 @@ export function TransactionHistoryTable({
                         {onDeleteRequest && (
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
                             title={dict.mutations.deleteTooltip}
                             onClick={() => onDeleteRequest(transaction)}
                             disabled={isRecomputing}
@@ -137,107 +137,116 @@ export function TransactionHistoryTable({
                           </button>
                         )}
                       </div>
+                    )}
+                  </>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card">
+          <table className="min-w-[1080px] border-collapse text-sm text-muted-foreground" data-testid="ticker-history-table">
+            <thead>
+              <tr className="bg-muted/50 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                <th className="sticky left-0 z-10 bg-muted/50 border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-3 text-left font-medium">{dict.tickerHistory.tradeDateLabel}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.transactions.typeTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.transactions.quantityTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.commissionLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.taxLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.feeProfileLabel}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.bookedAtLabel}</th>
+                {hasMutationActions && (
+                  <th className="px-4 py-3 text-center font-medium">{dict.mutations.actionsColumnLabel}</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((transaction) => {
+                const isEditing = editingId === transaction.id;
+                const isRecomputing = recomputingIds?.has(transaction.id);
+
+                if (isEditing && onEditSave && onEditCancel) {
+                  return (
+                    <tr key={transaction.id} className="border-b border-border last:border-0 bg-primary/5" data-testid="editable-transaction-row">
+                      <EditableTransactionRow
+                        transaction={transaction}
+                        locale={locale}
+                        dict={dict}
+                        onSave={(patch) => onEditSave(transaction.id, patch)}
+                        onCancel={onEditCancel}
+                      />
+                    </tr>
+                  );
+                }
+
+                return (
+                  <tr
+                    key={transaction.id}
+                    className={cn(
+                      "border-b border-border last:border-0",
+                      isRecomputing && "opacity-40",
+                    )}
+                    data-testid="transaction-row"
+                  >
+                    <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-4">{formatDateLabel(transaction.tradeDate, locale)}</td>
+                    <td className="px-4 py-4 text-muted-foreground">{transaction.accountId}</td>
+                    <td className="px-4 py-4">
+                      <TypePill type={transaction.type} />
                     </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid gap-3 lg:hidden">
-        {transactions.map((transaction) => {
-          const isEditing = editingId === transaction.id;
-          const isRecomputing = recomputingIds?.has(transaction.id);
-
-          return (
-            <article
-              key={transaction.id}
-              className={cn(
-                "rounded-[22px] border border-slate-200 bg-white/92 p-4",
-                isRecomputing && "opacity-40",
-              )}
-              data-testid="ticker-history-card"
-            >
-              {isEditing && onEditSave && onEditCancel ? (
-                <EditableTransactionRow
-                  transaction={transaction}
-                  locale={locale}
-                  dict={dict}
-                  onSave={(patch) => onEditSave(transaction.id, patch)}
-                  onCancel={onEditCancel}
-                  isMobile
-                />
-              ) : (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-base font-semibold text-slate-950">{transaction.ticker}</p>
-                      <p className="mt-1 text-sm text-slate-500">{formatDateLabel(transaction.tradeDate, locale)}</p>
-                    </div>
-                    <TypePill type={transaction.type} />
-                  </div>
-
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <HistoryDetail label={dict.holdings.accountTerm} value={transaction.accountId} />
-                    <HistoryDetail label={dict.transactions.quantityTerm} value={formatNumber(transaction.quantity, locale)} />
-                    <HistoryDetail
-                      label={dict.transactions.unitPriceTerm}
-                      value={formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}
-                    />
-                    <HistoryDetail
-                      label={dict.tickerHistory.commissionLabel}
-                      value={formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}
-                    />
-                    <HistoryDetail
-                      label={dict.tickerHistory.taxLabel}
-                      value={formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}
-                    />
-                    <HistoryDetail
-                      label={dict.tickerHistory.realizedPnlLabel}
-                      value={transaction.realizedPnlAmount === null
+                    <td className="px-4 py-4 text-right">{formatNumber(transaction.quantity, locale)}</td>
+                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}</td>
+                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}</td>
+                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}</td>
+                    <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(transaction.realizedPnlAmount))}>
+                      {transaction.realizedPnlAmount === null
                         ? dict.tickerHistory.noRealizedPnl
                         : formatCurrencyAmount(transaction.realizedPnlAmount, transaction.realizedPnlCurrency ?? transaction.priceCurrency, locale)}
-                      valueClassName={getRealizedPnlTone(transaction.realizedPnlAmount)}
-                    />
-                    <HistoryDetail label={dict.tickerHistory.feeProfileLabel} value={transaction.feeProfileName} />
-                  </dl>
-
-                  {hasMutationActions && (
-                    <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
-                      {onEditStart && (
-                        <button
-                          type="button"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
-                          title={dict.mutations.editTooltip}
-                          onClick={() => onEditStart(transaction.id)}
-                          disabled={isRecomputing}
-                          data-testid="edit-transaction-button"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                      )}
-                      {onDeleteRequest && (
-                        <button
-                          type="button"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
-                          title={dict.mutations.deleteTooltip}
-                          onClick={() => onDeleteRequest(transaction)}
-                          disabled={isRecomputing}
-                          data-testid="delete-transaction-button"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </article>
-          );
-        })}
-      </div>
+                    </td>
+                    <td className="px-4 py-4 text-muted-foreground">{transaction.feeProfileName}</td>
+                    <td className="px-4 py-4 text-muted-foreground">
+                      {transaction.bookedAt ? formatDateLabel(transaction.bookedAt, locale) : dict.tickerHistory.noRealizedPnl}
+                    </td>
+                    {hasMutationActions && (
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {onEditStart && (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+                              title={dict.mutations.editTooltip}
+                              onClick={() => onEditStart(transaction.id)}
+                              disabled={isRecomputing}
+                              data-testid="edit-transaction-button"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          )}
+                          {onDeleteRequest && (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                              title={dict.mutations.deleteTooltip}
+                              onClick={() => onDeleteRequest(transaction)}
+                              disabled={isRecomputing}
+                              data-testid="delete-transaction-button"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 }
@@ -245,15 +254,15 @@ export function TransactionHistoryTable({
 function HistoryDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className={cn("mt-1 text-sm font-medium text-slate-900", valueClassName)}>{value}</dd>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
+      <dd className={cn("mt-1 text-sm font-medium text-foreground", valueClassName)}>{value}</dd>
     </div>
   );
 }
 
 function getRealizedPnlTone(value: number | null): string {
   if (value === null) {
-    return "text-slate-900";
+    return "text-foreground";
   }
   if (value > 0) {
     return "text-emerald-600";
@@ -261,7 +270,7 @@ function getRealizedPnlTone(value: number | null): string {
   if (value < 0) {
     return "text-rose-600";
   }
-  return "text-slate-900";
+  return "text-foreground";
 }
 
 function TypePill({ type }: { type: TransactionHistoryItemDto["type"] }) {

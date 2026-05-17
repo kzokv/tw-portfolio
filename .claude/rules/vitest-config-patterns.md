@@ -188,3 +188,44 @@ alias: {
 **Why:** Vite processes string aliases in object insertion order. First match wins.
 
 **How to apply:** In `apps/web/vitest.config.ts`, always list longer subpath aliases before the bare alias. Same rule applies to any package with subpath exports that share a prefix.
+
+---
+
+## jsdom matchMedia Stub for Responsive-Hook Components
+
+Any component that consumes a media-query hook (`useIsMobile`, `useIsSmallScreen`, or any other hook built on `window.matchMedia`) cannot mount under vitest+jsdom without a `matchMedia` stub. jsdom does NOT implement `window.matchMedia`; mounting such a component throws `TypeError: window.matchMedia is not a function` during the hook's `useEffect`.
+
+The stub is project-wide and lives in `apps/web/test/setup/react-global.ts`:
+
+```ts
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: false,            // jsdom defaults to "desktop" — components
+                                 // render the non-mobile branch in tests.
+      media: query,
+      onchange: null,
+      addEventListener: (): void => {},
+      removeEventListener: (): void => {},
+      addListener: (): void => {},
+      removeListener: (): void => {},
+      dispatchEvent: (): boolean => false,
+    }),
+  });
+}
+```
+
+**Implications for component-test assertions:**
+
+1. With `matches: false`, `useIsMobile` / `useIsSmallScreen` always return `false` in tests → only the desktop / wide branch renders. Mobile / card-stack branches are not exercised in vitest.
+2. Real responsive behavior must be validated by Playwright in mobile-viewport projects (`chromium-mobile` / `chromium-tablet`) — see `apps/web/tests/e2e/playwright.config.ts`.
+3. Tests asserting on testids that exist only in one branch must match what `matches: false` produces (the desktop branch).
+
+If a test needs to exercise the mobile branch in jsdom, override the stub locally for that test using `vi.stubGlobal("matchMedia", ...)` returning `matches: true`.
+
+**Why:** Discovered in Phase 4 of `ui-reshape-shadcn` (`apps/web/components/ui/DataTable.tsx`) — the wrapper uses `useIsSmallScreen` to switch between desktop table and mobile card-stack. Without the stub, all DataTable unit tests crashed before any assertion ran. The stub is a no-op for components that DON'T use matchMedia.
+
+**How to apply:** New components consuming a matchMedia-backed hook work automatically because the stub is project-wide. When adding a NEW hook of this class to `apps/web/lib/hooks/`, document the jsdom seam in the hook file header (matchMedia defaults to non-matching, so the "wide" branch is what tests exercise) so future test authors know which branch they're covering.
+
+**Canonical reference:** `apps/web/test/setup/react-global.ts`, `apps/web/test/components/ui/DataTable.test.tsx`.

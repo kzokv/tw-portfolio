@@ -72,143 +72,81 @@ export function HoldingsTable({ holdings, dict, locale, recomputingSymbols, show
         />
       </div>
 
+      {/* Phase 4 — single-DOM table (drops legacy `lg:hidden` mobile cards).
+          Scroll + sticky-ticker first column at narrow viewports per scope-grill
+          (dense numerics — users zoom/scroll on phones). */}
       {filteredHoldings.length === 0 ? (
-        <div className="mt-6 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-8 text-sm text-slate-600">
+        <div className="mt-6 rounded-xl border border-dashed border-border bg-muted/30 px-5 py-8 text-sm text-muted-foreground">
           {dict.dashboardHome.holdingsEmpty}
         </div>
       ) : (
-        <>
-          <div
-            className="mt-6 hidden overflow-x-auto overflow-y-hidden rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block"
-            data-testid="holdings-table-scroll"
-          >
-            <table className="min-w-[1120px] border-collapse text-sm text-slate-700" data-testid="holdings-table">
-              <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-4 py-3 text-left font-medium">{dict.holdings.tickerTerm}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.currentPriceLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.dailyChangeLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.marketValueLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.unrealizedPnlLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.holdings.totalCostTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.allocationLabel}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.dashboardHome.nextDividendLabel}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.dashboardHome.lastDividendLabel}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredHoldings.map((holding) => (
-                  <tr key={`${holding.accountId}-${holding.ticker}`} className={cn("border-b border-slate-200 last:border-0", recomputingSymbols?.has(`${holding.accountId}:${holding.ticker}`) && "animate-pulse opacity-40")}>
-                    <td className="px-4 py-4 font-semibold tracking-[0.12em] text-slate-950">
-                      <HoldingHistoryLink holding={holding}>{holding.ticker}</HoldingHistoryLink>
-                    </td>
-                    <td className="px-4 py-4 text-slate-600">{holding.accountId}</td>
-                    <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
-                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}</td>
-                    <td className={cn("px-4 py-4 text-right font-medium", getCurrentPriceTone(holding))}>
-                      <span className="inline-flex items-center justify-end gap-1.5">
-                        {holding.currentUnitPrice === null
-                          ? "-"
-                          : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
-                        {showFreshnessBadge && holding.freshness !== "current" && (
-                          <FreshnessBadge holding={holding} />
+        <div
+          className="mt-6 overflow-x-auto overflow-y-hidden rounded-xl border border-border bg-card"
+        >
+          <table className="min-w-[1120px] border-collapse text-sm text-muted-foreground" data-testid="holdings-table">
+            <thead>
+              <tr className="bg-muted/50 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                <th className="sticky left-0 z-10 bg-muted/50 border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-3 text-left font-medium">{dict.holdings.tickerTerm}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.currentPriceLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.dailyChangeLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.marketValueLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.unrealizedPnlLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.holdings.totalCostTerm}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.allocationLabel}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.dashboardHome.nextDividendLabel}</th>
+                <th className="px-4 py-3 text-left font-medium">{dict.dashboardHome.lastDividendLabel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredHoldings.map((holding) => (
+                <tr key={`${holding.accountId}-${holding.ticker}`} className={cn("border-b border-border last:border-0", recomputingSymbols?.has(`${holding.accountId}:${holding.ticker}`) && "animate-pulse opacity-40")}>
+                  <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-4 font-semibold tracking-[0.12em] text-foreground">
+                    <HoldingHistoryLink holding={holding}>{holding.ticker}</HoldingHistoryLink>
+                  </td>
+                  <td className="px-4 py-4 text-muted-foreground">{holding.accountId}</td>
+                  <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
+                  <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}</td>
+                  <td className={cn("px-4 py-4 text-right font-medium", getCurrentPriceTone(holding))}>
+                    <span className="inline-flex items-center justify-end gap-1.5">
+                      {holding.currentUnitPrice === null
+                        ? "-"
+                        : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
+                      {showFreshnessBadge && holding.freshness !== "current" && (
+                        <FreshnessBadge holding={holding} />
+                      )}
+                    </span>
+                  </td>
+                  <td className={cn("px-4 py-4 text-right font-medium", getDailyChangeTone(holding.change))}>
+                    {holding.quoteStatus === "missing" ? (
+                      <span className="text-amber-600">{dict.dashboardHome.quoteStatusMissing}</span>
+                    ) : holding.change !== null ? (
+                      <span>
+                        {formatCurrencyAmount(holding.change, holding.currency, locale)}
+                        {holding.changePercent !== null && (
+                          <span className="ml-1 text-xs">({formatPercent(holding.changePercent, locale)})</span>
                         )}
+                        {holding.quoteStatus === "provisional" && <span className="ml-1 text-muted-foreground" title={dict.dashboardHome.quoteStatusProvisional}>⏱</span>}
                       </span>
-                    </td>
-                    <td className={cn("px-4 py-4 text-right font-medium", getDailyChangeTone(holding.change))}>
-                      {holding.quoteStatus === "missing" ? (
-                        <span className="text-amber-600">{dict.dashboardHome.quoteStatusMissing}</span>
-                      ) : holding.change !== null ? (
-                        <span>
-                          {formatCurrencyAmount(holding.change, holding.currency, locale)}
-                          {holding.changePercent !== null && (
-                            <span className="ml-1 text-xs">({formatPercent(holding.changePercent, locale)})</span>
-                          )}
-                          {holding.quoteStatus === "provisional" && <span className="ml-1 text-slate-400" title={dict.dashboardHome.quoteStatusProvisional}>⏱</span>}
-                        </span>
-                      ) : "-"}
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      {holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
-                    </td>
-                    <td className={cn("px-4 py-4 text-right font-medium", getUnrealizedPnlTone(holding.unrealizedPnlAmount))}>
-                      {holding.unrealizedPnlAmount === null ? "-" : formatCurrencyAmount(holding.unrealizedPnlAmount, holding.currency, locale)}
-                    </td>
-                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}</td>
-                    <td className="px-4 py-4 text-right">{holding.allocationPct !== null ? formatPercent(holding.allocationPct, locale) : "-"}</td>
-                    <td className="px-4 py-4">{holding.nextDividendDate ? formatDateLabel(holding.nextDividendDate, locale) : "-"}</td>
-                    <td className="px-4 py-4">{holding.lastDividendPostedDate ? formatDateLabel(holding.lastDividendPostedDate, locale) : "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-6 grid gap-3 lg:hidden">
-            {filteredHoldings.map((holding) => (
-              <article
-                key={`${holding.accountId}-${holding.ticker}`}
-                className={cn("rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]", recomputingSymbols?.has(`${holding.accountId}:${holding.ticker}`) && "animate-pulse opacity-40")}
-                data-testid="holding-mobile-card"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-semibold tracking-[0.14em] text-slate-950">
-                      <HoldingHistoryLink holding={holding}>{holding.ticker}</HoldingHistoryLink>
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">{holding.accountId}</p>
-                  </div>
-                  <p className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600">
-                    {holding.allocationPct !== null ? formatPercent(holding.allocationPct, locale) : "-"}
-                  </p>
-                </div>
-
-                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <HoldingDetail label={dict.holdings.quantityTerm} value={formatNumber(holding.quantity, locale)} />
-                  <HoldingDetail
-                    label={dict.dashboardHome.averageCostLabel}
-                    value={formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}
-                  />
-                  <HoldingDetail
-                    label={dict.dashboardHome.currentPriceLabel}
-                    value={holding.currentUnitPrice === null ? "-" : formatCurrencyAmount(holding.currentUnitPrice, holding.currency, locale)}
-                    valueClassName={getCurrentPriceTone(holding)}
-                    badge={showFreshnessBadge && holding.freshness !== "current" ? <FreshnessBadge holding={holding} /> : null}
-                  />
-                  <HoldingDetail
-                    label={dict.dashboardHome.dailyChangeLabel}
-                    value={holding.quoteStatus === "missing"
-                      ? dict.dashboardHome.quoteStatusMissing
-                      : holding.change !== null
-                        ? `${formatCurrencyAmount(holding.change, holding.currency, locale)}${holding.changePercent !== null ? ` (${formatPercent(holding.changePercent, locale)})` : ""}${holding.quoteStatus === "provisional" ? " ⏱" : ""}`
-                        : "-"}
-                    valueClassName={holding.quoteStatus === "missing" ? "text-amber-600" : getDailyChangeTone(holding.change)}
-                  />
-                  <HoldingDetail
-                    label={dict.holdings.totalCostTerm}
-                    value={formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}
-                  />
-                  <HoldingDetail
-                    label={dict.dashboardHome.marketValueLabel}
-                    value={holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
-                  />
-                  <HoldingDetail
-                    label={dict.dashboardHome.unrealizedPnlLabel}
-                    value={holding.unrealizedPnlAmount === null ? "-" : formatCurrencyAmount(holding.unrealizedPnlAmount, holding.currency, locale)}
-                    valueClassName={getUnrealizedPnlTone(holding.unrealizedPnlAmount)}
-                  />
-                  <HoldingDetail
-                    label={dict.dashboardHome.nextDividendLabel}
-                    value={holding.nextDividendDate ? formatDateLabel(holding.nextDividendDate, locale) : "-"}
-                  />
-                </dl>
-              </article>
-            ))}
-          </div>
-        </>
+                    ) : "-"}
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    {holding.marketValueAmount === null ? "-" : formatCurrencyAmount(holding.marketValueAmount, holding.currency, locale)}
+                  </td>
+                  <td className={cn("px-4 py-4 text-right font-medium", getUnrealizedPnlTone(holding.unrealizedPnlAmount))}>
+                    {holding.unrealizedPnlAmount === null ? "-" : formatCurrencyAmount(holding.unrealizedPnlAmount, holding.currency, locale)}
+                  </td>
+                  <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.costBasisAmount, holding.currency, locale)}</td>
+                  <td className="px-4 py-4 text-right">{holding.allocationPct !== null ? formatPercent(holding.allocationPct, locale) : "-"}</td>
+                  <td className="px-4 py-4">{holding.nextDividendDate ? formatDateLabel(holding.nextDividendDate, locale) : "-"}</td>
+                  <td className="px-4 py-4">{holding.lastDividendPostedDate ? formatDateLabel(holding.lastDividendPostedDate, locale) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Card>
     </Tooltip.Provider>
@@ -272,28 +210,6 @@ function SummaryTile({ label, value, detail }: { label: string; value: string; d
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
       <p className="mt-2 text-sm text-slate-600">{detail}</p>
-    </div>
-  );
-}
-
-function HoldingDetail({
-  label,
-  value,
-  valueClassName,
-  badge,
-}: {
-  label: string;
-  value: string;
-  valueClassName?: string;
-  badge?: React.ReactNode;
-}) {
-  return (
-    <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className={cn("mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-900", valueClassName)}>
-        <span>{value}</span>
-        {badge}
-      </dd>
     </div>
   );
 }

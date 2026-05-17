@@ -8,6 +8,14 @@ import type {
   LocaleCode,
   SourceCompositionStatus,
 } from "@vakwen/shared-types";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../ui/shadcn/table";
 
 interface SourceCompositionTabProps {
   sourceLines: DividendSourceLine[];
@@ -101,6 +109,8 @@ export function SourceCompositionTab({
 
   const rateLabel = d.projectedPremium.replace("{rate}", String(NHI_RATE));
 
+  // Phase 4 — single-DOM table (drops legacy `sm:hidden` card variant).
+  // Three narrow columns; horizontal scroll at very tight viewports.
   return (
     <div data-testid="source-composition-tab" className="space-y-3">
       {isEstimate && (
@@ -112,99 +122,53 @@ export function SourceCompositionTab({
         </p>
       )}
 
-      {/* Desktop table (sm and above) */}
-      <div className="hidden sm:block">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="py-2 pr-4">{d.tabLabel}</th>
-              <th className="py-2 pr-4 text-right">{dict.dividends.form.sourceLines.amount}</th>
-              <th className="py-2 text-center">{d.nhiSubjectColumn}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleBuckets.map((bucket) => (
-              <tr key={bucket} className="border-b border-slate-100">
-                <td className="py-2 pr-4 text-slate-900">
-                  {bucketDisplayName(dict, bucket)}
-                </td>
-                <td className="py-2 pr-4 text-right text-slate-900">
-                  {formatCurrencyAmount(amountByBucket.get(bucket) ?? 0, "TWD", locale)}
-                </td>
-                <td className="py-2 text-center">
-                  {NHI_SUBJECT_BUCKETS.has(bucket) ? (
-                    <span className="text-emerald-600">✓</span>
-                  ) : (
-                    <span className="text-slate-400">✗</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {/* NHI-subject subtotal */}
-            <tr className="border-t border-slate-300 font-medium">
-              <td className="py-2 pr-4 text-slate-900">{d.nhiSubjectSubtotal}</td>
-              <td
-                className="py-2 pr-4 text-right text-slate-900"
-                data-testid="source-composition-nhi-subtotal"
-              >
-                {formatCurrencyAmount(nhiSubjectSubtotal, "TWD", locale)}
-              </td>
-              <td />
-            </tr>
-            {/* Projected premium */}
-            <tr className="font-medium">
-              <td className="py-2 pr-4 text-slate-900">{rateLabel}</td>
-              <td className="py-2 pr-4 text-right text-slate-900">
-                {formatCurrencyAmount(projectedPremium, "TWD", locale)}
-              </td>
-              <td />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile cards (below sm) */}
-      <div className="space-y-2 sm:hidden">
-        {visibleBuckets.map((bucket) => (
-          <div
-            key={bucket}
-            className="rounded-xl border border-slate-200 bg-slate-50/85 p-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-slate-900">
+      <Table className="text-sm">
+        <TableHeader>
+          <TableRow className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <TableHead className="py-2 pr-4">{d.tabLabel}</TableHead>
+            <TableHead className="py-2 pr-4 text-right">{dict.dividends.form.sourceLines.amount}</TableHead>
+            <TableHead className="py-2 text-center">{d.nhiSubjectColumn}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {visibleBuckets.map((bucket) => (
+            <TableRow key={bucket}>
+              <TableCell className="py-2 pr-4 text-foreground">
                 {bucketDisplayName(dict, bucket)}
-              </span>
-              {NHI_SUBJECT_BUCKETS.has(bucket) ? (
-                <span className="text-xs text-emerald-600">✓ {d.nhiSubjectColumn}</span>
-              ) : (
-                <span className="text-xs text-slate-400">✗</span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-slate-700">
-              {formatCurrencyAmount(amountByBucket.get(bucket) ?? 0, "TWD", locale)}
-            </p>
-          </div>
-        ))}
-
-        {/* NHI subtotal card */}
-        <div className="rounded-xl border border-slate-300 bg-white p-3">
-          <p className="text-sm font-semibold text-slate-900">{d.nhiSubjectSubtotal}</p>
-          <p
-            className="mt-1 text-sm font-medium text-slate-900"
-            data-testid="source-composition-nhi-subtotal-mobile"
-          >
-            {formatCurrencyAmount(nhiSubjectSubtotal, "TWD", locale)}
-          </p>
-        </div>
-
-        {/* Projected premium card */}
-        <div className="rounded-xl border border-slate-300 bg-white p-3">
-          <p className="text-sm font-semibold text-slate-900">{rateLabel}</p>
-          <p className="mt-1 text-sm font-medium text-slate-900">
-            {formatCurrencyAmount(projectedPremium, "TWD", locale)}
-          </p>
-        </div>
-      </div>
+              </TableCell>
+              <TableCell className="py-2 pr-4 text-right text-foreground">
+                {formatCurrencyAmount(amountByBucket.get(bucket) ?? 0, "TWD", locale)}
+              </TableCell>
+              <TableCell className="py-2 text-center">
+                {NHI_SUBJECT_BUCKETS.has(bucket) ? (
+                  <span className="text-emerald-600">✓</span>
+                ) : (
+                  <span className="text-muted-foreground">✗</span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          {/* NHI-subject subtotal */}
+          <TableRow className="border-t border-border font-medium">
+            <TableCell className="py-2 pr-4 text-foreground">{d.nhiSubjectSubtotal}</TableCell>
+            <TableCell
+              className="py-2 pr-4 text-right text-foreground"
+              data-testid="source-composition-nhi-subtotal"
+            >
+              {formatCurrencyAmount(nhiSubjectSubtotal, "TWD", locale)}
+            </TableCell>
+            <TableCell />
+          </TableRow>
+          {/* Projected premium */}
+          <TableRow className="font-medium">
+            <TableCell className="py-2 pr-4 text-foreground">{rateLabel}</TableCell>
+            <TableCell className="py-2 pr-4 text-right text-foreground">
+              {formatCurrencyAmount(projectedPremium, "TWD", locale)}
+            </TableCell>
+            <TableCell />
+          </TableRow>
+        </TableBody>
+      </Table>
     </div>
   );
 }

@@ -10,6 +10,14 @@ import type {
 } from "@vakwen/shared-types";
 import type { DividendLedgerEntryDetails } from "../types";
 import { Card } from "../../../components/ui/Card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../../components/ui/shadcn/table";
 
 // Duplicated from @vakwen/domain — web avoids runtime dep on domain lib.
 const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
@@ -155,23 +163,25 @@ export function NhiRollupSection({
   if (!hasEtfEntries) {
     return (
       <Card
-        className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-8 text-center"
+        className="rounded-xl border border-dashed border-border bg-muted/30 px-5 py-8 text-center"
         data-testid="nhi-rollup-empty"
       >
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted-foreground">
           {formatTemplate(d.emptyState, { year: new Date().getFullYear() })}
         </p>
       </Card>
     );
   }
 
+  // Phase 4 — single-DOM table (drops legacy `sm:hidden` card variant).
+  // Three narrow columns; horizontal scroll if width is tight at <sm.
   return (
     <Card
-      className="space-y-4 rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)]"
+      className="space-y-4 rounded-xl border border-border bg-card p-4"
       data-testid="nhi-rollup-section"
     >
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-sm font-semibold text-slate-900">{d.title}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{d.title}</h3>
         {pendingCount > 0 && (
           <button
             type="button"
@@ -184,99 +194,53 @@ export function NhiRollupSection({
         )}
       </div>
 
-      {/* Desktop table (sm and above) */}
-      <div className="hidden sm:block">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="py-2 pr-4">{dict.dividends.form.sourceComposition.tabLabel}</th>
-              <th className="py-2 pr-4 text-right">{dict.dividends.form.sourceLines.amount}</th>
-              <th className="py-2 text-center">{dict.dividends.form.sourceComposition.nhiSubjectColumn}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bucketAggregates.map((agg) => (
-              <tr key={agg.bucket} className="border-b border-slate-100">
-                <td className="py-2 pr-4 text-slate-900">
-                  {bucketDisplayName(dict, agg.bucket)}
-                </td>
-                <td className="py-2 pr-4 text-right text-slate-900">
-                  {formatCurrencyAmount(agg.totalAmount, "TWD", locale)}
-                </td>
-                <td className="py-2 text-center">
-                  {agg.isNhiSubject ? (
-                    <span className="text-emerald-600">✓</span>
-                  ) : (
-                    <span className="text-slate-400">✗</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {/* NHI-subject total */}
-            <tr className="border-t border-slate-300 font-medium">
-              <td className="py-2 pr-4 text-slate-900">{d.nhiSubjectTotal}</td>
-              <td className="py-2 pr-4 text-right text-slate-900">
-                {formatCurrencyAmount(nhiSubjectTotal, "TWD", locale)}
-              </td>
-              <td />
-            </tr>
-            {/* Projected premium */}
-            <tr className="font-medium">
-              <td className="py-2 pr-4 text-slate-900">{d.projectedPremium}</td>
-              <td
-                className="py-2 pr-4 text-right text-slate-900"
-                data-testid="nhi-rollup-premium"
-              >
-                {formatCurrencyAmount(projectedPremium, "TWD", locale)}
-              </td>
-              <td />
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile cards (below sm) */}
-      <div className="space-y-2 sm:hidden">
-        {bucketAggregates.map((agg) => (
-          <div
-            key={agg.bucket}
-            className="rounded-xl border border-slate-200 bg-slate-50/85 p-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-slate-900">
+      <Table className="text-sm">
+        <TableHeader>
+          <TableRow className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <TableHead className="py-2 pr-4">{dict.dividends.form.sourceComposition.tabLabel}</TableHead>
+            <TableHead className="py-2 pr-4 text-right">{dict.dividends.form.sourceLines.amount}</TableHead>
+            <TableHead className="py-2 text-center">{dict.dividends.form.sourceComposition.nhiSubjectColumn}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {bucketAggregates.map((agg) => (
+            <TableRow key={agg.bucket}>
+              <TableCell className="py-2 pr-4 text-foreground">
                 {bucketDisplayName(dict, agg.bucket)}
-              </span>
-              {agg.isNhiSubject ? (
-                <span className="text-xs text-emerald-600">✓ {dict.dividends.form.sourceComposition.nhiSubjectColumn}</span>
-              ) : (
-                <span className="text-xs text-slate-400">✗</span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-slate-700">
-              {formatCurrencyAmount(agg.totalAmount, "TWD", locale)}
-            </p>
-          </div>
-        ))}
-
-        {/* NHI total card */}
-        <div className="rounded-xl border border-slate-300 bg-white p-3">
-          <p className="text-sm font-semibold text-slate-900">{d.nhiSubjectTotal}</p>
-          <p className="mt-1 text-sm font-medium text-slate-900">
-            {formatCurrencyAmount(nhiSubjectTotal, "TWD", locale)}
-          </p>
-        </div>
-
-        {/* Projected premium card */}
-        <div className="rounded-xl border border-slate-300 bg-white p-3">
-          <p className="text-sm font-semibold text-slate-900">{d.projectedPremium}</p>
-          <p
-            className="mt-1 text-sm font-medium text-slate-900"
-            data-testid="nhi-rollup-premium-mobile"
-          >
-            {formatCurrencyAmount(projectedPremium, "TWD", locale)}
-          </p>
-        </div>
-      </div>
+              </TableCell>
+              <TableCell className="py-2 pr-4 text-right text-foreground">
+                {formatCurrencyAmount(agg.totalAmount, "TWD", locale)}
+              </TableCell>
+              <TableCell className="py-2 text-center">
+                {agg.isNhiSubject ? (
+                  <span className="text-emerald-600">✓</span>
+                ) : (
+                  <span className="text-muted-foreground">✗</span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          {/* NHI-subject total */}
+          <TableRow className="border-t border-border font-medium">
+            <TableCell className="py-2 pr-4 text-foreground">{d.nhiSubjectTotal}</TableCell>
+            <TableCell className="py-2 pr-4 text-right text-foreground">
+              {formatCurrencyAmount(nhiSubjectTotal, "TWD", locale)}
+            </TableCell>
+            <TableCell />
+          </TableRow>
+          {/* Projected premium */}
+          <TableRow className="font-medium">
+            <TableCell className="py-2 pr-4 text-foreground">{d.projectedPremium}</TableCell>
+            <TableCell
+              className="py-2 pr-4 text-right text-foreground"
+              data-testid="nhi-rollup-premium"
+            >
+              {formatCurrencyAmount(projectedPremium, "TWD", locale)}
+            </TableCell>
+            <TableCell />
+          </TableRow>
+        </TableBody>
+      </Table>
     </Card>
   );
 }

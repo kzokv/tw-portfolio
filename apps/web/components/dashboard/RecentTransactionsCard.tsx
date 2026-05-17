@@ -3,6 +3,7 @@ import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { Card } from "../ui/Card";
+import { DataTable, type DataTableColumn } from "../ui/DataTable";
 
 interface RecentTransactionsCardProps {
   items: TransactionHistoryItemDto[];
@@ -19,82 +20,95 @@ export function RecentTransactionsCard({
   isLoading,
   errorMessage,
 }: RecentTransactionsCardProps) {
+  // Phase 4 — single-DOM DataTable migration. Card-stack at <sm (per
+  // scope-grill); scroll + sticky-first-column at <md.
+  const columns: DataTableColumn<TransactionHistoryItemDto>[] = [
+    {
+      key: "ticker",
+      header: dict.transactions.tickerTerm,
+      render: (item) => (
+        <Link
+          href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
+          className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 transition hover:text-primary"
+        >
+          {item.ticker}
+        </Link>
+      ),
+    },
+    {
+      key: "type",
+      header: dict.transactions.typeTerm,
+      render: (item) => <TypePill type={item.type} />,
+    },
+    {
+      key: "tradeDate",
+      header: dict.tickerHistory.tradeDateLabel,
+      render: (item) => <span className="text-muted-foreground">{formatDateLabel(item.tradeDate, locale)}</span>,
+    },
+    {
+      key: "quantity",
+      header: dict.transactions.quantityTerm,
+      render: (item) => <span className="text-right">{formatNumber(item.quantity, locale)}</span>,
+      cellClassName: "text-right",
+    },
+    {
+      key: "unitPrice",
+      header: dict.transactions.unitPriceTerm,
+      render: (item) => <span className="text-right">{formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)}</span>,
+      cellClassName: "text-right",
+    },
+    {
+      key: "realizedPnl",
+      header: dict.tickerHistory.realizedPnlLabel,
+      render: (item) => (
+        <span className={cn("text-right font-medium", getRealizedPnlTone(item.realizedPnlAmount))}>
+          {item.realizedPnlAmount === null
+            ? dict.tickerHistory.noRealizedPnl
+            : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
+        </span>
+      ),
+      cellClassName: "text-right",
+    },
+  ];
+
   return (
-    <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="recent-transactions-card">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500/78">{dict.transactions.recentLedgerTitle}</p>
-      <h2 className="mt-2 text-2xl text-slate-950">{dict.transactions.recentLedgerTitle}</h2>
-      <p className="mt-3 text-sm leading-6 text-slate-600">{dict.transactions.recentLedgerDescription}</p>
+    <Card className="border border-border bg-card" data-testid="recent-transactions-card">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/78">{dict.transactions.recentLedgerTitle}</p>
+      <h2 className="mt-2 text-2xl text-foreground">{dict.transactions.recentLedgerTitle}</h2>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{dict.transactions.recentLedgerDescription}</p>
 
       {errorMessage ? (
-        <div className="mt-5 rounded-[20px] border border-[rgba(251,113,133,0.24)] bg-[rgba(254,226,226,0.92)] px-4 py-3 text-sm text-rose-700">
+        <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {errorMessage}
         </div>
       ) : null}
 
       {isLoading ? (
         <div className="mt-6 grid gap-3" aria-hidden="true">
-          <div className="skeleton-line h-14 rounded-[18px]" />
-          <div className="skeleton-line skeleton-line--delay h-14 rounded-[18px]" />
-          <div className="skeleton-line h-14 rounded-[18px]" />
-        </div>
-      ) : items.length === 0 ? (
-        <div className="mt-6 rounded-[22px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-8 text-sm text-slate-600">
-          {dict.transactions.recentLedgerEmpty}
+          <div className="skeleton-line h-14 rounded-xl" />
+          <div className="skeleton-line skeleton-line--delay h-14 rounded-xl" />
+          <div className="skeleton-line h-14 rounded-xl" />
         </div>
       ) : (
-        <>
-          <div className="mt-6 hidden overflow-hidden rounded-[22px] border border-slate-200 bg-white/92 lg:block">
-            <table className="min-w-full border-collapse text-sm text-slate-700" data-testid="recent-transactions-table">
-              <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-4 py-3 text-left font-medium">{dict.transactions.tickerTerm}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.transactions.typeTerm}</th>
-                  <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.tradeDateLabel}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.transactions.quantityTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
-                  <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b border-slate-200 last:border-0">
-                    <td className="px-4 py-4 font-semibold text-slate-950">
-                      <Link
-                        href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
-                        className="underline decoration-indigo-200 underline-offset-4 transition hover:text-indigo-600 hover:decoration-indigo-400"
-                      >
-                        {item.ticker}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-4">
-                      <TypePill type={item.type} />
-                    </td>
-                    <td className="px-4 py-4 text-slate-600">{formatDateLabel(item.tradeDate, locale)}</td>
-                    <td className="px-4 py-4 text-right">{formatNumber(item.quantity, locale)}</td>
-                    <td className="px-4 py-4 text-right">{formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)}</td>
-                    <td className={cn("px-4 py-4 text-right font-medium", getRealizedPnlTone(item.realizedPnlAmount))}>
-                      {item.realizedPnlAmount === null
-                        ? dict.tickerHistory.noRealizedPnl
-                        : formatCurrencyAmount(item.realizedPnlAmount, item.realizedPnlCurrency ?? item.priceCurrency, locale)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-6 grid gap-3 lg:hidden">
-            {items.map((item) => (
-              <article key={item.id} className="rounded-[22px] border border-slate-200 bg-white/92 p-4">
+        <div className="mt-6">
+          <DataTable
+            data={items}
+            columns={columns}
+            rowKey={(item) => item.id}
+            rowTestId={(item) => `recent-transactions-row-${item.id}`}
+            data-testid="recent-transactions-table"
+            stickyFirstColumn
+            mobileRow={(item) => (
+              <article className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <Link
                       href={`/tickers/${encodeURIComponent(item.ticker)}?accountId=${encodeURIComponent(item.accountId)}`}
-                      className="text-lg font-semibold text-slate-950 underline decoration-indigo-200 underline-offset-4"
+                      className="text-lg font-semibold text-foreground underline decoration-primary/30 underline-offset-4"
                     >
                       {item.ticker}
                     </Link>
-                    <p className="mt-1 text-sm text-slate-500">{formatDateLabel(item.tradeDate, locale)}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{formatDateLabel(item.tradeDate, locale)}</p>
                   </div>
                   <TypePill type={item.type} />
                 </div>
@@ -111,9 +125,14 @@ export function RecentTransactionsCard({
                   />
                 </dl>
               </article>
-            ))}
-          </div>
-        </>
+            )}
+            emptyState={
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 px-5 py-8 text-sm text-muted-foreground">
+                {dict.transactions.recentLedgerEmpty}
+              </div>
+            }
+          />
+        </div>
       )}
     </Card>
   );
@@ -137,15 +156,15 @@ function TypePill({ type }: { type: TransactionHistoryItemDto["type"] }) {
 function HistoryDetail({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div>
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-      <dd className={cn("mt-1 text-sm font-medium text-slate-900", valueClassName)}>{value}</dd>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
+      <dd className={cn("mt-1 text-sm font-medium text-foreground", valueClassName)}>{value}</dd>
     </div>
   );
 }
 
 function getRealizedPnlTone(value: number | null): string {
   if (value === null) {
-    return "text-slate-900";
+    return "text-foreground";
   }
   if (value > 0) {
     return "text-emerald-600";
@@ -153,5 +172,5 @@ function getRealizedPnlTone(value: number | null): string {
   if (value < 0) {
     return "text-rose-600";
   }
-  return "text-slate-900";
+  return "text-foreground";
 }

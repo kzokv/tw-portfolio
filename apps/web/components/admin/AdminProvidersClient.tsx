@@ -5,6 +5,7 @@ import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@vakwen/shar
 import { postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { DataTable, type DataTableColumn } from "../ui/DataTable";
 import { PopoverRoot, PopoverTrigger, PopoverContent } from "../ui/Popover";
 import { cn } from "../../lib/utils";
 import { formatCooldownLabel } from "../../lib/formatCooldownLabel";
@@ -22,6 +23,7 @@ const t: Record<string, string> = {
   errors24hLabel: "Errors (24h)",
   errors7dLabel: "Errors (7d)",
   rateLimits24hLabel: "Rate Limits (24h)",
+  actionsLabel: "Actions",
   rerunButtonLabel: "Re-run now",
   rerunCooldownLabel: "Retry in {seconds}s",
   rerunningLabel: "Running…",
@@ -77,11 +79,9 @@ function formatTimestamp(ts: string | null): string {
 function StatusBadge({
   status,
   providerId,
-  testIdPrefix = "provider-status-badge",
 }: {
   status: ProviderHealthStatus;
   providerId: string;
-  testIdPrefix?: string;
 }) {
   return (
     <span
@@ -92,7 +92,7 @@ function StatusBadge({
         status === "down" && "bg-rose-100 text-rose-800",
         status === "awaiting" && "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
       )}
-      data-testid={`${testIdPrefix}-${providerId}`}
+      data-testid={`provider-status-badge-${providerId}`}
     >
       <span
         className={cn(
@@ -177,26 +177,20 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
   };
 }
 
-function ErrorTrail({
-  provider,
-  testIdPrefix = "provider-error-trail",
-}: {
-  provider: ProviderHealthStatusDto;
-  testIdPrefix?: string;
-}) {
+function ErrorTrail({ provider }: { provider: ProviderHealthStatusDto }) {
   return (
-    <div data-testid={`${testIdPrefix}-${provider.providerId}`}>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+    <div data-testid={`provider-error-trail-${provider.providerId}`}>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         Recent errors
       </p>
       <ol className="space-y-1.5">
         {provider.recentErrors.map((entry) => (
           <li
             key={entry.id}
-            className="flex flex-wrap items-start gap-2 rounded-xl border border-rose-100 bg-white px-3 py-2 text-xs"
+            className="flex flex-wrap items-start gap-2 rounded-xl border border-rose-100 bg-card px-3 py-2 text-xs"
             data-testid={`provider-error-entry-${entry.id}`}
           >
-            <span className="shrink-0 font-mono text-slate-500">
+            <span className="shrink-0 font-mono text-muted-foreground">
               {formatTimestamp(entry.occurredAt)}
             </span>
             <span
@@ -213,7 +207,7 @@ function ErrorTrail({
               {entry.errorClass}
             </span>
             {entry.errorMessage && (
-              <span className="min-w-0 flex-1 break-words text-slate-700">{entry.errorMessage}</span>
+              <span className="min-w-0 flex-1 break-words text-foreground">{entry.errorMessage}</span>
             )}
           </li>
         ))}
@@ -222,7 +216,10 @@ function ErrorTrail({
   );
 }
 
-function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
+// ProviderTableRow — desktop variant (Fragment with primary row + optional
+// error-trail row when expanded). Used as `renderRow` on DataTable so the
+// expandable details row can sit alongside the main row in <tbody>.
+function ProviderTableRow({ provider }: { provider: ProviderHealthStatusDto }) {
   const {
     localStatus,
     expanded,
@@ -237,17 +234,11 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
   return (
     <>
       <tr
-        className="border-b border-slate-200 last:border-0"
+        className="border-b border-border last:border-0"
         data-testid={`provider-row-${localStatus.providerId}`}
       >
-        {/* admin-ui-bugs (Bug 1): wrap convention — provider IDs use a
-            click-popover trigger on the name itself (replaces the prior
-            hover-tooltip `?` icon), and the surrounding cell allows
-            hyphen-driven wrap via `break-all`. Timestamp cells drop
-            `whitespace-nowrap` so locale strings split naturally on the
-            comma-space. <colgroup> widths size the columns. */}
         <td
-          className="px-4 py-4 font-mono text-sm font-medium text-slate-900"
+          className="sticky left-0 z-10 bg-card border-r border-border px-4 py-4 font-mono text-sm font-medium text-foreground md:static md:bg-transparent md:border-r-0"
           title={localStatus.providerId}
         >
           <PopoverRoot>
@@ -255,7 +246,7 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
               <button
                 type="button"
                 data-testid={`provider-help-trigger-${localStatus.providerId}`}
-                className="text-left break-all hover:text-indigo-700 cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded"
+                className="text-left break-all hover:text-primary cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
               >
                 {localStatus.providerId}
               </button>
@@ -271,24 +262,24 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
           <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
         </td>
         <td
-          className="px-4 py-4 text-sm text-slate-600"
+          className="px-4 py-4 text-sm text-muted-foreground"
           title={localStatus.lastSuccessfulRun ?? ""}
         >
           {formatTimestamp(localStatus.lastSuccessfulRun)}
         </td>
         <td
-          className="px-4 py-4 text-sm text-slate-600"
+          className="px-4 py-4 text-sm text-muted-foreground"
           title={localStatus.lastFailedRun ?? ""}
         >
           {formatTimestamp(localStatus.lastFailedRun)}
         </td>
-        <td className="px-4 py-4 text-right text-sm text-slate-700">
+        <td className="px-4 py-4 text-right text-sm text-foreground">
           {localStatus.errorCount24h}
         </td>
-        <td className="px-4 py-4 text-right text-sm text-slate-700">
+        <td className="px-4 py-4 text-right text-sm text-foreground">
           {localStatus.errorCount7d}
         </td>
-        <td className="px-4 py-4 text-right text-sm text-slate-700">
+        <td className="px-4 py-4 text-right text-sm text-foreground">
           {localStatus.rateLimitCount24h}
         </td>
         <td className="px-4 py-4">
@@ -306,7 +297,7 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
               <button
                 type="button"
                 onClick={() => setExpanded((e) => !e)}
-                className="text-xs text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-800"
+                className="text-xs text-primary underline decoration-primary/30 underline-offset-2 hover:text-primary/80"
                 data-testid={`provider-errors-toggle-${localStatus.providerId}`}
               >
                 {expanded
@@ -318,7 +309,7 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
         </td>
       </tr>
       {expanded && hasErrors && (
-        <tr className="border-b border-slate-100 bg-slate-50/60">
+        <tr className="border-b border-border bg-muted/30">
           <td colSpan={8} className="px-4 pb-4 pt-2">
             <ErrorTrail provider={localStatus} />
           </td>
@@ -328,7 +319,10 @@ function ProviderRow({ provider }: { provider: ProviderHealthStatusDto }) {
   );
 }
 
-function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
+// ProviderMobileCard — mobile variant (<sm). Rendered by DataTable's
+// mobileRow slot. Shares the same testid prefixes as the desktop row —
+// useIsSmallScreen ensures only one is in DOM at any viewport.
+function ProviderMobileCard({ provider }: { provider: ProviderHealthStatusDto }) {
   const {
     localStatus,
     expanded,
@@ -342,44 +336,35 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
 
   return (
     <article
-      className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
-      data-testid={`provider-card-${localStatus.providerId}`}
+      className="rounded-xl border border-border bg-card p-4"
+      data-testid={`provider-row-${localStatus.providerId}`}
     >
-      {/* admin-ui-bugs (Bug 1): card variant follows the wrap convention.
-          Provider IDs render inside a click-popover trigger button so the
-          name itself opens the help text (replaces the hover-tooltip `?`
-          icon). Card uses `-card-` testid suffix per the dual-layout rule
-          in .claude/rules/responsive-dual-layout-testid-prefixes.md. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{t.providerLabel}</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{t.providerLabel}</p>
           <p
-            className="mt-1 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-slate-900"
+            className="mt-1 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-foreground"
             title={localStatus.providerId}
           >
             <PopoverRoot>
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  data-testid={`provider-help-trigger-card-${localStatus.providerId}`}
-                  className="text-left break-all hover:text-indigo-700 cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded"
+                  data-testid={`provider-help-trigger-${localStatus.providerId}`}
+                  className="text-left break-all hover:text-primary cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                 >
                   {localStatus.providerId}
                 </button>
               </PopoverTrigger>
               <PopoverContent
-                data-testid={`provider-help-popover-card-${localStatus.providerId}`}
+                data-testid={`provider-help-popover-${localStatus.providerId}`}
               >
                 {resolveRerunTooltipContent(localStatus)}
               </PopoverContent>
             </PopoverRoot>
           </p>
         </div>
-        <StatusBadge
-          status={localStatus.status}
-          providerId={localStatus.providerId}
-          testIdPrefix="provider-status-badge-card"
-        />
+        <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -396,7 +381,7 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
           variant="secondary"
           onClick={handleRerun}
           disabled={isRerunning || cooldownSecondsRemaining !== null}
-          data-testid={`provider-rerun-btn-card-${localStatus.providerId}`}
+          data-testid={`provider-rerun-btn-${localStatus.providerId}`}
           className="w-full sm:w-auto"
         >
           {rerunLabel}
@@ -405,8 +390,8 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
           <button
             type="button"
             onClick={() => setExpanded((e) => !e)}
-            className="text-xs text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-800"
-            data-testid={`provider-errors-toggle-card-${localStatus.providerId}`}
+            className="text-xs text-primary underline decoration-primary/30 underline-offset-2 hover:text-primary/80"
+            data-testid={`provider-errors-toggle-${localStatus.providerId}`}
           >
             {expanded
               ? t.collapseErrorsLabel
@@ -416,8 +401,8 @@ function ProviderCard({ provider }: { provider: ProviderHealthStatusDto }) {
       </div>
 
       {expanded && hasErrors && (
-        <div className="mt-3 rounded-xl bg-slate-50/60 p-3">
-          <ErrorTrail provider={localStatus} testIdPrefix="provider-error-trail-card" />
+        <div className="mt-3 rounded-xl bg-muted/30 p-3">
+          <ErrorTrail provider={localStatus} />
         </div>
       )}
     </article>
@@ -436,9 +421,9 @@ function CardDetail({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</dt>
+      <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
       <dd
-        className={`mt-1 text-sm font-medium text-slate-900 ${truncate ? "truncate" : "break-words"}`}
+        className={`mt-1 text-sm font-medium text-foreground ${truncate ? "truncate" : "break-words"}`}
         title={truncate ? value : undefined}
       >
         {value}
@@ -452,59 +437,39 @@ interface AdminProvidersClientProps {
 }
 
 export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
+  // Phase 4 — DataTable migration (single-DOM responsive).
+  // Header columns defined for the desktop table; per-row rendering routed
+  // through renderRow (because each row may emit an additional details <tr>
+  // for the error-trail expand) and mobileRow (card-stack at <sm).
+  // Both desktop and mobile share the same testid prefixes — useIsSmallScreen
+  // ensures only one variant is in DOM at any viewport.
+  const columns: DataTableColumn<ProviderHealthStatusDto>[] = [
+    { key: "provider", header: t.providerLabel, render: (p) => p.providerId },
+    { key: "status", header: t.statusLabel, render: (p) => p.status },
+    { key: "lastSuccess", header: t.lastSuccessLabel, render: (p) => formatTimestamp(p.lastSuccessfulRun) },
+    { key: "lastFailed", header: t.lastFailedLabel, render: (p) => formatTimestamp(p.lastFailedRun) },
+    { key: "errors24h", header: t.errors24hLabel, render: (p) => p.errorCount24h },
+    { key: "errors7d", header: t.errors7dLabel, render: (p) => p.errorCount7d },
+    { key: "rateLimits24h", header: t.rateLimits24hLabel, render: (p) => p.rateLimitCount24h },
+    { key: "actions", header: t.actionsLabel, render: () => null },
+  ];
+
   return (
     <Card data-testid="admin-providers-section">
       <div className="mb-6">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-indigo-500/78">{t.pageTitle}</p>
-        <h1 className="mt-2 text-2xl text-slate-950 sm:text-3xl">{t.pageTitle}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{t.pageDescription}</p>
+        <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">{t.pageTitle}</p>
+        <h1 className="mt-2 text-2xl text-foreground sm:text-3xl">{t.pageTitle}</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{t.pageDescription}</p>
       </div>
 
-      {/* admin-ui-bugs (Bug 1): wrap convention. The table drops the lg-only
-          horizontal scroll wrapper from KZO-199; cells now wrap naturally
-          (`break-all` for provider IDs, default wrap for timestamps and
-          counts) instead of relying on `truncate`. <colgroup> sizes each
-          column explicitly so wrap breaks predictably across viewports. */}
-      <div className="hidden rounded-[22px] border border-slate-200 bg-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] lg:block">
-        <table
-          className="w-full table-fixed border-collapse text-sm text-slate-700"
-          data-testid="admin-providers-table"
-        >
-          <colgroup>
-            <col style={{ width: "140px" }} />
-            <col style={{ width: "110px" }} />
-            <col style={{ width: "130px" }} />
-            <col style={{ width: "130px" }} />
-            <col style={{ width: "70px" }} />
-            <col style={{ width: "70px" }} />
-            <col style={{ width: "70px" }} />
-            <col style={{ width: "150px" }} />
-          </colgroup>
-          <thead>
-            <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              <th className="px-4 py-3 text-left font-medium">{t.providerLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{t.statusLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{t.lastSuccessLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">{t.lastFailedLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{t.errors24hLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{t.errors7dLabel}</th>
-              <th className="px-4 py-3 text-right font-medium">{t.rateLimits24hLabel}</th>
-              <th className="px-4 py-3 text-left font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {providers.map((provider) => (
-              <ProviderRow key={provider.providerId} provider={provider} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid gap-3 lg:hidden" data-testid="admin-providers-cards">
-        {providers.map((provider) => (
-          <ProviderCard key={provider.providerId} provider={provider} />
-        ))}
-      </div>
+      <DataTable
+        data-testid="admin-providers-table"
+        data={providers}
+        columns={columns}
+        rowKey={(p) => p.providerId}
+        renderRow={(p) => <ProviderTableRow provider={p} key={p.providerId} />}
+        mobileRow={(p) => <ProviderMobileCard provider={p} />}
+      />
     </Card>
   );
 }

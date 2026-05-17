@@ -430,9 +430,11 @@ test.describe.serial("holdings freshness badge (KZO-177)", () => {
 // Interaction model change: hover-to-show (TooltipInfo) → click-to-show (Radix
 // Popover on the provider name button itself).
 //
-// Coverage per `.claude/rules/responsive-dual-layout-testid-prefixes.md`:
-//   - Table variant (default 1280px viewport) — `provider-help-trigger-{id}`
-//   - Card variant (narrow <1024px viewport) — `provider-help-trigger-card-{id}`
+// Coverage (post Phase-4 single-DOM DataTable migration):
+//   - Default viewport (1280px) renders desktop table — `provider-help-trigger-{id}`
+//   - Narrow viewport (<640px sm breakpoint) renders mobile card list — same
+//     `provider-help-trigger-{id}` testid (useIsSmallScreen ensures only one
+//     variant is in DOM at any viewport).
 //
 // TDD-RED until the Implementer lands:
 //   - `apps/web/components/ui/Popover.tsx`
@@ -530,36 +532,37 @@ test.describe.serial("popover interaction — click-to-show + dismiss (admin-ui-
   }) => {
     await seedFinmindTwHealthy(page);
 
-    // Switch to a narrow viewport so the card grid is shown and the table is
-    // hidden. The `lg:hidden` breakpoint is 1024px — use 768px to stay below.
-    // Per `.claude/rules/responsive-dual-layout-testid-prefixes.md`: card
-    // testids use `-card-` suffix: `provider-help-trigger-card-{id}`.
-    await page.setViewportSize({ width: 768, height: 1024 });
+    // Phase 4 — single-DOM DataTable migration. The card-stack switches in
+    // at <sm (640px breakpoint) via useIsSmallScreen + React conditional
+    // render. Use 600x900 to stay strictly below sm. Both the desktop and
+    // mobile variants emit the same `provider-row-{id}` /
+    // `provider-help-trigger-{id}` testids — only one is in DOM at a time.
+    await page.setViewportSize({ width: 600, height: 900 });
 
     await appShell.actions.navigateToRoute("/admin/providers");
     await page.waitForLoadState("load");
 
-    // Card grid is visible; desktop table is hidden.
-    await page.getByTestId("provider-card-finmind-tw").waitFor({ state: "visible" });
+    // Mobile card list is visible.
+    await page.getByTestId("provider-row-finmind-tw").waitFor({ state: "visible" });
 
-    // Click the card trigger (locked -card- testid suffix).
-    const cardTrigger = page.getByTestId("provider-help-trigger-card-finmind-tw").first();
+    // Click the trigger (testid no longer carries -card- suffix after migration).
+    const cardTrigger = page.getByTestId("provider-help-trigger-finmind-tw").first();
     await cardTrigger.waitFor({ state: "visible" });
     await cardTrigger.click();
 
-    // Card popover content appears.
-    const cardContent = page.getByTestId("provider-help-popover-card-finmind-tw").first();
+    // Popover content appears.
+    const cardContent = page.getByTestId("provider-help-popover-finmind-tw").first();
     await cardContent.waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
       await cardContent.isVisible(),
-      "card popover content visible after card trigger click",
+      "popover content visible after trigger click (narrow viewport)",
     );
 
-    // Escape also closes the card popover.
+    // Escape also closes the popover.
     await page.keyboard.press("Escape");
     await appShell.assert.mxAssertTruthy(
       !(await cardContent.isVisible()),
-      "card popover dismissed after Escape",
+      "popover dismissed after Escape (narrow viewport)",
     );
   });
 });

@@ -33,3 +33,30 @@ if (typeof (globalThis as { EventSource?: unknown }).EventSource === "undefined"
   }
   (globalThis as { EventSource?: unknown }).EventSource = StubEventSource;
 }
+
+/**
+ * Phase 4 (2026-05-17) — jsdom matchMedia stub.
+ *
+ * `useIsMobile` / `useIsSmallScreen` and other responsive hooks call
+ * `window.matchMedia(...)` inside `useEffect`. jsdom does not implement it;
+ * any component that mounts one of these hooks (e.g. `<DataTable>` with a
+ * `mobileRow` slot) throws `TypeError: window.matchMedia is not a function`
+ * during render in tests. The stub returns a no-op MediaQueryList — tests
+ * never exercise breakpoint behavior in jsdom (Playwright covers that), so
+ * always-false `matches` is sufficient.
+ */
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: (): void => {},
+      removeEventListener: (): void => {},
+      addListener: (): void => {},
+      removeListener: (): void => {},
+      dispatchEvent: (): boolean => false,
+    }),
+  });
+}
