@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   type DashboardPerformanceRange,
   type LocaleCode,
@@ -27,6 +28,7 @@ import { CommandPalette } from "./CommandPalette";
 import { CommandPaletteProvider } from "./CommandPaletteContext";
 import { useCommandPalette } from "../../hooks/useCommandPalette";
 import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
+import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
 import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
@@ -252,6 +254,9 @@ export function AppShell({
   const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
   const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
 
+  // Phase 5e — pathname used to gate the floating ⨁ to /dashboard only.
+  const pathname = usePathname() ?? "/";
+
   const handleAddTransactionFromPalette = useCallback(() => {
     setAddTransactionDialogOpen(true);
   }, []);
@@ -369,6 +374,18 @@ export function AppShell({
               onConfirm={handleRecomputeConfirm}
               dict={dict}
               pending={recomputeAction.isRunning}
+            />
+
+            {/* Phase 5e — floating ⨁ quick-actions Sheet. Dashboard-only
+                surface; hidden in shared context (read-only). Reuses the
+                same AddTransactionDialog + RecomputeConfirmDialog handlers
+                already wired for the ⌘K palette. */}
+            <FloatingQuickActions
+              hidden={pathname !== "/dashboard" || isSharedContext}
+              onAddTransaction={handleAddTransactionFromPalette}
+              onRecompute={handleRecomputeFromPalette}
+              onGenerateSnapshots={snapshotGeneration.generateSnapshots}
+              isGeneratingSnapshots={snapshotGeneration.isGeneratingSnapshots}
             />
           </CommandPaletteProvider>
         </AppShellDataProvider>

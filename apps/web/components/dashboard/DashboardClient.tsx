@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { RouteHeroPanel } from "../layout/SectionHeroPanels";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
+import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { HoldingsTable } from "../portfolio/HoldingsTable";
-import { ActionCenterSection } from "./ActionCenterSection";
 import { AllocationSnapshotCard } from "./AllocationSnapshotCard";
+import { BiggestMoversCard } from "./BiggestMoversCard";
+import { DashboardHero } from "./DashboardHero";
+import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
+import { Button } from "../ui/Button";
 import { DASHBOARD_CARDS } from "./cards";
 import { DashboardLoading } from "./DashboardLoading";
 import { DividendsSection } from "./DividendsSection";
@@ -19,7 +23,6 @@ import { ReturnPercentCard } from "./ReturnPercentCard";
 import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 
 export function DashboardClient() {
-  const router = useRouter();
   const {
     dashboard,
     uiDict: dict,
@@ -27,7 +30,6 @@ export function DashboardClient() {
     isSharedContext,
     isBootstrapping,
     isI18nReady,
-    recomputeAction,
     mutations,
     performanceRange,
     setPerformanceRange,
@@ -35,8 +37,6 @@ export function DashboardClient() {
     refetchEffectiveRanges,
     customizeRangesOpen,
     setCustomizeRangesOpen,
-    generateSnapshots,
-    isGeneratingSnapshots,
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("dashboard");
@@ -79,6 +79,38 @@ export function DashboardClient() {
 
   return (
     <div className="stagger grid min-w-0 gap-6">
+      {/* Phase 5e — persistent integrity Alert above hero when an
+          integrity issue is present. Not dismissible; clears when
+          `integrityIssue` resolves on next dashboard fetch. */}
+      {dashboard.actions.integrityIssue ? (
+        <Alert variant="destructive" data-testid="dashboard-integrity-alert">
+          <AlertTriangle className="size-4" aria-hidden="true" />
+          <AlertTitle>{dict.dialogs.integrityTitle}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <span>{dashboard.actions.integrityIssue.message}</span>
+            <Button
+              asChild
+              size="sm"
+              variant="secondary"
+              className="self-start"
+              data-testid="dashboard-integrity-alert-fix-cta"
+            >
+              <Link href="/settings">Fix in Settings</Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {/* Phase 5d — above-the-fold hero: total + day Δ + biggest movers.
+          Hero block is non-draggable and fixed above the SortableCardGrid. */}
+      <section
+        className="grid gap-3 lg:grid-cols-[2fr_1fr]"
+        data-testid="dashboard-hero-block"
+      >
+        <DashboardHero summary={dashboard.summary} locale={locale} dict={dict} />
+        <BiggestMoversCard holdings={dashboard.holdings} locale={locale} />
+      </section>
+
       <RouteHeroPanel
         eyebrow={dict.navigation.dashboardLabel}
         title={dict.dashboardHome.summaryTitle}
@@ -191,22 +223,10 @@ export function DashboardClient() {
                   locale={locale}
                 />
               );
-            case "action-center":
-              return (
-                <ActionCenterSection
-                  locale={locale}
-                  settings={dashboard.settings}
-                  integrityIssue={dashboard.actions.integrityIssue}
-                  pending={recomputeAction.isRunning}
-                  onRecompute={recomputeAction.runRecompute}
-                  onGenerateSnapshots={generateSnapshots}
-                  isGeneratingSnapshots={isGeneratingSnapshots}
-                  onOpenSettings={() => router.push("/settings")}
-                  dict={dict}
-                  readOnly={isSharedContext}
-                  readOnlyMessage={dict.switcher.readonlyDescription}
-                />
-              );
+            // Phase 5e — `action-center` removed from DASHBOARD_CARDS;
+            // recompute / generate-snapshots moved to FloatingQuickActions
+            // (rendered by AppShell); integrity surfaces as the standalone
+            // Alert above the hero (see below in this same file).
             default:
               return null;
           }
