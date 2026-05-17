@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useBreadcrumbContext, type BreadcrumbItem } from "./BreadcrumbProvider";
@@ -50,41 +51,46 @@ export function Breadcrumb() {
       <ShadBreadcrumbList>
         {resolved.map((item, index) => {
           const isLast = index === resolved.length - 1;
+          // shadcn contract: BreadcrumbItem (<li>) and BreadcrumbSeparator
+          // (<li role="presentation">) are SIBLINGS inside BreadcrumbList
+          // (<ol>). Rendering the separator inside the item nests <li> inside
+          // <li>, which Next.js / React hydration rejects.
           return (
-            <ShadBreadcrumbItem
-              key={`${item.label}-${index}`}
-              data-testid={`breadcrumb-item-${index}`}
-              // Stamp aria-current on the <li> for the active page so QA
-              // can locate it via testid + attribute without descending
-              // into shadcn's BreadcrumbPage <span>. shadcn's page <span>
-              // ALSO carries aria-current="page" for a11y; duplicating
-              // on the <li> is harmless and unblocks the
-              // `breadcrumbItemIsCurrentPage(index)` assertion.
-              aria-current={isLast ? "page" : undefined}
-            >
-              {isLast ? (
-                // Don't use shadcn `BreadcrumbPage` here — it stamps
-                // aria-current="page" on its inner <span>, which would
-                // collide with the aria-current we set on the <li> above
-                // (Playwright strict mode complains when 2 descendants
-                // match). The <li>'s aria-current is the single anchor
-                // for QA's `breadcrumbItemIsCurrentPage(index)` helper.
-                <span
-                  role="link"
-                  aria-disabled="true"
-                  className="font-normal text-foreground"
-                >
-                  {item.label}
-                </span>
-              ) : item.href ? (
-                <ShadBreadcrumbLink asChild>
-                  <Link href={item.href}>{item.label}</Link>
-                </ShadBreadcrumbLink>
-              ) : (
-                <span className="text-muted-foreground">{item.label}</span>
-              )}
+            <Fragment key={`${item.label}-${index}`}>
+              <ShadBreadcrumbItem
+                data-testid={`breadcrumb-item-${index}`}
+                // Stamp aria-current on the <li> for the active page so QA
+                // can locate it via testid + attribute without descending
+                // into shadcn's BreadcrumbPage <span>. shadcn's page <span>
+                // ALSO carries aria-current="page" for a11y; duplicating
+                // on the <li> is harmless and unblocks the
+                // `breadcrumbItemIsCurrentPage(index)` assertion.
+                aria-current={isLast ? "page" : undefined}
+              >
+                {isLast ? (
+                  // Don't use shadcn `BreadcrumbPage` here — it stamps
+                  // aria-current="page" on its inner <span>, which would
+                  // collide with the aria-current we set on the <li> above
+                  // (Playwright strict mode complains when 2 descendants
+                  // match). The <li>'s aria-current is the single anchor
+                  // for QA's `breadcrumbItemIsCurrentPage(index)` helper.
+                  <span
+                    role="link"
+                    aria-disabled="true"
+                    className="font-normal text-foreground"
+                  >
+                    {item.label}
+                  </span>
+                ) : item.href ? (
+                  <ShadBreadcrumbLink asChild>
+                    <Link href={item.href}>{item.label}</Link>
+                  </ShadBreadcrumbLink>
+                ) : (
+                  <span className="text-muted-foreground">{item.label}</span>
+                )}
+              </ShadBreadcrumbItem>
               {!isLast ? <ShadBreadcrumbSeparator /> : null}
-            </ShadBreadcrumbItem>
+            </Fragment>
           );
         })}
       </ShadBreadcrumbList>

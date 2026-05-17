@@ -1,5 +1,9 @@
 # Responsive Dual-Layout: Distinct Testid Prefixes for Table + Card Variants
 
+> 🪦 **Superseded by Phase 4 single-DOM `<DataTable>` migration (2026-05-17).** All previously dual-DOM tables (`HoldingsTable`, `TransactionHistoryTable`, `AdminProvidersClient`, `AdminInstrumentsClient`, `CashLedgerClient`, `NhiRollupSection`, `SourceCompositionTab`, `RecentTransactionsCard`, `DividendReviewClient`) now use either `<DataTable>` (`apps/web/components/ui/DataTable.tsx`) or shadcn `<Table>` primitives directly with single-DOM rendering. The `-card-` testid prefix is retired. New table consumers MUST follow the single-DOM pattern: either use `<DataTable>` with `mobileRow` (React-conditional via `useIsSmallScreen`, NEVER Tailwind `hidden`+`block` siblings), or single-DOM scroll-with-sticky-first-column. See `docs/004-notes/ui-reshape-shadcn/scope-todo-202605171244-phase-4.md`.
+>
+> The body below is kept as historical reference for the dual-layout pattern that this rule used to enforce.
+
 When a component renders the same semantic elements in both a desktop table row AND a mobile card (toggled via Tailwind `hidden lg:block` / `lg:hidden` or equivalent), the card variant MUST use distinct `data-testid` values — not the same testids as the table row.
 
 ## Why

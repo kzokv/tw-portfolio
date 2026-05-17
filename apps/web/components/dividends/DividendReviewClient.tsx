@@ -7,6 +7,7 @@ import type { AccountDto, DividendLedgerAggregates, LocaleCode } from "@vakwen/s
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
+import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
 import {
   fetchDividendLedgerReview,
   updateDividendReconciliation,
@@ -145,20 +146,23 @@ function SortHeader({
   sortBy,
   sortOrder,
   onSort,
+  sticky = false,
 }: {
   label: string;
   field: string;
   sortBy: string;
   sortOrder: "asc" | "desc";
   onSort: (field: string) => void;
+  /** Phase 4 — opt-in sticky-first-column styling for the leading ticker header. */
+  sticky?: boolean;
 }) {
   const isActive = sortBy === field;
   return (
     <th
-      className="cursor-pointer px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500 hover:text-slate-700"
+      className={`cursor-pointer px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground hover:text-foreground ${sticky ? "sticky left-0 z-10 bg-muted/50 border-r border-border md:static md:bg-transparent md:border-r-0" : ""}`}
       onClick={() => onSort(field)}
     >
-      <span className={isActive ? "text-slate-900 font-semibold" : ""}>
+      <span className={isActive ? "text-foreground font-semibold" : ""}>
         {label}
         {isActive ? (sortOrder === "asc" ? " ↑" : " ↓") : ""}
       </span>
@@ -184,6 +188,9 @@ export function DividendReviewClient({
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
   const [dateError, setDateError] = useState("");
+
+  // Phase 4 — single-DOM responsive (card-stack at <sm).
+  const isSmallScreen = useIsSmallScreen();
 
   // Drawer state
   const [drawerEntry, setDrawerEntry] = useState<DividendLedgerEntryDetails | null>(null);
@@ -647,31 +654,129 @@ export function DividendReviewClient({
         onFilterPending={handleFilterPending}
       />
 
-      {/* Table (desktop) */}
-      <div className="hidden lg:block">
-        <Card className="overflow-hidden rounded-[24px] border border-slate-200 bg-white/92 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
+      {/* Phase 4 — single-DOM responsive (drops legacy `lg:hidden` mobile cards
+          and `review-card-grid`). Card-stack at <sm via useIsSmallScreen;
+          scroll + sticky-ticker at <md otherwise. Same `review-row-{id}` and
+          `mark-matched-{id}` testids in both renderings. */}
+      {isSmallScreen ? (
+        <ul className="flex flex-col gap-3" data-testid="review-table">
+          {displayEntries.length === 0 && !isLoading ? (
+            <li>
+              <Card className="rounded-xl border border-dashed border-border bg-muted/30 px-5 py-10 text-center text-sm text-muted-foreground">
+                {dict.dividends.review.chart.noData}
+              </Card>
+            </li>
+          ) : (
+            displayEntries.map((entry) => {
+              const variance = varianceAmount(entry);
+              return (
+                <li key={entry.id}>
+                  <Card
+                    className="cursor-pointer rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
+                    onClick={() => setDrawerEntry(entry)}
+                    data-testid={`review-row-${entry.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-base font-semibold text-foreground">{entry.ticker}</h4>
+                        <p className="text-xs text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</p>
+                      </div>
+                      <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}>
+                        {statusLabel(dict, entry.reconciliationStatus)}
+                      </span>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.paymentDate}</dt>
+                        <dd className="font-medium text-foreground">{entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.expected}</dt>
+                        <dd className="font-medium text-foreground">{formatCurrencyAmount(entry.expectedCashAmount, entry.cashCurrency, locale)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.received}</dt>
+                        <dd className="font-medium text-foreground">{formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.variance}</dt>
+                        <dd className={cn("font-medium", variance !== 0 ? "text-amber-600" : "text-muted-foreground")}>{variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}</dd>
+                      </div>
+                    </dl>
+                    {entry.reconciliationStatus === "open" && (
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={pendingEntryId === entry.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleMarkMatched(entry);
+                          }}
+                          data-testid={`mark-matched-${entry.id}`}
+                        >
+                          {dict.dividends.action.markMatched}
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                </li>
+              );
+            })
+          )}
+
+          {totalPages > 1 && (
+            <li className="flex items-center justify-between px-1 py-2" data-testid="pagination">
+              <span className="text-sm text-muted-foreground">
+                {dict.dividends.review.pagination.page} {filters.page} {dict.dividends.review.pagination.of} {totalPages}{dict.dividends.review.pagination.totalSuffix}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={filters.page <= 1}
+                  onClick={() => handlePageChange(filters.page - 1)}
+                  data-testid="pagination-prev"
+                >
+                  {dict.dividends.review.pagination.previous}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={filters.page >= totalPages}
+                  onClick={() => handlePageChange(filters.page + 1)}
+                  data-testid="pagination-next"
+                >
+                  {dict.dividends.review.pagination.next}
+                </Button>
+              </div>
+            </li>
+          )}
+        </ul>
+      ) : (
+        <Card className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
             <table className="w-full" data-testid="review-table">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <SortHeader label={dict.dividends.review.table.paymentDate} field="paymentDate" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
+                <tr className="border-b border-border bg-muted/50">
+                  <SortHeader label={dict.dividends.review.table.paymentDate} field="paymentDate" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} sticky />
                   <SortHeader label={dict.dividends.review.table.ticker} field="ticker" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.account} field="account" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.expected} field="expectedCashAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.received} field="receivedCashAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.dividends.review.table.variance}</th>
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.variance}</th>
                   <SortHeader label={dict.dividends.review.table.status} field="reconciliationStatus" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.dividends.review.table.actions}</th>
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.actions}</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading && displayEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">…</td>
+                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-muted-foreground">…</td>
                   </tr>
                 ) : displayEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
+                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       {dict.dividends.review.chart.noData}
                     </td>
                   </tr>
@@ -681,22 +786,24 @@ export function DividendReviewClient({
                     return (
                       <tr
                         key={entry.id}
-                        className="cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50/80"
+                        className="cursor-pointer border-b border-border transition-colors hover:bg-muted/50"
                         onClick={() => setDrawerEntry(entry)}
                         data-testid={`review-row-${entry.id}`}
                       >
-                        <td className="px-4 py-3 text-sm text-slate-900">
+                        <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-3 text-sm text-foreground">
                           {entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : "—"}
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-900">{entry.ticker}</td>
-                        <td className="px-4 py-3 text-sm text-slate-600">{accountNameById.get(entry.accountId) ?? entry.accountId}</td>
-                        <td className="px-4 py-3 text-sm text-slate-900">
+                        <td className="px-4 py-3 text-sm font-medium text-foreground">
+                          {entry.ticker}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</td>
+                        <td className="px-4 py-3 text-sm text-foreground">
                           {formatCurrencyAmount(entry.expectedCashAmount, entry.cashCurrency, locale)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-900">
+                        <td className="px-4 py-3 text-sm text-foreground">
                           {formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}
                         </td>
-                        <td className={cn("px-4 py-3 text-sm", variance !== 0 ? "text-amber-600 font-medium" : "text-slate-500")}>
+                        <td className={cn("px-4 py-3 text-sm", variance !== 0 ? "text-amber-600 font-medium" : "text-muted-foreground")}>
                           {variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}
                         </td>
                         <td className="px-4 py-3">
@@ -728,10 +835,9 @@ export function DividendReviewClient({
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3" data-testid="pagination">
-              <span className="text-sm text-slate-500">
+            <div className="flex items-center justify-between border-t border-border px-4 py-3" data-testid="pagination">
+              <span className="text-sm text-muted-foreground">
                 {dict.dividends.review.pagination.page} {filters.page} {dict.dividends.review.pagination.of} {totalPages}{dict.dividends.review.pagination.totalSuffix}
               </span>
               <div className="flex gap-2">
@@ -757,99 +863,7 @@ export function DividendReviewClient({
             </div>
           )}
         </Card>
-      </div>
-
-      {/* Card grid (mobile) */}
-      <div className="grid gap-3 lg:hidden" data-testid="review-card-grid">
-        {displayEntries.length === 0 && !isLoading ? (
-          <Card className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/90 px-5 py-10 text-center text-sm text-slate-600">
-            {dict.dividends.review.chart.noData}
-          </Card>
-        ) : (
-          displayEntries.map((entry) => {
-            const variance = varianceAmount(entry);
-            return (
-              <Card
-                key={entry.id}
-                className="cursor-pointer rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)] transition-colors hover:bg-slate-50/80"
-                onClick={() => setDrawerEntry(entry)}
-                data-testid={`review-card-${entry.id}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-base font-semibold text-slate-950">{entry.ticker}</h4>
-                    <p className="text-xs text-slate-500">{accountNameById.get(entry.accountId) ?? entry.accountId}</p>
-                  </div>
-                  <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}>
-                    {statusLabel(dict, entry.reconciliationStatus)}
-                  </span>
-                </div>
-                <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <dt className="text-slate-500">{dict.dividends.review.table.paymentDate}</dt>
-                    <dd className="font-medium text-slate-900">{entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">{dict.dividends.review.table.expected}</dt>
-                    <dd className="font-medium text-slate-900">{formatCurrencyAmount(entry.expectedCashAmount, entry.cashCurrency, locale)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">{dict.dividends.review.table.received}</dt>
-                    <dd className="font-medium text-slate-900">{formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">{dict.dividends.review.table.variance}</dt>
-                    <dd className={cn("font-medium", variance !== 0 ? "text-amber-600" : "text-slate-500")}>{variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}</dd>
-                  </div>
-                </dl>
-                {entry.reconciliationStatus === "open" && (
-                  <div className="mt-3 flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={pendingEntryId === entry.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleMarkMatched(entry);
-                      }}
-                      data-testid={`mark-matched-card-${entry.id}`}
-                    >
-                      {dict.dividends.action.markMatched}
-                    </Button>
-                  </div>
-                )}
-              </Card>
-            );
-          })
-        )}
-
-        {/* Mobile pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-1 py-2" data-testid="mobile-pagination">
-            <span className="text-sm text-slate-500">
-              {dict.dividends.review.pagination.page} {filters.page} {dict.dividends.review.pagination.of} {totalPages}{dict.dividends.review.pagination.totalSuffix}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={filters.page <= 1}
-                onClick={() => handlePageChange(filters.page - 1)}
-              >
-                {dict.dividends.review.pagination.previous}
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={filters.page >= totalPages}
-                onClick={() => handlePageChange(filters.page + 1)}
-              >
-                {dict.dividends.review.pagination.next}
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Drawer */}
       <Drawer

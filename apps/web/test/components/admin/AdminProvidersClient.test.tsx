@@ -137,7 +137,12 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
     ).toMatch(/awaiting first run/i);
   });
 
-  it("(b) renders a popover-trigger on the provider name for every provider (desktop and card)", () => {
+  it("(b) renders a popover-trigger on the provider name for every provider", () => {
+    // Phase 4 — single-DOM DataTable migration. The desktop and mobile
+    // variants share the same `provider-help-trigger-{id}` testid;
+    // useIsSmallScreen ensures only one variant is in DOM at any viewport.
+    // jsdom defaults to non-small (matchMedia stub returns matches=false),
+    // so we exercise the desktop rendering here.
     const ids = [
       "finmind-tw",
       "finmind-us",
@@ -154,16 +159,12 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
     for (const id of ids) {
       expect(
         document.querySelector(`[data-testid='provider-help-trigger-${id}']`),
-        `desktop trigger for ${id}`,
-      ).not.toBeNull();
-      expect(
-        document.querySelector(`[data-testid='provider-help-trigger-card-${id}']`),
-        `card trigger for ${id}`,
+        `trigger for ${id}`,
       ).not.toBeNull();
     }
   });
 
-  it("(b') popover-trigger button exposes the provider id as its accessible name (table + card)", () => {
+  it("(b') popover-trigger button exposes the provider id as its accessible name", () => {
     // Codex adversarial review caught the prior regression: a generic
     // `aria-label="About this provider's Re-run action"` overrode the visible
     // provider id on every trigger, so screen-reader / voice-control users
@@ -177,21 +178,18 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
         />,
       ),
     );
-    for (const selector of [
+    const trigger = document.querySelector(
       "[data-testid='provider-help-trigger-yahoo-finance-au']",
-      "[data-testid='provider-help-trigger-card-yahoo-finance-au']",
-    ]) {
-      const trigger = document.querySelector(selector) as HTMLElement | null;
-      expect(trigger, `${selector} present`).not.toBeNull();
-      expect(
-        trigger!.hasAttribute("aria-label"),
-        `${selector} must NOT carry an aria-label override`,
-      ).toBe(false);
-      expect(
-        (trigger!.textContent ?? "").trim(),
-        `${selector} accessible name = visible text = provider id`,
-      ).toBe("yahoo-finance-au");
-    }
+    ) as HTMLElement | null;
+    expect(trigger, "trigger present").not.toBeNull();
+    expect(
+      trigger!.hasAttribute("aria-label"),
+      "trigger must NOT carry an aria-label override",
+    ).toBe(false);
+    expect(
+      (trigger!.textContent ?? "").trim(),
+      "trigger accessible name = visible text = provider id",
+    ).toBe("yahoo-finance-au");
   });
 
   it("(d) 429 with Retry-After header → countdown honors header value (NOT rerunCooldownMs)", async () => {

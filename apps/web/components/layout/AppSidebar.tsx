@@ -182,12 +182,23 @@ export function AppSidebar({
           // navigate to `/dashboard`, breaking helpers like
           // `openSettingsDrawer` that conditionally tap the mobile toggle.
           data-testid="app-sidebar-brand-link"
-          className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-sidebar-accent"
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-sidebar-accent",
+            // Collapsed-mode: shrink the link to a 32×32 square (mirrors
+            // SidebarMenuButton's `group-data-[collapsible=icon]:!size-8 !p-2`
+            // pattern). Prevents the brand badge from overflowing the 48px
+            // collapsed rail and getting clipped.
+            "group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-0 group-data-[collapsible=icon]:justify-center",
+          )}
           aria-label={isMobile ? `${productName} — close menu and go home` : `${productName} — go to dashboard`}
         >
           <span
             className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-semibold text-white shadow-sm",
+              "flex shrink-0 items-center justify-center rounded-lg font-semibold text-white shadow-sm",
+              // Expanded: 36px badge. Collapsed: 28px badge that fits inside
+              // the 32px square link with consistent visual rhythm against
+              // the SidebarMenuButton items below.
+              "h-9 w-9 text-sm group-data-[collapsible=icon]:h-7 group-data-[collapsible=icon]:w-7 group-data-[collapsible=icon]:text-xs",
               variant === "admin"
                 ? "bg-[linear-gradient(135deg,#ef4444,#dc2626)]"
                 : "bg-[linear-gradient(135deg,#4f46e5,#6366f1)]",

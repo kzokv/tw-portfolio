@@ -199,7 +199,7 @@ test.describe("NHI rollup — review page", () => {
 // ─── Group 3: Responsive layouts ──────────────────────────────────────────
 
 test.describe("source composition — responsive", () => {
-  test("Source Composition tab at 375px renders mobile card layout", async ({
+  test("Source Composition tab at 375px renders the single-DOM table (post Phase-4 migration)", async ({
     dividends, page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -227,13 +227,14 @@ test.describe("source composition — responsive", () => {
     await dividends.actions.clickSourceCompositionToggle();
     await dividends.assert.sourceCompositionTabIsVisible();
 
-    // At 375px, the desktop table (hidden sm:block) should not be visible
-    // and the mobile cards (sm:hidden) should be visible
-    const mobileSubtotal = page.getByTestId("source-composition-nhi-subtotal-mobile");
-    await mobileSubtotal.waitFor({ state: "visible", timeout: 5000 });
+    // Phase 4 — single-DOM table (drops legacy `sm:hidden` mobile cards).
+    // The `source-composition-nhi-subtotal` testid is on the table cell now
+    // and is visible at all viewports (horizontal scroll if width is tight).
+    const subtotal = page.getByTestId("source-composition-nhi-subtotal");
+    await subtotal.waitFor({ state: "visible", timeout: 5000 });
   });
 
-  test("NHI rollup section at 375px renders mobile card layout", async ({
+  test("NHI rollup section at 375px renders the single-DOM table (post Phase-4 migration)", async ({
     dividendReview, page,
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -255,8 +256,9 @@ test.describe("source composition — responsive", () => {
     await dividendReview.actions.navigateToReview();
     await dividendReview.assert.pageLoaded();
 
-    // At 375px, the mobile premium card should be visible instead of the desktop table cell
-    const mobilePremium = page.getByTestId("nhi-rollup-premium-mobile");
-    await mobilePremium.waitFor({ state: "visible", timeout: 5000 });
+    // Phase 4 — single-DOM table. `nhi-rollup-premium` testid is on the
+    // table cell now and is visible at all viewports.
+    const premium = page.getByTestId("nhi-rollup-premium");
+    await premium.waitFor({ state: "visible", timeout: 5000 });
   });
 });

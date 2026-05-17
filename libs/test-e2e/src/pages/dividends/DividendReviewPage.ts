@@ -47,9 +47,6 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   paginationPrev: Locator;
   paginationNext: Locator;
 
-  // Card grid (mobile)
-  cardGrid: Locator;
-
   // Drawer (reused from KZO-32)
   drawer: TDividendPostingDrawerElements;
 
@@ -134,9 +131,6 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       pagination: this.locate("pagination", "Pagination"),
       paginationPrev: this.locate("pagination-prev", "Previous Page"),
       paginationNext: this.locate("pagination-next", "Next Page"),
-
-      // Card grid (mobile)
-      cardGrid: this.locate("review-card-grid", "Card Grid"),
 
       // Drawer (reused from KZO-32)
       drawer: new DividendPostingDrawerComponent(this.page).elements,

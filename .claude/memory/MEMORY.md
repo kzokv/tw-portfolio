@@ -32,6 +32,12 @@
 - [project_dialog_submit_pattern.md](project_dialog_submit_pattern.md) — Dialog auto-close-on-success: submit hook must return `Promise<boolean>`; closing unconditionally hides state-reported validation errors
 - [project_command_palette_initial_query.md](project_command_palette_initial_query.md) — ⌘K global open must clear `initialQuery` or a stale carried query from `openWithQuery()` leaks across opens
 
+## Promoted to .claude/rules/ (ui-reshape-shadcn Phase 4, 2026-05-17)
+- `shadcn-breadcrumb-sibling-structure.md` — BreadcrumbItem + BreadcrumbSeparator are siblings inside BreadcrumbList; nesting causes `<li> in <li>` hydration error. From admin-page hydration error during Phase 4 verification.
+- `shadcn-sidebar-collapsed-brand-sizing.md` — Brand badges in SidebarHeader must mirror SidebarMenuButton's `!size-8 !p-2` collapsed pattern or clip the 48px rail. From cut-off V/A badge in collapsed AppSidebar.
+- `single-dom-table-sticky-first-column.md` — `sticky left-0` must be on the visually leftmost column, not just "the important one". Codex caught DividendReview sticking col 2 over col 1 during horizontal scroll.
+- `vitest-config-patterns.md` (addendum) — jsdom matchMedia stub in `test/setup/react-global.ts` required for components using `useIsMobile` / `useIsSmallScreen` / any matchMedia-backed hook. Tests exercise the wide branch only (matches: false default).
+
 ## Promoted to .claude/rules/ (ui-reshape-shadcn Phase 3 sweep, 2026-05-17)
 - `account-shape-extension-checklist.md` — 4-file touch-point list (`shared-types/AccountDto`, `services/store.ts:67`, `persistence/postgres.ts` × 3 subsites, `types/store.ts`) + deterministic cash-entry-ID pattern. Promoted from `project_account_shape.md`.
 - `team-wave2-transition-and-runbook-patterns.md` — `## Process notes` section + new-market-data-provider runbook section as mandatory Wave 2 deliverables. Promoted from `project_team_doc_patterns.md`.

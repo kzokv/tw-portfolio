@@ -47,20 +47,23 @@ function SortHeader({
   sortBy,
   sortOrder,
   onSort,
+  sticky = false,
 }: {
   label: string;
   field: CashLedgerSortColumn;
   sortBy: string;
   sortOrder: "asc" | "desc";
   onSort: (field: CashLedgerSortColumn) => void;
+  /** Phase 4 \u2014 opt-in sticky-first-column styling for the leading date header. */
+  sticky?: boolean;
 }) {
   const isActive = sortBy === field;
   return (
     <th
-      className="cursor-pointer px-3 py-3 hover:text-slate-700"
+      className={`cursor-pointer px-3 py-3 hover:text-foreground ${sticky ? "sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0" : ""}`}
       onClick={() => onSort(field)}
     >
-      <span className={isActive ? "text-slate-900 font-semibold" : ""}>
+      <span className={isActive ? "text-foreground font-semibold" : ""}>
         {label}
         {isActive ? (sortOrder === "asc" ? " \u2191" : " \u2193") : ""}
       </span>
@@ -514,153 +517,82 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
         </div>
       )}
 
-      {/* Table */}
+      {/* Phase 4 — single-DOM table (drops legacy `lg:hidden` mobile cards).
+          Scroll + sticky-date column at narrow viewports per scope-grill. */}
       {entries.length === 0 ? (
         <Card>
-          <p className="py-8 text-center text-sm text-slate-500" data-testid="cash-ledger-empty">
+          <p className="py-8 text-center text-sm text-muted-foreground" data-testid="cash-ledger-empty">
             {d.emptyState}
           </p>
         </Card>
       ) : (
-        <>
-          {/* Desktop table */}
-          <div className="hidden lg:block">
-            <Card className="overflow-x-auto">
-              <table className="w-full text-sm" data-testid="cash-ledger-table">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    <SortHeader label={d.columnDate} field="entryDate" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
-                    <SortHeader label={d.columnType} field="entryType" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
-                    <th className="px-3 py-3">{d.columnTicker}</th>
-                    <th className="px-3 py-3">{d.columnSide}</th>
-                    <SortHeader label={d.columnAmount} field="amount" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
-                    <SortHeader label={d.columnCurrency} field="currency" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
-                    <SortHeader label={d.columnAccount} field="accountId" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
-                    <th className="px-3 py-3 text-right"> </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry) => (
-                    <tr
-                      key={entry.id}
-                      data-testid={`cash-ledger-row-${entry.id}`}
-                      onClick={() => setDrawerEntry(entry)}
-                      className="cursor-pointer border-b border-slate-100 transition hover:bg-slate-50"
-                    >
-                      <td className="px-3 py-3 whitespace-nowrap">{formatDateLabel(entry.entryDate, locale)}</td>
-                      <td className="px-3 py-3">{renderTypeCell(entry)}</td>
-                      <td className="px-3 py-3 whitespace-nowrap font-medium">{entry.ticker ?? "—"}</td>
-                      <td className="px-3 py-3 whitespace-nowrap">{entry.side ?? "—"}</td>
-                      <td className={`px-3 py-3 whitespace-nowrap text-right font-medium ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                        {formatCurrencyAmount(entry.amount, entry.currency, locale)}
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-500">{entry.currency}</td>
-                      <td className="px-3 py-3 text-slate-500">{renderAccountLabel(entry.accountId)}</td>
-                      <td className="px-3 py-3 text-right">{renderFxActionMenu(entry)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Desktop pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3" data-testid="pagination">
-                  <span className="text-sm text-slate-500" data-testid="pagination-info">
-                    {d.pagination.page} {page} {d.pagination.of} {totalPages}{d.pagination.totalSuffix}
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={page <= 1}
-                      onClick={() => handlePageChange(page - 1)}
-                      data-testid="pagination-prev"
-                    >
-                      {d.pagination.previous}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={page >= totalPages}
-                      onClick={() => handlePageChange(page + 1)}
-                      data-testid="pagination-next"
-                    >
-                      {d.pagination.next}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
-
-          {/* Mobile card grid */}
-          <div className="grid gap-3 lg:hidden">
-            {entries.map((entry) => (
-              <Card
-                key={entry.id}
-                data-testid={`cash-ledger-card-${entry.id}`}
-                onClick={() => setDrawerEntry(entry)}
-                className="cursor-pointer transition hover:bg-slate-50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs text-slate-500">{formatDateLabel(entry.entryDate, locale)}</p>
-                    <div className="mt-0.5 text-sm font-medium text-slate-800">{renderTypeCell(entry)}</div>
-                  </div>
-                  <span className={`shrink-0 text-base font-semibold ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+        <Card className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="cash-ledger-table">
+            <thead>
+              <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <SortHeader label={d.columnDate} field="entryDate" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} sticky />
+                <SortHeader label={d.columnType} field="entryType" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                <th className="px-3 py-3">{d.columnTicker}</th>
+                <th className="px-3 py-3">{d.columnSide}</th>
+                <SortHeader label={d.columnAmount} field="amount" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader label={d.columnCurrency} field="currency" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                <SortHeader label={d.columnAccount} field="accountId" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} />
+                <th className="px-3 py-3 text-right"> </th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  data-testid={`cash-ledger-row-${entry.id}`}
+                  onClick={() => setDrawerEntry(entry)}
+                  className="cursor-pointer border-b border-border transition hover:bg-muted/50"
+                >
+                  <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-3 py-3 whitespace-nowrap">
+                    {formatDateLabel(entry.entryDate, locale)}
+                  </td>
+                  <td className="px-3 py-3">{renderTypeCell(entry)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap font-medium">{entry.ticker ?? "—"}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">{entry.side ?? "—"}</td>
+                  <td className={`px-3 py-3 whitespace-nowrap text-right font-medium ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
                     {formatCurrencyAmount(entry.amount, entry.currency, locale)}
-                  </span>
-                </div>
-                <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
-                  {entry.ticker && (
-                    <div className="flex gap-1">
-                      <dt className="sr-only">{d.columnTicker}</dt>
-                      <dd className="font-medium text-slate-700">
-                        {entry.ticker}{entry.side ? ` · ${entry.side}` : ""}
-                      </dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt className="sr-only">{d.columnAccount}</dt>
-                    <dd>{renderAccountLabel(entry.accountId)}</dd>
-                  </div>
-                </dl>
-                {isFxTransferEntry(entry) ? (
-                  <div className="mt-3 flex justify-end">{renderFxActionMenu(entry)}</div>
-                ) : null}
-              </Card>
-            ))}
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">{entry.currency}</td>
+                  <td className="px-3 py-3 text-muted-foreground">{renderAccountLabel(entry.accountId)}</td>
+                  <td className="px-3 py-3 text-right">{renderFxActionMenu(entry)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-            {/* Mobile pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-1 py-2" data-testid="mobile-pagination">
-                <span className="text-sm text-slate-500">
-                  {d.pagination.page} {page} {d.pagination.of} {totalPages}{d.pagination.totalSuffix}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={page <= 1}
-                    onClick={() => handlePageChange(page - 1)}
-                    data-testid="mobile-pagination-prev"
-                  >
-                    {d.pagination.previous}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={page >= totalPages}
-                    onClick={() => handlePageChange(page + 1)}
-                    data-testid="mobile-pagination-next"
-                  >
-                    {d.pagination.next}
-                  </Button>
-                </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3" data-testid="pagination">
+              <span className="text-sm text-muted-foreground" data-testid="pagination-info">
+                {d.pagination.page} {page} {d.pagination.of} {totalPages}{d.pagination.totalSuffix}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={page <= 1}
+                  onClick={() => handlePageChange(page - 1)}
+                  data-testid="pagination-prev"
+                >
+                  {d.pagination.previous}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={page >= totalPages}
+                  onClick={() => handlePageChange(page + 1)}
+                  data-testid="pagination-next"
+                >
+                  {d.pagination.next}
+                </Button>
               </div>
-            )}
-          </div>
-        </>
+            </div>
+          )}
+        </Card>
       )}
 
       {/* Drawer */}
