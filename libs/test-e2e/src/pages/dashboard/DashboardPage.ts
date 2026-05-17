@@ -23,6 +23,8 @@ export interface TDashboardElements extends TElementLocatorHelpers {
   floatingActionAddTransaction: Locator;
   floatingActionRecompute: Locator;
   floatingActionGenerateSnapshots: Locator;
+  // Phase 5e — Recompute action opens an AlertDialog with this CTA.
+  recomputeConfirmDialogCta: Locator;
   generateSnapshotsButton: Locator;
   snapshotStatus: Locator;
   performanceCard: Locator;
@@ -62,6 +64,7 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       floatingActionAddTransaction: this.locate("floating-action-add-transaction", "Floating Action — Add Transaction"),
       floatingActionRecompute: this.locate("floating-action-recompute", "Floating Action — Recompute"),
       floatingActionGenerateSnapshots: this.locate("floating-action-generate-snapshots", "Floating Action — Generate Snapshots"),
+      recomputeConfirmDialogCta: this.locate("recompute-confirm-dialog-cta", "Recompute Confirm Dialog CTA"),
       generateSnapshotsButton: this.locate("generate-snapshots-button", "Generate Snapshots Button"),
       snapshotStatus: this.locate("snapshot-status", "Snapshot Status"),
       performanceCard: this.locate("dashboard-performance-card", "Performance Amounts Card"),

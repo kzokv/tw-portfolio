@@ -22,8 +22,13 @@ test("[hero-C] BiggestMoversCard shows empty state when no holdings have quotes"
   appShell,
 }) => {
   await appShell.actions.setViewport(1440, 960);
-  // Seed a trade with no daily bars → quoteStatus = "missing" → no movers.
-  await dashboard.arrange.seedTrade({ ticker: "2330", quantity: 100, unitPrice: 500 });
+  // Use a ticker that NO other spec seeds daily bars for. MemoryPersistence
+  // stores bars in a process-global array (see
+  // .claude/rules/e2e-shared-memory-bars-ticker-hygiene.md); reusing `2330`
+  // would import bar pollution from parallel specs and break the
+  // empty-state assertion. `9876` is a synthetic ticker reserved for this
+  // dashboard-hero empty-state case only.
+  await dashboard.arrange.seedTrade({ ticker: "9876", quantity: 100, unitPrice: 500 });
   await dashboard.actions.navigateToDashboard();
   await dashboard.assert.appIsReady();
 

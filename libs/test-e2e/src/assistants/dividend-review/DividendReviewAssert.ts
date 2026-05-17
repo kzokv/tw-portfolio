@@ -107,17 +107,23 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async allRowsContainText(text: string | RegExp): Promise<void> {
-    const count = await this.el.rows.count();
-    for (let i = 0; i < count; i++) {
-      await expect(this.el.rows.nth(i)).toContainText(text);
+    // Filter submits trigger an async refetch — the row count is unstable
+    // while the response is in flight. Snapshot via `.all()` once Playwright's
+    // strictness has settled, then assert each row exists in the snapshot
+    // rather than counting + indexing (which races the DOM update).
+    await expect.poll(async () => (await this.el.rows.all()).length).toBeGreaterThan(0);
+    const snapshot = await this.el.rows.all();
+    for (const row of snapshot) {
+      await expect(row).toContainText(text);
     }
   }
 
   @Step()
   async noRowContainsText(text: string | RegExp): Promise<void> {
-    const count = await this.el.rows.count();
-    for (let i = 0; i < count; i++) {
-      await expect(this.el.rows.nth(i)).not.toContainText(text);
+    // Snapshot rows up-front so the loop iterates a stable list.
+    const snapshot = await this.el.rows.all();
+    for (const row of snapshot) {
+      await expect(row).not.toContainText(text);
     }
   }
 

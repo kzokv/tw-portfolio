@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 const getNextQuotePoll = (current: string): string => (current === "12" ? "10" : "12");
@@ -29,18 +30,22 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await settings.actions.save();
 
   // Per architect ruling — "drawer closed" is now "not on /settings/*".
-  // Navigate explicitly so the topbar-title assertion below resolves on the
-  // dashboard route, not on /settings.
+  // Navigate to the dashboard to exercise the cross-route boundary, then
+  // back to /settings/general to verify the saved values persist. Phase 5d/5e
+  // demoted the in-dashboard RecomputeCard surface that previously echoed the
+  // quote-poll value, so persistence is now verified on the settings input
+  // itself.
   await appShell.actions.navigateViaSidebar("dashboard");
-
   await appShell.assert.isOnRoute("/dashboard");
   await appShell.assert.topBarTitleContains("儀表板");
-  await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
+
+  await appShell.actions.openSettingsSection("general");
+  expect(await settings.actions.getQuotePollValue()).toBe(nextQuotePoll);
 
   await appShell.actions.reloadShellPage();
-
-  await appShell.assert.topBarTitleContains("儀表板");
-  await appShell.assert.quotePollValueContains(`${nextQuotePoll} 秒`);
+  // After reload the URL stays on /settings/general; re-read the input value
+  // to confirm the persisted setting survives a fresh page load.
+  expect(await settings.actions.getQuotePollValue()).toBe(nextQuotePoll);
 });
 
 /**
