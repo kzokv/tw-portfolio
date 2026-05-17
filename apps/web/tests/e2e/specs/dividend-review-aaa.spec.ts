@@ -539,7 +539,7 @@ test.describe("dividend review — SSE", () => {
 // ─── Group 6: Navigation ───────────────────────────────────────────────────
 
 test.describe("dividend review — navigation", () => {
-  test("calendar page: click 'View all dividends' → navigates to /dividends/review", async ({
+  test("calendar page: click 'View all dividends' → switches to ledger tab on /dividends", async ({
     dividendReview,
   }) => {
     // ARRANGE
@@ -551,12 +551,12 @@ test.describe("dividend review — navigation", () => {
       receivedCashAmount: 108,
     });
 
-    // ACT: navigate to calendar, then click the link
+    // ACT: navigate to calendar (default tab), then click the link
     await dividendReview.actions.navigateToCalendar();
     await dividendReview.actions.clickViewAllDividendsLink();
 
-    // ASSERT
-    await dividendReview.assert.urlPathIs("/dividends/review");
+    // ASSERT — Phase 5a — /dividends/review was merged into /dividends?view=ledger.
+    await dividendReview.assert.urlPathIs("/dividends");
     await dividendReview.assert.pageLoaded();
   });
 });

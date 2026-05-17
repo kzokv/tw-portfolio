@@ -15,12 +15,15 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async navigateToReview(): Promise<void> {
-    await this.mxNavigateToRoute("/dividends/review", TestEnv.appBaseUrl);
+    // Phase 5a — /dividends/review was merged into /dividends?view=ledger.
+    await this.mxNavigateToRoute("/dividends?view=ledger", TestEnv.appBaseUrl);
   }
 
   @Step()
   async navigateToReviewWithParams(params: string): Promise<void> {
-    await this.mxNavigateToRoute(`/dividends/review?${params}`, TestEnv.appBaseUrl);
+    // Phase 5a — caller-supplied params are merged with view=ledger.
+    const prefix = params.includes("view=") ? "" : "view=ledger&";
+    await this.mxNavigateToRoute(`/dividends?${prefix}${params}`, TestEnv.appBaseUrl);
   }
 
   @Step()

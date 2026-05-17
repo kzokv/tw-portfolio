@@ -44,7 +44,6 @@ const BREADCRUMB_FALLBACK_MAP: ReadonlyArray<BreadcrumbFallbackEntry> = [
   { pathname: "/portfolio", label: "Portfolio" },
   { pathname: "/transactions", label: "Transactions" },
   { pathname: "/cash-ledger", label: "Cash Ledger" },
-  { pathname: "/dividends/review", label: "Dividend Review" },
   { pathname: "/dividends", label: "Dividends" },
   { pathname: "/sharing", label: "Sharing" },
   { pathname: "/tickers", label: "Tickers" },
