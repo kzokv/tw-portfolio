@@ -70,7 +70,17 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async submitTickerFilter(): Promise<void> {
+    // Filter submit triggers an async fetch against
+    // /portfolio/dividends/ledger — wait for the response before returning
+    // so downstream assertions race-free observe the filtered row set.
+    const responsePromise = this.page
+      .waitForResponse(
+        (r) => r.url().includes("/portfolio/dividends/ledger") && r.ok(),
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
     await this.mxPressKey("Enter");
+    await responsePromise;
   }
 
   // ─── Filter bar — dropdowns ──────────────────────────────────────────────
