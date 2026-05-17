@@ -1,9 +1,20 @@
+"use client";
+
 import type { DashboardOverviewHoldingDto, LocaleCode } from "@vakwen/shared-types";
+import { Cell, Pie, PieChart } from "recharts";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
+import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 
-const DONUT_COLORS = ["#4f46e5", "#6366f1", "#3b82f6", "#14b8a6", "#f59e0b", "#94a3b8"];
+const CHART_TOKEN_KEYS = [
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+  "chart-6",
+] as const;
 
 interface AllocationSnapshotCardProps {
   holdings: DashboardOverviewHoldingDto[];
@@ -11,10 +22,33 @@ interface AllocationSnapshotCardProps {
   dict: AppDictionary;
 }
 
+interface Segment {
+  label: string;
+  amount: number;
+  weight: number;
+}
+
+function buildChartConfig(segments: Segment[]): ChartConfig {
+  return segments.reduce<ChartConfig>((acc, segment, index) => {
+    const tokenKey = CHART_TOKEN_KEYS[index % CHART_TOKEN_KEYS.length];
+    acc[segment.label] = {
+      label: segment.label,
+      color: `hsl(var(--${tokenKey}))`,
+    };
+    return acc;
+  }, {});
+}
+
+function segmentColor(index: number): string {
+  const tokenKey = CHART_TOKEN_KEYS[index % CHART_TOKEN_KEYS.length];
+  return `hsl(var(--${tokenKey}))`;
+}
+
 export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSnapshotCardProps) {
   const segments = buildAllocationSegments(holdings, dict);
   const totalAmount = segments.reduce((sum, segment) => sum + segment.amount, 0);
   const currency = holdings[0]?.currency ?? "TWD";
+  const chartConfig = buildChartConfig(segments);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-allocation-card">
@@ -29,12 +63,34 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
       ) : (
         <>
           <div className="mt-6 flex justify-center">
-            <div
-              className="relative h-56 w-56 rounded-full shadow-[0_20px_50px_rgba(79,70,229,0.12)]"
-              style={{ background: buildConicGradient(segments) }}
-              aria-hidden="true"
-            >
-              <div className="absolute inset-[22%] flex items-center justify-center rounded-full border border-slate-200 bg-white/95 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
+            <div className="relative h-56 w-56">
+              <ChartContainer
+                config={chartConfig}
+                className="h-56 w-56 aspect-square shadow-[0_20px_50px_rgba(79,70,229,0.12)] rounded-full"
+              >
+                <PieChart>
+                  <Pie
+                    data={segments}
+                    dataKey="amount"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="62%"
+                    outerRadius="100%"
+                    paddingAngle={0}
+                    stroke="none"
+                    isAnimationActive={false}
+                  >
+                    {segments.map((_, index) => (
+                      <Cell key={index} fill={segmentColor(index)} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ChartContainer>
+              <div
+                className="pointer-events-none absolute inset-[22%] flex items-center justify-center rounded-full border border-slate-200 bg-white/95 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]"
+                aria-hidden="true"
+              >
                 <div className="px-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{dict.dashboardHome.marketValueLabel}</p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">{formatCurrencyAmount(totalAmount, currency, locale)}</p>
@@ -50,7 +106,11 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
                 className="flex items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white/88 px-4 py-3"
               >
                 <div className="min-w-0 flex items-center gap-3">
-                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: DONUT_COLORS[index % DONUT_COLORS.length] }} aria-hidden="true" />
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: segmentColor(index) }}
+                    aria-hidden="true"
+                  />
                   <p className="truncate text-sm font-medium text-slate-900">{segment.label}</p>
                 </div>
                 <div className="text-right">
@@ -66,7 +126,7 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
   );
 }
 
-function buildAllocationSegments(holdings: DashboardOverviewHoldingDto[], dict: AppDictionary) {
+function buildAllocationSegments(holdings: DashboardOverviewHoldingDto[], dict: AppDictionary): Segment[] {
   const ranked = holdings
     .map((holding) => ({
       label: holding.ticker,
@@ -90,14 +150,4 @@ function buildAllocationSegments(holdings: DashboardOverviewHoldingDto[], dict: 
     ...segment,
     weight: totalAmount > 0 ? (segment.amount / totalAmount) * 100 : 0,
   }));
-}
-
-function buildConicGradient(segments: Array<{ weight: number }>): string {
-  let offset = 0;
-  const stops = segments.map((segment, index) => {
-    const start = offset;
-    offset += segment.weight;
-    return `${DONUT_COLORS[index % DONUT_COLORS.length]} ${start}% ${offset}%`;
-  });
-  return `conic-gradient(${stops.join(", ")})`;
 }
