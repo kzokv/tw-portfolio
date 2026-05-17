@@ -1,8 +1,8 @@
 import type { ProfileDto } from "@vakwen/shared-types";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { Card } from "../../../components/ui/Card";
 import { buttonVariants } from "../../../components/ui/Button";
+import { AuthShell } from "../../../components/layout/AuthShell";
 import { SignInButton } from "../../../components/SignInButton";
 import { getSession } from "../../../lib/auth";
 import { authPageCopy, resolveAuthLocale, type InviteStatus } from "../../../lib/authPages";
@@ -57,32 +57,30 @@ export default async function InvitePage({ params }: InvitePageProps) {
     const email = profile?.email ?? copy.signedInIdentityFallback;
 
     return (
-      <main className="flex min-h-screen items-center justify-center bg-bg px-4">
-        <Card className="flex w-full max-w-lg flex-col gap-6 py-10" data-testid="invite-card">
-          <div className="space-y-2 text-center">
-            <h1 className="font-display text-2xl font-semibold text-ink">{copy.signedInTitle}</h1>
-            <p className="text-sm leading-6 text-slate-500">
-              {copy.signedInDescription.replace("{email}", email)}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <a
-              href={`${API_PUBLIC}/auth/logout?returnTo=${encodeURIComponent(`/invite/${inviteCode}`)}`}
-              data-testid="invite-sign-out-button"
-              className={cn(buttonVariants({ variant: "default" }), "w-full")}
-            >
-              {copy.signOut}
-            </a>
-            <Link
-              href="/dashboard"
-              data-testid="invite-dashboard-button"
-              className={cn(buttonVariants({ variant: "secondary" }), "w-full")}
-            >
-              {copy.dashboard}
-            </Link>
-          </div>
-        </Card>
-      </main>
+      <AuthShell cardClassName="flex max-w-lg flex-col gap-6 py-10">
+        <div className="space-y-2 text-center" data-testid="invite-card">
+          <h1 className="font-display text-2xl font-semibold text-foreground">{copy.signedInTitle}</h1>
+          <p className="text-sm leading-6 text-muted-foreground">
+            {copy.signedInDescription.replace("{email}", email)}
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <a
+            href={`${API_PUBLIC}/auth/logout?returnTo=${encodeURIComponent(`/invite/${inviteCode}`)}`}
+            data-testid="invite-sign-out-button"
+            className={cn(buttonVariants({ variant: "default" }), "w-full")}
+          >
+            {copy.signOut}
+          </a>
+          <Link
+            href="/dashboard"
+            data-testid="invite-dashboard-button"
+            className={cn(buttonVariants({ variant: "secondary" }), "w-full")}
+          >
+            {copy.dashboard}
+          </Link>
+        </div>
+      </AuthShell>
     );
   }
 
@@ -95,24 +93,22 @@ export default async function InvitePage({ params }: InvitePageProps) {
   const signInHref = `${API_PUBLIC}/auth/google/start?invite_code=${encodeURIComponent(inviteCode)}`;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <Card className="flex w-full max-w-lg flex-col gap-6 py-10" data-testid="invite-card">
-        <div className="space-y-2 text-center">
-          <h1 className="font-display text-2xl font-semibold text-ink">{statusMessage.title}</h1>
-          <p className="text-sm leading-6 text-slate-500" data-testid="invite-status-message">
-            {statusMessage.description}
-          </p>
-        </div>
-        {inviteStatus === "valid" ? (
-          <SignInButton
-            href={signInHref}
-            className={cn(buttonVariants({ variant: "default" }), "w-full")}
-            label={copy.signIn}
-            loadingLabel={copy.connecting}
-            apiUnreachableMessage={copy.apiUnreachable}
-          />
-        ) : null}
-      </Card>
-    </main>
+    <AuthShell cardClassName="flex max-w-lg flex-col gap-6 py-10">
+      <div className="space-y-2 text-center" data-testid="invite-card">
+        <h1 className="font-display text-2xl font-semibold text-foreground">{statusMessage.title}</h1>
+        <p className="text-sm leading-6 text-muted-foreground" data-testid="invite-status-message">
+          {statusMessage.description}
+        </p>
+      </div>
+      {inviteStatus === "valid" ? (
+        <SignInButton
+          href={signInHref}
+          className={cn(buttonVariants({ variant: "default" }), "w-full")}
+          label={copy.signIn}
+          loadingLabel={copy.connecting}
+          apiUnreachableMessage={copy.apiUnreachable}
+        />
+      ) : null}
+    </AuthShell>
   );
 }
