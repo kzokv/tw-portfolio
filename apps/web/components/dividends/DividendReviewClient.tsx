@@ -226,6 +226,10 @@ export function DividendReviewClient({
 
   const syncUrl = useCallback((f: FilterState) => {
     const params = new URLSearchParams();
+    // Phase 5a — always stamp view=ledger when this client owns the URL so
+    // the merged /dividends route resolves to ledger unambiguously even
+    // when all other ledger params are at their defaults.
+    params.set("view", "ledger");
     if (f.preset !== "currentYear") params.set("preset", f.preset);
     if (f.fromDate) params.set("fromPaymentDate", f.fromDate);
     if (f.toDate) params.set("toPaymentDate", f.toDate);
@@ -236,8 +240,13 @@ export function DividendReviewClient({
     if (f.sortOrder !== "desc") params.set("sortOrder", f.sortOrder);
     if (f.page > 1) params.set("page", String(f.page));
 
-    const qs = params.toString();
-    router.replace(`/dividends/review${qs ? `?${qs}` : ""}`, { scroll: false });
+    const url = `/dividends?${params.toString()}`;
+    // Sync URL synchronously for E2E page.url() assertions
+    // (per .claude/rules/playwright-navigation-patterns.md).
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", url);
+    }
+    router.replace(url, { scroll: false });
   }, [router]);
 
   // ── Fetch data ────────────────────────────────────────────────────────
@@ -346,8 +355,14 @@ export function DividendReviewClient({
   const handleFilterPending = useCallback(() => {
     setSourceCompositionPendingFilter(true);
     const params = new URLSearchParams(window.location.search);
+    // Phase 5a — keep view=ledger so the merged route stays on the ledger tab.
+    params.set("view", "ledger");
     params.set("sourceComposition", "pending");
-    router.replace(`/dividends/review?${params.toString()}`, { scroll: false });
+    const url = `/dividends?${params.toString()}`;
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", url);
+    }
+    router.replace(url, { scroll: false });
   }, [router]);
 
   // ── Mark Matched ──────────────────────────────────────────────────────

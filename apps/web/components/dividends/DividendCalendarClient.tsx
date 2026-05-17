@@ -307,7 +307,7 @@ export function DividendCalendarClient({
 
       <div className="flex justify-center">
         <Link
-          href="/dividends/review"
+          href="/dividends?view=ledger"
           className="text-sm font-medium text-sky-600 hover:text-sky-700 hover:underline"
           data-testid="dividends-view-all-link"
         >
