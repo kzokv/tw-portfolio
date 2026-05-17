@@ -6,10 +6,23 @@ export interface TDashboardElements extends TElementLocatorHelpers {
   recomputeStatus: Locator;
   demoBanner: Locator;
   appReady: Locator;
-  summarySection: Locator;
   holdingsTable: Locator;
   holdingsSection: Locator;
   heroPanel: Locator;
+  // Phase 5d/5e — slim hero block (above the SortableCardGrid).
+  dashboardHero: Locator;
+  dashboardHeroTotal: Locator;
+  dashboardHeroDayDelta: Locator;
+  dashboardBiggestMovers: Locator;
+  dashboardBiggestMoversEmpty: Locator;
+  dashboardIntegrityAlert: Locator;
+  dashboardIntegrityAlertCta: Locator;
+  // Phase 5e — floating ⨁ Sheet (replaces ActionCenter recompute/snapshots).
+  floatingQuickActionsTrigger: Locator;
+  floatingQuickActionsSheet: Locator;
+  floatingActionAddTransaction: Locator;
+  floatingActionRecompute: Locator;
+  floatingActionGenerateSnapshots: Locator;
   generateSnapshotsButton: Locator;
   snapshotStatus: Locator;
   performanceCard: Locator;
@@ -20,11 +33,10 @@ export interface TDashboardElements extends TElementLocatorHelpers {
   returnPercentChart: Locator;
   returnPercentChartDataPath: Locator;
   returnPercentProvisionalWarning: Locator;
-  dailyChangeCard: Locator;
-  dailyChangeSubduedText: Locator;
   holdingsHeaderCells: Locator;
   holdingRow: (ticker: string) => Locator;
   holdingDailyChangeCell: (ticker: string) => Locator;
+  biggestMoverRow: (ticker: string) => Locator;
 }
 
 export class DashboardPage extends BasePage<TDashboardElements> {
@@ -35,10 +47,21 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       recomputeStatus: this.locate("recompute-status", "Recompute Status"),
       demoBanner: this.locate("demo-banner", "Demo Banner"),
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
-      summarySection: this.locate("dashboard-summary-section", "Dashboard Summary Section"),
       holdingsTable: this.locate("holdings-table", "Holdings Table"),
       holdingsSection: this.locate("dashboard-holdings-section", "Holdings Section"),
       heroPanel: this.locate("dashboard-intro", "Dashboard Hero Panel"),
+      dashboardHero: this.locate("dashboard-hero", "Dashboard Hero (Phase 5d)"),
+      dashboardHeroTotal: this.locate("dashboard-hero-total", "Dashboard Hero Total"),
+      dashboardHeroDayDelta: this.locate("dashboard-hero-day-delta", "Dashboard Hero Day Δ"),
+      dashboardBiggestMovers: this.locate("dashboard-biggest-movers", "Dashboard Biggest Movers Card"),
+      dashboardBiggestMoversEmpty: this.locate("dashboard-biggest-movers-empty", "Dashboard Biggest Movers Empty State"),
+      dashboardIntegrityAlert: this.locate("dashboard-integrity-alert", "Dashboard Integrity Alert"),
+      dashboardIntegrityAlertCta: this.locate("dashboard-integrity-alert-fix-cta", "Dashboard Integrity Alert Fix CTA"),
+      floatingQuickActionsTrigger: this.locate("floating-quick-actions-trigger", "Floating Quick Actions Trigger"),
+      floatingQuickActionsSheet: this.locate("floating-quick-actions-sheet", "Floating Quick Actions Sheet"),
+      floatingActionAddTransaction: this.locate("floating-action-add-transaction", "Floating Action — Add Transaction"),
+      floatingActionRecompute: this.locate("floating-action-recompute", "Floating Action — Recompute"),
+      floatingActionGenerateSnapshots: this.locate("floating-action-generate-snapshots", "Floating Action — Generate Snapshots"),
       generateSnapshotsButton: this.locate("generate-snapshots-button", "Generate Snapshots Button"),
       snapshotStatus: this.locate("snapshot-status", "Snapshot Status"),
       performanceCard: this.locate("dashboard-performance-card", "Performance Amounts Card"),
@@ -47,19 +70,6 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       returnPercentCard: this.locate("dashboard-return-percent-card", "Return Percent Card"),
       returnPercentChart: this.locate("dashboard-return-percent-chart", "Return Percent Chart SVG"),
       returnPercentProvisionalWarning: this.locate("dashboard-return-percent-provisional-warning", "Return Percent Provisional Warning"),
-      dailyChangeCard: this.withDescription(
-        this.locate("dashboard-summary-section")
-          .locator(".glass-inset")
-          .filter({ hasText: /daily change/i }),
-        "Daily Change Summary Card",
-      ),
-      dailyChangeSubduedText: this.withDescription(
-        this.locate("dashboard-summary-section")
-          .locator(".glass-inset")
-          .filter({ hasText: /daily change/i })
-          .locator("p.text-slate-400"),
-        "Daily Change Subdued Text",
-      ),
       holdingsHeaderCells: this.withinByCss(
         this.locate("holdings-table"),
         "thead th",
@@ -75,6 +85,8 @@ export class DashboardPage extends BasePage<TDashboardElements> {
           this.locate("holdings-table").locator("tbody tr").filter({ hasText: ticker }).locator("td").nth(5),
           `Holding Daily Change Cell ${ticker}`,
         ),
+      biggestMoverRow: (ticker: string) =>
+        this.locate(`dashboard-biggest-movers-row-${ticker}`, `Biggest Movers Row ${ticker}`),
       performanceChartDataPath: this.withinByCss(
         this.locate("dashboard-performance-chart"),
         "path[d]",

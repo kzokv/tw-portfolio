@@ -37,16 +37,6 @@ export class DashboardAssert extends BaseAssert {
   }
 
   @Step()
-  async summaryDailyChangeContains(text: string | RegExp): Promise<void> {
-    await expect(this.el.summarySection).toContainText(text);
-  }
-
-  @Step()
-  async summaryDailyChangeIsSubdued(): Promise<void> {
-    await expect(this.el.dailyChangeSubduedText).toBeVisible();
-  }
-
-  @Step()
   async holdingsTableHasDailyChangeColumn(): Promise<void> {
     await expect(this.el.holdingsHeaderCells).toContainText([/daily change/i]);
   }
@@ -151,5 +141,77 @@ export class DashboardAssert extends BaseAssert {
   @Step()
   async returnPercentProvisionalWarningIsHidden(): Promise<void> {
     await expect(this.el.returnPercentProvisionalWarning).not.toBeVisible();
+  }
+
+  // --- Phase 5d/5e — slim hero block + integrity Alert + floating ⨁ ---
+
+  @Step()
+  async dashboardHeroIsVisible(): Promise<void> {
+    await expect(this.el.dashboardHero).toBeVisible();
+  }
+
+  @Step()
+  async dashboardHeroTotalIsVisible(): Promise<void> {
+    await expect(this.el.dashboardHeroTotal).toBeVisible();
+  }
+
+  @Step()
+  async dashboardHeroDayDeltaIsVisible(): Promise<void> {
+    await expect(this.el.dashboardHeroDayDelta).toBeVisible();
+  }
+
+  @Step()
+  async dashboardBiggestMoversIsVisible(): Promise<void> {
+    await expect(this.el.dashboardBiggestMovers).toBeVisible();
+  }
+
+  @Step()
+  async dashboardBiggestMoversIsEmpty(): Promise<void> {
+    await expect(this.el.dashboardBiggestMoversEmpty).toBeVisible();
+  }
+
+  @Step()
+  async dashboardBiggestMoversRowVisible(ticker: string): Promise<void> {
+    await expect(this.el.biggestMoverRow(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async dashboardIntegrityAlertIsVisible(): Promise<void> {
+    await expect(this.el.dashboardIntegrityAlert).toBeVisible();
+  }
+
+  @Step()
+  async dashboardIntegrityAlertIsHidden(): Promise<void> {
+    await expect(this.el.dashboardIntegrityAlert).toHaveCount(0);
+  }
+
+  @Step()
+  async floatingQuickActionsTriggerIsVisible(): Promise<void> {
+    await expect(this.el.floatingQuickActionsTrigger).toBeVisible();
+  }
+
+  @Step()
+  async floatingQuickActionsTriggerIsHidden(): Promise<void> {
+    await expect(this.el.floatingQuickActionsTrigger).toHaveCount(0);
+  }
+
+  @Step()
+  async floatingQuickActionsSheetIsVisible(): Promise<void> {
+    await expect(this.el.floatingQuickActionsSheet).toBeVisible();
+  }
+
+  @Step()
+  async floatingActionAddTransactionIsVisible(): Promise<void> {
+    await expect(this.el.floatingActionAddTransaction).toBeVisible();
+  }
+
+  @Step()
+  async floatingActionRecomputeIsVisible(): Promise<void> {
+    await expect(this.el.floatingActionRecompute).toBeVisible();
+  }
+
+  @Step()
+  async floatingActionGenerateSnapshotsIsVisible(): Promise<void> {
+    await expect(this.el.floatingActionGenerateSnapshots).toBeVisible();
   }
 }

@@ -18,6 +18,21 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async navigateToLedgerTab(): Promise<void> {
+    await this.mxNavigateToRoute("/dividends?view=ledger", TestEnv.appBaseUrl);
+  }
+
+  @Step()
+  async clickLedgerTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabLedger);
+  }
+
+  @Step()
+  async clickCalendarTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.tabCalendar);
+  }
+
+  @Step()
   async openPostingDrawerForEvent(eventId: string): Promise<void> {
     await this.uiActions.click.perform(this.el.postButton(eventId));
   }

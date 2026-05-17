@@ -57,4 +57,26 @@ export class DashboardActions extends AppBaseActions {
     await this.clickGenerateSnapshots();
     await responsePromise;
   }
+
+  // --- Phase 5e — floating ⨁ Sheet actions ---
+
+  @Step()
+  async openFloatingQuickActions(): Promise<void> {
+    await this.uiActions.click.perform(this.el.floatingQuickActionsTrigger);
+  }
+
+  @Step()
+  async clickFloatingAddTransaction(): Promise<void> {
+    await this.uiActions.click.perform(this.el.floatingActionAddTransaction);
+  }
+
+  @Step()
+  async clickFloatingRecompute(): Promise<void> {
+    await this.uiActions.click.perform(this.el.floatingActionRecompute);
+  }
+
+  @Step()
+  async clickFloatingGenerateSnapshots(): Promise<void> {
+    await this.uiActions.click.perform(this.el.floatingActionGenerateSnapshots);
+  }
 }

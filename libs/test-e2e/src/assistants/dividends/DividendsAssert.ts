@@ -132,4 +132,41 @@ export class DividendsAssert extends BaseAssert {
   async nhiEstimateWarningIsHidden(): Promise<void> {
     await expect(this.el.drawer.nhiEstimateWarning).not.toBeVisible();
   }
+
+  // --- Phase 5a — Tabs container ---
+
+  @Step()
+  async tabsContainerIsVisible(): Promise<void> {
+    await expect(this.el.tabsContainer).toBeVisible();
+  }
+
+  @Step()
+  async calendarTabIsActive(): Promise<void> {
+    await expect(this.el.tabCalendar).toHaveAttribute("data-state", "active");
+  }
+
+  @Step()
+  async ledgerTabIsActive(): Promise<void> {
+    await expect(this.el.tabLedger).toHaveAttribute("data-state", "active");
+  }
+
+  @Step()
+  async calendarPanelIsVisible(): Promise<void> {
+    await expect(this.el.tabpanelCalendar).toBeVisible();
+  }
+
+  @Step()
+  async ledgerPanelIsVisible(): Promise<void> {
+    await expect(this.el.tabpanelLedger).toBeVisible();
+  }
+
+  @Step()
+  async urlContains(substring: string): Promise<void> {
+    await expect(this.page).toHaveURL(new RegExp(substring.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+
+  @Step()
+  async urlDoesNotContain(substring: string): Promise<void> {
+    expect(this.page.url()).not.toContain(substring);
+  }
 }
