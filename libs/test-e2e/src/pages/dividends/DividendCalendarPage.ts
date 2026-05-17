@@ -5,6 +5,12 @@ import { DividendPostingDrawerComponent, type TDividendPostingDrawerElements } f
 export interface TDividendCalendarElements {
   calendarPage: Locator;
   tbdSection: Locator;
+  // Phase 5a — Tabs container (calendar | ledger).
+  tabsContainer: Locator;
+  tabCalendar: Locator;
+  tabLedger: Locator;
+  tabpanelCalendar: Locator;
+  tabpanelLedger: Locator;
   row: (eventId: string) => Locator;
   badge: (eventId: string) => Locator;
   postButton: (eventId: string) => Locator;
@@ -18,6 +24,11 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
     this._elements = {
       calendarPage: this.locate("dividends-calendar-page", "Dividend Calendar Page"),
       tbdSection: this.locate("dividends-tbd-section", "Dividend Payment Date TBD Section"),
+      tabsContainer: this.locate("dividends-tabs", "Dividends Tabs Container"),
+      tabCalendar: this.locate("dividends-tab-calendar", "Dividends Calendar Tab"),
+      tabLedger: this.locate("dividends-tab-ledger", "Dividends Ledger Tab"),
+      tabpanelCalendar: this.locate("dividends-tabpanel-calendar", "Dividends Calendar Panel"),
+      tabpanelLedger: this.locate("dividends-tabpanel-ledger", "Dividends Ledger Panel"),
       row: (eventId: string) => this.locate(`dividend-row-${eventId}`, `Dividend Row ${eventId}`),
       badge: (eventId: string) => this.locate(`dividend-badge-${eventId}`, `Dividend Badge ${eventId}`),
       postButton: (eventId: string) => this.locate(`dividend-post-${eventId}`, `Post Dividend Button ${eventId}`),
