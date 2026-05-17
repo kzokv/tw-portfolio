@@ -1,4 +1,3 @@
-import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 const getNextQuotePoll = (current: string): string => (current === "12" ? "10" : "12");
@@ -40,12 +39,12 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   await appShell.assert.topBarTitleContains("儀表板");
 
   await appShell.actions.openSettingsSection("general");
-  expect(await settings.actions.getQuotePollValue()).toBe(nextQuotePoll);
+  await settings.assert.quotePollInputValueEquals(nextQuotePoll);
 
   await appShell.actions.reloadShellPage();
   // After reload the URL stays on /settings/general; re-read the input value
   // to confirm the persisted setting survives a fresh page load.
-  expect(await settings.actions.getQuotePollValue()).toBe(nextQuotePoll);
+  await settings.assert.quotePollInputValueEquals(nextQuotePoll);
 });
 
 /**

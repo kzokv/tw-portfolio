@@ -37,6 +37,14 @@ export class SettingsAssert extends BaseAssert {
   }
 
   @Step()
+  async quotePollInputValueEquals(expected: string): Promise<void> {
+    // Phase 6e — verifies the persisted quote-poll value survived a
+    // cross-route navigation or reload. Asserts on the General Settings
+    // input value (settings-quote-poll-input testid).
+    await expect(this.el.general.quotePollInput).toHaveValue(expected);
+  }
+
+  @Step()
   async localeTooltipContentIsVisible(): Promise<void> {
     await expect(this.el.general.localeTooltipContent).toBeVisible();
   }

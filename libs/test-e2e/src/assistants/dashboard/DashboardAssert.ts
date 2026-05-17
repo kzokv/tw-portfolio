@@ -67,55 +67,33 @@ export class DashboardAssert extends BaseAssert {
   }
 
   // --- Snapshot chart assertions ---
-
-  /**
-   * Open the FloatingQuickActions sheet if it is not already open.
-   * Mirrors DashboardActions.ensureFloatingSheetOpen — Phase 5e moved
-   * recompute and generate-snapshots actions into a floating Sheet.
-   */
-  private async ensureFloatingSheetOpen(): Promise<void> {
-    const visible = await this.el.floatingQuickActionsSheet.isVisible().catch(() => false);
-    if (!visible) {
-      await this.el.floatingQuickActionsTrigger.click();
-      await this.el.floatingQuickActionsSheet.waitFor({ state: "visible" });
-    }
-  }
+  // Phase 5e moved recompute and generate-snapshots actions into the
+  // FloatingQuickActions sheet. Visibility assertions proxy on the
+  // floating trigger (presence == actions reachable); opening the sheet
+  // for a passive check would leave its overlay blocking subsequent
+  // dashboard clicks. The actual click+open flow lives in
+  // DashboardActions.clickRecompute / clickGenerateSnapshots.
 
   @Step()
   async generateSnapshotsButtonIsVisible(): Promise<void> {
-    // Phase 5e — Generate Snapshots is reachable via the FloatingQuickActions
-    // trigger. Asserting on the trigger is sufficient (the action button itself
-    // only renders while the sheet is open, and opening it here would block
-    // subsequent clicks on dashboard content due to the sheet overlay).
     await expect(this.el.floatingQuickActionsTrigger).toBeVisible();
   }
 
   @Step()
   async recomputeButtonIsVisible(): Promise<void> {
-    // Phase 5e — Recompute is reachable via the FloatingQuickActions trigger.
-    // See generateSnapshotsButtonIsVisible for rationale.
     await expect(this.el.floatingQuickActionsTrigger).toBeVisible();
   }
 
   @Step()
   async recomputeButtonIsHidden(): Promise<void> {
-    // Phase 5e — when isSharedContext is true, the entire FloatingQuickActions
-    // component returns null; the trigger and all action buttons are absent
-    // from the DOM. Assert against the trigger as the canonical entry point.
+    // When isSharedContext is true, FloatingQuickActions returns null;
+    // the trigger and all action buttons are absent from the DOM.
     await expect(this.el.floatingQuickActionsTrigger).toHaveCount(0);
   }
 
   @Step()
   async generateSnapshotsButtonIsHidden(): Promise<void> {
-    // Phase 5e — see recomputeButtonIsHidden for rationale.
     await expect(this.el.floatingQuickActionsTrigger).toHaveCount(0);
-  }
-
-  @Step()
-  async generateSnapshotsButtonIsDisabled(): Promise<void> {
-    // Phase 5e — Generate Snapshots disabled-state lives inside the sheet.
-    await this.ensureFloatingSheetOpen();
-    await expect(this.el.floatingActionGenerateSnapshots).toBeDisabled();
   }
 
   @Step()
