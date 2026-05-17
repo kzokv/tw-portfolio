@@ -68,6 +68,7 @@ export async function patchProfile(patch: ProfileFieldPatch): Promise<ProfileDto
 export interface SettingsFieldPatch {
   locale?: UserSettings["locale"];
   quotePollIntervalSeconds?: number;
+  costBasisMethod?: UserSettings["costBasisMethod"];
 }
 
 export async function patchSettings(patch: SettingsFieldPatch): Promise<UserSettings> {

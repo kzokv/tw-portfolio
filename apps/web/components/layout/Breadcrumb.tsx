@@ -93,21 +93,36 @@ export function Breadcrumb() {
 }
 
 function buildFallbackItems(pathname: string, dict: AppDictionary | undefined): BreadcrumbItem[] {
-  const localizedLabel = dict ? resolveLocalizedLabel(pathname, dict) : null;
-  if (localizedLabel) {
-    return [{ label: localizedLabel }];
+  // Walk each prefix of the path so multi-segment routes render a real chain
+  // (e.g. `/settings/display` → `Settings › Display`). Each prefix resolves
+  // its own label via the same precedence as a top-level path. The terminal
+  // (current) item is rendered with no `href`; earlier ones link back.
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return [];
+
+  const items: BreadcrumbItem[] = [];
+  for (let i = 0; i < segments.length; i += 1) {
+    const prefix = `/${segments.slice(0, i + 1).join("/")}`;
+    const isLast = i === segments.length - 1;
+    const label = resolveSegmentLabel(prefix, segments[i], dict);
+    items.push({
+      label,
+      href: isLast ? undefined : prefix,
+    });
   }
-  const label = resolveBreadcrumbTitle(pathname);
-  if (label) {
-    return [{ label }];
-  }
-  // Last-resort: derive from the trailing segment so the breadcrumb still
-  // renders SOMETHING. Avoid empty render so the `breadcrumb-root` testid
-  // alone is not visually misleading.
-  const segment = pathname.split("/").filter(Boolean).pop();
-  if (!segment) return [];
-  const humanised = segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
-  return [{ label: humanised }];
+  return items;
+}
+
+function resolveSegmentLabel(
+  prefix: string,
+  segment: string,
+  dict: AppDictionary | undefined,
+): string {
+  const localized = dict ? resolveLocalizedLabel(prefix, dict) : null;
+  if (localized) return localized;
+  const fallback = resolveBreadcrumbTitle(prefix);
+  if (fallback) return fallback;
+  return segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
 }
 
 /**

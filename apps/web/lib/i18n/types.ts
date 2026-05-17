@@ -43,6 +43,49 @@ export interface AppDictionary {
     sharedHoldingsEmpty: string;
     sharedTransactionsEmpty: string;
   };
+  // Phase 3e — CommandPalette (⌘K) i18n. Flat strings only per
+  // `.claude/rules/nextjs-i18n-serialization.md`. `commandPaletteActionAccentPrefix`
+  // contains a `{accent}` placeholder substituted at call site.
+  commandPalette: {
+    placeholder: string;
+    empty: string;
+    groupRoutes: string;
+    groupTickers: string;
+    groupActions: string;
+    routeDashboard: string;
+    routePortfolio: string;
+    routeTransactions: string;
+    routeCashLedger: string;
+    routeDividends: string;
+    routeSharing: string;
+    routeSettingsProfile: string;
+    routeSettingsGeneral: string;
+    routeSettingsAccounts: string;
+    routeSettingsDisplay: string;
+    routeSettingsTickers: string;
+    actionThemeLight: string;
+    actionThemeSystem: string;
+    actionThemeDark: string;
+    actionAccentPrefix: string;
+    actionAddTransaction: string;
+    // §12 A2 — Recompute via ⌘K AlertDialog. Title/body/CTA copy lives here
+    // alongside the action label so the modal and its trigger share a section.
+    actionRecomputeAll: string;
+    recomputeConfirmTitle: string;
+    recomputeConfirmBody: string;
+    recomputeConfirmCta: string;
+    recomputeConfirmCancel: string;
+    accent: {
+      indigo: string;
+      violet: string;
+      blue: string;
+      cyan: string;
+      emerald: string;
+      amber: string;
+      rose: string;
+      slate: string;
+    };
+  };
   sharing: {
     pageTitle: string;
     pageDescription: string;

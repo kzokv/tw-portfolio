@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Button } from "../ui/Button";
 import { QuickSearchPanel, type QuickSearchItem } from "./QuickSearchPanel";
+import { useCommandPaletteContext, useHasCommandPalette } from "./CommandPaletteContext";
 
 interface TopBarSearchProps {
   items: QuickSearchItem[];
@@ -39,6 +40,8 @@ export function TopBarSearch({
 }: TopBarSearchProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const hasPalette = useHasCommandPalette();
+  const palette = useCommandPaletteContext();
   const [query, setQuery] = useState("");
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -81,6 +84,22 @@ export function TopBarSearch({
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    // Phase 3e §22 — inline-search ↔ modal handoff. Pressing ⌘K / Ctrl+K
+    // while typing in the inline input dismisses the inline panel and
+    // opens the ⌘K palette pre-filled with the carried query. The capture
+    // here runs BEFORE the document-level keydown handler in
+    // `useCommandPalette`, so we own the open + query transition cleanly.
+    if (hasPalette && event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const carry = query;
+      setDesktopOpen(false);
+      setMobileOpen(false);
+      setQuery("");
+      setActiveIndex(0);
+      palette.openWithQuery(carry);
+      return;
+    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setDesktopOpen(true);
@@ -112,8 +131,11 @@ export function TopBarSearch({
 
   return (
     <>
-      {/* Desktop inline search */}
-      <div className="relative hidden lg:block lg:w-[20rem] xl:w-[24rem]">
+      {/* Desktop inline search — only visible at xl+. Below xl the
+         CommandPaletteTrigger (⌘K) is the keyboard-first discovery surface;
+         keeping both side-by-side at lg leaves no horizontal room for the
+         breadcrumb when the sidebar is open. */}
+      <div className="relative hidden xl:block xl:w-[20rem] 2xl:w-[24rem]">
         <label className="block">
           <span className="sr-only">{label}</span>
           <span className="relative block">
@@ -156,7 +178,7 @@ export function TopBarSearch({
       {/* Mobile/tablet search button */}
       <Button
         variant="secondary"
-        className="h-10 w-10 shrink-0 rounded-full lg:hidden"
+        className="h-10 w-10 shrink-0 rounded-full xl:hidden"
         aria-label={mobileOpen ? closeLabel : openLabel}
         onClick={() => setMobileOpen((current) => !current)}
         data-testid="topbar-search-button"
@@ -168,7 +190,7 @@ export function TopBarSearch({
           avoid the ResizeObserver chrome-height measurement (design §3). */}
       {mobileOpen ? (
         <div
-          className="fixed inset-x-0 top-14 z-40 border-b border-border bg-background p-3 shadow-md lg:hidden"
+          className="fixed inset-x-0 top-14 z-40 border-b border-border bg-background p-3 shadow-md xl:hidden"
           data-testid="topbar-search-sheet"
         >
           <label className="block">

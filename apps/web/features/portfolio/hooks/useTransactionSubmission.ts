@@ -208,17 +208,17 @@ export function useTransactionSubmission({
     draftTransaction.unitPrice,
   ]);
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (): Promise<boolean> => {
     if (!draftTransaction.accountId) {
       setMessage("");
       setErrorMessage(noAccountsMessage);
-      return;
+      return false;
     }
 
     if (!draftTransaction.ticker.trim()) {
       setMessage("");
       setErrorMessage(tickerRequiredMessage);
-      return;
+      return false;
     }
 
     setIsSubmitting(true);
@@ -229,8 +229,10 @@ export function useTransactionSubmission({
       await submitTransaction(draftTransaction);
       await refresh();
       setMessage(successMessage);
+      return true;
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));
+      return false;
     } finally {
       setIsSubmitting(false);
     }

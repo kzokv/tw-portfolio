@@ -1,13 +1,12 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, type PlaywrightTestConfig } from "@playwright/test";
 import path from "node:path";
 import { TestEnv } from "@vakwen/config/test";
 
 type TWebServerMode = "full" | "api-only";
 
-interface TPlaywrightProject {
-  name: string;
-  testDir: string;
-}
+// Accept the full Playwright Project shape so consumers can pin viewport /
+// testMatch / device profiles per project (Phase 3g mobile + tablet gate).
+type TPlaywrightProject = NonNullable<PlaywrightTestConfig["projects"]>[number];
 
 interface TCreatePlaywrightConfigOptions {
   webServers: TWebServerMode;

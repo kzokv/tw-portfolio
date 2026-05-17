@@ -12,9 +12,8 @@ import { BasePage, type TElementLocatorHelpers } from "@vakwen/test-framework/co
  *   - `settings-nav` / `settings-nav-mobile` on the nav surfaces
  *   - `settings-nav-item-{slug}` on each <a> link
  *   - `settings-section-{slug}` on each section root
- *   - `display-calculations-section`, `display-language-select` (S4 additions)
- *   - `profile-display-name-edit-input`, `profile-picture-url-input`,
- *     `profile-confirm-dialog`, `profile-picture-confirm-dialog` (S5 additions)
+ *   - `settings-locale-select`, `general-quote-poll-section`,
+ *     `general-cost-basis-section` (post-3d /settings/general additions)
  *
  * Drawer-era locators (`unsavedChangesDialog`, `footer.saveButton`, etc.) are
  * intentionally absent — the route-driven shell has auto-save + per-field
@@ -108,17 +107,6 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     emailInput: Locator;
     saveEmailButton: Locator;
     emailSavedIndicator: Locator;
-    // Phase 3d S5 additions
-    displayNameEditInput: Locator;
-    displayNameSaveButton: Locator;
-    pictureUrlInput: Locator;
-    pictureUrlSaveButton: Locator;
-    confirmDialog: Locator;
-    confirmDialogCta: Locator;
-    confirmDialogCancel: Locator;
-    pictureConfirmDialog: Locator;
-    pictureConfirmDialogCta: Locator;
-    pictureConfirmDialogCancel: Locator;
   };
   tickers: {
     section: Locator;
@@ -212,7 +200,7 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         error: this.locate("account-create-error", "Account Create Inline Error"),
       },
       general: {
-        localeSelect: this.locate("display-language-select", "Locale Select (legacy alias)"),
+        localeSelect: this.locate("settings-locale-select", "Locale Select"),
         quotePollInput: this.locate("settings-quote-poll-input", "Quote Poll Interval Input"),
         localeTooltipTrigger: this.locate(
           "tooltip-settings-locale-trigger",
@@ -222,18 +210,16 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           "tooltip-settings-locale-content",
           "Locale Tooltip Content",
         ),
-        // Phase 3d iter 2 §5.3 — `costBasisMethod` UI deleted per scope-addendum
-        // A5; the cost-basis tooltip locators that previously sat here are
-        // removed (Code Reviewer M1 finding). The locale tooltip locators
-        // above are retained — Frontend §4.1 adds the matching DOM testids
-        // back to `/settings/display`, and tooltips-a11y-aaa.spec.ts asserts
-        // on them.
-        // Phase 3d S4 additions
+        // Locale + Quote Poll + Cost Basis live under `/settings/general`
+        // after the post-Phase-3d UI bugfix sweep. The section root testid
+        // is `settings-section-general`; per-section anchors are
+        // `general-language-section` / `general-cost-basis-section` /
+        // `general-quote-poll-section`.
         calculationsSection: this.locate(
-          "display-calculations-section",
-          "Display Calculations Section",
+          "general-quote-poll-section",
+          "Quote Poll Section",
         ),
-        languageSelect: this.locate("display-language-select", "Display Language Select"),
+        languageSelect: this.locate("settings-locale-select", "Locale Select"),
         languageOption: (label: RegExp | string) =>
           this.locateByRole("option", {
             name: label,
@@ -397,41 +383,6 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
         emailSavedIndicator: this.locate(
           "profile-email-saved",
           "Profile Email Saved Indicator",
-        ),
-        // Phase 3d S5 additions
-        displayNameEditInput: this.locate(
-          "profile-display-name-edit-input",
-          "Profile Display Name (editable)",
-        ),
-        displayNameSaveButton: this.locate(
-          "profile-display-name-save-button",
-          "Profile Display Name Save Button",
-        ),
-        pictureUrlInput: this.locate("profile-picture-url-input", "Profile Picture URL Input"),
-        pictureUrlSaveButton: this.locate(
-          "profile-picture-url-save-button",
-          "Profile Picture URL Save Button",
-        ),
-        confirmDialog: this.locate("profile-confirm-dialog", "Profile Field Confirm Dialog"),
-        confirmDialogCta: this.locate(
-          "profile-confirm-dialog-cta",
-          "Profile Field Confirm Dialog CTA",
-        ),
-        confirmDialogCancel: this.locate(
-          "profile-confirm-dialog-cancel",
-          "Profile Field Confirm Dialog Cancel",
-        ),
-        pictureConfirmDialog: this.locate(
-          "profile-picture-confirm-dialog",
-          "Profile Picture Confirm Dialog",
-        ),
-        pictureConfirmDialogCta: this.locate(
-          "profile-picture-confirm-dialog-cta",
-          "Profile Picture Confirm Dialog CTA",
-        ),
-        pictureConfirmDialogCancel: this.locate(
-          "profile-picture-confirm-dialog-cancel",
-          "Profile Picture Confirm Dialog Cancel",
         ),
       },
       tickers: {

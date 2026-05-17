@@ -356,7 +356,9 @@ export function TickerHistoryClient({
         value={submission.draftTransaction}
         onChange={handleDraftChange}
         onUnitPriceEdited={submission.markUnitPriceEdited}
-        onSubmit={submission.submit}
+        onSubmit={async () => {
+          await submission.submit();
+        }}
         pending={submission.isSubmitting}
         accountOptions={lockedAccountOptions}
         message={submission.message}

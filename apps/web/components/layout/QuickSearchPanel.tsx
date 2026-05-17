@@ -112,9 +112,9 @@ function SearchGroup({
               )}
               data-testid={`quick-search-item-${item.kind}-${item.id}`}
             >
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">{item.label}</span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.description}</span>
+                <span className="mt-0.5 block break-words text-xs text-muted-foreground">{item.description}</span>
               </span>
               <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {item.kind}
