@@ -1,8 +1,18 @@
 "use client";
 
-import type { DashboardPerformanceDto, DashboardPerformancePointDto, LocaleCode } from "@vakwen/shared-types";
+import type { DashboardPerformanceDto, LocaleCode } from "@vakwen/shared-types";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceDot,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { AppDictionary } from "../../lib/i18n";
 import { Card } from "../ui/Card";
+import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 
 interface ReturnPercentCardProps {
   data: DashboardPerformanceDto | null;
@@ -10,6 +20,20 @@ interface ReturnPercentCardProps {
   dict: AppDictionary;
   isLoading: boolean;
   errorMessage: string;
+}
+
+interface ChartPoint {
+  date: string;
+  totalReturnPercent: number | null;
+}
+
+function buildChartConfig(dict: AppDictionary): ChartConfig {
+  return {
+    totalReturnPercent: {
+      label: dict.dashboardHome.snapshotsReturnPercentSeriesLabel,
+      color: "hsl(var(--chart-primary))",
+    },
+  };
 }
 
 export function ReturnPercentCard({
@@ -30,7 +54,12 @@ export function ReturnPercentCard({
     (point) => point.totalReturnPercent == null && point.totalCostAmount !== null && point.totalCostAmount > 0,
   );
 
-  const { linePath, yLabels, xLabels } = buildReturnGeometry(points, locale);
+  const chartData: ChartPoint[] = points.map((point) => ({
+    date: point.date,
+    totalReturnPercent: point.totalReturnPercent ?? null,
+  }));
+
+  const chartConfig = buildChartConfig(dict);
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-return-percent-card">
@@ -56,7 +85,10 @@ export function ReturnPercentCard({
         <div className="mt-6">
           <div className="rounded-[22px] border border-slate-200 bg-white/88 px-4 py-4 shadow-[0_12px_24px_rgba(148,163,184,0.08)]">
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-violet-500" aria-hidden="true" />
+              <span
+                className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--chart-primary))]"
+                aria-hidden="true"
+              />
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 {dict.dashboardHome.snapshotsReturnPercentSeriesLabel}
               </p>
@@ -88,126 +120,64 @@ export function ReturnPercentCard({
         </div>
       ) : (
         <div className="mt-6 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:p-5">
-          <svg
-            viewBox="0 0 760 260"
-            className="h-[16rem] w-full"
+          <ChartContainer
+            config={chartConfig}
+            className="h-[16rem] w-full aspect-auto"
             role="img"
             aria-label={dict.dashboardHome.snapshotsReturnPercentTitle}
             data-testid="dashboard-return-percent-chart"
           >
-            <g>
-              {yLabels.map((label) => (
-                <g key={label.value}>
-                  <line x1="68" x2="728" y1={label.y} y2={label.y} stroke="rgba(148,163,184,0.22)" strokeDasharray="4 6" />
-                  <text x="12" y={label.y + 4} fill="#64748b" fontSize="11">
-                    {label.label}
-                  </text>
-                </g>
-              ))}
-              {xLabels.map((label) => (
-                <text key={`${label.index}-${label.label}`} x={label.x} y="248" fill="#64748b" fontSize="11" textAnchor="middle">
-                  {label.label}
-                </text>
-              ))}
-            </g>
-
-            <path d={linePath} fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-
-            {latestReturnPoint?.totalReturnPercent != null ? (
-              <circle
-                cx={resolveLastPointX(points)}
-                cy={resolveReturnPointY(latestReturnPoint.totalReturnPercent, points)}
-                r="5"
-                fill="#8b5cf6"
+            <LineChart data={chartData} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="4 6" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                tickLine={false}
+                axisLine={false}
+                minTickGap={48}
               />
-            ) : null}
-          </svg>
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`}
+                tickLine={false}
+                axisLine={false}
+                width={56}
+              />
+              <Tooltip
+                formatter={(value: number | string) =>
+                  typeof value === "number" ? formatPercent(value, locale) : value
+                }
+                labelFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+              />
+              <Line
+                type="monotone"
+                dataKey="totalReturnPercent"
+                stroke="var(--color-totalReturnPercent)"
+                strokeWidth={3}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dot={false}
+                activeDot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+              {latestReturnPoint?.totalReturnPercent != null ? (
+                <ReferenceDot
+                  x={latestReturnPoint.date}
+                  y={latestReturnPoint.totalReturnPercent}
+                  r={5}
+                  fill="var(--color-totalReturnPercent)"
+                  stroke="none"
+                  isFront
+                />
+              ) : null}
+            </LineChart>
+          </ChartContainer>
         </div>
       )}
     </Card>
   );
-}
-
-function buildReturnGeometry(points: DashboardPerformancePointDto[], locale: LocaleCode) {
-  const returnPoints = points.filter((point) => point.totalReturnPercent != null);
-
-  if (returnPoints.length === 0) {
-    return {
-      linePath: "",
-      yLabels: [] as Array<{ y: number; label: string; value: number }>,
-      xLabels: [] as Array<{ x: number; label: string; index: number }>,
-    };
-  }
-
-  const chartLeft = 68;
-  const chartTop = 20;
-  const chartWidth = 660;
-  const chartHeight = 196;
-
-  const values = returnPoints.map((point) => point.totalReturnPercent!);
-  const minValue = Math.min(...values, 0);
-  const maxValue = Math.max(...values, 0);
-  const range = maxValue - minValue;
-  const paddedMin = minValue - range * 0.1;
-  const paddedMax = maxValue + range * 0.1;
-
-  const scaleX = (index: number) => chartLeft + ((chartWidth * index) / Math.max(points.length - 1, 1));
-  const scaleY = (value: number) =>
-    chartTop + chartHeight - ((value - paddedMin) / Math.max(paddedMax - paddedMin, 1)) * chartHeight;
-
-  let linePath = "";
-  for (let i = 0; i < points.length; i++) {
-    const val = points[i].totalReturnPercent;
-    if (val == null) continue;
-    const command = linePath ? "L" : "M";
-    linePath += `${command} ${scaleX(i)} ${scaleY(val)} `;
-  }
-  linePath = linePath.trim();
-
-  const yLabels = Array.from({ length: 4 }, (_, index) => {
-    const ratio = index / 3;
-    const value = paddedMax - (paddedMax - paddedMin) * ratio;
-    return {
-      y: chartTop + chartHeight * ratio,
-      value,
-      label: `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`,
-    };
-  });
-
-  const xLabelIndexes = Array.from(new Set([
-    0,
-    Math.floor((points.length - 1) / 3),
-    Math.floor(((points.length - 1) * 2) / 3),
-    points.length - 1,
-  ]));
-  const xLabels = xLabelIndexes.map((index) => ({
-    index,
-    x: scaleX(index),
-    label: formatAxisDateLabel(points[index].date, locale),
-  }));
-
-  return { linePath, yLabels, xLabels };
-}
-
-function resolveLastPointX(points: DashboardPerformancePointDto[]): number {
-  const chartLeft = 68;
-  const chartWidth = 660;
-  return chartLeft + ((chartWidth * Math.max(points.length - 1, 0)) / Math.max(points.length - 1, 1));
-}
-
-function resolveReturnPointY(value: number, points: DashboardPerformancePointDto[]): number {
-  const values = points
-    .filter((point) => point.totalReturnPercent != null)
-    .map((point) => point.totalReturnPercent!);
-  const minValue = Math.min(...values, 0);
-  const maxValue = Math.max(...values, 0);
-  const range = maxValue - minValue;
-  const paddedMin = minValue - range * 0.1;
-  const paddedMax = maxValue + range * 0.1;
-  const chartTop = 20;
-  const chartHeight = 196;
-
-  return chartTop + chartHeight - ((value - paddedMin) / Math.max(paddedMax - paddedMin, 1)) * chartHeight;
 }
 
 function formatPercent(value: number, locale: LocaleCode): string {

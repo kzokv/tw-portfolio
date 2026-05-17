@@ -3,15 +3,25 @@
 import {
   type CurrencyCode,
   type DashboardPerformanceDto,
-  type DashboardPerformancePointDto,
   type DashboardPerformanceRange,
   type LocaleCode,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
 } from "@vakwen/shared-types";
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceDot,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
 import { cn } from "../../lib/utils";
 
 const RANGE_ITEMS: DashboardPerformanceRange[] = [...DEFAULT_DASHBOARD_PERFORMANCE_RANGES];
@@ -34,6 +44,30 @@ interface PortfolioTrendCardProps {
   // icon. When omitted, the gear is hidden entirely so this card stays
   // usable in non-dashboard contexts (e.g. the shared-portfolio view).
   onOpenCustomize?: () => void;
+}
+
+interface ChartPoint {
+  date: string;
+  totalCost: number | null;
+  marketValue: number | null;
+  totalReturn: number | null;
+}
+
+function buildChartConfig(dict: AppDictionary): ChartConfig {
+  return {
+    marketValue: {
+      label: dict.dashboardHome.performanceMarketValueSeriesLabel,
+      color: "hsl(var(--chart-primary))",
+    },
+    totalCost: {
+      label: dict.dashboardHome.performanceTotalCostSeriesLabel,
+      color: "hsl(var(--chart-muted))",
+    },
+    totalReturn: {
+      label: dict.dashboardHome.snapshotsTotalReturnSeriesLabel,
+      color: "hsl(var(--chart-positive))",
+    },
+  };
 }
 
 export function PortfolioTrendCard({
@@ -62,8 +96,24 @@ export function PortfolioTrendCard({
   const hasPartialQuotes = points.some(
     (point) => point.totalCostAmount !== null && point.totalCostAmount > 0 && point.marketValueAmount === null,
   );
+  // Show the gradient area only when EVERY point has a market value
+  // (matches pre-Phase-6 buildChartGeometry behavior: areaPoints.length === points.length).
+  // NB: this is NOT the same as `!hasPartialQuotes` — a point with
+  // `totalCostAmount === null` or `totalCostAmount === 0` and
+  // `marketValueAmount === null` is "missing" for area purposes but does NOT
+  // trigger the partial-quote warning (which gates on a positive cost basis).
+  const showArea = hasPoints && points.every((point) => point.marketValueAmount !== null);
 
-  const { totalCostPath, marketValuePath, totalReturnPath, marketValueArea, yLabels, xLabels } = buildChartGeometry(points, locale);
+  const chartData: ChartPoint[] = points.map((point) => ({
+    date: point.date,
+    totalCost: point.totalCostAmount,
+    marketValue: point.marketValueAmount,
+    totalReturn: point.totalReturnAmount ?? null,
+  }));
+
+  const chartConfig = buildChartConfig(dict);
+  const lastIndex = points.length - 1;
+  const lastDate = points[lastIndex]?.date;
 
   return (
     <Card className="border border-slate-200/80 bg-[rgba(255,255,255,0.96)]" data-testid="dashboard-performance-card">
@@ -118,14 +168,14 @@ export function PortfolioTrendCard({
           value={latestMarketValuePoint?.marketValueAmount !== null && latestMarketValuePoint?.marketValueAmount !== undefined
             ? formatCurrencyAmount(latestMarketValuePoint.marketValueAmount, currency, locale)
             : dict.dashboardHome.noMarketValue}
-          swatchClassName="bg-indigo-500"
+          swatchClassName="bg-[hsl(var(--chart-primary))]"
         />
         <LegendMetric
           label={dict.dashboardHome.performanceTotalCostSeriesLabel}
           value={latestPoint && latestPoint.totalCostAmount !== null
             ? formatCurrencyAmount(latestPoint.totalCostAmount, currency, locale)
             : dict.dashboardHome.noMarketValue}
-          swatchClassName="bg-slate-400"
+          swatchClassName="bg-[hsl(var(--chart-muted))]"
         />
         {hasTotalReturn ? (
           <LegendMetric
@@ -133,7 +183,7 @@ export function PortfolioTrendCard({
             value={latestTotalReturnPoint?.totalReturnAmount != null
               ? formatCurrencyAmount(latestTotalReturnPoint.totalReturnAmount, currency, locale)
               : dict.dashboardHome.noMarketValue}
-            swatchClassName="bg-emerald-500"
+            swatchClassName="bg-[hsl(var(--chart-positive))]"
           />
         ) : null}
       </div>
@@ -158,59 +208,130 @@ export function PortfolioTrendCard({
         </div>
       ) : (
         <div className="mt-6 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.96))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] sm:p-5">
-          <svg
-            viewBox="0 0 760 320"
-            className="h-[20rem] w-full"
+          <ChartContainer
+            config={chartConfig}
+            className="h-[20rem] w-full aspect-auto"
             role="img"
             aria-label={dict.dashboardHome.performanceTitle}
             data-testid="dashboard-performance-chart"
           >
-            <defs>
-              <linearGradient id="portfolio-trend-fill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.28" />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.04" />
-              </linearGradient>
-            </defs>
-
-            <g>
-              {yLabels.map((label) => (
-                <g key={label.value}>
-                  <line x1="68" x2="728" y1={label.y} y2={label.y} stroke="rgba(148,163,184,0.22)" strokeDasharray="4 6" />
-                  <text x="12" y={label.y + 4} fill="#64748b" fontSize="11">
-                    {label.label}
-                  </text>
-                </g>
-              ))}
-              {xLabels.map((label) => (
-                <text key={`${label.index}-${label.label}`} x={label.x} y="302" fill="#64748b" fontSize="11" textAnchor="middle">
-                  {label.label}
-                </text>
-              ))}
-            </g>
-
-            {marketValueArea ? <path d={marketValueArea} fill="url(#portfolio-trend-fill)" /> : null}
-            <path d={totalCostPath} fill="none" stroke="#94a3b8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            {hasMarketValue ? (
-              <path d={marketValuePath} fill="none" stroke="#4f46e5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-            ) : null}
-            {hasTotalReturn ? (
-              <path d={totalReturnPath} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 4" />
-            ) : null}
-
-            {latestPoint ? (
-              <g>
-                {latestPoint.totalCostAmount !== null ? (
-                  <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.totalCostAmount, points)} r="5" fill="#94a3b8" />
-                ) : null}
-                {latestPoint.marketValueAmount !== null ? (
-                  <circle cx={resolvePointX(points)} cy={resolvePointY(latestPoint.marketValueAmount, points)} r="6" fill="#4f46e5" />
-                ) : null}
-                {latestTotalReturnPoint?.totalReturnAmount != null ? (
-                  <circle cx={resolvePointX(points)} cy={resolvePointY(latestTotalReturnPoint.totalReturnAmount, points)} r="5" fill="#10b981" />
-                ) : null}
-              </g>
-            ) : null}
-          </svg>
+            <ComposedChart data={chartData} margin={{ top: 12, right: 24, left: 8, bottom: 8 }}>
+              <defs>
+                <linearGradient id="portfolio-trend-fill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="var(--color-marketValue)" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="var(--color-marketValue)" stopOpacity={0.04} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="4 6" stroke="hsl(var(--border))" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+                tickLine={false}
+                axisLine={false}
+                minTickGap={48}
+              />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value: number) => formatCompactCurrency(value, locale)}
+                tickLine={false}
+                axisLine={false}
+                width={56}
+              />
+              <Tooltip
+                formatter={(value: number | string) =>
+                  typeof value === "number"
+                    ? formatCurrencyAmount(value, currency, locale)
+                    : value
+                }
+                labelFormatter={(value: string) => formatAxisDateLabel(value, locale)}
+              />
+              {showArea ? (
+                <Area
+                  type="monotone"
+                  dataKey="marketValue"
+                  stroke="var(--color-marketValue)"
+                  strokeWidth={4}
+                  fill="url(#portfolio-trend-fill)"
+                  dot={false}
+                  activeDot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              ) : hasMarketValue ? (
+                <Line
+                  type="monotone"
+                  dataKey="marketValue"
+                  stroke="var(--color-marketValue)"
+                  strokeWidth={4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  dot={false}
+                  activeDot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              ) : null}
+              <Line
+                type="monotone"
+                dataKey="totalCost"
+                stroke="var(--color-totalCost)"
+                strokeWidth={3}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                dot={false}
+                activeDot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+              {hasTotalReturn ? (
+                <Line
+                  type="monotone"
+                  dataKey="totalReturn"
+                  stroke="var(--color-totalReturn)"
+                  strokeWidth={3}
+                  strokeDasharray="8 4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  dot={false}
+                  activeDot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              ) : null}
+              {/* Latest-point markers (one per series at the rightmost data point). */}
+              {latestPoint && latestPoint.totalCostAmount !== null && lastDate ? (
+                <ReferenceDot
+                  x={lastDate}
+                  y={latestPoint.totalCostAmount}
+                  r={5}
+                  fill="var(--color-totalCost)"
+                  stroke="none"
+                  isFront
+                />
+              ) : null}
+              {latestPoint && latestPoint.marketValueAmount !== null && lastDate ? (
+                <ReferenceDot
+                  x={lastDate}
+                  y={latestPoint.marketValueAmount}
+                  r={6}
+                  fill="var(--color-marketValue)"
+                  stroke="none"
+                  isFront
+                />
+              ) : null}
+              {latestTotalReturnPoint?.totalReturnAmount != null && latestTotalReturnPoint.date ? (
+                <ReferenceDot
+                  x={latestTotalReturnPoint.date}
+                  y={latestTotalReturnPoint.totalReturnAmount}
+                  r={5}
+                  fill="var(--color-totalReturn)"
+                  stroke="none"
+                  isFront
+                />
+              ) : null}
+            </ComposedChart>
+          </ChartContainer>
         </div>
       )}
     </Card>
@@ -227,123 +348,6 @@ function LegendMetric({ label, value, swatchClassName }: { label: string; value:
       <p className="mt-3 text-lg font-semibold text-slate-950">{value}</p>
     </div>
   );
-}
-
-function buildChartGeometry(points: DashboardPerformancePointDto[], locale: LocaleCode) {
-  if (points.length === 0) {
-    return {
-      totalCostPath: "",
-      marketValuePath: "",
-      totalReturnPath: "",
-      marketValueArea: "",
-      yLabels: [] as Array<{ y: number; label: string; value: number }>,
-      xLabels: [] as Array<{ x: number; label: string; index: number }>,
-    };
-  }
-
-  const chartLeft = 68;
-  const chartTop = 24;
-  const chartWidth = 660;
-  const chartHeight = 244;
-  // KZO-180: filter out null values (`fxAvailable === false`) before scaling.
-  const values = points.flatMap((point) => {
-    const cost = point.totalCostAmount;
-    const mv = point.marketValueAmount ?? cost;
-    const out: number[] = [];
-    if (cost !== null) out.push(cost);
-    if (mv !== null) out.push(mv);
-    if (point.totalReturnAmount != null) out.push(point.totalReturnAmount);
-    return out;
-  });
-  const minValue = values.length > 0 ? Math.min(...values) : 0;
-  const maxValue = values.length > 0 ? Math.max(...values, 1) : 1;
-  const paddedMin = minValue - Math.abs(minValue) * 0.08;
-  const paddedMax = maxValue * 1.06;
-  const scaleX = (index: number) => chartLeft + ((chartWidth * index) / Math.max(points.length - 1, 1));
-  const scaleY = (value: number) => chartTop + chartHeight - ((value - paddedMin) / Math.max(paddedMax - paddedMin, 1)) * chartHeight;
-
-  const totalCostPath = buildLinePath(points, scaleX, scaleY, (point) => point.totalCostAmount);
-  const marketValuePath = buildLinePath(points, scaleX, scaleY, (point) => point.marketValueAmount);
-  const totalReturnPath = buildLinePath(points, scaleX, scaleY, (point) => point.totalReturnAmount ?? null);
-  const areaPoints = points.filter((point) => point.marketValueAmount !== null);
-  const marketValueArea = areaPoints.length === points.length
-    ? `${marketValuePath} L ${scaleX(points.length - 1)} ${chartTop + chartHeight} L ${scaleX(0)} ${chartTop + chartHeight} Z`
-    : "";
-
-  const yLabels = Array.from({ length: 4 }, (_, index) => {
-    const ratio = index / 3;
-    const value = paddedMax - (paddedMax - paddedMin) * ratio;
-    return {
-      y: chartTop + chartHeight * ratio,
-      value,
-      label: formatCompactCurrency(value, locale),
-    };
-  });
-
-  const xLabelIndexes = Array.from(new Set([
-    0,
-    Math.floor((points.length - 1) / 3),
-    Math.floor(((points.length - 1) * 2) / 3),
-    points.length - 1,
-  ]));
-  const xLabels = xLabelIndexes.map((index) => ({
-    index,
-    x: scaleX(index),
-    label: formatAxisDateLabel(points[index].date, locale),
-  }));
-
-  return {
-    totalCostPath,
-    marketValuePath,
-    totalReturnPath,
-    marketValueArea,
-    yLabels,
-    xLabels,
-  };
-}
-
-function buildLinePath(
-  points: DashboardPerformancePointDto[],
-  scaleX: (index: number) => number,
-  scaleY: (value: number) => number,
-  valueResolver: (point: DashboardPerformancePointDto) => number | null,
-): string {
-  return points.reduce((path, point, index) => {
-    const value = valueResolver(point);
-    if (value === null) {
-      return path;
-    }
-
-    const command = path ? "L" : "M";
-    return `${path}${command} ${scaleX(index)} ${scaleY(value)} `;
-  }, "").trim();
-}
-
-function resolvePointY(value: number, points: DashboardPerformancePointDto[]): number {
-  // KZO-180: filter null values (`fxAvailable === false`) before scaling.
-  const values = points.flatMap((point) => {
-    const cost = point.totalCostAmount;
-    const mv = point.marketValueAmount ?? cost;
-    const out: number[] = [];
-    if (cost !== null) out.push(cost);
-    if (mv !== null) out.push(mv);
-    if (point.totalReturnAmount != null) out.push(point.totalReturnAmount);
-    return out;
-  });
-  const minValue = values.length > 0 ? Math.min(...values) : 0;
-  const maxValue = values.length > 0 ? Math.max(...values, 1) : 1;
-  const paddedMin = minValue - Math.abs(minValue) * 0.08;
-  const paddedMax = maxValue * 1.06;
-  const chartTop = 24;
-  const chartHeight = 244;
-
-  return chartTop + chartHeight - ((value - paddedMin) / Math.max(paddedMax - paddedMin, 1)) * chartHeight;
-}
-
-function resolvePointX(points: DashboardPerformancePointDto[]): number {
-  const chartLeft = 68;
-  const chartWidth = 660;
-  return chartLeft + ((chartWidth * Math.max(points.length - 1, 0)) / Math.max(points.length - 1, 1));
 }
 
 function formatCompactCurrency(value: number, locale: LocaleCode): string {
