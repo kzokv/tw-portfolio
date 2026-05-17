@@ -238,6 +238,10 @@ export interface AppDictionary {
         footerDisclosure: string;
         notFoundTitle: string;
         notFoundDescription: string;
+        // Phase 5c — visitor chrome top strip + sign-up CTA.
+        topStripSharedBy: string;
+        topStripPoweredBy: string;
+        signUpCta: string;
       };
       errors: {
         capExceeded: string;

@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { PublicShareViewDto } from "@vakwen/shared-types";
 import { Card } from "../../../components/ui/Card";
+import { buttonVariants } from "../../../components/ui/Button";
 import { API_BASE } from "../../../lib/api";
 import { resolveAuthLocale } from "../../../lib/authPages";
 import { getDictionary } from "../../../lib/i18n";
+import { cn } from "../../../lib/utils";
 import {
   formatCurrencyAmount,
   formatDateLabel,
@@ -47,9 +50,28 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
   const summaryValues = view.summary.totalValueByCurrency;
   const summaryReturns = view.summary.returnByCurrency;
 
+  const ownerName = view.ownerDisplayName || copy.ownerFallback;
+
   return (
-    <main className="min-h-screen bg-bg px-4 py-12" data-testid="public-share-root">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <main className="min-h-screen bg-background" data-testid="public-share-root">
+      {/* Phase 5c — slim visitor-chrome top strip per design §8 #6.
+          "Shared by {ownerName} · Powered by Vakwen" on a tight band
+          above all body content. */}
+      <div
+        className="border-b border-border bg-muted/40 px-4 py-2"
+        data-testid="public-share-top-strip"
+      >
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span data-testid="public-share-top-strip-shared-by">
+            {copy.topStripSharedBy.replace("{name}", ownerName)}
+          </span>
+          <span data-testid="public-share-top-strip-powered-by">
+            {copy.topStripPoweredBy}
+          </span>
+        </div>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
         <Card className="space-y-5" data-testid="public-share-header">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{copy.eyebrow}</p>
           <h1 className="text-3xl font-semibold text-slate-950" data-testid="public-share-owner-name">
@@ -171,9 +193,20 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
           )}
         </Card>
 
-        <p className="text-center text-xs text-slate-500" data-testid="public-share-disclosure">
+        <p className="text-center text-xs text-muted-foreground" data-testid="public-share-disclosure">
           {copy.footerDisclosure}
         </p>
+
+        {/* Phase 5c — footer CTA per design §8 #6. */}
+        <div className="flex justify-center">
+          <Link
+            href="/login"
+            data-testid="public-share-signup-cta"
+            className={cn(buttonVariants({ variant: "default" }))}
+          >
+            {copy.signUpCta}
+          </Link>
+        </div>
       </div>
     </main>
   );

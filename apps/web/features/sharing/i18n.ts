@@ -154,6 +154,9 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
           footerDisclosure: "Read-only snapshot · No cost basis, transactions, or dividend breakdowns are shown.",
           notFoundTitle: "This link is not available",
           notFoundDescription: "It may have expired, been revoked, or the URL may be incorrect. Ask the person who shared it for a new link.",
+          topStripSharedBy: "Shared by {name}",
+          topStripPoweredBy: "Powered by Vakwen",
+          signUpCta: "Sign up for your own portfolio",
         },
         errors: {
           capExceeded: "You've reached the limit of 20 active public links. Revoke one to create a new one.",
@@ -320,6 +323,9 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
           footerDisclosure: "唯讀快照 · 不會顯示成本、交易紀錄或股利明細。",
           notFoundTitle: "此連結已無法使用",
           notFoundDescription: "它可能已過期、已被撤銷，或是網址不正確。請向分享者索取新的連結。",
+          topStripSharedBy: "由 {name} 分享",
+          topStripPoweredBy: "由 Vakwen 提供",
+          signUpCta: "註冊你自己的投資組合",
         },
         errors: {
           capExceeded: "你已達 20 個啟用中公開連結的上限，請先撤銷一個再建立新的。",
