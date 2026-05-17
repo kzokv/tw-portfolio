@@ -1,7 +1,7 @@
 // Phase 3d iter 2 — tooltips-a11y AAA spec rewrite (Code Reviewer H3 fix).
 //
 // Coverage retained after rewrite:
-//   [tooltip-a11y-A] Locale tooltip in /settings/display remains keyboard-
+//   [tooltip-a11y-A] Locale tooltip in /settings/general remains keyboard-
 //                    focus-reachable and its content surfaces when focused.
 //   [tooltip-a11y-B] Transaction-form tooltip + TopBar avatar button stay
 //                    focusable across shell chrome. Validates that the
@@ -28,11 +28,11 @@
 
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
-test("[tooltip-a11y-A] locale tooltip in /settings/display is keyboard-focus reachable", async ({
+test("[tooltip-a11y-A] locale tooltip in /settings/general is keyboard-focus reachable", async ({
   appShell,
   settings,
 }) => {
-  await appShell.actions.navigateToRoute("/settings/display");
+  await appShell.actions.navigateToRoute("/settings/general");
 
   // `focusLocaleTooltip()` implicitly gates on the trigger element being
   // attached, so an explicit section-visibility assertion is redundant.

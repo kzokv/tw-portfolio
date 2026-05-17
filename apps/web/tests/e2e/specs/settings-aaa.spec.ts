@@ -18,7 +18,7 @@ test("settings persist across routes and reloads for the same seeded user", asyn
   settings,
 }) => {
   await appShell.actions.navigateToRoute("/portfolio");
-  await appShell.actions.openSettingsSection("display");
+  await appShell.actions.openSettingsSection("general");
 
   const currentQuotePoll = await settings.actions.getQuotePollValue();
   const nextQuotePoll = getNextQuotePoll(currentQuotePoll);
@@ -54,7 +54,7 @@ test("invalid settings surface inline validation and do not navigate away", asyn
   settings,
 }) => {
   await appShell.actions.navigateToRoute("/transactions");
-  await appShell.actions.openSettingsSection("display");
+  await appShell.actions.openSettingsSection("general");
 
   // Quote poll must be a positive integer — `0` triggers
   // `validationQuotePoll` in the useAutoSave validate callback.

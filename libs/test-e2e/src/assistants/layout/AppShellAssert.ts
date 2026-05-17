@@ -415,6 +415,134 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.appSidebarRail).toHaveCount(0);
   }
 
+  // ── Phase 3g — Mobile + tablet shell assertions ──────────────────────────
+
+  /**
+   * Assert a sidebar nav item (inside the mobile Sheet OR desktop sidebar)
+   * is visible. Used by Phase 3g mobile specs to confirm the Sheet's nav
+   * items mounted after opening.
+   */
+  @Step()
+  async sidebarNavItemIsVisible(key: string): Promise<void> {
+    await expect(this.el.testId(`app-sidebar-nav-${key}`)).toBeVisible();
+  }
+
+  /**
+   * Assert a sidebar nav item is hidden (Sheet closed or item not rendered).
+   */
+  @Step()
+  async sidebarNavItemIsHidden(key: string): Promise<void> {
+    await expect(this.el.testId(`app-sidebar-nav-${key}`)).toBeHidden();
+  }
+
+  /**
+   * Assert the settings two-pane layout root is visible.
+   */
+  @Step()
+  async settingsLayoutIsVisible(): Promise<void> {
+    await expect(this.el.testId("settings-layout")).toBeVisible();
+  }
+
+  /**
+   * Assert the desktop inner settings nav (settings-nav) is visible.
+   * Expected on `≥md` viewports.
+   */
+  @Step()
+  async desktopSettingsNavIsVisible(): Promise<void> {
+    await expect(this.el.testId("settings-nav")).toBeVisible();
+  }
+
+  /**
+   * Assert the desktop inner settings nav is hidden.
+   * Expected on `<md` viewports (replaced by the mobile dropdown).
+   */
+  @Step()
+  async desktopSettingsNavIsHidden(): Promise<void> {
+    await expect(this.el.testId("settings-nav")).toBeHidden();
+  }
+
+  /**
+   * Assert the mobile settings nav dropdown trigger is visible.
+   * Expected on `<md` viewports.
+   */
+  @Step()
+  async mobileSettingsNavIsVisible(): Promise<void> {
+    await expect(this.el.testId("settings-nav-mobile")).toBeVisible();
+  }
+
+  /**
+   * Assert the mobile settings nav dropdown trigger is hidden.
+   * Expected on `≥md` viewports.
+   */
+  @Step()
+  async mobileSettingsNavIsHidden(): Promise<void> {
+    await expect(this.el.testId("settings-nav-mobile")).toBeHidden();
+  }
+
+  /**
+   * Assert a `/settings/{section}` section root is visible.
+   */
+  @Step()
+  async settingsSectionIsVisible(section: string): Promise<void> {
+    await expect(this.el.testId(`settings-section-${section}`)).toBeVisible();
+  }
+
+  // ── Phase 3e — Command palette assertions ────────────────────────────────
+
+  /** Assert the command palette dialog is mounted + visible. */
+  @Step()
+  async commandPaletteIsVisible(): Promise<void> {
+    await expect(this.el.testId("command-palette-dialog")).toBeVisible();
+  }
+
+  /** Assert the command palette dialog is hidden / unmounted. */
+  @Step()
+  async commandPaletteIsHidden(): Promise<void> {
+    await expect(this.el.testId("command-palette-dialog")).toBeHidden();
+  }
+
+  /** Assert a route item is visible inside the palette. */
+  @Step()
+  async commandPaletteRouteIsVisible(key: string): Promise<void> {
+    await expect(this.el.testId(`command-palette-item-route-${key}`)).toBeVisible();
+  }
+
+  /** Assert an action item is visible inside the palette. */
+  @Step()
+  async commandPaletteActionIsVisible(key: string): Promise<void> {
+    await expect(this.el.testId(`command-palette-item-action-${key}`)).toBeVisible();
+  }
+
+  /** Assert a ticker item is visible inside the palette. */
+  @Step()
+  async commandPaletteTickerIsVisible(ticker: string, marketCode: string): Promise<void> {
+    await expect(this.el.testId(`command-palette-item-ticker-${ticker}-${marketCode}`)).toBeVisible();
+  }
+
+  /** Assert the recompute AlertDialog is visible. */
+  @Step()
+  async recomputeAlertDialogIsVisible(): Promise<void> {
+    await expect(this.el.testId("recompute-confirm-dialog")).toBeVisible();
+  }
+
+  /** Assert the recompute AlertDialog is hidden. */
+  @Step()
+  async recomputeAlertDialogIsHidden(): Promise<void> {
+    await expect(this.el.testId("recompute-confirm-dialog")).toBeHidden();
+  }
+
+  /** Assert the AddTransaction dialog (opened via ⌘K transaction.add) is visible. */
+  @Step()
+  async addTransactionDialogIsVisible(): Promise<void> {
+    await expect(this.el.testId("add-transaction-dialog")).toBeVisible();
+  }
+
+  /** Assert the palette's empty state is rendered (no items match the query). */
+  @Step()
+  async commandPaletteEmptyStateIsVisible(): Promise<void> {
+    await expect(this.el.testId("command-palette-empty")).toBeVisible();
+  }
+
   @Step()
   async adminSettingsOverrideToggleChecked(checked: boolean): Promise<void> {
     const toggle = this.el.testId("admin-settings-repair-cooldown-minutes-toggle");

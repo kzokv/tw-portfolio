@@ -31,6 +31,7 @@ const BREADCRUMB_FALLBACK_MAP: ReadonlyArray<BreadcrumbFallbackEntry> = [
 
   // Settings sub-routes (Phase 3d will add these; keep entries ready)
   { pathname: "/settings/profile", label: "Profile" },
+  { pathname: "/settings/general", label: "General" },
   { pathname: "/settings/accounts", label: "Accounts" },
   { pathname: "/settings/display", label: "Display" },
   { pathname: "/settings/tickers", label: "Tickers" },

@@ -24,12 +24,14 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "../ui/shadcn/sidebar";
+import { SidebarResizeRail } from "./SidebarResizeRail";
 import { cn } from "../../lib/utils";
 
 export type AppSidebarVariant = "user" | "admin";
@@ -61,6 +63,14 @@ interface NavItem {
   onClick?: () => void;
   /** Whether the item should appear active for `pathname`. Default: prefix match on href. */
   isActiveOverride?: (pathname: string) => boolean;
+}
+
+interface NavGroup {
+  /** Optional section heading label. Rendered above the items in muted/uppercase chrome. */
+  label?: string;
+  /** Stable key for the group — used in the SidebarGroup `data-testid`. */
+  key: string;
+  items: NavItem[];
 }
 
 interface AppSidebarProps {
@@ -111,9 +121,9 @@ export function AppSidebar({
   const pathname = usePathname() ?? "/";
   const { isMobile, setOpenMobile, state } = useSidebar();
 
-  const items: NavItem[] = variant === "admin"
-    ? getAdminNavItems()
-    : getUserNavItems({ role });
+  const groups: NavGroup[] = variant === "admin"
+    ? [{ key: "admin", items: getAdminNavItems() }]
+    : getUserNavGroups({ role });
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
@@ -207,55 +217,65 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => {
-                const Icon = item.icon ?? LayoutDashboard;
-                const active = item.isActiveOverride
-                  ? item.isActiveOverride(pathname)
-                  : item.href
-                    ? pathname === item.href || pathname.startsWith(`${item.href}/`)
-                    : false;
-                const buttonContent = (
-                  <>
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </>
-                );
-                return (
-                  <SidebarMenuItem key={item.key}>
-                    {item.href && !item.onClick ? (
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={item.label}
-                      >
-                        <Link
-                          href={item.href}
-                          aria-current={active ? "page" : undefined}
-                          data-testid={`app-sidebar-nav-${item.key}`}
+        {groups.map((group) => (
+          <SidebarGroup
+            key={group.key}
+            data-testid={`app-sidebar-section-${group.key}`}
+          >
+            {group.label ? (
+              <SidebarGroupLabel data-testid={`app-sidebar-section-label-${group.key}`}>
+                {group.label}
+              </SidebarGroupLabel>
+            ) : null}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const Icon = item.icon ?? LayoutDashboard;
+                  const active = item.isActiveOverride
+                    ? item.isActiveOverride(pathname)
+                    : item.href
+                      ? pathname === item.href || pathname.startsWith(`${item.href}/`)
+                      : false;
+                  const buttonContent = (
+                    <>
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </>
+                  );
+                  return (
+                    <SidebarMenuItem key={item.key}>
+                      {item.href && !item.onClick ? (
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          tooltip={item.label}
+                        >
+                          <Link
+                            href={item.href}
+                            aria-current={active ? "page" : undefined}
+                            data-testid={`app-sidebar-nav-${item.key}`}
+                            onClick={() => handleNavClick(item)}
+                          >
+                            {buttonContent}
+                          </Link>
+                        </SidebarMenuButton>
+                      ) : (
+                        <SidebarMenuButton
+                          isActive={active}
+                          tooltip={item.label}
                           onClick={() => handleNavClick(item)}
+                          data-testid={`app-sidebar-nav-${item.key}`}
                         >
                           {buttonContent}
-                        </Link>
-                      </SidebarMenuButton>
-                    ) : (
-                      <SidebarMenuButton
-                        isActive={active}
-                        tooltip={item.label}
-                        onClick={() => handleNavClick(item)}
-                        data-testid={`app-sidebar-nav-${item.key}`}
-                      >
-                        {buttonContent}
-                      </SidebarMenuButton>
-                    )}
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                        </SidebarMenuButton>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
       {variant === "admin" ? (
@@ -278,34 +298,44 @@ export function AppSidebar({
           </SidebarMenu>
         </SidebarFooter>
       ) : null}
+
+      {/* Click-to-toggle + drag-to-resize rail. Lives inside the
+          `display:contents` wrapper so the absolute-positioned strip
+          aligns to the sidebar's right edge. */}
+      <SidebarResizeRail />
       </div>
     </Sidebar>
   );
 }
 
-function getUserNavItems({ role }: { role?: string }): NavItem[] {
-  const items: NavItem[] = [
+function getUserNavGroups({ role }: { role?: string }): NavGroup[] {
+  const main: NavItem[] = [
     { key: "dashboard", href: "/dashboard", label: "Dashboard", icon: Gauge },
     { key: "portfolio", href: "/portfolio", label: "Portfolio", icon: TrendingUp },
     { key: "transactions", href: "/transactions", label: "Transactions", icon: Wallet },
     { key: "cash-ledger", href: "/cash-ledger", label: "Cash Ledger", icon: CreditCard },
     { key: "dividends", href: "/dividends", label: "Dividends", icon: LineChart },
     { key: "sharing", href: "/sharing", label: "Sharing", icon: Share2 },
-    // Phase 3d S1 — Settings nav-item routes directly to /settings (the
-    // layout server-redirects to /settings/profile). The drawer-open
-    // onClick handler was retired alongside SettingsDrawer in S10.
-    {
-      key: "settings",
-      href: "/settings",
-      label: "Settings",
-      icon: Settings,
-      isActiveOverride: (pathname) => pathname.startsWith("/settings"),
-    },
   ];
+
+  // Operator group — Admin (role-gated) + Settings. Matches the mockup design
+  // (`_shell.js` "Operator" nav-section).
+  const operator: NavItem[] = [];
   if (role === "admin") {
-    items.push({ key: "admin", href: "/admin", label: "Admin", icon: ShieldAlert });
+    operator.push({ key: "admin", href: "/admin", label: "Admin", icon: ShieldAlert });
   }
-  return items;
+  operator.push({
+    key: "settings",
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    isActiveOverride: (pathname) => pathname.startsWith("/settings"),
+  });
+
+  return [
+    { key: "main", items: main },
+    { key: "operator", label: "Operator", items: operator },
+  ];
 }
 
 function getAdminNavItems(): NavItem[] {

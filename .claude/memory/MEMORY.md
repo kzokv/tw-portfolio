@@ -22,15 +22,20 @@
 ## Database / API reference
 - [project_db_schema.md](project_db_schema.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + migrations; schema moves faster than memory snapshots
 - [project_api_surface.md](project_api_surface.md) — Pointer: read `docs/001-architecture/backend-db-api.md` + `registerRoutes.ts`; route sets are authoritative
-- [project_account_shape.md](project_account_shape.md) — Account-shape extension 4-file checklist (`services/store.ts:67` is the canonical seed, NOT MemoryPersistence) + deterministic `cash-${tx.id}` cash-entry IDs by design
 
 ## Market data platform
 - [project_market_data_progress.md](project_market_data_progress.md) — Pointer: Linear is authoritative for ticket state; this entry tracks only durable known-gaps (backup/restore, notification i18n sweep, legacy test drift)
 - [project_market_data_architecture.md](project_market_data_architecture.md) — market_data schema, FinMind (TW/US) + Yahoo Finance AU, InstrumentCatalogProvider interface, search route, upsert strategy
 - [project_instrument_type_nullability.md](project_instrument_type_nullability.md) — InstrumentType | null widening: each consumer needs its own guard; MemoryInstrument is separate type
 
-## Team / docs patterns
-- [project_team_doc_patterns.md](project_team_doc_patterns.md) — Transition note process-notes section + runbook numbered section for new market data providers
+## Frontend / dialog & palette patterns
+- [project_dialog_submit_pattern.md](project_dialog_submit_pattern.md) — Dialog auto-close-on-success: submit hook must return `Promise<boolean>`; closing unconditionally hides state-reported validation errors
+- [project_command_palette_initial_query.md](project_command_palette_initial_query.md) — ⌘K global open must clear `initialQuery` or a stale carried query from `openWithQuery()` leaks across opens
+
+## Promoted to .claude/rules/ (ui-reshape-shadcn Phase 3 sweep, 2026-05-17)
+- `account-shape-extension-checklist.md` — 4-file touch-point list (`shared-types/AccountDto`, `services/store.ts:67`, `persistence/postgres.ts` × 3 subsites, `types/store.ts`) + deterministic cash-entry-ID pattern. Promoted from `project_account_shape.md`.
+- `team-wave2-transition-and-runbook-patterns.md` — `## Process notes` section + new-market-data-provider runbook section as mandatory Wave 2 deliverables. Promoted from `project_team_doc_patterns.md`.
+- `playwright-page-object-testid-drift.md` (addendum) — 3 recurring trigger classes (surface relocation, shadcn-migration / primitive rename, profile-rewrite-delete); audit recipe via `git diff` of removed testids; pre-PR CR checklist additions. 2nd data point: post-3d UI sweep stale locators on `SettingsDrawerPage.ts:401-434`.
 
 ## Promoted to .claude/rules/ (KZO-198)
 - `fastify-app-config-bootstrap.md` — onReady hook + eager pre-warm + resolver gates for TTL caches consumed during buildApp()
@@ -64,13 +69,11 @@
 - `agent-team-workflow.md` (addendum) — Architect (and Dispatcher) first-action-on-wake = re-poll inbox+TaskList+state.json, always; 5-stall canonical anti-pattern from ui-enhancement original architect; respawn with pre-baked triage is the canonical recovery
 - `agent-team-workflow.md` (addendum) — Holistic audit pattern at 3rd-strike same-class findings; iter-5 audit caught 7 defensive sites including critical `listUserAccountIds` data-loss path that spot-fix-only would have missed
 
-## KZO-192 — ECB/TARGET2 holiday awareness for synthetic FX market (2026-05-12)
+## KZO-192 — FX rollback test timestamps (one durable bullet)
 
-- **FX calendar shape:** `tradingCalendar.ts` now has 6 private helpers (no exports): `computeEasterSunday` (Meeus/Jones/Butcher Computus), `ECB_HOLIDAY_YEAR_CACHE` (lazy `Map<number, ReadonlySet<string>>`), `ecbHolidaysForYear`, `isEcbHoliday`, `isFxTradingDay`, `previousFxTradingDayOnOrBefore`. Inserted between `previousWeekdayOnOrBefore` and `latestTradingDateOnOrBefore`. All `function`-keyword, all private.
-- **FX-branch split is intentional:** `isTradingDayPure` and `tradingDaysBetweenPure` originally collapsed FX and equity-bootstrap (`tradingDates.size === 0`) into the same branch. They are now split so ECB-holiday semantics do NOT propagate to TW/US/AU equity bootstrap. Do NOT "clean up" this split.
-- **v1 limitation:** ECB one-off emergency closures (system migrations) NOT covered. If such an event occurs, mint a follow-on ticket; do NOT silently patch `ecbHolidaysForYear`.
-- **`dashboardFreshness.ts` not in FX scope:** that file does not traverse the FX calendar path. Stock stale-amber badges are unaffected by KZO-192. Only `/admin/providers` `frankfurter` row is affected.
 - **Timestamp sensitivity for FX rollback tests (rule candidate — needs 2nd data point):** `latestSettledTradingDayPure` tests that expect rollback must trace `resolveFxSettlementCandidate(input)` first. Post-publish (`T18:00Z`) input → candidate = same day; rollback fires only if the CANDIDATE itself is an ECB holiday (AC #1 Good Friday is correct). Pre-cluster tests → use `T15:00Z` so candidate = prior Sunday → rolls back through the cluster. QA caught this in KZO-192 when scope-todo listed `T18:00Z` inputs for Christmas and NYD but the expected values required pre-publish timestamps.
+
+(Other KZO-192 notes — FX calendar helper layout, branch split rationale, v1 limitation — moved to the transition note at `docs/004-notes/kzo-192/` and recoverable from there if needed.)
 
 ## Feedback & preferences
 - [feedback_cache_api_responses.md](feedback_cache_api_responses.md) — Always save external API responses to local files before analysis

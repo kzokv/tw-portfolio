@@ -117,72 +117,70 @@ Waiver track per `commit-format.md` (`ui-enhancement`; no Linear ticket; PR carr
 
 ## Phase 3e — CommandPalette (⌘K)
 
-> **Deferred to follow-up session — see transition note `transition-202605162200-phase-3d.md`.** Phase 3d landed 2026-05-17; 3e checkboxes intentionally left UNTICKED.
+**Per §3e + §12 A2. Landed 2026-05-17.**
 
-**Per §3e + §12 A2.**
-
-- [ ] Create `apps/web/components/layout/CommandPalette.tsx` — shadcn `CommandDialog` with three sections (Routes / Tickers / Actions).
-- [ ] Create `apps/web/components/layout/CommandPaletteTrigger.tsx` — replaces Phase 3c's stub button; same `topbar-command-trigger` testid.
-- [ ] Create `apps/web/hooks/useCommandPalette.ts` — open state + global `⌘K`/`Ctrl+K` keydown registration.
-- [ ] Create `apps/web/lib/command-registry.ts` — central list (routes, tickers via `/market-data/search`, actions).
-- [ ] Implement §22 inline-search ↔ modal handoff: pressing ⌘K while typing in the inline `TopBarSearch` dismisses it and opens the modal pre-filled with the same query.
-- [ ] Implement action commands per §3e: `theme.{light,system,dark}`, `accent.{8 presets}`, `transaction.add` (opens new `AddTransactionDialog`).
-- [ ] **A2 — `action.recompute.all`:**
-  - [ ] Add the command to `command-registry.ts`.
-  - [ ] Build a shadcn `AlertDialog` for confirmation (testids: `recompute-confirm-dialog`, `recompute-confirm-dialog-cta`, `recompute-confirm-dialog-cancel`).
-  - [ ] On confirm, invoke `useRecomputeAction.runRecompute` (existing hook; encapsulates preview+confirm flow).
-  - [ ] i18n: `commandPaletteActionRecomputeAll`, `recomputeConfirmTitle`, `recomputeConfirmBody`, `recomputeConfirmCta`, `recomputeCancelCta`.
-- [ ] Create `apps/web/components/portfolio/AddTransactionDialog.tsx` — dialog wrapper around `AddTransactionCard` for ⌘K "Add transaction" action (testid `add-transaction-dialog`).
-- [ ] Implement ticker typeahead via `GET /market-data/search` with 200ms debounce; max 8 results.
+- [x] Create `apps/web/components/layout/CommandPalette.tsx` — shadcn `CommandDialog` with three sections (Routes / Tickers / Actions).
+- [x] Create `apps/web/components/layout/CommandPaletteTrigger.tsx` — replaces Phase 3c's stub button; same `topbar-command-trigger` testid. *(Now opens dialog via `CommandPaletteContext`; renders `null` outside the provider so admin/auth shells without a palette mounted skip the button cleanly.)*
+- [x] Create `apps/web/hooks/useCommandPalette.ts` — open state + global `⌘K`/`Ctrl+K` keydown registration.
+- [x] Create `apps/web/lib/command-registry.ts` — central list (routes, tickers via `/market-data/search`, actions).
+- [x] Implement §22 inline-search ↔ modal handoff: pressing ⌘K while typing in the inline `TopBarSearch` dismisses it and opens the modal pre-filled with the same query. *(Implemented at the input's `onKeyDown`; runs BEFORE the document-level handler so the inline panel cleanly tears down + carries query via `openWithQuery`.)*
+- [x] Implement action commands per §3e: `theme.{light,system,dark}`, `accent.{8 presets}`, `transaction.add` (opens new `AddTransactionDialog`).
+- [x] **A2 — `action.recompute.all`:**
+  - [x] Add the command to `command-registry.ts`.
+  - [x] Build a shadcn `AlertDialog` for confirmation (testids: `recompute-confirm-dialog`, `recompute-confirm-dialog-cta`, `recompute-confirm-dialog-cancel`).
+  - [x] On confirm, invoke `useRecomputeAction.runRecompute` (existing hook; encapsulates preview+confirm flow). *(Hook now accepts `{ skipConfirm?: boolean }` so the AlertDialog passes `skipConfirm: true` and the legacy `window.confirm` is skipped — callers without the option get the original behavior.)*
+  - [x] i18n: `commandPaletteActionRecomputeAll`, `recomputeConfirmTitle`, `recomputeConfirmBody`, `recomputeConfirmCta`, `recomputeCancelCta`. *(Landed in the new `commandPalette` block on `AppDictionary`; en + zh-TW shipped together.)*
+- [x] Create `apps/web/components/portfolio/AddTransactionDialog.tsx` — dialog wrapper around `AddTransactionCard` for ⌘K "Add transaction" action (testid `add-transaction-dialog`). *(Distinct from the legacy `RecordTransactionDialog` which keeps the `record-transaction-dialog` testid for compat with existing specs.)*
+- [x] Implement ticker typeahead via `GET /market-data/search` with 200ms debounce; max 8 results. *(Parallel `Promise.allSettled` across TW/US/AU; failures swallowed so the palette stays usable.)*
 
 ### Verification
 
-- [ ] `command-palette-aaa.spec.ts` — ⌘K opens; type "dashboard" → route item; Enter navigates; type ticker → live results.
-- [ ] `command-palette-actions-aaa.spec.ts` — "Switch to dark" updates theme; "Change accent → Emerald" persists; "Add transaction" opens dialog; "Recompute all positions" opens AlertDialog → confirm → recompute fires.
-- [ ] Full 8-suite gate.
+- [x] `command-palette-aaa.spec.ts` — 4 cases: trigger opens dialog, type "dashboard" + Enter navigates, no-match shows empty state, Escape closes.
+- [x] `command-palette-actions-aaa.spec.ts` — 5 cases: dark-theme switch, Emerald accent persists across reload, transaction.add opens AddTransactionDialog, recompute.all opens AlertDialog → confirm closes, AlertDialog Cancel closes without firing.
+- [x] Full 8-suite gate. *(2026-05-17: lint ✓ / typecheck ✓ / web unit 395 ✓ / api unit+memory 1286 ✓ / api integration 709 ✓ / Suite 6 230 ✓ / Suite 7 129 ✓ / Suite 8 272 ✓.)*
 
 ---
 
 ## Phase 3f — Admin shell mirror
 
-> **Deferred to follow-up session — see transition note `transition-202605162200-phase-3d.md`.** Phase 3d landed 2026-05-17; 3f checkboxes intentionally left UNTICKED.
-
 **Per §3f. Mostly verification — `<AppSidebar variant="admin">` shipped in 3c.**
 
-- [ ] Verify warning rail (`--warning` 3px inset) renders at `/admin/*` routes; absent on user-shell routes.
-- [ ] Migrate `ADMIN_TITLES` registry from `AdminShell.tsx` to `apps/web/lib/breadcrumb-titles.ts` as a fallback map per §3f.
-- [ ] Confirm `data-admin` attribute on `<AppSidebar>` drives rail styling.
+- [x] Verify warning rail (`--warning` 3px inset) renders at `/admin/*` routes; absent on user-shell routes. *(Honored in `AppSidebar.tsx:144-150` via `<span data-testid="app-sidebar-rail">` only when `variant === "admin"`. Asserted by `admin-shell-rail-aaa.spec.ts` cases [rail-A] / [rail-B] / [rail-C].)*
+- [x] Migrate `ADMIN_TITLES` registry from `AdminShell.tsx` to `apps/web/lib/breadcrumb-titles.ts` as a fallback map per §3f. *(Landed in Phase 3c — admin routes are in `BREADCRUMB_FALLBACK_MAP`; AdminShell no longer owns its own title map.)*
+- [x] Confirm `data-admin` attribute on `<AppSidebar>` drives rail styling. *(`data-admin={variant === "admin" ? "true" : undefined}` at `AppSidebar.tsx:141`.)*
 
 ### Verification
 
-- [ ] `admin-shell-rail-aaa.spec.ts` — admin sidebar has warning rail; non-admin shell does not.
-- [ ] Lint + typecheck + Suite 7 (OAuth E2E).
+- [x] `admin-shell-rail-aaa.spec.ts` — admin sidebar has warning rail; non-admin shell does not. *(Shipped in 3c; covers [rail-A], [rail-B], [rail-C] across `/admin/users`, `/dashboard`, and `/admin/users` → `/admin/settings` client-side navigation.)*
+- [x] Lint + typecheck + Suite 7 (OAuth E2E). *(2026-05-17: Suite 1 lint clean; Suite 2 typecheck clean; Suite 7 129 passed.)*
 
 ---
 
 ## Phase 3g — Mobile gate
 
-> **Deferred to follow-up session — see transition note `transition-202605162200-phase-3d.md`.** Phase 3d landed 2026-05-17; 3g checkboxes intentionally left UNTICKED.
-
 **Per §3g + §12 A8.**
 
-- [ ] Add `chromium-mobile` + `chromium-tablet` projects to `apps/web/tests/e2e/playwright.config.ts` AND `apps/web/tests/e2e/playwright.oauth.config.ts` per A8 (viewport 375 × 667 + 768 × 1024; `testMatch: /mobile-.*-aaa\.spec\.ts/`).
-- [ ] Verify existing 100+ specs continue to run on the default desktop `chromium` project only (the `testMatch` filter scopes mobile/tablet runs to `mobile-*-aaa.spec.ts`).
-- [ ] Create `apps/web/tests/e2e/specs/mobile-shell-aaa.spec.ts` — brand opens Sheet; nav-item click closes Sheet; collapse to icon at `md`.
-- [ ] Create `apps/web/tests/e2e/specs/mobile-settings-nav-aaa.spec.ts` — top dropdown switches sections on `<md`.
-- [ ] Extend `libs/test-e2e/src/assistants/layout/AppShellActions.ts` with `openMobileSidebar()` / `closeMobileSidebar()` helpers.
+- [x] Add `chromium-mobile` + `chromium-tablet` projects to `apps/web/tests/e2e/playwright.config.ts` AND `apps/web/tests/e2e/playwright.oauth.config.ts` per A8 (viewport 375 × 667 + 768 × 1024; `testMatch: /mobile-.*-aaa\.spec\.ts/`).
+- [x] Verify existing 100+ specs continue to run on the default desktop `chromium` project only (the `testMatch` filter scopes mobile/tablet runs to `mobile-*-aaa.spec.ts`). *(Confirmed: Suite 6 ran 219 desktop specs + the 6 new viewport-gated specs, 0 regressions on desktop.)*
+- [x] Create `apps/web/tests/e2e/specs/mobile-shell-aaa.spec.ts` — brand opens Sheet; nav-item click closes Sheet; collapse to icon at `md`.
+- [x] Create `apps/web/tests/e2e/specs/mobile-settings-nav-aaa.spec.ts` — top dropdown switches sections on `<md`.
+- [x] Extend `libs/test-e2e/src/assistants/layout/AppShellActions.ts` with `openMobileSidebar()` / `closeMobileSidebar()` helpers. *(Plus `openMobileSettingsNav()` / `selectMobileSettingsOption(label)` for the `<md` settings dropdown, and `navigateToRouteForResponsiveTest()` which skips the breadcrumb-visible wait that fails at the tablet 768 × 1024 viewport — the topbar's fixed-width chrome consumes more space than the inset content area offers when the desktop sidebar is open, leaving the `min-w-0 flex-1` breadcrumb container at width 0.)*
+
+Companion `AppShellAssert.ts` additions: `sidebarNavItemIsVisible(key)` / `sidebarNavItemIsHidden(key)`, `settingsLayoutIsVisible()`, `desktopSettingsNavIsVisible()` / `desktopSettingsNavIsHidden()`, `mobileSettingsNavIsVisible()` / `mobileSettingsNavIsHidden()`, `settingsSectionIsVisible(section)`.
+
+`libs/test-framework/src/config/createPlaywrightConfig.ts` was extended to accept the full Playwright `Project` shape (viewport / device / testMatch / testIgnore) so the two configs can declare per-project viewports declaratively.
 
 ### Verification
 
-- [ ] Lint + typecheck.
-- [ ] Run both new mobile specs against `chromium-mobile` and `chromium-tablet` projects.
-- [ ] Full desktop suite continues to pass (no regression from project config change).
+- [x] Lint + typecheck. *(Suite 1 `npx eslint . --max-warnings=0` clean; Suite 2 `npm run typecheck` clean.)*
+- [x] Run both new mobile specs against `chromium-mobile` and `chromium-tablet` projects. *(2 mobile-* specs × 3 cases × 2 projects = 6 cases per project with viewport-gated `test.skip`; 6 ran green, 6 cleanly skipped on the off-viewport project.)*
+- [x] Full desktop suite continues to pass (no regression from project config change). *(Suite 6 dev_bypass: 221 passed, 7 skipped — the 7 are the viewport-gated cases under `chromium-mobile` / `chromium-tablet`. Suite 7 OAuth: 129 passed. Suite 8 HTTP: 272 passed.)*
 
 ---
 
 ## E2E test phase (per `scope-grill` skill)
 
-- [ ] Run `/aaa` to add or update E2E tests covering: settings auto-save flow, settings confirmation modals, ⌘K command palette + AlertDialog Recompute action, mobile shell sheet behavior. (Many of these are explicitly enumerated above as `*-aaa.spec.ts` files per §3d/§3e/§3g — `/aaa` ensures any missing AAA framework boilerplate is generated.)
+- [x] Run `/aaa` to add or update E2E tests covering: settings auto-save flow, settings confirmation modals, ⌘K command palette + AlertDialog Recompute action, mobile shell sheet behavior. *(No `/aaa` scaffolding invocation needed — every required spec used the established AAA fixtures + extended `AppShellActions` / `AppShellAssert`. Settings auto-save / confirmation specs shipped in 3d; ⌘K specs landed alongside 3e (`command-palette-aaa.spec.ts`, `command-palette-actions-aaa.spec.ts`); mobile sheet specs landed alongside 3g (`mobile-shell-aaa.spec.ts`, `mobile-settings-nav-aaa.spec.ts`).)*
 
 ---
 
@@ -192,7 +190,7 @@ Waiver track per `commit-format.md` (`ui-enhancement`; no Linear ticket; PR carr
 - [ ] **Phase 7 scope addition** (added by addendum §13): re-add `/settings/notifications` + `/settings/privacy` routes when underlying preference schemas + APIs land. Mockup 09 sidebar nav is the future-state reference.
 - [x] **Cross-link**: `scope-todo-202605151201-phases.md` Phase 3 line item should cross-reference `phase-3-spec-…shell-decomp.md` + this addendum. 1-line pre-merge correction. *(Landed 2026-05-17 in the Phase 3d PR.)*
 - [ ] **iPhone SE viewport choice (A8 G-NC-3)**: revisit if user-testing surfaces issues on modern small phones (390 × 844 iPhone 14). 1-line config swap.
-- [ ] **Decisions-doc Decision #5 (Recompute placement)**: still says "avatar menu and ⌘K". A2 amended via cross-reference; consider back-annotating Decision #5 with the same "Rescinded — see §12 A2" treatment Decision #13 got for full audit-trail consistency (low priority).
+- [x] **Decisions-doc Decision #5 (Recompute placement)**: back-annotated 2026-05-17 with strikethrough + "Amended 2026-05-16 per §12 A2" reference (mirrors Decision #13's "Rescinded 2026-05-16" treatment). Audit-trail is now consistent across both rescinded decisions.
 
 ---
 

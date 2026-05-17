@@ -127,7 +127,9 @@ export function TransactionsClient() {
                     transactionSubmission.setDraftTransaction(next);
                   }}
                   onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
-                  onSubmit={transactionSubmission.submit}
+                  onSubmit={async () => {
+                    await transactionSubmission.submit();
+                  }}
                   dict={dict}
                   locale={locale}
                   priceHint={transactionSubmission.priceHint}

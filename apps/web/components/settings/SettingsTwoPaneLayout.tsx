@@ -26,6 +26,7 @@ interface SettingsTwoPaneLayoutProps {
 export function SettingsTwoPaneLayout({ dict, children }: SettingsTwoPaneLayoutProps) {
   const labels = {
     profile: dict.settings.tabProfile,
+    general: dict.settings.tabGeneral,
     accounts: dict.settings.tabAccounts,
     display: dict.settings.tabDisplay,
     tickers: dict.settings.tabTickers,

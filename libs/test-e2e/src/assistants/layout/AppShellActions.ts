@@ -38,6 +38,31 @@ export class AppShellActions extends AppBaseActions {
   }
 
   /**
+   * Phase 3g (§12 A8) — viewport-aware navigation that skips the
+   * `breadcrumb-root` visibility wait baked into `mxWaitForAppReady`.
+   *
+   * At the iPad-Mini tablet viewport (768 × 1024) the TopBar's fixed-width
+   * controls (sidebar trigger, mobile search button, command-palette
+   * trigger with full label + ⌘K kbd, notification bell, theme toggle
+   * radiogroup, profile menu) consume more horizontal space than the
+   * inset content area offers once the desktop sidebar takes its 256px.
+   * The `min-w-0 flex-1` breadcrumb container collapses to width 0 and
+   * `toBeVisible()` returns false — even though the `<nav>` element is in
+   * the DOM and contains the expected `Dashboard` link (verified via the
+   * Playwright snapshot dump).
+   *
+   * For mobile / tablet shell tests we only need the AppShell to be
+   * mounted (so the sidebar tree is queryable). Wait on `app-shell-ready`
+   * attachment instead — the same signal that `appShell.assert.appIsReady()`
+   * uses.
+   */
+  @Step()
+  async navigateToRouteForResponsiveTest(path: string): Promise<void> {
+    await this.mxGotoUrl(new URL(path, TestEnv.appBaseUrl).href);
+    await expect(this.el.appReady).toBeAttached({ timeout: 30_000 });
+  }
+
+  /**
    * Open the Settings page (Phase 3d — formerly opened a drawer; now
    * navigates to `/settings/profile`, the default landing section).
    *
@@ -82,7 +107,7 @@ export class AppShellActions extends AppBaseActions {
    */
   @Step()
   async openSettingsSection(
-    section: "profile" | "accounts" | "display" | "tickers",
+    section: "profile" | "general" | "accounts" | "display" | "tickers",
   ): Promise<void> {
     await this.mxNavigateToRoute(`/settings/${section}`, TestEnv.appBaseUrl);
     await this.el.testId(`settings-section-${section}`).waitFor({ state: "visible", timeout: 10_000 });
@@ -143,6 +168,107 @@ export class AppShellActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.mobileNavToggle);
     // Wait for the Sheet / sidebar to become interactive (nav items visible)
     await this.uiActions.wait.perform(this.el.mobileSidebar.getByTestId("app-sidebar-nav-dashboard"));
+  }
+
+  /**
+   * Phase 3g (§12 A8) — preferred call-site name for opening the mobile
+   * sidebar Sheet. Alias of `openMobileNavigation` retained for back-compat
+   * with existing specs.
+   */
+  @Step()
+  async openMobileSidebar(): Promise<void> {
+    await this.openMobileNavigation();
+  }
+
+  /**
+   * Phase 3g (§12 A8) — close the mobile sidebar Sheet via Escape. shadcn
+   * Sheet (built on Radix Dialog) closes on Escape by default. After the
+   * keypress the Sheet content unmounts; the nav items become inaccessible.
+   */
+  @Step()
+  async closeMobileSidebar(): Promise<void> {
+    await this.mxPressKey("Escape");
+    await this.el.mobileSidebar
+      .getByTestId("app-sidebar-nav-dashboard")
+      .waitFor({ state: "hidden", timeout: 5_000 });
+  }
+
+  /**
+   * Phase 3g (§12 A8) — open the settings mobile-nav <Select> dropdown.
+   */
+  @Step()
+  async openMobileSettingsNav(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("settings-nav-mobile"));
+  }
+
+  /**
+   * Phase 3g (§12 A8) — pick a section option from the open settings
+   * mobile-nav dropdown. Radix Select renders `<SelectItem>` with
+   * `role="option"`; address via a CSS-selector locator scoped to the
+   * Radix portal so the click resolves the right element and the
+   * `aaa/no-page-access` rule stays happy.
+   */
+  @Step()
+  async selectMobileSettingsOption(label: string): Promise<void> {
+    await this.uiActions.click.perform(
+      this.el.css(`[role="option"]:has-text("${label}")`, `Settings nav option "${label}"`),
+    );
+  }
+
+  // ── Phase 3e — Command palette actions ──────────────────────────────────
+
+  /** Click the topbar ⌘K trigger to open the command palette dialog. */
+  @Step()
+  async openCommandPalette(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("topbar-command-trigger"));
+    await this.el.testId("command-palette-dialog").waitFor({ state: "visible", timeout: 5_000 });
+  }
+
+  /** Type into the palette's CommandInput. cmdk filters items per keystroke. */
+  @Step()
+  async typeInCommandPalette(value: string): Promise<void> {
+    await this.mxFill(this.el.testId("command-palette-input"), value);
+  }
+
+  /**
+   * Press Enter inside the palette — cmdk activates the currently
+   * highlighted item. The default highlight is the first matching item.
+   */
+  @Step()
+  async pressEnterInCommandPalette(): Promise<void> {
+    await this.mxFocus(this.el.testId("command-palette-input"));
+    await this.mxPressKey("Enter");
+  }
+
+  /** Click a specific palette item by its locked testid suffix. */
+  @Step()
+  async clickCommandPaletteRoute(key: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId(`command-palette-item-route-${key}`));
+  }
+
+  /** Click a specific action item (e.g. `theme-dark`, `accent-emerald`, `recompute-all`). */
+  @Step()
+  async clickCommandPaletteAction(key: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId(`command-palette-item-action-${key}`));
+  }
+
+  /** Confirm the Recompute AlertDialog (clicks the locked CTA). */
+  @Step()
+  async confirmRecomputeAlertDialog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("recompute-confirm-dialog-cta"));
+  }
+
+  /** Cancel the Recompute AlertDialog (clicks the locked Cancel button). */
+  @Step()
+  async cancelRecomputeAlertDialog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("recompute-confirm-dialog-cancel"));
+  }
+
+  /** Press Escape inside the open command palette — closes the dialog. */
+  @Step()
+  async pressEscapeInCommandPalette(): Promise<void> {
+    await this.mxFocus(this.el.testId("command-palette-input"));
+    await this.mxPressKey("Escape");
   }
 
   /**

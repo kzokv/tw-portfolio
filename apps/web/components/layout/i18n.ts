@@ -2,13 +2,17 @@ import type { AppDictionary } from "../../lib/i18n/types";
 
 /**
  * Layout/chrome i18n — strings that belong to the outer shell (TopBar, sidebar,
- * portfolio switcher) rather than any feature slice.
+ * portfolio switcher, ⌘K command palette) rather than any feature slice.
  *
  * Placeholders use `{token}` template form (per nextjs-i18n-serialization.md):
  *   - `ownerOptionLabel` interpolates `{owner}` at call site.
+ *   - `commandPalette.actionAccentPrefix` interpolates `{accent}` at call site.
  * Never use function values — they cannot cross the server→client boundary.
  */
-export const layoutI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "switcher">> = {
+export const layoutI18n: Record<
+  "en" | "zh-TW",
+  Pick<AppDictionary, "switcher" | "commandPalette">
+> = {
   en: {
     switcher: {
       triggerLabel: "Portfolio switcher",
@@ -22,6 +26,45 @@ export const layoutI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "switcher">>
       revokedFallbackOwner: "Access to {owner}'s portfolio was revoked.",
       sharedHoldingsEmpty: "{owner} hasn't added any holdings yet.",
       sharedTransactionsEmpty: "{owner} hasn't added any transactions yet.",
+    },
+    commandPalette: {
+      placeholder: "Search anything…",
+      empty: "No results",
+      groupRoutes: "Routes",
+      groupTickers: "Tickers",
+      groupActions: "Actions",
+      routeDashboard: "Dashboard",
+      routePortfolio: "Portfolio",
+      routeTransactions: "Transactions",
+      routeCashLedger: "Cash Ledger",
+      routeDividends: "Dividends",
+      routeSharing: "Sharing",
+      routeSettingsProfile: "Settings → Profile",
+      routeSettingsGeneral: "Settings → General",
+      routeSettingsAccounts: "Settings → Accounts",
+      routeSettingsDisplay: "Settings → Display",
+      routeSettingsTickers: "Settings → Tickers",
+      actionThemeLight: "Switch to light",
+      actionThemeSystem: "Switch to system",
+      actionThemeDark: "Switch to dark",
+      actionAccentPrefix: "Change accent to {accent}",
+      actionAddTransaction: "Add transaction",
+      actionRecomputeAll: "Recompute all positions",
+      recomputeConfirmTitle: "Recompute all positions?",
+      recomputeConfirmBody:
+        "This re-derives lots, allocations, and cash entries from your trade history. May take a few seconds.",
+      recomputeConfirmCta: "Recompute",
+      recomputeConfirmCancel: "Cancel",
+      accent: {
+        indigo: "Indigo",
+        violet: "Violet",
+        blue: "Blue",
+        cyan: "Cyan",
+        emerald: "Emerald",
+        amber: "Amber",
+        rose: "Rose",
+        slate: "Slate",
+      },
     },
   },
   "zh-TW": {
@@ -37,6 +80,45 @@ export const layoutI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "switcher">>
       revokedFallbackOwner: "{owner} 的投資組合分享已被撤銷。",
       sharedHoldingsEmpty: "{owner} 尚未新增任何持股。",
       sharedTransactionsEmpty: "{owner} 尚未新增任何交易。",
+    },
+    commandPalette: {
+      placeholder: "搜尋任何項目…",
+      empty: "無相符結果",
+      groupRoutes: "頁面",
+      groupTickers: "代號",
+      groupActions: "操作",
+      routeDashboard: "儀表板",
+      routePortfolio: "投資組合",
+      routeTransactions: "交易紀錄",
+      routeCashLedger: "現金流水",
+      routeDividends: "股利",
+      routeSharing: "分享",
+      routeSettingsProfile: "設定 → 個人檔案",
+      routeSettingsGeneral: "設定 → 一般",
+      routeSettingsAccounts: "設定 → 帳戶",
+      routeSettingsDisplay: "設定 → 顯示",
+      routeSettingsTickers: "設定 → 代號",
+      actionThemeLight: "切換為淺色主題",
+      actionThemeSystem: "切換為系統主題",
+      actionThemeDark: "切換為深色主題",
+      actionAccentPrefix: "強調色改為 {accent}",
+      actionAddTransaction: "新增交易",
+      actionRecomputeAll: "重算所有持倉",
+      recomputeConfirmTitle: "確定要重算所有持倉？",
+      recomputeConfirmBody:
+        "系統會根據交易歷史重新推導所有批次、配置與現金紀錄，可能需要幾秒鐘。",
+      recomputeConfirmCta: "重算",
+      recomputeConfirmCancel: "取消",
+      accent: {
+        indigo: "靛藍",
+        violet: "紫羅蘭",
+        blue: "藍",
+        cyan: "青",
+        emerald: "翡翠綠",
+        amber: "琥珀",
+        rose: "玫瑰",
+        slate: "石板灰",
+      },
     },
   },
 };

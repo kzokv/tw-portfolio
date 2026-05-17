@@ -23,6 +23,11 @@ import { useAppShellDataValue } from "./useAppShellDataValue";
 import { useSnapshotGeneration } from "./useSnapshotGeneration";
 import { useSharedContext } from "./useSharedContext";
 import { useAppNavigation } from "./useAppNavigation";
+import { CommandPalette } from "./CommandPalette";
+import { CommandPaletteProvider } from "./CommandPaletteContext";
+import { useCommandPalette } from "../../hooks/useCommandPalette";
+import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
+import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
@@ -242,6 +247,35 @@ export function AppShell({
     />
   ) : null;
 
+  // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
+  const commandPalette = useCommandPalette();
+  const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
+  const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
+
+  const handleAddTransactionFromPalette = useCallback(() => {
+    setAddTransactionDialogOpen(true);
+  }, []);
+
+  const handleRecomputeFromPalette = useCallback(() => {
+    setRecomputeDialogOpen(true);
+  }, []);
+
+  const handleRecomputeConfirm = useCallback(() => {
+    setRecomputeDialogOpen(false);
+    // §12 A2 — skip the in-hook `window.confirm` because the AlertDialog
+    // has already collected the user's confirmation.
+    void recomputeAction.runRecompute({ skipConfirm: true });
+  }, [recomputeAction]);
+
+  const commandPaletteContextValue = useMemo(
+    () => ({
+      open: commandPalette.open,
+      setOpen: commandPalette.setOpen,
+      openWithQuery: commandPalette.openWithQuery,
+    }),
+    [commandPalette.open, commandPalette.setOpen, commandPalette.openWithQuery],
+  );
+
   return (
     <div className="app-shell relative flex min-h-screen w-full min-w-0 max-w-full flex-col overflow-x-clip" data-testid="app-shell">
       {isDemo && (
@@ -266,37 +300,77 @@ export function AppShell({
             labels (e.g. "持倉" in zh-TW). Children still consume the same
             context via useAppShellData inside <main> below. */}
         <AppShellDataProvider value={appShellDataValue}>
-          <AppShellLayout
-            initialSidebarOpen={initialSidebarOpen}
-            dashboard={dashboard}
-            profileData={profileData}
-            dict={dict}
-            uiDict={uiDict}
-            locale={locale}
-            switcherSlot={portfolioSwitcher}
-            quickSearchItems={quickSearchItems}
-            unreadCount={notificationData.unreadCount}
-            notifications={notificationData.notifications}
-            notificationDropdownOpen={notificationDropdownOpen}
-            onNotificationOpenChange={setNotificationDropdownOpen}
-            markRead={notificationData.markRead}
-            markAllRead={notificationData.markAllRead}
-            dismiss={notificationData.dismiss}
-            contextMessage={contextMessage}
-            globalError={globalError}
-            transactionMessage={transactionSubmission.message}
-            recomputeMessage={recomputeAction.message}
-            snapshotMessage={snapshotGeneration.snapshotMessage}
-            mutationsMessage={mutations.message}
-            mutationsErrorMessage={mutations.errorMessage}
-            onClearGlobalError={handleClearGlobalError}
-            isClientReady={isClientReady}
-            switcherLoaded={switcherLoaded}
-            onTimeframesSaved={refetchEffectiveRanges}
-            onReportingCurrencySaved={handleReportingCurrencySaved}
-          >
-            {children ?? null}
-          </AppShellLayout>
+          <CommandPaletteProvider value={commandPaletteContextValue}>
+            <AppShellLayout
+              initialSidebarOpen={initialSidebarOpen}
+              dashboard={dashboard}
+              profileData={profileData}
+              dict={dict}
+              uiDict={uiDict}
+              locale={locale}
+              switcherSlot={portfolioSwitcher}
+              quickSearchItems={quickSearchItems}
+              unreadCount={notificationData.unreadCount}
+              notifications={notificationData.notifications}
+              notificationDropdownOpen={notificationDropdownOpen}
+              onNotificationOpenChange={setNotificationDropdownOpen}
+              markRead={notificationData.markRead}
+              markAllRead={notificationData.markAllRead}
+              dismiss={notificationData.dismiss}
+              contextMessage={contextMessage}
+              globalError={globalError}
+              transactionMessage={transactionSubmission.message}
+              recomputeMessage={recomputeAction.message}
+              snapshotMessage={snapshotGeneration.snapshotMessage}
+              mutationsMessage={mutations.message}
+              mutationsErrorMessage={mutations.errorMessage}
+              onClearGlobalError={handleClearGlobalError}
+              isClientReady={isClientReady}
+              switcherLoaded={switcherLoaded}
+              onTimeframesSaved={refetchEffectiveRanges}
+              onReportingCurrencySaved={handleReportingCurrencySaved}
+            >
+              {children ?? null}
+            </AppShellLayout>
+
+            <CommandPalette
+              open={commandPalette.open}
+              onOpenChange={commandPalette.setOpen}
+              initialQuery={commandPalette.initialQuery}
+              dict={dict}
+              onAddTransaction={handleAddTransactionFromPalette}
+              onRecomputeAll={handleRecomputeFromPalette}
+            />
+
+            <AddTransactionDialog
+              open={addTransactionDialogOpen}
+              onOpenChange={setAddTransactionDialogOpen}
+              value={transactionSubmission.draftTransaction}
+              onChange={transactionSubmission.setDraftTransaction}
+              onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
+              onSubmit={async () => {
+                const ok = await transactionSubmission.submit();
+                if (ok) setAddTransactionDialogOpen(false);
+              }}
+              pending={transactionSubmission.isSubmitting}
+              accountOptions={transactionAccountOptions}
+              message={transactionSubmission.message}
+              errorMessage={transactionSubmission.errorMessage}
+              dict={dict}
+              locale={locale}
+              priceHint={transactionSubmission.priceHint}
+              showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
+              feeEstimate={transactionSubmission.feeEstimate}
+            />
+
+            <RecomputeConfirmDialog
+              open={recomputeDialogOpen}
+              onOpenChange={setRecomputeDialogOpen}
+              onConfirm={handleRecomputeConfirm}
+              dict={dict}
+              pending={recomputeAction.isRunning}
+            />
+          </CommandPaletteProvider>
         </AppShellDataProvider>
       </BreadcrumbProvider>
     </div>

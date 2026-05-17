@@ -12,6 +12,7 @@ import type { SettingsNavSlug } from "./SettingsNav";
 
 interface MobileNavLabels {
   profile: string;
+  general: string;
   accounts: string;
   display: string;
   tickers: string;
@@ -21,7 +22,7 @@ interface SettingsMobileNavProps {
   labels: MobileNavLabels;
 }
 
-const SLUGS: SettingsNavSlug[] = ["profile", "accounts", "display", "tickers"];
+const SLUGS: SettingsNavSlug[] = ["profile", "general", "accounts", "display", "tickers"];
 
 /**
  * Phase 3d S2 — mobile-viewport section switcher for the `/settings/*` shell.
