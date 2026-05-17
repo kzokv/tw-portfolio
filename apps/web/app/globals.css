@@ -36,6 +36,28 @@
   --row-h: 36px;
   --row-px: 12px;
 
+  /* Chart tokens (Phase 6). HSL channels; consumers wrap in hsl().
+   * Semantic tokens (trend + dividend review):
+   *   --chart-primary  follows --primary (accent-bound; flows through AccentApplier)
+   *   --chart-muted    neutral baseline for secondary trend lines (e.g. totalCost)
+   *   --chart-positive success/green for positive-direction series (e.g. totalReturn)
+   *   --chart-expected sky family for "expected" dividend bars
+   *   --chart-received green family for "received" dividend bars
+   * Numbered tokens (categorical palette for the donut, mirroring the prior
+   * DONUT_COLORS palette identity: indigo-600, indigo-500, blue-500, teal-500,
+   * amber-500, slate-400). Light values picked for ≥4.5:1 against --background. */
+  --chart-primary: var(--primary);
+  --chart-muted: 215 16% 47%;
+  --chart-positive: 142 71% 36%;
+  --chart-expected: 200 98% 39%;
+  --chart-received: 142 71% 45%;
+  --chart-1: 245 78% 59%;
+  --chart-2: 239 84% 67%;
+  --chart-3: 217 91% 60%;
+  --chart-4: 173 80% 40%;
+  --chart-5: 38 92% 50%;
+  --chart-6: 215 20% 65%;
+
   /* Legacy alias bridge (deleted in Phase 7). Maps old css-var consumers to
    * the new tokens so existing classes (`bg-bg`, `text-ink`, etc.) work.   */
   --bg: hsl(var(--background));
@@ -74,6 +96,20 @@
   --border: 217 33% 17%;
   --input: 217 33% 17%;
   --ring: 238 84% 67%;
+
+  /* Chart tokens (Phase 6) — dark variants. Saturation/luminance bumped for
+   * visibility on the dark --background; semantic intent matches :root. */
+  --chart-primary: var(--primary);
+  --chart-muted: 215 20% 65%;
+  --chart-positive: 142 71% 50%;
+  --chart-expected: 200 98% 55%;
+  --chart-received: 142 71% 55%;
+  --chart-1: 245 78% 65%;
+  --chart-2: 239 84% 72%;
+  --chart-3: 217 91% 65%;
+  --chart-4: 173 70% 50%;
+  --chart-5: 38 92% 60%;
+  --chart-6: 215 20% 75%;
   color-scheme: dark;
 }
 
