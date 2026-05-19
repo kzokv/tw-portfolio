@@ -65,12 +65,13 @@ test("[transactions]: AAPL US trade against USD account → posted, recent table
 
   // ── Act: enter the AAPL/US BUY through the chip-selector form ────────────
   await transactions.actions.navigateToTransactions();
+
+  // The seeded TWD "Main" account is first, so the form starts on TW. Select
+  // US before choosing the USD account because the account dropdown is now
+  // filtered by the selected market's compatible currency.
+  await transactions.actions.selectMarketChip("US");
   await transactions.actions.selectAccountById(usAccount.id);
   await transactions.actions.selectTransactionType("BUY");
-
-  // The chip should default to US (single USD account) but explicit selection
-  // is the load-bearing thing this spec exists to verify.
-  await transactions.actions.selectMarketChip("US");
   await transactions.actions.typeInTickerSearch("AAPL");
   await transactions.actions.selectTickerOption("AAPL", "US");
 
@@ -90,10 +91,7 @@ test("[transactions]: AAPL US trade against USD account → posted, recent table
   await transactions.assert.recentTransactionTickerIsVisible("AAPL");
 });
 
-// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
-// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
-// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
-test("[transactions]: US chip on AAPL derives USD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
+test("[transactions]: US chip on AAPL without USD account asks user to create a compatible account", async ({
   settings,
   transactions,
 }) => {
@@ -107,6 +105,9 @@ test("[transactions]: US chip on AAPL derives USD priceCurrency (server-side mis
   await transactions.actions.typeInTickerSearch("AAPL");
   await transactions.actions.selectTickerOption("AAPL", "US");
 
-  // ── Assert: form-side chip → derived priceCurrency is USD. ───────────────
+  // ── Assert: chip derives USD but blocks submit until a compatible account exists.
   await transactions.assert.priceCurrencyIs("USD");
+  await transactions.assert.noAccountErrorContains(/USD/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=USD/);
+  await transactions.assert.submitButtonIsDisabled();
 });

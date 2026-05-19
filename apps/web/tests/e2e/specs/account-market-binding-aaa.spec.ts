@@ -55,14 +55,7 @@ test("[settings drawer]: create account with United States currency card → mar
 
 // ─── AMB-2 ────────────────────────────────────────────────────────────────────
 
-// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
-// (scope items 22–23, one-way binding account → chip). The old
-// `tx-no-account-error` + create-account deep-link UX no longer fires on
-// chip-account mismatch (it now only fires when accountOptions.length===0).
-// Currency mismatch is enforced server-side at POST /portfolio/transactions
-// — see `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
-// This spec retains the form-side derivation check: chip → derived currency.
-test("[transactions]: US chip on MSFT derives USD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
+test("[transactions]: US chip with no USD account asks user to create a compatible account", async ({
   settings,
   transactions,
 }) => {
@@ -87,8 +80,12 @@ test("[transactions]: US chip on MSFT derives USD priceCurrency (server-side mis
   await transactions.actions.typeInTickerSearch("MSFT");
   await transactions.actions.selectTickerOption("MSFT", "US");
 
-  // ── Assert: form-side chip → derived priceCurrency is USD. ────────────────
+  // ── Assert: form-side chip → derived priceCurrency is USD, but no matching
+  //    account exists so the form blocks submission and offers account create.
   await transactions.assert.priceCurrencyIs("USD");
+  await transactions.assert.noAccountErrorContains(/USD/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=USD/);
+  await transactions.assert.submitButtonIsDisabled();
 });
 
 // ─── AMB-3 ────────────────────────────────────────────────────────────────────
@@ -123,6 +120,7 @@ test("[transactions]: BUY trade against US account with US ticker MSFT succeeds 
 
   // ── Act: submit a MSFT BUY against the US account ────────────────────────
   await transactions.actions.navigateToTransactions();
+  await transactions.actions.selectMarketChip("US");
   await transactions.actions.selectAccountById(usAccount.id);
 
   await transactions.actions.selectTransactionType("BUY");

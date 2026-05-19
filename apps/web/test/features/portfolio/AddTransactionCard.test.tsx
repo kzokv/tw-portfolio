@@ -186,9 +186,7 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     expect(html).not.toContain('data-testid="tx-account-select"');
   });
 
-  it("shows the account dropdown with ALL accounts regardless of chip (ui-enhancement)", () => {
-    // ui-enhancement: dropdown lists every account; chip auto-syncs to the
-    // selected account. Replaces the previous chip → account filter.
+  it("filters the account dropdown to accounts compatible with the selected market chip", () => {
     const html = renderToStaticMarkup(
       <AddTransactionCard
         value={valueWith({ marketCode: "US" })}
@@ -205,9 +203,9 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
       />,
     );
     expect(html).toContain('data-testid="tx-account-select"');
-    expect(html).toContain('value="acc-tw"');
     expect(html).toContain('value="acc-us"');
-    expect(html).toContain('value="acc-au"');
+    expect(html).not.toContain('value="acc-tw"');
+    expect(html).not.toContain('value="acc-au"');
     expect(html).not.toContain('data-testid="tx-no-account-error"');
   });
 

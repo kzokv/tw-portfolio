@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@vakwen/domain";
+import { marketCodeFor } from "@vakwen/shared-types";
 import type { DividendLedgerAggregates, DividendSourceLine } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -52,6 +53,8 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendReviewListResult,
+  DividendReviewRowWithDetails,
   InviteRecord,
   InviteStatus,
   OAuthClaims,
@@ -1407,6 +1410,213 @@ export class MemoryPersistence implements Persistence {
     }));
 
     return { ledgerEntries, total, aggregates };
+  }
+
+  async listDividendReviewRows(
+    userId: string,
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendReviewListResult> {
+    const store = await this.loadStore(userId);
+    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+    const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+    const receivedByLedgerId = new Map<string, number>();
+
+    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+      if (cashEntry.entryType !== "DIVIDEND_RECEIPT") continue;
+      const ledgerId = cashEntry.relatedDividendLedgerEntryId;
+      if (!ledgerId) continue;
+      receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
+    }
+
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    const activeLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) => {
+      if (entry.reversalOfDividendLedgerEntryId) return false;
+      if (entry.supersededAt) return false;
+      if (reversedIds.has(entry.id)) return false;
+      return true;
+    });
+    const activeLedgerKey = new Set(activeLedgerEntries.map((entry) => `${entry.accountId}:${entry.dividendEventId}`));
+    const reversedTradeIds = new Set(
+      store.accounting.facts.tradeEvents
+        .map((trade) => trade.reversalOfTradeEventId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    const instrumentTypeFor = (ticker: string, cashCurrency: string): InstrumentType => {
+      try {
+        const marketCode = marketCodeFor(cashCurrency);
+        return store.instruments.find(
+          (instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode,
+        )?.type ?? "STOCK";
+      } catch {
+        return "STOCK";
+      }
+    };
+
+    const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
+    const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
+      if (dateFilterActive) return matchesNullableDateRange(paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate);
+      return paymentDate != null;
+    };
+
+    const ledgerRows: DividendReviewRowWithDetails[] = activeLedgerEntries.flatMap((entry) => {
+      if (opts.accountId && entry.accountId !== opts.accountId) return [];
+      if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return [];
+      if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
+      const event = eventById.get(entry.dividendEventId);
+      if (!event) return [];
+      if (!matchesDateFilter(event.paymentDate)) return [];
+      if (opts.ticker && event.ticker !== opts.ticker) return [];
+      return [{
+        ...entry,
+        rowKind: "ledger",
+        ticker: event.ticker,
+        instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
+        eventType: event.eventType,
+        exDividendDate: event.exDividendDate,
+        paymentDate: event.paymentDate,
+        cashCurrency: event.cashDividendCurrency,
+        receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
+        deductions: store.accounting.facts.dividendDeductionEntries.filter(
+          (deduction) => deduction.dividendLedgerEntryId === entry.id,
+        ),
+        sourceLines: store.accounting.facts.dividendSourceLines.filter(
+          (line) => line.dividendLedgerEntryId === entry.id,
+        ),
+      }];
+    });
+
+    const expectedRows: DividendReviewRowWithDetails[] = [];
+    for (const account of store.accounts) {
+      if (account.userId !== userId) continue;
+      if (opts.accountId && account.id !== opts.accountId) continue;
+
+      for (const event of store.marketData.dividendEvents) {
+        let eventMarketCode: MarketCode;
+        try {
+          eventMarketCode = marketCodeFor(event.cashDividendCurrency);
+        } catch {
+          continue;
+        }
+        if (account.defaultCurrency !== event.cashDividendCurrency) continue;
+        if (!matchesDateFilter(event.paymentDate)) continue;
+        if (opts.ticker && event.ticker !== opts.ticker) continue;
+        if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
+        if (opts.postingStatus && opts.postingStatus !== "expected") continue;
+        if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
+
+        const eligibleQuantity = Math.max(
+          0,
+          store.accounting.facts.tradeEvents
+            .filter(
+              (trade) =>
+                trade.userId === userId &&
+                trade.accountId === account.id &&
+                trade.ticker === event.ticker &&
+                trade.marketCode === eventMarketCode &&
+                trade.tradeDate < event.exDividendDate &&
+                !trade.reversalOfTradeEventId &&
+                !reversedTradeIds.has(trade.id),
+            )
+            .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0),
+        );
+        if (eligibleQuantity <= 0) continue;
+
+        expectedRows.push({
+          id: `expected:${account.id}:${event.id}`,
+          rowKind: "expected",
+          accountId: account.id,
+          dividendEventId: event.id,
+          ticker: event.ticker,
+          instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
+          eventType: event.eventType,
+          exDividendDate: event.exDividendDate,
+          paymentDate: event.paymentDate,
+          cashCurrency: event.cashDividendCurrency,
+          eligibleQuantity,
+          expectedCashAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
+          expectedStockQuantity: Math.floor(eligibleQuantity * event.stockDividendPerShare),
+          receivedCashAmount: 0,
+          receivedStockQuantity: 0,
+          postingStatus: "expected",
+          reconciliationStatus: "open",
+          version: 0,
+          sourceCompositionStatus: "unknown_pending_disclosure",
+          deductions: [],
+          sourceLines: [],
+        });
+      }
+    }
+
+    const rows = [...ledgerRows, ...expectedRows];
+    const aggregates: DividendLedgerAggregates = {
+      totalExpectedCashAmount: {},
+      totalReceivedCashAmount: {},
+      openCount: 0,
+      byMonth: {},
+      byTicker: {},
+    };
+
+    for (const row of rows) {
+      const currency = row.cashCurrency;
+      aggregates.totalExpectedCashAmount[currency] =
+        (aggregates.totalExpectedCashAmount[currency] ?? 0) + row.expectedCashAmount;
+      aggregates.totalReceivedCashAmount[currency] =
+        (aggregates.totalReceivedCashAmount[currency] ?? 0) + row.receivedCashAmount;
+      if (row.reconciliationStatus === "open") aggregates.openCount += 1;
+
+      if (row.paymentDate) {
+        const monthKey = row.paymentDate.substring(0, 7);
+        const monthBucket = (aggregates.byMonth[monthKey] ??= {});
+        const monthCurrencyBucket = (monthBucket[currency] ??= { expected: 0, received: 0 });
+        monthCurrencyBucket.expected += row.expectedCashAmount;
+        monthCurrencyBucket.received += row.receivedCashAmount;
+      }
+
+      const tickerBucket = (aggregates.byTicker[row.ticker] ??= {});
+      const tickerCurrencyBucket = (tickerBucket[currency] ??= { expected: 0, received: 0 });
+      tickerCurrencyBucket.expected += row.expectedCashAmount;
+      tickerCurrencyBucket.received += row.receivedCashAmount;
+    }
+
+    const orderFactor = opts.sortOrder === "asc" ? 1 : -1;
+    const sorted = rows.slice().sort((left, right) => {
+      let cmp = 0;
+      switch (opts.sortBy) {
+        case "paymentDate":
+          cmp = compareNullablePaymentDates(left, right);
+          break;
+        case "ticker":
+          cmp = left.ticker.localeCompare(right.ticker);
+          break;
+        case "account": {
+          const leftName = accountById.get(left.accountId)?.name ?? "";
+          const rightName = accountById.get(right.accountId)?.name ?? "";
+          cmp = leftName.localeCompare(rightName);
+          break;
+        }
+        case "expectedCashAmount":
+          cmp = left.expectedCashAmount - right.expectedCashAmount;
+          break;
+        case "receivedCashAmount":
+          cmp = left.receivedCashAmount - right.receivedCashAmount;
+          break;
+        case "reconciliationStatus":
+          cmp = left.reconciliationStatus.localeCompare(right.reconciliationStatus);
+          break;
+      }
+      if (cmp !== 0) return cmp * orderFactor;
+      return left.id.localeCompare(right.id);
+    });
+
+    const total = sorted.length;
+    const startIndex = (opts.page - 1) * opts.limit;
+    return { rows: sorted.slice(startIndex, startIndex + opts.limit), total, aggregates };
   }
 
   async listCashLedgerEntries(

@@ -276,7 +276,7 @@ test.describe("dividend review — chart interactions", () => {
     // ACT: capture network requests after page is stable, then toggle granularity
     const ledgerRequests: string[] = [];
     page.on("request", (req) => {
-      if (req.url().includes("/portfolio/dividends/ledger") && req.method() === "GET") {
+      if (req.url().includes("/portfolio/dividends/review") && req.method() === "GET") {
         ledgerRequests.push(req.url());
       }
     });
@@ -357,7 +357,7 @@ test.describe("dividend review — table interactions", () => {
     const sortRequestPromise = page.waitForResponse(
       (response) =>
         response.request().method() === "GET"
-        && response.url().includes("/portfolio/dividends/ledger")
+        && response.url().includes("/portfolio/dividends/review")
         && response.url().includes("sortBy=ticker"),
     );
 
@@ -450,6 +450,31 @@ test.describe("dividend review — table interactions", () => {
     await dividendReview.assert.drawerIsVisible();
     await dividendReview.assert.drawerContains(/2330/);
   });
+
+  test("expected row: opens posting drawer and does not expose Mark matched", async ({
+    dividendReview,
+  }) => {
+    // ARRANGE
+    const seeded = await dividendReview.arrange.seedExpectedDividend({
+      ticker: "2330",
+      exDividendDate: isoDateForMonth(12),
+      paymentDate: isoDateForMonth(26),
+      cashDividendPerShare: 0.2,
+      eligibleQuantity: 1_000,
+    });
+
+    // ACT
+    await dividendReview.actions.navigateToReview();
+    await dividendReview.assert.pageLoaded();
+
+    // ASSERT
+    await dividendReview.assert.rowContainsText(seeded.expectedReviewRowId, /2330/);
+    await dividendReview.assert.markMatchedButtonIsHidden(seeded.expectedReviewRowId);
+
+    await dividendReview.actions.clickRow(seeded.expectedReviewRowId);
+    await dividendReview.assert.drawerIsVisible();
+    await dividendReview.assert.drawerContains(/2330/);
+  });
 });
 
 // ─── Group 4: Deep link ─────────────────────────────────────────────────────
@@ -513,7 +538,7 @@ test.describe("dividend review — SSE", () => {
     // Track ledger requests after initial load
     const ledgerRequests: string[] = [];
     page.on("request", (req) => {
-      if (req.url().includes("/portfolio/dividends/ledger") && req.method() === "GET") {
+      if (req.url().includes("/portfolio/dividends/review") && req.method() === "GET") {
         ledgerRequests.push(req.url());
       }
     });

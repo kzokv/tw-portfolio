@@ -63,32 +63,28 @@ test("[transactions]: multi-currency user can disambiguate BHP via per-market ch
   await transactions.actions.navigateToTransactions();
   await transactions.assert.selectedMarketChipIs("TW");
 
-  // ── Act/Assert: AU chip filters autocomplete to AU-only BHP ──────────────
+  // ── Act/Assert: AU chip filters autocomplete and account options to AU.
   await transactions.actions.selectMarketChip("AU");
+  await transactions.assert.selectedAccountOptionsContain(/AUD Brokerage/);
+  await transactions.assert.selectedAccountOptionsExclude(/USD Brokerage/);
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.assert.comboboxShowsOptions(1);
   await transactions.assert.comboboxOptionContains(/BHP/);
 
-  // ── Act/Assert: switching to the US chip filters to the US-only BHP ──────
+  // ── Act/Assert: switching to the US chip filters autocomplete and accounts.
   await transactions.actions.selectMarketChip("US");
+  await transactions.assert.selectedAccountOptionsContain(/USD Brokerage/);
+  await transactions.assert.selectedAccountOptionsExclude(/AUD Brokerage/);
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.assert.comboboxShowsOptions(1);
   await transactions.assert.comboboxOptionContains(/BHP/);
 
   // ── Act/Assert: selecting BHP·US locks the derived priceCurrency to USD.
-  //    ui-enhancement (2026-05-13) — the chip→account dropdown filter has
-  //    been removed (one-way binding account → chip per scope items 22–23).
-  //    The account dropdown now lists ALL of the user's accounts regardless
-  //    of chip; currency-mismatch enforcement lives server-side, covered by
-  //    `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
   await transactions.actions.selectTickerOption("BHP", "US");
   await transactions.assert.priceCurrencyIs("USD");
 });
 
-// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
-// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
-// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
-test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
+test("[transactions]: AU chip on BHP with no AUD account asks user to create a compatible account", async ({
   settings,
   transactions,
 }) => {
@@ -101,6 +97,10 @@ test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mism
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.actions.selectTickerOption("BHP", "AU");
 
-  // ── Assert: form-side chip → derived priceCurrency is AUD. ───────────────
+  // ── Assert: form-side chip → derived priceCurrency is AUD, but no matching
+  //    account exists so the form blocks submission and offers account create.
   await transactions.assert.priceCurrencyIs("AUD");
+  await transactions.assert.noAccountErrorContains(/AUD/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=AUD/);
+  await transactions.assert.submitButtonIsDisabled();
 });
