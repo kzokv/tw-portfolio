@@ -3858,6 +3858,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/portfolio/dividends/review", async (req) => {
+    const query = dividendLedgerQuerySchema.parse(req.query);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const result = await app.persistence.listDividendReviewRows(userId, {
+      accountId: query.accountId,
+      fromPaymentDate: query.fromPaymentDate,
+      toPaymentDate: query.toPaymentDate,
+      reconciliationStatus: query.reconciliationStatus,
+      postingStatus: query.postingStatus,
+      ticker: query.ticker,
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+
+    return {
+      reviewRows: result.rows,
+      total: result.total,
+      aggregates: result.aggregates,
+    };
+  });
+
   app.get("/portfolio/dividends/ledger", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
     const { userId, store } = await loadUserStore(app, req);

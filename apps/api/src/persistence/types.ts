@@ -465,6 +465,24 @@ export interface DividendLedgerListResult {
   aggregates: DividendLedgerAggregates;
 }
 
+export type DividendReviewRowKind = "ledger" | "expected";
+
+export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
+  rowKind: DividendReviewRowKind;
+  ticker: string;
+  instrumentType: InstrumentType;
+  eventType: Store["marketData"]["dividendEvents"][number]["eventType"];
+  exDividendDate: string;
+  paymentDate: string | null;
+  cashCurrency: CurrencyCode;
+};
+
+export interface DividendReviewListResult {
+  rows: DividendReviewRowWithDetails[];
+  total: number;
+  aggregates: DividendLedgerAggregates;
+}
+
 /**
  * KZO-195 — row shape returned by the admin instrument override routes.
  * Carries the absence-detection state the admin UI needs to render the
@@ -920,6 +938,10 @@ export interface Persistence {
     userId: string,
     opts: DividendLedgerListOptions,
   ): Promise<DividendLedgerListResult>;
+  listDividendReviewRows(
+    userId: string,
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendReviewListResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   listCashLedgerEntries(userId: string, opts: CashLedgerListOptions): Promise<CashLedgerListResult>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;

@@ -70,12 +70,13 @@ test("[transactions]: BHP AU trade against AUD account → posted, recent table 
 
   // ── Act: enter the BHP/AU BUY through the chip-selector form ─────────────
   await transactions.actions.navigateToTransactions();
+
+  // The seeded TWD "Main" account is first, so the form starts on TW. Select
+  // AU before choosing the AUD account because the account dropdown is now
+  // filtered by the selected market's compatible currency.
+  await transactions.actions.selectMarketChip("AU");
   await transactions.actions.selectAccountById(auAccount.id);
   await transactions.actions.selectTransactionType("BUY");
-
-  // The chip should default to AU (single AUD account) but explicit selection
-  // is the load-bearing thing this spec exists to verify.
-  await transactions.actions.selectMarketChip("AU");
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.actions.selectTickerOption("BHP", "AU");
 
@@ -95,10 +96,7 @@ test("[transactions]: BHP AU trade against AUD account → posted, recent table 
   await transactions.assert.recentTransactionTickerIsVisible("BHP");
 });
 
-// ui-enhancement (2026-05-13) — Chip→account dropdown filter removed
-// (scope items 22–23). Currency-mismatch enforcement moved server-side; see
-// `apps/api/test/http/specs/transaction-currency-mismatch-aaa.http.spec.ts`.
-test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mismatch covered by HTTP suite)", async ({
+test("[transactions]: AU chip on BHP without AUD account asks user to create a compatible account", async ({
   settings,
   transactions,
 }) => {
@@ -112,6 +110,9 @@ test("[transactions]: AU chip on BHP derives AUD priceCurrency (server-side mism
   await transactions.actions.typeInTickerSearch("BHP");
   await transactions.actions.selectTickerOption("BHP", "AU");
 
-  // ── Assert: form-side chip → derived priceCurrency is AUD. ────────────────
+  // ── Assert: chip derives AUD but blocks submit until a compatible account exists.
   await transactions.assert.priceCurrencyIs("AUD");
+  await transactions.assert.noAccountErrorContains(/AUD/);
+  await transactions.assert.createAccountLinkHrefContains(/accountsPrefillCurrency=AUD/);
+  await transactions.assert.submitButtonIsDisabled();
 });

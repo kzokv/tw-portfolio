@@ -36,6 +36,11 @@ interface SeedResult {
   version: number;
 }
 
+interface SeedExpectedResult {
+  dividendEventId: string;
+  expectedReviewRowId: string;
+}
+
 export class DividendReviewArrange extends BaseArrange {
   declare protected readonly _instance: DividendReviewPage;
 
@@ -66,6 +71,21 @@ export class DividendReviewArrange extends BaseArrange {
     }
 
     return await response.json() as Record<string, unknown>;
+  }
+
+  @Step()
+  async seedExpectedDividend(options: SeedDividendEventOptions): Promise<SeedExpectedResult> {
+    const seedBody = await this.seedDividendEvent(options);
+    const accountId = String(seedBody.accountId ?? options.accountId ?? "acc-1");
+    const dividendEvent = seedBody.dividendEvent as Record<string, unknown> | undefined;
+    const dividendEventId = String(dividendEvent?.id ?? "");
+    if (!dividendEventId) {
+      throw new Error("seedExpectedDividend expected dividendEvent.id");
+    }
+    return {
+      dividendEventId,
+      expectedReviewRowId: `expected:${accountId}:${dividendEventId}`,
+    };
   }
 
   @Step()

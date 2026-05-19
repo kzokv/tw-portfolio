@@ -192,15 +192,8 @@ export function AddTransactionCard({
   const derivedMarket: MarketCode = activeChip;
   const derivedCurrency: AccountDefaultCurrency = currencyFor(derivedMarket);
 
-  // ui-enhancement (2026-05-13) — scope items 22–23 enforce a one-way
-  // `account → chip` binding. Previously (KZO-169) the dropdown was
-  // filtered to currency-compatible accounts (`chip → account`); that
-  // direction is now removed. The dropdown lists ALL of the user's
-  // accounts; picking one drives the chip via the auto-sync effect
-  // below. `filterAccountsByDerivedCurrency` stays exported because
-  // older callers (and tests) still use the helper.
-  const dropdownAccounts = accountOptions;
-  const noCompatibleAccount = accountOptions.length === 0;
+  const dropdownAccounts = filterAccountsByDerivedCurrency(accountOptions, derivedCurrency);
+  const noCompatibleAccount = dropdownAccounts.length === 0;
 
   // KZO-169: priceCurrency input becomes purely derived. We mirror it back
   // into form state so consumers (history table, recompute) read a real value.
@@ -254,10 +247,8 @@ export function AddTransactionCard({
     // double-fire after an intervening setValue from elsewhere.
     prevAccountIdRef.current = value.accountId;
 
-    // Branch 2 — chip-driven priceCurrency reconcile. With the account
-    // dropdown no longer filtered by chip, the chip can only change via
-    // `handleChipChange`; that callback already handles its own clearing
-    // of `value.ticker` / `value.marketCode`. We still need to mirror
+    // Branch 2 — chip-driven priceCurrency reconcile. `handleChipChange`
+    // clears `value.ticker` / `value.marketCode`; this branch mirrors
     // `derivedCurrency` into `value.priceCurrency` so consumers see it.
     if (value.priceCurrency !== derivedCurrency) {
       onChange({ ...value, priceCurrency: derivedCurrency });
@@ -269,12 +260,13 @@ export function AddTransactionCard({
     accountOptions,
   ]);
 
-  const selectedAccount = accountOptions.find((account) => account.id === value.accountId);
+  const selectedAccount = dropdownAccounts.find((account) => account.id === value.accountId);
   const accountSelectTitle = selectedAccount ? formatAccountOptionLabel(selectedAccount) : "";
 
   const submitDisabled =
     pending ||
     !value.accountId ||
+    !selectedAccount ||
     !value.ticker.trim() ||
     !value.marketCode ||
     noCompatibleAccount;
@@ -403,14 +395,14 @@ export function AddTransactionCard({
           ) : (
             <select
               id={accountSelectId}
-              value={value.accountId}
+              value={selectedAccount ? value.accountId : ""}
               onChange={(event) => setField("accountId", event.target.value)}
               title={accountSelectTitle}
               className={fieldClassName}
               data-testid="tx-account-select"
               disabled={dropdownAccounts.length === 0}
             >
-              {dropdownAccounts.length === 0 ? (
+              {dropdownAccounts.length === 0 || !selectedAccount ? (
                 <option value="" disabled>
                   —
                 </option>

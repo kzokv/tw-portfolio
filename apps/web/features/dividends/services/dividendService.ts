@@ -31,6 +31,7 @@ export interface DividendReviewQuery {
 
 export interface DividendLedgerReviewResponse {
   ledgerEntries: DividendLedgerEntryDetails[];
+  reviewRows?: DividendLedgerEntryDetails[];
   total: number;
   aggregates: DividendLedgerAggregates;
 }
@@ -122,9 +123,10 @@ export async function submitDividendPosting(payload: DividendPostingPayload): Pr
 }
 
 export async function fetchDividendLedgerReview(params: DividendReviewQuery): Promise<DividendLedgerReviewResponse> {
-  const payload = await getJson<DividendLedgerReviewResponse>(`/portfolio/dividends/ledger?${buildReviewQuery(params)}`);
+  const payload = await getJson<DividendLedgerReviewResponse>(`/portfolio/dividends/review?${buildReviewQuery(params)}`);
+  const ledgerEntries = payload.reviewRows ?? payload.ledgerEntries ?? [];
   return {
-    ledgerEntries: payload.ledgerEntries ?? [],
+    ledgerEntries,
     total: payload.total ?? 0,
     aggregates: payload.aggregates ?? {
       totalExpectedCashAmount: {},

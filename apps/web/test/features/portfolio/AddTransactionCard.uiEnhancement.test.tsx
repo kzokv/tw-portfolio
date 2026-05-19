@@ -296,7 +296,7 @@ describe("ui-enhancement — Fee/Tax 4-tuple render gate (Items 2, 3)", () => {
   });
 });
 
-describe("ui-enhancement — Live-DOM chip + ticker clear on account change (Item 4, scope item 23)", () => {
+describe("ui-enhancement — Live-DOM chip + ticker clear on market change (Item 4, scope item 23)", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
 
@@ -307,7 +307,7 @@ describe("ui-enhancement — Live-DOM chip + ticker clear on account change (Ite
     container = null;
   });
 
-  it("changing accountId via onChange triggers chip auto-sync AND ticker clear", () => {
+  it("changing market chip filters accounts and clears the committed ticker", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
 
@@ -344,25 +344,38 @@ describe("ui-enhancement — Live-DOM chip + ticker clear on account change (Ite
       root.render(<Harness />);
     });
 
-    // Switch to USD account via the account-select element.
-    const select = container.querySelector(
+    const initialSelect = container.querySelector(
       '[data-testid="tx-account-select"]',
     ) as HTMLSelectElement | null;
-    if (!select) {
+    if (!initialSelect) {
       throw new Error("Expected tx-account-select to be present for an active account");
     }
+    expect(Array.from(initialSelect.options).map((option) => option.value)).toEqual([
+      "acc-tw",
+    ]);
+
+    const usChip = container.querySelector(
+      '[data-testid="tx-market-chip-US"]',
+    ) as HTMLButtonElement | null;
+    if (!usChip) {
+      throw new Error("Expected tx-market-chip-US to be present");
+    }
     act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLSelectElement.prototype,
-        "value",
-      )!.set!;
-      setter.call(select, "acc-us");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      usChip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    // After the account change, chip is "US" and ticker is cleared.
-    expect(latest.accountId).toBe("acc-us");
-    expect(latest.marketCode).toBe("US");
+    const nextSelect = container.querySelector(
+      '[data-testid="tx-account-select"]',
+    ) as HTMLSelectElement | null;
+    if (!nextSelect) {
+      throw new Error("Expected tx-account-select to remain present for the USD account");
+    }
+    expect(Array.from(nextSelect.options).map((option) => option.value)).toEqual([
+      "",
+      "acc-us",
+    ]);
+    expect(latest.accountId).toBe("acc-tw");
+    expect(latest.marketCode).toBe(null);
     expect(latest.ticker).toBe("");
   });
 });

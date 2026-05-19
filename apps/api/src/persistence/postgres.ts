@@ -75,6 +75,8 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendReviewListResult,
+  DividendReviewRowWithDetails,
   InstrumentRow,
   InviteRecord,
   InviteStatus,
@@ -4393,8 +4395,8 @@ export class PostgresPersistence implements Persistence {
       id: row.id,
       ticker: row.ticker,
       eventType: row.event_type,
-      exDividendDate: normalizeDate(row.ex_dividend_date),
-      paymentDate: row.payment_date ? normalizeDate(row.payment_date) : null,
+      exDividendDate: normalizeDate(String(row.ex_dividend_date)),
+      paymentDate: row.payment_date ? normalizeDate(String(row.payment_date)) : null,
       cashDividendPerShare: Number(row.cash_dividend_per_share),
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
@@ -4666,6 +4668,363 @@ export class PostgresPersistence implements Persistence {
     }));
 
     return { ledgerEntries, total, aggregates };
+  }
+
+  async listDividendReviewRows(
+    userId: string,
+    opts: DividendLedgerListOptions,
+  ): Promise<DividendReviewListResult> {
+    await this.ensureDefaultPortfolioData(userId);
+
+    const SORT_COLUMNS: Record<DividendLedgerListOptions["sortBy"], string> = {
+      paymentDate: "payment_date",
+      ticker: "ticker",
+      account: "account_name",
+      expectedCashAmount: "expected_cash_amount",
+      receivedCashAmount: "received_cash_amount",
+      reconciliationStatus: "reconciliation_status",
+    };
+    const sortColumn = SORT_COLUMNS[opts.sortBy];
+    const sortDirection: "ASC" | "DESC" = opts.sortOrder === "asc" ? "ASC" : "DESC";
+
+    const params = [
+      userId,
+      opts.accountId ?? null,
+      opts.fromPaymentDate ?? null,
+      opts.toPaymentDate ?? null,
+      opts.reconciliationStatus ?? null,
+      opts.postingStatus ?? null,
+      opts.ticker ?? null,
+    ];
+
+    const dateClause = `AND (
+      CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN
+        event.payment_date IS NOT NULL
+      ELSE
+        event.payment_date IS NULL
+        OR (
+          ($3::date IS NULL OR event.payment_date >= $3::date)
+          AND ($4::date IS NULL OR event.payment_date <= $4::date)
+        )
+      END
+    )`;
+
+    const baseCte = `
+      WITH receipts AS (
+        SELECT related_dividend_ledger_entry_id,
+               SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
+        FROM cash_ledger_entries
+        WHERE user_id = $1
+        GROUP BY related_dividend_ledger_entry_id
+      ),
+      active_ledger AS (
+        SELECT
+          'ledger'::text AS row_kind,
+          dle.id,
+          dle.account_id,
+          account.name AS account_name,
+          dle.dividend_event_id,
+          event.ticker,
+          COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
+          event.event_type,
+          event.ex_dividend_date,
+          event.payment_date,
+          event.cash_dividend_currency AS cash_currency,
+          dle.eligible_quantity,
+          dle.expected_cash_amount,
+          dle.expected_stock_quantity,
+          COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount,
+          dle.received_stock_quantity,
+          dle.posting_status,
+          dle.reconciliation_status,
+          dle.version,
+          dle.source_composition_status,
+          dle.reconciliation_note,
+          dle.booked_at,
+          dle.reversal_of_dividend_ledger_entry_id,
+          dle.superseded_at
+        FROM dividend_ledger_entries AS dle
+        JOIN accounts AS account
+          ON account.id = dle.account_id
+        JOIN market_data.dividend_events AS event
+          ON event.id = dle.dividend_event_id
+        LEFT JOIN market_data.instruments AS instrument
+          ON instrument.ticker = event.ticker
+         AND instrument.market_code = event.market_code
+        LEFT JOIN receipts
+          ON receipts.related_dividend_ledger_entry_id = dle.id
+        WHERE account.user_id = $1
+          AND account.deleted_at IS NULL
+          AND ($2::text IS NULL OR dle.account_id = $2)
+          AND dle.superseded_at IS NULL
+          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM dividend_ledger_entries AS reversal
+            WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+          )
+          ${dateClause}
+          AND ($5::text IS NULL OR dle.reconciliation_status = $5)
+          AND ($6::text IS NULL OR dle.posting_status = $6)
+          AND ($7::text IS NULL OR event.ticker = $7)
+      ),
+      expected_rows AS (
+        SELECT
+          'expected'::text AS row_kind,
+          ('expected:' || account.id || ':' || event.id) AS id,
+          account.id AS account_id,
+          account.name AS account_name,
+          event.id AS dividend_event_id,
+          event.ticker,
+          COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
+          event.event_type,
+          event.ex_dividend_date,
+          event.payment_date,
+          event.cash_dividend_currency AS cash_currency,
+          eligibility.eligible_quantity,
+          GREATEST(0, ROUND(eligibility.eligible_quantity * event.cash_dividend_per_share))::int AS expected_cash_amount,
+          FLOOR(eligibility.eligible_quantity * event.stock_dividend_per_share)::int AS expected_stock_quantity,
+          0::numeric AS received_cash_amount,
+          0::int AS received_stock_quantity,
+          'expected'::text AS posting_status,
+          'open'::text AS reconciliation_status,
+          0::int AS version,
+          'unknown_pending_disclosure'::text AS source_composition_status,
+          NULL::text AS reconciliation_note,
+          NULL::timestamptz AS booked_at,
+          NULL::text AS reversal_of_dividend_ledger_entry_id,
+          NULL::timestamptz AS superseded_at
+        FROM accounts AS account
+        JOIN market_data.dividend_events AS event
+          ON event.cash_dividend_currency = account.default_currency
+        LEFT JOIN market_data.instruments AS instrument
+          ON instrument.ticker = event.ticker
+         AND instrument.market_code = event.market_code
+        JOIN LATERAL (
+          SELECT COALESCE(
+            SUM(CASE WHEN trade.trade_type = 'BUY' THEN trade.quantity ELSE -trade.quantity END),
+            0
+          )::int AS eligible_quantity
+          FROM trade_events AS trade
+          WHERE trade.user_id = $1
+            AND trade.account_id = account.id
+            AND trade.ticker = event.ticker
+            AND trade.market_code = event.market_code
+            AND trade.trade_date < event.ex_dividend_date
+            AND trade.reversal_of_trade_event_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM trade_events AS reversal
+              WHERE reversal.reversal_of_trade_event_id = trade.id
+            )
+        ) AS eligibility ON eligibility.eligible_quantity > 0
+        WHERE account.user_id = $1
+          AND account.deleted_at IS NULL
+          AND ($2::text IS NULL OR account.id = $2)
+          ${dateClause}
+          AND ($5::text IS NULL OR $5 = 'open')
+          AND ($6::text IS NULL OR $6 = 'expected')
+          AND ($7::text IS NULL OR event.ticker = $7)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM dividend_ledger_entries AS existing
+            WHERE existing.account_id = account.id
+              AND existing.dividend_event_id = event.id
+              AND existing.superseded_at IS NULL
+              AND existing.reversal_of_dividend_ledger_entry_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM dividend_ledger_entries AS reversal
+                WHERE reversal.reversal_of_dividend_ledger_entry_id = existing.id
+              )
+          )
+      ),
+      base AS MATERIALIZED (
+        SELECT * FROM active_ledger
+        UNION ALL
+        SELECT * FROM expected_rows
+      )
+    `;
+
+    const limit = opts.limit;
+    const offset = (opts.page - 1) * opts.limit;
+    const query = `
+      ${baseCte}
+      , paged AS MATERIALIZED (
+        SELECT *
+        FROM base
+        ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, id ASC
+        LIMIT $8 OFFSET $9
+      ),
+      summary AS (
+        SELECT COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE reconciliation_status = 'open')::int AS open_count
+        FROM base
+      ),
+      currency_totals AS (
+        SELECT cash_currency AS currency,
+               SUM(expected_cash_amount) AS expected_sum,
+               SUM(received_cash_amount) AS received_sum
+        FROM base
+        GROUP BY cash_currency
+      ),
+      monthly_totals AS (
+        SELECT to_char(payment_date, 'YYYY-MM') AS month_key,
+               cash_currency AS currency,
+               SUM(expected_cash_amount) AS expected_sum,
+               SUM(received_cash_amount) AS received_sum
+        FROM base
+        WHERE payment_date IS NOT NULL
+        GROUP BY to_char(payment_date, 'YYYY-MM'), cash_currency
+      ),
+      ticker_totals AS (
+        SELECT ticker,
+               cash_currency AS currency,
+               SUM(expected_cash_amount) AS expected_sum,
+               SUM(received_cash_amount) AS received_sum
+        FROM base
+        GROUP BY ticker, cash_currency
+      )
+      SELECT
+        summary.total,
+        summary.open_count,
+        COALESCE(
+          (SELECT jsonb_agg(to_jsonb(currency_totals) ORDER BY currency) FROM currency_totals),
+          '[]'::jsonb
+        ) AS currency_totals,
+        COALESCE(
+          (SELECT jsonb_agg(to_jsonb(monthly_totals) ORDER BY month_key, currency) FROM monthly_totals),
+          '[]'::jsonb
+        ) AS monthly_totals,
+        COALESCE(
+          (SELECT jsonb_agg(to_jsonb(ticker_totals) ORDER BY ticker, currency) FROM ticker_totals),
+          '[]'::jsonb
+        ) AS ticker_totals,
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              to_jsonb(paged)
+              ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, id ASC
+            )
+            FROM paged
+          ),
+          '[]'::jsonb
+        ) AS page_rows
+      FROM summary
+    `;
+
+    const result = await this.pool.query(query, [...params, limit, offset]);
+    const resultRow = result.rows[0] ?? {};
+    const currencyTotalRows = Array.isArray(resultRow.currency_totals)
+      ? resultRow.currency_totals as Record<string, unknown>[]
+      : [];
+    const monthlyTotalRows = Array.isArray(resultRow.monthly_totals)
+      ? resultRow.monthly_totals as Record<string, unknown>[]
+      : [];
+    const tickerTotalRows = Array.isArray(resultRow.ticker_totals)
+      ? resultRow.ticker_totals as Record<string, unknown>[]
+      : [];
+    const pageRows = Array.isArray(resultRow.page_rows)
+      ? resultRow.page_rows as Record<string, unknown>[]
+      : [];
+
+    const totalExpectedCashAmount: Record<string, number> = {};
+    const totalReceivedCashAmount: Record<string, number> = {};
+    for (const row of currencyTotalRows) {
+      const currency = String(row.currency);
+      totalExpectedCashAmount[currency] = Number(row.expected_sum ?? 0);
+      totalReceivedCashAmount[currency] = Number(row.received_sum ?? 0);
+    }
+
+    const byMonth: DividendLedgerAggregates["byMonth"] = {};
+    for (const row of monthlyTotalRows) {
+      const monthKey = String(row.month_key);
+      const currency = String(row.currency);
+      const bucket = (byMonth[monthKey] ??= {});
+      bucket[currency] = {
+        expected: Number(row.expected_sum ?? 0),
+        received: Number(row.received_sum ?? 0),
+      };
+    }
+
+    const byTicker: DividendLedgerAggregates["byTicker"] = {};
+    for (const row of tickerTotalRows) {
+      const ticker = String(row.ticker);
+      const currency = String(row.currency);
+      const bucket = (byTicker[ticker] ??= {});
+      bucket[currency] = {
+        expected: Number(row.expected_sum ?? 0),
+        received: Number(row.received_sum ?? 0),
+      };
+    }
+
+    const aggregates: DividendLedgerAggregates = {
+      totalExpectedCashAmount,
+      totalReceivedCashAmount,
+      openCount: Number(resultRow.open_count ?? 0),
+      byMonth,
+      byTicker,
+    };
+
+    const ledgerIds = pageRows.filter((row) => row.row_kind === "ledger").map((row) => row.id);
+    const [deductionsResult, sourceLinesResult] = ledgerIds.length
+      ? await Promise.all([
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                    source, source_reference, note, booked_at
+             FROM dividend_source_lines
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+        ])
+      : [{ rows: [] as Record<string, unknown>[] }, { rows: [] as Record<string, unknown>[] }];
+
+    const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
+    const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
+    const rows: DividendReviewRowWithDetails[] = pageRows.map((row) => ({
+      ...mapDividendLedgerEntryRow(row),
+      rowKind: String(row.row_kind) as DividendReviewRowWithDetails["rowKind"],
+      ticker: String(row.ticker),
+      instrumentType: String(row.instrument_type) as InstrumentType,
+      eventType: String(row.event_type) as DividendReviewRowWithDetails["eventType"],
+      exDividendDate: normalizeDate(String(row.ex_dividend_date)),
+      paymentDate: row.payment_date ? normalizeDate(String(row.payment_date)) : null,
+      cashCurrency: String(row.cash_currency) as DividendReviewRowWithDetails["cashCurrency"],
+      deductions: (deductionsByLedgerId.get(String(row.id)) ?? []).map((deduction) => ({
+        id: String(deduction.id),
+        dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount),
+        currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source),
+        source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      })),
+      sourceLines: (sourceLinesByLedgerId.get(String(row.id)) ?? []).map((sourceLine) => ({
+        id: String(sourceLine.id),
+        dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount),
+        currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      })),
+    }));
+
+    return { rows, total: Number(resultRow.total ?? 0), aggregates };
   }
 
   async listCashLedgerEntries(

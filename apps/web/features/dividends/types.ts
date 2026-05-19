@@ -42,6 +42,7 @@ export interface DividendSourceLineInput {
 }
 
 export interface DividendLedgerEntryDetails {
+  rowKind?: "ledger" | "expected";
   id: string;
   dividendEventId: string;
   accountId: string;

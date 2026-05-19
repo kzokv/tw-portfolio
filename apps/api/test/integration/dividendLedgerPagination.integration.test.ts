@@ -82,12 +82,13 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     paymentDate: string | null,
   ): Promise<string> {
     const id = randomUUID();
+    const marketCode = currency === "USD" ? "US" : currency === "AUD" ? "AU" : "TW";
     await pool.query(
       `INSERT INTO market_data.dividend_events
-         (id, ticker, event_type, ex_dividend_date, payment_date,
+         (id, ticker, market_code, event_type, ex_dividend_date, payment_date,
           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share, source)
-       VALUES ($1, $2, 'CASH', $3, $4, 1, $5, 0, 'test_seed')`,
-      [id, ticker, exDivDate, paymentDate, currency],
+       VALUES ($1, $2, $3, 'CASH', $4, $5, 1, $6, 0, 'test_seed')`,
+      [id, ticker, marketCode, exDivDate, paymentDate, currency],
     );
     return id;
   }
@@ -147,6 +148,60 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     );
   }
 
+  async function insertTrade(params: {
+    ticker: string;
+    marketCode?: string;
+    quantity?: number;
+    tradeDate?: string;
+    reversalOf?: string | null;
+  }): Promise<string> {
+    const id = randomUUID();
+    const bookedAt = `${params.tradeDate ?? "2024-03-01"}T00:00:00.000Z`;
+    const feePolicySnapshotId = `trade-fee-snapshot:${id}`;
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
+       ) VALUES (
+         $1, $2, 'fp-default', 'Default Broker', 1.425,
+         0, 20, 'USD',
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', $3
+       )`,
+      [feePolicySnapshotId, userId, bookedAt],
+    );
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
+         quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence,
+         commission_amount, tax_amount, is_day_trade, fee_policy_snapshot_id,
+         source, source_reference, booked_at, reversal_of_trade_event_id
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'STOCK', 'BUY',
+         $6, 100, 'USD', $7, $8, 1,
+         0, 0, false, $9,
+         'test_seed', $1, $8, $10
+       )`,
+      [
+        id,
+        userId,
+        accountId,
+        params.ticker,
+        params.marketCode ?? "US",
+        params.quantity ?? 10,
+        params.tradeDate ?? "2024-03-01",
+        bookedAt,
+        feePolicySnapshotId,
+        params.reversalOf ?? null,
+      ],
+    );
+    return id;
+  }
+
   /** Convenience: event + entry + optional receipt in one call. */
   async function seedFull(params: {
     ticker: string;
@@ -192,6 +247,35 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       totalExpectedCashAmount: { USD: 600 },
       totalReceivedCashAmount: { USD: 600 },
       openCount: 3,
+    });
+  });
+
+  it("IG-R1: review call returns expected rows and full aggregates from the consolidated query", async () => {
+    await insertTrade({ ticker: "AAPL", quantity: 10, tradeDate: "2024-03-01" });
+    const eventId = await insertDividendEvent("AAPL", "USD", "2024-03-15", "2024-04-15");
+
+    const result = await persistence.listDividendReviewRows(userId, {
+      ...defaultOpts,
+      ticker: "AAPL",
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      rowKind: "expected",
+      dividendEventId: eventId,
+      ticker: "AAPL",
+      eligibleQuantity: 10,
+      expectedCashAmount: 10,
+      receivedCashAmount: 0,
+      postingStatus: "expected",
+      reconciliationStatus: "open",
+    });
+    expect(result.aggregates).toMatchObject({
+      totalExpectedCashAmount: { USD: 10 },
+      totalReceivedCashAmount: { USD: 0 },
+      openCount: 1,
+      byTicker: { AAPL: { USD: { expected: 10, received: 0 } } },
     });
   });
 

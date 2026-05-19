@@ -368,6 +368,7 @@ export function DividendReviewClient({
   // ── Mark Matched ──────────────────────────────────────────────────────
 
   const handleMarkMatched = useCallback(async (entry: DividendLedgerEntryDetails) => {
+    if (entry.rowKind === "expected") return;
     setPendingEntryId(entry.id);
     setErrorMessage("");
     try {
@@ -479,28 +480,29 @@ export function DividendReviewClient({
   // → the useEffect in DividendPostingForm fires → reconcileStatus is reset,
   // preventing the user from changing the reconciliation status dropdown.
   const drawerRow = useMemo(
-    () =>
-      drawerEntry
-        ? ({
-            key: `${drawerEntry.accountId}:${drawerEntry.dividendEventId}`,
-            event: {
-              id: drawerEntry.dividendEventId,
-              accountId: drawerEntry.accountId,
-              ticker: drawerEntry.ticker,
-              instrumentType: drawerEntry.instrumentType,
-              eventType: drawerEntry.eventType,
-              exDividendDate: drawerEntry.exDividendDate,
-              paymentDate: drawerEntry.paymentDate,
-              cashDividendCurrency: drawerEntry.cashCurrency,
-              expectedCashAmount: drawerEntry.expectedCashAmount,
-              expectedStockQuantity: drawerEntry.expectedStockQuantity,
-              eligibleQuantity: drawerEntry.eligibleQuantity,
-              hasPostedLedgerEntry: true,
-              dividendLedgerEntryId: drawerEntry.id,
-            },
-            ledgerEntry: drawerEntry,
-          } satisfies DividendCalendarRow)
-        : null,
+    () => {
+      if (!drawerEntry) return null;
+      const isLedgerRow = drawerEntry.rowKind !== "expected";
+      return {
+        key: `${drawerEntry.accountId}:${drawerEntry.dividendEventId}`,
+        event: {
+          id: drawerEntry.dividendEventId,
+          accountId: drawerEntry.accountId,
+          ticker: drawerEntry.ticker,
+          instrumentType: drawerEntry.instrumentType,
+          eventType: drawerEntry.eventType,
+          exDividendDate: drawerEntry.exDividendDate,
+          paymentDate: drawerEntry.paymentDate,
+          cashDividendCurrency: drawerEntry.cashCurrency,
+          expectedCashAmount: drawerEntry.expectedCashAmount,
+          expectedStockQuantity: drawerEntry.expectedStockQuantity,
+          eligibleQuantity: drawerEntry.eligibleQuantity,
+          hasPostedLedgerEntry: isLedgerRow,
+          dividendLedgerEntryId: isLedgerRow ? drawerEntry.id : null,
+        },
+        ledgerEntry: isLedgerRow ? drawerEntry : null,
+      } satisfies DividendCalendarRow;
+    },
     [drawerEntry],
   );
 
@@ -718,7 +720,7 @@ export function DividendReviewClient({
                         <dd className={cn("font-medium", variance !== 0 ? "text-amber-600" : "text-muted-foreground")}>{variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}</dd>
                       </div>
                     </dl>
-                    {entry.reconciliationStatus === "open" && (
+                    {entry.rowKind !== "expected" && entry.reconciliationStatus === "open" && (
                       <div className="mt-3 flex justify-end">
                         <Button
                           size="sm"
@@ -827,7 +829,7 @@ export function DividendReviewClient({
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {entry.reconciliationStatus === "open" ? (
+                          {entry.rowKind !== "expected" && entry.reconciliationStatus === "open" ? (
                             <Button
                               size="sm"
                               variant="secondary"

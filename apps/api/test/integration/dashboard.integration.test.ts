@@ -436,14 +436,21 @@ describe("dashboard overview", () => {
           expect.objectContaining({
             date: "2026-01-15",
             totalCostAmount: 1000,
-            marketValueAmount: 1000,
-            unrealizedPnlAmount: 0,
+            marketValueAmount: null,
+            unrealizedPnlAmount: null,
           }),
           expect.objectContaining({
             date: "2026-02-10",
             totalCostAmount: 1600,
+            marketValueAmount: null,
+            unrealizedPnlAmount: null,
+          }),
+          expect.objectContaining({
+            date: "2026-03-28",
+            totalCostAmount: 1600,
             marketValueAmount: 1505,
             unrealizedPnlAmount: -95,
+            totalReturnAmount: -95,
           }),
         ]),
       }),

@@ -490,7 +490,7 @@ async function buildFxAwareSyntheticPerformance(
         ? key.slice(key.lastIndexOf(":") + 1)
         : key;
       const quote = quoteByTicker.get(symbol);
-      if (!quote) {
+      if (!quote || quote.asOf.slice(0, 10) !== currentDate) {
         allQuotesAvailable = false;
         continue;
       }
@@ -513,6 +513,11 @@ async function buildFxAwareSyntheticPerformance(
       cumulativeDividendsAmount: allFxAvailable ? 0 : null,
       fxAvailable: allFxAvailable,
     };
+    point.totalReturnAmount = mv === null || !allFxAvailable ? null : mv - totalCost;
+    point.totalReturnPercent =
+      point.totalReturnAmount !== null && totalCost > 0
+        ? (point.totalReturnAmount / totalCost) * 100
+        : null;
     if (
       (point.totalCostAmount ?? 0) > 0 ||
       point.marketValueAmount !== null ||
