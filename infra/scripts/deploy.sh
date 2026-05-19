@@ -148,6 +148,36 @@ dc() {
   docker compose --project-name "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
+run_with_heartbeat() {
+  local label="$1"
+  shift
+
+  local interval="${DEPLOY_HEARTBEAT_INTERVAL_SECONDS:-30}"
+  local command_pid heartbeat_pid status
+
+  "$@" &
+  command_pid=$!
+
+  (
+    while true; do
+      sleep "$interval"
+      log "still running: $label"
+    done
+  ) &
+  heartbeat_pid=$!
+
+  if wait "$command_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  kill "$heartbeat_pid" >/dev/null 2>&1 || true
+  wait "$heartbeat_pid" 2>/dev/null || true
+
+  return "$status"
+}
+
 print_help() {
   cat <<EOF
 Description:
@@ -756,7 +786,7 @@ done
 # --build forces a fresh image so new migration files are never missed due to
 # Docker layer cache (the full service build ran earlier, so this only rebuilds
 # the lightweight migrate image — typically < 2s).
-if ! dc --profile migrate run --build --rm "$MIGRATE_SERVICE"; then
+if ! run_with_heartbeat "database migrations" dc --profile migrate run --build --rm "$MIGRATE_SERVICE"; then
   log "ERROR: Migration failed; triggering rollback"
   collect_container_logs
   rollback
@@ -786,7 +816,7 @@ fi
 phase_done
 
 phase_start "Deploy services"
-if ! dc up -d --remove-orphans; then
+if ! run_with_heartbeat "docker compose up" dc up -d --remove-orphans; then
   log "ERROR: docker compose up failed; collecting diagnostics and rolling back"
   collect_compose_failure_diagnostics "compose up failed"
   collect_container_logs
