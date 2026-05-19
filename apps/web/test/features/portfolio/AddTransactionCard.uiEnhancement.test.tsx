@@ -371,11 +371,11 @@ describe("ui-enhancement — Live-DOM chip + ticker clear on market change (Item
       throw new Error("Expected tx-account-select to remain present for the USD account");
     }
     expect(Array.from(nextSelect.options).map((option) => option.value)).toEqual([
-      "",
       "acc-us",
     ]);
-    expect(latest.accountId).toBe("acc-tw");
-    expect(latest.marketCode).toBe(null);
+    expect(latest.accountId).toBe("acc-us");
+    expect(latest.marketCode).toBe("US");
     expect(latest.ticker).toBe("");
+    expect(latest.priceCurrency).toBe("USD");
   });
 });

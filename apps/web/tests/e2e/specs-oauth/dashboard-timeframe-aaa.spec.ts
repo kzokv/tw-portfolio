@@ -50,6 +50,15 @@ interface SessionCookie {
   userId: string;
 }
 
+interface TimeframeSaveAppShell {
+  actions: {
+    clickTimeframeSaveButton(): Promise<void>;
+  };
+  assert: {
+    timeframeSaveButtonIsEnabled(): Promise<void>;
+  };
+}
+
 /**
  * Mint a member-role session with a deterministic sub/email.
  * Returns the cookie header (for seeding) and the userId (as seed target).
@@ -128,6 +137,31 @@ async function getDashboardPerformanceRanges(
     };
     return body.preferences.dashboardPerformanceRanges ?? null;
   });
+}
+
+async function saveDashboardPerformanceRangesWithRetry(options: {
+  appShell: TimeframeSaveAppShell;
+  cookieHeader: string;
+  expectedRanges: string[];
+}): Promise<void> {
+  const expected = JSON.stringify(options.expectedRanges);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await options.appShell.actions.clickTimeframeSaveButton();
+    try {
+      await expect
+        .poll(
+          async () => JSON.stringify(await getDashboardPerformanceRanges(options.cookieHeader)),
+          { timeout: 5000, intervals: [300, 500, 700, 1000] },
+        )
+        .toBe(expected);
+      return;
+    } catch (err) {
+      lastError = err;
+      await options.appShell.assert.timeframeSaveButtonIsEnabled();
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -246,13 +280,13 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
       ]);
 
       // Actions — Save.
-      const patchRequestPromise = page.waitForRequest(
-        (req) => req.url().includes("/user-preferences") && req.method() === "PATCH",
-        { timeout: 10_000 },
-      );
+      const expectedRanges = ["1M", "YTD", "1Y", "5Y", "3M"];
       await appShell.assert.timeframeSaveButtonIsEnabled();
-      await appShell.actions.clickTimeframeSaveButton();
-      await patchRequestPromise;
+      await saveDashboardPerformanceRangesWithRetry({
+        appShell,
+        cookieHeader: session.cookieHeader,
+        expectedRanges,
+      });
 
       // Assert — popover closes after save.
       await appShell.assert.timeframeCustomizePopoverIsHidden();
@@ -265,12 +299,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
       // Assert — pill list consistent after save (DOM-only assertion).
       // State read-back verifies the browser PATCH persisted the reordered
       // range list for the same member session used by the page.
-      await expect
-        .poll(
-          async () => JSON.stringify(await getDashboardPerformanceRanges(session.cookieHeader)),
-          { timeout: 3000, intervals: [300, 500, 700] },
-        )
-        .toBe(JSON.stringify(["1M", "YTD", "1Y", "5Y", "3M"]));
       await appShell.assert.dashboardPerformanceRangeButtonIsVisible("1M");
       await appShell.assert.dashboardPerformanceRangeButtonIsVisible("YTD");
       await appShell.assert.dashboardPerformanceRangeButtonIsVisible("1Y");

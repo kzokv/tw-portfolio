@@ -8,7 +8,7 @@ import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { RouteHeroPanel } from "../layout/SectionHeroPanels";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RotateCw } from "lucide-react";
 import { HoldingsTable } from "../portfolio/HoldingsTable";
 import { AllocationSnapshotCard } from "./AllocationSnapshotCard";
 import { BiggestMoversCard } from "./BiggestMoversCard";
@@ -31,6 +31,7 @@ export function DashboardClient() {
     isBootstrapping,
     isI18nReady,
     mutations,
+    recomputeAction,
     performanceRange,
     setPerformanceRange,
     effectiveRanges,
@@ -154,7 +155,20 @@ export function DashboardClient() {
           },
         ]}
         // KZO-161 (158C) F4: hero pill row removed — `PortfolioTrendCard` is
-        // now the sole pill surface. `actions` stays typed for future use.
+        // now the sole pill surface. Keep recompute discoverable from the hero.
+        actions={!isSharedContext ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void recomputeAction.runRecompute()}
+            disabled={recomputeAction.isRunning}
+            data-testid="recompute-button"
+            className="gap-2"
+          >
+            <RotateCw className="size-4" aria-hidden="true" />
+            {recomputeAction.isRunning ? dict.actions.recomputing : dict.actions.recomputeHistory}
+          </Button>
+        ) : undefined}
       />
 
       {/*

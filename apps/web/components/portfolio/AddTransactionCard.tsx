@@ -248,8 +248,8 @@ export function AddTransactionCard({
     prevAccountIdRef.current = value.accountId;
 
     // Branch 2 — chip-driven priceCurrency reconcile. `handleChipChange`
-    // clears `value.ticker` / `value.marketCode`; this branch mirrors
-    // `derivedCurrency` into `value.priceCurrency` so consumers see it.
+    // clears `value.ticker`; this branch mirrors `derivedCurrency` into
+    // `value.priceCurrency` so consumers see it.
     if (value.priceCurrency !== derivedCurrency) {
       onChange({ ...value, priceCurrency: derivedCurrency });
     }
@@ -274,6 +274,9 @@ export function AddTransactionCard({
   function handleChipChange(nextChip: MarketCode) {
     if (instrumentReadOnly) return;
     setExplicitChip(nextChip);
+    const nextCurrency = currencyFor(nextChip);
+    const nextAccountId =
+      filterAccountsByDerivedCurrency(accountOptions, nextCurrency)[0]?.id ?? "";
     const keepCommittedInstrument =
       value.ticker.trim().length > 0 &&
       value.marketCode !== null &&
@@ -281,8 +284,10 @@ export function AddTransactionCard({
 
     onChange({
       ...value,
+      accountId: nextAccountId,
       marketCode: keepCommittedInstrument ? value.marketCode : null,
       ticker: keepCommittedInstrument ? value.ticker : "",
+      priceCurrency: nextCurrency,
     });
   }
 
