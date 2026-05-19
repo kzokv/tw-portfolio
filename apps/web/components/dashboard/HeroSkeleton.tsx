@@ -7,7 +7,7 @@
 export function HeroSkeleton() {
   return (
     <div
-      className="glass-panel mb-6 rounded-[28px] px-5 py-5 shadow-glass sm:px-6 sm:py-6"
+      className="mb-6 rounded-xl border border-border bg-card px-5 py-5 shadow-sm sm:px-6 sm:py-6"
       aria-hidden="true"
       data-testid="hero-skeleton"
     >

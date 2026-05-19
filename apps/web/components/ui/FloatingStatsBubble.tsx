@@ -87,7 +87,7 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="group fixed z-50 flex cursor-grab touch-none items-center gap-2 rounded-full bg-indigo-600 py-2.5 pl-3.5 pr-4 text-white shadow-lg transition-all hover:bg-indigo-700 hover:shadow-xl active:cursor-grabbing"
+        className="group fixed z-50 flex cursor-grab touch-none items-center gap-2 rounded-full bg-primary py-2.5 pl-3.5 pr-4 text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl active:cursor-grabbing"
         style={{ left: pos.x, top: pos.y }}
         data-testid="floating-stats-bubble"
       >
@@ -98,7 +98,7 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
       {/* Expanded popover */}
       {expanded && (
         <div
-          className="fixed z-50 w-[min(calc(100vw-2rem),36rem)] rounded-[22px] border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-md"
+          className="fixed z-50 w-[min(calc(100vw-2rem),36rem)] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
           style={{
             left: Math.min(pos.x, window.innerWidth - 592),
             top: pos.y + 56,
@@ -106,10 +106,10 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
           data-testid="floating-stats-popover"
         >
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Position Summary</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Position Summary</p>
             <button
               onClick={() => setExpanded(false)}
-              className="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>

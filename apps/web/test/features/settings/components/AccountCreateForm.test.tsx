@@ -75,7 +75,9 @@ describe("AccountCreateForm", () => {
       ),
     );
 
-    expect(container.querySelector('[data-testid="account-create-form"]')).toBeTruthy();
+    const formShell = container.querySelector('[data-testid="account-create-form"]') as HTMLElement;
+    expect(formShell).toBeTruthy();
+    expect(formShell.className).not.toContain(["glass", "inset"].join("-"));
     expect(container.querySelector('[data-testid="account-create-name-input"]')).toBeTruthy();
 
     // Type pills (3) — broker, bank, wallet.

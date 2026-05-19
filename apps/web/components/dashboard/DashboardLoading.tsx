@@ -11,7 +11,7 @@ function SkeletonCard({
 }: { delayClass?: string; className?: string; children: React.ReactNode }) {
   return (
     <div
-      className={`dashboard-skeleton-card glass-panel rounded-[24px] p-5 ${delayClass} ${className}`}
+      className={`dashboard-skeleton-card rounded-xl border border-border bg-card p-5 shadow-sm ${delayClass} ${className}`}
     >
       {children}
     </div>

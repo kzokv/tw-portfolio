@@ -59,7 +59,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
     return (
       <AuthShell cardClassName="flex max-w-lg flex-col gap-6 py-10">
         <div className="space-y-2 text-center" data-testid="invite-card">
-          <h1 className="font-display text-2xl font-semibold text-foreground">{copy.signedInTitle}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{copy.signedInTitle}</h1>
           <p className="text-sm leading-6 text-muted-foreground">
             {copy.signedInDescription.replace("{email}", email)}
           </p>
@@ -95,7 +95,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
   return (
     <AuthShell cardClassName="flex max-w-lg flex-col gap-6 py-10">
       <div className="space-y-2 text-center" data-testid="invite-card">
-        <h1 className="font-display text-2xl font-semibold text-foreground">{statusMessage.title}</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{statusMessage.title}</h1>
         <p className="text-sm leading-6 text-muted-foreground" data-testid="invite-status-message">
           {statusMessage.description}
         </p>

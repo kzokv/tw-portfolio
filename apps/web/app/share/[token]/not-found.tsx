@@ -9,7 +9,7 @@ export default async function PublicShareNotFound() {
   const copy = getDictionary(locale).sharing.publicLinks.publicView;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card
         className="flex w-full max-w-lg flex-col gap-4 py-10 text-center"
         data-testid="public-share-not-found"

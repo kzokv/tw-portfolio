@@ -294,21 +294,21 @@ export function TickerHistoryClient({
   return (
     <>
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
-      <section className="glass-panel rounded-[30px] px-5 py-6 shadow-glass sm:px-6 sm:py-7 md:px-8" data-testid="ticker-history-section">
+      <section className="rounded-xl border border-border bg-card px-5 py-6 text-card-foreground shadow-sm sm:px-6 sm:py-7 md:px-8" data-testid="ticker-history-section">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-500/78">{dict.tickerHistory.eyebrow}</p>
-            <h1 className="mt-3 text-3xl leading-tight text-slate-950 sm:text-4xl" data-testid="ticker-history-title">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-primary/80">{dict.tickerHistory.eyebrow}</p>
+            <h1 className="mt-3 text-3xl leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
               {ticker}
             </h1>
-            <p className="mt-2 text-xs text-slate-500" data-testid="repair-status-badge">
+            <p className="mt-2 text-xs text-muted-foreground" data-testid="repair-status-badge">
               {statusText}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Link
               href="/portfolio"
-              className="inline-flex items-center justify-center rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+              className="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm text-primary transition hover:border-primary/40 hover:bg-primary/10"
             >
               {dict.tickerHistory.backToDashboard}
             </Link>

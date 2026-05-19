@@ -166,18 +166,29 @@ Single ticket; phased delivery via sequential commits on the same branch. Each p
 
 ## Phase 7 — Cleanup
 
-**Goal:** delete the alias bridge and dead code.
+**Goal:** converge the remaining legacy-token/glass consumers, then delete the alias bridge and dead code behind hard grep gates.
+
+**Locked scope update (2026-05-19 scope-grill):** Phase 7 is no longer a deletion-only phase. It is split into 7a convergence and 7b deletion. Detailed handoff lives in [`scope-todo-20260519-phase-7-cleanup.md`](./scope-todo-20260519-phase-7-cleanup.md).
 
 **Deliverables**
 
-- [ ] Delete `glass-panel`, `glass-inset`, `surface-glass`, `bg-sheen` CSS rules from `globals.css`.
-- [ ] Delete legacy token alias-bridge block.
-- [ ] Audit and remove unused `apps/web/components/ui/FloatingStatsBubble.tsx` if no consumers remain.
-- [ ] Remove legacy `Noto Serif TC` font load if zero consumers.
-- [ ] Delete adapter shims in `apps/web/components/ui/{Button,Card,Drawer,Popover,Tabs,TooltipInfo}.tsx` once every consumer imports shadcn directly. If timeline is tight, defer this last step to a follow-up ticket — shims are not load-bearing.
-- [ ] Update `.claude/rules/` for any rule that referenced retired patterns.
+- [x] **7a convergence:** replace every live `glass-panel`, `glass-inset`, `shadow-glass`, `surface-glass`, `bg-sheen`, legacy token alias (`bg-bg`, `text-ink`, etc.), and `font-display` consumer with shadcn tokens/primitives.
+- [x] Reskin known blockers before bridge deletion: `ProfileSection`, `MonitoredTickersSection`, `AccountCreateForm`, legacy dialogs, skeletons, `RecomputeCard`, `TickerHistoryClient`, and any other grep-discovered consumer.
+- [ ] Keep `apps/web/components/ui/FloatingStatsBubble.tsx`; modernize it and its ticker-detail container only enough to remove legacy styling. It is still a locked power-user affordance.
+- [x] Make adapter shim deletion conditional. Remove legacy styling/import blockers inside `Button`, `Card`, `Drawer`, and `TooltipInfo`; delete a shim only if all consumers have naturally migrated. Otherwise track full shim deletion as follow-up cleanup.
+- [x] **7b deletion gate:** delete `glass-panel` / `glass-inset` CSS blocks, legacy alias variables in `globals.css`, and legacy Tailwind aliases in `tailwind.config.mjs` only after zero-consumer grep gates pass.
+- [ ] Update `.claude/rules/` and docs that still instruct future agents to use retired patterns.
 
-**Files touched:** ~5–10 files. 1 commit.
+**Out of scope**
+
+- Cosmetic `<DataTable>` adoption for already single-DOM tables.
+- New `/settings/notifications` or `/settings/privacy` routes.
+- Broad ticker-page UX changes beyond tokenizing the existing sticky stats affordance.
+- Mandatory full adapter-shim deletion.
+
+**Verification gate:** Completed for Phase 7 implementation: `npx eslint .`, `npm run typecheck`, `npm run test --prefix apps/web`, `npm run build -w @vakwen/web`, targeted Playwright smoke, and light/dark browser screenshots for representative affected routes. Full eight-suite gate was not triggered because Phase 7 did not touch API, auth contracts, persistence, shared types, or broad E2E page objects.
+
+**Files touched:** grep-driven; likely more than the original ~5–10 files. 2 commits: 7a convergence, 7b bridge deletion.
 
 ---
 

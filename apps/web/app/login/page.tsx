@@ -27,7 +27,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </p>
       )}
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="font-display text-2xl font-semibold text-foreground">Vakwen</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Vakwen</h1>
         <p className="text-sm text-muted-foreground">Sign in to access your portfolio dashboard.</p>
       </div>
       <SignInButton

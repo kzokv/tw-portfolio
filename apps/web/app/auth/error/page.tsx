@@ -20,7 +20,7 @@ export default async function AuthErrorPage({ searchParams }: Props) {
   return (
     <AuthShell cardClassName="flex flex-col items-center gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="font-display text-2xl font-semibold text-foreground">{message.title}</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{message.title}</h1>
         <p className="text-sm text-muted-foreground">{message.description}</p>
       </div>
       <Link
