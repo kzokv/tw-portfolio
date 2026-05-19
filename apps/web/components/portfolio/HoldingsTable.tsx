@@ -206,7 +206,7 @@ function getUnrealizedPnlTone(value: number | null): string {
 
 function SummaryTile({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="glass-inset rounded-[22px] p-4">
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-semibold text-slate-950">{value}</p>
       <p className="mt-2 text-sm text-slate-600">{detail}</p>

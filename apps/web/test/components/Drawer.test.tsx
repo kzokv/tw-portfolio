@@ -32,6 +32,7 @@ describe("Drawer", () => {
     });
 
     expect(document.querySelector("[data-testid='ui-drawer']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ui-drawer']")?.className).not.toContain(["glass", "panel"].join("-"));
     expect(document.body.textContent).toContain("Dividend details");
     expect(document.body.textContent).toContain("Drawer body");
     expect(document.body.textContent).toContain("Footer action");

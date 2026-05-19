@@ -45,7 +45,7 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
   }, [emailDraft, dict.settings.profileEmailError, onProfileUpdate]);
 
   if (!profile) {
-    return <p className="text-sm text-slate-400">{dict.feedback.loadingSettings}</p>;
+    return <p className="text-sm text-muted-foreground">{dict.feedback.loadingSettings}</p>;
   }
 
   const emailDirty = emailDraft !== (profile.email ?? "");
@@ -63,15 +63,15 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
             onError={() => setAvatarImgError(true)}
           />
         ) : (
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-200 text-slate-500">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <UserCircle2 className="h-7 w-7" />
           </span>
         )}
         <div className="min-w-0">
-          <p className="truncate text-lg font-semibold text-slate-900" data-testid="profile-display-name">
+          <p className="truncate text-lg font-semibold text-foreground" data-testid="profile-display-name">
             {profile.displayName ?? "—"}
           </p>
-          <p className="truncate text-sm text-slate-500" data-testid="profile-email-display">
+          <p className="truncate text-sm text-muted-foreground" data-testid="profile-email-display">
             {profile.email ?? "—"}
           </p>
         </div>
@@ -80,7 +80,7 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
       <div className="space-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-slate-700">{dict.settings.profileDisplayNameLabel}</label>
+            <label className="text-sm font-medium text-foreground">{dict.settings.profileDisplayNameLabel}</label>
             <TooltipInfo
               label={dict.settings.profileDisplayNameLabel}
               content={dict.settings.profileSyncedFromGoogle}
@@ -95,11 +95,11 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
             className={`${fieldClassName} mt-1 cursor-not-allowed opacity-60`}
             data-testid="profile-display-name-input"
           />
-          <p className="mt-1 text-xs text-slate-400">{dict.settings.profileSyncedFromGoogle}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{dict.settings.profileSyncedFromGoogle}</p>
         </div>
 
         <div>
-          <label className="text-sm font-medium text-slate-700">{dict.settings.profileEmailLabel}</label>
+          <label className="text-sm font-medium text-foreground">{dict.settings.profileEmailLabel}</label>
           <input
             type="email"
             value={emailDraft}

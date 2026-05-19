@@ -32,7 +32,7 @@ import type { CreateAccountInput } from "../../cash-ledger/services/cashLedgerSe
  *
  * Visual contract (D13):
  * - Type pills use `lucide-react` icons (Building2 / Landmark / Wallet).
- * - Currency cards are button-style with `ring-2 ring-indigo-300` selected.
+ * - Currency cards are button-style with `ring-2 ring-primary/30` selected.
  * - Live-preview chip imports `formatAccountOption` from cash-ledger utils
  *   (DO NOT duplicate per `nextjs-i18n-serialization.md`).
  *
@@ -151,8 +151,8 @@ export function AccountCreateForm({
     return [
       "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition",
       active
-        ? "border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-300"
-        : "border-slate-200 bg-white/85 text-slate-600 hover:border-slate-300",
+        ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/30"
+        : "border-border bg-background text-muted-foreground hover:border-input",
     ].join(" ");
   }
 
@@ -160,8 +160,8 @@ export function AccountCreateForm({
     return [
       "flex flex-col items-start rounded-[18px] border px-3 py-3 text-left transition",
       active
-        ? "border-indigo-500 bg-indigo-50/40 text-indigo-700 ring-2 ring-indigo-300"
-        : "border-slate-200 bg-white/85 text-slate-700 hover:border-slate-300",
+        ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/30"
+        : "border-border bg-background text-foreground hover:border-input",
     ].join(" ");
   }
 
@@ -196,19 +196,19 @@ export function AccountCreateForm({
   return (
     <section
       aria-labelledby={titleId}
-      className="glass-inset space-y-4 rounded-[24px] p-4"
+      className="space-y-4 rounded-xl border border-border bg-card p-4"
       data-testid="account-create-form"
     >
       <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
         <div className="space-y-1">
-          <h3 id={titleId} className="text-lg font-semibold text-ink">
+          <h3 id={titleId} className="text-lg font-semibold text-foreground">
             {dict.settings.accountCreateTitle}
           </h3>
         </div>
 
       {/* Name input */}
       <label className="space-y-1 text-sm">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {dict.settings.accountCreateNameLabel}
         </span>
         <input
@@ -224,7 +224,7 @@ export function AccountCreateForm({
 
       {/* Type pills */}
       <fieldset className="space-y-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {dict.settings.accountCreateTypeLabel}
         </legend>
         <div className="flex flex-wrap gap-2" role="radiogroup">
@@ -251,7 +251,7 @@ export function AccountCreateForm({
 
       {/* KZO-183: Market cards (was "Currency"). */}
       <fieldset className="space-y-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {dict.settings.accountCreateMarketLabel}
         </legend>
         <div className="grid grid-cols-3 gap-2" role="radiogroup">
@@ -267,10 +267,10 @@ export function AccountCreateForm({
                 className={marketCardClassName(active)}
                 data-testid={`account-create-currency-${currency}`}
               >
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-slate-700">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tracking-wide text-foreground">
                   {marketLabelFor(currency)}
                 </span>
-                <span className="mt-1.5 font-mono text-[10px] text-slate-500">
+                <span className="mt-1.5 font-mono text-[10px] text-muted-foreground">
                   {marketSubtextFor(currency)}
                 </span>
               </button>
@@ -281,7 +281,7 @@ export function AccountCreateForm({
 
       {/* Currency-lock callout */}
       <p
-        className="rounded-[14px] bg-blue-50 px-3 py-2 text-xs text-blue-700"
+        className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary"
         data-testid="account-create-currency-lock"
       >
         {dict.settings.accountCreateCurrencyLockBody}
@@ -289,11 +289,11 @@ export function AccountCreateForm({
 
       {/* Live-preview chip */}
       <div className="space-y-1 text-sm">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {dict.settings.accountCreatePreviewLabel}
         </span>
         <div
-          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-xs text-slate-700"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs text-foreground"
           data-testid="account-create-preview-chip"
         >
           {previewLabel}

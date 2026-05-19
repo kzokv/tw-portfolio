@@ -262,15 +262,15 @@ export function MonitoredTickersSection({
   }
 
   if (isLoading) {
-    return <p className="text-sm text-slate-400">Loading...</p>;
+    return <p className="text-sm text-muted-foreground">Loading...</p>;
   }
 
   return (
     <div className="space-y-4" data-testid="monitored-tickers-section">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-800">{dict.settings.tickersSectionTitle}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h3 className="text-sm font-semibold text-foreground">{dict.settings.tickersSectionTitle}</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {repairMode ? dict.settings.repairModeDescription : dict.settings.tickersSectionDescription}
           </p>
         </div>
@@ -278,7 +278,7 @@ export function MonitoredTickersSection({
           type="button"
           variant={repairMode ? "default" : "secondary"}
           size="sm"
-          className={repairMode ? "gap-1.5" : "gap-1.5 border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"}
+          className={repairMode ? "gap-1.5" : "gap-1.5 border-warning/30 bg-warning/10 text-warning hover:bg-warning/20"}
           onClick={() => {
             if (repairMode) {
               resetRepairFlow();
@@ -295,23 +295,23 @@ export function MonitoredTickersSection({
 
       {positionTickers.length > 0 && !repairMode && (
         <div className="space-y-2">
-          <h4 className="text-xs font-medium text-slate-600">{dict.settings.tickersAutoIncludedTitle}</h4>
-          <p className="text-xs text-slate-400">{dict.settings.tickersAutoIncludedDescription}</p>
+          <h4 className="text-xs font-medium text-muted-foreground">{dict.settings.tickersAutoIncludedTitle}</h4>
+          <p className="text-xs text-muted-foreground">{dict.settings.tickersAutoIncludedDescription}</p>
           <div className="space-y-1">
             {positionTickers.map((s) => (
               <div
                 // KZO-169: monitored-tickers list keyed by (ticker, marketCode)
                 // so the same ticker on different markets is unique.
                 key={`${s.ticker}|${s.marketCode}`}
-                className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm"
+                className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5 text-sm"
                 data-testid={`position-ticker-${s.ticker}`}
               >
-                <Lock className="h-3.5 w-3.5 text-slate-400" />
-                <span className="font-mono font-medium text-slate-700">
+                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="font-mono font-medium text-foreground">
                   {s.ticker} · {s.marketCode}
                 </span>
-                {s.name && <span className="text-slate-500">— {s.name}</span>}
-                <span className="ml-auto text-xs text-slate-400">{dict.settings.tickersPositionLocked}</span>
+                {s.name && <span className="text-muted-foreground">— {s.name}</span>}
+                <span className="ml-auto text-xs text-muted-foreground">{dict.settings.tickersPositionLocked}</span>
               </div>
             ))}
           </div>
@@ -320,14 +320,14 @@ export function MonitoredTickersSection({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-medium text-slate-600">
+          <h4 className="text-xs font-medium text-muted-foreground">
             {repairMode ? dict.settings.repairModeTitle : dict.settings.tickersYourSelectionsTitle}
           </h4>
-          {repairMode ? <span className="text-xs text-slate-500">{selectedCountLabel}</span> : null}
+          {repairMode ? <span className="text-xs text-muted-foreground">{selectedCountLabel}</span> : null}
         </div>
 
         <div className="relative">
-          <Search className="pointer-events-none absolute left-[1.375rem] top-3.5 h-4 w-4 text-slate-400" />
+          <Search className="pointer-events-none absolute left-[1.375rem] top-3.5 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
             value={search}
@@ -340,7 +340,7 @@ export function MonitoredTickersSection({
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-600"
+              className="absolute right-3 top-3.5 text-muted-foreground hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>
@@ -349,25 +349,25 @@ export function MonitoredTickersSection({
 
         {!repairMode ? (
           filteredManual.length === 0 && !search ? (
-            <p className="py-3 text-center text-xs text-slate-400">{dict.settings.tickersYourSelectionsEmpty}</p>
+            <p className="py-3 text-center text-xs text-muted-foreground">{dict.settings.tickersYourSelectionsEmpty}</p>
           ) : (
             <div className="max-h-48 space-y-1 overflow-y-auto">
               {filteredManual.map((s) => (
                 <label
                   key={s.key}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-slate-50"
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
                   data-testid={`manual-ticker-${s.ticker}`}
                 >
                   <input
                     type="checkbox"
                     checked
                     onChange={() => onToggleTicker(s.key)}
-                    className="h-4 w-4 rounded border-slate-300"
+                    className="h-4 w-4 rounded border-input"
                   />
-                  <span className="font-mono font-medium text-slate-700">
+                  <span className="font-mono font-medium text-foreground">
                     {s.ticker} · {s.marketCode}
                   </span>
-                  {s.name && <span className="text-slate-500">— {s.name}</span>}
+                  {s.name && <span className="text-muted-foreground">— {s.name}</span>}
                   {s.barsBackfillStatus && (
                     <span className="ml-auto flex items-center gap-1">
                       <span
@@ -377,8 +377,8 @@ export function MonitoredTickersSection({
                             : s.barsBackfillStatus === "failed"
                               ? "bg-red-50 text-red-700"
                               : s.barsBackfillStatus === "backfilling"
-                                ? "bg-blue-50 text-blue-700"
-                                : "bg-slate-100 text-slate-500"
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted text-muted-foreground"
                         }`}
                         data-testid={`backfill-badge-${s.ticker}`}
                       >
@@ -406,7 +406,7 @@ export function MonitoredTickersSection({
             </div>
           )
         ) : (
-          <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50/35 p-2">
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-warning/30 bg-warning/10 p-2">
             {filteredRepairCandidates.map((item) => {
               const remaining = getCooldownRemainingMinutes(item.repairAvailableAt);
               const disabledReason =
@@ -426,7 +426,7 @@ export function MonitoredTickersSection({
                   key={key}
                   data-testid={`repair-row-${item.ticker}`}
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-                    disabled ? "cursor-not-allowed bg-slate-100/70 text-slate-400" : "cursor-pointer hover:bg-amber-100/55"
+                    disabled ? "cursor-not-allowed bg-muted/70 text-muted-foreground" : "cursor-pointer hover:bg-warning/20"
                   }`}
                   title={disabledReason || undefined}
                 >
@@ -435,21 +435,21 @@ export function MonitoredTickersSection({
                     checked={selected}
                     disabled={disabled}
                     onChange={() => handleToggleRepairTicker(item)}
-                    className={`h-4 w-4 rounded border-slate-300 ${repairMode ? "accent-amber-600" : ""}`}
+                    className={`h-4 w-4 rounded border-input ${repairMode ? "accent-warning" : ""}`}
                     data-testid={`repair-selection-${item.ticker}`}
                   />
                   <span className="font-mono font-medium">
                     {item.ticker} · {item.marketCode ?? "TW"}
                   </span>
-                  {item.name ? <span className="truncate text-slate-500">— {item.name}</span> : null}
-                  <span className="ml-auto text-[10px] text-slate-500" data-testid={`repair-cooldown-hint-${item.ticker}`}>
+                  {item.name ? <span className="truncate text-muted-foreground">— {item.name}</span> : null}
+                  <span className="ml-auto text-[10px] text-muted-foreground" data-testid={`repair-cooldown-hint-${item.ticker}`}>
                     {disabledReason}
                   </span>
                 </label>
               );
             })}
             {filteredRepairCandidates.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-400">{dict.settings.tickersYourSelectionsEmpty}</p>
+              <p className="py-4 text-center text-xs text-muted-foreground">{dict.settings.tickersYourSelectionsEmpty}</p>
             ) : null}
           </div>
         )}
@@ -461,7 +461,7 @@ export function MonitoredTickersSection({
             {dict.settings.tickersBrowseCatalog}
           </Button>
 
-          <div className="flex items-center gap-3 border-t border-slate-200 pt-3">
+          <div className="flex items-center gap-3 border-t border-border pt-3">
             <Button type="button" size="sm" disabled={!isDirty || isSaving} onClick={onSave} data-testid="tickers-save-btn">
               {isSaving ? dict.settings.tickersSaving : dict.settings.tickersSaveSelections}
             </Button>
@@ -470,7 +470,7 @@ export function MonitoredTickersSection({
           </div>
         </>
       ) : (
-        <div className="flex items-center justify-end gap-2 border-t border-amber-200 pt-3">
+        <div className="flex items-center justify-end gap-2 border-t border-warning/30 pt-3">
           {selectionError ? <span className="mr-auto text-xs text-rose-600">{selectionError}</span> : null}
           <Button
             type="button"
@@ -510,12 +510,12 @@ export function MonitoredTickersSection({
         onSubmit={submitRepair}
         dict={dict}
       >
-        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-          <div className="mb-2 inline-flex gap-1 rounded-md border border-slate-200 bg-white p-0.5">
+        <div className="rounded-xl border border-border bg-muted/50 p-3">
+          <div className="mb-2 inline-flex gap-1 rounded-md border border-border bg-background p-0.5">
             <button
               type="button"
               onClick={() => setRepairApplyMode("all")}
-              className={`rounded px-2.5 py-1 text-xs ${repairApplyMode === "all" ? "bg-slate-900 text-white" : "text-slate-600"}`}
+              className={`rounded px-2.5 py-1 text-xs ${repairApplyMode === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
               data-testid="repair-apply-all"
             >
               {dict.settings.repairApplyAllMode}
@@ -523,7 +523,7 @@ export function MonitoredTickersSection({
             <button
               type="button"
               onClick={() => setRepairApplyMode("per-ticker")}
-              className={`rounded px-2.5 py-1 text-xs ${repairApplyMode === "per-ticker" ? "bg-slate-900 text-white" : "text-slate-600"}`}
+              className={`rounded px-2.5 py-1 text-xs ${repairApplyMode === "per-ticker" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
               data-testid="repair-per-ticker"
             >
               {dict.settings.repairPerTickerMode}
@@ -533,8 +533,8 @@ export function MonitoredTickersSection({
           {repairApplyMode === "per-ticker" ? (
             <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
               {perTickerValues.map((row, index) => (
-                <div key={row.key} className="rounded-lg border border-slate-200 bg-white p-2">
-                  <p className="mb-1 text-xs font-semibold text-slate-700">{row.ticker} · {row.marketCode}</p>
+                <div key={row.key} className="rounded-lg border border-border bg-background p-2">
+                  <p className="mb-1 text-xs font-semibold text-foreground">{row.ticker} · {row.marketCode}</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input
                       type="date"
@@ -544,7 +544,7 @@ export function MonitoredTickersSection({
                           prev.map((item, i) => (i === index ? { ...item, startDate: event.target.value } : item)),
                         )
                       }
-                      className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+                      className="h-9 rounded-lg border border-border px-2 text-xs"
                     />
                     <input
                       type="date"
@@ -554,10 +554,10 @@ export function MonitoredTickersSection({
                           prev.map((item, i) => (i === index ? { ...item, endDate: event.target.value } : item)),
                         )
                       }
-                      className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+                      className="h-9 rounded-lg border border-border px-2 text-xs"
                     />
                   </div>
-                  <div className="mt-2 flex items-center gap-3 text-xs text-slate-600">
+                  <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
                     <label className="flex items-center gap-1">
                       <input
                         type="checkbox"

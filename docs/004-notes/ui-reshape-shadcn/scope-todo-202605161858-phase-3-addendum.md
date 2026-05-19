@@ -186,7 +186,7 @@ Companion `AppShellAssert.ts` additions: `sidebarNavItemIsVisible(key)` / `sideb
 
 ## Open items
 
-- [ ] **Phase 7 prereq** (added by addendum §13): reskin `apps/web/features/settings/components/ProfileSection.tsx` + `apps/web/features/settings/components/MonitoredTickersSection.tsx` to drop legacy `glass-panel`/`glass-inset`/`rounded-[22px]`/`text-ink-muted` markers BEFORE Phase 7 alias-bridge deletion. Sections render unstyled otherwise.
+- [x] **Phase 7 prereq** (added by addendum §13): reskin `apps/web/features/settings/components/ProfileSection.tsx` + `apps/web/features/settings/components/MonitoredTickersSection.tsx` to drop legacy `glass-panel`/`glass-inset`/`rounded-[22px]`/`text-ink-muted` markers BEFORE Phase 7 alias-bridge deletion. Completed by Phase 7 cleanup on 2026-05-19 before bridge removal.
 - [ ] **Phase 7 scope addition** (added by addendum §13): re-add `/settings/notifications` + `/settings/privacy` routes when underlying preference schemas + APIs land. Mockup 09 sidebar nav is the future-state reference.
 - [x] **Cross-link**: `scope-todo-202605151201-phases.md` Phase 3 line item should cross-reference `phase-3-spec-…shell-decomp.md` + this addendum. 1-line pre-merge correction. *(Landed 2026-05-17 in the Phase 3d PR.)*
 - [ ] **iPhone SE viewport choice (A8 G-NC-3)**: revisit if user-testing surfaces issues on modern small phones (390 × 844 iPhone 14). 1-line config swap.

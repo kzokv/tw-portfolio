@@ -43,15 +43,15 @@ export function RepairModal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[70] bg-slate-950/82" />
+        <Dialog.Overlay className="fixed inset-0 z-[70] bg-foreground/80" />
         <Dialog.Content
-          className="glass-panel !fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-[28px] p-5 shadow-glass focus:outline-none sm:p-6"
+          className="!fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
           data-testid="repair-modal"
         >
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <Dialog.Title className="text-base font-semibold text-slate-900">{title}</Dialog.Title>
-              {subtitle ? <Dialog.Description className="mt-1 text-sm text-slate-600">{subtitle}</Dialog.Description> : null}
+              <Dialog.Title className="text-base font-semibold text-foreground">{title}</Dialog.Title>
+              {subtitle ? <Dialog.Description className="mt-1 text-sm text-muted-foreground">{subtitle}</Dialog.Description> : null}
             </div>
             <Button
               variant="secondary"
@@ -66,48 +66,48 @@ export function RepairModal({
 
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5 text-xs font-medium text-slate-600" data-testid="repair-start-date-field">
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground" data-testid="repair-start-date-field">
                 <span>{dict.settings.repairStartDate}</span>
                 <input
                   type="date"
                   name="startDate"
                   value={value.startDate}
                   onChange={(event) => onChange({ ...value, startDate: event.target.value })}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+                  className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground"
                   data-testid="repair-start-date"
                 />
               </label>
-              <label className="space-y-1.5 text-xs font-medium text-slate-600" data-testid="repair-end-date-field">
+              <label className="space-y-1.5 text-xs font-medium text-muted-foreground" data-testid="repair-end-date-field">
                 <span>{dict.settings.repairEndDate}</span>
                 <input
                   type="date"
                   name="endDate"
                   value={value.endDate}
                   onChange={(event) => onChange({ ...value, endDate: event.target.value })}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+                  className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground"
                   data-testid="repair-end-date"
                 />
               </label>
             </div>
 
-            <div className="space-y-2 rounded-xl border border-slate-200 bg-white/70 p-3">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">{dict.settings.repairIncludeTitle}</p>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+            <div className="space-y-2 rounded-xl border border-border bg-background/70 p-3">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{dict.settings.repairIncludeTitle}</p>
+              <label className="flex items-center gap-2 text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={value.includeBars}
                   onChange={(event) => onChange({ ...value, includeBars: event.target.checked })}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-input"
                   data-testid="repair-include-bars"
                 />
                 <span>{dict.settings.repairIncludeBars}</span>
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={value.includeDividends}
                   onChange={(event) => onChange({ ...value, includeDividends: event.target.checked })}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-input"
                   data-testid="repair-include-dividends"
                 />
                 <span>{dict.settings.repairIncludeDividends}</span>

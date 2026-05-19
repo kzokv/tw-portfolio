@@ -172,7 +172,7 @@ Six locked decisions:
 ## Open items (carry forward)
 
 - [ ] **Tanstack revisit** (carried from Phase 4): if dashboard refactor surfaces a need for sortable/filterable lists beyond what `<DataTable>` covers, escalate per Phase 4 open item.
-- [ ] **Phase 7 dead-code sweep** (carried from Phase 4): `SummarySection.tsx` deletion gets us partway; full `glass-panel` / `glass-inset` retirement still pending. Phase 5d also drops `glass-inset` from the deleted dashboard sections, accelerating cleanup.
+- [x] **Phase 7 dead-code sweep** (carried from Phase 4): `SummarySection.tsx` deletion gets us partway; full `glass-panel` / `glass-inset` retirement still pending. Phase 5d also drops `glass-inset` from the deleted dashboard sections, accelerating cleanup. Completed by Phase 7 cleanup on 2026-05-19; live app grep gates are zero-hit and the bridge is removed.
 
 ---
 

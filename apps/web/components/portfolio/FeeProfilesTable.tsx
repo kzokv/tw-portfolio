@@ -12,8 +12,8 @@ export function FeeProfilesTable({ profiles, dict }: FeeProfilesTableProps) {
   return (
     <Card className="overflow-hidden">
       <div className="mb-4">
-        <h2 className="text-xl text-ink sm:text-2xl">{dict.feeProfiles.title}</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-300">{dict.feeProfiles.description}</p>
+        <h2 className="text-xl text-foreground sm:text-2xl">{dict.feeProfiles.title}</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{dict.feeProfiles.description}</p>
       </div>
 
       <div className="overflow-x-auto rounded-[20px] border border-white/10 bg-slate-950/35">

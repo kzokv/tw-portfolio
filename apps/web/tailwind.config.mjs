@@ -73,15 +73,6 @@ const config = {
   				DEFAULT: 'hsl(var(--warning))',
   				foreground: 'hsl(var(--warning-foreground))'
   			},
-  			bg: 'var(--bg)',
-  			surface: 'var(--surface)',
-  			'surface-soft': 'var(--surface-soft)',
-  			'surface-glass': 'var(--surface-glass)',
-  			ink: 'var(--text)',
-  			'ink-muted': 'var(--ink-muted)',
-  			'accent-strong': 'var(--accent-strong)',
-  			line: 'var(--line)',
-  			danger: 'var(--danger)',
   			sidebar: {
   				DEFAULT: 'hsl(var(--sidebar-background))',
   				foreground: 'hsl(var(--sidebar-foreground))',
@@ -101,7 +92,6 @@ const config = {
   		boxShadow: {
   			card: '0 24px 80px rgba(2, 6, 23, 0.45)',
   			focus: '0 0 0 4px hsl(var(--ring) / 0.28)',
-  			glass: 'inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 56px rgba(2, 6, 23, 0.42)'
   		},
   		keyframes: {
   			'fade-in-up': {

@@ -7,7 +7,7 @@
 // passed variant="default"|"secondary"|"ghost" + size="default"|"sm" keep
 // working unchanged; new sites can use destructive/outline/link + xs/lg/icon.
 //
-// Deleted in Phase 7 once every consumer imports from "@/components/ui/shadcn/button".
+// Delete once every consumer imports from "@/components/ui/shadcn/button" directly.
 
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { Button as ShadcnButton, buttonVariants, type ButtonProps as ShadcnButtonProps } from "./shadcn/button";

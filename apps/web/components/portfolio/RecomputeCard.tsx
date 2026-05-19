@@ -20,7 +20,7 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
       <div className="flex min-w-0 flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 max-w-2xl">
           <div className="flex min-w-0 items-center gap-2">
-            <h2 className="text-xl leading-tight text-ink sm:text-2xl md:text-[2rem]">{dict.recompute.title}</h2>
+            <h2 className="text-xl leading-tight text-foreground sm:text-2xl md:text-[2rem]">{dict.recompute.title}</h2>
             <TooltipInfo
               label={dict.recompute.title}
               content={dict.tooltips.recomputeTitle}
@@ -28,7 +28,7 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
               contentTestId="tooltip-recompute-title-content"
             />
           </div>
-          <p className="mt-3 text-sm leading-6 text-slate-300">{dict.recompute.description}</p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{dict.recompute.description}</p>
         </div>
         <Button
           onClick={() => onRecompute()}
@@ -41,8 +41,8 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
       </div>
 
       <dl className="mt-6 grid min-w-0 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-        <div className="glass-inset min-w-0 rounded-[20px] p-4">
-          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-4">
+          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="min-w-0">{dict.recompute.localeTerm}</span>
             <TooltipInfo
               label={dict.recompute.localeTerm}
@@ -51,12 +51,12 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
               contentTestId="tooltip-recompute-locale-content"
             />
           </dt>
-          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-ink" data-testid="settings-locale-value">
+          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-foreground" data-testid="settings-locale-value">
             {localeLabel}
           </dd>
         </div>
-        <div className="glass-inset min-w-0 rounded-[20px] p-4">
-          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-4">
+          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="min-w-0">{dict.recompute.costBasisTerm}</span>
             <TooltipInfo
               label={dict.recompute.costBasisTerm}
@@ -65,12 +65,12 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
               contentTestId="tooltip-recompute-cost-basis-content"
             />
           </dt>
-          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-ink" data-testid="settings-cost-basis-value">
+          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-foreground" data-testid="settings-cost-basis-value">
             {costBasisLabel}
           </dd>
         </div>
-        <div className="glass-inset min-w-0 rounded-[20px] p-4">
-          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-4">
+          <dt className="flex min-w-0 items-center gap-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="min-w-0">{dict.recompute.quotePollTerm}</span>
             <TooltipInfo
               label={dict.recompute.quotePollTerm}
@@ -79,7 +79,7 @@ export function RecomputeCard({ settings, pending, onRecompute, dict }: Recomput
               contentTestId="tooltip-recompute-quote-poll-content"
             />
           </dt>
-          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-ink" data-testid="settings-quote-poll-value">
+          <dd className="mt-2 min-w-0 break-words text-base font-semibold text-foreground" data-testid="settings-quote-poll-value">
             {settings?.quotePollIntervalSeconds ?? "-"} {dict.settings.quotePollUnit}
           </dd>
         </div>
