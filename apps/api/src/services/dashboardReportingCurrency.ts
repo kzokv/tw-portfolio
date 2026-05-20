@@ -28,7 +28,7 @@
  */
 
 import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
-import type { QuoteSnapshot } from "@vakwen/domain";
+import type { DailyBar, QuoteSnapshot } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
   DashboardOverviewHoldingDto,
@@ -443,6 +443,16 @@ async function buildFxAwareSyntheticPerformance(
   }
 
   const points: DashboardPerformancePointDto[] = [];
+  const activeTickers = Array.from(new Set(trades.map((trade) => trade.ticker)));
+  const barsByTicker = activeTickers.length > 0
+    ? await persistence.getDailyBarsForTickers(activeTickers, startDate, endDate)
+    : new Map<string, DailyBar[]>();
+  const closeByTickerDate = new Map<string, Map<string, number>>();
+  for (const [ticker, bars] of barsByTicker) {
+    closeByTickerDate.set(ticker, new Map(bars.map((bar) => [bar.barDate, bar.close])));
+  }
+  const hasAnyHistoricalBars = [...barsByTicker.values()].some((bars) => bars.length > 0);
+
   // Per-currency FX cache shared across the synthetic loop; we forward-fill
   // per-date because `getFxRate` already encodes that semantics.
   const fxCache = new Map<string, number | null>();
@@ -474,6 +484,7 @@ async function buildFxAwareSyntheticPerformance(
     let totalCost = 0;
     let marketValue = 0;
     let hasPositions = false;
+    let hasAnyMarketPrice = false;
     let allQuotesAvailable = true;
     let allFxAvailable = true;
 
@@ -489,12 +500,24 @@ async function buildFxAwareSyntheticPerformance(
       const symbol = key.includes(":")
         ? key.slice(key.lastIndexOf(":") + 1)
         : key;
-      const quote = quoteByTicker.get(symbol);
-      if (!quote || quote.asOf.slice(0, 10) !== currentDate) {
+      const historicalClose = closeByTickerDate.get(symbol)?.get(currentDate);
+      const quote = historicalClose === undefined ? quoteByTicker.get(symbol) : undefined;
+      const close = historicalClose ?? (
+        quote && quote.asOf.slice(0, 10) === currentDate ? quote.close : null
+      );
+      if (close === null) {
         allQuotesAvailable = false;
         continue;
       }
-      marketValue += (Math.round(quote.close * pos.quantity * 100) / 100) * fx;
+      hasAnyMarketPrice = true;
+      marketValue += (Math.round(close * pos.quantity * 100) / 100) * fx;
+    }
+
+    // Once repaired daily bars exist, mirror snapshot generation's sparse
+    // trading-day series. Calendar days with no observed market price otherwise
+    // become null-valued points and keep the trend in a permanent warning state.
+    if (hasPositions && hasAnyHistoricalBars && !hasAnyMarketPrice) {
+      continue;
     }
 
     const mv =

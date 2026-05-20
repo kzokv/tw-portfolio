@@ -19,6 +19,8 @@ import type {
   AggregatedSnapshotPoint,
   Persistence,
 } from "../../src/persistence/types.js";
+import type { Store } from "../../src/types/store.js";
+import type { DailyBar } from "@vakwen/domain";
 
 interface FakeFxRecord {
   base: string;
@@ -30,9 +32,11 @@ interface FakeFxRecord {
 function makeFakePersistence(opts: {
   fxRates?: FakeFxRecord[];
   aggregated?: AggregatedSnapshotPoint[];
+  dailyBars?: DailyBar[];
 }): Persistence {
   const fx = opts.fxRates ?? [];
   const aggregated = opts.aggregated ?? [];
+  const dailyBars = opts.dailyBars ?? [];
   // Stub-typed cast — the rest of the surface is not exercised by the helper
   // under test, but TypeScript needs the Persistence shape.
   return {
@@ -42,7 +46,33 @@ function makeFakePersistence(opts: {
       return match ? match.rate : null;
     },
     getAggregatedSnapshotsInReportingCurrency: async () => aggregated,
+    getDailyBarsForTickers: async (tickers: string[], startDate: string, endDate: string) => {
+      const result = new Map<string, DailyBar[]>();
+      for (const ticker of tickers) {
+        result.set(
+          ticker,
+          dailyBars
+            .filter((bar) => bar.ticker === ticker && bar.barDate >= startDate && bar.barDate <= endDate)
+            .sort((a, b) => a.barDate.localeCompare(b.barDate)),
+        );
+      }
+      return result;
+    },
   } as unknown as Persistence;
+}
+
+function makeDailyBar(ticker: string, barDate: string, close: number): DailyBar {
+  return {
+    ticker,
+    barDate,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 1000,
+    source: "test",
+    ingestedAt: `${barDate}T00:00:00.000Z`,
+  };
 }
 
 const baseHolding: DashboardOverviewHoldingDto = {
@@ -339,5 +369,54 @@ describe("translatePerformancePoints (snapshot-backed branch)", () => {
     );
     expect(out.points).toEqual([]);
     expect(out.fxStatus).toBe("complete");
+  });
+
+  it("Empty snapshots + repaired daily bars builds historical market-value points", async () => {
+    const persistence = makeFakePersistence({
+      dailyBars: [
+        makeDailyBar("2330", "2026-01-02", 100),
+        makeDailyBar("2330", "2026-01-05", 120),
+      ],
+    });
+    const store = {
+      accounting: {
+        facts: {
+          tradeEvents: [
+            {
+              id: "trade-1",
+              userId: "user-1",
+              accountId: "acct-1",
+              ticker: "2330",
+              marketCode: "TW",
+              instrumentType: "stock",
+              type: "BUY",
+              quantity: 10,
+              unitPrice: 100,
+              priceCurrency: "TWD",
+              tradeDate: "2026-01-02",
+              commissionAmount: 0,
+              taxAmount: 0,
+              isDayTrade: false,
+              feeSnapshot: { id: "fee-1", name: "Default", market: "TW", brokerName: null, rules: [] },
+            },
+          ],
+        },
+      },
+    };
+
+    const out = await translatePerformancePoints(
+      "user-1",
+      "ALL",
+      "2026-01-05",
+      "TWD",
+      persistence,
+      store as unknown as Store,
+    );
+
+    expect(out.fxStatus).toBe("complete");
+    expect(out.points).toHaveLength(2);
+    expect(out.points.map((point) => point.date)).toEqual(["2026-01-02", "2026-01-05"]);
+    expect(out.points.map((point) => point.marketValueAmount)).toEqual([1000, 1200]);
+    expect(out.points.every((point) => point.marketValueAmount !== null)).toBe(true);
   });
 });

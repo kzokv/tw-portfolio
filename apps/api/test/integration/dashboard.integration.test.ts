@@ -432,19 +432,7 @@ describe("dashboard overview", () => {
     expect(response.json()).toEqual(
       expect.objectContaining({
         range: "YTD",
-        points: expect.arrayContaining([
-          expect.objectContaining({
-            date: "2026-01-15",
-            totalCostAmount: 1000,
-            marketValueAmount: null,
-            unrealizedPnlAmount: null,
-          }),
-          expect.objectContaining({
-            date: "2026-02-10",
-            totalCostAmount: 1600,
-            marketValueAmount: null,
-            unrealizedPnlAmount: null,
-          }),
+        points: [
           expect.objectContaining({
             date: "2026-03-28",
             totalCostAmount: 1600,
@@ -452,7 +440,7 @@ describe("dashboard overview", () => {
             unrealizedPnlAmount: -95,
             totalReturnAmount: -95,
           }),
-        ]),
+        ],
       }),
     );
   });
