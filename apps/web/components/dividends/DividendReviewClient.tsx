@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { AccountDto, DividendLedgerAggregates, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
@@ -179,7 +179,6 @@ export function DividendReviewClient({
   accounts,
   years,
 }: DividendReviewClientProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [filters, setFilters] = useState<FilterState>(() => parseInitialFilters(searchParams));
@@ -226,9 +225,6 @@ export function DividendReviewClient({
 
   const syncUrl = useCallback((f: FilterState) => {
     const params = new URLSearchParams();
-    // Phase 5a — always stamp view=ledger when this client owns the URL so
-    // the merged /dividends route resolves to ledger unambiguously even
-    // when all other ledger params are at their defaults.
     params.set("view", "ledger");
     if (f.preset !== "currentYear") params.set("preset", f.preset);
     if (f.fromDate) params.set("fromPaymentDate", f.fromDate);
@@ -241,13 +237,8 @@ export function DividendReviewClient({
     if (f.page > 1) params.set("page", String(f.page));
 
     const url = `/dividends?${params.toString()}`;
-    // Sync URL synchronously for E2E page.url() assertions
-    // (per .claude/rules/playwright-navigation-patterns.md).
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", url);
-    }
-    router.replace(url, { scroll: false });
-  }, [router]);
+    window.history.replaceState(null, "", url);
+  }, []);
 
   // ── Fetch data ────────────────────────────────────────────────────────
 
@@ -277,27 +268,6 @@ export function DividendReviewClient({
     syncUrl(next);
     void fetchData(next);
   }, [syncUrl, fetchData]);
-
-  // Deep-link hydration: if URL had non-default params, re-fetch on mount
-  const isInitialMount = useRef(true);
-  useEffect(() => {
-    if (!isInitialMount.current) return;
-    isInitialMount.current = false;
-    const defaultDates = resolvePresetDates("currentYear", new Date());
-    const isDifferent =
-      filters.preset !== "currentYear" ||
-      filters.fromDate !== (defaultDates.from ?? "") ||
-      filters.toDate !== (defaultDates.to ?? "") ||
-      filters.status !== "all" ||
-      filters.sortBy !== "paymentDate" ||
-      filters.sortOrder !== "desc" ||
-      filters.page !== 1 ||
-      filters.ticker !== "" ||
-      filters.accountId !== "";
-    if (isDifferent) {
-      void fetchData(filters);
-    }
-  }, []);
 
   const handlePresetChange = useCallback((preset: DatePreset) => {
     const today = new Date();
@@ -355,15 +325,11 @@ export function DividendReviewClient({
   const handleFilterPending = useCallback(() => {
     setSourceCompositionPendingFilter(true);
     const params = new URLSearchParams(window.location.search);
-    // Phase 5a — keep view=ledger so the merged route stays on the ledger tab.
     params.set("view", "ledger");
     params.set("sourceComposition", "pending");
     const url = `/dividends?${params.toString()}`;
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", url);
-    }
-    router.replace(url, { scroll: false });
-  }, [router]);
+    window.history.replaceState(null, "", url);
+  }, []);
 
   // ── Mark Matched ──────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ import type { BufferedEventBus } from "../events/buffered.js";
 import type { PgBoss } from "pg-boss";
 import type { UserRole } from "../persistence/types.js";
 import type { MarketDataRegistry } from "../services/market-data/registry.js";
+import type { FundamentalsRegistry } from "../services/fundamentals/types.js";
 
 interface RequestImpersonationContext {
   active: boolean;
@@ -33,6 +34,7 @@ declare module "fastify" {
     appBaseUrl: string;
     boss: PgBoss | null;
     marketDataRegistry: MarketDataRegistry;
+    fundamentalsRegistry: FundamentalsRegistry;
   }
   interface FastifyRequest {
     __sessionType?: "demo" | "oauth";

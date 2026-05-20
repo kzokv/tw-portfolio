@@ -67,6 +67,7 @@ import {
 } from "../services/fxTransferService.js";
 import { MissingFxRateError } from "../services/currencyWalletAccounting.js";
 import { seedDemoTransactions } from "../services/demoData.js";
+import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
@@ -103,6 +104,7 @@ import { assertMarketDataPriceRateLimit, registerMarketDataPriceEviction } from 
 import { _resetMarketDataSearchBuckets, assertMarketDataSearchRateLimit, registerMarketDataSearchEviction } from "../lib/marketDataSearchRateLimit.js";
 import { registerProviderErrorTrailPurge } from "../lib/providerErrorTrailPurge.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
+import { buildTickerDetails } from "../services/tickerDetails.js";
 import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@vakwen/shared-types";
 import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
 
@@ -3745,6 +3747,75 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { store, userId } = await loadUserStore(app, req);
     assertStoreIntegrity(store);
     return listHoldings(store, userId);
+  });
+
+  app.get("/tickers/:ticker/details", async (req) => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = z.object({
+      accountId: userScopedIdSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
+    }).parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+
+    const resolvedTicker = params.ticker.trim().toUpperCase();
+    const preferredMarketCode = query.marketCode
+      ?? (query.accountId
+        ? (() => {
+          const account = store.accounts.find((item) => item.id === query.accountId);
+          return account ? marketCodeFor(account.defaultCurrency) : undefined;
+        })()
+        : undefined);
+    const fundamentalsRecord = preferredMarketCode
+      ? await app.persistence.getTickerFundamentals(resolvedTicker, preferredMarketCode)
+      : null;
+
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: resolvedTicker,
+      accountId: query.accountId,
+      marketCode: query.marketCode,
+      fundamentalsRecord,
+      getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
+    });
+
+    const latestFundamentals = preferredMarketCode === marketCode
+      ? fundamentalsRecord
+      : await app.persistence.getTickerFundamentals(resolvedTicker, marketCode);
+    const response = latestFundamentals && latestFundamentals !== fundamentalsRecord
+      ? {
+        ...details,
+        fundamentals: latestFundamentals.fundamentals,
+        fundamentalsRefresh: {
+          providerId: latestFundamentals.providerId,
+          refreshedAt: latestFundamentals.refreshedAt,
+          nextRefreshAt: latestFundamentals.nextRefreshAt,
+          lastAttemptedAt: latestFundamentals.lastAttemptedAt,
+          lastError: latestFundamentals.lastError,
+          status: !latestFundamentals.refreshedAt
+            ? "missing" as const
+            : latestFundamentals.nextRefreshAt && latestFundamentals.nextRefreshAt <= new Date().toISOString()
+              ? "stale" as const
+              : "fresh" as const,
+        },
+      }
+      : details;
+
+    scheduleTickerFundamentalsRefresh(
+      {
+        persistence: app.persistence,
+        fundamentalsRegistry: app.fundamentalsRegistry,
+        log: app.log,
+      },
+      {
+        ticker: resolvedTicker,
+        marketCode,
+        current: latestFundamentals ?? fundamentalsRecord,
+      },
+    );
+
+    return response;
   });
 
   app.get("/dashboard/overview", async (req) => {

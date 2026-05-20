@@ -48,6 +48,7 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
+  TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@vakwen/domain";
@@ -86,11 +87,14 @@ import type {
   OAuthClaims,
   PendingShareInviteRecord,
   Persistence,
+  PersistedTickerFundamentalsRecord,
   ReadinessStatus,
+  RecordTickerFundamentalsRefreshFailureInput,
   ResolveOrCreateUserOptions,
   ResolveOrCreateUserResult,
   RevokeAnonymousShareTokenInput,
   RevokeAnonymousShareTokenResult,
+  SaveTickerFundamentalsSnapshotInput,
   ShareGrantRecord,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
@@ -112,6 +116,7 @@ import {
   getEffectiveAnonymousShareTokenRetentionMs,
 } from "../services/appConfig/sharing.js";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
+import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
 
 types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
@@ -256,6 +261,32 @@ function mapPendingShareInviteRow(row: {
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     usedAt: row.used_at,
+  };
+}
+
+function mapTickerFundamentalsRow(row: {
+  ticker: string;
+  market_code: string;
+  provider_id: string | null;
+  fundamentals: TickerFundamentalsDto | Record<string, unknown> | null;
+  refreshed_at: string | null;
+  next_refresh_at: string | null;
+  last_attempted_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}): PersistedTickerFundamentalsRecord {
+  return {
+    ticker: row.ticker,
+    marketCode: row.market_code as MarketCode,
+    providerId: row.provider_id,
+    fundamentals: normalizeTickerFundamentals(row.fundamentals),
+    refreshedAt: row.refreshed_at,
+    nextRefreshAt: row.next_refresh_at,
+    lastAttemptedAt: row.last_attempted_at,
+    lastError: row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -2519,6 +2550,38 @@ export class PostgresPersistence implements Persistence {
       [ticker, startDate, endDate],
     );
     return result.rows.map(row => ({
+      ticker: row.ticker,
+      barDate: row.bar_date,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+      source: row.source,
+      ingestedAt: row.ingested_at,
+    }));
+  }
+
+  async getDailyBarsForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+    startDate: string,
+    endDate: string,
+  ): Promise<DailyBar[]> {
+    const result = await this.pool.query<{
+      ticker: string; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `SELECT ticker, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+         FROM market_data.daily_bars
+        WHERE ticker = $1
+          AND market_code = $2
+          AND bar_date >= $3::date
+          AND bar_date <= $4::date
+        ORDER BY bar_date ASC`,
+      [ticker, marketCode, startDate, endDate],
+    );
+    return result.rows.map((row) => ({
       ticker: row.ticker,
       barDate: row.bar_date,
       open: Number(row.open),
@@ -5165,6 +5228,153 @@ export class PostgresPersistence implements Persistence {
       [userId],
     );
     return { years: result.rows.map((row) => Number(row.year)) };
+  }
+
+  async getTickerFundamentals(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<PersistedTickerFundamentalsRecord | null> {
+    const result = await this.pool.query<{
+      ticker: string;
+      market_code: string;
+      provider_id: string | null;
+      fundamentals: TickerFundamentalsDto | Record<string, unknown> | null;
+      refreshed_at: string | null;
+      next_refresh_at: string | null;
+      last_attempted_at: string | null;
+      last_error: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT ticker,
+              market_code,
+              provider_id,
+              fundamentals,
+              refreshed_at::text,
+              next_refresh_at::text,
+              last_attempted_at::text,
+              last_error,
+              created_at::text,
+              updated_at::text
+         FROM market_data.ticker_fundamentals
+        WHERE ticker = $1
+          AND market_code = $2`,
+      [ticker, marketCode],
+    );
+
+    const row = result.rows[0];
+    return row ? mapTickerFundamentalsRow(row) : null;
+  }
+
+  async saveTickerFundamentalsSnapshot(
+    input: SaveTickerFundamentalsSnapshotInput,
+  ): Promise<PersistedTickerFundamentalsRecord> {
+    const result = await this.pool.query<{
+      ticker: string;
+      market_code: string;
+      provider_id: string | null;
+      fundamentals: TickerFundamentalsDto | Record<string, unknown> | null;
+      refreshed_at: string | null;
+      next_refresh_at: string | null;
+      last_attempted_at: string | null;
+      last_error: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO market_data.ticker_fundamentals (
+         ticker,
+         market_code,
+         provider_id,
+         fundamentals,
+         refreshed_at,
+         next_refresh_at,
+         last_attempted_at,
+         last_error
+       ) VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $5::timestamptz, NULL)
+       ON CONFLICT (ticker, market_code) DO UPDATE
+         SET provider_id = EXCLUDED.provider_id,
+             fundamentals = EXCLUDED.fundamentals,
+             refreshed_at = EXCLUDED.refreshed_at,
+             next_refresh_at = EXCLUDED.next_refresh_at,
+             last_attempted_at = EXCLUDED.last_attempted_at,
+             last_error = NULL,
+             updated_at = CURRENT_TIMESTAMP
+       RETURNING ticker,
+                 market_code,
+                 provider_id,
+                 fundamentals,
+                 refreshed_at::text,
+                 next_refresh_at::text,
+                 last_attempted_at::text,
+                 last_error,
+                 created_at::text,
+                 updated_at::text`,
+      [
+        input.ticker,
+        input.marketCode,
+        input.providerId,
+        JSON.stringify(normalizeTickerFundamentals(input.fundamentals)),
+        input.refreshedAt,
+        input.nextRefreshAt,
+      ],
+    );
+
+    return mapTickerFundamentalsRow(result.rows[0]!);
+  }
+
+  async recordTickerFundamentalsRefreshFailure(
+    input: RecordTickerFundamentalsRefreshFailureInput,
+  ): Promise<PersistedTickerFundamentalsRecord> {
+    const result = await this.pool.query<{
+      ticker: string;
+      market_code: string;
+      provider_id: string | null;
+      fundamentals: TickerFundamentalsDto | Record<string, unknown> | null;
+      refreshed_at: string | null;
+      next_refresh_at: string | null;
+      last_attempted_at: string | null;
+      last_error: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO market_data.ticker_fundamentals (
+         ticker,
+         market_code,
+         provider_id,
+         fundamentals,
+         refreshed_at,
+         next_refresh_at,
+         last_attempted_at,
+         last_error
+       ) VALUES ($1, $2, $3, $4::jsonb, NULL, $5::timestamptz, $6::timestamptz, $7)
+       ON CONFLICT (ticker, market_code) DO UPDATE
+         SET provider_id = EXCLUDED.provider_id,
+             next_refresh_at = EXCLUDED.next_refresh_at,
+             last_attempted_at = EXCLUDED.last_attempted_at,
+             last_error = EXCLUDED.last_error,
+             updated_at = CURRENT_TIMESTAMP
+       RETURNING ticker,
+                 market_code,
+                 provider_id,
+                 fundamentals,
+                 refreshed_at::text,
+                 next_refresh_at::text,
+                 last_attempted_at::text,
+                 last_error,
+                 created_at::text,
+                 updated_at::text`,
+      [
+        input.ticker,
+        input.marketCode,
+        input.providerId,
+        JSON.stringify(createEmptyTickerFundamentals()),
+        input.nextRefreshAt,
+        input.attemptedAt,
+        input.errorMessage,
+      ],
+    );
+
+    return mapTickerFundamentalsRow(result.rows[0]!);
   }
 
   private async runMigrations(): Promise<void> {

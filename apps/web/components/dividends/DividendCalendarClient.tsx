@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
@@ -161,6 +161,7 @@ export function DividendCalendarClient({
     ...monthBounds(visibleMonth),
     limit: 500,
   }), [visibleMonth]);
+  const initialQueryKey = useRef(JSON.stringify(query));
 
   const refreshSnapshot = useCallback(async () => {
     setIsLoading(true);
@@ -176,8 +177,16 @@ export function DividendCalendarClient({
   }, [query]);
 
   useEffect(() => {
+    setSnapshot(initialSnapshot);
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    const queryKey = JSON.stringify(query);
+    if (queryKey === initialQueryKey.current) {
+      return;
+    }
     void refreshSnapshot();
-  }, [refreshSnapshot]);
+  }, [query, refreshSnapshot]);
 
   useEventStream({
     enabled: true,

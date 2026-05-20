@@ -28,6 +28,7 @@ export default defineConfig({
       "next/link": resolve(rootDir, "test/setup/next-stubs/link.tsx"),
       "next/navigation": resolve(rootDir, "test/setup/next-stubs/navigation.ts"),
       "next/headers": resolve(rootDir, "test/setup/next-stubs/headers.ts"),
+      "next/dynamic": resolve(rootDir, "test/setup/next-stubs/dynamic.tsx"),
       "@vakwen/config/test": resolve(rootDir, "../../libs/config/src/test.ts"),
       "@vakwen/config/web": resolve(rootDir, "../../libs/config/src/env-web.ts"),
       "@vakwen/config": resolve(rootDir, "../../libs/config/src/index.ts"),

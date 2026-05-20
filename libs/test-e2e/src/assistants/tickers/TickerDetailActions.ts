@@ -24,8 +24,26 @@ export class TickerDetailActions extends AppBaseActions {
   }
 
   @Step()
+  async openTransactionsTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.transactionsTab);
+  }
+
+  @Step()
+  async openFundamentalsTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.fundamentalsTab);
+  }
+
+  private async ensureTransactionsTabVisible(): Promise<void> {
+    if (await this.el.transactionRows.first().isVisible().catch(() => false)) {
+      return;
+    }
+    await this.openTransactionsTab();
+  }
+
+  @Step()
   async clickDeleteOnRow(rowText: string): Promise<void> {
     await this.waitForClientReady();
+    await this.ensureTransactionsTabVisible();
     const row = this.el.transactionRows.filter({ hasText: rowText });
     await this.uiActions.click.perform(row.getByTestId("delete-transaction-button"));
   }
@@ -42,6 +60,7 @@ export class TickerDetailActions extends AppBaseActions {
   @Step()
   async clickEditOnRow(rowText: string): Promise<void> {
     await this.waitForClientReady();
+    await this.ensureTransactionsTabVisible();
     const row = this.el.transactionRows.filter({ hasText: rowText });
     await this.uiActions.click.perform(row.getByTestId("edit-transaction-button"));
   }
@@ -49,6 +68,7 @@ export class TickerDetailActions extends AppBaseActions {
   @Step()
   async clickEditOnFirstRow(): Promise<void> {
     await this.waitForClientReady();
+    await this.ensureTransactionsTabVisible();
     const row = this.el.transactionRows.first();
     await this.uiActions.click.perform(row.getByTestId("edit-transaction-button"));
   }

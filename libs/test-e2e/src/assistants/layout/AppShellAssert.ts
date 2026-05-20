@@ -190,6 +190,26 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.appReady).toBeAttached({ timeout: 30_000 });
   }
 
+  @Step()
+  async topBarRemainsStickyAfterMainScroll(): Promise<void> {
+    const before = await this.el.topBarRoot.boundingBox();
+    await this.el.shellMain.evaluate((element) => {
+      element.scrollTop = 600;
+    });
+    const after = await this.el.topBarRoot.boundingBox();
+    expect(before).not.toBeNull();
+    expect(after).not.toBeNull();
+    await this.mxAssertLessThanOrEqual(Math.abs((before?.y ?? 0) - (after?.y ?? 0)), 2, "topbar y drift");
+  }
+
+  @Step()
+  async topBarIsPinnedToViewport(maxOffset = 2): Promise<void> {
+    await expect(this.el.topBarRoot).toBeVisible();
+    const box = await this.el.topBarRoot.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs(box!.y)).toBeLessThanOrEqual(maxOffset);
+  }
+
   // KZO-183: assert the global error banner contains the given text/pattern.
   @Step()
   async globalErrorContains(text: string | RegExp): Promise<void> {

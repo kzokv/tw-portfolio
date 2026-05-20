@@ -8,6 +8,8 @@ import { TopBarComponent, type TTopBarElements } from "./TopBarComponent.js";
 
 export interface TAppShellElements extends TElementLocatorHelpers {
   appReady: Locator;
+  shellMain: Locator;
+  topBarRoot: Locator;
   globalError: Locator;
   impersonationBanner: Locator;
   impersonationCountdown: Locator;
@@ -54,6 +56,8 @@ export class AppShellPage extends BasePage<TAppShellElements> {
     this._elements = {
       ...this.locatorHelpers(),
       appReady: this.locate("app-shell-ready", "App Shell Ready Marker"),
+      shellMain: this.locate("shell-main", "Shell Main Scroll Container"),
+      topBarRoot: this.locate("topbar", "Top Bar Root"),
       globalError: this.locate(SHARED_TEST_IDS.globalErrorBanner, "Global Error Banner"),
       impersonationBanner: this.locate("impersonation-banner", "Impersonation Banner"),
       impersonationCountdown: this.locate("impersonation-countdown", "Impersonation Countdown"),

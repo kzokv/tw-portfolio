@@ -5,6 +5,10 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
     dividends: {
       pageTitle: "Dividends",
       pageDescription: "Track expected receipts, post actuals, and close reconciliation gaps without leaving the calendar.",
+      tabs: {
+        calendar: "Calendar",
+        review: "Review",
+      },
       monthPickerLabel: "Dividend month",
       previousMonth: "Previous month",
       nextMonth: "Next month",
@@ -188,6 +192,10 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
     dividends: {
       pageTitle: "股利",
       pageDescription: "以月曆檢視待入帳與已入帳股利，直接補登實收與完成對帳。",
+      tabs: {
+        calendar: "月曆",
+        review: "覆核",
+      },
       monthPickerLabel: "股利月份",
       previousMonth: "上個月",
       nextMonth: "下個月",

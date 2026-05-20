@@ -158,7 +158,7 @@ describe("DividendCalendarClient", () => {
     });
 
     expect(updateDividendReconciliation).toHaveBeenCalledWith("ledger-open", "matched");
-    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(2);
+    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("renders matched and explained badges for reconciliation statuses", async () => {

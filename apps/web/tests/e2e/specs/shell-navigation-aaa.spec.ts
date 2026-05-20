@@ -23,6 +23,7 @@ test("desktop shell supports collapse persistence and route navigation", async (
   await appShell.assert.isOnRoute(/\/portfolio$/);
   await appShell.assert.appIsReady();
   await portfolio.assert.portfolioIntroIsVisible();
+  await appShell.assert.topBarRemainsStickyAfterMainScroll();
   await appShell.assert.sidebarLinkIsCurrent("portfolio");
 
   await appShell.actions.toggleDesktopSidebar();
@@ -56,6 +57,8 @@ test("desktop quick search navigates to routes and ticker detail without icon ov
   await appShell.actions.clickQuickSearchTicker("2330");
   await appShell.assert.isOnRoute(/\/tickers\/2330$/);
   await ticker.assert.titleContains("2330");
+  await ticker.assert.chartPanelIsVisible();
+  await ticker.assert.fundamentalsPanelIsVisible();
 });
 
 test("mobile drawer and mobile quick search stay usable without horizontal overflow", async ({

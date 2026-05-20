@@ -13,6 +13,11 @@ export interface TTickerDetailElements {
   tickerStatsBar: Locator;
   tickerQuantityStat: Locator;
   tickerAvgCostStat: Locator;
+  transactionsTab: Locator;
+  overviewTab: Locator;
+  fundamentalsTab: Locator;
+  chartPanel: Locator;
+  fundamentalsPanel: Locator;
   repairButton: Locator;
   repairStatusBadge: Locator;
   repairDialog: Locator;
@@ -40,6 +45,11 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
       tickerStatsBar: this.locate("ticker-stats-bar", "Ticker Stats Bar"),
       tickerQuantityStat: this.locate("ticker-history-quantity", "Ticker Quantity Stat"),
       tickerAvgCostStat: this.locate("ticker-history-avg-cost", "Ticker Average Cost Stat"),
+      transactionsTab: this.locate("ticker-tab-transactions", "Ticker Transactions Tab"),
+      overviewTab: this.locate("ticker-tab-overview", "Ticker Overview Tab"),
+      fundamentalsTab: this.locate("ticker-tab-fundamentals", "Ticker Fundamentals Tab"),
+      chartPanel: this.locate("ticker-detail-chart", "Ticker Chart Panel"),
+      fundamentalsPanel: this.locate("ticker-detail-fundamentals", "Ticker Fundamentals Panel"),
       repairButton: this.withDescription(
         this.page.getByTestId("repair-button"),
         "Ticker Repair Button",

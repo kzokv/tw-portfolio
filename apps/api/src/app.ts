@@ -17,6 +17,7 @@ import {
   shouldStampContextFallback,
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
+import { buildFundamentalsRegistry } from "./services/fundamentals/registry.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
 import { registerTradingCalendarCache } from "./services/market-data/registerTradingCalendarCache.js";
 import { registerProviderHealth } from "./services/market-data/registerProviderHealth.js";
@@ -173,6 +174,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   }
 
   app.marketDataRegistry = buildMarketDataRegistry(Env, app.log);
+  app.fundamentalsRegistry = buildFundamentalsRegistry(Env);
   registerTradingCalendarCache(app, { persistence: app.persistence });
   registerProviderHealth(app, { persistence: app.persistence });
   // KZO-172: Yahoo's ToS limits use to personal/non-commercial. Surface the constraint

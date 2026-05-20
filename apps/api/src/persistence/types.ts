@@ -1,5 +1,5 @@
 import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@vakwen/domain";
-import type { DividendLedgerAggregates, DividendSourceLine } from "@vakwen/shared-types";
+import type { DividendLedgerAggregates, DividendSourceLine, TickerFundamentalsDto } from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
@@ -339,6 +339,37 @@ export interface UpdatePostedCashDividendInput {
   dividendDeductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
   dividendSourceLines: DividendSourceLine[];
   lots: Lot[];
+}
+
+export interface PersistedTickerFundamentalsRecord {
+  ticker: string;
+  marketCode: MarketCode;
+  providerId: string | null;
+  fundamentals: TickerFundamentalsDto;
+  refreshedAt: string | null;
+  nextRefreshAt: string | null;
+  lastAttemptedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveTickerFundamentalsSnapshotInput {
+  ticker: string;
+  marketCode: MarketCode;
+  providerId: string;
+  fundamentals: TickerFundamentalsDto;
+  refreshedAt: string;
+  nextRefreshAt: string;
+}
+
+export interface RecordTickerFundamentalsRefreshFailureInput {
+  ticker: string;
+  marketCode: MarketCode;
+  providerId: string;
+  attemptedAt: string;
+  nextRefreshAt: string;
+  errorMessage: string;
 }
 
 export interface InstrumentRow extends InstrumentRef {
@@ -943,6 +974,16 @@ export interface Persistence {
     opts: DividendLedgerListOptions,
   ): Promise<DividendReviewListResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
+  getTickerFundamentals(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<PersistedTickerFundamentalsRecord | null>;
+  saveTickerFundamentalsSnapshot(
+    input: SaveTickerFundamentalsSnapshotInput,
+  ): Promise<PersistedTickerFundamentalsRecord>;
+  recordTickerFundamentalsRefreshFailure(
+    input: RecordTickerFundamentalsRefreshFailureInput,
+  ): Promise<PersistedTickerFundamentalsRecord>;
   listCashLedgerEntries(userId: string, opts: CashLedgerListOptions): Promise<CashLedgerListResult>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
@@ -1355,6 +1396,12 @@ export interface Persistence {
    */
   getCashLedgerEntriesForBalances(userId: string): Promise<CashLedgerEntryForBalance[]>;
   getDailyBarsForTicker(ticker: string, startDate: string, endDate: string): Promise<DailyBar[]>;
+  getDailyBarsForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+    startDate: string,
+    endDate: string,
+  ): Promise<DailyBar[]>;
   /**
    * Batched variant of getDailyBarsForTicker: fetches bars for N tickers in a
    * single query. Returned map is keyed by ticker; missing tickers yield an

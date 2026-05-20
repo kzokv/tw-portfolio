@@ -109,7 +109,7 @@ export function AppShellLayout({
         switcherSlot={switcherSlot}
       />
 
-      <SidebarInset className="relative min-w-0 max-w-full overflow-x-hidden">
+      <SidebarInset className="relative flex h-svh min-w-0 max-w-full flex-col overflow-hidden">
         <AppShellTopBarSlot
           userId={dashboard.settings?.userId}
           displayName={profileData.profile?.displayName}
@@ -129,7 +129,7 @@ export function AppShellLayout({
         />
 
         <main
-          className="min-w-0 max-w-full flex-1 overflow-x-hidden px-4 py-6 md:px-6 md:py-8"
+          className="min-h-0 min-w-0 max-w-full flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-6 md:py-8"
           data-testid="shell-main"
         >
           {/* Preserves §8 item 7 — ApiClientErrorToast inside SidebarInset main. */}

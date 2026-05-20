@@ -528,6 +528,89 @@ export interface TransactionHistoryItemDto {
   feesSource: "CALCULATED" | "MANUAL";
 }
 
+export interface TickerFundamentalsFieldDto<TValue> {
+  value: TValue | null;
+  source: string | null;
+  asOf: string | null;
+}
+
+export interface TickerFundamentalsDto {
+  marketCap: TickerFundamentalsFieldDto<number>;
+  enterpriseValue: TickerFundamentalsFieldDto<number>;
+  priceEarningsRatio: TickerFundamentalsFieldDto<number>;
+  priceBookRatio: TickerFundamentalsFieldDto<number>;
+  dividendYield: TickerFundamentalsFieldDto<number>;
+  earningsPerShare: TickerFundamentalsFieldDto<number>;
+  revenueTrailingTwelveMonths: TickerFundamentalsFieldDto<number>;
+  netIncomeTrailingTwelveMonths: TickerFundamentalsFieldDto<number>;
+}
+
+export interface TickerFundamentalsRefreshDto {
+  providerId: string | null;
+  refreshedAt: string | null;
+  nextRefreshAt: string | null;
+  lastAttemptedAt: string | null;
+  lastError: string | null;
+  status: "fresh" | "stale" | "missing";
+}
+
+export interface TickerDetailsQuoteDto {
+  currentUnitPrice: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
+  asOf: string | null;
+  source: string | null;
+  quoteStatus: "current" | "provisional" | "missing";
+}
+
+export interface TickerDetailsPositionDto {
+  quantity: number;
+  averageCostPerShare: number | null;
+  costBasisAmount: number;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  realizedPnlAmount: number;
+  currency: CurrencyCode;
+  accountIds: string[];
+  lastTradeDate: string | null;
+}
+
+export interface TickerDetailsChartPointDto {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
+}
+
+export interface TickerDetailsDto {
+  identity: {
+    ticker: string;
+    marketCode: MarketCode;
+    accountId: string | null;
+    name: string | null;
+    instrumentType: InstrumentType | null;
+    priceCurrency: CurrencyCode;
+    barsBackfillStatus: string | null;
+  };
+  quote: TickerDetailsQuoteDto;
+  position: TickerDetailsPositionDto;
+  chart: {
+    range: "1Y";
+    points: TickerDetailsChartPointDto[];
+  };
+  transactions: TransactionHistoryItemDto[];
+  dividends: {
+    upcoming: DashboardOverviewUpcomingDividendDto[];
+    recent: DashboardOverviewRecentDividendDto[];
+  };
+  fundamentals: TickerFundamentalsDto;
+  fundamentalsRefresh: TickerFundamentalsRefreshDto;
+}
+
 export interface PreviewImpactResponse {
   affectedRows: {
     cashLedgerEntries: number;

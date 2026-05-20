@@ -1,0 +1,238 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { getDictionary } from "../../../lib/i18n";
+
+vi.mock("../../../features/dividends/services/dividendService", () => ({
+  fetchDividendCalendarSnapshot: vi.fn(),
+  fetchDividendLedgerReview: vi.fn(),
+  fetchDividendLedgerYears: vi.fn(),
+}));
+
+vi.mock("../../../components/dividends/DividendCalendarClient", () => ({
+  DividendCalendarClient: () => <div data-testid="mock-dividend-calendar-client" />,
+}));
+
+vi.mock("../../../components/dividends/DividendReviewClient", () => ({
+  DividendReviewClient: () => <div data-testid="mock-dividend-review-client" />,
+}));
+
+import {
+  fetchDividendCalendarSnapshot,
+  fetchDividendLedgerReview,
+  fetchDividendLedgerYears,
+} from "../../../features/dividends/services/dividendService";
+import { DividendsTabsClient } from "../../../components/dividends/DividendsTabsClient";
+
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+const dict = getDictionary("en");
+const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapshot);
+const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
+const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
+
+describe("DividendsTabsClient", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.history.replaceState(null, "", "/dividends?view=ledger");
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    fetchDividendCalendarSnapshotMock.mockResolvedValue({
+      events: [],
+      ledgerEntries: [],
+    } as never);
+    fetchDividendLedgerReviewMock.mockResolvedValue({
+      ledgerEntries: [],
+      total: 0,
+      aggregates: {
+        totalExpectedCashAmount: {},
+        totalReceivedCashAmount: {},
+        openCount: 0,
+        byMonth: {},
+        byTicker: {},
+      },
+    } as never);
+    fetchDividendLedgerYearsMock.mockResolvedValue([2026]);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  it("does not fetch calendar data while ledger is the active tab on first render", async () => {
+    act(() => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="ledger"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={{
+            ledgerEntries: [],
+            total: 0,
+            aggregates: {
+              totalExpectedCashAmount: {},
+              totalReceivedCashAmount: {},
+              openCount: 0,
+              byMonth: {},
+              byTicker: {},
+            },
+          }}
+          initialYears={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+    expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
+    expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches calendar data only once after the inactive tab is first activated", async () => {
+    const renderTabs = (initialTab: "calendar" | "ledger") => {
+      root.render(
+        <DividendsTabsClient
+          initialTab={initialTab}
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={{
+            ledgerEntries: [],
+            total: 0,
+            aggregates: {
+              totalExpectedCashAmount: {},
+              totalReceivedCashAmount: {},
+              openCount: 0,
+              byMonth: {},
+              byTicker: {},
+            },
+          }}
+          initialYears={[2026]}
+        />,
+      );
+    };
+
+    act(() => {
+      renderTabs("ledger");
+    });
+
+    await act(async () => {});
+
+    await act(async () => {
+      renderTabs("calendar");
+    });
+    await act(async () => {});
+
+    expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      renderTabs("ledger");
+    });
+    await act(async () => {
+      renderTabs("calendar");
+    });
+    await act(async () => {});
+
+    expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an error state when lazy calendar loading fails", async () => {
+    fetchDividendCalendarSnapshotMock.mockRejectedValue(new Error("calendar unavailable"));
+
+    act(() => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="ledger"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={{
+            ledgerEntries: [],
+            total: 0,
+            aggregates: {
+              totalExpectedCashAmount: {},
+              totalReceivedCashAmount: {},
+              openCount: 0,
+              byMonth: {},
+              byTicker: {},
+            },
+          }}
+          initialYears={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="calendar"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={{
+            ledgerEntries: [],
+            total: 0,
+            aggregates: {
+              totalExpectedCashAmount: {},
+              totalReceivedCashAmount: {},
+              openCount: 0,
+              byMonth: {},
+              byTicker: {},
+            },
+          }}
+          initialYears={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    expect(container.textContent).toContain("calendar unavailable");
+  });
+
+  it("renders an error state when lazy ledger loading fails", async () => {
+    fetchDividendLedgerReviewMock.mockRejectedValue(new Error("ledger unavailable"));
+
+    act(() => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="ledger"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={null}
+          initialYears={[]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(container.textContent).toContain("ledger unavailable");
+  });
+});

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@vakwen/domain";
 import { marketCodeFor } from "@vakwen/shared-types";
-import type { DividendLedgerAggregates, DividendSourceLine } from "@vakwen/shared-types";
+import type { DividendLedgerAggregates, DividendSourceLine, TickerFundamentalsDto } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -71,7 +72,10 @@ import type {
   ListSharesForOwnerResult,
   MaterializePendingSharesInput,
   PendingShareInviteRecord,
+  PersistedTickerFundamentalsRecord,
   RevokeAnonymousShareTokenInput,
+  RecordTickerFundamentalsRefreshFailureInput,
+  SaveTickerFundamentalsSnapshotInput,
   RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   AggregatedSnapshotPoint,
@@ -120,6 +124,19 @@ interface MemoryInstrument {
 
 type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
 type SeedDailyBar = DailyBar & { marketCode?: MarketCode };
+
+interface MemoryTickerFundamentalsRecord {
+  ticker: string;
+  marketCode: MarketCode;
+  providerId: string | null;
+  fundamentals: TickerFundamentalsDto;
+  refreshedAt: string | null;
+  nextRefreshAt: string | null;
+  lastAttemptedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface MemoryPersistenceOptions {
   seedCatalog?: boolean;
@@ -231,10 +248,32 @@ function instrumentCatalogKey(ticker: string, marketCode: string): string {
   return `${ticker}|${marketCode}`;
 }
 
+function tickerFundamentalsKey(ticker: string, marketCode: MarketCode): string {
+  return `${ticker}|${marketCode}`;
+}
+
+function mapMemoryTickerFundamentals(
+  row: MemoryTickerFundamentalsRecord,
+): PersistedTickerFundamentalsRecord {
+  return {
+    ticker: row.ticker,
+    marketCode: row.marketCode,
+    providerId: row.providerId,
+    fundamentals: normalizeTickerFundamentals(row.fundamentals),
+    refreshedAt: row.refreshedAt,
+    nextRefreshAt: row.nextRefreshAt,
+    lastAttemptedAt: row.lastAttemptedAt,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export class MemoryPersistence implements Persistence {
   private readonly stores = new Map<string, Store>();
   private readonly idempotencyKeys = new Map<string, Set<string>>();
   private readonly dailyBars: MemoryDailyBar[] = [];
+  private readonly tickerFundamentals = new Map<string, MemoryTickerFundamentalsRecord>();
   /** email → MemoryUser (identity resolution index) */
   private readonly usersByEmail = new Map<string, MemoryUser>();
   /**
@@ -1711,6 +1750,58 @@ export class MemoryPersistence implements Persistence {
     return { years: Array.from(years).sort((a, b) => b - a) };
   }
 
+  async getTickerFundamentals(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<PersistedTickerFundamentalsRecord | null> {
+    const record = this.tickerFundamentals.get(tickerFundamentalsKey(ticker, marketCode));
+    return record ? mapMemoryTickerFundamentals(record) : null;
+  }
+
+  async saveTickerFundamentalsSnapshot(
+    input: SaveTickerFundamentalsSnapshotInput,
+  ): Promise<PersistedTickerFundamentalsRecord> {
+    const key = tickerFundamentalsKey(input.ticker, input.marketCode);
+    const existing = this.tickerFundamentals.get(key);
+    const now = new Date().toISOString();
+    const nextRecord: MemoryTickerFundamentalsRecord = {
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      providerId: input.providerId,
+      fundamentals: normalizeTickerFundamentals(input.fundamentals),
+      refreshedAt: input.refreshedAt,
+      nextRefreshAt: input.nextRefreshAt,
+      lastAttemptedAt: input.refreshedAt,
+      lastError: null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.tickerFundamentals.set(key, nextRecord);
+    return mapMemoryTickerFundamentals(nextRecord);
+  }
+
+  async recordTickerFundamentalsRefreshFailure(
+    input: RecordTickerFundamentalsRefreshFailureInput,
+  ): Promise<PersistedTickerFundamentalsRecord> {
+    const key = tickerFundamentalsKey(input.ticker, input.marketCode);
+    const existing = this.tickerFundamentals.get(key);
+    const now = new Date().toISOString();
+    const nextRecord: MemoryTickerFundamentalsRecord = {
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      providerId: input.providerId,
+      fundamentals: existing?.fundamentals ?? createEmptyTickerFundamentals(),
+      refreshedAt: existing?.refreshedAt ?? null,
+      nextRefreshAt: input.nextRefreshAt,
+      lastAttemptedAt: input.attemptedAt,
+      lastError: input.errorMessage,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.tickerFundamentals.set(key, nextRecord);
+    return mapMemoryTickerFundamentals(nextRecord);
+  }
+
   async claimIdempotencyKey(userId: string, key: string): Promise<boolean> {
     const existing = this.idempotencyKeys.get(userId) ?? new Set<string>();
     if (existing.has(key)) return false;
@@ -2014,6 +2105,22 @@ export class MemoryPersistence implements Persistence {
     return this.dailyBars
       .filter(b => b.ticker === ticker && b.barDate >= startDate && b.barDate <= endDate)
       .sort((a, b) => a.barDate.localeCompare(b.barDate));
+  }
+
+  async getDailyBarsForTickerMarket(
+    ticker: string,
+    marketCode: MarketCode,
+    startDate: string,
+    endDate: string,
+  ): Promise<DailyBar[]> {
+    return this.dailyBars
+      .filter((bar) => (
+        bar.ticker === ticker
+        && bar.marketCode === marketCode
+        && bar.barDate >= startDate
+        && bar.barDate <= endDate
+      ))
+      .sort((left, right) => left.barDate.localeCompare(right.barDate));
   }
 
   async getDailyBarsForTickers(tickers: string[], startDate: string, endDate: string): Promise<Map<string, DailyBar[]>> {

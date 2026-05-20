@@ -13,13 +13,22 @@ export class TickerDetailAssert extends BaseAssert {
     return this._instance.elements;
   }
 
+  private async ensureTransactionsTabVisible(): Promise<void> {
+    if (await this.el.transactionRows.first().isVisible().catch(() => false)) {
+      return;
+    }
+    await this.uiActions.click.perform(this.el.transactionsTab);
+  }
+
   @Step()
   async rowCountIs(count: number): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.transactionRows).toHaveCount(count, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async emptyStateIsVisible(): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.tickerHistoryEmpty).toBeVisible({ timeout: 10_000 });
   }
 
@@ -78,6 +87,7 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async editableRowIsVisible(): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.editForm.editableRow).toBeVisible({ timeout: 5_000 });
   }
 
@@ -117,6 +127,17 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
+  async chartPanelIsVisible(): Promise<void> {
+    await expect(this.el.chartPanel).toBeVisible();
+  }
+
+  @Step()
+  async fundamentalsPanelIsVisible(): Promise<void> {
+    await this.uiActions.click.perform(this.el.fundamentalsTab);
+    await expect(this.el.fundamentalsPanel).toBeVisible();
+  }
+
+  @Step()
   async sectionIsVisible(): Promise<void> {
     await expect(this.el.clientReady).toBeAttached({ timeout: 20_000 });
     await expect(this.el.tickerHistorySection).toBeVisible({ timeout: 20_000 });
@@ -127,6 +148,7 @@ export class TickerDetailAssert extends BaseAssert {
     texts: string[],
     count: number,
   ): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     let locator = this.el.transactionRows;
     for (const text of texts) {
       locator = locator.filter({ hasText: text });
@@ -136,6 +158,7 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async firstRowHasMutationControls(): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     const firstRow = this.el.transactionRows.first();
     await expect(firstRow.getByTestId("edit-transaction-button")).toBeVisible();
     await expect(firstRow.getByTestId("delete-transaction-button")).toBeVisible();
@@ -173,11 +196,13 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async firstRowContains(text: string | RegExp): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.transactionRows.first()).toContainText(text, { timeout: MUTATION_REFRESH_TIMEOUT_MS });
   }
 
   @Step()
   async rowContainingTextContains(rowText: string, expected: string | RegExp): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.transactionRows.filter({ hasText: rowText })).toContainText(expected, {
       timeout: MUTATION_REFRESH_TIMEOUT_MS,
     });
@@ -218,6 +243,7 @@ export class TickerDetailAssert extends BaseAssert {
 
   @Step()
   async editPriceInputIsVisible(): Promise<void> {
+    await this.ensureTransactionsTabVisible();
     await expect(this.el.editForm.priceInput).toBeVisible();
   }
 

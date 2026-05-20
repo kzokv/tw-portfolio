@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Wrench } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type {
   LocaleCode,
   TransactionHistoryItemDto,
@@ -20,12 +21,15 @@ import { DeleteConfirmationDialog } from "../../../components/portfolio/DeleteCo
 import { EditConfirmationDialog } from "../../../components/portfolio/EditConfirmationDialog";
 import { FeeRecalcConfirmDialog } from "../../../components/portfolio/FeeRecalcConfirmDialog";
 import { Button } from "../../../components/ui/Button";
+import { Card } from "../../../components/ui/Card";
 import { StatusToast } from "../../../components/ui/StatusToast";
 import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/shadcn/tabs";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
+import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { useEventStream } from "../../../hooks/useEventStream";
 import { RepairModal, type RepairModalValue } from "../../../features/settings/components/RepairModal";
 import { requestRepair } from "../../../features/settings/services/repairService";
@@ -33,6 +37,7 @@ import { getCooldownRemainingMinutes } from "../../../features/settings/utils/co
 import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
 import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
 import { useBreadcrumb } from "../../../components/layout/BreadcrumbProvider";
+import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 
 interface TickerHistoryClientProps {
   transactions: TransactionHistoryItemDto[];
@@ -43,8 +48,8 @@ interface TickerHistoryClientProps {
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
-  statsBar: React.ReactNode;
   instrument: InstrumentCatalogItemDto | null;
+  details: TickerDetailsModel;
   isDemo: boolean;
   transactionAccountFilter?: string;
 }
@@ -61,6 +66,18 @@ function formatLastRepairTime(locale: LocaleCode, value: Date): string {
   }).format(value);
 }
 
+function formatCompactNumber(locale: LocaleCode, value: number | null): string {
+  if (value == null) return "-";
+  return new Intl.NumberFormat(locale === "zh-TW" ? "zh-TW" : "en-US", {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatPercent(locale: LocaleCode, value: number | null): string {
+  if (value == null) return "-";
+  return `${formatCompactNumber(locale, value)}%`;
+}
+
 export function TickerHistoryClient({
   transactions,
   dict,
@@ -70,8 +87,8 @@ export function TickerHistoryClient({
   accounts,
   feeProfiles,
   feeProfileBindings,
-  statsBar,
   instrument,
+  details,
   isDemo,
   transactionAccountFilter,
 }: TickerHistoryClientProps) {
@@ -96,6 +113,7 @@ export function TickerHistoryClient({
   const [repairInProgress, setRepairInProgress] = useState(false);
   const [instrumentState, setInstrumentState] = useState<InstrumentCatalogItemDto | null>(instrument);
   const [displayTransactions, setDisplayTransactions] = useState(transactions);
+  const [activeTab, setActiveTab] = useState("overview");
   const [repairValue, setRepairValue] = useState<RepairModalValue>({
     startDate: "",
     endDate: "",
@@ -105,6 +123,7 @@ export function TickerHistoryClient({
   const sharedContextOwnerId = useSharedContextOwnerId();
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
+  const currency = details.identity.currency;
 
   useEffect(() => {
     setIsClientReady(true);
@@ -226,6 +245,92 @@ export function TickerHistoryClient({
       : cooldownRemaining > 0
         ? dict.settings.repairModeUnavailableCooldown.replace("{minutes}", String(cooldownRemaining))
         : "";
+  const quoteDirection = (details.quote.changeAmount ?? 0) >= 0 ? "up" : "down";
+  const quoteAccent = quoteDirection === "up"
+    ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+    : "text-rose-700 bg-rose-50 border-rose-200";
+  const summaryCards = [
+    {
+      key: "quantity",
+      label: dict.tickerHistory.quantityLabel,
+      value: formatNumber(details.position.quantity, locale),
+      detail: transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel,
+      testId: "ticker-history-quantity",
+    },
+    {
+      key: "avgCost",
+      label: dict.tickerHistory.avgCostLabel,
+      value: details.position.averageCost != null
+        ? formatCurrencyAmount(details.position.averageCost, currency, locale)
+        : dict.tickerHistory.noHoldingData,
+      detail: dict.tickerHistory.accountScopeLabel,
+      testId: "ticker-history-avg-cost",
+    },
+    {
+      key: "marketValue",
+      label: dict.tickerHistory.marketValueLabel,
+      value: details.position.marketValue != null
+        ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+        : dict.tickerHistory.noHoldingData,
+      detail: `${dict.tickerHistory.entriesLabel}: ${formatNumber(displayTransactions.length, locale)}`,
+      testId: "ticker-history-market-value",
+    },
+    {
+      key: "totalCost",
+      label: dict.tickerHistory.totalCostLabel,
+      value: details.position.costBasis != null
+        ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+        : dict.tickerHistory.noHoldingData,
+      detail: `${dict.tickerHistory.accountScopeLabel}: ${transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel}`,
+      testId: "ticker-history-total-cost",
+    },
+    {
+      key: "unrealized",
+      label: dict.tickerHistory.unrealizedPnlLabel,
+      value: details.position.unrealizedPnl != null
+        ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+        : dict.tickerHistory.noHoldingData,
+      detail: details.quote.quoteStatus,
+      testId: "ticker-history-unrealized-pnl",
+    },
+    {
+      key: "realized",
+      label: dict.tickerHistory.realizedPnlLabel,
+      value: formatCurrencyAmount(details.position.realizedPnl, currency, locale),
+      detail: details.position.lastDividendPostedDate
+        ? formatDateLabel(details.position.lastDividendPostedDate, locale)
+        : dict.tickerHistory.noHoldingData,
+      testId: "ticker-history-realized-pnl",
+    },
+  ];
+  const chartData = details.chart.points.map((point) => ({
+    ...point,
+    axisLabel: point.label === "Now" ? point.label : formatDateLabel(point.date, locale),
+  }));
+  const floatingSummary = (
+    <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
+      <Card className="rounded-2xl p-4">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
+        <p className="mt-2 text-lg font-semibold text-foreground">{formatNumber(details.position.quantity, locale)}</p>
+      </Card>
+      <Card className="rounded-2xl p-4">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.marketValueLabel}</p>
+        <p className="mt-2 text-lg font-semibold text-foreground">
+          {details.position.marketValue != null
+            ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+            : dict.tickerHistory.noHoldingData}
+        </p>
+      </Card>
+      <Card className="rounded-2xl p-4">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
+        <p className="mt-2 text-lg font-semibold text-foreground">
+          {details.position.unrealizedPnl != null
+            ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+            : dict.tickerHistory.noHoldingData}
+        </p>
+      </Card>
+    </div>
+  );
 
   async function handleRepairSubmit(): Promise<void> {
     setIsRepairSubmitting(true);
@@ -294,61 +399,282 @@ export function TickerHistoryClient({
   return (
     <>
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
-      <section className="rounded-xl border border-border bg-card px-5 py-6 text-card-foreground shadow-sm sm:px-6 sm:py-7 md:px-8" data-testid="ticker-history-section">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-primary/80">{dict.tickerHistory.eyebrow}</p>
-            <h1 className="mt-3 text-3xl leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
-              {ticker}
-            </h1>
-            <p className="mt-2 text-xs text-muted-foreground" data-testid="repair-status-badge">
-              {statusText}
-            </p>
+      <section className="grid gap-6" data-testid="ticker-history-section">
+        <Card className="overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(145deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
+          <div className="grid gap-8 px-5 py-6 sm:px-6 md:px-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-primary/80">{dict.tickerHistory.eyebrow}</p>
+                <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", quoteAccent)}>
+                  {details.quote.quoteStatus}
+                </span>
+                {details.quote.freshness !== "current" ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                    {details.quote.freshness}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <h1 className="text-3xl font-semibold leading-tight text-slate-950 sm:text-4xl" data-testid="ticker-history-title">
+                  {details.identity.name ? `${details.identity.name} (${ticker})` : ticker}
+                </h1>
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                  {details.identity.marketCode} · {details.identity.instrumentType ?? "Instrument"}
+                </span>
+              </div>
+              <div className="mt-5 flex flex-wrap items-end gap-4">
+                <div>
+                  <p className="text-4xl font-semibold tracking-tight text-slate-950">
+                    {details.quote.currentPrice != null
+                      ? formatCurrencyAmount(details.quote.currentPrice, currency, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    {details.quote.previousClose != null
+                      ? `${dict.tickerHistory.previousCloseLabel}: ${formatCurrencyAmount(details.quote.previousClose, currency, locale)}`
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+                <div className={cn("rounded-2xl border px-4 py-3 text-sm", quoteAccent)} data-testid="ticker-quote-change">
+                  <div className="flex items-center gap-2 font-medium">
+                    {quoteDirection === "up" ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                    <span>{details.quote.changeAmount != null ? formatCurrencyAmount(details.quote.changeAmount, currency, locale) : "-"}</span>
+                    <span>{formatPercent(locale, details.quote.changePercent)}</span>
+                  </div>
+                  <p className="mt-1 text-xs opacity-80" data-testid="repair-status-badge">{statusText}</p>
+                </div>
+              </div>
+              {details.quote.freshnessTooltip ? (
+                <p className="mt-3 text-sm text-slate-500">{details.quote.freshnessTooltip}</p>
+              ) : null}
+            </div>
+
+            <Card className="rounded-[26px] border-slate-200 bg-white/92 p-5 shadow-none">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.floatingSummaryTitle}</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {details.position.marketValue != null
+                      ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+                <BarChart3 className="h-5 w-5 text-slate-400" />
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.quantityLabel}</p>
+                  <p className="mt-1 text-base font-semibold text-slate-950">{formatNumber(details.position.quantity, locale)}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.totalCostLabel}</p>
+                  <p className="mt-1 text-base font-semibold text-slate-950">
+                    {details.position.costBasis != null
+                      ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.unrealizedPnlLabel}</p>
+                  <p className="mt-1 text-base font-semibold text-slate-950">
+                    {details.position.unrealizedPnl != null
+                      ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.nextDividendLabel}</p>
+                  <p className="mt-1 text-base font-semibold text-slate-950">
+                    {details.dividends.nextPaymentDate
+                      ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link
+                  href="/portfolio"
+                  className="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm text-primary transition hover:border-primary/40 hover:bg-primary/10"
+                >
+                  {dict.tickerHistory.backToDashboard}
+                </Link>
+                <Button
+                  variant="secondary"
+                  onClick={() => setIsRepairDialogOpen(true)}
+                  disabled={repairDisabled}
+                  className="gap-1.5"
+                  title={repairDisabledReason || dict.tickerHistory.repairButtonCooldownTooltip}
+                  data-testid="repair-button"
+                >
+                  <Wrench className="h-4 w-4" />
+                  {dict.tickerHistory.repairAction}
+                </Button>
+                {!isSharedContext ? (
+                  <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
+                    <Plus className="h-4 w-4" />
+                    {dict.tickerHistory.recordTransaction}
+                  </Button>
+                ) : null}
+              </div>
+            </Card>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Link
-              href="/portfolio"
-              className="inline-flex items-center justify-center rounded-full border border-border bg-background px-4 py-2 text-sm text-primary transition hover:border-primary/40 hover:bg-primary/10"
-            >
-              {dict.tickerHistory.backToDashboard}
-            </Link>
-            <Button
-              variant="secondary"
-              onClick={() => setIsRepairDialogOpen(true)}
-              disabled={repairDisabled}
-              className="gap-1.5"
-              title={repairDisabledReason || dict.tickerHistory.repairButtonCooldownTooltip}
-              data-testid="repair-button"
-            >
-              <Wrench className="h-4 w-4" />
-              {dict.tickerHistory.repairAction}
-            </Button>
-            {!isSharedContext ? (
-              <Button onClick={() => setIsRecordDialogOpen(true)} data-testid="record-transaction-button" className="gap-1.5">
-                <Plus className="h-4 w-4" />
-                {dict.tickerHistory.recordTransaction}
-              </Button>
+        </Card>
+
+        <div ref={statsRef} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="ticker-stats-bar">
+          {summaryCards.map((card) => (
+            <Card key={card.key} className="rounded-[24px] border-slate-200 bg-white/92 p-5 shadow-[0_14px_28px_rgba(148,163,184,0.1)]" data-testid={card.testId}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+              <p className="mt-3 text-2xl font-semibold text-slate-950">{card.value}</p>
+              <p className="mt-2 text-sm text-slate-500">{card.detail}</p>
+            </Card>
+          ))}
+        </div>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-6">
+          <TabsList className="w-full justify-start overflow-x-auto rounded-2xl bg-slate-100/90 p-1.5">
+            <TabsTrigger value="overview" data-testid="ticker-tab-overview" className="rounded-xl px-4 py-2">
+              <BarChart3 className="mr-2 h-4 w-4" />
+              {dict.tickerHistory.overviewTabLabel}
+            </TabsTrigger>
+            <TabsTrigger value="fundamentals" data-testid="ticker-tab-fundamentals" className="rounded-xl px-4 py-2">
+              <Landmark className="mr-2 h-4 w-4" />
+              {dict.tickerHistory.fundamentalsTabLabel}
+            </TabsTrigger>
+            <TabsTrigger value="transactions" data-testid="ticker-tab-transactions" className="rounded-xl px-4 py-2">
+              <ReceiptText className="mr-2 h-4 w-4" />
+              {dict.tickerHistory.transactionsTabLabel}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="mt-0 grid gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.9fr)]">
+            <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-detail-chart">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.chartTitle}</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{dict.tickerHistory.chartSubtitle}</h2>
+                </div>
+                <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                  {details.identity.currency}
+                </div>
+              </div>
+              <div className="mt-6 h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                    <XAxis dataKey="axisLabel" tickLine={false} axisLine={false} minTickGap={32} />
+                    <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
+                    <Tooltip
+                      formatter={(value, name) => {
+                        if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
+                        if (name === "quantity") return formatNumber(value, locale);
+                        return formatCurrencyAmount(value, currency, locale);
+                      }}
+                    />
+                    <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
+                    <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+
+            <div className="grid gap-6">
+              <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.dividendsPanelTitle}</p>
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.upcomingDividendsLabel}</p>
+                    <p className="mt-1 text-xl font-semibold text-slate-950">{formatNumber(details.dividends.upcomingCount, locale)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.nextDividendLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">
+                      {details.dividends.nextPaymentDate
+                        ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                        : dict.tickerHistory.noHoldingData}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.lastDividendLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">
+                      {details.dividends.lastPostedDate
+                        ? formatDateLabel(details.dividends.lastPostedDate, locale)
+                        : dict.tickerHistory.noHoldingData}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+              <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.positionSummaryTitle}</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.accountScopeLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.entriesLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{formatNumber(displayTransactions.length, locale)}</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="fundamentals" className="mt-0 grid gap-6 lg:grid-cols-2" data-testid="ticker-detail-fundamentals">
+            {details.fundamentals.panels.map((panel) => (
+              <Card key={panel.key} className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{panel.title}</p>
+                <div className="mt-4 grid gap-3">
+                  {panel.items.map((item) => (
+                    <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-slate-500">{item.label}</p>
+                          <p className="mt-1 text-base font-semibold text-slate-950">
+                            {typeof item.value === "number"
+                              ? formatCompactNumber(locale, item.value)
+                              : item.value ?? dict.tickerHistory.fundamentalsUnavailable}
+                          </p>
+                        </div>
+                        {(item.source || item.asOf) ? (
+                          <div className="text-right text-[11px] text-slate-400">
+                            <p>{item.source ?? ""}</p>
+                            <p>{item.asOf ? formatDateLabel(item.asOf, locale) : ""}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </TabsContent>
+
+          <TabsContent value="transactions" className="mt-0 grid gap-6" data-testid="ticker-detail-transactions">
+            {isSharedContext ? (
+              <div
+                className="rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
+                data-testid="ticker-history-readonly"
+                role="status"
+                aria-live="polite"
+              >
+                {dict.switcher.readonlyDescription}
+              </div>
             ) : null}
-          </div>
-        </div>
-
-        {isSharedContext ? (
-          <div
-            className="mt-6 rounded-[22px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700"
-            data-testid="ticker-history-readonly"
-            role="status"
-            aria-live="polite"
-          >
-            {dict.switcher.readonlyDescription}
-          </div>
-        ) : null}
-
-        <div ref={statsRef} className="mt-6">
-          {statsBar}
-        </div>
+            <TransactionHistoryTable
+              transactions={displayTransactions}
+              dict={dict}
+              locale={locale}
+              onDeleteRequest={isSharedContext ? undefined : mutations.startDelete}
+              editingId={isSharedContext ? null : mutations.editingId}
+              onEditStart={isSharedContext ? undefined : mutations.startEdit}
+              onEditCancel={isSharedContext ? undefined : mutations.cancelEdit}
+              onEditSave={isSharedContext ? undefined : mutations.submitEdit}
+              recomputingIds={mutations.recomputingIds}
+            />
+          </TabsContent>
+        </Tabs>
       </section>
 
-      <FloatingStatsBubble visible={!statsVisible}>{statsBar}</FloatingStatsBubble>
+      <FloatingStatsBubble visible={!statsVisible}>{floatingSummary}</FloatingStatsBubble>
 
       <RecordTransactionDialog
         open={isRecordDialogOpen}
@@ -383,20 +709,6 @@ export function TickerHistoryClient({
         onSubmit={handleRepairSubmit}
         dict={dict}
       />
-
-      <div className="mt-6">
-        <TransactionHistoryTable
-          transactions={displayTransactions}
-          dict={dict}
-          locale={locale}
-          onDeleteRequest={isSharedContext ? undefined : mutations.startDelete}
-          editingId={isSharedContext ? null : mutations.editingId}
-          onEditStart={isSharedContext ? undefined : mutations.startEdit}
-          onEditCancel={isSharedContext ? undefined : mutations.cancelEdit}
-          onEditSave={isSharedContext ? undefined : mutations.submitEdit}
-          recomputingIds={mutations.recomputingIds}
-        />
-      </div>
 
       <DeleteConfirmationDialog
         open={mutations.isDeleteDialogOpen}

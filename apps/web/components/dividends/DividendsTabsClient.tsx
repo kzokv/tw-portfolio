@@ -15,41 +15,105 @@
 // Tab switch from ledger → calendar drops ledger-only params (the calendar
 // has its own date-range axis via month picker).
 
-import { useCallback } from "react";
-import type { ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
+import type { AppDictionary } from "../../lib/i18n";
+import {
+  currentMonthQuery,
+  searchParamsToReviewQuery,
+} from "./dividendsPageQuery";
+import { DividendCalendarClient } from "./DividendCalendarClient";
+import { DividendReviewClient } from "./DividendReviewClient";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS as LEDGER_ONLY_PARAMS,
   type DividendsTabValue,
 } from "./dividendsTabsUtils";
+import {
+  fetchDividendCalendarSnapshot,
+  fetchDividendLedgerReview,
+  fetchDividendLedgerYears,
+  type DividendLedgerReviewResponse,
+} from "../../features/dividends/services/dividendService";
+import type { DividendCalendarSnapshot } from "../../features/dividends/types";
 
 interface DividendsTabsClientProps {
   initialTab: DividendsTabValue;
   calendarLabel: string;
   ledgerLabel: string;
-  calendarSlot: ReactNode;
-  ledgerSlot: ReactNode;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  accounts: AccountDto[];
+  initialCalendarSnapshot: DividendCalendarSnapshot | null;
+  initialReviewData: DividendLedgerReviewResponse | null;
+  initialYears: number[];
+}
+
+function LoadingPanel({ label }: { label: string }) {
+  return (
+    <div
+      className="rounded-[24px] border border-border bg-card px-5 py-10 text-center text-sm text-muted-foreground shadow-sm"
+      data-testid="dividends-tab-loading"
+    >
+      Loading {label.toLowerCase()}...
+    </div>
+  );
+}
+
+function ErrorPanel({ message }: { message: string }) {
+  return (
+    <div
+      className="rounded-[24px] border border-destructive/30 bg-destructive/5 px-5 py-10 text-center text-sm text-destructive shadow-sm"
+      data-testid="dividends-tab-error"
+      role="status"
+    >
+      {message}
+    </div>
+  );
 }
 
 export function DividendsTabsClient({
   initialTab,
   calendarLabel,
   ledgerLabel,
-  calendarSlot,
-  ledgerSlot,
+  dict,
+  locale,
+  accounts,
+  initialCalendarSnapshot,
+  initialReviewData,
+  initialYears,
 }: DividendsTabsClientProps) {
-  const router = useRouter();
-  const pathname = usePathname() ?? "/dividends";
-  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<DividendsTabValue>(initialTab);
+  const [calendarSnapshot, setCalendarSnapshot] = useState<DividendCalendarSnapshot | null>(initialCalendarSnapshot);
+  const [reviewData, setReviewData] = useState<DividendLedgerReviewResponse | null>(initialReviewData);
+  const [years, setYears] = useState<number[]>(initialYears);
+  const [isCalendarLoading, setIsCalendarLoading] = useState(false);
+  const [isLedgerLoading, setIsLedgerLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
+  const [ledgerError, setLedgerError] = useState("");
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    setCalendarSnapshot(initialCalendarSnapshot);
+  }, [initialCalendarSnapshot]);
+
+  useEffect(() => {
+    setReviewData(initialReviewData);
+  }, [initialReviewData]);
+
+  useEffect(() => {
+    setYears(initialYears);
+  }, [initialYears]);
 
   const handleTabChange = useCallback(
     (next: string) => {
       const value = next as DividendsTabValue;
-      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      const params = new URLSearchParams(window.location.search);
 
       if (value === "calendar") {
-        // Tab switch to calendar drops ledger-only params (Phase 5a lock).
         for (const key of LEDGER_ONLY_PARAMS) params.delete(key);
         params.delete("view");
       } else {
@@ -57,21 +121,79 @@ export function DividendsTabsClient({
       }
 
       const qs = params.toString();
-      const url = qs ? `${pathname}?${qs}` : pathname;
+      const url = qs ? `/dividends?${qs}` : "/dividends";
 
-      // Sync URL synchronously for E2E page.url() assertions
-      // (per .claude/rules/playwright-navigation-patterns.md).
-      if (typeof window !== "undefined") {
-        window.history.replaceState(null, "", url);
-      }
-      router.replace(url, { scroll: false });
+      window.history.replaceState(null, "", url);
+      setActiveTab(value);
     },
-    [pathname, router, searchParams],
+    [],
   );
+
+  useEffect(() => {
+    if (activeTab !== "calendar" || calendarSnapshot) return;
+
+    let cancelled = false;
+    setCalendarError("");
+    setIsCalendarLoading(true);
+    void fetchDividendCalendarSnapshot(currentMonthQuery())
+      .then((snapshot) => {
+        if (!cancelled) {
+          setCalendarSnapshot(snapshot);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCalendarError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCalendarLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, calendarSnapshot]);
+
+  useEffect(() => {
+    if (activeTab !== "ledger" || (reviewData && years.length > 0)) return;
+
+    let cancelled = false;
+    setLedgerError("");
+    setIsLedgerLoading(true);
+    void Promise.all([
+      reviewData
+        ? Promise.resolve(reviewData)
+        : fetchDividendLedgerReview(searchParamsToReviewQuery(new URLSearchParams(window.location.search))),
+      years.length > 0 ? Promise.resolve(years) : fetchDividendLedgerYears(),
+    ])
+      .then(([nextReviewData, nextYears]) => {
+        if (!cancelled) {
+          setReviewData(nextReviewData);
+          setYears(nextYears);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLedgerError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLedgerLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, reviewData, years]);
 
   return (
     <Tabs
-      value={initialTab}
+      value={activeTab}
       onValueChange={handleTabChange}
       data-testid="dividends-tabs"
       className="flex flex-col gap-6"
@@ -89,10 +211,28 @@ export function DividendsTabsClient({
           components (DividendReviewClient with SSR data) don't render
           when not needed. The Tabs value drives which slot is in DOM. */}
       <TabsContent value="calendar" data-testid="dividends-tabpanel-calendar">
-        {calendarSlot}
+        {calendarSnapshot ? (
+          <DividendCalendarClient initialSnapshot={calendarSnapshot} dict={dict} locale={locale} />
+        ) : isCalendarLoading ? (
+          <LoadingPanel label={calendarLabel} />
+        ) : calendarError ? (
+          <ErrorPanel message={calendarError} />
+        ) : null}
       </TabsContent>
       <TabsContent value="ledger" data-testid="dividends-tabpanel-ledger">
-        {ledgerSlot}
+        {reviewData ? (
+          <DividendReviewClient
+            initialData={reviewData}
+            dict={dict}
+            locale={locale}
+            accounts={accounts}
+            years={years}
+          />
+        ) : isLedgerLoading ? (
+          <LoadingPanel label={ledgerLabel} />
+        ) : ledgerError ? (
+          <ErrorPanel message={ledgerError} />
+        ) : null}
       </TabsContent>
     </Tabs>
   );
