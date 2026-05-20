@@ -135,6 +135,29 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
     expect(after.accounts.find((a) => a.id === "acc-filter-hide")).toBeUndefined();
   });
 
+  it("loadStore keeps all-account recompute jobs with null account_id", async () => {
+    const before = await persistence!.loadStore(ownerUserId);
+    before.recomputeJobs.push({
+      id: "recompute-all-accounts",
+      userId: ownerUserId,
+      accountId: undefined,
+      profileId: "account-fallback",
+      status: "PREVIEWED",
+      createdAt: "2026-05-20T00:00:00.000Z",
+      items: [],
+    });
+    await persistence!.saveStore(before);
+
+    const after = await persistence!.loadStore(ownerUserId);
+    expect(after.recomputeJobs).toContainEqual(
+      expect.objectContaining({
+        id: "recompute-all-accounts",
+        accountId: undefined,
+        status: "PREVIEWED",
+      }),
+    );
+  });
+
   it("getAccountIncludingDeleted returns the soft-deleted row (used by /purge typed-name check)", async () => {
     const store = await persistence!.loadStore(ownerUserId);
     pushAccountWithProfile(store as never, {

@@ -1811,7 +1811,10 @@ export class PostgresPersistence implements Persistence {
         `SELECT id, user_id, account_id, profile_id, status, created_at
          FROM recompute_jobs
          WHERE user_id = $1
-           AND account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+           AND (
+             account_id IS NULL
+             OR account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+           )
          ORDER BY created_at, id`,
         [userId],
       ),
