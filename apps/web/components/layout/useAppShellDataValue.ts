@@ -21,6 +21,7 @@ interface BuildAppShellDataValueOptions {
   transactionSubmission: ReturnType<typeof useTransactionSubmissionType>;
   mutations: ReturnType<typeof useTransactionMutationsType>;
   recomputeAction: ReturnType<typeof useRecomputeActionType>;
+  openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
   performanceRange: DashboardPerformanceRange;
   setPerformanceRange: (range: DashboardPerformanceRange) => void;
@@ -48,6 +49,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     transactionSubmission,
     mutations,
     recomputeAction,
+    openRecomputeConfirm,
     transactionAccountOptions,
     performanceRange,
     setPerformanceRange,
@@ -71,6 +73,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       transactionSubmission,
       mutations,
       recomputeAction,
+      openRecomputeConfirm,
       transactionAccountOptions,
       performanceRange,
       setPerformanceRange,
@@ -93,6 +96,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       isSharedContext,
       locale,
       mutations,
+      openRecomputeConfirm,
       performanceRange,
       recomputeAction,
       refetchEffectiveRanges,

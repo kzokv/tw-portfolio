@@ -219,6 +219,19 @@ export function AppShell({
     bumpContextRefreshSignal();
   }, [bumpContextRefreshSignal, dashboard]);
 
+  // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
+  const commandPalette = useCommandPalette();
+  const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
+  const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
+
+  const handleAddTransactionFromPalette = useCallback(() => {
+    setAddTransactionDialogOpen(true);
+  }, []);
+
+  const handleRecomputeFromPalette = useCallback(() => {
+    setRecomputeDialogOpen(true);
+  }, []);
+
   const appShellDataValue = useAppShellDataValue({
     dashboard,
     uiDict,
@@ -228,6 +241,7 @@ export function AppShell({
     transactionSubmission,
     mutations,
     recomputeAction,
+    openRecomputeConfirm: handleRecomputeFromPalette,
     transactionAccountOptions,
     performanceRange,
     setPerformanceRange,
@@ -249,21 +263,8 @@ export function AppShell({
     />
   ) : null;
 
-  // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
-  const commandPalette = useCommandPalette();
-  const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
-  const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
-
   // Phase 5e — pathname used to gate the floating ⨁ to /dashboard only.
   const pathname = usePathname() ?? "/";
-
-  const handleAddTransactionFromPalette = useCallback(() => {
-    setAddTransactionDialogOpen(true);
-  }, []);
-
-  const handleRecomputeFromPalette = useCallback(() => {
-    setRecomputeDialogOpen(true);
-  }, []);
 
   const handleRecomputeConfirm = useCallback(() => {
     setRecomputeDialogOpen(false);

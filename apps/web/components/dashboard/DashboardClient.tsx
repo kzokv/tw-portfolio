@@ -32,6 +32,7 @@ export function DashboardClient() {
     isI18nReady,
     mutations,
     recomputeAction,
+    openRecomputeConfirm,
     performanceRange,
     setPerformanceRange,
     effectiveRanges,
@@ -160,7 +161,7 @@ export function DashboardClient() {
           <Button
             type="button"
             size="sm"
-            onClick={() => void recomputeAction.runRecompute()}
+            onClick={openRecomputeConfirm}
             disabled={recomputeAction.isRunning}
             data-testid="recompute-button"
             className="gap-2"

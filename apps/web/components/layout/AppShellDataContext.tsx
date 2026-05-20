@@ -31,6 +31,7 @@ export interface AppShellData {
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   mutations: ReturnType<typeof useTransactionMutations>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
+  openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
   // Dashboard performance state stays in AppShell (range-snap effect lives
   // there); DashboardClient consumes the value and feeds it into
