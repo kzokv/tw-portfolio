@@ -338,9 +338,19 @@ export async function registerMcpRoutes(
         } satisfies PendingToolRequestContext,
       },
     };
+    const socket = req.raw.socket as typeof req.raw.socket & { destroySoon?: () => void };
+    if (typeof socket.destroySoon !== "function") {
+      socket.destroySoon = () => socket.destroy();
+    }
     await transport.handleRequest(req.raw, reply.raw, req.body);
     reply.hijack();
   };
+
+  app.addHook("onClose", async () => {
+    const activeTransports = [...new Set(sessions.values())];
+    sessions.clear();
+    await Promise.all(activeTransports.map((transport) => transport.close()));
+  });
 
   app.get("/mcp/health", async (req) => ({
     status: "ok",

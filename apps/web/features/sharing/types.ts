@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@vakwen/shared-types";
+import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../profile/hooks/useProfile";
 
 export type ShareListStatus = "active" | "pending" | "expired" | "revoked";
@@ -22,6 +22,7 @@ export interface OutboundShareRow {
   createdAt: string;
   expiresAt: string | null;
   revokedAt: string | null;
+  capabilities: ShareCapability[];
 }
 
 export interface InboundShareCardItem {
@@ -46,6 +47,7 @@ export type GrantShareResult =
   | {
     type: "resolved";
     email: string;
+    capabilities: ShareCapability[];
   }
   | {
     type: "pending";
@@ -53,4 +55,5 @@ export type GrantShareResult =
     inviteCode: string | null;
     inviteUrl: string | null;
     expiresAt: string | null;
+    capabilities: ShareCapability[];
   };

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   ClipboardList,
@@ -33,6 +33,8 @@ import {
 } from "../ui/shadcn/sidebar";
 import { SidebarResizeRail } from "./SidebarResizeRail";
 import { cn } from "../../lib/utils";
+import { useEventStream } from "../../hooks/useEventStream";
+import { fetchAiInboxBadge } from "../../features/ai-inbox/service";
 
 export type AppSidebarVariant = "user" | "admin";
 
@@ -63,6 +65,7 @@ interface NavItem {
   onClick?: () => void;
   /** Whether the item should appear active for `pathname`. Default: prefix match on href. */
   isActiveOverride?: (pathname: string) => boolean;
+  badgeCount?: number;
 }
 
 interface NavGroup {
@@ -120,10 +123,31 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname() ?? "/";
   const { isMobile, setOpenMobile, state } = useSidebar();
+  const [aiInboxCount, setAiInboxCount] = useState(0);
+
+  const refreshAiInboxBadge = useCallback(async () => {
+    if (variant !== "user") return;
+    try {
+      const badge = await fetchAiInboxBadge();
+      setAiInboxCount(badge.openBatchCount);
+    } catch {
+      setAiInboxCount(0);
+    }
+  }, [variant]);
+
+  useEffect(() => {
+    void refreshAiInboxBadge();
+  }, [refreshAiInboxBadge]);
+
+  useEventStream({
+    eventTypes: ["ai_transaction_draft_created", "ai_transaction_draft_updated", "ai_transaction_draft_confirmed"],
+    onEvent: () => { void refreshAiInboxBadge(); },
+    enabled: variant === "user",
+  });
 
   const groups: NavGroup[] = variant === "admin"
     ? [{ key: "admin", items: getAdminNavItems() }]
-    : getUserNavGroups({ role });
+    : getUserNavGroups({ role, aiInboxCount });
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
@@ -251,6 +275,11 @@ export function AppSidebar({
                     <>
                       <Icon className="h-4 w-4" aria-hidden="true" />
                       <span>{item.label}</span>
+                      {item.badgeCount && item.badgeCount > 0 ? (
+                        <span className="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                          {item.badgeCount}
+                        </span>
+                      ) : null}
                     </>
                   );
                   return (
@@ -319,11 +348,11 @@ export function AppSidebar({
   );
 }
 
-function getUserNavGroups({ role }: { role?: string }): NavGroup[] {
+function getUserNavGroups({ role, aiInboxCount }: { role?: string; aiInboxCount: number }): NavGroup[] {
   const main: NavItem[] = [
     { key: "dashboard", href: "/dashboard", label: "Dashboard", icon: Gauge },
     { key: "portfolio", href: "/portfolio", label: "Portfolio", icon: TrendingUp },
-    { key: "transactions", href: "/transactions", label: "Transactions", icon: Wallet },
+    { key: "transactions", href: "/transactions", label: "Transactions", icon: Wallet, badgeCount: aiInboxCount },
     { key: "cash-ledger", href: "/cash-ledger", label: "Cash Ledger", icon: CreditCard },
     { key: "dividends", href: "/dividends", label: "Dividends", icon: LineChart },
     { key: "sharing", href: "/sharing", label: "Sharing", icon: Share2 },

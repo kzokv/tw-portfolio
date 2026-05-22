@@ -3,6 +3,7 @@
 import type {
   CreateShareResponseDto,
   PendingShareInviteDto,
+  ShareCapability,
   ShareGrantDto,
   SharesListResponseDto,
 } from "@vakwen/shared-types";
@@ -27,6 +28,7 @@ function toOutboundRowFromShare(dto: ShareGrantDto, status: "active" | "revoked"
     createdAt: dto.createdAt,
     expiresAt: null,
     revokedAt: dto.revokedAt,
+    capabilities: dto.capabilities,
   };
 }
 
@@ -42,6 +44,7 @@ function toOutboundRowFromInvite(dto: PendingShareInviteDto): OutboundShareRow {
     createdAt: dto.createdAt,
     expiresAt: dto.expiresAt,
     revokedAt: dto.revokedAt,
+    capabilities: dto.capabilities,
   };
 }
 
@@ -92,8 +95,8 @@ export async function fetchSharingPageData(): Promise<SharingPageData> {
   };
 }
 
-export async function createShareGrant(email: string): Promise<GrantShareResult> {
-  const response = await postJson<CreateShareResponseDto>("/shares", { email });
+export async function createShareGrant(email: string, capabilities: ShareCapability[]): Promise<GrantShareResult> {
+  const response = await postJson<CreateShareResponseDto>("/shares", { email, capabilities });
 
   if (response.type === "pending") {
     return {
@@ -102,12 +105,14 @@ export async function createShareGrant(email: string): Promise<GrantShareResult>
       inviteCode: response.invite.code,
       inviteUrl: response.invite.inviteUrl,
       expiresAt: response.invite.expiresAt,
+      capabilities: response.invite.capabilities,
     };
   }
 
   return {
     type: "resolved",
     email: response.share.granteeEmail ?? email,
+    capabilities: response.share.capabilities,
   };
 }
 

@@ -311,6 +311,7 @@ async function throwApiError<T>(res: Response, path: string): Promise<T> {
 
 interface JsonRequestOptions {
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }
 
 export async function getJson<T>(path: string, options: JsonRequestOptions = {}): Promise<T> {
@@ -318,7 +319,7 @@ export async function getJson<T>(path: string, options: JsonRequestOptions = {})
     cache: "no-store",
     credentials: "include",
     signal: options.signal,
-    headers: await getAuthHeaders(),
+    headers: { ...(options.headers ?? {}), ...(await getAuthHeaders()) },
   });
   handleContextFallback(res);
   if (!res.ok) return throwApiError<T>(res, path);
@@ -352,7 +353,7 @@ export async function patchJson<T>(path: string, body: unknown, options: JsonReq
     method: "PATCH",
     credentials: "include",
     signal: options.signal,
-    headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
+    headers: { "content-type": "application/json", ...(options.headers ?? {}), ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
   handleContextFallback(res);
@@ -365,7 +366,7 @@ export async function putJson<T>(path: string, body: unknown, options: JsonReque
     method: "PUT",
     credentials: "include",
     signal: options.signal,
-    headers: { "content-type": "application/json", ...(await getAuthHeaders()) },
+    headers: { "content-type": "application/json", ...(options.headers ?? {}), ...(await getAuthHeaders()) },
     body: JSON.stringify(body),
   });
   handleContextFallback(res);

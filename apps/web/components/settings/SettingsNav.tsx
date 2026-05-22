@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CreditCard, ListChecks, Palette, Settings as SettingsIcon, UserCircle2 } from "lucide-react";
+import { Bot, CreditCard, ListChecks, Palette, Settings as SettingsIcon, UserCircle2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 /**
@@ -17,12 +17,13 @@ import { cn } from "../../lib/utils";
  *   - `settings-nav-item-{slug}` on each <a>
  */
 
-export type SettingsNavSlug = "profile" | "general" | "accounts" | "display" | "tickers";
+export type SettingsNavSlug = "profile" | "general" | "accounts" | "ai-connectors" | "display" | "tickers";
 
 interface NavCopyLabels {
   profile: string;
   general: string;
   accounts: string;
+  "ai-connectors": string;
   display: string;
   tickers: string;
 }
@@ -35,6 +36,7 @@ const ITEMS: Array<{ slug: SettingsNavSlug; icon: typeof UserCircle2 }> = [
   { slug: "profile", icon: UserCircle2 },
   { slug: "general", icon: SettingsIcon },
   { slug: "accounts", icon: CreditCard },
+  { slug: "ai-connectors", icon: Bot },
   { slug: "display", icon: Palette },
   { slug: "tickers", icon: ListChecks },
 ];

@@ -415,6 +415,7 @@ export interface AppDictionary {
   settings: {
     title: string;
     description: string;
+    tabAiConnectors: string;
     tabGeneral: string;
     localeLabel: string;
     costBasisLabel: string;

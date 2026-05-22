@@ -14,24 +14,24 @@ type RowState = AiTransactionDraftRowRecord["state"];
 export interface DraftCandidateInput {
   rowNumber: number;
   recordType: "trade" | "unsupported";
-  accountId?: string;
-  accountName?: string;
-  type?: TradeType;
-  ticker?: string;
-  marketCode?: "TW" | "US" | "AU";
-  quantity?: number;
-  unitPrice?: number;
-  priceCurrency?: string;
-  tradeDate?: string;
-  tradeTimestamp?: string;
-  bookingSequence?: number;
-  isDayTrade?: boolean;
-  commissionAmount?: number;
-  taxAmount?: number;
-  note?: string;
-  sourceRowRef?: string;
-  sourceSnippet?: string;
-  rawPayload?: Record<string, unknown>;
+  accountId?: string | null;
+  accountName?: string | null;
+  type?: TradeType | null;
+  ticker?: string | null;
+  marketCode?: "TW" | "US" | "AU" | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  priceCurrency?: string | null;
+  tradeDate?: string | null;
+  tradeTimestamp?: string | null;
+  bookingSequence?: number | null;
+  isDayTrade?: boolean | null;
+  commissionAmount?: number | null;
+  taxAmount?: number | null;
+  note?: string | null;
+  sourceRowRef?: string | null;
+  sourceSnippet?: string | null;
+  rawPayload?: Record<string, unknown> | null;
 }
 
 interface DraftBatchMetadataInput {
@@ -576,6 +576,25 @@ export async function createTransactionDraftBatch(
       blockingRowCount: preflight.blockingRowCount,
       unsupportedCount: preflight.unsupportedCount,
     },
+  });
+  const notificationId = await deps.app.persistence.createNotification({
+    userId: contextUserId,
+    severity: "info",
+    source: "ai_transaction_draft",
+    sourceRef: batchId,
+    title: "AI transaction draft ready",
+    body: `${batch.rowCount} transaction row${batch.rowCount === 1 ? "" : "s"} are ready for review.`,
+    detail: {
+      batchId,
+      contextUserId,
+      readyRowCount: preflight.rows.filter((row) => row.state === "ready").length,
+      unsupportedCount: preflight.unsupportedCount,
+    },
+  });
+  await deps.app.eventBus.publishEvent(contextUserId, "ai_transaction_draft_created", {
+    batchId,
+    contextUserId,
+    notificationId,
   });
 
   return {
