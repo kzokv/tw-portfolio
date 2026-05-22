@@ -870,6 +870,161 @@ export interface AppConfigDto {
   updatedAt: string;
 }
 
+// ── AI connector + MCP draft types (KZO-210+) ──────────────────────────────
+
+export type AiConnectorProvider = "chatgpt" | "self_hosted";
+export type AiConnectorStatus = "active" | "expired" | "revoked";
+export type AiConnectorScope =
+  | "portfolio:mcp_read"
+  | "transaction_draft:create"
+  | "transaction_draft:edit"
+  | "transaction_draft:archive"
+  | "transaction_draft:delete"
+  | "transaction:write";
+export type ShareCapability = AiConnectorScope;
+export type AiConnectorAccessKind =
+  | "read"
+  | "draft_create"
+  | "draft_update"
+  | "draft_archive"
+  | "draft_delete"
+  | "write";
+export type AiConnectorAccessResult = "ok" | "denied" | "error";
+export type AiConnectorToolGroup = "read" | "drafts" | "write";
+export type AiTransactionDraftBatchStatus = "open" | "archived" | "deleted";
+export type AiTransactionDraftSourceChannel = "mcp" | "web";
+export type AiTransactionDraftRowState =
+  | "needs_clarification"
+  | "pending_validation"
+  | "ready"
+  | "invalid"
+  | "duplicate_blocked"
+  | "excluded"
+  | "rejected"
+  | "confirmed"
+  | "unsupported";
+export type AiTransactionDraftEventType =
+  | "batch_created"
+  | "preflight_run"
+  | "row_updated"
+  | "row_state_changed"
+  | "rows_excluded"
+  | "rows_reincluded"
+  | "rows_rejected"
+  | "rows_confirmed"
+  | "batch_archived"
+  | "batch_deleted";
+
+export interface AiConnectorConnectionDto {
+  id: string;
+  provider: AiConnectorProvider;
+  displayName: string;
+  status: AiConnectorStatus;
+  scopes: AiConnectorScope[];
+  toolToggles: Record<string, boolean>;
+  expiresAt: string | null;
+  expiryNotifiedAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  revocationReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiConnectorPolicySettingsDto {
+  enabled: boolean;
+  maxActiveConnectionsPerUser: number;
+  allowedProviders: Record<AiConnectorProvider, boolean>;
+  groupToggles: Record<AiConnectorToolGroup, boolean>;
+  inactivityExpiryDays: number;
+  expirationWarningDays: number;
+  freshAuthMaxAgeMs: number;
+  updatedAt: string;
+}
+
+export interface AiConnectorAccessLogDto {
+  id: string;
+  connectionId: string | null;
+  portfolioContextUserId: string;
+  shareId: string | null;
+  toolName: string;
+  accessKind: AiConnectorAccessKind;
+  result: AiConnectorAccessResult;
+  denialReason: string | null;
+  createdAt: string;
+}
+
+export interface TransactionAiInboxBadgeDto {
+  openBatchCount: number;
+  actionRequiredRowCount: number;
+  readyRowCount: number;
+  latestBatchId: string | null;
+}
+
+export interface TransactionDraftBatchDto {
+  id: string;
+  ownerUserId: string;
+  createdByUserId: string;
+  connectorConnectionId: string | null;
+  shareId: string | null;
+  sourceChannel: AiTransactionDraftSourceChannel;
+  status: AiTransactionDraftBatchStatus;
+  version: number;
+  sourceLabel: string | null;
+  sourceFilename: string | null;
+  note: string | null;
+  rowCount: number;
+  unsupportedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  deletedAt: string | null;
+}
+
+export interface TransactionDraftRowDto {
+  id: string;
+  batchId: string;
+  rowNumber: number;
+  state: AiTransactionDraftRowState;
+  version: number;
+  accountId: string | null;
+  accountNameInput: string | null;
+  type: "BUY" | "SELL" | null;
+  ticker: string | null;
+  marketCode: MarketCode | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  priceCurrency: string | null;
+  tradeDate: string | null;
+  isDayTrade: boolean | null;
+  commissionAmount: number | null;
+  taxAmount: number | null;
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+  sourceRowRef: string | null;
+  sourceSnippet: string | null;
+  preflightIssues: unknown[];
+  warnings: unknown[];
+  confirmedTradeEventId: string | null;
+  confirmedAt: string | null;
+  updatedAt: string;
+}
+
+export interface TransactionDraftUnsupportedItemDto {
+  id: string;
+  batchId: string;
+  rowNumber: number | null;
+  category: string;
+  reason: string;
+  sourceSnippet: string | null;
+  createdAt: string;
+}
+
+export interface TransactionDraftBatchDetailDto {
+  batch: TransactionDraftBatchDto;
+  rows: TransactionDraftRowDto[];
+  unsupportedItems: TransactionDraftUnsupportedItemDto[];
+}
+
 // ── Sharing types (KZO-145 / KZO-146) ──────────────────────────────────────
 
 export interface ShareGrantDto {
@@ -884,6 +1039,7 @@ export interface ShareGrantDto {
   createdAt: string;
   revokedAt: string | null;
   revokedByUserId: string | null;
+  capabilities: ShareCapability[];
 }
 
 export interface PendingShareInviteDto {
@@ -899,6 +1055,7 @@ export interface PendingShareInviteDto {
   revokedAt: string | null;
   usedAt: string | null;
   inviteUrl: string | null;
+  capabilities: ShareCapability[];
 }
 
 export type OutboundShareHistoryItemDto = ShareGrantDto | PendingShareInviteDto;

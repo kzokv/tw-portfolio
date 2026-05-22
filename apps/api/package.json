@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@vakwen/config": "0.1.0",
     "@vakwen/domain": "0.1.0",
     "@vakwen/shared-types": "0.1.0",
@@ -32,9 +33,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.53.0",
+    "@types/pg": "^8.11.10",
     "@vakwen/test-api": "0.1.0",
     "@vakwen/test-framework": "0.1.0",
-    "@types/pg": "^8.11.10",
     "@vitest/ui": "^4.0.18",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",

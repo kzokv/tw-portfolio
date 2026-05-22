@@ -37,6 +37,16 @@ import type {
   Transaction,
 } from "../types/store.js";
 import type {
+  AiConnectorAccessKind,
+  AiConnectorAccessResult,
+  AiConnectorPolicySettingsDto,
+  AiConnectorProvider,
+  AiConnectorScope,
+  AiConnectorStatus,
+  AiTransactionDraftBatchStatus,
+  AiTransactionDraftEventType,
+  AiTransactionDraftRowState,
+  AiTransactionDraftSourceChannel,
   DividendLedgerAggregates,
   DividendSourceLine,
   AdminAuditLogResponse,
@@ -48,6 +58,7 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
+  ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
@@ -100,12 +111,28 @@ import type {
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
   AggregatedSnapshotPoint,
+  AiConnectorAccessLogRecord,
+  AiConnectorConnectionRecord,
+  AiTransactionDraftBatchAggregate,
+  AiTransactionDraftBatchRecord,
+  AiTransactionDraftEventRecord,
+  AiTransactionDraftRowRecord,
+  AiTransactionDraftUnsupportedItemRecord,
+  AppendAiConnectorAccessLogInput,
+  AppendAiTransactionDraftEventInput,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthStatus,
   ProviderHealthUpsert,
   ProviderErrorClass,
+  SaveAiConnectorConnectionInput,
+  SaveAiConnectorPolicySettingsInput,
+  SaveAiTransactionDraftBatchInput,
+  SaveAiTransactionDraftRowInput,
+  SaveAiTransactionDraftUnsupportedItemInput,
+  SetPendingShareInviteCapabilitiesInput,
+  SetShareCapabilitiesInput,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -261,6 +288,284 @@ function mapPendingShareInviteRow(row: {
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     usedAt: row.used_at,
+  };
+}
+
+function mapAiConnectorConnectionRow(row: {
+  id: string;
+  user_id: string;
+  provider: AiConnectorProvider;
+  display_name: string;
+  status: AiConnectorStatus;
+  oauth_client_id: string | null;
+  oauth_subject: string | null;
+  scopes: AiConnectorScope[] | null;
+  tool_toggles: Record<string, boolean> | null;
+  expires_at: string | null;
+  expiry_notified_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_by_user_id: string | null;
+  revocation_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}): AiConnectorConnectionRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    displayName: row.display_name,
+    status: row.status,
+    oauthClientId: row.oauth_client_id,
+    oauthSubject: row.oauth_subject,
+    scopes: [...(row.scopes ?? [])].sort(),
+    toolToggles: { ...(row.tool_toggles ?? {}) },
+    expiresAt: row.expires_at,
+    expiryNotifiedAt: row.expiry_notified_at,
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at,
+    revokedByUserId: row.revoked_by_user_id,
+    revocationReason: row.revocation_reason,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapAiConnectorPolicySettingsRow(row: {
+  enabled: boolean;
+  max_active_connections_per_user: number;
+  allow_chatgpt: boolean;
+  allow_self_hosted: boolean;
+  read_tools_enabled: boolean;
+  draft_tools_enabled: boolean;
+  write_tools_enabled: boolean;
+  inactivity_expiry_days: number;
+  expiration_warning_days: number;
+  fresh_auth_max_age_ms: number;
+  updated_at: string;
+}): AiConnectorPolicySettingsDto {
+  return {
+    enabled: row.enabled,
+    maxActiveConnectionsPerUser: row.max_active_connections_per_user,
+    allowedProviders: {
+      chatgpt: row.allow_chatgpt,
+      self_hosted: row.allow_self_hosted,
+    },
+    groupToggles: {
+      read: row.read_tools_enabled,
+      drafts: row.draft_tools_enabled,
+      write: row.write_tools_enabled,
+    },
+    inactivityExpiryDays: row.inactivity_expiry_days,
+    expirationWarningDays: row.expiration_warning_days,
+    freshAuthMaxAgeMs: row.fresh_auth_max_age_ms,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapAiConnectorAccessLogRow(row: {
+  id: string;
+  connection_id: string | null;
+  user_id: string;
+  portfolio_context_user_id: string;
+  share_id: string | null;
+  tool_name: string;
+  access_kind: AiConnectorAccessKind;
+  result: AiConnectorAccessResult;
+  denial_reason: string | null;
+  request_id: string | null;
+  source_ip: string | null;
+  user_agent: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}): AiConnectorAccessLogRecord {
+  return {
+    id: row.id,
+    connectionId: row.connection_id,
+    userId: row.user_id,
+    portfolioContextUserId: row.portfolio_context_user_id,
+    shareId: row.share_id,
+    toolName: row.tool_name,
+    accessKind: row.access_kind,
+    result: row.result,
+    denialReason: row.denial_reason,
+    requestId: row.request_id,
+    sourceIp: row.source_ip,
+    userAgent: row.user_agent,
+    metadata: { ...(row.metadata ?? {}) },
+    createdAt: row.created_at,
+  };
+}
+
+function mapAiTransactionDraftBatchRow(row: {
+  id: string;
+  owner_user_id: string;
+  created_by_user_id: string;
+  connector_connection_id: string | null;
+  share_id: string | null;
+  source_channel: AiTransactionDraftSourceChannel;
+  status: AiTransactionDraftBatchStatus;
+  version: number;
+  source_label: string | null;
+  source_filename: string | null;
+  note: string | null;
+  provenance: Record<string, unknown> | null;
+  row_count: number;
+  unsupported_count: number;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  archived_by_user_id: string | null;
+  deleted_at: string | null;
+  deleted_by_user_id: string | null;
+}): AiTransactionDraftBatchRecord {
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    createdByUserId: row.created_by_user_id,
+    connectorConnectionId: row.connector_connection_id,
+    shareId: row.share_id,
+    sourceChannel: row.source_channel,
+    status: row.status,
+    version: Number(row.version),
+    sourceLabel: row.source_label,
+    sourceFilename: row.source_filename,
+    note: row.note,
+    provenance: { ...(row.provenance ?? {}) },
+    rowCount: Number(row.row_count),
+    unsupportedCount: Number(row.unsupported_count),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+    archivedByUserId: row.archived_by_user_id,
+    deletedAt: row.deleted_at,
+    deletedByUserId: row.deleted_by_user_id,
+  };
+}
+
+function mapAiTransactionDraftRowRow(row: {
+  id: string;
+  batch_id: string;
+  owner_user_id: string;
+  row_number: number;
+  state: AiTransactionDraftRowState;
+  version: number;
+  account_id: string | null;
+  account_name_input: string | null;
+  trade_type: "BUY" | "SELL" | null;
+  ticker: string | null;
+  market_code: string | null;
+  quantity: number | null;
+  unit_price: string | number | null;
+  price_currency: string | null;
+  trade_date: string | null;
+  trade_timestamp: string | null;
+  booking_sequence: number | null;
+  is_day_trade: boolean | null;
+  commission_amount: string | number | null;
+  tax_amount: string | number | null;
+  fees_source: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+  note: string | null;
+  source_row_ref: string | null;
+  source_snippet: string | null;
+  normalized_payload: Record<string, unknown> | null;
+  preflight_issues: unknown[] | null;
+  warnings: unknown[] | null;
+  duplicate_trade_event_id: string | null;
+  confirmed_trade_event_id: string | null;
+  confirmed_at: string | null;
+  confirmed_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}): AiTransactionDraftRowRecord {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    ownerUserId: row.owner_user_id,
+    rowNumber: Number(row.row_number),
+    state: row.state,
+    version: Number(row.version),
+    accountId: row.account_id,
+    accountNameInput: row.account_name_input,
+    tradeType: row.trade_type,
+    ticker: row.ticker,
+    marketCode: row.market_code,
+    quantity: row.quantity === null ? null : Number(row.quantity),
+    unitPrice: row.unit_price === null ? null : Number(row.unit_price),
+    priceCurrency: row.price_currency,
+    tradeDate: row.trade_date,
+    tradeTimestamp: row.trade_timestamp,
+    bookingSequence: row.booking_sequence === null ? null : Number(row.booking_sequence),
+    isDayTrade: row.is_day_trade,
+    commissionAmount: row.commission_amount === null ? null : Number(row.commission_amount),
+    taxAmount: row.tax_amount === null ? null : Number(row.tax_amount),
+    feesSource: row.fees_source,
+    note: row.note,
+    sourceRowRef: row.source_row_ref,
+    sourceSnippet: row.source_snippet,
+    normalizedPayload: { ...(row.normalized_payload ?? {}) },
+    preflightIssues: [...(row.preflight_issues ?? [])],
+    warnings: [...(row.warnings ?? [])],
+    duplicateTradeEventId: row.duplicate_trade_event_id,
+    confirmedTradeEventId: row.confirmed_trade_event_id,
+    confirmedAt: row.confirmed_at,
+    confirmedByUserId: row.confirmed_by_user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapAiTransactionDraftUnsupportedItemRow(row: {
+  id: string;
+  batch_id: string;
+  row_number: number | null;
+  category: string;
+  reason: string;
+  source_snippet: string | null;
+  raw_payload: Record<string, unknown> | null;
+  created_at: string;
+}): AiTransactionDraftUnsupportedItemRecord {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    rowNumber: row.row_number === null ? null : Number(row.row_number),
+    category: row.category,
+    reason: row.reason,
+    sourceSnippet: row.source_snippet,
+    rawPayload: { ...(row.raw_payload ?? {}) },
+    createdAt: row.created_at,
+  };
+}
+
+function mapAiTransactionDraftEventRow(row: {
+  id: string;
+  batch_id: string;
+  row_id: string | null;
+  owner_user_id: string | null;
+  actor_user_id: string | null;
+  connector_connection_id: string | null;
+  event_type: AiTransactionDraftEventType;
+  summary: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  source_ip: string | null;
+  created_at: string;
+}): AiTransactionDraftEventRecord {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    rowId: row.row_id,
+    ownerUserId: row.owner_user_id,
+    actorUserId: row.actor_user_id,
+    connectorConnectionId: row.connector_connection_id,
+    eventType: row.event_type,
+    summary: row.summary,
+    beforeState: row.before_state ? { ...row.before_state } : null,
+    afterState: row.after_state ? { ...row.after_state } : null,
+    metadata: { ...(row.metadata ?? {}) },
+    sourceIp: row.source_ip,
+    createdAt: row.created_at,
   };
 }
 
@@ -1458,6 +1763,15 @@ export class PostgresPersistence implements Persistence {
           continue;
         }
 
+        await client.query(
+          `INSERT INTO portfolio_share_capabilities (share_id, capability, granted_by_user_id, granted_at)
+           SELECT $2, capability, granted_by_user_id, granted_at
+           FROM pending_share_invite_capabilities
+           WHERE invite_code = $1
+           ON CONFLICT (share_id, capability) DO NOTHING`,
+          [invite.code, share.id],
+        );
+
         await this.appendAuditLogTx(client, {
           ...input.auditInput,
           action: "share_granted",
@@ -1495,6 +1809,1179 @@ export class PostgresPersistence implements Persistence {
     } finally {
       client.release();
     }
+  }
+
+  async getShareCapabilities(shareId: string): Promise<ShareCapability[]> {
+    const result = await this.pool.query<{ capability: ShareCapability }>(
+      `SELECT capability
+       FROM portfolio_share_capabilities
+       WHERE share_id = $1
+       ORDER BY capability ASC`,
+      [shareId],
+    );
+    return result.rows.map((row) => row.capability);
+  }
+
+  async setShareCapabilities(input: SetShareCapabilitiesInput): Promise<ShareCapability[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const shareExists = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM portfolio_shares WHERE id = $1) AS exists`,
+        [input.shareId],
+      );
+      if (!shareExists.rows[0]?.exists) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "share_not_found", "Share not found");
+      }
+      await client.query(`DELETE FROM portfolio_share_capabilities WHERE share_id = $1`, [input.shareId]);
+      const capabilities = [...new Set(input.capabilities)].sort();
+      for (const capability of capabilities) {
+        await client.query(
+          `INSERT INTO portfolio_share_capabilities (share_id, capability, granted_by_user_id)
+           VALUES ($1, $2, $3)`,
+          [input.shareId, capability, input.grantedByUserId],
+        );
+      }
+      await client.query("COMMIT");
+      return capabilities;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getPendingShareInviteCapabilities(inviteCode: string): Promise<ShareCapability[]> {
+    const result = await this.pool.query<{ capability: ShareCapability }>(
+      `SELECT capability
+       FROM pending_share_invite_capabilities
+       WHERE invite_code = $1
+       ORDER BY capability ASC`,
+      [inviteCode],
+    );
+    return result.rows.map((row) => row.capability);
+  }
+
+  async setPendingShareInviteCapabilities(input: SetPendingShareInviteCapabilitiesInput): Promise<ShareCapability[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const inviteExists = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM invites WHERE code = $1) AS exists`,
+        [input.inviteCode],
+      );
+      if (!inviteExists.rows[0]?.exists) {
+        await client.query("ROLLBACK");
+        throw routeError(404, "share_pending_not_found", "Pending share invite not found");
+      }
+      await client.query(`DELETE FROM pending_share_invite_capabilities WHERE invite_code = $1`, [input.inviteCode]);
+      const capabilities = [...new Set(input.capabilities)].sort();
+      for (const capability of capabilities) {
+        await client.query(
+          `INSERT INTO pending_share_invite_capabilities (invite_code, capability, granted_by_user_id)
+           VALUES ($1, $2, $3)`,
+          [input.inviteCode, capability, input.grantedByUserId],
+        );
+      }
+      await client.query("COMMIT");
+      return capabilities;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveAiConnectorConnection(input: SaveAiConnectorConnectionInput): Promise<AiConnectorConnectionRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const now = input.updatedAt ?? new Date().toISOString();
+      await client.query(
+        `INSERT INTO ai_connector_connections (
+           id,
+           user_id,
+           provider,
+           display_name,
+           status,
+           oauth_client_id,
+           oauth_subject,
+           expires_at,
+           expiry_notified_at,
+           last_used_at,
+           revoked_at,
+           revoked_by_user_id,
+           revocation_reason,
+           created_at,
+           updated_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13,
+           COALESCE($14::timestamptz, NOW()),
+           $15::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           user_id = EXCLUDED.user_id,
+           provider = EXCLUDED.provider,
+           display_name = EXCLUDED.display_name,
+           status = EXCLUDED.status,
+           oauth_client_id = EXCLUDED.oauth_client_id,
+           oauth_subject = EXCLUDED.oauth_subject,
+           expires_at = EXCLUDED.expires_at,
+           expiry_notified_at = EXCLUDED.expiry_notified_at,
+           last_used_at = EXCLUDED.last_used_at,
+           revoked_at = EXCLUDED.revoked_at,
+           revoked_by_user_id = EXCLUDED.revoked_by_user_id,
+           revocation_reason = EXCLUDED.revocation_reason,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          input.id,
+          input.userId,
+          input.provider,
+          input.displayName,
+          input.status,
+          input.oauthClientId ?? null,
+          input.oauthSubject ?? null,
+          input.expiresAt ?? null,
+          input.expiryNotifiedAt ?? null,
+          input.lastUsedAt ?? null,
+          input.revokedAt ?? null,
+          input.revokedByUserId ?? null,
+          input.revocationReason ?? null,
+          input.createdAt ?? null,
+          now,
+        ],
+      );
+      await client.query(`DELETE FROM ai_connector_connection_scopes WHERE connection_id = $1`, [input.id]);
+      for (const scope of [...new Set(input.scopes)].sort()) {
+        await client.query(
+          `INSERT INTO ai_connector_connection_scopes (connection_id, scope)
+           VALUES ($1, $2)`,
+          [input.id, scope],
+        );
+      }
+      await client.query(`DELETE FROM ai_connector_tool_toggles WHERE connection_id = $1`, [input.id]);
+      for (const [toolName, enabled] of Object.entries(input.toolToggles ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+        await client.query(
+          `INSERT INTO ai_connector_tool_toggles (connection_id, tool_name, enabled, updated_at)
+           VALUES ($1, $2, $3, $4::timestamptz)`,
+          [input.id, toolName, enabled, now],
+        );
+      }
+      const record = await this.getAiConnectorConnectionTx(client, input.id);
+      await client.query("COMMIT");
+      return record!;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getAiConnectorConnection(id: string): Promise<AiConnectorConnectionRecord | null> {
+    return this.getAiConnectorConnectionTx(this.pool, id);
+  }
+
+  async listAiConnectorConnectionsForUser(userId: string): Promise<AiConnectorConnectionRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      provider: AiConnectorProvider;
+      display_name: string;
+      status: AiConnectorStatus;
+      oauth_client_id: string | null;
+      oauth_subject: string | null;
+      scopes: AiConnectorScope[] | null;
+      tool_toggles: Record<string, boolean> | null;
+      expires_at: string | null;
+      last_used_at: string | null;
+      revoked_at: string | null;
+      revoked_by_user_id: string | null;
+      revocation_reason: string | null;
+      expiry_notified_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT c.id,
+              c.user_id,
+              c.provider,
+              c.display_name,
+              c.status,
+              c.oauth_client_id,
+              c.oauth_subject,
+              COALESCE(
+                ARRAY(
+                  SELECT s.scope
+                  FROM ai_connector_connection_scopes s
+                  WHERE s.connection_id = c.id
+                  ORDER BY s.scope ASC
+                ),
+                ARRAY[]::text[]
+              ) AS scopes,
+              COALESCE(
+                (
+                  SELECT jsonb_object_agg(t.tool_name, t.enabled ORDER BY t.tool_name)
+                  FROM ai_connector_tool_toggles t
+                  WHERE t.connection_id = c.id
+                ),
+                '{}'::jsonb
+              ) AS tool_toggles,
+              c.expires_at::text AS expires_at,
+              c.expiry_notified_at::text AS expiry_notified_at,
+              c.last_used_at::text AS last_used_at,
+              c.revoked_at::text AS revoked_at,
+              c.revoked_by_user_id,
+              c.revocation_reason,
+              c.created_at::text AS created_at,
+              c.updated_at::text AS updated_at
+       FROM ai_connector_connections c
+       WHERE c.user_id = $1
+       ORDER BY c.created_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapAiConnectorConnectionRow(row));
+  }
+
+  async getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsDto> {
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
+      `SELECT enabled,
+              max_active_connections_per_user,
+              allow_chatgpt,
+              allow_self_hosted,
+              read_tools_enabled,
+              draft_tools_enabled,
+              write_tools_enabled,
+              inactivity_expiry_days,
+              expiration_warning_days,
+              fresh_auth_max_age_ms,
+              updated_at::text AS updated_at
+       FROM ai_connector_policy_settings
+       WHERE id = TRUE`,
+    );
+    if (result.rows[0]) return mapAiConnectorPolicySettingsRow(result.rows[0]);
+
+    const inserted = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
+      `INSERT INTO ai_connector_policy_settings (id)
+       VALUES (TRUE)
+       ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+       RETURNING enabled,
+                 max_active_connections_per_user,
+                 allow_chatgpt,
+                 allow_self_hosted,
+                 read_tools_enabled,
+                 draft_tools_enabled,
+                 write_tools_enabled,
+                 inactivity_expiry_days,
+                 expiration_warning_days,
+                 fresh_auth_max_age_ms,
+                 updated_at::text AS updated_at`,
+    );
+    return mapAiConnectorPolicySettingsRow(inserted.rows[0]!);
+  }
+
+  async saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsDto> {
+    const current = await this.getAiConnectorPolicySettings();
+    const next = {
+      enabled: input.enabled ?? current.enabled,
+      maxActiveConnectionsPerUser: input.maxActiveConnectionsPerUser ?? current.maxActiveConnectionsPerUser,
+      allowedProviders: {
+        chatgpt: input.allowedProviders?.chatgpt ?? current.allowedProviders.chatgpt,
+        self_hosted: input.allowedProviders?.self_hosted ?? current.allowedProviders.self_hosted,
+      },
+      groupToggles: {
+        read: input.groupToggles?.read ?? current.groupToggles.read,
+        drafts: input.groupToggles?.drafts ?? current.groupToggles.drafts,
+        write: input.groupToggles?.write ?? current.groupToggles.write,
+      },
+      inactivityExpiryDays: input.inactivityExpiryDays ?? current.inactivityExpiryDays,
+      expirationWarningDays: input.expirationWarningDays ?? current.expirationWarningDays,
+      freshAuthMaxAgeMs: input.freshAuthMaxAgeMs ?? current.freshAuthMaxAgeMs,
+    };
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
+      `INSERT INTO ai_connector_policy_settings (
+         id,
+         enabled,
+         max_active_connections_per_user,
+         allow_chatgpt,
+         allow_self_hosted,
+         read_tools_enabled,
+         draft_tools_enabled,
+         write_tools_enabled,
+         inactivity_expiry_days,
+         expiration_warning_days,
+         fresh_auth_max_age_ms,
+         updated_at
+       ) VALUES (
+         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         max_active_connections_per_user = EXCLUDED.max_active_connections_per_user,
+         allow_chatgpt = EXCLUDED.allow_chatgpt,
+         allow_self_hosted = EXCLUDED.allow_self_hosted,
+         read_tools_enabled = EXCLUDED.read_tools_enabled,
+         draft_tools_enabled = EXCLUDED.draft_tools_enabled,
+         write_tools_enabled = EXCLUDED.write_tools_enabled,
+         inactivity_expiry_days = EXCLUDED.inactivity_expiry_days,
+         expiration_warning_days = EXCLUDED.expiration_warning_days,
+         fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
+         updated_at = EXCLUDED.updated_at
+       RETURNING enabled,
+                 max_active_connections_per_user,
+                 allow_chatgpt,
+                 allow_self_hosted,
+                 read_tools_enabled,
+                 draft_tools_enabled,
+                 write_tools_enabled,
+                 inactivity_expiry_days,
+                 expiration_warning_days,
+                 fresh_auth_max_age_ms,
+                 updated_at::text AS updated_at`,
+      [
+        next.enabled,
+        next.maxActiveConnectionsPerUser,
+        next.allowedProviders.chatgpt,
+        next.allowedProviders.self_hosted,
+        next.groupToggles.read,
+        next.groupToggles.drafts,
+        next.groupToggles.write,
+        next.inactivityExpiryDays,
+        next.expirationWarningDays,
+        next.freshAuthMaxAgeMs,
+      ],
+    );
+    return mapAiConnectorPolicySettingsRow(result.rows[0]!);
+  }
+
+  async appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord> {
+    const result = await this.pool.query<{
+      id: string;
+      connection_id: string | null;
+      user_id: string;
+      portfolio_context_user_id: string;
+      share_id: string | null;
+      tool_name: string;
+      access_kind: AiConnectorAccessKind;
+      result: AiConnectorAccessResult;
+      denial_reason: string | null;
+      request_id: string | null;
+      source_ip: string | null;
+      user_agent: string | null;
+      metadata: Record<string, unknown> | null;
+      created_at: string;
+    }>(
+      `INSERT INTO ai_connector_access_logs (
+         id,
+         connection_id,
+         user_id,
+         portfolio_context_user_id,
+         share_id,
+         tool_name,
+         access_kind,
+         result,
+         denial_reason,
+         request_id,
+         source_ip,
+         user_agent,
+         metadata,
+         created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11::inet, $12, $13::jsonb, COALESCE($14::timestamptz, NOW())
+       )
+       RETURNING id,
+                 connection_id,
+                 user_id,
+                 portfolio_context_user_id,
+                 share_id,
+                 tool_name,
+                 access_kind,
+                 result,
+                 denial_reason,
+                 request_id,
+                 source_ip::text AS source_ip,
+                 user_agent,
+                 metadata,
+                 created_at::text AS created_at`,
+      [
+        input.id ?? randomUUID(),
+        input.connectionId,
+        input.userId,
+        input.portfolioContextUserId,
+        input.shareId ?? null,
+        input.toolName,
+        input.accessKind,
+        input.result,
+        input.denialReason ?? null,
+        input.requestId ?? null,
+        input.sourceIp ?? null,
+        input.userAgent ?? null,
+        JSON.stringify(input.metadata ?? {}),
+        input.createdAt ?? null,
+      ],
+    );
+    return mapAiConnectorAccessLogRow(result.rows[0]!);
+  }
+
+  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      connection_id: string | null;
+      user_id: string;
+      portfolio_context_user_id: string;
+      share_id: string | null;
+      tool_name: string;
+      access_kind: AiConnectorAccessKind;
+      result: AiConnectorAccessResult;
+      denial_reason: string | null;
+      request_id: string | null;
+      source_ip: string | null;
+      user_agent: string | null;
+      metadata: Record<string, unknown> | null;
+      created_at: string;
+    }>(
+      `SELECT id,
+              connection_id,
+              user_id,
+              portfolio_context_user_id,
+              share_id,
+              tool_name,
+              access_kind,
+              result,
+              denial_reason,
+              request_id,
+              source_ip::text AS source_ip,
+              user_agent,
+              metadata,
+              created_at::text AS created_at
+       FROM ai_connector_access_logs
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId],
+    );
+    return result.rows.map((row) => mapAiConnectorAccessLogRow(row));
+  }
+
+  async saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (input.expectedVersion !== undefined && input.expectedVersion !== null) {
+        const existing = await client.query<{ version: number }>(
+          `SELECT version
+           FROM ai_transaction_draft_batches
+           WHERE id = $1
+           FOR UPDATE`,
+          [input.id],
+        );
+        if (!existing.rows[0] || Number(existing.rows[0].version) !== input.expectedVersion) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+      }
+      const now = input.updatedAt ?? new Date().toISOString();
+      const result = await client.query<{
+        id: string;
+        owner_user_id: string;
+        created_by_user_id: string;
+        connector_connection_id: string | null;
+        share_id: string | null;
+        source_channel: AiTransactionDraftSourceChannel;
+        status: AiTransactionDraftBatchStatus;
+        version: number;
+        source_label: string | null;
+        source_filename: string | null;
+        note: string | null;
+        provenance: Record<string, unknown> | null;
+        row_count: number;
+        unsupported_count: number;
+        created_at: string;
+        updated_at: string;
+        archived_at: string | null;
+        archived_by_user_id: string | null;
+        deleted_at: string | null;
+        deleted_by_user_id: string | null;
+      }>(
+        `INSERT INTO ai_transaction_draft_batches (
+           id,
+           owner_user_id,
+           created_by_user_id,
+           connector_connection_id,
+           share_id,
+           source_channel,
+           status,
+           version,
+           source_label,
+           source_filename,
+           note,
+           provenance,
+           row_count,
+           unsupported_count,
+           archived_at,
+           archived_by_user_id,
+           deleted_at,
+           deleted_by_user_id,
+           created_at,
+           updated_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb,
+           $13, $14, $15::timestamptz, $16, $17::timestamptz, $18,
+           COALESCE($19::timestamptz, NOW()), $20::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           owner_user_id = EXCLUDED.owner_user_id,
+           created_by_user_id = EXCLUDED.created_by_user_id,
+           connector_connection_id = EXCLUDED.connector_connection_id,
+           share_id = EXCLUDED.share_id,
+           source_channel = EXCLUDED.source_channel,
+           status = EXCLUDED.status,
+           version = EXCLUDED.version,
+           source_label = EXCLUDED.source_label,
+           source_filename = EXCLUDED.source_filename,
+           note = EXCLUDED.note,
+           provenance = EXCLUDED.provenance,
+           row_count = EXCLUDED.row_count,
+           unsupported_count = EXCLUDED.unsupported_count,
+           archived_at = EXCLUDED.archived_at,
+           archived_by_user_id = EXCLUDED.archived_by_user_id,
+           deleted_at = EXCLUDED.deleted_at,
+           deleted_by_user_id = EXCLUDED.deleted_by_user_id,
+           updated_at = EXCLUDED.updated_at
+         WHERE $21::int IS NULL OR ai_transaction_draft_batches.version = $21
+         RETURNING id,
+                   owner_user_id,
+                   created_by_user_id,
+                   connector_connection_id,
+                   share_id,
+                   source_channel,
+                   status,
+                   version,
+                   source_label,
+                   source_filename,
+                   note,
+                   provenance,
+                   row_count,
+                   unsupported_count,
+                   created_at::text AS created_at,
+                   updated_at::text AS updated_at,
+                   archived_at::text AS archived_at,
+                   archived_by_user_id,
+                   deleted_at::text AS deleted_at,
+                   deleted_by_user_id`,
+        [
+          input.id,
+          input.ownerUserId,
+          input.createdByUserId,
+          input.connectorConnectionId ?? null,
+          input.shareId ?? null,
+          input.sourceChannel,
+          input.status,
+          input.version,
+          input.sourceLabel ?? null,
+          input.sourceFilename ?? null,
+          input.note ?? null,
+          JSON.stringify(input.provenance ?? {}),
+          input.rowCount,
+          input.unsupportedCount,
+          input.archivedAt ?? null,
+          input.archivedByUserId ?? null,
+          input.deletedAt ?? null,
+          input.deletedByUserId ?? null,
+          input.createdAt ?? null,
+          now,
+          input.expectedVersion ?? null,
+        ],
+      );
+      await client.query("COMMIT");
+      return result.rows[0] ? mapAiTransactionDraftBatchRow(result.rows[0]) : null;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getAiTransactionDraftBatch(id: string): Promise<AiTransactionDraftBatchAggregate | null> {
+    const batchResult = await this.pool.query<{
+      id: string;
+      owner_user_id: string;
+      created_by_user_id: string;
+      connector_connection_id: string | null;
+      share_id: string | null;
+      source_channel: AiTransactionDraftSourceChannel;
+      status: AiTransactionDraftBatchStatus;
+      version: number;
+      source_label: string | null;
+      source_filename: string | null;
+      note: string | null;
+      provenance: Record<string, unknown> | null;
+      row_count: number;
+      unsupported_count: number;
+      created_at: string;
+      updated_at: string;
+      archived_at: string | null;
+      archived_by_user_id: string | null;
+      deleted_at: string | null;
+      deleted_by_user_id: string | null;
+    }>(
+      `SELECT id,
+              owner_user_id,
+              created_by_user_id,
+              connector_connection_id,
+              share_id,
+              source_channel,
+              status,
+              version,
+              source_label,
+              source_filename,
+              note,
+              provenance,
+              row_count,
+              unsupported_count,
+              created_at::text AS created_at,
+              updated_at::text AS updated_at,
+              archived_at::text AS archived_at,
+              archived_by_user_id,
+              deleted_at::text AS deleted_at,
+              deleted_by_user_id
+       FROM ai_transaction_draft_batches
+       WHERE id = $1`,
+      [id],
+    );
+    const batch = batchResult.rows[0];
+    if (!batch) return null;
+    const [rows, unsupportedItems, events] = await Promise.all([
+      this.listAiTransactionDraftRows(id),
+      this.listAiTransactionDraftUnsupportedItems(id),
+      this.listAiTransactionDraftEvents(id),
+    ]);
+    return {
+      batch: mapAiTransactionDraftBatchRow(batch),
+      rows,
+      unsupportedItems,
+      events,
+    };
+  }
+
+  async listAiTransactionDraftBatchesForOwner(ownerUserId: string): Promise<AiTransactionDraftBatchRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      owner_user_id: string;
+      created_by_user_id: string;
+      connector_connection_id: string | null;
+      share_id: string | null;
+      source_channel: AiTransactionDraftSourceChannel;
+      status: AiTransactionDraftBatchStatus;
+      version: number;
+      source_label: string | null;
+      source_filename: string | null;
+      note: string | null;
+      provenance: Record<string, unknown> | null;
+      row_count: number;
+      unsupported_count: number;
+      created_at: string;
+      updated_at: string;
+      archived_at: string | null;
+      archived_by_user_id: string | null;
+      deleted_at: string | null;
+      deleted_by_user_id: string | null;
+    }>(
+      `SELECT id,
+              owner_user_id,
+              created_by_user_id,
+              connector_connection_id,
+              share_id,
+              source_channel,
+              status,
+              version,
+              source_label,
+              source_filename,
+              note,
+              provenance,
+              row_count,
+              unsupported_count,
+              created_at::text AS created_at,
+              updated_at::text AS updated_at,
+              archived_at::text AS archived_at,
+              archived_by_user_id,
+              deleted_at::text AS deleted_at,
+              deleted_by_user_id
+       FROM ai_transaction_draft_batches
+       WHERE owner_user_id = $1
+       ORDER BY updated_at DESC`,
+      [ownerUserId],
+    );
+    return result.rows.map((row) => mapAiTransactionDraftBatchRow(row));
+  }
+
+  async saveAiTransactionDraftRow(input: SaveAiTransactionDraftRowInput): Promise<AiTransactionDraftRowRecord | null> {
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null) {
+      const existing = await this.pool.query<{ version: number }>(
+        `SELECT version
+         FROM ai_transaction_draft_rows
+         WHERE id = $1`,
+        [input.id],
+      );
+      if (!existing.rows[0] || Number(existing.rows[0].version) !== input.expectedVersion) {
+        return null;
+      }
+    }
+    const result = await this.pool.query<{
+      id: string;
+      batch_id: string;
+      owner_user_id: string;
+      row_number: number;
+      state: AiTransactionDraftRowState;
+      version: number;
+      account_id: string | null;
+      account_name_input: string | null;
+      trade_type: "BUY" | "SELL" | null;
+      ticker: string | null;
+      market_code: string | null;
+      quantity: number | null;
+      unit_price: string | number | null;
+      price_currency: string | null;
+      trade_date: string | null;
+      trade_timestamp: string | null;
+      booking_sequence: number | null;
+      is_day_trade: boolean | null;
+      commission_amount: string | number | null;
+      tax_amount: string | number | null;
+      fees_source: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+      note: string | null;
+      source_row_ref: string | null;
+      source_snippet: string | null;
+      normalized_payload: Record<string, unknown> | null;
+      preflight_issues: unknown[] | null;
+      warnings: unknown[] | null;
+      duplicate_trade_event_id: string | null;
+      confirmed_trade_event_id: string | null;
+      confirmed_at: string | null;
+      confirmed_by_user_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `INSERT INTO ai_transaction_draft_rows (
+         id,
+         batch_id,
+         owner_user_id,
+         row_number,
+         state,
+         version,
+         account_id,
+         account_name_input,
+         trade_type,
+         ticker,
+         market_code,
+         quantity,
+         unit_price,
+         price_currency,
+         trade_date,
+         trade_timestamp,
+         booking_sequence,
+         is_day_trade,
+         commission_amount,
+         tax_amount,
+         fees_source,
+         note,
+         source_row_ref,
+         source_snippet,
+         normalized_payload,
+         preflight_issues,
+         warnings,
+         duplicate_trade_event_id,
+         confirmed_trade_event_id,
+         confirmed_at,
+         confirmed_by_user_id,
+         created_at,
+         updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11, $12, $13, $14, $15::date, $16::timestamptz, $17, $18, $19, $20,
+         $21, $22, $23, $24, $25::jsonb, $26::jsonb, $27::jsonb, $28, $29,
+         $30::timestamptz, $31, COALESCE($32::timestamptz, NOW()), $33::timestamptz
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         batch_id = EXCLUDED.batch_id,
+         owner_user_id = EXCLUDED.owner_user_id,
+         row_number = EXCLUDED.row_number,
+         state = EXCLUDED.state,
+         version = EXCLUDED.version,
+         account_id = EXCLUDED.account_id,
+         account_name_input = EXCLUDED.account_name_input,
+         trade_type = EXCLUDED.trade_type,
+         ticker = EXCLUDED.ticker,
+         market_code = EXCLUDED.market_code,
+         quantity = EXCLUDED.quantity,
+         unit_price = EXCLUDED.unit_price,
+         price_currency = EXCLUDED.price_currency,
+         trade_date = EXCLUDED.trade_date,
+         trade_timestamp = EXCLUDED.trade_timestamp,
+         booking_sequence = EXCLUDED.booking_sequence,
+         is_day_trade = EXCLUDED.is_day_trade,
+         commission_amount = EXCLUDED.commission_amount,
+         tax_amount = EXCLUDED.tax_amount,
+         fees_source = EXCLUDED.fees_source,
+         note = EXCLUDED.note,
+         source_row_ref = EXCLUDED.source_row_ref,
+         source_snippet = EXCLUDED.source_snippet,
+         normalized_payload = EXCLUDED.normalized_payload,
+         preflight_issues = EXCLUDED.preflight_issues,
+         warnings = EXCLUDED.warnings,
+         duplicate_trade_event_id = EXCLUDED.duplicate_trade_event_id,
+         confirmed_trade_event_id = EXCLUDED.confirmed_trade_event_id,
+         confirmed_at = EXCLUDED.confirmed_at,
+         confirmed_by_user_id = EXCLUDED.confirmed_by_user_id,
+         updated_at = EXCLUDED.updated_at
+       WHERE $34::int IS NULL OR ai_transaction_draft_rows.version = $34
+       RETURNING id,
+                 batch_id,
+                 owner_user_id,
+                 row_number,
+                 state,
+                 version,
+                 account_id,
+                 account_name_input,
+                 trade_type,
+                 ticker,
+                 market_code,
+                 quantity,
+                 unit_price,
+                 price_currency,
+                 trade_date::text AS trade_date,
+                 trade_timestamp::text AS trade_timestamp,
+                 booking_sequence,
+                 is_day_trade,
+                 commission_amount,
+                 tax_amount,
+                 fees_source,
+                 note,
+                 source_row_ref,
+                 source_snippet,
+                 normalized_payload,
+                 preflight_issues,
+                 warnings,
+                 duplicate_trade_event_id,
+                 confirmed_trade_event_id,
+                 confirmed_at::text AS confirmed_at,
+                 confirmed_by_user_id,
+                 created_at::text AS created_at,
+                 updated_at::text AS updated_at`,
+      [
+        input.id,
+        input.batchId,
+        input.ownerUserId,
+        input.rowNumber,
+        input.state,
+        input.version,
+        input.accountId ?? null,
+        input.accountNameInput ?? null,
+        input.tradeType ?? null,
+        input.ticker ?? null,
+        input.marketCode ?? null,
+        input.quantity ?? null,
+        input.unitPrice ?? null,
+        input.priceCurrency ?? null,
+        input.tradeDate ?? null,
+        input.tradeTimestamp ?? null,
+        input.bookingSequence ?? null,
+        input.isDayTrade ?? null,
+        input.commissionAmount ?? null,
+        input.taxAmount ?? null,
+        input.feesSource ?? null,
+        input.note ?? null,
+        input.sourceRowRef ?? null,
+        input.sourceSnippet ?? null,
+        JSON.stringify(input.normalizedPayload ?? {}),
+        JSON.stringify(input.preflightIssues ?? []),
+        JSON.stringify(input.warnings ?? []),
+        input.duplicateTradeEventId ?? null,
+        input.confirmedTradeEventId ?? null,
+        input.confirmedAt ?? null,
+        input.confirmedByUserId ?? null,
+        input.createdAt ?? null,
+        input.updatedAt ?? new Date().toISOString(),
+        input.expectedVersion ?? null,
+      ],
+    );
+    return result.rows[0] ? mapAiTransactionDraftRowRow(result.rows[0]) : null;
+  }
+
+  async listAiTransactionDraftRows(batchId: string): Promise<AiTransactionDraftRowRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      batch_id: string;
+      owner_user_id: string;
+      row_number: number;
+      state: AiTransactionDraftRowState;
+      version: number;
+      account_id: string | null;
+      account_name_input: string | null;
+      trade_type: "BUY" | "SELL" | null;
+      ticker: string | null;
+      market_code: string | null;
+      quantity: number | null;
+      unit_price: string | number | null;
+      price_currency: string | null;
+      trade_date: string | null;
+      trade_timestamp: string | null;
+      booking_sequence: number | null;
+      is_day_trade: boolean | null;
+      commission_amount: string | number | null;
+      tax_amount: string | number | null;
+      fees_source: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+      note: string | null;
+      source_row_ref: string | null;
+      source_snippet: string | null;
+      normalized_payload: Record<string, unknown> | null;
+      preflight_issues: unknown[] | null;
+      warnings: unknown[] | null;
+      duplicate_trade_event_id: string | null;
+      confirmed_trade_event_id: string | null;
+      confirmed_at: string | null;
+      confirmed_by_user_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT id,
+              batch_id,
+              owner_user_id,
+              row_number,
+              state,
+              version,
+              account_id,
+              account_name_input,
+              trade_type,
+              ticker,
+              market_code,
+              quantity,
+              unit_price,
+              price_currency,
+              trade_date::text AS trade_date,
+              trade_timestamp::text AS trade_timestamp,
+              booking_sequence,
+              is_day_trade,
+              commission_amount,
+              tax_amount,
+              fees_source,
+              note,
+              source_row_ref,
+              source_snippet,
+              normalized_payload,
+              preflight_issues,
+              warnings,
+              duplicate_trade_event_id,
+              confirmed_trade_event_id,
+              confirmed_at::text AS confirmed_at,
+              confirmed_by_user_id,
+              created_at::text AS created_at,
+              updated_at::text AS updated_at
+       FROM ai_transaction_draft_rows
+       WHERE batch_id = $1
+       ORDER BY row_number ASC, created_at ASC`,
+      [batchId],
+    );
+    return result.rows.map((row) => mapAiTransactionDraftRowRow(row));
+  }
+
+  async replaceAiTransactionDraftUnsupportedItems(
+    batchId: string,
+    items: SaveAiTransactionDraftUnsupportedItemInput[],
+  ): Promise<AiTransactionDraftUnsupportedItemRecord[]> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM ai_transaction_draft_unsupported_items WHERE batch_id = $1`, [batchId]);
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO ai_transaction_draft_unsupported_items (
+             id,
+             batch_id,
+             row_number,
+             category,
+             reason,
+             source_snippet,
+             raw_payload,
+             created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, COALESCE($8::timestamptz, NOW()))`,
+          [
+            item.id,
+            batchId,
+            item.rowNumber ?? null,
+            item.category,
+            item.reason,
+            item.sourceSnippet ?? null,
+            JSON.stringify(item.rawPayload ?? {}),
+            item.createdAt ?? null,
+          ],
+        );
+      }
+      const rows = await client.query<{
+        id: string;
+        batch_id: string;
+        row_number: number | null;
+        category: string;
+        reason: string;
+        source_snippet: string | null;
+        raw_payload: Record<string, unknown> | null;
+        created_at: string;
+      }>(
+        `SELECT id,
+                batch_id,
+                row_number,
+                category,
+                reason,
+                source_snippet,
+                raw_payload,
+                created_at::text AS created_at
+         FROM ai_transaction_draft_unsupported_items
+         WHERE batch_id = $1
+         ORDER BY row_number NULLS LAST, created_at ASC`,
+        [batchId],
+      );
+      await client.query("COMMIT");
+      return rows.rows.map((row) => mapAiTransactionDraftUnsupportedItemRow(row));
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listAiTransactionDraftUnsupportedItems(batchId: string): Promise<AiTransactionDraftUnsupportedItemRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      batch_id: string;
+      row_number: number | null;
+      category: string;
+      reason: string;
+      source_snippet: string | null;
+      raw_payload: Record<string, unknown> | null;
+      created_at: string;
+    }>(
+      `SELECT id,
+              batch_id,
+              row_number,
+              category,
+              reason,
+              source_snippet,
+              raw_payload,
+              created_at::text AS created_at
+       FROM ai_transaction_draft_unsupported_items
+       WHERE batch_id = $1
+       ORDER BY row_number NULLS LAST, created_at ASC`,
+      [batchId],
+    );
+    return result.rows.map((row) => mapAiTransactionDraftUnsupportedItemRow(row));
+  }
+
+  async appendAiTransactionDraftEvent(input: AppendAiTransactionDraftEventInput): Promise<AiTransactionDraftEventRecord> {
+    const result = await this.pool.query<{
+      id: string;
+      batch_id: string;
+      row_id: string | null;
+      owner_user_id: string | null;
+      actor_user_id: string | null;
+      connector_connection_id: string | null;
+      event_type: AiTransactionDraftEventType;
+      summary: string | null;
+      before_state: Record<string, unknown> | null;
+      after_state: Record<string, unknown> | null;
+      metadata: Record<string, unknown> | null;
+      source_ip: string | null;
+      created_at: string;
+    }>(
+      `INSERT INTO ai_transaction_draft_events (
+         id,
+         batch_id,
+         row_id,
+         owner_user_id,
+         actor_user_id,
+         connector_connection_id,
+         event_type,
+         summary,
+         before_state,
+         after_state,
+         metadata,
+         source_ip,
+         created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb,
+         $12::inet, COALESCE($13::timestamptz, NOW())
+       )
+       RETURNING id,
+                 batch_id,
+                 row_id,
+                 owner_user_id,
+                 actor_user_id,
+                 connector_connection_id,
+                 event_type,
+                 summary,
+                 before_state,
+                 after_state,
+                 metadata,
+                 source_ip::text AS source_ip,
+                 created_at::text AS created_at`,
+      [
+        input.id ?? randomUUID(),
+        input.batchId,
+        input.rowId ?? null,
+        input.ownerUserId ?? null,
+        input.actorUserId ?? null,
+        input.connectorConnectionId ?? null,
+        input.eventType,
+        input.summary ?? null,
+        input.beforeState ? JSON.stringify(input.beforeState) : null,
+        input.afterState ? JSON.stringify(input.afterState) : null,
+        JSON.stringify(input.metadata ?? {}),
+        input.sourceIp ?? null,
+        input.createdAt ?? null,
+      ],
+    );
+    return mapAiTransactionDraftEventRow(result.rows[0]!);
+  }
+
+  async listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]> {
+    const result = await this.pool.query<{
+      id: string;
+      batch_id: string;
+      row_id: string | null;
+      owner_user_id: string | null;
+      actor_user_id: string | null;
+      connector_connection_id: string | null;
+      event_type: AiTransactionDraftEventType;
+      summary: string | null;
+      before_state: Record<string, unknown> | null;
+      after_state: Record<string, unknown> | null;
+      metadata: Record<string, unknown> | null;
+      source_ip: string | null;
+      created_at: string;
+    }>(
+      `SELECT id,
+              batch_id,
+              row_id,
+              owner_user_id,
+              actor_user_id,
+              connector_connection_id,
+              event_type,
+              summary,
+              before_state,
+              after_state,
+              metadata,
+              source_ip::text AS source_ip,
+              created_at::text AS created_at
+       FROM ai_transaction_draft_events
+       WHERE batch_id = $1
+       ORDER BY created_at ASC`,
+      [batchId],
+    );
+    return result.rows.map((row) => mapAiTransactionDraftEventRow(row));
   }
 
   async createAnonymousShareToken(
@@ -5803,6 +7290,68 @@ export class PostgresPersistence implements Persistence {
       }
     }
     throw new Error("Failed to generate a unique invite code after 3 attempts");
+  }
+
+  private async getAiConnectorConnectionTx(
+    client: Pool | PoolClient,
+    id: string,
+  ): Promise<AiConnectorConnectionRecord | null> {
+    const result = await client.query<{
+      id: string;
+      user_id: string;
+      provider: AiConnectorProvider;
+      display_name: string;
+      status: AiConnectorStatus;
+      oauth_client_id: string | null;
+      oauth_subject: string | null;
+      scopes: AiConnectorScope[] | null;
+      tool_toggles: Record<string, boolean> | null;
+      expires_at: string | null;
+      expiry_notified_at: string | null;
+      last_used_at: string | null;
+      revoked_at: string | null;
+      revoked_by_user_id: string | null;
+      revocation_reason: string | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      `SELECT c.id,
+              c.user_id,
+              c.provider,
+              c.display_name,
+              c.status,
+              c.oauth_client_id,
+              c.oauth_subject,
+              COALESCE(
+                ARRAY(
+                  SELECT s.scope
+                  FROM ai_connector_connection_scopes s
+                  WHERE s.connection_id = c.id
+                  ORDER BY s.scope ASC
+                ),
+                ARRAY[]::text[]
+              ) AS scopes,
+              COALESCE(
+                (
+                  SELECT jsonb_object_agg(t.tool_name, t.enabled ORDER BY t.tool_name)
+                  FROM ai_connector_tool_toggles t
+                  WHERE t.connection_id = c.id
+                ),
+                '{}'::jsonb
+              ) AS tool_toggles,
+              c.expires_at::text AS expires_at,
+              c.expiry_notified_at::text AS expiry_notified_at,
+              c.last_used_at::text AS last_used_at,
+              c.revoked_at::text AS revoked_at,
+              c.revoked_by_user_id,
+              c.revocation_reason,
+              c.created_at::text AS created_at,
+              c.updated_at::text AS updated_at
+       FROM ai_connector_connections c
+       WHERE c.id = $1`,
+      [id],
+    );
+    return result.rows[0] ? mapAiConnectorConnectionRow(result.rows[0]) : null;
   }
 
   private async appendAuditLogTx(client: Pool | PoolClient, input: AuditLogInput): Promise<void> {

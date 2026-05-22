@@ -402,6 +402,11 @@ export const userRoleSchema = z.enum(VALID_USER_ROLES);
 const PUBLIC_ROUTE_KEYS = new Set([
   "GET /health/live",
   "GET /health/ready",
+  "GET /mcp/health",
+  "GET /.well-known/oauth-protected-resource",
+  "POST /mcp",
+  "GET /mcp",
+  "DELETE /mcp",
   "GET /auth/logout",
   "GET /auth/google/start",
   "GET /auth/google/callback",
@@ -517,6 +522,9 @@ const ADMIN_ROUTE_KEYS = new Set([
   "GET /admin/audit-log",
   "GET /admin/settings",
   "PATCH /admin/settings",
+  "GET /admin/mcp/settings",
+  "POST /admin/mcp/fresh-auth",
+  "PATCH /admin/mcp/settings",
   // KZO-164: FX rate ingestion admin surface.
   // POST /admin/fx-rates/refresh has a route-local demo-before-admin guard.
   "GET /admin/fx-rates/freshness",
