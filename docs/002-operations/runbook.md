@@ -152,6 +152,87 @@ The local stack defaults to `AUTH_MODE=oauth` (not `dev_bypass`) because:
 
 To use the local stack with OAuth, ensure your `infra/docker/.env.local` has valid `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `SESSION_SECRET` values.
 
+### MCP server and ChatGPT connector
+
+The Vakwen MCP server is part of the Fastify API process. There is no separate MCP daemon to start or restart.
+
+#### Bring up MCP locally
+
+Start any local mode that runs the API. The fastest smoke-test mode is:
+
+```bash
+npm run dev:local:bypass:mem
+```
+
+Then verify the MCP routes from another shell:
+
+```bash
+curl http://localhost:4000/mcp/health
+curl http://localhost:4000/.well-known/oauth-protected-resource
+```
+
+Expected local endpoint:
+
+```text
+http://localhost:4000/mcp
+```
+
+For local Docker validation, the host-published API port is `4300`, so use:
+
+```bash
+curl http://localhost:4300/mcp/health
+curl http://localhost:4300/.well-known/oauth-protected-resource
+```
+
+#### Public endpoint requirement
+
+ChatGPT cannot connect to `localhost`. A ChatGPT-facing Vakwen MCP server must be reachable over public HTTPS, for example:
+
+```text
+https://<public-api-host>/mcp
+```
+
+Use the deployed API hostname or put an HTTPS tunnel in front of the API. The MCP protected-resource metadata is derived from the incoming request host and forwarded protocol, so make sure the reverse proxy forwards the canonical external host and protocol with `X-Forwarded-Host` and `X-Forwarded-Proto`.
+
+#### Current ChatGPT connection status
+
+The current MCP implementation supports Streamable HTTP at `/mcp`, tool discovery/calls, connector policy enforcement, connector access logs, and local dev-token bearer authentication. First-class ChatGPT connection still requires the OAuth facade to be completed because ChatGPT's authenticated app flow expects OAuth metadata and an authorization-code + PKCE flow, not a pasted bearer token.
+
+Until that OAuth facade exists:
+
+- ChatGPT app connection should be treated as not production-ready.
+- Local/self-hosted MCP smoke tests can use dev-token bearer auth.
+- Do not expose dev tokens as an end-user ChatGPT credential flow.
+
+When the OAuth facade is available, configure ChatGPT as a custom app / MCP connector:
+
+1. In ChatGPT, enable Developer Mode under Settings -> Apps -> Advanced settings.
+2. Create a new app or custom MCP connector.
+3. Set the server URL to `https://<public-api-host>/mcp`.
+4. Choose OAuth authentication.
+5. Complete OAuth and let ChatGPT scan the MCP tools.
+6. Start a new chat and select the Vakwen app from the tool/app picker.
+7. Manage the connected account in Vakwen under Settings -> AI connectors.
+8. Manage global policy in Vakwen under Admin -> Settings -> MCP.
+
+#### Local dev-token smoke test
+
+Use this only for local or controlled self-hosted testing. It authenticates as the seeded `user-1` memory-store user and grants read/draft scopes directly in the token payload.
+
+```bash
+TOKEN="$(
+  node -e 'const p={userId:"user-1",clientId:"chatgpt",scopes:["portfolio:mcp_read","transaction_draft:create","transaction_draft:edit"]}; console.log("vakwen-dev."+Buffer.from(JSON.stringify(p)).toString("base64url"))'
+)"
+
+curl -i http://localhost:4000/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"init-1","method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"manual","version":"1.0.0"}}}'
+```
+
+The response should include an `mcp-session-id` header. Pass that header on subsequent `tools/list` or `tools/call` requests in the same MCP session.
+
 ### Redeploy a Single Service
 
 Use `redeploy-service.sh` to rebuild and restart just one service without a full deployment:
