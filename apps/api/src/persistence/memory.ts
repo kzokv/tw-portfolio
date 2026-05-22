@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@vakwen/domain";
 import { marketCodeFor } from "@vakwen/shared-types";
-import type { DividendLedgerAggregates, DividendSourceLine, TickerFundamentalsDto } from "@vakwen/shared-types";
+import type { DividendLedgerAggregates, DividendSourceLine, ShareCapability, TickerFundamentalsDto } from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
@@ -79,10 +79,27 @@ import type {
   RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   AggregatedSnapshotPoint,
+  AiConnectorAccessLogRecord,
+  AiConnectorConnectionRecord,
+  AiConnectorPolicySettingsRecord,
+  AiTransactionDraftBatchAggregate,
+  AiTransactionDraftBatchRecord,
+  AiTransactionDraftEventRecord,
+  AiTransactionDraftRowRecord,
+  AiTransactionDraftUnsupportedItemRecord,
+  AppendAiConnectorAccessLogInput,
+  AppendAiTransactionDraftEventInput,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthUpsert,
+  SaveAiConnectorConnectionInput,
+  SaveAiConnectorPolicySettingsInput,
+  SaveAiTransactionDraftBatchInput,
+  SaveAiTransactionDraftRowInput,
+  SaveAiTransactionDraftUnsupportedItemInput,
+  SetPendingShareInviteCapabilitiesInput,
+  SetShareCapabilitiesInput,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -162,6 +179,12 @@ interface MemoryShare {
   revokedByUserId: string | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+interface MemoryCapabilityGrant {
+  capability: ShareCapability;
+  grantedByUserId: string | null;
+  grantedAt: string;
 }
 
 interface MemoryAnonymousShareToken {
@@ -305,6 +328,24 @@ export class MemoryPersistence implements Persistence {
   private readonly fxRates = new Map<string, FxRate>();
   private readonly invites = new Map<string, MemoryInvite>();
   private readonly portfolioShares: MemoryShare[] = [];
+  private readonly portfolioShareCapabilities = new Map<string, MemoryCapabilityGrant[]>();
+  private readonly pendingShareInviteCapabilities = new Map<string, MemoryCapabilityGrant[]>();
+  private readonly aiConnectorConnections = new Map<string, AiConnectorConnectionRecord>();
+  private readonly aiConnectorAccessLogs: AiConnectorAccessLogRecord[] = [];
+  private aiConnectorPolicySettings: AiConnectorPolicySettingsRecord = {
+    enabled: true,
+    maxActiveConnectionsPerUser: 3,
+    allowedProviders: { chatgpt: true, self_hosted: true },
+    groupToggles: { read: true, drafts: true, write: false },
+    inactivityExpiryDays: 90,
+    expirationWarningDays: 7,
+    freshAuthMaxAgeMs: 600_000,
+    updatedAt: new Date(0).toISOString(),
+  };
+  private readonly aiTransactionDraftBatches = new Map<string, AiTransactionDraftBatchRecord>();
+  private readonly aiTransactionDraftRows = new Map<string, AiTransactionDraftRowRecord[]>();
+  private readonly aiTransactionDraftUnsupportedItems = new Map<string, AiTransactionDraftUnsupportedItemRecord[]>();
+  private readonly aiTransactionDraftEvents = new Map<string, AiTransactionDraftEventRecord[]>();
   private readonly anonymousShareTokens: MemoryAnonymousShareToken[] = [];
   /** Per-owner async mutex — ensures cap-check + insert is atomic for concurrent callers. */
   private readonly anonymousShareTokenLocks = new Map<string, Promise<unknown>>();
@@ -903,6 +944,10 @@ export class MemoryPersistence implements Persistence {
         revokedAt: null,
       };
       this.portfolioShares.push(share);
+      this.portfolioShareCapabilities.set(
+        share.id,
+        this.cloneCapabilityGrants(this.pendingShareInviteCapabilities.get(invite.code) ?? []),
+      );
 
       await this.appendAuditLog({
         ...input.auditInput,
@@ -919,6 +964,316 @@ export class MemoryPersistence implements Persistence {
     }
 
     return materialized;
+  }
+
+  async getShareCapabilities(shareId: string): Promise<ShareCapability[]> {
+    return this.listCapabilityValues(this.portfolioShareCapabilities.get(shareId) ?? []);
+  }
+
+  async setShareCapabilities(input: SetShareCapabilitiesInput): Promise<ShareCapability[]> {
+    this.assertShareExists(input.shareId);
+    const grants = this.buildCapabilityGrants(input.capabilities, input.grantedByUserId);
+    this.portfolioShareCapabilities.set(input.shareId, grants);
+    return this.listCapabilityValues(grants);
+  }
+
+  async getPendingShareInviteCapabilities(inviteCode: string): Promise<ShareCapability[]> {
+    return this.listCapabilityValues(this.pendingShareInviteCapabilities.get(inviteCode) ?? []);
+  }
+
+  async setPendingShareInviteCapabilities(input: SetPendingShareInviteCapabilitiesInput): Promise<ShareCapability[]> {
+    if (!this.invites.has(input.inviteCode)) {
+      throw routeError(404, "share_pending_not_found", "Pending share invite not found");
+    }
+    const grants = this.buildCapabilityGrants(input.capabilities, input.grantedByUserId);
+    this.pendingShareInviteCapabilities.set(input.inviteCode, grants);
+    return this.listCapabilityValues(grants);
+  }
+
+  async saveAiConnectorConnection(input: SaveAiConnectorConnectionInput): Promise<AiConnectorConnectionRecord> {
+    this.assertUserExists(input.userId);
+    if (input.revokedByUserId) this.assertUserExists(input.revokedByUserId);
+    const now = new Date().toISOString();
+    const record: AiConnectorConnectionRecord = {
+      id: input.id,
+      userId: input.userId,
+      provider: input.provider,
+      displayName: input.displayName,
+      status: input.status,
+      oauthClientId: input.oauthClientId ?? null,
+      oauthSubject: input.oauthSubject ?? null,
+      scopes: [...new Set(input.scopes)].sort(),
+      toolToggles: this.normalizeToolToggles(input.toolToggles ?? {}),
+      expiresAt: input.expiresAt ?? null,
+      expiryNotifiedAt: input.expiryNotifiedAt ?? null,
+      lastUsedAt: input.lastUsedAt ?? null,
+      revokedAt: input.revokedAt ?? null,
+      revokedByUserId: input.revokedByUserId ?? null,
+      revocationReason: input.revocationReason ?? null,
+      createdAt: input.createdAt ?? this.aiConnectorConnections.get(input.id)?.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    };
+    this.aiConnectorConnections.set(record.id, record);
+    return { ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } };
+  }
+
+  async getAiConnectorConnection(id: string): Promise<AiConnectorConnectionRecord | null> {
+    const record = this.aiConnectorConnections.get(id);
+    return record ? { ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } } : null;
+  }
+
+  async listAiConnectorConnectionsForUser(userId: string): Promise<AiConnectorConnectionRecord[]> {
+    return [...this.aiConnectorConnections.values()]
+      .filter((record) => record.userId === userId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((record) => ({ ...record, scopes: [...record.scopes], toolToggles: { ...record.toolToggles } }));
+  }
+
+  async getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsRecord> {
+    return {
+      ...this.aiConnectorPolicySettings,
+      allowedProviders: { ...this.aiConnectorPolicySettings.allowedProviders },
+      groupToggles: { ...this.aiConnectorPolicySettings.groupToggles },
+    };
+  }
+
+  async saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsRecord> {
+    this.aiConnectorPolicySettings = {
+      ...this.aiConnectorPolicySettings,
+      ...input,
+      allowedProviders: {
+        ...this.aiConnectorPolicySettings.allowedProviders,
+        ...(input.allowedProviders ?? {}),
+      },
+      groupToggles: {
+        ...this.aiConnectorPolicySettings.groupToggles,
+        ...(input.groupToggles ?? {}),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    return this.getAiConnectorPolicySettings();
+  }
+
+  async appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord> {
+    this.assertUserExists(input.userId);
+    this.assertUserExists(input.portfolioContextUserId);
+    if (input.connectionId && !this.aiConnectorConnections.has(input.connectionId)) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    if (input.shareId) this.assertShareExists(input.shareId);
+    const record: AiConnectorAccessLogRecord = {
+      id: input.id ?? randomUUID(),
+      connectionId: input.connectionId,
+      userId: input.userId,
+      portfolioContextUserId: input.portfolioContextUserId,
+      shareId: input.shareId ?? null,
+      toolName: input.toolName,
+      accessKind: input.accessKind,
+      result: input.result,
+      denialReason: input.denialReason ?? null,
+      requestId: input.requestId ?? null,
+      sourceIp: input.sourceIp ?? null,
+      userAgent: input.userAgent ?? null,
+      metadata: { ...(input.metadata ?? {}) },
+      createdAt: input.createdAt ?? new Date().toISOString(),
+    };
+    this.aiConnectorAccessLogs.push(record);
+    this.aiConnectorAccessLogs.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return { ...record, metadata: { ...record.metadata } };
+  }
+
+  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
+    return this.aiConnectorAccessLogs
+      .filter((record) => record.userId === userId)
+      .map((record) => ({ ...record, metadata: { ...record.metadata } }));
+  }
+
+  async saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null> {
+    this.assertUserExists(input.ownerUserId);
+    this.assertUserExists(input.createdByUserId);
+    if (input.connectorConnectionId && !this.aiConnectorConnections.has(input.connectorConnectionId)) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    if (input.shareId) this.assertShareExists(input.shareId);
+    if (input.archivedByUserId) this.assertUserExists(input.archivedByUserId);
+    if (input.deletedByUserId) this.assertUserExists(input.deletedByUserId);
+    const existing = this.aiTransactionDraftBatches.get(input.id);
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null) {
+      if (!existing || existing.version !== input.expectedVersion) return null;
+    }
+    const now = new Date().toISOString();
+    const record: AiTransactionDraftBatchRecord = {
+      id: input.id,
+      ownerUserId: input.ownerUserId,
+      createdByUserId: input.createdByUserId,
+      connectorConnectionId: input.connectorConnectionId ?? null,
+      shareId: input.shareId ?? null,
+      sourceChannel: input.sourceChannel,
+      status: input.status,
+      version: input.version,
+      sourceLabel: input.sourceLabel ?? null,
+      sourceFilename: input.sourceFilename ?? null,
+      note: input.note ?? null,
+      provenance: { ...(input.provenance ?? {}) },
+      rowCount: input.rowCount,
+      unsupportedCount: input.unsupportedCount,
+      createdAt: input.createdAt ?? existing?.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+      archivedAt: input.archivedAt ?? null,
+      archivedByUserId: input.archivedByUserId ?? null,
+      deletedAt: input.deletedAt ?? null,
+      deletedByUserId: input.deletedByUserId ?? null,
+    };
+    this.aiTransactionDraftBatches.set(record.id, record);
+    return { ...record, provenance: { ...record.provenance } };
+  }
+
+  async getAiTransactionDraftBatch(id: string): Promise<AiTransactionDraftBatchAggregate | null> {
+    const batch = this.aiTransactionDraftBatches.get(id);
+    if (!batch) return null;
+    return {
+      batch: { ...batch, provenance: { ...batch.provenance } },
+      rows: await this.listAiTransactionDraftRows(id),
+      unsupportedItems: await this.listAiTransactionDraftUnsupportedItems(id),
+      events: await this.listAiTransactionDraftEvents(id),
+    };
+  }
+
+  async listAiTransactionDraftBatchesForOwner(ownerUserId: string): Promise<AiTransactionDraftBatchRecord[]> {
+    return [...this.aiTransactionDraftBatches.values()]
+      .filter((batch) => batch.ownerUserId === ownerUserId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((batch) => ({ ...batch, provenance: { ...batch.provenance } }));
+  }
+
+  async saveAiTransactionDraftRow(input: SaveAiTransactionDraftRowInput): Promise<AiTransactionDraftRowRecord | null> {
+    const batch = this.aiTransactionDraftBatches.get(input.batchId);
+    if (!batch) {
+      throw routeError(404, "ai_transaction_draft_batch_not_found", "AI transaction draft batch not found");
+    }
+    if (input.ownerUserId !== batch.ownerUserId) {
+      throw routeError(409, "ai_transaction_draft_owner_mismatch", "AI transaction draft owner mismatch");
+    }
+    if (input.confirmedByUserId) this.assertUserExists(input.confirmedByUserId);
+    const existingRows = this.aiTransactionDraftRows.get(input.batchId) ?? [];
+    const existing = existingRows.find((row) => row.id === input.id) ?? null;
+    if (input.expectedVersion !== undefined && input.expectedVersion !== null) {
+      if (!existing || existing.version !== input.expectedVersion) return null;
+    }
+    const now = new Date().toISOString();
+    const record: AiTransactionDraftRowRecord = {
+      id: input.id,
+      batchId: input.batchId,
+      ownerUserId: input.ownerUserId,
+      rowNumber: input.rowNumber,
+      state: input.state,
+      version: input.version,
+      accountId: input.accountId ?? null,
+      accountNameInput: input.accountNameInput ?? null,
+      tradeType: input.tradeType ?? null,
+      ticker: input.ticker ?? null,
+      marketCode: input.marketCode ?? null,
+      quantity: input.quantity ?? null,
+      unitPrice: input.unitPrice ?? null,
+      priceCurrency: input.priceCurrency ?? null,
+      tradeDate: input.tradeDate ?? null,
+      tradeTimestamp: input.tradeTimestamp ?? null,
+      bookingSequence: input.bookingSequence ?? null,
+      isDayTrade: input.isDayTrade ?? null,
+      commissionAmount: input.commissionAmount ?? null,
+      taxAmount: input.taxAmount ?? null,
+      feesSource: input.feesSource ?? null,
+      note: input.note ?? null,
+      sourceRowRef: input.sourceRowRef ?? null,
+      sourceSnippet: input.sourceSnippet ?? null,
+      normalizedPayload: { ...(input.normalizedPayload ?? {}) },
+      preflightIssues: [...(input.preflightIssues ?? [])],
+      warnings: [...(input.warnings ?? [])],
+      duplicateTradeEventId: input.duplicateTradeEventId ?? null,
+      confirmedTradeEventId: input.confirmedTradeEventId ?? null,
+      confirmedAt: input.confirmedAt ?? null,
+      confirmedByUserId: input.confirmedByUserId ?? null,
+      createdAt: input.createdAt ?? existing?.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now,
+    };
+    const nextRows = existingRows.filter((row) => row.id !== record.id);
+    nextRows.push(record);
+    nextRows.sort((left, right) => left.rowNumber - right.rowNumber || left.createdAt.localeCompare(right.createdAt));
+    this.aiTransactionDraftRows.set(input.batchId, nextRows);
+    return this.cloneDraftRow(record);
+  }
+
+  async listAiTransactionDraftRows(batchId: string): Promise<AiTransactionDraftRowRecord[]> {
+    return (this.aiTransactionDraftRows.get(batchId) ?? []).map((row) => this.cloneDraftRow(row));
+  }
+
+  async replaceAiTransactionDraftUnsupportedItems(
+    batchId: string,
+    items: SaveAiTransactionDraftUnsupportedItemInput[],
+  ): Promise<AiTransactionDraftUnsupportedItemRecord[]> {
+    if (!this.aiTransactionDraftBatches.has(batchId)) {
+      throw routeError(404, "ai_transaction_draft_batch_not_found", "AI transaction draft batch not found");
+    }
+    const records = items
+      .map((item) => ({
+        id: item.id,
+        batchId,
+        rowNumber: item.rowNumber ?? null,
+        category: item.category,
+        reason: item.reason,
+        sourceSnippet: item.sourceSnippet ?? null,
+        rawPayload: { ...(item.rawPayload ?? {}) },
+        createdAt: item.createdAt ?? new Date().toISOString(),
+      }))
+      .sort((left, right) => {
+        const leftRow = left.rowNumber ?? Number.MAX_SAFE_INTEGER;
+        const rightRow = right.rowNumber ?? Number.MAX_SAFE_INTEGER;
+        return leftRow - rightRow || left.createdAt.localeCompare(right.createdAt);
+      });
+    this.aiTransactionDraftUnsupportedItems.set(batchId, records);
+    return records.map((record) => ({ ...record, rawPayload: { ...record.rawPayload } }));
+  }
+
+  async listAiTransactionDraftUnsupportedItems(batchId: string): Promise<AiTransactionDraftUnsupportedItemRecord[]> {
+    return (this.aiTransactionDraftUnsupportedItems.get(batchId) ?? []).map((record) => ({
+      ...record,
+      rawPayload: { ...record.rawPayload },
+    }));
+  }
+
+  async appendAiTransactionDraftEvent(input: AppendAiTransactionDraftEventInput): Promise<AiTransactionDraftEventRecord> {
+    if (!this.aiTransactionDraftBatches.has(input.batchId)) {
+      throw routeError(404, "ai_transaction_draft_batch_not_found", "AI transaction draft batch not found");
+    }
+    if (input.ownerUserId) this.assertUserExists(input.ownerUserId);
+    if (input.actorUserId) this.assertUserExists(input.actorUserId);
+    if (input.connectorConnectionId && !this.aiConnectorConnections.has(input.connectorConnectionId)) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    const record: AiTransactionDraftEventRecord = {
+      id: input.id ?? randomUUID(),
+      batchId: input.batchId,
+      rowId: input.rowId ?? null,
+      ownerUserId: input.ownerUserId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      connectorConnectionId: input.connectorConnectionId ?? null,
+      eventType: input.eventType,
+      summary: input.summary ?? null,
+      beforeState: input.beforeState ? { ...input.beforeState } : null,
+      afterState: input.afterState ? { ...input.afterState } : null,
+      metadata: { ...(input.metadata ?? {}) },
+      sourceIp: input.sourceIp ?? null,
+      createdAt: input.createdAt ?? new Date().toISOString(),
+    };
+    const events = this.aiTransactionDraftEvents.get(input.batchId) ?? [];
+    events.push(record);
+    events.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    this.aiTransactionDraftEvents.set(input.batchId, events);
+    return this.cloneDraftEvent(record);
+  }
+
+  async listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]> {
+    return (this.aiTransactionDraftEvents.get(batchId) ?? []).map((record) => this.cloneDraftEvent(record));
   }
 
   async createAnonymousShareToken(
@@ -3491,6 +3846,62 @@ export class MemoryPersistence implements Persistence {
 
   private getUserById(userId: string): MemoryUser | undefined {
     return [...this.usersByEmail.values()].find((user) => user.id === userId);
+  }
+
+  private assertUserExists(userId: string): void {
+    if (!this.getUserById(userId)) {
+      throw routeError(404, "user_not_found", "User not found");
+    }
+  }
+
+  private assertShareExists(shareId: string): void {
+    if (!this.portfolioShares.some((share) => share.id === shareId)) {
+      throw routeError(404, "share_not_found", "Share not found");
+    }
+  }
+
+  private buildCapabilityGrants(capabilities: ShareCapability[], grantedByUserId: string | null): MemoryCapabilityGrant[] {
+    if (grantedByUserId) this.assertUserExists(grantedByUserId);
+    const grantedAt = new Date().toISOString();
+    return [...new Set(capabilities)].sort().map((capability) => ({
+      capability,
+      grantedByUserId,
+      grantedAt,
+    }));
+  }
+
+  private cloneCapabilityGrants(grants: MemoryCapabilityGrant[]): MemoryCapabilityGrant[] {
+    return grants.map((grant) => ({ ...grant }));
+  }
+
+  private listCapabilityValues(grants: MemoryCapabilityGrant[]): ShareCapability[] {
+    return grants.map((grant) => grant.capability).sort();
+  }
+
+  private normalizeToolToggles(toolToggles: Record<string, boolean>): Record<string, boolean> {
+    return Object.fromEntries(
+      Object.entries(toolToggles)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([toolName, enabled]) => [toolName, Boolean(enabled)]),
+    );
+  }
+
+  private cloneDraftRow(row: AiTransactionDraftRowRecord): AiTransactionDraftRowRecord {
+    return {
+      ...row,
+      normalizedPayload: { ...row.normalizedPayload },
+      preflightIssues: [...row.preflightIssues],
+      warnings: [...row.warnings],
+    };
+  }
+
+  private cloneDraftEvent(event: AiTransactionDraftEventRecord): AiTransactionDraftEventRecord {
+    return {
+      ...event,
+      beforeState: event.beforeState ? { ...event.beforeState } : null,
+      afterState: event.afterState ? { ...event.afterState } : null,
+      metadata: { ...event.metadata },
+    };
   }
 
   private async insertInvite(input: CreateInviteInput): Promise<InviteRecord> {

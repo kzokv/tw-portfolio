@@ -1,5 +1,21 @@
 import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@vakwen/domain";
-import type { DividendLedgerAggregates, DividendSourceLine, TickerFundamentalsDto } from "@vakwen/shared-types";
+import type {
+  AiConnectorAccessKind,
+  AiConnectorAccessResult,
+  AiConnectorConnectionDto,
+  AiConnectorPolicySettingsDto,
+  AiConnectorProvider,
+  AiConnectorScope,
+  AiConnectorStatus,
+  AiTransactionDraftBatchStatus,
+  AiTransactionDraftEventType,
+  AiTransactionDraftRowState,
+  AiTransactionDraftSourceChannel,
+  DividendLedgerAggregates,
+  DividendSourceLine,
+  ShareCapability,
+  TickerFundamentalsDto,
+} from "@vakwen/shared-types";
 import type { DividendLedgerRecomputeChange } from "../services/dividends.js";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
@@ -188,6 +204,10 @@ export type AuditLogAction =
   | "admin_invite_revoked"
   | "share_granted"
   | "share_revoked"
+  | "share_capabilities_updated"
+  | "ai_connector_connected"
+  | "ai_connector_revoked"
+  | "ai_connector_expired"
   | "share_token_created"
   | "share_token_revoked"
   | "impersonation_start"
@@ -268,6 +288,269 @@ export interface MaterializePendingSharesInput {
   userId: string;
   email: string;
   auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+}
+
+export interface SetShareCapabilitiesInput {
+  shareId: string;
+  capabilities: ShareCapability[];
+  grantedByUserId: string | null;
+}
+
+export interface SetPendingShareInviteCapabilitiesInput {
+  inviteCode: string;
+  capabilities: ShareCapability[];
+  grantedByUserId: string | null;
+}
+
+export interface AiConnectorConnectionRecord extends AiConnectorConnectionDto {
+  userId: string;
+  oauthClientId: string | null;
+  oauthSubject: string | null;
+  revokedByUserId: string | null;
+}
+
+export interface SaveAiConnectorConnectionInput {
+  id: string;
+  userId: string;
+  provider: AiConnectorProvider;
+  displayName: string;
+  status: AiConnectorStatus;
+  oauthClientId?: string | null;
+  oauthSubject?: string | null;
+  scopes: AiConnectorScope[];
+  toolToggles?: Record<string, boolean>;
+  expiresAt?: string | null;
+  expiryNotifiedAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  revokedByUserId?: string | null;
+  revocationReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type AiConnectorPolicySettingsRecord = AiConnectorPolicySettingsDto;
+
+export type SaveAiConnectorPolicySettingsInput = Partial<
+  Omit<AiConnectorPolicySettingsDto, "updatedAt" | "allowedProviders" | "groupToggles">
+> & {
+  allowedProviders?: Partial<AiConnectorPolicySettingsDto["allowedProviders"]>;
+  groupToggles?: Partial<AiConnectorPolicySettingsDto["groupToggles"]>;
+};
+
+export interface AppendAiConnectorAccessLogInput {
+  id?: string;
+  connectionId: string | null;
+  userId: string;
+  portfolioContextUserId: string;
+  shareId?: string | null;
+  toolName: string;
+  accessKind: AiConnectorAccessKind;
+  result: AiConnectorAccessResult;
+  denialReason?: string | null;
+  requestId?: string | null;
+  sourceIp?: string | null;
+  userAgent?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface AiConnectorAccessLogRecord {
+  id: string;
+  connectionId: string | null;
+  userId: string;
+  portfolioContextUserId: string;
+  shareId: string | null;
+  toolName: string;
+  accessKind: AiConnectorAccessKind;
+  result: AiConnectorAccessResult;
+  denialReason: string | null;
+  requestId: string | null;
+  sourceIp: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AiTransactionDraftBatchRecord {
+  id: string;
+  ownerUserId: string;
+  createdByUserId: string;
+  connectorConnectionId: string | null;
+  shareId: string | null;
+  sourceChannel: AiTransactionDraftSourceChannel;
+  status: AiTransactionDraftBatchStatus;
+  version: number;
+  sourceLabel: string | null;
+  sourceFilename: string | null;
+  note: string | null;
+  provenance: Record<string, unknown>;
+  rowCount: number;
+  unsupportedCount: number;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  archivedByUserId: string | null;
+  deletedAt: string | null;
+  deletedByUserId: string | null;
+}
+
+export interface SaveAiTransactionDraftBatchInput {
+  id: string;
+  ownerUserId: string;
+  createdByUserId: string;
+  connectorConnectionId?: string | null;
+  shareId?: string | null;
+  sourceChannel: AiTransactionDraftSourceChannel;
+  status: AiTransactionDraftBatchStatus;
+  version: number;
+  sourceLabel?: string | null;
+  sourceFilename?: string | null;
+  note?: string | null;
+  provenance?: Record<string, unknown>;
+  rowCount: number;
+  unsupportedCount: number;
+  archivedAt?: string | null;
+  archivedByUserId?: string | null;
+  deletedAt?: string | null;
+  deletedByUserId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  expectedVersion?: number | null;
+}
+
+export interface AiTransactionDraftRowRecord {
+  id: string;
+  batchId: string;
+  ownerUserId: string;
+  rowNumber: number;
+  state: AiTransactionDraftRowState;
+  version: number;
+  accountId: string | null;
+  accountNameInput: string | null;
+  tradeType: "BUY" | "SELL" | null;
+  ticker: string | null;
+  marketCode: string | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  priceCurrency: string | null;
+  tradeDate: string | null;
+  tradeTimestamp: string | null;
+  bookingSequence: number | null;
+  isDayTrade: boolean | null;
+  commissionAmount: number | null;
+  taxAmount: number | null;
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+  note: string | null;
+  sourceRowRef: string | null;
+  sourceSnippet: string | null;
+  normalizedPayload: Record<string, unknown>;
+  preflightIssues: unknown[];
+  warnings: unknown[];
+  duplicateTradeEventId: string | null;
+  confirmedTradeEventId: string | null;
+  confirmedAt: string | null;
+  confirmedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveAiTransactionDraftRowInput {
+  id: string;
+  batchId: string;
+  ownerUserId: string;
+  rowNumber: number;
+  state: AiTransactionDraftRowState;
+  version: number;
+  accountId?: string | null;
+  accountNameInput?: string | null;
+  tradeType?: "BUY" | "SELL" | null;
+  ticker?: string | null;
+  marketCode?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  priceCurrency?: string | null;
+  tradeDate?: string | null;
+  tradeTimestamp?: string | null;
+  bookingSequence?: number | null;
+  isDayTrade?: boolean | null;
+  commissionAmount?: number | null;
+  taxAmount?: number | null;
+  feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+  note?: string | null;
+  sourceRowRef?: string | null;
+  sourceSnippet?: string | null;
+  normalizedPayload?: Record<string, unknown>;
+  preflightIssues?: unknown[];
+  warnings?: unknown[];
+  duplicateTradeEventId?: string | null;
+  confirmedTradeEventId?: string | null;
+  confirmedAt?: string | null;
+  confirmedByUserId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  expectedVersion?: number | null;
+}
+
+export interface AiTransactionDraftUnsupportedItemRecord {
+  id: string;
+  batchId: string;
+  rowNumber: number | null;
+  category: string;
+  reason: string;
+  sourceSnippet: string | null;
+  rawPayload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SaveAiTransactionDraftUnsupportedItemInput {
+  id: string;
+  batchId: string;
+  rowNumber?: number | null;
+  category: string;
+  reason: string;
+  sourceSnippet?: string | null;
+  rawPayload?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface AiTransactionDraftEventRecord {
+  id: string;
+  batchId: string;
+  rowId: string | null;
+  ownerUserId: string | null;
+  actorUserId: string | null;
+  connectorConnectionId: string | null;
+  eventType: AiTransactionDraftEventType;
+  summary: string | null;
+  beforeState: Record<string, unknown> | null;
+  afterState: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+  sourceIp: string | null;
+  createdAt: string;
+}
+
+export interface AppendAiTransactionDraftEventInput {
+  id?: string;
+  batchId: string;
+  rowId?: string | null;
+  ownerUserId?: string | null;
+  actorUserId?: string | null;
+  connectorConnectionId?: string | null;
+  eventType: AiTransactionDraftEventType;
+  summary?: string | null;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown>;
+  sourceIp?: string | null;
+  createdAt?: string;
+}
+
+export interface AiTransactionDraftBatchAggregate {
+  batch: AiTransactionDraftBatchRecord;
+  rows: AiTransactionDraftRowRecord[];
+  unsupportedItems: AiTransactionDraftUnsupportedItemRecord[];
+  events: AiTransactionDraftEventRecord[];
 }
 
 export interface AnonymousShareTokenRecord {
@@ -853,6 +1136,29 @@ export interface Persistence {
     auditInput: Omit<AuditLogInput, "action" | "targetUserId">,
   ): Promise<void>;
   materializePendingSharesForEmail(input: MaterializePendingSharesInput): Promise<ShareGrantRecord[]>;
+  getShareCapabilities(shareId: string): Promise<ShareCapability[]>;
+  setShareCapabilities(input: SetShareCapabilitiesInput): Promise<ShareCapability[]>;
+  getPendingShareInviteCapabilities(inviteCode: string): Promise<ShareCapability[]>;
+  setPendingShareInviteCapabilities(input: SetPendingShareInviteCapabilitiesInput): Promise<ShareCapability[]>;
+  saveAiConnectorConnection(input: SaveAiConnectorConnectionInput): Promise<AiConnectorConnectionRecord>;
+  getAiConnectorConnection(id: string): Promise<AiConnectorConnectionRecord | null>;
+  listAiConnectorConnectionsForUser(userId: string): Promise<AiConnectorConnectionRecord[]>;
+  getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsRecord>;
+  saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsRecord>;
+  appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord>;
+  listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]>;
+  saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null>;
+  getAiTransactionDraftBatch(id: string): Promise<AiTransactionDraftBatchAggregate | null>;
+  listAiTransactionDraftBatchesForOwner(ownerUserId: string): Promise<AiTransactionDraftBatchRecord[]>;
+  saveAiTransactionDraftRow(input: SaveAiTransactionDraftRowInput): Promise<AiTransactionDraftRowRecord | null>;
+  listAiTransactionDraftRows(batchId: string): Promise<AiTransactionDraftRowRecord[]>;
+  replaceAiTransactionDraftUnsupportedItems(
+    batchId: string,
+    items: SaveAiTransactionDraftUnsupportedItemInput[],
+  ): Promise<AiTransactionDraftUnsupportedItemRecord[]>;
+  listAiTransactionDraftUnsupportedItems(batchId: string): Promise<AiTransactionDraftUnsupportedItemRecord[]>;
+  appendAiTransactionDraftEvent(input: AppendAiTransactionDraftEventInput): Promise<AiTransactionDraftEventRecord>;
+  listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]>;
   /**
    * Atomically create an anonymous share token, enforcing the per-owner active-token
    * cap from `getEffectiveAnonymousShareTokenCap()` (DB override → env-fallback,

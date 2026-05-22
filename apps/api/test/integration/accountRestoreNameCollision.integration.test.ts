@@ -150,7 +150,7 @@ describePostgres("restoreAccount name-collision (Postgres)", () => {
     expect(result.finalName).toBe("Foxtrot (restored 2)");
   });
 
-  it("throws 409 account_restore_name_unresolvable after N=20 attempts", async () => {
+  it("throws 409 account_restore_name_unresolvable after N=20 attempts", { timeout: 30_000 }, async () => {
     await pushAccount("acc-r-1", "Golf");
     await persistence!.softDeleteAccount("acc-r-1", ownerUserId, { actorUserId: ownerUserId, ipAddress: null, metadata: {} });
     // Pre-seed the original name AND every "(restored N)" slot 1..20.

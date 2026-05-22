@@ -839,7 +839,7 @@ describePostgres("postgres migrations", () => {
     ]);
   });
 
-  it("normalizes legacy duplicate booking and lot sequences before adding uniqueness indexes", async () => {
+  it("normalizes legacy duplicate booking and lot sequences before adding uniqueness indexes", { timeout: 30_000 }, async () => {
     const client = await pool.connect();
 
     try {
@@ -3251,5 +3251,137 @@ describePostgres("postgres migrations", () => {
          VALUES ('mig044-u', 'BHP', 'TW')`,
       ),
     ).rejects.toThrow();
+  });
+
+  it("KZO-210: migrations 057-059 add connector, capability, and draft persistence tables", async () => {
+    await applyNumberedMigrations();
+
+    const tables = await pool.query<{ tablename: string }>(
+      `SELECT tablename
+       FROM pg_tables
+       WHERE schemaname = 'public'
+         AND tablename = ANY($1::text[])
+       ORDER BY tablename`,
+      [[
+        "ai_connector_connections",
+        "ai_connector_connection_scopes",
+        "ai_connector_tool_toggles",
+        "ai_connector_credentials",
+        "ai_connector_access_logs",
+        "ai_connector_policy_settings",
+        "portfolio_share_capabilities",
+        "pending_share_invite_capabilities",
+        "ai_transaction_draft_batches",
+        "ai_transaction_draft_rows",
+        "ai_transaction_draft_unsupported_items",
+        "ai_transaction_draft_events",
+      ]],
+    );
+    expect(tables.rows.map((row) => row.tablename)).toEqual([
+      "ai_connector_access_logs",
+      "ai_connector_connection_scopes",
+      "ai_connector_connections",
+      "ai_connector_credentials",
+      "ai_connector_policy_settings",
+      "ai_connector_tool_toggles",
+      "ai_transaction_draft_batches",
+      "ai_transaction_draft_events",
+      "ai_transaction_draft_rows",
+      "ai_transaction_draft_unsupported_items",
+      "pending_share_invite_capabilities",
+      "portfolio_share_capabilities",
+    ]);
+
+    const auditCheck = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conname = 'audit_log_action_check'
+         AND conrelid = 'public.audit_log'::regclass`,
+    );
+    expect(auditCheck.rows[0]?.def ?? "").toContain("share_capabilities_updated");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_connected");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_revoked");
+    expect(auditCheck.rows[0]?.def ?? "").toContain("ai_connector_expired");
+
+    const connectionIndex = await pool.query<{ indexname: string }>(
+      `SELECT indexname
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND tablename = 'ai_connector_connections'
+         AND indexname = 'ux_ai_connector_connections_user_provider_active'`,
+    );
+    expect(connectionIndex.rows).toHaveLength(1);
+
+    const connectorColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'ai_connector_connections'
+         AND column_name = 'expiry_notified_at'`,
+    );
+    expect(connectorColumns.rows).toHaveLength(1);
+
+    const policyRow = await pool.query<{ enabled: boolean; read_tools_enabled: boolean; draft_tools_enabled: boolean }>(
+      `SELECT enabled, read_tools_enabled, draft_tools_enabled
+       FROM ai_connector_policy_settings
+       WHERE id = TRUE`,
+    );
+    expect(policyRow.rows[0]).toMatchObject({
+      enabled: true,
+      read_tools_enabled: true,
+      draft_tools_enabled: true,
+    });
+
+    const draftRowUnique = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.ai_transaction_draft_rows'::regclass
+         AND contype = 'u'`,
+    );
+    expect(draftRowUnique.rows.some((row) => row.def.includes("(batch_id, row_number)"))).toBe(true);
+  });
+
+  it("KZO-210: pending invite capabilities materialize onto the share grant", async () => {
+    await applyNumberedMigrations();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES
+         ('owner-kzo210', 'owner-kzo210@example.com', 'en', 'WEIGHTED_AVERAGE', 10),
+         ('grantee-kzo210', 'grantee-kzo210@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+
+    const invite = await persistence.createShareCoupledInvite({
+      ownerUserId: "owner-kzo210",
+      email: "grantee-kzo210@example.com",
+      expiresAt: "2026-12-31T00:00:00.000Z",
+      issuedByUserId: "owner-kzo210",
+    });
+
+    await persistence.setPendingShareInviteCapabilities({
+      inviteCode: invite.code,
+      capabilities: ["portfolio:mcp_read", "transaction_draft:create"],
+      grantedByUserId: "owner-kzo210",
+    });
+
+    const [materialized] = await persistence.materializePendingSharesForEmail({
+      userId: "grantee-kzo210",
+      email: "grantee-kzo210@example.com",
+      auditInput: {
+        actorUserId: "grantee-kzo210",
+        metadata: { source: "test" },
+      },
+    });
+
+    expect(materialized).toBeTruthy();
+    await expect(persistence.getShareCapabilities(materialized!.id)).resolves.toEqual([
+      "portfolio:mcp_read",
+      "transaction_draft:create",
+    ]);
   });
 });

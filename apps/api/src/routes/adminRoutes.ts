@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { AppConfigDto } from "@vakwen/shared-types";
+import type { AiConnectorPolicySettingsDto, AppConfigDto } from "@vakwen/shared-types";
 import {
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
@@ -27,6 +27,11 @@ import {
   invalidate as invalidateAppConfigCache,
 } from "../services/appConfig/cache.js";
 import type { AppConfigPlainField } from "../persistence/types.js";
+import {
+  assertFreshAuth,
+  createMcpFreshAuthToken,
+  updateAiConnectorPolicySettings,
+} from "../services/mcpConnectorLifecycle.js";
 import {
   FX_REFRESH_QUEUE,
   STORED_QUOTES,
@@ -103,6 +108,31 @@ const tier0SecretField = z
     z.null(),
   ])
   .optional();
+
+const aiConnectorPolicySettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxActiveConnectionsPerUser: z.number().int().min(1).max(25).optional(),
+    allowedProviders: z
+      .object({
+        chatgpt: z.boolean().optional(),
+        self_hosted: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    groupToggles: z
+      .object({
+        read: z.boolean().optional(),
+        drafts: z.boolean().optional(),
+        write: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    inactivityExpiryDays: z.number().int().min(1).max(365).optional(),
+    expirationWarningDays: z.number().int().min(1).max(60).optional(),
+    freshAuthMaxAgeMs: z.number().int().min(60_000).max(86_400_000).optional(),
+  })
+  .strict();
 
 export const patchAdminSettingsSchema = z
   .object({
@@ -720,6 +750,28 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     invalidateAppConfigCache();
 
     return loadAppConfigDto(app);
+  });
+
+  app.get("/mcp/settings", async (req): Promise<AiConnectorPolicySettingsDto> => {
+    requireAdminRole(req);
+    return app.persistence.getAiConnectorPolicySettings();
+  });
+
+  app.post("/mcp/fresh-auth", async (req): Promise<{ freshAuthToken: string }> => {
+    requireAdminRole(req);
+    return { freshAuthToken: createMcpFreshAuthToken(app, req) };
+  });
+
+  app.patch("/mcp/settings", async (req): Promise<AiConnectorPolicySettingsDto> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const current = await app.persistence.getAiConnectorPolicySettings();
+    assertFreshAuth(app, req, current);
+    const body = aiConnectorPolicySettingsPatchSchema.parse(req.body);
+    return updateAiConnectorPolicySettings(app, body, {
+      actorUserId: sessionUserId,
+      ipAddress,
+    });
   });
 
   // ── KZO-164: FX rates admin surface ───────────────────────────────────────

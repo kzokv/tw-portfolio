@@ -17,6 +17,7 @@ import {
   shouldStampContextFallback,
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
+import { registerMcpRoutes } from "./mcp/registerMcpRoutes.js";
 import { buildFundamentalsRegistry } from "./services/fundamentals/registry.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
 import { registerTradingCalendarCache } from "./services/market-data/registerTradingCalendarCache.js";
@@ -349,6 +350,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
 
   app.boss = null;
   await registerRoutes(app);
+  await registerMcpRoutes(app);
   await registerPgBoss(app, options.persistenceBackend);
   return app;
 }
