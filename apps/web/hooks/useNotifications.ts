@@ -77,7 +77,15 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
   }, [refetch]);
 
   useEventStream({
-    eventTypes: ["daily_refresh_summary", "repair_complete", "repair_failed", "sharing_notification"],
+    eventTypes: [
+      "daily_refresh_summary",
+      "repair_complete",
+      "repair_failed",
+      "sharing_notification",
+      "ai_transaction_draft_created",
+      "ai_transaction_draft_updated",
+      "ai_connector_notification",
+    ],
     onEvent: handleSSEEvent,
     enabled: true,
   });

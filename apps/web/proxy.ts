@@ -61,6 +61,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   }
 
   const pathname = request.nextUrl.pathname;
+  const currentPath = `${pathname}${request.nextUrl.search}`;
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
@@ -72,7 +73,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // No cookie → redirect to login with returnTo
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("returnTo", pathname);
+    loginUrl.searchParams.set("returnTo", currentPath);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -92,7 +93,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   // Valid session — pass through with x-current-path header for requireSession()
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-current-path", pathname);
+  requestHeaders.set("x-current-path", currentPath);
   applyContextForwarding(requestHeaders, request);
   return NextResponse.next({ request: { headers: requestHeaders } });
 }

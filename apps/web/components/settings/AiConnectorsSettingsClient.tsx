@@ -1,0 +1,272 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshCw, RotateCcw } from "lucide-react";
+import type { AiConnectorConnectionDto, AiConnectorScope } from "@vakwen/shared-types";
+import { cn } from "../../lib/utils";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import {
+  fetchAiConnectors,
+  revokeAiConnector,
+  updateAiConnector,
+  type AiConnectorsResponse,
+} from "../../features/ai-inbox/service";
+
+const SCOPE_LABELS: Record<AiConnectorScope, string> = {
+  "portfolio:mcp_read": "App read",
+  "transaction_draft:create": "Draft create",
+  "transaction_draft:edit": "Draft edit",
+  "transaction_draft:archive": "Draft archive",
+  "transaction_draft:delete": "Draft delete",
+  "transaction:write": "Transaction write",
+};
+
+const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
+  { title: "Read", scopes: ["portfolio:mcp_read"] },
+  { title: "Drafts", scopes: ["transaction_draft:create", "transaction_draft:edit", "transaction_draft:archive", "transaction_draft:delete"] },
+  { title: "Posting", scopes: ["transaction:write"] },
+];
+
+function statusClassName(status: AiConnectorConnectionDto["status"]): string {
+  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "expired") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function formatTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "Never";
+}
+
+function policyValue(value: number | null | undefined, suffix = ""): string {
+  if (value === null || value === undefined) return "-";
+  return `${value}${suffix}`;
+}
+
+export function AiConnectorsSettingsClient() {
+  const [data, setData] = useState<AiConnectorsResponse | null>(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+    try {
+      setData(await fetchAiConnectors());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI connector settings could not be loaded.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const scopeEnabledByGroup = useMemo(() => ({
+    read: data?.policy.groupToggles.read ?? false,
+    drafts: data?.policy.groupToggles.drafts ?? false,
+    write: data?.policy.groupToggles.write ?? false,
+  }), [data]);
+
+  async function toggleScope(connection: AiConnectorConnectionDto, scope: AiConnectorScope, checked: boolean) {
+    setBusyId(connection.id);
+    setError("");
+    setMessage("");
+    try {
+      const nextScopes = checked
+        ? [...new Set([...connection.scopes, scope])]
+        : connection.scopes.filter((item) => item !== scope);
+      const updated = await updateAiConnector(connection.id, { scopes: nextScopes });
+      setData((current) => current
+        ? {
+            ...current,
+            connections: current.connections.map((item) => item.id === updated.id ? updated : item),
+          }
+        : current);
+      setMessage("Connector permissions saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Connector update failed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleTool(connection: AiConnectorConnectionDto, toolName: string, checked: boolean) {
+    setBusyId(connection.id);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await updateAiConnector(connection.id, {
+        toolToggles: { ...connection.toolToggles, [toolName]: checked },
+      });
+      setData((current) => current
+        ? {
+            ...current,
+            connections: current.connections.map((item) => item.id === updated.id ? updated : item),
+          }
+        : current);
+      setMessage("Tool toggle saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Tool toggle update failed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function revoke(connection: AiConnectorConnectionDto) {
+    if (!window.confirm(`Revoke ${connection.displayName}?`)) return;
+    setBusyId(connection.id);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await revokeAiConnector(connection.id);
+      setData((current) => current
+        ? {
+            ...current,
+            connections: current.connections.map((item) => item.id === updated.id ? updated : item),
+          }
+        : current);
+      setMessage("Connector revoked.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Connector revoke failed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-5" data-testid="settings-ai-connectors-page">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-950">AI Connectors</h1>
+          <p className="mt-1 text-sm text-slate-600">MCP clients connected to your Vakwen account.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void load()} disabled={isLoading}>
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+          Refresh
+        </Button>
+      </div>
+
+      {message ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div> : null}
+      {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+
+      <Card className="rounded-lg">
+        <div className="grid gap-3 md:grid-cols-4">
+          <div>
+            <p className="text-xs uppercase text-slate-500">Deployment</p>
+            <p className="mt-1 font-medium text-slate-900">{data ? data.policy.enabled ? "Enabled" : "Disabled" : "-"}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-slate-500">Active connection cap</p>
+            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.maxActiveConnectionsPerUser)}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-slate-500">Inactivity expiry</p>
+            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.inactivityExpiryDays, " days")}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-slate-500">Expiry warning</p>
+            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.expirationWarningDays, " days")}</p>
+          </div>
+        </div>
+      </Card>
+
+      {isLoading ? (
+        <Card className="rounded-lg"><p className="text-sm text-slate-500">Loading connectors...</p></Card>
+      ) : data && data.connections.length === 0 ? (
+        <Card className="rounded-lg"><p className="text-sm text-slate-500">No AI connectors are connected.</p></Card>
+      ) : (
+        data?.connections.map((connection) => (
+          <Card key={connection.id} className="rounded-lg" data-testid={`ai-connector-${connection.id}`}>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold text-slate-950">{connection.displayName}</h2>
+                  <span className={cn("rounded-full border px-2 py-0.5 text-xs capitalize", statusClassName(connection.status))}>
+                    {connection.status}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-600">{connection.provider} · last used {formatTime(connection.lastUsedAt)}</p>
+                <p className="mt-1 text-sm text-slate-600">Expires {formatTime(connection.expiresAt)}</p>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void revoke(connection)}
+                disabled={busyId === connection.id || connection.status === "revoked"}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Revoke
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-3">
+              {GROUPED_SCOPES.map((group) => (
+                <div key={group.title} className="rounded-md border border-border p-3">
+                  <p className="text-sm font-medium text-slate-900">{group.title}</p>
+                  <div className="mt-3 space-y-2">
+                    {group.scopes.map((scope) => {
+                      const disabled =
+                        busyId === connection.id
+                        || (scope === "portfolio:mcp_read" && !scopeEnabledByGroup.read)
+                        || (scope.startsWith("transaction_draft") && !scopeEnabledByGroup.drafts)
+                        || (scope === "transaction:write" && !scopeEnabledByGroup.write);
+                      return (
+                        <label key={scope} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                          <span>{SCOPE_LABELS[scope]}</span>
+                          <input
+                            type="checkbox"
+                            checked={connection.scopes.includes(scope)}
+                            disabled={disabled}
+                            onChange={(event) => void toggleScope(connection, scope, event.target.checked)}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5">
+              <p className="text-sm font-medium text-slate-900">Tool toggles</p>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {Object.entries(connection.toolToggles).length === 0 ? (
+                  <p className="text-sm text-slate-500">No tool-level overrides.</p>
+                ) : Object.entries(connection.toolToggles).map(([toolName, enabled]) => (
+                  <label key={toolName} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+                    <span className="truncate">{toolName}</span>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      disabled={busyId === connection.id}
+                      onChange={(event) => void toggleTool(connection, toolName, event.target.checked)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          </Card>
+        ))
+      )}
+
+      {data && data.accessLogs.length > 0 ? (
+        <Card className="rounded-lg">
+          <h2 className="text-base font-semibold text-slate-950">Recent access</h2>
+          <div className="mt-3 divide-y divide-border">
+            {data.accessLogs.slice(0, 12).map((log) => (
+              <div key={log.id} className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium text-slate-900">{log.toolName}</span>
+                <span className="text-slate-500">{log.accessKind} · {log.result} · {new Date(log.createdAt).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+    </div>
+  );
+}

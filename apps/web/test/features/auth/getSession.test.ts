@@ -268,6 +268,15 @@ describe("requireSession", () => {
     expect(redirect).toHaveBeenCalledWith("/login?returnTo=%2Ftransactions");
   });
 
+  it("preserves query string in returnTo when x-current-path includes one", async () => {
+    setNoCookie();
+    mockHeaders.set("x-current-path", "/transactions?tab=ai-inbox&batch=batch-1&context=user-1");
+    await requireSession();
+    expect(redirect).toHaveBeenCalledWith(
+      "/login?returnTo=%2Ftransactions%3Ftab%3Dai-inbox%26batch%3Dbatch-1%26context%3Duser-1",
+    );
+  });
+
   it("does not include returnTo for /login path", async () => {
     setNoCookie();
     mockHeaders.set("x-current-path", "/login");

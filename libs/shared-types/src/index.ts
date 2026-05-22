@@ -996,10 +996,13 @@ export interface TransactionDraftRowDto {
   unitPrice: number | null;
   priceCurrency: string | null;
   tradeDate: string | null;
+  tradeTimestamp: string | null;
+  bookingSequence: number | null;
   isDayTrade: boolean | null;
   commissionAmount: number | null;
   taxAmount: number | null;
   feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+  note: string | null;
   sourceRowRef: string | null;
   sourceSnippet: string | null;
   preflightIssues: unknown[];

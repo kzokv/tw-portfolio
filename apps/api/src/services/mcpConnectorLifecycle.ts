@@ -90,7 +90,7 @@ async function createConnectorNotification(
   status: "expiring" | "expired" | "revoked",
   detail?: Record<string, unknown>,
 ): Promise<void> {
-  await app.persistence.createNotification({
+  const notificationId = await app.persistence.createNotification({
     userId: connection.userId,
     severity: status === "expiring" ? "warning" : "info",
     source: "ai_connector",
@@ -103,6 +103,12 @@ async function createConnectorNotification(
       status,
       ...detail,
     },
+  });
+  await app.eventBus.publishEvent(connection.userId, "ai_connector_notification", {
+    connectionId: connection.id,
+    provider: connection.provider,
+    status,
+    notificationId,
   });
 }
 

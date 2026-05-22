@@ -7,6 +7,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
     settings: {
       title: "Settings",
       description: "Manage locale, cost basis, and per-account fee profiles in one place.",
+      tabAiConnectors: "AI Connectors",
       tabGeneral: "General",
       localeLabel: "Locale",
       costBasisLabel: "Cost Basis",
@@ -337,6 +338,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
     settings: {
       title: "設定",
       description: "在同一頁管理語系、成本法與每個帳戶的費率設定檔。",
+      tabAiConnectors: "AI 連接器",
       tabGeneral: "一般",
       localeLabel: "語系",
       costBasisLabel: "成本計算",

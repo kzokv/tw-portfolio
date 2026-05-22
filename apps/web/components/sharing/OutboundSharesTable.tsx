@@ -29,6 +29,13 @@ function formatOptionalDate(value: string | null, locale: LocaleCode): string {
   return value ? formatDateLabel(value, locale) : "—";
 }
 
+function formatCapabilities(row: OutboundShareRow): string {
+  if (row.capabilities.length === 0) return "AI off";
+  return row.capabilities
+    .map((capability) => capability.replace("portfolio:", "").replace("transaction_", "").replace("transaction:", ""))
+    .join(", ");
+}
+
 export function OutboundSharesTable({
   locale,
   outbound,
@@ -81,11 +88,12 @@ export function OutboundSharesTable({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[42rem] text-sm" data-testid="sharing-outbound-table">
+          <table className="w-full min-w-[52rem] text-sm" data-testid="sharing-outbound-table">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.grantee}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.status}</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">AI access</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.created}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.expires}</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.actions}</th>
@@ -114,6 +122,7 @@ export function OutboundSharesTable({
                       </p>
                     ) : null}
                   </td>
+                  <td className="max-w-[16rem] px-4 py-4 align-top text-xs text-slate-600">{formatCapabilities(row)}</td>
                   <td className="px-4 py-4 align-top text-slate-600">{formatDateLabel(row.createdAt, locale)}</td>
                   <td className="px-4 py-4 align-top text-slate-600">{formatOptionalDate(row.expiresAt, locale)}</td>
                   <td className="px-4 py-4 align-top">

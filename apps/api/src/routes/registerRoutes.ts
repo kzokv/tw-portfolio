@@ -23,7 +23,19 @@ import {
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
-import type { DashboardPerformanceRange, IntegrityIssueDto, TransactionHistoryItemDto } from "@vakwen/shared-types";
+import type {
+  AiConnectorScope,
+  DashboardPerformanceRange,
+  IntegrityIssueDto,
+  MarketCode as SharedMarketCode,
+  ShareCapability,
+  TransactionAiInboxBadgeDto,
+  TransactionDraftBatchDetailDto,
+  TransactionDraftBatchDto,
+  TransactionDraftRowDto,
+  TransactionDraftUnsupportedItemDto,
+  TransactionHistoryItemDto,
+} from "@vakwen/shared-types";
 import { dashboardPerformanceRangesSchema, densityModeSchema, themeAccentSchema, currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
@@ -51,6 +63,16 @@ import {
   preparePostedCashDividendUpdate,
 } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
+import {
+  archiveTransactionDraftBatch,
+  deleteUnconfirmedTransactionDraftBatch,
+  excludeTransactionDraftRows,
+  listTransactionDraftBatches,
+  rejectTransactionDraftRows,
+  reincludeTransactionDraftRows,
+  updateTransactionDraftRows,
+} from "../services/mcpDrafts.js";
+import { connectorGroupForScope, revokeAiConnectorConnection } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
@@ -89,11 +111,18 @@ import {
 } from "../lib/routeGuards.js";
 import type { Store, Transaction } from "../types/store.js";
 import type {
+  AiConnectorAccessLogRecord,
+  AiConnectorConnectionRecord,
+  AiTransactionDraftBatchAggregate,
+  AiTransactionDraftBatchRecord,
+  AiTransactionDraftRowRecord,
+  AiTransactionDraftUnsupportedItemRecord,
   AnonymousShareTokenRecord,
   PendingShareInviteRecord,
   ShareGrantRecord,
   UserRole,
 } from "../persistence/types.js";
+import type { McpRequestContext, McpResolvedContext } from "../mcp/types.js";
 import {
   ANONYMOUS_SHARE_TOKEN_REGEX,
   generateAnonymousShareToken,
@@ -128,6 +157,17 @@ const currencyCodeSchema = z
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{3}$/);
+const aiConnectorScopeValues = [
+  "portfolio:mcp_read",
+  "transaction_draft:create",
+  "transaction_draft:edit",
+  "transaction_draft:archive",
+  "transaction_draft:delete",
+  "transaction:write",
+] as const satisfies readonly AiConnectorScope[];
+const shareCapabilitySchema = z.enum(aiConnectorScopeValues);
+const shareCapabilitiesSchema = z.array(shareCapabilitySchema).max(aiConnectorScopeValues.length).default([]);
+const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiConnectorScopeValues.length);
 
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
 // transactions must commit to a specific market).
@@ -449,6 +489,17 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "POST /portfolio/recompute/preview",
   "POST /portfolio/recompute/confirm",
   "POST /ai/transactions/confirm",
+  "PATCH /ai/transaction-drafts/:batchId/rows/:rowId",
+  "POST /ai/transaction-drafts/:batchId/exclude",
+  "POST /ai/transaction-drafts/:batchId/reinclude",
+  "POST /ai/transaction-drafts/:batchId/reject",
+  "POST /ai/transaction-drafts/:batchId/archive",
+  "DELETE /ai/transaction-drafts/:batchId",
+  "POST /ai/transaction-drafts/:batchId/confirm",
+  "PATCH /ai/connectors/:id",
+  "DELETE /ai/connectors/:id",
+  "PATCH /shares/:id/capabilities",
+  "PATCH /shares/pending/:code/capabilities",
   "PUT /monitored-tickers",
   "POST /backfill/retry",
   "POST /backfill/repair",
@@ -586,7 +637,7 @@ async function materializePendingSharesPostLogin(
   }
 }
 
-function toShareGrantDto(record: ShareGrantRecord) {
+function toShareGrantDto(record: ShareGrantRecord, capabilities: ShareCapability[] = []) {
   return {
     id: record.id,
     status: record.revokedAt ? "revoked" as const : "active" as const,
@@ -599,6 +650,7 @@ function toShareGrantDto(record: ShareGrantRecord) {
     createdAt: record.createdAt,
     revokedAt: record.revokedAt,
     revokedByUserId: record.revokedByUserId,
+    capabilities,
   };
 }
 
@@ -606,6 +658,7 @@ function toPendingShareInviteDto(
   app: FastifyInstance,
   record: PendingShareInviteRecord,
   status: "pending" | "expired" | "revoked",
+  capabilities: ShareCapability[] = [],
 ) {
   return {
     code: record.code,
@@ -620,7 +673,214 @@ function toPendingShareInviteDto(
     revokedAt: record.revokedAt,
     usedAt: record.usedAt,
     inviteUrl: buildShareInviteUrl(app, record.code),
+    capabilities,
   };
+}
+
+async function toShareGrantDtoWithCapabilities(app: FastifyInstance, record: ShareGrantRecord) {
+  return toShareGrantDto(record, await app.persistence.getShareCapabilities(record.id));
+}
+
+async function toPendingShareInviteDtoWithCapabilities(
+  app: FastifyInstance,
+  record: PendingShareInviteRecord,
+  status: "pending" | "expired" | "revoked",
+) {
+  return toPendingShareInviteDto(
+    app,
+    record,
+    status,
+    await app.persistence.getPendingShareInviteCapabilities(record.code),
+  );
+}
+
+function toAiConnectorConnectionDto(record: AiConnectorConnectionRecord) {
+  return {
+    id: record.id,
+    provider: record.provider,
+    displayName: record.displayName,
+    status: record.status,
+    scopes: record.scopes,
+    toolToggles: record.toolToggles,
+    expiresAt: record.expiresAt,
+    expiryNotifiedAt: record.expiryNotifiedAt,
+    lastUsedAt: record.lastUsedAt,
+    revokedAt: record.revokedAt,
+    revocationReason: record.revocationReason,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function toAiConnectorAccessLogDto(record: AiConnectorAccessLogRecord) {
+  return {
+    id: record.id,
+    connectionId: record.connectionId,
+    portfolioContextUserId: record.portfolioContextUserId,
+    shareId: record.shareId,
+    toolName: record.toolName,
+    accessKind: record.accessKind,
+    result: record.result,
+    denialReason: record.denialReason,
+    createdAt: record.createdAt,
+  };
+}
+
+function buildAiDraftDeepLink(app: FastifyInstance, batchId: string, contextUserId: string): string {
+  return `${app.appBaseUrl}/transactions?tab=ai-inbox&batch=${encodeURIComponent(batchId)}&context=${encodeURIComponent(contextUserId)}`;
+}
+
+function toTransactionDraftBatchDto(app: FastifyInstance, batch: AiTransactionDraftBatchRecord): TransactionDraftBatchDto & { deepLinkUrl: string } {
+  return {
+    id: batch.id,
+    ownerUserId: batch.ownerUserId,
+    createdByUserId: batch.createdByUserId,
+    connectorConnectionId: batch.connectorConnectionId,
+    shareId: batch.shareId,
+    sourceChannel: batch.sourceChannel,
+    status: batch.status,
+    version: batch.version,
+    sourceLabel: batch.sourceLabel,
+    sourceFilename: batch.sourceFilename,
+    note: batch.note,
+    rowCount: batch.rowCount,
+    unsupportedCount: batch.unsupportedCount,
+    createdAt: batch.createdAt,
+    updatedAt: batch.updatedAt,
+    archivedAt: batch.archivedAt,
+    deletedAt: batch.deletedAt,
+    deepLinkUrl: buildAiDraftDeepLink(app, batch.id, batch.ownerUserId),
+  };
+}
+
+function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): TransactionDraftRowDto & {
+  tradeTimestamp: string | null;
+  bookingSequence: number | null;
+  note: string | null;
+} {
+  return {
+    id: row.id,
+    batchId: row.batchId,
+    rowNumber: row.rowNumber,
+    state: row.state,
+    version: row.version,
+    accountId: row.accountId,
+    accountNameInput: row.accountNameInput,
+    type: row.tradeType,
+    ticker: row.ticker,
+    marketCode: row.marketCode as SharedMarketCode | null,
+    quantity: row.quantity,
+    unitPrice: row.unitPrice,
+    priceCurrency: row.priceCurrency,
+    tradeDate: row.tradeDate,
+    tradeTimestamp: row.tradeTimestamp,
+    bookingSequence: row.bookingSequence,
+    isDayTrade: row.isDayTrade,
+    commissionAmount: row.commissionAmount,
+    taxAmount: row.taxAmount,
+    feesSource: row.feesSource,
+    note: row.note,
+    sourceRowRef: row.sourceRowRef,
+    sourceSnippet: row.sourceSnippet,
+    preflightIssues: row.preflightIssues,
+    warnings: row.warnings,
+    confirmedTradeEventId: row.confirmedTradeEventId,
+    confirmedAt: row.confirmedAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toTransactionDraftUnsupportedDto(item: AiTransactionDraftUnsupportedItemRecord): TransactionDraftUnsupportedItemDto {
+  return {
+    id: item.id,
+    batchId: item.batchId,
+    rowNumber: item.rowNumber,
+    category: item.category,
+    reason: item.reason,
+    sourceSnippet: item.sourceSnippet,
+    createdAt: item.createdAt,
+  };
+}
+
+function toTransactionDraftDetailDto(
+  app: FastifyInstance,
+  aggregate: AiTransactionDraftBatchAggregate,
+): TransactionDraftBatchDetailDto & { deepLinkUrl: string } {
+  return {
+    batch: toTransactionDraftBatchDto(app, aggregate.batch),
+    rows: aggregate.rows.map(toTransactionDraftRowDto),
+    unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
+    deepLinkUrl: buildAiDraftDeepLink(app, aggregate.batch.id, aggregate.batch.ownerUserId),
+  };
+}
+
+function draftActionRows(rows: AiTransactionDraftRowRecord[]) {
+  return rows.filter((row) =>
+    row.state === "needs_clarification"
+    || row.state === "pending_validation"
+    || row.state === "invalid"
+    || row.state === "duplicate_blocked",
+  );
+}
+
+async function loadWebMcpContext(
+  app: FastifyInstance,
+  req: FastifyRequest,
+): Promise<McpRequestContext> {
+  const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+  let resolvedContext: McpResolvedContext = {
+    sessionUserId: identity.sessionUserId,
+    portfolioContextUserId: identity.contextUserId,
+    shareId: null,
+    shareCapabilities: [],
+  };
+  if (identity.isSharedContext) {
+    const inbound = await app.persistence.listInboundSharesForGrantee(identity.sessionUserId);
+    const share = inbound.active.find((candidate) => candidate.ownerUserId === identity.contextUserId) ?? null;
+    if (!share) {
+      throw routeError(404, "ai_draft_context_not_found", "AI draft context not found");
+    }
+    resolvedContext = {
+      ...resolvedContext,
+      shareId: share.id,
+      shareCapabilities: await app.persistence.getShareCapabilities(share.id),
+    };
+  }
+
+  return {
+    auth: {
+      token: "web-session",
+      clientId: "vakwen-web",
+      sessionUserId: identity.sessionUserId,
+      connection: null,
+      scopes: [...aiConnectorScopeValues],
+      toolToggles: {},
+      expiresAt: null,
+      authMode: "dev_token",
+    },
+    resolvedContext,
+    requestId: req.id,
+    sourceIp: req.ip,
+    userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+    logger: req.log,
+  };
+}
+
+function requireWebDraftCapability(context: McpResolvedContext, capability: ShareCapability): void {
+  if (!context.shareId) return;
+  if (!context.shareCapabilities.includes(capability)) {
+    throw routeError(403, "ai_draft_share_capability_denied", `Shared portfolio capability ${capability} is not enabled`);
+  }
+}
+
+function assertDraftAggregateInWebContext(
+  context: McpResolvedContext,
+  aggregate: AiTransactionDraftBatchAggregate | null,
+): AiTransactionDraftBatchAggregate {
+  if (!aggregate || aggregate.batch.ownerUserId !== context.portfolioContextUserId) {
+    throw routeError(404, "ai_draft_batch_not_found", "AI draft batch not found");
+  }
+  return aggregate;
 }
 
 function isShareGrantRecord(value: ShareGrantRecord | PendingShareInviteRecord): value is ShareGrantRecord {
@@ -2531,17 +2791,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       outbound: {
-        active: outbound.active.map((record) => toShareGrantDto(record)),
-        pending: outbound.pending.map((record) => toPendingShareInviteDto(app, record, "pending")),
-        expired: outbound.expired.map((record) => toPendingShareInviteDto(app, record, "expired")),
-        revoked: outbound.revoked.map((record) =>
+        active: await Promise.all(outbound.active.map((record) => toShareGrantDtoWithCapabilities(app, record))),
+        pending: await Promise.all(outbound.pending.map((record) => toPendingShareInviteDtoWithCapabilities(app, record, "pending"))),
+        expired: await Promise.all(outbound.expired.map((record) => toPendingShareInviteDtoWithCapabilities(app, record, "expired"))),
+        revoked: await Promise.all(outbound.revoked.map((record) =>
           isShareGrantRecord(record)
-            ? toShareGrantDto(record)
-            : toPendingShareInviteDto(app, record, "revoked")),
+            ? toShareGrantDtoWithCapabilities(app, record)
+            : toPendingShareInviteDtoWithCapabilities(app, record, "revoked"))),
       },
       inbound: {
-        active: inbound.active.map((record) => toShareGrantDto(record)),
-        revoked: inbound.revoked.map((record) => toShareGrantDto(record)),
+        active: await Promise.all(inbound.active.map((record) => toShareGrantDtoWithCapabilities(app, record))),
+        revoked: await Promise.all(inbound.revoked.map((record) => toShareGrantDtoWithCapabilities(app, record))),
       },
     };
   });
@@ -2551,6 +2811,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const sessionUserId = requireSessionUserId(req);
     const body = z.object({
       email: z.string().trim().email().transform((value) => value.toLowerCase()),
+      capabilities: shareCapabilitiesSchema,
     }).parse(req.body);
 
     const owner = await app.persistence.getAuthUserById(sessionUserId);
@@ -2571,11 +2832,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           ipAddress: req.ip,
         },
       });
+      const capabilities = await app.persistence.setShareCapabilities({
+        shareId: share.id,
+        capabilities: body.capabilities,
+        grantedByUserId: sessionUserId,
+      });
       await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
       reply.code(201);
       return {
         type: "resolved" as const,
-        share: toShareGrantDto(share),
+        share: toShareGrantDto(share, capabilities),
       };
     }
 
@@ -2584,6 +2850,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       email: body.email,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       issuedByUserId: sessionUserId,
+    });
+    const capabilities = await app.persistence.setPendingShareInviteCapabilities({
+      inviteCode: invite.code,
+      capabilities: body.capabilities,
+      grantedByUserId: sessionUserId,
     });
     await app.persistence.appendAuditLog({
       actorUserId: sessionUserId,
@@ -2602,8 +2873,68 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     reply.code(201);
     return {
       type: "pending" as const,
-      invite: toPendingShareInviteDto(app, invite, "pending"),
+      invite: toPendingShareInviteDto(app, invite, "pending", capabilities),
     };
+  });
+
+  app.patch("/shares/:id/capabilities", async (req) => {
+    requireShareGrantorRole(req);
+    const sessionUserId = requireSessionUserId(req);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({ capabilities: shareCapabilitiesSchema }).strict().parse(req.body);
+    const outbound = await app.persistence.listSharesForOwner(sessionUserId);
+    const share = [...outbound.active, ...outbound.revoked.filter(isShareGrantRecord)]
+      .find((record) => record.id === params.id) ?? null;
+    if (!share) {
+      throw routeError(404, "share_not_found", "Share not found");
+    }
+    const capabilities = await app.persistence.setShareCapabilities({
+      shareId: params.id,
+      capabilities: body.capabilities,
+      grantedByUserId: sessionUserId,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "share_capabilities_updated",
+      targetUserId: share.granteeUserId,
+      ipAddress: req.ip,
+      metadata: { shareId: params.id, capabilities },
+    });
+    await app.eventBus.publishEvent(share.granteeUserId, "sharing_notification", { shareId: share.id });
+    return toShareGrantDto(share, capabilities);
+  });
+
+  app.patch("/shares/pending/:code/capabilities", async (req) => {
+    requireShareGrantorRole(req);
+    const sessionUserId = requireSessionUserId(req);
+    const params = z.object({
+      code: z.string().trim().min(1).max(32).transform((value) => value.toUpperCase()),
+    }).parse(req.params);
+    const body = z.object({ capabilities: shareCapabilitiesSchema }).strict().parse(req.body);
+    const outbound = await app.persistence.listSharesForOwner(sessionUserId);
+    const invite = [...outbound.pending, ...outbound.expired, ...outbound.revoked.filter((record): record is PendingShareInviteRecord => !isShareGrantRecord(record))]
+      .find((record) => !isShareGrantRecord(record) && record.code === params.code) ?? null;
+    if (!invite) {
+      throw routeError(404, "share_pending_not_found", "Pending share invite not found");
+    }
+    const capabilities = await app.persistence.setPendingShareInviteCapabilities({
+      inviteCode: params.code,
+      capabilities: body.capabilities,
+      grantedByUserId: sessionUserId,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "share_capabilities_updated",
+      targetUserId: null,
+      ipAddress: req.ip,
+      metadata: { inviteCode: params.code, capabilities },
+    });
+    const status = invite.revokedAt
+      ? "revoked" as const
+      : Date.parse(invite.expiresAt) <= Date.now()
+        ? "expired" as const
+        : "pending" as const;
+    return toPendingShareInviteDto(app, invite, status, capabilities);
   });
 
   app.delete("/shares/pending/:code", async (req, reply) => {
@@ -4492,6 +4823,400 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       app.persistence,
       new Map(),
     );
+  });
+
+  app.get("/ai/transaction-drafts/badge", async (req): Promise<TransactionAiInboxBadgeDto> => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "portfolio:mcp_read");
+    const batches = await app.persistence.listAiTransactionDraftBatchesForOwner(
+      requestContext.resolvedContext.portfolioContextUserId,
+    );
+    const openBatches = batches.filter((batch) => batch.status === "open");
+    const rowsByBatch = await Promise.all(
+      openBatches.map((batch) => app.persistence.listAiTransactionDraftRows(batch.id)),
+    );
+    const rows = rowsByBatch.flat();
+    return {
+      openBatchCount: openBatches.length,
+      actionRequiredRowCount: draftActionRows(rows).length,
+      readyRowCount: rows.filter((row) => row.state === "ready").length,
+      latestBatchId: openBatches[0]?.id ?? null,
+    };
+  });
+
+  app.get("/ai/transaction-drafts", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "portfolio:mcp_read");
+    const query = z.object({
+      status: z.enum(["open", "archived", "deleted"]).optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(50),
+    }).parse(req.query);
+    const batches = await listTransactionDraftBatches({ app, requestContext }, {
+      status: query.status,
+      limit: query.limit,
+    });
+    return {
+      batches: batches.map((batch) => toTransactionDraftBatchDto(app, batch)),
+    };
+  });
+
+  app.get("/ai/transaction-drafts/:batchId", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "portfolio:mcp_read");
+    const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
+    const aggregate = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    return toTransactionDraftDetailDto(app, aggregate);
+  });
+
+  const draftRowPatchSchema = z.object({
+    expectedVersion: z.number().int().min(1),
+    patch: z.object({
+      accountId: userScopedIdSchema.nullish(),
+      accountName: z.string().trim().min(1).max(200).nullish(),
+      type: z.enum(["BUY", "SELL"]).nullish(),
+      ticker: tickerSchema.nullish(),
+      marketCode: marketCodeSchema.nullish(),
+      quantity: z.number().positive().nullish(),
+      unitPrice: z.number().positive().nullish(),
+      priceCurrency: currencyCodeSchema.nullish(),
+      tradeDate: isoDateSchema.nullish(),
+      tradeTimestamp: isoDateTimeSchema.nullish(),
+      bookingSequence: z.number().int().positive().nullish(),
+      isDayTrade: z.boolean().nullish(),
+      commissionAmount: z.number().nonnegative().nullish(),
+      taxAmount: z.number().nonnegative().nullish(),
+      note: z.string().trim().max(1_000).nullish(),
+      sourceSnippet: z.string().trim().max(500).nullish(),
+    }).strict(),
+  }).strict();
+
+  app.patch("/ai/transaction-drafts/:batchId/rows/:rowId", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "transaction_draft:edit");
+    const params = z.object({ batchId: userScopedIdSchema, rowId: userScopedIdSchema }).parse(req.params);
+    assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    const body = draftRowPatchSchema.parse(req.body);
+    await updateTransactionDraftRows({ app, requestContext }, {
+      batchId: params.batchId,
+      rows: [{
+        rowId: params.rowId,
+        expectedVersion: body.expectedVersion,
+        patch: Object.fromEntries(
+          Object.entries(body.patch).filter(([, value]) => value !== undefined),
+        ),
+      }],
+    });
+    const updated = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    await app.eventBus.publishEvent(requestContext.resolvedContext.portfolioContextUserId, "ai_transaction_draft_updated", {
+      batchId: params.batchId,
+      rowId: params.rowId,
+    });
+    return toTransactionDraftDetailDto(app, updated);
+  });
+
+  const draftRowIdsBodySchema = z.object({
+    rowIds: z.array(userScopedIdSchema).min(1).max(200),
+    expectedBatchVersion: z.number().int().min(1),
+  }).strict();
+
+  async function transitionDraftRowsFromWeb(
+    req: FastifyRequest,
+    capability: ShareCapability,
+    run: (requestContext: McpRequestContext, input: { batchId: string; rowIds: string[]; expectedBatchVersion: number }) => Promise<unknown>,
+  ) {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, capability);
+    const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
+    assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    const body = draftRowIdsBodySchema.parse(req.body);
+    await run(requestContext, { batchId: params.batchId, rowIds: body.rowIds, expectedBatchVersion: body.expectedBatchVersion });
+    const updated = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    await app.eventBus.publishEvent(requestContext.resolvedContext.portfolioContextUserId, "ai_transaction_draft_updated", {
+      batchId: params.batchId,
+      rowIds: body.rowIds,
+    });
+    return toTransactionDraftDetailDto(app, updated);
+  }
+
+  app.post("/ai/transaction-drafts/:batchId/exclude", (req) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+      excludeTransactionDraftRows({ app, requestContext }, input)));
+
+  app.post("/ai/transaction-drafts/:batchId/reinclude", (req) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+      reincludeTransactionDraftRows({ app, requestContext }, input)));
+
+  app.post("/ai/transaction-drafts/:batchId/reject", (req) =>
+    transitionDraftRowsFromWeb(req, "transaction_draft:edit", (requestContext, input) =>
+      rejectTransactionDraftRows({ app, requestContext }, input)));
+
+  const draftBatchVersionBodySchema = z.object({
+    expectedBatchVersion: z.number().int().min(1),
+  }).strict();
+
+  app.post("/ai/transaction-drafts/:batchId/archive", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "transaction_draft:archive");
+    const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
+    assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    const body = draftBatchVersionBodySchema.parse(req.body);
+    await archiveTransactionDraftBatch({ app, requestContext }, {
+      batchId: params.batchId,
+      expectedBatchVersion: body.expectedBatchVersion,
+    });
+    const updated = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    await app.eventBus.publishEvent(requestContext.resolvedContext.portfolioContextUserId, "ai_transaction_draft_updated", {
+      batchId: params.batchId,
+      status: updated.batch.status,
+    });
+    return toTransactionDraftDetailDto(app, updated);
+  });
+
+  app.delete("/ai/transaction-drafts/:batchId", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "transaction_draft:delete");
+    const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
+    assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    const body = draftBatchVersionBodySchema.parse(req.body ?? {});
+    await deleteUnconfirmedTransactionDraftBatch({ app, requestContext }, {
+      batchId: params.batchId,
+      expectedBatchVersion: body.expectedBatchVersion,
+    });
+    await app.eventBus.publishEvent(requestContext.resolvedContext.portfolioContextUserId, "ai_transaction_draft_updated", {
+      batchId: params.batchId,
+      status: "deleted",
+    });
+    return { ok: true };
+  });
+
+  app.post("/ai/transaction-drafts/:batchId/confirm", async (req) => {
+    const requestContext = await loadWebMcpContext(app, req);
+    requireWebDraftCapability(requestContext.resolvedContext, "transaction:write");
+    const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      rowIds: z.array(userScopedIdSchema).min(1).max(200),
+      expectedBatchVersion: z.number().int().min(1),
+      typedConfirmation: z.string().trim().max(100).optional(),
+    }).strict().parse(req.body);
+    const aggregate = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    if (aggregate.batch.status !== "open") {
+      throw routeError(409, "ai_draft_batch_closed", "Draft batch is not open");
+    }
+    if (aggregate.batch.version !== body.expectedBatchVersion) {
+      throw routeError(409, "ai_draft_batch_version_conflict", "Draft batch version conflict");
+    }
+    const selectedIds = new Set(body.rowIds);
+    const selectedRows = aggregate.rows.filter((row) => selectedIds.has(row.id));
+    if (selectedRows.length !== body.rowIds.length) {
+      throw routeError(404, "ai_draft_row_not_found", "One or more draft rows were not found");
+    }
+    const invalidRow = selectedRows.find((row) => row.state !== "ready");
+    if (invalidRow) {
+      throw routeError(409, "ai_draft_row_not_ready", `Draft row ${invalidRow.id} is not ready`);
+    }
+    const tWdGross = selectedRows
+      .filter((row) => row.priceCurrency === "TWD" && row.quantity !== null && row.unitPrice !== null)
+      .reduce((sum, row) => sum + row.quantity! * row.unitPrice!, 0);
+    const typedPhrase = `POST ${selectedRows.length} TRADES`;
+    if ((selectedRows.length >= 6 || tWdGross >= 1_000_000) && body.typedConfirmation !== typedPhrase) {
+      throw routeError(409, "ai_draft_typed_confirmation_required", `Type ${typedPhrase} to confirm this batch`);
+    }
+
+    const { store, userId } = await loadUserStore(app, req);
+    const draftStore = structuredClone(store);
+    assertStoreIntegrity(draftStore);
+    const created: Transaction[] = [];
+    for (const row of selectedRows) {
+      if (
+        !row.accountId
+        || !row.tradeType
+        || !row.ticker
+        || !row.marketCode
+        || row.quantity === null
+        || row.unitPrice === null
+        || !row.priceCurrency
+        || !row.tradeDate
+      ) {
+        throw routeError(409, "ai_draft_row_incomplete", `Draft row ${row.id} is incomplete`);
+      }
+      created.push(createTransaction(draftStore, userId, {
+        id: randomUUID(),
+        accountId: row.accountId,
+        ticker: row.ticker,
+        marketCode: row.marketCode as SharedMarketCode,
+        quantity: row.quantity,
+        unitPrice: row.unitPrice,
+        priceCurrency: row.priceCurrency,
+        tradeDate: row.tradeDate,
+        tradeTimestamp: row.tradeTimestamp ?? undefined,
+        bookingSequence: row.bookingSequence ?? undefined,
+        commissionAmount: row.commissionAmount ?? undefined,
+        taxAmount: row.taxAmount ?? undefined,
+        type: row.tradeType,
+        isDayTrade: row.isDayTrade ?? false,
+      }));
+    }
+
+    await app.persistence.saveAccountingStore(userId, draftStore.accounting);
+    const confirmedAt = new Date().toISOString();
+    for (let index = 0; index < selectedRows.length; index += 1) {
+      const row = selectedRows[index]!;
+      const createdTrade = created[index]!;
+      const saved = await app.persistence.saveAiTransactionDraftRow({
+        ...row,
+        state: "confirmed",
+        version: row.version + 1,
+        feesSource: row.feesSource ?? (row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED"),
+        confirmedTradeEventId: createdTrade.id,
+        confirmedAt,
+        confirmedByUserId: requestContext.auth.sessionUserId,
+        updatedAt: confirmedAt,
+        expectedVersion: row.version,
+      });
+      if (!saved) {
+        throw routeError(409, "ai_draft_row_version_conflict", `Draft row ${row.id} version conflict`);
+      }
+    }
+    const updatedBatch = await app.persistence.saveAiTransactionDraftBatch({
+      ...aggregate.batch,
+      version: aggregate.batch.version + 1,
+      updatedAt: confirmedAt,
+      expectedVersion: aggregate.batch.version,
+    });
+    if (!updatedBatch) {
+      throw routeError(409, "ai_draft_batch_version_conflict", "Draft batch version conflict");
+    }
+    await app.persistence.appendAiTransactionDraftEvent({
+      batchId: aggregate.batch.id,
+      ownerUserId: userId,
+      actorUserId: requestContext.auth.sessionUserId,
+      connectorConnectionId: null,
+      eventType: "rows_confirmed",
+      summary: `${created.length} draft rows posted`,
+      metadata: { rowIds: body.rowIds, tradeEventIds: created.map((item) => item.id) },
+      sourceIp: req.ip,
+    });
+
+    const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; fromDate: string }>();
+    for (const tx of created) {
+      const key = `${tx.accountId}:${tx.ticker}`;
+      const current = earliestByAccountTicker.get(key);
+      if (!current || tx.tradeDate < current.fromDate) {
+        earliestByAccountTicker.set(key, { accountId: tx.accountId, ticker: tx.ticker, fromDate: tx.tradeDate });
+      }
+    }
+    for (const item of earliestByAccountTicker.values()) {
+      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, item.accountId, item.ticker, {
+        snapshotFromDate: item.fromDate,
+      });
+    }
+    await app.eventBus.publishEvent(userId, "ai_transaction_draft_confirmed", {
+      batchId: aggregate.batch.id,
+      rowIds: body.rowIds,
+      tradeEventIds: created.map((item) => item.id),
+    });
+    const updated = assertDraftAggregateInWebContext(
+      requestContext.resolvedContext,
+      await app.persistence.getAiTransactionDraftBatch(params.batchId),
+    );
+    return {
+      ...toTransactionDraftDetailDto(app, updated),
+      created,
+    };
+  });
+
+  app.get("/ai/connectors", async (req) => {
+    const userId = requireSessionUserId(req);
+    const [connections, accessLogs, policy] = await Promise.all([
+      app.persistence.listAiConnectorConnectionsForUser(userId),
+      app.persistence.listAiConnectorAccessLogsForUser(userId),
+      app.persistence.getAiConnectorPolicySettings(),
+    ]);
+    return {
+      connections: connections.map(toAiConnectorConnectionDto),
+      accessLogs: accessLogs.slice(0, 50).map(toAiConnectorAccessLogDto),
+      policy,
+    };
+  });
+
+  app.patch("/ai/connectors/:id", async (req) => {
+    const userId = requireSessionUserId(req);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      scopes: aiConnectorScopesSchema.optional(),
+      toolToggles: z.record(z.string().min(1).max(120), z.boolean()).optional(),
+      expiresAt: z.union([isoDateTimeSchema, z.null()]).optional(),
+    }).strict().parse(req.body);
+    const connection = await app.persistence.getAiConnectorConnection(params.id);
+    if (!connection || connection.userId !== userId) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    const settings = await app.persistence.getAiConnectorPolicySettings();
+    const requestedScopes = body.scopes ?? connection.scopes;
+    const allowedScopes = requestedScopes.filter((scope) => settings.groupToggles[connectorGroupForScope(scope)]);
+    const updated = await app.persistence.saveAiConnectorConnection({
+      ...connection,
+      scopes: allowedScopes,
+      toolToggles: body.toolToggles ?? connection.toolToggles,
+      expiresAt: body.expiresAt === undefined ? connection.expiresAt : body.expiresAt,
+      updatedAt: new Date().toISOString(),
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: userId,
+      action: "app_config_updated",
+      targetUserId: userId,
+      ipAddress: req.ip,
+      metadata: {
+        type: "ai_connector_connection",
+        connectionId: updated.id,
+        scopes: updated.scopes,
+        toolToggles: updated.toolToggles,
+        expiresAt: updated.expiresAt,
+      },
+    });
+    return toAiConnectorConnectionDto(updated);
+  });
+
+  app.delete("/ai/connectors/:id", async (req) => {
+    const userId = requireSessionUserId(req);
+    const params = z.object({ id: userScopedIdSchema }).parse(req.params);
+    const connection = await app.persistence.getAiConnectorConnection(params.id);
+    if (!connection || connection.userId !== userId) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    const revoked = await revokeAiConnectorConnection(app, params.id, {
+      revokedByUserId: userId,
+      reason: "user_revoked",
+      ipAddress: req.ip,
+    });
+    return toAiConnectorConnectionDto(revoked);
   });
 
   app.post("/ai/transactions/parse", async (req) => {

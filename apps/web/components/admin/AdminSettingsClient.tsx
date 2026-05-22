@@ -8,11 +8,12 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  type AiConnectorPolicySettingsDto,
   type AppConfigDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
-import { patchJson, ApiError } from "../../lib/api";
+import { getJson, patchJson, postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from "../ui/Tabs";
@@ -32,6 +33,7 @@ const TAB_SLUGS = [
   "catalog-metadata",
   "display-defaults",
   "api-keys",
+  "mcp",
 ] as const;
 type TabSlug = (typeof TAB_SLUGS)[number];
 const DEFAULT_TAB: TabSlug = "rate-limits";
@@ -44,6 +46,7 @@ const TAB_LABELS: Record<TabSlug, string> = {
   "catalog-metadata": "Catalog & metadata",
   "display-defaults": "Display defaults",
   "api-keys": "API keys",
+  "mcp": "MCP",
 };
 
 function isValidTabSlug(value: string | null): value is TabSlug {
@@ -80,6 +83,132 @@ function isValidPerformanceRange(value: string): boolean {
 function formatTimestamp(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleString();
+}
+
+function AdminMcpSettingsPanel({ active }: { active: boolean }) {
+  const [settings, setSettings] = useState<AiConnectorPolicySettingsDto | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!active || settings !== null) return;
+    let cancelled = false;
+    getJson<AiConnectorPolicySettingsDto>("/admin/mcp/settings")
+      .then((next) => {
+        if (!cancelled) setSettings(next);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load MCP settings.");
+      });
+    return () => { cancelled = true; };
+  }, [active, settings]);
+
+  async function save(patch: Partial<AiConnectorPolicySettingsDto>) {
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const token = await postJson<{ freshAuthToken: string }>("/admin/mcp/fresh-auth", {});
+      const updated = await patchJson<AiConnectorPolicySettingsDto>(
+        "/admin/mcp/settings",
+        patch,
+        { headers: { "x-vakwen-fresh-auth-at": token.freshAuthToken } },
+      );
+      setSettings(updated);
+      setSuccess("MCP settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save MCP settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settings) {
+    return (
+      <Card data-testid="admin-settings-mcp-section">
+        <p className="text-sm text-slate-600">{error ?? "Loading MCP settings..."}</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid="admin-settings-mcp-section">
+      <div className="space-y-5">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">MCP settings</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Global AI connector policy. Fresh-auth is requested automatically before saving.
+          </p>
+        </div>
+
+        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+            <span className="font-medium text-slate-800">MCP deployment</span>
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              disabled={saving}
+              onChange={(event) => void save({ enabled: event.target.checked })}
+            />
+          </label>
+          {(["read", "drafts", "write"] as const).map((group) => (
+            <label key={group} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+              <span className="font-medium capitalize text-slate-800">{group} tools</span>
+              <input
+                type="checkbox"
+                checked={settings.groupToggles[group]}
+                disabled={saving}
+                onChange={(event) => void save({ groupToggles: { ...settings.groupToggles, [group]: event.target.checked } })}
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="text-sm font-medium text-slate-700">
+            Max active connectors
+            <input
+              type="number"
+              value={settings.maxActiveConnectionsPerUser}
+              min={1}
+              max={20}
+              disabled={saving}
+              onChange={(event) => void save({ maxActiveConnectionsPerUser: Number(event.target.value) })}
+              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Inactivity expiry days
+            <input
+              type="number"
+              value={settings.inactivityExpiryDays}
+              min={1}
+              max={365}
+              disabled={saving}
+              onChange={(event) => void save({ inactivityExpiryDays: Number(event.target.value) })}
+              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Expiry warning days
+            <input
+              type="number"
+              value={settings.expirationWarningDays}
+              min={1}
+              max={30}
+              disabled={saving}
+              onChange={(event) => void save({ expirationWarningDays: Number(event.target.value) })}
+              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+          </label>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
@@ -862,6 +991,10 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
             </div>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="mcp" data-testid="admin-settings-panel-mcp">
+          <AdminMcpSettingsPanel active={activeTab === "mcp"} />
         </TabsContent>
       </TabsRoot>
 

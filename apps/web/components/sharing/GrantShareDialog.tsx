@@ -3,9 +3,10 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Copy, Mail, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { LocaleCode } from "@vakwen/shared-types";
+import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import { createShareGrant, resolveInviteUrl } from "../../features/sharing/service";
+import { SHARE_CAPABILITIES } from "../../features/ai-inbox/service";
 import type { GrantShareResult } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -19,6 +20,22 @@ interface GrantShareDialogProps {
 }
 
 type GrantStep = "form" | "confirm" | "success";
+
+const CAPABILITY_LABELS: Record<ShareCapability, string> = {
+  "portfolio:mcp_read": "App read",
+  "transaction_draft:create": "Draft create",
+  "transaction_draft:edit": "Draft edit",
+  "transaction_draft:archive": "Draft archive",
+  "transaction_draft:delete": "Draft delete",
+  "transaction:write": "Transaction write",
+};
+
+const PRESETS: Array<{ label: string; capabilities: ShareCapability[] }> = [
+  { label: "Viewer", capabilities: [] },
+  { label: "AI-enabled viewer", capabilities: ["portfolio:mcp_read"] },
+  { label: "Draft collaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
+  { label: "Editor", capabilities: [...SHARE_CAPABILITIES] },
+];
 
 function isLikelyEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -51,6 +68,7 @@ export function GrantShareDialog({
   const [step, setStep] = useState<GrantStep>("form");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<ShareCapability[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pendingResult, setPendingResult] = useState<Extract<GrantShareResult, { type: "pending" }> | null>(null);
@@ -59,6 +77,7 @@ export function GrantShareDialog({
     if (!open) return;
     setStep("form");
     setEmail(initialEmail ?? "");
+    setCapabilities([]);
     setError(null);
     setIsSubmitting(false);
     setCopied(false);
@@ -69,7 +88,7 @@ export function GrantShareDialog({
     setIsSubmitting(true);
     setError(null);
     try {
-      const result = await createShareGrant(email);
+      const result = await createShareGrant(email, capabilities);
       await onCreated(result);
       if (result.type === "pending") {
         setPendingResult(result);
@@ -100,6 +119,14 @@ export function GrantShareDialog({
   }
 
   const inviteUrl = pendingResult ? resolveInviteUrl(pendingResult.inviteCode, pendingResult.inviteUrl) : null;
+
+  function toggleCapability(capability: ShareCapability, checked: boolean) {
+    setCapabilities((current) =>
+      checked
+        ? [...new Set([...current, capability])]
+        : current.filter((item) => item !== capability),
+    );
+  }
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -163,6 +190,34 @@ export function GrantShareDialog({
                 </div>
               </label>
 
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-sm font-medium text-slate-700">AI connector access</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                      onClick={() => setCapabilities(preset.capabilities)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {SHARE_CAPABILITIES.map((capability) => (
+                    <label key={capability} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                      <span>{CAPABILITY_LABELS[capability]}</span>
+                      <input
+                        type="checkbox"
+                        checked={capabilities.includes(capability)}
+                        onChange={(event) => toggleCapability(capability, event.target.checked)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {error ? (
                 <p className="text-sm text-rose-600" role="alert" data-testid="grant-share-error">{error}</p>
               ) : null}
@@ -185,6 +240,11 @@ export function GrantShareDialog({
                   {dict.sharing.grantDialog.confirmTitle}
                 </p>
                 <p className="mt-2 text-base font-semibold text-slate-950">{email}</p>
+                <p className="mt-2 text-sm text-slate-600">
+                  {capabilities.length === 0
+                    ? "AI connector permissions off"
+                    : capabilities.map((capability) => CAPABILITY_LABELS[capability]).join(", ")}
+                </p>
               </div>
 
               {error ? (

@@ -28,6 +28,7 @@ export function SettingsTwoPaneLayout({ dict, children }: SettingsTwoPaneLayoutP
     profile: dict.settings.tabProfile,
     general: dict.settings.tabGeneral,
     accounts: dict.settings.tabAccounts,
+    "ai-connectors": dict.settings.tabAiConnectors,
     display: dict.settings.tabDisplay,
     tickers: dict.settings.tabTickers,
   };
