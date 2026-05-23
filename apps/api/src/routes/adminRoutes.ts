@@ -26,7 +26,7 @@ import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConf
 import {
   invalidate as invalidateAppConfigCache,
 } from "../services/appConfig/cache.js";
-import type { AppConfigPlainField } from "../persistence/types.js";
+import type { AppConfigPlainField, SaveAiConnectorPolicySettingsInput } from "../persistence/types.js";
 import {
   assertFreshAuth,
   createMcpFreshAuthToken,
@@ -109,6 +109,19 @@ const tier0SecretField = z
   ])
   .optional();
 
+function normalizeMcpOAuthIssuer(value: string): string {
+  const url = new URL(value);
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  const localRuntime = Env.NODE_ENV === "test" || Env.NODE_ENV === "development";
+  const localHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(localRuntime && localHost)) {
+    throw routeError(400, "mcp_oauth_issuer_https_required", "MCP OAuth public issuer must use HTTPS");
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 const aiConnectorPolicySettingsPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -131,6 +144,12 @@ const aiConnectorPolicySettingsPatchSchema = z
     inactivityExpiryDays: z.number().int().min(1).max(365).optional(),
     expirationWarningDays: z.number().int().min(1).max(60).optional(),
     freshAuthMaxAgeMs: z.number().int().min(60_000).max(86_400_000).optional(),
+    maxConnectorLifetimeDays: z.number().int().min(1).max(365).optional(),
+    oauthPublicIssuer: z.union([
+      z.string().url().transform((value) => normalizeMcpOAuthIssuer(value)),
+      z.null(),
+    ]).optional(),
+    mcpOauthTokenSecret: tier0SecretField,
   })
   .strict();
 
@@ -768,7 +787,35 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const current = await app.persistence.getAiConnectorPolicySettings();
     assertFreshAuth(app, req, current);
     const body = aiConnectorPolicySettingsPatchSchema.parse(req.body);
-    return updateAiConnectorPolicySettings(app, body, {
+    if (body.mcpOauthTokenSecret !== undefined) {
+      await app.persistence.setAppConfigEncryptedSecret("mcpOauthTokenSecret", body.mcpOauthTokenSecret);
+      const secretAction = body.mcpOauthTokenSecret === null ? "clear" : "rotate";
+      const revokedConnectionCount = await app.persistence.revokeAiConnectorConnectionsForProvider(
+        "chatgpt",
+        body.mcpOauthTokenSecret === null ? "mcp_oauth_secret_cleared" : "mcp_oauth_secret_rotated",
+        sessionUserId,
+      );
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "app_config_updated",
+        metadata: {
+          type: "rotation",
+          field: "mcpOauthTokenSecret",
+          action: secretAction,
+          actorUserId: sessionUserId,
+          revokedConnectionCount,
+        },
+        ipAddress,
+      });
+      invalidateAppConfigCache();
+    }
+    const policyPatch = Object.fromEntries(
+      Object.entries(body).filter(([key]) => key !== "mcpOauthTokenSecret"),
+    ) as SaveAiConnectorPolicySettingsInput;
+    if (Object.keys(policyPatch).length === 0) {
+      return app.persistence.getAiConnectorPolicySettings();
+    }
+    return updateAiConnectorPolicySettings(app, policyPatch, {
       actorUserId: sessionUserId,
       ipAddress,
     });

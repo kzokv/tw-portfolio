@@ -111,8 +111,13 @@ import type {
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
   AggregatedSnapshotPoint,
+  ActivateAiConnectorConnectionReplacingProviderInput,
+  ActivateAiConnectorConnectionReplacingProviderResult,
   AiConnectorAccessLogRecord,
+  AiConnectorCredentialRecord,
   AiConnectorConnectionRecord,
+  McpOAuthAuthorizationCodeRecord,
+  McpOAuthAuthorizationRequestRecord,
   AiTransactionDraftBatchAggregate,
   AiTransactionDraftBatchRecord,
   AiTransactionDraftEventRecord,
@@ -120,14 +125,19 @@ import type {
   AiTransactionDraftUnsupportedItemRecord,
   AppendAiConnectorAccessLogInput,
   AppendAiTransactionDraftEventInput,
+  ApproveMcpOAuthAuthorizationRequestInput,
+  ApproveMcpOAuthAuthorizationRequestResult,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthStatus,
   ProviderHealthUpsert,
   ProviderErrorClass,
+  SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
+  SaveMcpOAuthAuthorizationCodeInput,
+  SaveMcpOAuthAuthorizationRequestInput,
   SaveAiTransactionDraftBatchInput,
   SaveAiTransactionDraftRowInput,
   SaveAiTransactionDraftUnsupportedItemInput,
@@ -342,6 +352,9 @@ function mapAiConnectorPolicySettingsRow(row: {
   inactivity_expiry_days: number;
   expiration_warning_days: number;
   fresh_auth_max_age_ms: number;
+  max_connector_lifetime_days: number;
+  oauth_public_issuer: string | null;
+  oauth_token_secret_set?: boolean;
   updated_at: string;
 }): AiConnectorPolicySettingsDto {
   return {
@@ -359,7 +372,114 @@ function mapAiConnectorPolicySettingsRow(row: {
     inactivityExpiryDays: row.inactivity_expiry_days,
     expirationWarningDays: row.expiration_warning_days,
     freshAuthMaxAgeMs: row.fresh_auth_max_age_ms,
+    maxConnectorLifetimeDays: row.max_connector_lifetime_days,
+    oauthPublicIssuer: row.oauth_public_issuer,
+    oauthTokenSecretSet: row.oauth_token_secret_set ?? false,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapMcpOAuthAuthorizationRequestRow(row: {
+  id: string;
+  user_id: string;
+  client_id: string;
+  redirect_uri: string;
+  state: string | null;
+  resource: string;
+  scopes: AiConnectorScope[] | null;
+  code_challenge: string;
+  code_challenge_method: "S256";
+  csrf_token_hash: string;
+  expires_at: string;
+  approved_at: string | null;
+  denied_at: string | null;
+  created_at: string;
+}): McpOAuthAuthorizationRequestRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    clientId: row.client_id,
+    redirectUri: row.redirect_uri,
+    state: row.state,
+    resource: row.resource,
+    scopes: [...(row.scopes ?? [])].sort(),
+    codeChallenge: row.code_challenge,
+    codeChallengeMethod: row.code_challenge_method,
+    csrfTokenHash: row.csrf_token_hash,
+    expiresAt: row.expires_at,
+    approvedAt: row.approved_at,
+    deniedAt: row.denied_at,
+    createdAt: row.created_at,
+  };
+}
+
+function mapMcpOAuthAuthorizationCodeRow(row: {
+  id: string;
+  code_hash: string;
+  connection_id: string;
+  user_id: string;
+  client_id: string;
+  redirect_uri: string;
+  resource: string;
+  scopes: AiConnectorScope[] | null;
+  code_challenge: string;
+  code_challenge_method: "S256";
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
+}): McpOAuthAuthorizationCodeRecord {
+  return {
+    id: row.id,
+    codeHash: row.code_hash,
+    connectionId: row.connection_id,
+    userId: row.user_id,
+    clientId: row.client_id,
+    redirectUri: row.redirect_uri,
+    resource: row.resource,
+    scopes: [...(row.scopes ?? [])].sort(),
+    codeChallenge: row.code_challenge,
+    codeChallengeMethod: row.code_challenge_method,
+    expiresAt: row.expires_at,
+    consumedAt: row.consumed_at,
+    createdAt: row.created_at,
+  };
+}
+
+function mapAiConnectorCredentialRow(row: {
+  id: string;
+  connection_id: string;
+  credential_type: "oauth_refresh_token" | "self_hosted_token";
+  token_hash: string;
+  token_hint: string | null;
+  token_family_id: string | null;
+  predecessor_credential_id: string | null;
+  replaced_by_credential_id: string | null;
+  oauth_client_id: string | null;
+  resource: string | null;
+  scopes: AiConnectorScope[] | null;
+  session_version: number | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  last_used_at: string | null;
+}): AiConnectorCredentialRecord {
+  return {
+    id: row.id,
+    connectionId: row.connection_id,
+    credentialType: row.credential_type,
+    tokenHash: row.token_hash,
+    tokenHint: row.token_hint,
+    tokenFamilyId: row.token_family_id,
+    predecessorCredentialId: row.predecessor_credential_id,
+    replacedByCredentialId: row.replaced_by_credential_id,
+    oauthClientId: row.oauth_client_id,
+    resource: row.resource,
+    scopes: [...(row.scopes ?? [])].sort(),
+    sessionVersion: row.session_version,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
   };
 }
 
@@ -2058,6 +2178,13 @@ export class PostgresPersistence implements Persistence {
               inactivity_expiry_days,
               expiration_warning_days,
               fresh_auth_max_age_ms,
+              max_connector_lifetime_days,
+              oauth_public_issuer,
+              EXISTS (
+                SELECT 1
+                FROM public.app_config
+                WHERE id = 1 AND mcp_oauth_token_secret IS NOT NULL
+              ) AS oauth_token_secret_set,
               updated_at::text AS updated_at
        FROM ai_connector_policy_settings
        WHERE id = TRUE`,
@@ -2078,6 +2205,13 @@ export class PostgresPersistence implements Persistence {
                  inactivity_expiry_days,
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
+                 max_connector_lifetime_days,
+                 oauth_public_issuer,
+                 EXISTS (
+                   SELECT 1
+                   FROM public.app_config
+                   WHERE id = 1 AND mcp_oauth_token_secret IS NOT NULL
+                 ) AS oauth_token_secret_set,
                  updated_at::text AS updated_at`,
     );
     return mapAiConnectorPolicySettingsRow(inserted.rows[0]!);
@@ -2100,6 +2234,8 @@ export class PostgresPersistence implements Persistence {
       inactivityExpiryDays: input.inactivityExpiryDays ?? current.inactivityExpiryDays,
       expirationWarningDays: input.expirationWarningDays ?? current.expirationWarningDays,
       freshAuthMaxAgeMs: input.freshAuthMaxAgeMs ?? current.freshAuthMaxAgeMs,
+      maxConnectorLifetimeDays: input.maxConnectorLifetimeDays ?? current.maxConnectorLifetimeDays,
+      oauthPublicIssuer: input.oauthPublicIssuer === undefined ? current.oauthPublicIssuer : input.oauthPublicIssuer,
     };
     const result = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
       `INSERT INTO ai_connector_policy_settings (
@@ -2114,9 +2250,11 @@ export class PostgresPersistence implements Persistence {
          inactivity_expiry_days,
          expiration_warning_days,
          fresh_auth_max_age_ms,
+         max_connector_lifetime_days,
+         oauth_public_issuer,
          updated_at
        ) VALUES (
-         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()
+         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
        )
        ON CONFLICT (id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
@@ -2129,6 +2267,8 @@ export class PostgresPersistence implements Persistence {
          inactivity_expiry_days = EXCLUDED.inactivity_expiry_days,
          expiration_warning_days = EXCLUDED.expiration_warning_days,
          fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
+         max_connector_lifetime_days = EXCLUDED.max_connector_lifetime_days,
+         oauth_public_issuer = EXCLUDED.oauth_public_issuer,
          updated_at = EXCLUDED.updated_at
        RETURNING enabled,
                  max_active_connections_per_user,
@@ -2140,6 +2280,13 @@ export class PostgresPersistence implements Persistence {
                  inactivity_expiry_days,
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
+                 max_connector_lifetime_days,
+                 oauth_public_issuer,
+                 EXISTS (
+                   SELECT 1
+                   FROM public.app_config
+                   WHERE id = 1 AND mcp_oauth_token_secret IS NOT NULL
+                 ) AS oauth_token_secret_set,
                  updated_at::text AS updated_at`,
       [
         next.enabled,
@@ -2152,9 +2299,721 @@ export class PostgresPersistence implements Persistence {
         next.inactivityExpiryDays,
         next.expirationWarningDays,
         next.freshAuthMaxAgeMs,
+        next.maxConnectorLifetimeDays,
+        next.oauthPublicIssuer,
       ],
     );
     return mapAiConnectorPolicySettingsRow(result.rows[0]!);
+  }
+
+  async saveMcpOAuthAuthorizationRequest(
+    input: SaveMcpOAuthAuthorizationRequestInput,
+  ): Promise<McpOAuthAuthorizationRequestRecord> {
+    const result = await this.pool.query<Parameters<typeof mapMcpOAuthAuthorizationRequestRow>[0]>(
+      `INSERT INTO mcp_oauth_authorization_requests (
+         id,
+         user_id,
+         client_id,
+         redirect_uri,
+         state,
+         resource,
+         scopes,
+         code_challenge,
+         code_challenge_method,
+         csrf_token_hash,
+         expires_at,
+         approved_at,
+         denied_at,
+         created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10,
+         $11::timestamptz, $12::timestamptz, $13::timestamptz, COALESCE($14::timestamptz, NOW())
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         user_id = EXCLUDED.user_id,
+         client_id = EXCLUDED.client_id,
+         redirect_uri = EXCLUDED.redirect_uri,
+         state = EXCLUDED.state,
+         resource = EXCLUDED.resource,
+         scopes = EXCLUDED.scopes,
+         code_challenge = EXCLUDED.code_challenge,
+         code_challenge_method = EXCLUDED.code_challenge_method,
+         csrf_token_hash = EXCLUDED.csrf_token_hash,
+         expires_at = EXCLUDED.expires_at,
+         approved_at = EXCLUDED.approved_at,
+         denied_at = EXCLUDED.denied_at
+       RETURNING id,
+                 user_id,
+                 client_id,
+                 redirect_uri,
+                 state,
+                 resource,
+                 scopes,
+                 code_challenge,
+                 code_challenge_method,
+                 csrf_token_hash,
+                 expires_at::text AS expires_at,
+                 approved_at::text AS approved_at,
+                 denied_at::text AS denied_at,
+                 created_at::text AS created_at`,
+      [
+        input.id,
+        input.userId,
+        input.clientId,
+        input.redirectUri,
+        input.state ?? null,
+        input.resource,
+        [...new Set(input.scopes)].sort(),
+        input.codeChallenge,
+        input.codeChallengeMethod,
+        input.csrfTokenHash,
+        input.expiresAt,
+        input.approvedAt ?? null,
+        input.deniedAt ?? null,
+        input.createdAt ?? null,
+      ],
+    );
+    return mapMcpOAuthAuthorizationRequestRow(result.rows[0]!);
+  }
+
+  async getMcpOAuthAuthorizationRequest(id: string): Promise<McpOAuthAuthorizationRequestRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapMcpOAuthAuthorizationRequestRow>[0]>(
+      `SELECT id,
+              user_id,
+              client_id,
+              redirect_uri,
+              state,
+              resource,
+              scopes,
+              code_challenge,
+              code_challenge_method,
+              csrf_token_hash,
+              expires_at::text AS expires_at,
+              approved_at::text AS approved_at,
+              denied_at::text AS denied_at,
+              created_at::text AS created_at
+       FROM mcp_oauth_authorization_requests
+       WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ? mapMcpOAuthAuthorizationRequestRow(result.rows[0]) : null;
+  }
+
+  async approveMcpOAuthAuthorizationRequest(
+    input: ApproveMcpOAuthAuthorizationRequestInput,
+  ): Promise<ApproveMcpOAuthAuthorizationRequestResult | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const requestResult = await client.query<Parameters<typeof mapMcpOAuthAuthorizationRequestRow>[0]>(
+        `SELECT id,
+                user_id,
+                client_id,
+                redirect_uri,
+                state,
+                resource,
+                scopes,
+                code_challenge,
+                code_challenge_method,
+                csrf_token_hash,
+                expires_at::text AS expires_at,
+                approved_at::text AS approved_at,
+                denied_at::text AS denied_at,
+                created_at::text AS created_at
+         FROM mcp_oauth_authorization_requests
+         WHERE id = $1
+         FOR UPDATE`,
+        [input.requestId],
+      );
+      const request = requestResult.rows[0] ? mapMcpOAuthAuthorizationRequestRow(requestResult.rows[0]) : null;
+      if (
+        !request
+        || request.userId !== input.userId
+        || request.approvedAt
+        || request.deniedAt
+        || Date.parse(request.expiresAt) <= Date.now()
+      ) {
+        await client.query("COMMIT");
+        return null;
+      }
+      if (
+        input.connection.userId !== request.userId
+        || input.code.userId !== request.userId
+        || input.code.connectionId !== input.connection.id
+      ) {
+        throw routeError(400, "mcp_oauth_invalid_transition", "OAuth approval artifacts do not match the pending request");
+      }
+
+      const connectionInput = input.connection;
+      const now = connectionInput.updatedAt ?? new Date().toISOString();
+      await client.query(
+        `INSERT INTO ai_connector_connections (
+           id,
+           user_id,
+           provider,
+           display_name,
+           status,
+           oauth_client_id,
+           oauth_subject,
+           expires_at,
+           expiry_notified_at,
+           last_used_at,
+           revoked_at,
+           revoked_by_user_id,
+           revocation_reason,
+           created_at,
+           updated_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8::timestamptz, $9::timestamptz, $10::timestamptz, $11::timestamptz, $12, $13,
+           COALESCE($14::timestamptz, NOW()),
+           $15::timestamptz
+         )`,
+        [
+          connectionInput.id,
+          connectionInput.userId,
+          connectionInput.provider,
+          connectionInput.displayName,
+          connectionInput.status,
+          connectionInput.oauthClientId ?? null,
+          connectionInput.oauthSubject ?? null,
+          connectionInput.expiresAt ?? null,
+          connectionInput.expiryNotifiedAt ?? null,
+          connectionInput.lastUsedAt ?? null,
+          connectionInput.revokedAt ?? null,
+          connectionInput.revokedByUserId ?? null,
+          connectionInput.revocationReason ?? null,
+          connectionInput.createdAt ?? null,
+          now,
+        ],
+      );
+      for (const scope of [...new Set(connectionInput.scopes)].sort()) {
+        await client.query(
+          `INSERT INTO ai_connector_connection_scopes (connection_id, scope)
+           VALUES ($1, $2)`,
+          [connectionInput.id, scope],
+        );
+      }
+      for (const [toolName, enabled] of Object.entries(connectionInput.toolToggles ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+        await client.query(
+          `INSERT INTO ai_connector_tool_toggles (connection_id, tool_name, enabled, updated_at)
+           VALUES ($1, $2, $3, $4::timestamptz)`,
+          [connectionInput.id, toolName, enabled, now],
+        );
+      }
+
+      const codeInput = input.code;
+      await client.query(
+        `INSERT INTO mcp_oauth_authorization_codes (
+           id,
+           code_hash,
+           connection_id,
+           user_id,
+           client_id,
+           redirect_uri,
+           resource,
+           scopes,
+           code_challenge,
+           code_challenge_method,
+           expires_at,
+           consumed_at,
+           created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10,
+           $11::timestamptz, $12::timestamptz, COALESCE($13::timestamptz, NOW())
+         )`,
+        [
+          codeInput.id,
+          codeInput.codeHash,
+          codeInput.connectionId,
+          codeInput.userId,
+          codeInput.clientId,
+          codeInput.redirectUri,
+          codeInput.resource,
+          [...new Set(codeInput.scopes)].sort(),
+          codeInput.codeChallenge,
+          codeInput.codeChallengeMethod,
+          codeInput.expiresAt,
+          codeInput.consumedAt ?? null,
+          codeInput.createdAt ?? null,
+        ],
+      );
+
+      const settledResult = await client.query<Parameters<typeof mapMcpOAuthAuthorizationRequestRow>[0]>(
+        `UPDATE mcp_oauth_authorization_requests
+         SET approved_at = $3::timestamptz
+         WHERE id = $1
+           AND user_id = $2
+           AND approved_at IS NULL
+           AND denied_at IS NULL
+           AND expires_at > NOW()
+         RETURNING id,
+                   user_id,
+                   client_id,
+                   redirect_uri,
+                   state,
+                   resource,
+                   scopes,
+                   code_challenge,
+                   code_challenge_method,
+                   csrf_token_hash,
+                   expires_at::text AS expires_at,
+                   approved_at::text AS approved_at,
+                   denied_at::text AS denied_at,
+                   created_at::text AS created_at`,
+        [input.requestId, input.userId, input.approvedAt],
+      );
+      if (!settledResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      const connection = await this.getAiConnectorConnectionTx(client, connectionInput.id);
+      await client.query("COMMIT");
+      return {
+        request: mapMcpOAuthAuthorizationRequestRow(settledResult.rows[0]),
+        connection: connection!,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async settleMcpOAuthAuthorizationRequest(
+    id: string,
+    userId: string,
+    decision: "approved" | "denied",
+    decidedAt: string,
+  ): Promise<McpOAuthAuthorizationRequestRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapMcpOAuthAuthorizationRequestRow>[0]>(
+      `UPDATE mcp_oauth_authorization_requests
+       SET approved_at = CASE WHEN $3::text = 'approved' THEN $4::timestamptz ELSE approved_at END,
+           denied_at = CASE WHEN $3::text = 'denied' THEN $4::timestamptz ELSE denied_at END
+       WHERE id = $1
+         AND user_id = $2
+         AND approved_at IS NULL
+         AND denied_at IS NULL
+         AND expires_at > NOW()
+       RETURNING id,
+                 user_id,
+                 client_id,
+                 redirect_uri,
+                 state,
+                 resource,
+                 scopes,
+                 code_challenge,
+                 code_challenge_method,
+                 csrf_token_hash,
+                 expires_at::text AS expires_at,
+                 approved_at::text AS approved_at,
+                 denied_at::text AS denied_at,
+                 created_at::text AS created_at`,
+      [id, userId, decision, decidedAt],
+    );
+    return result.rows[0] ? mapMcpOAuthAuthorizationRequestRow(result.rows[0]) : null;
+  }
+
+  async saveMcpOAuthAuthorizationCode(
+    input: SaveMcpOAuthAuthorizationCodeInput,
+  ): Promise<McpOAuthAuthorizationCodeRecord> {
+    const result = await this.pool.query<Parameters<typeof mapMcpOAuthAuthorizationCodeRow>[0]>(
+      `INSERT INTO mcp_oauth_authorization_codes (
+         id,
+         code_hash,
+         connection_id,
+         user_id,
+         client_id,
+         redirect_uri,
+         resource,
+         scopes,
+         code_challenge,
+         code_challenge_method,
+         expires_at,
+         consumed_at,
+         created_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10,
+         $11::timestamptz, $12::timestamptz, COALESCE($13::timestamptz, NOW())
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         code_hash = EXCLUDED.code_hash,
+         connection_id = EXCLUDED.connection_id,
+         user_id = EXCLUDED.user_id,
+         client_id = EXCLUDED.client_id,
+         redirect_uri = EXCLUDED.redirect_uri,
+         resource = EXCLUDED.resource,
+         scopes = EXCLUDED.scopes,
+         code_challenge = EXCLUDED.code_challenge,
+         code_challenge_method = EXCLUDED.code_challenge_method,
+         expires_at = EXCLUDED.expires_at,
+         consumed_at = EXCLUDED.consumed_at
+       RETURNING id,
+                 code_hash,
+                 connection_id,
+                 user_id,
+                 client_id,
+                 redirect_uri,
+                 resource,
+                 scopes,
+                 code_challenge,
+                 code_challenge_method,
+                 expires_at::text AS expires_at,
+                 consumed_at::text AS consumed_at,
+                 created_at::text AS created_at`,
+      [
+        input.id,
+        input.codeHash,
+        input.connectionId,
+        input.userId,
+        input.clientId,
+        input.redirectUri,
+        input.resource,
+        [...new Set(input.scopes)].sort(),
+        input.codeChallenge,
+        input.codeChallengeMethod,
+        input.expiresAt,
+        input.consumedAt ?? null,
+        input.createdAt ?? null,
+      ],
+    );
+    return mapMcpOAuthAuthorizationCodeRow(result.rows[0]!);
+  }
+
+  async consumeMcpOAuthAuthorizationCode(codeHash: string): Promise<McpOAuthAuthorizationCodeRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapMcpOAuthAuthorizationCodeRow>[0]>(
+      `UPDATE mcp_oauth_authorization_codes
+       SET consumed_at = NOW()
+       WHERE code_hash = $1
+         AND consumed_at IS NULL
+         AND expires_at > NOW()
+       RETURNING id,
+                 code_hash,
+                 connection_id,
+                 user_id,
+                 client_id,
+                 redirect_uri,
+                 resource,
+                 scopes,
+                 code_challenge,
+                 code_challenge_method,
+                 expires_at::text AS expires_at,
+                 consumed_at::text AS consumed_at,
+                 created_at::text AS created_at`,
+      [codeHash],
+    );
+    return result.rows[0] ? mapMcpOAuthAuthorizationCodeRow(result.rows[0]) : null;
+  }
+
+  async activateAiConnectorConnectionReplacingProvider(
+    input: ActivateAiConnectorConnectionReplacingProviderInput,
+  ): Promise<ActivateAiConnectorConnectionReplacingProviderResult | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query<{
+        id: string;
+        status: AiConnectorStatus;
+        provider: AiConnectorProvider;
+        expires_at: string | null;
+      }>(
+        `SELECT id,
+                status,
+                provider,
+                expires_at::text AS expires_at
+         FROM ai_connector_connections
+         WHERE user_id = $1
+           AND status NOT IN ('revoked', 'expired')
+         ORDER BY id
+         FOR UPDATE`,
+        [input.userId],
+      );
+      const target = locked.rows.find((row) => row.id === input.connectionId && row.provider === input.provider);
+      if (!target || target.status !== "pending") {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const activeOtherProviderCount = locked.rows.filter((row) =>
+        row.provider !== input.provider
+        && row.status === "active"
+        && (!row.expires_at || Date.parse(row.expires_at) > Date.now())
+      ).length;
+      if (activeOtherProviderCount >= input.maxActiveConnectionsPerUser) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const now = new Date().toISOString();
+      const revokedConnectionIds = locked.rows
+        .filter((row) => row.provider === input.provider && row.id !== input.connectionId)
+        .map((row) => row.id);
+
+      if (revokedConnectionIds.length > 0) {
+        await client.query(
+          `UPDATE ai_connector_connections
+           SET status = 'revoked',
+               revoked_at = $2::timestamptz,
+               revoked_by_user_id = $3,
+               revocation_reason = $4,
+               updated_at = $2::timestamptz
+           WHERE id = ANY($1::text[])`,
+          [
+            revokedConnectionIds,
+            now,
+            input.revokedByUserId ?? null,
+            input.revocationReason,
+          ],
+        );
+        await client.query(
+          `UPDATE ai_connector_credentials
+           SET revoked_at = COALESCE(revoked_at, $2::timestamptz)
+           WHERE connection_id = ANY($1::text[])
+             AND revoked_at IS NULL`,
+          [revokedConnectionIds, now],
+        );
+      }
+
+      await client.query(
+        `UPDATE ai_connector_connections
+         SET status = 'active',
+             oauth_client_id = $2,
+             oauth_subject = $3,
+             last_used_at = $4::timestamptz,
+             updated_at = $4::timestamptz
+         WHERE id = $1
+           AND user_id = $5
+           AND provider = $6
+           AND status = 'pending'`,
+        [
+          input.connectionId,
+          input.oauthClientId ?? null,
+          input.oauthSubject ?? null,
+          input.lastUsedAt ?? now,
+          input.userId,
+          input.provider,
+        ],
+      );
+      const connection = await this.getAiConnectorConnectionTx(client, input.connectionId);
+      await client.query("COMMIT");
+      return connection ? { connection, revokedConnectionIds } : null;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveAiConnectorCredential(input: SaveAiConnectorCredentialInput): Promise<AiConnectorCredentialRecord> {
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorCredentialRow>[0]>(
+      `INSERT INTO ai_connector_credentials (
+         id,
+         connection_id,
+         credential_type,
+         token_hash,
+         token_hint,
+         token_family_id,
+         predecessor_credential_id,
+         replaced_by_credential_id,
+         oauth_client_id,
+         resource,
+         scopes,
+         session_version,
+         expires_at,
+         revoked_at,
+         created_at,
+         last_used_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[], $12,
+         $13::timestamptz, $14::timestamptz, COALESCE($15::timestamptz, NOW()), $16::timestamptz
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         connection_id = EXCLUDED.connection_id,
+         credential_type = EXCLUDED.credential_type,
+         token_hash = EXCLUDED.token_hash,
+         token_hint = EXCLUDED.token_hint,
+         token_family_id = EXCLUDED.token_family_id,
+         predecessor_credential_id = EXCLUDED.predecessor_credential_id,
+         replaced_by_credential_id = EXCLUDED.replaced_by_credential_id,
+         oauth_client_id = EXCLUDED.oauth_client_id,
+         resource = EXCLUDED.resource,
+         scopes = EXCLUDED.scopes,
+         session_version = EXCLUDED.session_version,
+         expires_at = EXCLUDED.expires_at,
+         revoked_at = EXCLUDED.revoked_at,
+         last_used_at = EXCLUDED.last_used_at
+       RETURNING id,
+                 connection_id,
+                 credential_type,
+                 token_hash,
+                 token_hint,
+                 token_family_id,
+                 predecessor_credential_id,
+                 replaced_by_credential_id,
+                 oauth_client_id,
+                 resource,
+                 scopes,
+                 session_version,
+                 expires_at::text AS expires_at,
+                 revoked_at::text AS revoked_at,
+                 created_at::text AS created_at,
+                 last_used_at::text AS last_used_at`,
+      [
+        input.id,
+        input.connectionId,
+        input.credentialType,
+        input.tokenHash,
+        input.tokenHint ?? null,
+        input.tokenFamilyId ?? null,
+        input.predecessorCredentialId ?? null,
+        input.replacedByCredentialId ?? null,
+        input.oauthClientId ?? null,
+        input.resource ?? null,
+        [...new Set(input.scopes ?? [])].sort(),
+        input.sessionVersion ?? null,
+        input.expiresAt ?? null,
+        input.revokedAt ?? null,
+        input.createdAt ?? null,
+        input.lastUsedAt ?? null,
+      ],
+    );
+    return mapAiConnectorCredentialRow(result.rows[0]!);
+  }
+
+  async getAiConnectorCredentialByHash(tokenHash: string): Promise<AiConnectorCredentialRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorCredentialRow>[0]>(
+      `SELECT id,
+              connection_id,
+              credential_type,
+              token_hash,
+              token_hint,
+              token_family_id,
+              predecessor_credential_id,
+              replaced_by_credential_id,
+              oauth_client_id,
+              resource,
+              scopes,
+              session_version,
+              expires_at::text AS expires_at,
+              revoked_at::text AS revoked_at,
+              created_at::text AS created_at,
+              last_used_at::text AS last_used_at
+       FROM ai_connector_credentials
+       WHERE token_hash = $1
+       LIMIT 1`,
+      [tokenHash],
+    );
+    return result.rows[0] ? mapAiConnectorCredentialRow(result.rows[0]) : null;
+  }
+
+  async consumeAiConnectorCredential(id: string): Promise<AiConnectorCredentialRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorCredentialRow>[0]>(
+      `UPDATE ai_connector_credentials
+       SET revoked_at = NOW(),
+           last_used_at = NOW()
+       WHERE id = $1
+         AND revoked_at IS NULL
+         AND replaced_by_credential_id IS NULL
+       RETURNING id,
+                 connection_id,
+                 credential_type,
+                 token_hash,
+                 token_hint,
+                 token_family_id,
+                 predecessor_credential_id,
+                 replaced_by_credential_id,
+                 oauth_client_id,
+                 resource,
+                 scopes,
+                 session_version,
+                 expires_at::text AS expires_at,
+                 revoked_at::text AS revoked_at,
+                 created_at::text AS created_at,
+                 last_used_at::text AS last_used_at`,
+      [id],
+    );
+    return result.rows[0] ? mapAiConnectorCredentialRow(result.rows[0]) : null;
+  }
+
+  async revokeAiConnectorCredential(
+    id: string,
+    replacedByCredentialId: string | null = null,
+  ): Promise<AiConnectorCredentialRecord | null> {
+    const result = await this.pool.query<Parameters<typeof mapAiConnectorCredentialRow>[0]>(
+      `UPDATE ai_connector_credentials
+       SET revoked_at = COALESCE(revoked_at, NOW()),
+           replaced_by_credential_id = COALESCE($2, replaced_by_credential_id),
+           last_used_at = NOW()
+       WHERE id = $1
+       RETURNING id,
+                 connection_id,
+                 credential_type,
+                 token_hash,
+                 token_hint,
+                 token_family_id,
+                 predecessor_credential_id,
+                 replaced_by_credential_id,
+                 oauth_client_id,
+                 resource,
+                 scopes,
+                 session_version,
+                 expires_at::text AS expires_at,
+                 revoked_at::text AS revoked_at,
+                 created_at::text AS created_at,
+                 last_used_at::text AS last_used_at`,
+      [id, replacedByCredentialId],
+    );
+    return result.rows[0] ? mapAiConnectorCredentialRow(result.rows[0]) : null;
+  }
+
+  async revokeAiConnectorCredentialsForConnection(connectionId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE ai_connector_credentials
+       SET revoked_at = COALESCE(revoked_at, NOW())
+       WHERE connection_id = $1`,
+      [connectionId],
+    );
+  }
+
+  async revokeAiConnectorConnectionsForProvider(
+    provider: AiConnectorProvider,
+    reason: string,
+    revokedByUserId: string | null = null,
+  ): Promise<number> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const revoked = await client.query<{ id: string }>(
+        `UPDATE ai_connector_connections
+         SET status = 'revoked',
+             revoked_at = COALESCE(revoked_at, NOW()),
+             revoked_by_user_id = $2,
+             revocation_reason = $3,
+             updated_at = NOW()
+         WHERE provider = $1
+           AND status IN ('active', 'pending')
+         RETURNING id`,
+        [provider, revokedByUserId, reason],
+      );
+      const ids = revoked.rows.map((row) => row.id);
+      if (ids.length > 0) {
+        await client.query(
+          `UPDATE ai_connector_credentials
+           SET revoked_at = COALESCE(revoked_at, NOW())
+           WHERE connection_id = ANY($1::text[])`,
+          [ids],
+        );
+      }
+      await client.query("COMMIT");
+      return ids.length;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord> {
@@ -8231,6 +9090,7 @@ export class PostgresPersistence implements Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
     marketDataSearchWindowMs: number | null;
@@ -8267,6 +9127,7 @@ export class PostgresPersistence implements Persistence {
       metadata_enrichment_mode: "unconditional" | "conditional" | null;
       finmind_api_token: string | null;
       twelve_data_api_key: string | null;
+      mcp_oauth_token_secret: string | null;
       market_data_price_window_ms: number | null;
       market_data_price_limit: number | null;
       market_data_search_window_ms: number | null;
@@ -8299,7 +9160,7 @@ export class PostgresPersistence implements Persistence {
     }>(
       `SELECT
          repair_cooldown_minutes, dashboard_performance_ranges, metadata_enrichment_mode,
-         finmind_api_token, twelve_data_api_key,
+         finmind_api_token, twelve_data_api_key, mcp_oauth_token_secret,
          market_data_price_window_ms, market_data_price_limit,
          market_data_search_window_ms, market_data_search_limit,
          invite_status_window_ms, invite_status_limit,
@@ -8324,6 +9185,7 @@ export class PostgresPersistence implements Persistence {
         metadataEnrichmentMode: null,
         finmindApiTokenEncrypted: null,
         twelveDataApiKeyEncrypted: null,
+        mcpOauthTokenSecretEncrypted: null,
         marketDataPriceWindowMs: null,
         marketDataPriceLimit: null,
         marketDataSearchWindowMs: null,
@@ -8368,6 +9230,7 @@ export class PostgresPersistence implements Persistence {
       metadataEnrichmentMode: row.metadata_enrichment_mode,
       finmindApiTokenEncrypted: row.finmind_api_token,
       twelveDataApiKeyEncrypted: row.twelve_data_api_key,
+      mcpOauthTokenSecretEncrypted: row.mcp_oauth_token_secret,
       marketDataPriceWindowMs: row.market_data_price_window_ms,
       marketDataPriceLimit: row.market_data_price_limit,
       marketDataSearchWindowMs: row.market_data_search_window_ms,
@@ -8419,11 +9282,15 @@ export class PostgresPersistence implements Persistence {
   }
 
   async setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey",
+    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void> {
     const { encryptSecret } = await import("../services/appConfig/encryption.js");
-    const column = field === "finmindApiToken" ? "finmind_api_token" : "twelve_data_api_key";
+    const column = field === "finmindApiToken"
+      ? "finmind_api_token"
+      : field === "twelveDataApiKey"
+        ? "twelve_data_api_key"
+        : "mcp_oauth_token_secret";
     const stored = plaintext === null ? null : encryptSecret(plaintext);
     await this.pool.query(
       `INSERT INTO public.app_config (id, ${column}, updated_at)
@@ -8453,7 +9320,8 @@ export class PostgresPersistence implements Persistence {
     let encryptSecret: ((p: string) => string) | null = null;
     if (
       Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
-      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")
+      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey") ||
+      Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")
     ) {
       const mod = await import("../services/appConfig/encryption.js");
       encryptSecret = mod.encryptSecret;
@@ -8465,6 +9333,10 @@ export class PostgresPersistence implements Persistence {
     if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
       columns.push("twelve_data_api_key");
       values.push(patch.twelveDataApiKey == null ? null : encryptSecret!(patch.twelveDataApiKey));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")) {
+      columns.push("mcp_oauth_token_secret");
+      values.push(patch.mcpOauthTokenSecret == null ? null : encryptSecret!(patch.mcpOauthTokenSecret));
     }
 
     if (columns.length === 0) return;

@@ -1,0 +1,853 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildApp } from "../../src/app.js";
+import {
+  hashMcpOAuthToken,
+  setMcpOAuthClientMetadataNetworkForTest,
+} from "../../src/mcp/oauth.js";
+import { loadMigrationManifest } from "../../src/persistence/migrationManifest.js";
+import { PostgresPersistence } from "../../src/persistence/postgres.js";
+
+let app: Awaited<ReturnType<typeof buildApp>>;
+let resetClientMetadataNetwork: (() => void) | null = null;
+
+const testOAuthConfig = {
+  clientId: "test-client",
+  clientSecret: "test-secret",
+  redirectUri: "http://localhost/auth/google/callback",
+  sessionSecret: "test-session-secret-that-is-at-least-32-chars",
+};
+const mcpOAuthTokenSecret = "test-mcp-oauth-token-secret-that-is-long-enough";
+
+function codeChallenge(verifier: string): string {
+  return createHash("sha256").update(verifier).digest("base64url");
+}
+
+function form(body: Record<string, string>): string {
+  return new URLSearchParams(body).toString();
+}
+
+const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
+const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
+const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
+const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
+if (runPostgresIntegration && !managedCiStack) {
+  throw new Error("RUN_POSTGRES_INTEGRATION=1 must be executed via npm run test:integration:full:host");
+}
+const shouldRunPostgresSuite = runPostgresIntegration && Boolean(databaseUrl) && Boolean(redisUrl);
+const describePostgres = shouldRunPostgresSuite ? describe : describe.skip;
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const migrationsDir = path.resolve(currentDir, "../../../../db/migrations");
+const migrationManifestPromise = loadMigrationManifest(migrationsDir);
+
+async function createAuthorizationRequest(input: {
+  headers: Record<string, string>;
+  resource: string;
+  verifier: string;
+  redirectUri: string;
+  scope?: string;
+}) {
+  const authorize = await app.inject({
+    method: "GET",
+    url: `/oauth/authorize?${new URLSearchParams({
+      response_type: "code",
+      client_id: "chatgpt",
+      redirect_uri: input.redirectUri,
+      resource: input.resource,
+      scope: input.scope ?? "portfolio:mcp_read",
+      code_challenge: codeChallenge(input.verifier),
+      code_challenge_method: "S256",
+      state: "state-123",
+    }).toString()}`,
+    headers: input.headers,
+  });
+  expect(authorize.statusCode).toBe(302);
+  const requestId = new URL(String(authorize.headers.location)).searchParams.get("requestId");
+  expect(requestId).toBeTruthy();
+  const consent = await app.inject({ method: "GET", url: `/oauth/consent/${requestId}` });
+  expect(consent.statusCode).toBe(200);
+  const consentBody = consent.json<{ csrfToken: string; scopes: string[] }>();
+  return { requestId: String(requestId), csrfToken: consentBody.csrfToken, scopes: consentBody.scopes };
+}
+
+describe("MCP OAuth for ChatGPT", () => {
+  beforeEach(async () => {
+    app = await buildApp({
+      persistenceBackend: "memory",
+      oauthConfig: testOAuthConfig,
+      appBaseUrl: "http://localhost:3000",
+    });
+    await app.persistence.setAppConfigEncryptedSecret(
+      "mcpOauthTokenSecret",
+      mcpOAuthTokenSecret,
+    );
+  });
+
+  afterEach(async () => {
+    resetClientMetadataNetwork?.();
+    resetClientMetadataNetwork = null;
+    await app.close();
+  });
+
+  it("advertises OAuth metadata and completes authorization-code plus refresh rotation", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    await app.persistence.saveAiConnectorConnection({
+      id: "old-chatgpt-connection",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "active",
+      scopes: ["portfolio:mcp_read"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const authorizationServer = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server",
+      headers,
+    });
+    expect(authorizationServer.statusCode).toBe(200);
+    expect(authorizationServer.json()).toMatchObject({
+      issuer: "http://localhost:4000",
+      authorization_endpoint: "http://localhost:4000/oauth/authorize",
+      token_endpoint: "http://localhost:4000/oauth/token",
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+      client_id_metadata_document_supported: true,
+    });
+    const pathScopedAuthorizationServer = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server/mcp",
+      headers,
+    });
+    expect(pathScopedAuthorizationServer.statusCode).toBe(200);
+    expect(pathScopedAuthorizationServer.json()).toMatchObject({
+      issuer: "http://localhost:4000",
+      client_id_metadata_document_supported: true,
+    });
+
+    const protectedResource = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource",
+      headers,
+    });
+    expect(protectedResource.statusCode).toBe(200);
+    expect(protectedResource.json()).toMatchObject({
+      resource,
+      authorization_servers: ["http://localhost:4000"],
+    });
+
+    const authorize = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: "chatgpt",
+        redirect_uri: redirectUri,
+        resource,
+        scope: "portfolio:mcp_read transaction_draft:create",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+        state: "state-123",
+      }).toString()}`,
+      headers,
+    });
+    expect(authorize.statusCode).toBe(302);
+    expect(authorize.headers["cache-control"]).toBe("no-store");
+    expect(authorize.headers.pragma).toBe("no-cache");
+    const consentLocation = authorize.headers.location;
+    expect(consentLocation).toContain("http://localhost:3000/connectors/chatgpt/authorize?requestId=");
+    const requestId = new URL(String(consentLocation)).searchParams.get("requestId");
+    expect(requestId).toBeTruthy();
+
+    const consent = await app.inject({
+      method: "GET",
+      url: `/oauth/consent/${requestId}`,
+    });
+    expect(consent.statusCode).toBe(200);
+    expect(consent.headers["cache-control"]).toBe("no-store");
+    expect(consent.headers.pragma).toBe("no-cache");
+    const consentBody = consent.json<{
+      csrfToken: string;
+      scopes: string[];
+      policy: { maxConnectorLifetimeDays: number };
+    }>();
+    expect(consentBody.scopes).toEqual(["portfolio:mcp_read", "transaction_draft:create"]);
+    expect(consentBody.policy.maxConnectorLifetimeDays).toBe(90);
+
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: {
+        csrfToken: consentBody.csrfToken,
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    expect(approve.statusCode).toBe(200);
+    expect(approve.headers["cache-control"]).toBe("no-store");
+    expect(approve.headers.pragma).toBe("no-cache");
+    const approveRedirect = approve.json<{ redirectUrl: string }>().redirectUrl;
+    const callback = new URL(approveRedirect);
+    expect(callback.origin + callback.pathname).toBe(redirectUri);
+    expect(callback.searchParams.get("state")).toBe("state-123");
+    const code = callback.searchParams.get("code");
+    expect(code).toBeTruthy();
+    const connectionsAfterApproval = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connectionsAfterApproval.find((connection) => connection.id === "old-chatgpt-connection")).toMatchObject({
+      status: "active",
+    });
+    const pendingConnection = connectionsAfterApproval.find((connection) => connection.id !== "old-chatgpt-connection");
+    expect(pendingConnection).toMatchObject({
+      status: "pending",
+      scopes: ["portfolio:mcp_read"],
+    });
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: "chatgpt",
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(token.statusCode).toBe(200);
+    expect(token.headers["cache-control"]).toBe("no-store");
+    expect(token.headers.pragma).toBe("no-cache");
+    const tokenBody = token.json<{ access_token: string; refresh_token: string; scope: string }>();
+    expect(tokenBody.access_token.split(".")).toHaveLength(3);
+    expect(tokenBody.scope).toBe("portfolio:mcp_read");
+    const connectionsAfterToken = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connectionsAfterToken.find((connection) => connection.id === pendingConnection?.id)).toMatchObject({ status: "active" });
+    expect(connectionsAfterToken.find((connection) => connection.id === "old-chatgpt-connection")).toMatchObject({
+      status: "revoked",
+      revocationReason: "replaced_by_oauth_authorization",
+    });
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/ai/connectors/${pendingConnection?.id}`,
+      payload: {
+        scopes: ["portfolio:mcp_read", "transaction_draft:create"],
+      },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const initialize = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${tokenBody.access_token}`,
+        accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "init-1",
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "ChatGPT", version: "1.0.0" },
+        },
+      },
+    });
+    expect(initialize.statusCode).toBe(200);
+    const sessionId = initialize.headers["mcp-session-id"];
+    expect(typeof sessionId).toBe("string");
+
+    const oldTokenDraftCall = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${tokenBody.access_token}`,
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": String(sessionId),
+        ...headers,
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "call-1",
+        method: "tools/call",
+        params: {
+          name: "create_transaction_draft_batch",
+          arguments: {
+            candidates: [
+              {
+                rowNumber: 1,
+                type: "BUY",
+                ticker: "2330",
+                marketCode: "TW",
+                quantity: 1,
+                unitPrice: 100,
+                priceCurrency: "TWD",
+                tradeDate: "2026-01-01",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(oldTokenDraftCall.statusCode).toBe(200);
+    expect(oldTokenDraftCall.body).toContain("MCP scope transaction_draft:create is not enabled");
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: "chatgpt",
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(replay.statusCode).toBe(400);
+    expect(replay.json()).toMatchObject({ error: "invalid_grant" });
+
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "refresh_token",
+        refresh_token: tokenBody.refresh_token,
+        client_id: "chatgpt",
+        resource,
+      }),
+    });
+    expect(refreshed.statusCode).toBe(200);
+    const refreshedBody = refreshed.json<{ refresh_token: string }>();
+    expect(refreshedBody.refresh_token).not.toBe(tokenBody.refresh_token);
+
+    const reuse = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "refresh_token",
+        refresh_token: tokenBody.refresh_token,
+        client_id: "chatgpt",
+        resource,
+      }),
+    });
+    expect(reuse.statusCode).toBe(400);
+    expect(reuse.json()).toMatchObject({ error: "invalid_grant" });
+    const [connection] = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connection).toMatchObject({ status: "revoked", revocationReason: "refresh_token_reuse" });
+  });
+
+  it("enforces the active connection cap when ChatGPT exchanges the authorization code", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ maxActiveConnectionsPerUser: 1 });
+    await app.persistence.saveAiConnectorConnection({
+      id: "self-hosted-connection",
+      userId: "user-1",
+      provider: "self_hosted",
+      displayName: "Self-hosted",
+      status: "active",
+      scopes: ["portfolio:mcp_read"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers,
+      resource,
+      verifier,
+      redirectUri,
+    });
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+    });
+    expect(approve.statusCode).toBe(200);
+    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: "chatgpt",
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(token.statusCode).toBe(400);
+    expect(token.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("keeps OAuth connector lifetime immutable through user settings patches", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers,
+      resource,
+      verifier,
+      redirectUri,
+    });
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+    });
+    expect(approve.statusCode).toBe(200);
+    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: "chatgpt",
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(token.statusCode).toBe(200);
+    const tokenBody = token.json<{ refresh_token: string }>();
+    const [connection] = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connection?.oauthClientId).toBe("chatgpt");
+    const originalExpiresAt = connection.expiresAt;
+    expect(originalExpiresAt).toBeTruthy();
+
+    for (const expiresAt of [
+      null,
+      new Date(Date.parse(String(originalExpiresAt)) + 86_400_000).toISOString(),
+    ]) {
+      const patched = await app.inject({
+        method: "PATCH",
+        url: `/ai/connectors/${connection.id}`,
+        payload: { expiresAt },
+      });
+      expect(patched.statusCode).toBe(400);
+      expect(patched.json()).toMatchObject({ error: "mcp_oauth_connector_lifetime_immutable" });
+    }
+
+    const current = await app.persistence.getAiConnectorConnection(connection.id);
+    expect(current?.expiresAt).toBe(originalExpiresAt);
+
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "refresh_token",
+        refresh_token: tokenBody.refresh_token,
+        client_id: "chatgpt",
+        resource,
+      }),
+    });
+    expect(refreshed.statusCode).toBe(200);
+    const refreshedBody = refreshed.json<{ refresh_token: string }>();
+    const refreshedCredential = await app.persistence.getAiConnectorCredentialByHash(
+      hashMcpOAuthToken(mcpOAuthTokenSecret, refreshedBody.refresh_token),
+    );
+    expect(refreshedCredential?.expiresAt).toBe(originalExpiresAt);
+  });
+
+  it("rejects invalid redirect and resource bindings before consent", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const base = {
+      response_type: "code",
+      client_id: "chatgpt",
+      redirect_uri: "https://evil.example/callback",
+      resource: "http://localhost:4000/mcp",
+      scope: "portfolio:mcp_read",
+      code_challenge: codeChallenge(verifier),
+      code_challenge_method: "S256",
+    };
+    const badRedirect = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams(base).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(badRedirect.statusCode).toBe(400);
+    expect(badRedirect.json()).toMatchObject({ error: "invalid_request" });
+
+    const badResource = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        ...base,
+        redirect_uri: "http://localhost:5555/callback",
+        resource: "http://localhost:4001/mcp",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(badResource.statusCode).toBe(400);
+    expect(badResource.json()).toMatchObject({ error: "invalid_target" });
+  });
+
+  it("validates URL client_id metadata documents against redirect bindings", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://client.example/oauth-client.json";
+    const redirectUri = "http://localhost:5555/callback";
+    const resource = "http://localhost:4000/mcp";
+    let metadataBody = JSON.stringify({
+      client_id: clientId,
+      redirect_uris: [redirectUri],
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    });
+    const fetchAddresses: string[] = [];
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async (_url, address) => {
+        fetchAddresses.push(address.address);
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(metadataBody, "utf8"),
+          body: metadataBody,
+        };
+      },
+    });
+
+    const valid = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource,
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(valid.statusCode).toBe(302);
+    expect(fetchAddresses).toEqual(["203.0.113.10"]);
+
+    metadataBody = JSON.stringify({
+      client_id: clientId,
+      redirect_uris: ["http://localhost:5555/other-callback"],
+    });
+    const mismatch = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource,
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(mismatch.statusCode).toBe(400);
+    expect(mismatch.json()).toMatchObject({ error: "invalid_request" });
+  });
+
+  it("rejects unsafe or oversized URL client_id metadata documents", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const resource = "http://localhost:4000/mcp";
+    const queryBase = {
+      response_type: "code",
+      redirect_uri: "http://localhost:5555/callback",
+      resource,
+      scope: "portfolio:mcp_read",
+      code_challenge: codeChallenge(verifier),
+      code_challenge_method: "S256",
+    };
+
+    const directPrivate = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        ...queryBase,
+        client_id: "https://127.0.0.1/oauth-client.json",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(directPrivate.statusCode).toBe(400);
+    expect(directPrivate.json()).toMatchObject({ error: "invalid_client" });
+
+    let readCalled = false;
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "10.0.0.5", family: 4 }],
+      readDocument: async () => {
+        readCalled = true;
+        throw new Error("unsafe host should not be fetched");
+      },
+    });
+    const resolvedPrivate = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        ...queryBase,
+        client_id: "https://client.example/oauth-client.json",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(resolvedPrivate.statusCode).toBe(400);
+    expect(resolvedPrivate.json()).toMatchObject({ error: "invalid_client" });
+    expect(readCalled).toBe(false);
+    resetClientMetadataNetwork();
+
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async () => ({
+        statusCode: 200,
+        contentLength: 70_000,
+        body: "{}",
+      }),
+    });
+    const oversized = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        ...queryBase,
+        client_id: "https://client.example/oauth-client.json",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(oversized.statusCode).toBe(400);
+    expect(oversized.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "URL client_id metadata document is too large",
+    });
+  });
+
+  it("accepts ChatGPT OAuth callback variants including GPT-scoped callback paths", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const queryBase = {
+      response_type: "code",
+      client_id: "chatgpt",
+      resource: "http://localhost:4000/mcp",
+      scope: "portfolio:mcp_read",
+      code_challenge: codeChallenge(verifier),
+      code_challenge_method: "S256",
+    };
+    for (const redirectUri of [
+      "https://chat.openai.com/aip/oauth/callback",
+      "https://chat.openai.com/aip/g-vakwen/oauth/callback",
+      "https://chatgpt.com/aip/oauth/callback",
+      "https://chatgpt.com/aip/g-vakwen/oauth/callback",
+    ]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/oauth/authorize?${new URLSearchParams({
+          ...queryBase,
+          redirect_uri: redirectUri,
+        }).toString()}`,
+        headers: { host: "localhost:4000" },
+      });
+      expect(response.statusCode, redirectUri).toBe(302);
+      expect(String(response.headers.location)).toContain("/connectors/chatgpt/authorize?requestId=");
+    }
+  });
+
+  it("rejects deny after approval without mutating completed consent", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const authorize = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: "chatgpt",
+        redirect_uri: redirectUri,
+        resource,
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers,
+    });
+    const requestId = new URL(String(authorize.headers.location)).searchParams.get("requestId");
+    const consent = await app.inject({ method: "GET", url: `/oauth/consent/${requestId}` });
+    const { csrfToken } = consent.json<{ csrfToken: string }>();
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+    });
+    expect(approve.statusCode).toBe(200);
+
+    const deny = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/deny`,
+      payload: { csrfToken },
+    });
+    expect(deny.statusCode).toBe(410);
+    expect(deny.json()).toMatchObject({ error: "mcp_oauth_request_expired" });
+  });
+
+  it("settles concurrent approval attempts only once", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers,
+      resource,
+      verifier,
+      redirectUri,
+    });
+
+    const approvals = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/oauth/consent/${requestId}/approve`,
+        payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/oauth/consent/${requestId}/approve`,
+        payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+      }),
+    ]);
+    expect(approvals.map((response) => response.statusCode).sort()).toEqual([200, 410]);
+    const connections = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connections.filter((connection) => connection.provider === "chatgpt" && connection.status === "pending")).toHaveLength(1);
+  });
+
+  it("settles concurrent approval versus denial with one terminal winner", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers,
+      resource,
+      verifier,
+      redirectUri,
+    });
+
+    const [approve, deny] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/oauth/consent/${requestId}/approve`,
+        payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/oauth/consent/${requestId}/deny`,
+        payload: { csrfToken },
+      }),
+    ]);
+    expect([approve.statusCode, deny.statusCode].sort()).toEqual([200, 410]);
+    const connections = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    const pendingConnections = connections.filter((connection) => connection.provider === "chatgpt" && connection.status === "pending");
+    expect(pendingConnections).toHaveLength(approve.statusCode === 200 ? 1 : 0);
+    const staleConsent = await app.inject({ method: "GET", url: `/oauth/consent/${requestId}` });
+    expect(staleConsent.statusCode).toBe(410);
+  });
+});
+
+describePostgres("MCP OAuth Postgres replacement semantics", () => {
+  let pool: Pool;
+  let persistence: PostgresPersistence | null = null;
+
+  async function resetDatabase(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("DROP SCHEMA IF EXISTS market_data CASCADE");
+      await client.query("DROP SCHEMA IF EXISTS public CASCADE");
+      await client.query("CREATE SCHEMA public");
+      await client.query("GRANT ALL ON SCHEMA public TO public");
+    } finally {
+      client.release();
+    }
+  }
+
+  async function applyNumberedMigrations(): Promise<void> {
+    const manifest = await migrationManifestPromise;
+    const client = await pool.connect();
+    try {
+      for (const file of manifest.numberedMigrations) {
+        const sql = await fs.readFile(path.join(migrationsDir, file), "utf8");
+        await client.query(sql);
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  beforeEach(async () => {
+    pool = new Pool({ connectionString: databaseUrl });
+    await resetDatabase();
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await persistence.init();
+    await persistence.ensureDevBypassUser();
+  });
+
+  afterEach(async () => {
+    if (persistence) {
+      await persistence.close();
+      persistence = null;
+    }
+    await pool.end();
+  });
+
+  it("revokes an existing active ChatGPT connector before activating the pending replacement", async () => {
+    await persistence!.saveAiConnectorConnection({
+      id: "old-chatgpt-connection",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "active",
+      scopes: ["portfolio:mcp_read"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    await persistence!.saveAiConnectorConnection({
+      id: "new-chatgpt-connection",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "pending",
+      oauthClientId: "chatgpt",
+      oauthSubject: "user-1",
+      scopes: ["portfolio:mcp_read"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const result = await persistence!.activateAiConnectorConnectionReplacingProvider({
+      connectionId: "new-chatgpt-connection",
+      userId: "user-1",
+      provider: "chatgpt",
+      maxActiveConnectionsPerUser: 3,
+      oauthClientId: "chatgpt",
+      oauthSubject: "user-1",
+      revocationReason: "replaced_by_oauth_authorization",
+      revokedByUserId: "user-1",
+    });
+
+    expect(result?.connection).toMatchObject({ id: "new-chatgpt-connection", status: "active" });
+    expect(result?.revokedConnectionIds).toEqual(["old-chatgpt-connection"]);
+    const connections = await persistence!.listAiConnectorConnectionsForUser("user-1");
+    expect(connections.filter((connection) => connection.provider === "chatgpt" && connection.status === "active")).toHaveLength(1);
+    expect(connections.find((connection) => connection.id === "old-chatgpt-connection")).toMatchObject({
+      status: "revoked",
+      revocationReason: "replaced_by_oauth_authorization",
+    });
+  });
+});

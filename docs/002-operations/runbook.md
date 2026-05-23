@@ -177,6 +177,19 @@ Expected local endpoint:
 http://localhost:4000/mcp
 ```
 
+That bypass mode is only a local MCP route smoke test. It does not prove the ChatGPT OAuth path because ChatGPT requires public HTTPS and OAuth discovery.
+
+For an OAuth-capable local validation path, use the local Docker stack or another mode that runs the API with `AUTH_MODE=oauth`, then verify both MCP and OAuth discovery:
+
+```bash
+curl http://localhost:4300/mcp/health
+curl http://localhost:4300/.well-known/oauth-protected-resource
+curl http://localhost:4300/.well-known/oauth-authorization-server
+curl http://localhost:4300/.well-known/oauth-authorization-server/mcp
+```
+
+For end-to-end local OAuth consent validation, sign in through the local web app, then start authorization against the local API with a test/local redirect URI. Localhost redirect URIs are allowed only for tests and local development; production ChatGPT connections must use the ChatGPT callback allowlist below.
+
 For local Docker validation, the host-published API port is `4300`, so use:
 
 ```bash
@@ -192,28 +205,113 @@ ChatGPT cannot connect to `localhost`. A ChatGPT-facing Vakwen MCP server must b
 https://<public-api-host>/mcp
 ```
 
-Use the deployed API hostname or put an HTTPS tunnel in front of the API. The MCP protected-resource metadata is derived from the incoming request host and forwarded protocol, so make sure the reverse proxy forwards the canonical external host and protocol with `X-Forwarded-Host` and `X-Forwarded-Proto`.
+Use the deployed API hostname or put an HTTPS tunnel in front of the API. Production ChatGPT OAuth should use the configured public API issuer/origin; request-header inference is only a local/dev fallback because reverse proxies and internal hostnames can otherwise produce the wrong issuer, token audience, or resource URL.
 
 #### Current ChatGPT connection status
 
-The current MCP implementation supports Streamable HTTP at `/mcp`, tool discovery/calls, connector policy enforcement, connector access logs, and local dev-token bearer authentication. First-class ChatGPT connection still requires the OAuth facade to be completed because ChatGPT's authenticated app flow expects OAuth metadata and an authorization-code + PKCE flow, not a pasted bearer token.
+The MCP implementation supports Streamable HTTP at `/mcp`, OAuth protected-resource and authorization-server metadata, authorization-code + PKCE consent, refresh-token rotation, connector policy enforcement, connector access logs, and local dev-token bearer authentication for controlled smoke tests. ChatGPT should use the OAuth flow; dev tokens are only for local/self-hosted diagnostics and must not be exposed as an end-user ChatGPT credential flow.
 
-Until that OAuth facade exists:
+#### ChatGPT OAuth connector configuration
 
-- ChatGPT app connection should be treated as not production-ready.
-- Local/self-hosted MCP smoke tests can use dev-token bearer auth.
-- Do not expose dev tokens as an end-user ChatGPT credential flow.
+Before configuring ChatGPT, an admin must configure the Vakwen MCP OAuth settings:
 
-When the OAuth facade is available, configure ChatGPT as a custom app / MCP connector:
+1. Set the public API issuer/origin to the externally reachable HTTPS API origin, for example `https://vakwen-dev-api.kzokvdevs.dpdns.org`. Production OAuth rejects header-derived issuers; local development can fall back to localhost request headers.
+2. Confirm the app has a stable `SESSION_SECRET` before OAuth testing. The ChatGPT authorize flow uses the normal Vakwen login session before consent.
+3. Set the encrypted admin-level MCP OAuth token secret in Admin -> Settings -> MCP. The secret signs MCP access tokens and hashes authorization codes and refresh tokens.
+4. Set the maximum connector lifetime. Users can choose a shorter lifetime during consent, but not a longer one.
+5. Confirm MCP deployment is enabled and ChatGPT is allowed under Admin -> Settings -> MCP.
+6. Confirm the desired tool groups are enabled. Write tools should stay disabled unless intentionally rolled out.
+
+Three auth knobs are related but have different blast radii:
+
+| Knob | Configure in | Rotation/reset behavior |
+|---|---|---|
+| `SESSION_SECRET` | Environment | Signs normal Vakwen web sessions. Rotation signs users out and can interrupt an in-progress ChatGPT consent flow, but does not revoke already issued ChatGPT connector tokens. |
+| MCP OAuth token secret | Admin -> Settings -> MCP | Signs MCP access tokens and hashes authorization codes/refresh tokens. Rotation or clearing revokes pending and active ChatGPT connectors; users must reconnect ChatGPT. |
+| User session-version reset | Account security/admin reset path | Revokes ChatGPT connectors on refresh or access-token validation for that user, because tokens carry the session version from consent time. |
+
+Initial ChatGPT rollout scopes:
+
+| Scope | Capability | Default state | User-deselectable |
+|---|---|---|---|
+| `portfolio:mcp_read` | Read portfolio, holdings, transaction context, and connector-safe summaries | Enabled when global MCP read tools are enabled | No for the first rollout; ChatGPT needs read context to be useful |
+| `transaction_draft:create` | Create draft transaction candidates for user review | Disabled unless admins enable write/draft tools | Yes |
+| `transaction_draft:edit` | Update draft transaction candidates before user review | Disabled unless admins enable write/draft tools | Yes |
+
+Allowed production ChatGPT redirect callbacks are:
+
+- `https://chat.openai.com/aip/oauth/callback`
+- `https://chat.openai.com/aip/<gpt-id>/oauth/callback`
+- `https://chatgpt.com/aip/oauth/callback`
+- `https://chatgpt.com/aip/<gpt-id>/oauth/callback`
+
+Local/test-only redirect exceptions are limited to localhost or `127.0.0.1` callbacks. Do not rely on localhost redirects for a production ChatGPT connector.
+
+Verify discovery from a shell:
+
+```bash
+curl https://<public-api-host>/.well-known/oauth-protected-resource
+curl https://<public-api-host>/.well-known/oauth-authorization-server
+curl https://<public-api-host>/.well-known/oauth-authorization-server/mcp
+```
+
+Expected discovery properties:
+
+- Protected resource `resource` is `https://<public-api-host>/mcp`.
+- Protected resource `authorization_servers` includes `https://<public-api-host>`.
+- Authorization-server metadata exposes `/oauth/authorize` and `/oauth/token`.
+- Token endpoint auth methods include public-client mode (`none`).
+- PKCE code challenge method includes `S256`.
+- URL-based client metadata document support is advertised with `client_id_metadata_document_supported: true`.
+
+Then configure ChatGPT as a custom app / MCP connector:
 
 1. In ChatGPT, enable Developer Mode under Settings -> Apps -> Advanced settings.
 2. Create a new app or custom MCP connector.
 3. Set the server URL to `https://<public-api-host>/mcp`.
-4. Choose OAuth authentication.
-5. Complete OAuth and let ChatGPT scan the MCP tools.
-6. Start a new chat and select the Vakwen app from the tool/app picker.
-7. Manage the connected account in Vakwen under Settings -> AI connectors.
-8. Manage global policy in Vakwen under Admin -> Settings -> MCP.
+4. Choose OAuth authentication if ChatGPT asks for an auth mode. Discovery should otherwise identify OAuth automatically from the MCP metadata.
+5. Start the connect flow. ChatGPT redirects to Vakwen OAuth.
+6. Sign in to Vakwen if needed.
+7. Review the Vakwen consent screen, choose connector lifetime and granted scopes, then approve.
+8. Let ChatGPT scan the MCP tools.
+9. Start a new chat and select the Vakwen app from the tool/app picker.
+10. Manage the connected account in Vakwen under Settings -> AI connectors.
+11. Manage global policy in Vakwen under Admin -> Settings -> MCP.
+
+Official references:
+
+- OpenAI Apps SDK authentication: https://developers.openai.com/apps-sdk/build/auth
+- OpenAI ChatGPT app connection flow: https://developers.openai.com/apps-sdk/deploy/connect-chatgpt
+- MCP authorization specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+
+#### ChatGPT connector troubleshooting
+
+If ChatGPT says `MCP server ... does not implement OAuth`, check:
+
+- `/.well-known/oauth-protected-resource` exists on the public API host.
+- `authorization_servers` is non-empty and points at the public API issuer.
+- `/.well-known/oauth-authorization-server` exists on that issuer.
+- The MCP server URL entered in ChatGPT exactly matches the protected-resource `resource`.
+
+If discovery exists but advertises the wrong origin or resource, check:
+
+- Protected-resource `resource` must be the public HTTPS MCP URL and must include `/mcp`.
+- `authorization_servers[0]` must be the public HTTPS API origin, not `localhost`, a container hostname, or an internal proxy hostname.
+- Authorization-server endpoint URLs must use the same public HTTPS issuer.
+- If any discovery value points at `localhost`, an internal host, HTTP, or a resource without `/mcp`, fix Admin -> Settings -> MCP -> Public API origin and retry discovery before reconnecting ChatGPT.
+
+If OAuth starts but token exchange fails, check:
+
+- ChatGPT redirect URI matches the strict allowlist. Vakwen accepts `https://chat.openai.com/aip/oauth/callback`, `https://chatgpt.com/aip/oauth/callback`, and the GPT-scoped variants `https://chat.openai.com/aip/<gpt-id>/oauth/callback` and `https://chatgpt.com/aip/<gpt-id>/oauth/callback`.
+- `resource` equals the full public `/mcp` URL.
+- Authorization code is not expired or already used.
+- PKCE method is `S256`.
+- The connector is still pending/active and the user is not deactivated.
+- Session version has not changed due to an explicit account security reset.
+
+If refresh fails with `invalid_grant`, check whether the connector expired, was revoked, hit refresh-token reuse detection, or was invalidated by a session-version security reset.
+
+Rotating or clearing the MCP OAuth token secret intentionally revokes active and pending ChatGPT connector rows and their stored refresh credentials. Users must reconnect ChatGPT after a secret change.
 
 #### Local dev-token smoke test
 

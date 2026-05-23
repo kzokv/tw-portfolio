@@ -11,6 +11,10 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Several component suites mount large jsdom trees and Radix primitives.
+    // Serial file execution keeps the official web unit gate deterministic on
+    // constrained dev/CI runners without weakening per-test timeouts.
+    fileParallelism: false,
     setupFiles: [
       resolve(rootDir, "test/setup/react-global.ts"),
       resolve(rootDir, "test/setup/next-mocks.ts"),

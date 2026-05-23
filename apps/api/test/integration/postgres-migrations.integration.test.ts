@@ -3253,7 +3253,7 @@ describePostgres("postgres migrations", () => {
     ).rejects.toThrow();
   });
 
-  it("KZO-210: migrations 057-059 add connector, capability, and draft persistence tables", async () => {
+  it("KZO-210: migrations 057-060 add connector, capability, draft, and MCP OAuth persistence tables", async () => {
     await applyNumberedMigrations();
 
     const tables = await pool.query<{ tablename: string }>(
@@ -3269,6 +3269,8 @@ describePostgres("postgres migrations", () => {
         "ai_connector_credentials",
         "ai_connector_access_logs",
         "ai_connector_policy_settings",
+        "mcp_oauth_authorization_requests",
+        "mcp_oauth_authorization_codes",
         "portfolio_share_capabilities",
         "pending_share_invite_capabilities",
         "ai_transaction_draft_batches",
@@ -3288,6 +3290,8 @@ describePostgres("postgres migrations", () => {
       "ai_transaction_draft_events",
       "ai_transaction_draft_rows",
       "ai_transaction_draft_unsupported_items",
+      "mcp_oauth_authorization_codes",
+      "mcp_oauth_authorization_requests",
       "pending_share_invite_capabilities",
       "portfolio_share_capabilities",
     ]);
@@ -3312,6 +3316,22 @@ describePostgres("postgres migrations", () => {
     );
     expect(connectionIndex.rows).toHaveLength(1);
 
+    const connectionStatusCheck = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.ai_connector_connections'::regclass
+         AND conname = 'ai_connector_connections_status_check'`,
+    );
+    expect(connectionStatusCheck.rows[0]?.def ?? "").toContain("'pending'");
+
+    const oauthIssuerCheck = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+       WHERE conrelid = 'public.ai_connector_policy_settings'::regclass
+         AND pg_get_constraintdef(oid) LIKE '%oauth_public_issuer%'`,
+    );
+    expect(oauthIssuerCheck.rows[0]?.def ?? "").toContain("^https://");
+
     const connectorColumns = await pool.query<{ column_name: string }>(
       `SELECT column_name
        FROM information_schema.columns
@@ -3320,6 +3340,42 @@ describePostgres("postgres migrations", () => {
          AND column_name = 'expiry_notified_at'`,
     );
     expect(connectorColumns.rows).toHaveLength(1);
+
+    const oauthColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'ai_connector_credentials'
+         AND column_name = ANY($1::text[])
+       ORDER BY column_name`,
+      [[
+        "oauth_client_id",
+        "predecessor_credential_id",
+        "replaced_by_credential_id",
+        "resource",
+        "scopes",
+        "session_version",
+        "token_family_id",
+      ]],
+    );
+    expect(oauthColumns.rows.map((row) => row.column_name)).toEqual([
+      "oauth_client_id",
+      "predecessor_credential_id",
+      "replaced_by_credential_id",
+      "resource",
+      "scopes",
+      "session_version",
+      "token_family_id",
+    ]);
+
+    const appConfigMcpSecret = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'app_config'
+         AND column_name = 'mcp_oauth_token_secret'`,
+    );
+    expect(appConfigMcpSecret.rows).toHaveLength(1);
 
     const policyRow = await pool.query<{ enabled: boolean; read_tools_enabled: boolean; draft_tools_enabled: boolean }>(
       `SELECT enabled, read_tools_enabled, draft_tools_enabled

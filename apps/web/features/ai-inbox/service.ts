@@ -2,6 +2,8 @@ import type {
   AiConnectorAccessLogDto,
   AiConnectorConnectionDto,
   AiConnectorPolicySettingsDto,
+  McpOAuthConsentDecisionDto,
+  McpOAuthConsentRequestDto,
   ShareCapability,
   TransactionAiInboxBadgeDto,
   TransactionDraftBatchDetailDto,
@@ -127,6 +129,30 @@ export async function updateAiConnector(
 
 export async function revokeAiConnector(id: string): Promise<AiConnectorConnectionDto> {
   return deleteJson<AiConnectorConnectionDto>(`/ai/connectors/${encodeURIComponent(id)}`);
+}
+
+export async function fetchMcpOAuthConsent(requestId: string): Promise<McpOAuthConsentRequestDto> {
+  return getJson<McpOAuthConsentRequestDto>(`/oauth/consent/${encodeURIComponent(requestId)}`);
+}
+
+export async function approveMcpOAuthConsent(
+  requestId: string,
+  input: { csrfToken: string; scopes: string[]; lifetimeDays: number },
+): Promise<McpOAuthConsentDecisionDto> {
+  return postJson<McpOAuthConsentDecisionDto>(
+    `/oauth/consent/${encodeURIComponent(requestId)}/approve`,
+    input,
+  );
+}
+
+export async function denyMcpOAuthConsent(
+  requestId: string,
+  csrfToken: string,
+): Promise<McpOAuthConsentDecisionDto> {
+  return postJson<McpOAuthConsentDecisionDto>(
+    `/oauth/consent/${encodeURIComponent(requestId)}/deny`,
+    { csrfToken },
+  );
 }
 
 export const SHARE_CAPABILITIES: ShareCapability[] = [

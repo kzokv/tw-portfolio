@@ -444,6 +444,10 @@ const PUBLIC_ROUTE_KEYS = new Set([
   "GET /health/ready",
   "GET /mcp/health",
   "GET /.well-known/oauth-protected-resource",
+  "GET /.well-known/oauth-authorization-server",
+  "GET /.well-known/oauth-authorization-server/mcp",
+  "GET /oauth/authorize",
+  "POST /oauth/token",
   "POST /mcp",
   "GET /mcp",
   "DELETE /mcp",
@@ -5181,11 +5185,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const settings = await app.persistence.getAiConnectorPolicySettings();
     const requestedScopes = body.scopes ?? connection.scopes;
     const allowedScopes = requestedScopes.filter((scope) => settings.groupToggles[connectorGroupForScope(scope)]);
+    const nextExpiresAt = body.expiresAt === undefined ? connection.expiresAt : body.expiresAt;
+    if (connection.oauthClientId && nextExpiresAt !== connection.expiresAt) {
+      throw routeError(
+        400,
+        "mcp_oauth_connector_lifetime_immutable",
+        "OAuth connector lifetime is fixed at consent; revoke and reconnect to choose a different lifetime",
+      );
+    }
     const updated = await app.persistence.saveAiConnectorConnection({
       ...connection,
       scopes: allowedScopes,
       toolToggles: body.toolToggles ?? connection.toolToggles,
-      expiresAt: body.expiresAt === undefined ? connection.expiresAt : body.expiresAt,
+      expiresAt: nextExpiresAt,
       updatedAt: new Date().toISOString(),
     });
     await app.persistence.appendAuditLog({

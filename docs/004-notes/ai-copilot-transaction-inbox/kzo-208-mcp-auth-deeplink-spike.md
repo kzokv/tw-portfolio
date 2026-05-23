@@ -7,6 +7,8 @@ tickets: [KZO-208]
 
 # KZO-208 - ChatGPT MCP Auth And Deep-Link Spike
 
+> Superseded detail: this spike captured an early ChatGPT callback shape. The implemented connector now uses the callback allowlist documented in `docs/002-operations/runbook.md` and `mcp-oauth-chatgpt-scope-lock.md`: `https://chat.openai.com/aip/oauth/callback`, `https://chatgpt.com/aip/oauth/callback`, and their `/aip/<gpt-id>/oauth/callback` variants.
+
 ## Outcome
 
 ChatGPT/MCP is viable for the AI Copilot & Transaction Inbox v1, with one important constraint: the hosted ChatGPT app path should be OAuth 2.1, not a raw personal-token connector. Self-hosted token mode is feasible for API/local MCP clients and limited self-hosted testing, but ChatGPT's first-class authenticated app flow expects OAuth metadata and authorization-code + PKCE.
