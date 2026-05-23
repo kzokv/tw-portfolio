@@ -127,12 +127,17 @@ describe("mcp routes", () => {
       method: "PATCH",
       url: "/admin/mcp/settings",
       headers: { "x-vakwen-fresh-auth-at": freshAuthToken },
-      payload: { groupToggles: { read: false }, maxActiveConnectionsPerUser: 2 },
+      payload: {
+        groupToggles: { read: false },
+        maxActiveConnectionsPerUser: 2,
+        oauthRedirectUriAllowlist: ["https://connector.example.com/oauth/callback"],
+      },
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       maxActiveConnectionsPerUser: 2,
       groupToggles: { read: false, drafts: true, write: false },
+      oauthRedirectUriAllowlist: ["https://connector.example.com/oauth/callback"],
     });
   });
 

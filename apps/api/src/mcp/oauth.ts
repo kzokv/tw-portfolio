@@ -1,11 +1,14 @@
 import { Buffer } from "node:buffer";
 import {
+  createPublicKey,
   createHash,
   createHmac,
   randomBytes,
   randomUUID,
   timingSafeEqual,
+  verify as verifySignature,
 } from "node:crypto";
+import type { JsonWebKey, KeyObject } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import type { LookupOptions } from "node:dns";
 import { request as httpsRequest } from "node:https";
@@ -34,6 +37,10 @@ const DEFAULT_REFRESH_TOKEN_TTL_DAYS = 90;
 const CLIENT_METADATA_FETCH_TIMEOUT_MS = 3_000;
 const CLIENT_METADATA_MAX_BYTES = 64 * 1024;
 const CONSENT_CSRF_VERSION = 1;
+const CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+const CLIENT_ASSERTION_MAX_CHARS = 16 * 1024;
+const CLIENT_ASSERTION_CLOCK_SKEW_SECONDS = 60;
+const CLIENT_ASSERTION_MAX_TTL_SECONDS = 10 * 60;
 
 const CHATGPT_REDIRECT_HOSTS = new Set(["chat.openai.com", "chatgpt.com"]);
 
@@ -105,12 +112,16 @@ const tokenBodySchema = z.discriminatedUnion("grant_type", [
     client_id: z.string().trim().min(1).max(2048),
     code_verifier: z.string().trim().min(43).max(256),
     resource: z.string().url(),
+    client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE_JWT_BEARER).optional(),
+    client_assertion: z.string().trim().min(1).max(CLIENT_ASSERTION_MAX_CHARS).optional(),
   }).strict(),
   z.object({
     grant_type: z.literal("refresh_token"),
     refresh_token: z.string().trim().min(1),
     client_id: z.string().trim().min(1).max(2048),
     resource: z.string().url(),
+    client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE_JWT_BEARER).optional(),
+    client_assertion: z.string().trim().min(1).max(CLIENT_ASSERTION_MAX_CHARS).optional(),
   }).strict(),
 ]);
 
@@ -145,9 +156,42 @@ const clientMetadataDocumentSchema = z.object({
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
   token_endpoint_auth_method: z.string().optional(),
+  token_endpoint_auth_signing_alg: z.string().optional(),
+  jwks_uri: z.string().url().optional(),
+}).passthrough();
+
+const jwkSchema = z.object({
+  kty: z.string(),
+  kid: z.string().optional(),
+  alg: z.string().optional(),
+  use: z.string().optional(),
+  n: z.string().optional(),
+  e: z.string().optional(),
+}).passthrough();
+
+const jwksDocumentSchema = z.object({
+  keys: z.array(jwkSchema).min(1),
+}).passthrough();
+
+const clientAssertionHeaderSchema = z.object({
+  alg: z.literal("RS256"),
+  kid: z.string().min(1).optional(),
+}).passthrough();
+
+const clientAssertionPayloadSchema = z.object({
+  iss: z.string().min(1),
+  sub: z.string().min(1),
+  aud: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+  exp: z.number().int(),
+  iat: z.number().int().optional(),
+  nbf: z.number().int().optional(),
+  jti: z.string().min(1).optional(),
 }).passthrough();
 
 export type McpOAuthAccessTokenPayload = z.infer<typeof accessTokenPayloadSchema>;
+type ClientMetadataDocument = z.infer<typeof clientMetadataDocumentSchema>;
+type JwkDocumentKey = z.infer<typeof jwkSchema>;
+type TokenRequestBody = z.infer<typeof tokenBodySchema>;
 
 export function buildRequestOrigin(req: FastifyRequest): string {
   const protocol = Array.isArray(req.headers["x-forwarded-proto"])
@@ -269,17 +313,24 @@ async function readHttpsClientMetadataDocument(
   });
 }
 
-async function assertClientMetadataUrlFetchable(url: URL): Promise<ClientMetadataAddress> {
+async function assertPublicHttpsDocumentUrlFetchable(
+  url: URL,
+  messages: {
+    protocol: string;
+    invalidUrl: string;
+    hostNotAllowed: string;
+  },
+): Promise<ClientMetadataAddress> {
   if (url.protocol !== "https:") {
-    throw routeError(400, "invalid_client", "URL client_id metadata documents must use HTTPS");
+    throw routeError(400, "invalid_client", messages.protocol);
   }
-  if (url.username || url.password || url.pathname === "/" || url.pathname === "") {
-    throw routeError(400, "invalid_client", "URL client_id metadata document URL is invalid");
+  if (url.username || url.password) {
+    throw routeError(400, "invalid_client", messages.invalidUrl);
   }
 
   const directIp = isIP(url.hostname);
   if (directIp !== 0 && privateIp(url.hostname)) {
-    throw routeError(400, "invalid_client", "URL client_id metadata document host is not allowed");
+    throw routeError(400, "invalid_client", messages.hostNotAllowed);
   }
   if (directIp !== 0) {
     return { address: url.hostname, family: directIp === 6 ? 6 : 4 };
@@ -287,9 +338,28 @@ async function assertClientMetadataUrlFetchable(url: URL): Promise<ClientMetadat
 
   const records = await resolveClientMetadataHost(url.hostname);
   if (records.length === 0 || records.some((record) => privateIp(record.address))) {
-    throw routeError(400, "invalid_client", "URL client_id metadata document host is not allowed");
+    throw routeError(400, "invalid_client", messages.hostNotAllowed);
   }
   return records[0]!;
+}
+
+async function assertClientMetadataUrlFetchable(url: URL): Promise<ClientMetadataAddress> {
+  if (url.pathname === "/" || url.pathname === "") {
+    throw routeError(400, "invalid_client", "URL client_id metadata document URL is invalid");
+  }
+  return assertPublicHttpsDocumentUrlFetchable(url, {
+    protocol: "URL client_id metadata documents must use HTTPS",
+    invalidUrl: "URL client_id metadata document URL is invalid",
+    hostNotAllowed: "URL client_id metadata document host is not allowed",
+  });
+}
+
+async function assertClientJwksUrlFetchable(url: URL): Promise<ClientMetadataAddress> {
+  return assertPublicHttpsDocumentUrlFetchable(url, {
+    protocol: "Client JWKS document must use HTTPS",
+    invalidUrl: "Client JWKS document URL is invalid",
+    hostNotAllowed: "Client JWKS document host is not allowed",
+  });
 }
 
 async function fetchClientMetadataDocument(clientId: string) {
@@ -323,14 +393,9 @@ async function fetchClientMetadataDocument(clientId: string) {
   }
 }
 
-async function validateOAuthClient(clientId: string, redirectUri: string): Promise<void> {
-  const metadata = await fetchClientMetadataDocument(clientId);
-  if (!metadata) return;
+function validateClientMetadataBasics(metadata: ClientMetadataDocument, clientId: string): void {
   if (metadata.client_id !== clientId) {
     throw routeError(400, "invalid_client", "URL client_id metadata document does not match client_id");
-  }
-  if (!metadata.redirect_uris.includes(redirectUri)) {
-    throw routeError(400, "invalid_request", "OAuth redirect_uri is not registered by the client metadata document");
   }
   if (metadata.grant_types && !metadata.grant_types.includes("authorization_code")) {
     throw routeError(400, "invalid_client", "Client metadata document does not support authorization_code");
@@ -338,9 +403,190 @@ async function validateOAuthClient(clientId: string, redirectUri: string): Promi
   if (metadata.response_types && !metadata.response_types.includes("code")) {
     throw routeError(400, "invalid_client", "Client metadata document does not support code response type");
   }
-  if (metadata.token_endpoint_auth_method && metadata.token_endpoint_auth_method !== "none") {
-    throw routeError(400, "invalid_client", "Client metadata document must use public-client token authentication");
+  const tokenAuthMethod = metadata.token_endpoint_auth_method ?? "none";
+  if (tokenAuthMethod !== "none" && tokenAuthMethod !== "private_key_jwt") {
+    throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
   }
+  if (tokenAuthMethod === "private_key_jwt") {
+    if (!metadata.jwks_uri) {
+      throw routeError(400, "invalid_client", "Client metadata document must include jwks_uri for private_key_jwt");
+    }
+    if (metadata.token_endpoint_auth_signing_alg && metadata.token_endpoint_auth_signing_alg !== "RS256") {
+      throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth signing algorithm");
+    }
+  }
+}
+
+async function validateOAuthClient(clientId: string, redirectUri: string): Promise<void> {
+  const metadata = await fetchClientMetadataDocument(clientId);
+  if (!metadata) return;
+  validateClientMetadataBasics(metadata, clientId);
+  if (!metadata.redirect_uris.includes(redirectUri)) {
+    throw routeError(400, "invalid_request", "OAuth redirect_uri is not registered by the client metadata document");
+  }
+}
+
+async function fetchClientJwksDocument(jwksUri: string) {
+  const url = new URL(jwksUri);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLIENT_METADATA_FETCH_TIMEOUT_MS);
+  try {
+    const address = await assertClientJwksUrlFetchable(url);
+    const response = await readClientMetadataDocument(url, address, controller.signal);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw routeError(400, "invalid_client", "Client JWKS document could not be loaded");
+    }
+    if (response.contentLength !== null && response.contentLength > CLIENT_METADATA_MAX_BYTES) {
+      throw routeError(400, "invalid_client", "Client JWKS document is too large");
+    }
+    const jwksText = response.body;
+    if (Buffer.byteLength(jwksText, "utf8") > CLIENT_METADATA_MAX_BYTES) {
+      throw routeError(400, "invalid_client", "Client JWKS document is too large");
+    }
+    return jwksDocumentSchema.parse(JSON.parse(jwksText) as unknown);
+  } catch (error) {
+    if (error instanceof ClientMetadataTooLargeError) {
+      throw routeError(400, "invalid_client", "Client JWKS document is too large");
+    }
+    if (error instanceof Error && "statusCode" in error) throw error;
+    throw routeError(400, "invalid_client", "Client JWKS document is invalid");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseJwtPart(value: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+  } catch {
+    throw routeError(400, "invalid_client", "Client assertion JWT is invalid");
+  }
+}
+
+function jwkCanVerifyAssertion(jwk: JwkDocumentKey, kid: string | undefined): boolean {
+  if (jwk.kty !== "RSA") return false;
+  if (jwk.use && jwk.use !== "sig") return false;
+  if (jwk.alg && jwk.alg !== "RS256") return false;
+  if (kid && jwk.kid !== kid) return false;
+  return Boolean(jwk.n && jwk.e);
+}
+
+function publicKeyFromJwk(jwk: JwkDocumentKey): KeyObject | null {
+  try {
+    return createPublicKey({
+      key: jwk as JsonWebKey,
+      format: "jwk",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function verifyClientAssertionSignature(
+  assertion: string,
+  keys: JwkDocumentKey[],
+  kid: string | undefined,
+): boolean {
+  const [encodedHeader, encodedPayload, encodedSignature] = assertion.split(".");
+  if (!encodedHeader || !encodedPayload || !encodedSignature || assertion.split(".").length !== 3) {
+    throw routeError(400, "invalid_client", "Client assertion JWT is invalid");
+  }
+  const signature = Buffer.from(encodedSignature, "base64url");
+  const signedContent = Buffer.from(`${encodedHeader}.${encodedPayload}`, "utf8");
+  return keys
+    .filter((jwk) => jwkCanVerifyAssertion(jwk, kid))
+    .some((jwk) => {
+      const key = publicKeyFromJwk(jwk);
+      return key ? verifySignature("RSA-SHA256", signedContent, key, signature) : false;
+    });
+}
+
+function assertClientAssertionClaims(input: {
+  payload: z.infer<typeof clientAssertionPayloadSchema>;
+  clientId: string;
+  tokenEndpoint: string;
+  nowSeconds?: number;
+}): void {
+  const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (input.payload.iss !== input.clientId || input.payload.sub !== input.clientId) {
+    throw routeError(400, "invalid_client", "Client assertion issuer or subject is invalid");
+  }
+  const audience = Array.isArray(input.payload.aud) ? input.payload.aud : [input.payload.aud];
+  if (!audience.includes(input.tokenEndpoint)) {
+    throw routeError(400, "invalid_client", "Client assertion audience is invalid");
+  }
+  if (input.payload.exp <= nowSeconds - CLIENT_ASSERTION_CLOCK_SKEW_SECONDS) {
+    throw routeError(400, "invalid_client", "Client assertion has expired");
+  }
+  if (input.payload.exp > nowSeconds + CLIENT_ASSERTION_MAX_TTL_SECONDS + CLIENT_ASSERTION_CLOCK_SKEW_SECONDS) {
+    throw routeError(400, "invalid_client", "Client assertion expiry is too far in the future");
+  }
+  if (input.payload.iat && input.payload.iat > nowSeconds + CLIENT_ASSERTION_CLOCK_SKEW_SECONDS) {
+    throw routeError(400, "invalid_client", "Client assertion issued-at time is invalid");
+  }
+  if (input.payload.nbf && input.payload.nbf > nowSeconds + CLIENT_ASSERTION_CLOCK_SKEW_SECONDS) {
+    throw routeError(400, "invalid_client", "Client assertion not-before time is invalid");
+  }
+}
+
+async function validatePrivateKeyJwtClientAuth(input: {
+  metadata: ClientMetadataDocument;
+  clientId: string;
+  assertion: string;
+  tokenEndpoint: string;
+}): Promise<void> {
+  if (!input.metadata.jwks_uri) {
+    throw routeError(400, "invalid_client", "Client metadata document must include jwks_uri for private_key_jwt");
+  }
+  const [encodedHeader, encodedPayload] = input.assertion.split(".");
+  if (!encodedHeader || !encodedPayload || input.assertion.split(".").length !== 3) {
+    throw routeError(400, "invalid_client", "Client assertion JWT is invalid");
+  }
+  const header = clientAssertionHeaderSchema.parse(parseJwtPart(encodedHeader));
+  const payload = clientAssertionPayloadSchema.parse(parseJwtPart(encodedPayload));
+  const jwks = await fetchClientJwksDocument(input.metadata.jwks_uri);
+  if (!verifyClientAssertionSignature(input.assertion, jwks.keys, header.kid)) {
+    throw routeError(400, "invalid_client", "Client assertion signature is invalid");
+  }
+  assertClientAssertionClaims({
+    payload,
+    clientId: input.clientId,
+    tokenEndpoint: input.tokenEndpoint,
+  });
+}
+
+async function validateOAuthTokenClient(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  body: TokenRequestBody,
+): Promise<void> {
+  const metadata = await fetchClientMetadataDocument(body.client_id);
+  if (!metadata) {
+    if (body.client_assertion || body.client_assertion_type) {
+      throw routeError(400, "invalid_client", "Client assertion requires URL client metadata");
+    }
+    return;
+  }
+  validateClientMetadataBasics(metadata, body.client_id);
+  const tokenAuthMethod = metadata.token_endpoint_auth_method ?? "none";
+  if (tokenAuthMethod === "none") {
+    if (body.client_assertion || body.client_assertion_type) {
+      throw routeError(400, "invalid_client", "Public OAuth client must not send a client assertion");
+    }
+    return;
+  }
+  if (tokenAuthMethod !== "private_key_jwt") {
+    throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
+  }
+  if (body.client_assertion_type !== CLIENT_ASSERTION_TYPE_JWT_BEARER || !body.client_assertion) {
+    throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
+  }
+  await validatePrivateKeyJwtClientAuth({
+    metadata,
+    clientId: body.client_id,
+    assertion: body.client_assertion,
+    tokenEndpoint: `${await getMcpOAuthIssuer(app, req)}/oauth/token`,
+  });
 }
 
 function assertIssuerAllowed(issuer: string): string {
@@ -388,7 +634,8 @@ export async function getMcpAuthorizationServerMetadata(app: FastifyInstance, re
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none"],
+    token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    token_endpoint_auth_signing_alg_values_supported: ["RS256"],
     client_id_metadata_document_supported: true,
     scopes_supported: [...ALL_MCP_SCOPES],
     resource_documentation: `${issuer}/mcp/health`,
@@ -462,22 +709,42 @@ function parseScopes(scope: string | undefined): AiConnectorScope[] {
   return [...new Set(parsed.map((item) => scopeSchema.parse(item)))];
 }
 
-function isAllowedRedirectUri(uri: string): boolean {
+function normalizeExactRedirectUri(uri: string): string | null {
+  const url = new URL(uri);
+  if (url.username || url.password || url.search || url.hash || url.pathname === "/" || url.pathname === "") {
+    return null;
+  }
+  return url.toString();
+}
+
+type RedirectUriAllowance = "builtin_chatgpt" | "local" | "custom" | "none";
+
+function classifyRedirectUriAllowance(uri: string, customAllowlist: readonly string[] = []): RedirectUriAllowance {
   const url = new URL(uri);
   if (
     url.protocol === "https:"
     && CHATGPT_REDIRECT_HOSTS.has(url.hostname)
     && url.search === ""
     && url.hash === ""
-    && (url.pathname === "/aip/oauth/callback" || /^\/aip\/[^/]+\/oauth\/callback$/.test(url.pathname))
+    && (
+      url.pathname === "/aip/oauth/callback"
+      || /^\/aip\/[^/]+\/oauth\/callback$/.test(url.pathname)
+      || /^\/connector\/oauth\/[^/]+$/.test(url.pathname)
+    )
   ) {
-    return true;
+    return "builtin_chatgpt";
   }
   if (Env.NODE_ENV === "test" || Env.NODE_ENV === "development") {
-    return (url.protocol === "http:" || url.protocol === "https:")
-      && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    if (
+      (url.protocol === "http:" || url.protocol === "https:")
+      && (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    ) {
+      return "local";
+    }
   }
-  return false;
+  const normalized = normalizeExactRedirectUri(uri);
+  if (normalized && customAllowlist.includes(normalized)) return "custom";
+  return "none";
 }
 
 function filterScopesByPolicy(
@@ -633,8 +900,13 @@ export async function handleMcpOAuthAuthorize(
     return sendOAuthError(reply, 400, "invalid_request", "OAuth authorization request is invalid");
   }
 
-  if (!isAllowedRedirectUri(query.redirect_uri)) {
+  const settings = await app.persistence.getAiConnectorPolicySettings();
+  const redirectUriAllowance = classifyRedirectUriAllowance(query.redirect_uri, settings.oauthRedirectUriAllowlist);
+  if (redirectUriAllowance === "none") {
     return sendOAuthError(reply, 400, "invalid_request", "OAuth redirect_uri is not allowed");
+  }
+  if (redirectUriAllowance === "custom" && !parseUrlClientId(query.client_id)) {
+    return sendOAuthError(reply, 400, "invalid_client", "Custom OAuth redirect URIs require URL client metadata");
   }
   try {
     await validateOAuthClient(query.client_id, query.redirect_uri);
@@ -656,7 +928,6 @@ export async function handleMcpOAuthAuthorize(
     return sendOAuthError(reply, 400, "invalid_scope", "OAuth scope contains an unsupported MCP scope");
   }
 
-  const settings = await app.persistence.getAiConnectorPolicySettings();
   if (!settings.enabled || !settings.allowedProviders.chatgpt) {
     return sendOAuthError(reply, 403, "access_denied", "ChatGPT MCP connectors are disabled");
   }
@@ -834,6 +1105,15 @@ export async function handleMcpOAuthToken(
     body = tokenBodySchema.parse(req.body);
   } catch {
     return sendOAuthError(reply, 400, "invalid_request", "OAuth token request is invalid");
+  }
+
+  try {
+    await validateOAuthTokenClient(app, req, body);
+  } catch (error) {
+    const code = error instanceof Error && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "invalid_client";
+    return sendOAuthError(reply, 400, code, error instanceof Error ? error.message : "OAuth client authentication failed");
   }
 
   let secret: string;

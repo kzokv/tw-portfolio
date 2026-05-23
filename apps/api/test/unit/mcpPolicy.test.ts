@@ -37,6 +37,7 @@ function fakeApp() {
         freshAuthMaxAgeMs: 600_000,
         maxConnectorLifetimeDays: 90,
         oauthPublicIssuer: null,
+        oauthRedirectUriAllowlist: [],
         oauthTokenSecretSet: false,
         updatedAt: new Date(0).toISOString(),
       }),
@@ -56,6 +57,7 @@ function fakeAppWithGroupDisabled() {
     freshAuthMaxAgeMs: 600_000,
     maxConnectorLifetimeDays: 90,
     oauthPublicIssuer: null,
+    oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: false,
     updatedAt: new Date(0).toISOString(),
   });

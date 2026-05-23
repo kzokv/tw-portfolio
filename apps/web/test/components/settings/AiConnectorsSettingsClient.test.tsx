@@ -31,6 +31,7 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
     freshAuthMaxAgeMs: 600_000,
     maxConnectorLifetimeDays: 90,
     oauthPublicIssuer: "https://api.example.com",
+    oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: true,
     updatedAt: "2026-05-23T12:00:00.000Z",
     ...overrides,

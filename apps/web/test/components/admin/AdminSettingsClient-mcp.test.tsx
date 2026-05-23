@@ -43,6 +43,16 @@ import { buildAppConfigDto } from "../../fixtures/appConfigDto";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function showModal() {
+      this.open = true;
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function close() {
+      this.open = false;
+    };
+  }
 });
 
 function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiConnectorPolicySettingsDto {
@@ -56,6 +66,7 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
     freshAuthMaxAgeMs: 600_000,
     maxConnectorLifetimeDays: 90,
     oauthPublicIssuer: "https://api.example.com",
+    oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: true,
     updatedAt: "2026-05-23T12:00:00.000Z",
     ...overrides,
@@ -70,6 +81,12 @@ async function flushEffects() {
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setTextareaValue(input: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
   setter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
@@ -143,6 +160,152 @@ describe("AdminSettingsClient — MCP settings", () => {
       "/admin/mcp/settings",
       expect.objectContaining({ maxActiveConnectionsPerUser: 10 }),
       { headers: { "x-vakwen-fresh-auth-at": "fresh-1" } },
+    );
+  });
+
+  it("shows redirect allowlist examples and saves exact redirect URI additions", async () => {
+    mockGetJson.mockResolvedValue(buildPolicy({ groupToggles: { read: true, drafts: true, write: false } }));
+    mockPostJson.mockResolvedValue({ freshAuthToken: "fresh-allowlist" });
+    mockPatchJson.mockResolvedValue(buildPolicy({
+      groupToggles: { read: true, drafts: true, write: false },
+      oauthRedirectUriAllowlist: [
+        "https://connector.example.com/oauth/callback",
+        "https://chatgpt.com/connector/oauth/custom123",
+      ],
+    }));
+
+    await act(async () => root.render(<AdminSettingsClient initial={buildAppConfigDto()} />));
+    await flushEffects();
+
+    const section = document.querySelector("[data-testid='admin-settings-mcp-section']");
+    expect(section?.textContent).toContain("https://chatgpt.com/connector/oauth/<connector-id>");
+    expect(section?.textContent).toContain("https://chatgpt.com/aip/<gpt-id>/oauth/callback");
+
+    const textarea = document.querySelector(
+      "[data-testid='admin-settings-mcp-redirect-allowlist']",
+    ) as HTMLTextAreaElement | null;
+    expect(textarea).toBeTruthy();
+    expect(textarea!.getAttribute("aria-describedby")).toContain("admin-settings-mcp-redirect-help");
+    expect(textarea!.getAttribute("aria-describedby")).toContain("admin-settings-mcp-redirect-examples");
+    expect(textarea!.hasAttribute("aria-invalid")).toBe(false);
+    await act(async () => {
+      setTextareaValue(
+        textarea!,
+        "https://connector.example.com/oauth/callback\nhttps://chatgpt.com/connector/oauth/custom123",
+      );
+    });
+
+    const saveButton = Array.from(section!.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Save allowlist")) as HTMLButtonElement | undefined;
+    expect(saveButton).toBeTruthy();
+    expect(saveButton!.disabled).toBe(false);
+    await act(async () => {
+      saveButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(mockPatchJson).toHaveBeenCalledWith(
+      "/admin/mcp/settings",
+      expect.objectContaining({
+        oauthRedirectUriAllowlist: [
+          "https://connector.example.com/oauth/callback",
+          "https://chatgpt.com/connector/oauth/custom123",
+        ],
+      }),
+      { headers: { "x-vakwen-fresh-auth-at": "fresh-allowlist" } },
+    );
+  });
+
+  it("keeps an invalid redirect allowlist draft resettable and accessible", async () => {
+    const savedAllowlist = ["https://connector.example.com/oauth/callback"];
+    mockGetJson.mockResolvedValue(buildPolicy({
+      groupToggles: { read: true, drafts: true, write: false },
+      oauthRedirectUriAllowlist: savedAllowlist,
+    }));
+
+    await act(async () => root.render(<AdminSettingsClient initial={buildAppConfigDto()} />));
+    await flushEffects();
+
+    const section = document.querySelector("[data-testid='admin-settings-mcp-section']");
+    const textarea = document.querySelector(
+      "[data-testid='admin-settings-mcp-redirect-allowlist']",
+    ) as HTMLTextAreaElement | null;
+    expect(section).toBeTruthy();
+    expect(textarea).toBeTruthy();
+
+    await act(async () => {
+      setTextareaValue(textarea!, `${savedAllowlist[0]}\nnot-a-url`);
+    });
+
+    expect(textarea!.getAttribute("aria-invalid")).toBe("true");
+    expect(textarea!.getAttribute("aria-describedby")).toContain("admin-settings-mcp-redirect-error");
+    expect(section!.textContent).toContain("Each redirect URI must be a valid URL.");
+
+    const resetButton = Array.from(section!.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Reset allowlist")) as HTMLButtonElement | undefined;
+    const saveButton = Array.from(section!.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Save allowlist")) as HTMLButtonElement | undefined;
+    expect(resetButton).toBeTruthy();
+    expect(saveButton).toBeTruthy();
+    expect(resetButton!.disabled).toBe(false);
+    expect(saveButton!.disabled).toBe(true);
+
+    await act(async () => {
+      resetButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(textarea!.value).toBe(savedAllowlist[0]);
+    expect(textarea!.hasAttribute("aria-invalid")).toBe(false);
+    expect(section!.textContent).not.toContain("Each redirect URI must be a valid URL.");
+    expect(mockPatchJson).not.toHaveBeenCalled();
+  });
+
+  it("generates a 64-hex MCP OAuth token secret before rotating", async () => {
+    mockGetJson.mockResolvedValue(buildPolicy({ groupToggles: { read: true, drafts: true, write: false } }));
+    mockPostJson.mockResolvedValue({ freshAuthToken: "fresh-secret" });
+    mockPatchJson.mockResolvedValue(buildPolicy({
+      groupToggles: { read: true, drafts: true, write: false },
+      oauthTokenSecretSet: true,
+    }));
+
+    await act(async () => root.render(<AdminSettingsClient initial={buildAppConfigDto()} />));
+    await flushEffects();
+
+    const rotate = document.querySelector(
+      "[data-testid='admin-settings-mcp-oauth-token-secret-rotate-button']",
+    ) as HTMLButtonElement | null;
+    expect(rotate).toBeTruthy();
+    await act(async () => {
+      rotate!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const generate = document.querySelector(
+      "[data-testid='admin-settings-mcp-oauth-token-secret-generate-button']",
+    ) as HTMLButtonElement | null;
+    expect(generate).toBeTruthy();
+    await act(async () => {
+      generate!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const submit = document.querySelector(
+      "[data-testid='admin-settings-mcp-oauth-token-secret-rotate-submit']",
+    ) as HTMLButtonElement | null;
+    expect(submit).toBeTruthy();
+    expect(submit!.disabled).toBe(false);
+    await act(async () => {
+      submit!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(mockPatchJson).toHaveBeenCalledWith(
+      "/admin/mcp/settings",
+      expect.objectContaining({
+        mcpOauthTokenSecret: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+      { headers: { "x-vakwen-fresh-auth-at": "fresh-secret" } },
     );
   });
 });
