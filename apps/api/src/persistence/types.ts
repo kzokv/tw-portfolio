@@ -86,6 +86,7 @@ export type AppConfigPlainField =
 export type AppConfigPatch = Partial<Record<AppConfigPlainField, number | null>> & {
   finmindApiToken?: string | null;
   twelveDataApiKey?: string | null;
+  mcpOauthTokenSecret?: string | null;
 };
 
 /**
@@ -309,6 +310,110 @@ export interface AiConnectorConnectionRecord extends AiConnectorConnectionDto {
   revokedByUserId: string | null;
 }
 
+export interface McpOAuthAuthorizationRequestRecord {
+  id: string;
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  state: string | null;
+  resource: string;
+  scopes: AiConnectorScope[];
+  codeChallenge: string;
+  codeChallengeMethod: "S256";
+  csrfTokenHash: string;
+  expiresAt: string;
+  approvedAt: string | null;
+  deniedAt: string | null;
+  createdAt: string;
+}
+
+export interface SaveMcpOAuthAuthorizationRequestInput {
+  id: string;
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  state?: string | null;
+  resource: string;
+  scopes: AiConnectorScope[];
+  codeChallenge: string;
+  codeChallengeMethod: "S256";
+  csrfTokenHash: string;
+  expiresAt: string;
+  approvedAt?: string | null;
+  deniedAt?: string | null;
+  createdAt?: string;
+}
+
+export interface McpOAuthAuthorizationCodeRecord {
+  id: string;
+  codeHash: string;
+  connectionId: string;
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  resource: string;
+  scopes: AiConnectorScope[];
+  codeChallenge: string;
+  codeChallengeMethod: "S256";
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
+}
+
+export interface SaveMcpOAuthAuthorizationCodeInput {
+  id: string;
+  codeHash: string;
+  connectionId: string;
+  userId: string;
+  clientId: string;
+  redirectUri: string;
+  resource: string;
+  scopes: AiConnectorScope[];
+  codeChallenge: string;
+  codeChallengeMethod: "S256";
+  expiresAt: string;
+  consumedAt?: string | null;
+  createdAt?: string;
+}
+
+export interface AiConnectorCredentialRecord {
+  id: string;
+  connectionId: string;
+  credentialType: "oauth_refresh_token" | "self_hosted_token";
+  tokenHash: string;
+  tokenHint: string | null;
+  tokenFamilyId: string | null;
+  predecessorCredentialId: string | null;
+  replacedByCredentialId: string | null;
+  oauthClientId: string | null;
+  resource: string | null;
+  scopes: AiConnectorScope[];
+  sessionVersion: number | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface SaveAiConnectorCredentialInput {
+  id: string;
+  connectionId: string;
+  credentialType: "oauth_refresh_token" | "self_hosted_token";
+  tokenHash: string;
+  tokenHint?: string | null;
+  tokenFamilyId?: string | null;
+  predecessorCredentialId?: string | null;
+  replacedByCredentialId?: string | null;
+  oauthClientId?: string | null;
+  resource?: string | null;
+  scopes?: AiConnectorScope[];
+  sessionVersion?: number | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  createdAt?: string;
+  lastUsedAt?: string | null;
+}
+
 export interface SaveAiConnectorConnectionInput {
   id: string;
   userId: string;
@@ -329,10 +434,40 @@ export interface SaveAiConnectorConnectionInput {
   updatedAt?: string;
 }
 
+export interface ActivateAiConnectorConnectionReplacingProviderInput {
+  connectionId: string;
+  userId: string;
+  provider: AiConnectorProvider;
+  maxActiveConnectionsPerUser: number;
+  oauthClientId?: string | null;
+  oauthSubject?: string | null;
+  lastUsedAt?: string | null;
+  revokedByUserId?: string | null;
+  revocationReason: string;
+}
+
+export interface ActivateAiConnectorConnectionReplacingProviderResult {
+  connection: AiConnectorConnectionRecord;
+  revokedConnectionIds: string[];
+}
+
+export interface ApproveMcpOAuthAuthorizationRequestInput {
+  requestId: string;
+  userId: string;
+  approvedAt: string;
+  connection: SaveAiConnectorConnectionInput;
+  code: SaveMcpOAuthAuthorizationCodeInput;
+}
+
+export interface ApproveMcpOAuthAuthorizationRequestResult {
+  request: McpOAuthAuthorizationRequestRecord;
+  connection: AiConnectorConnectionRecord;
+}
+
 export type AiConnectorPolicySettingsRecord = AiConnectorPolicySettingsDto;
 
 export type SaveAiConnectorPolicySettingsInput = Partial<
-  Omit<AiConnectorPolicySettingsDto, "updatedAt" | "allowedProviders" | "groupToggles">
+  Omit<AiConnectorPolicySettingsDto, "updatedAt" | "allowedProviders" | "groupToggles" | "oauthTokenSecretSet">
 > & {
   allowedProviders?: Partial<AiConnectorPolicySettingsDto["allowedProviders"]>;
   groupToggles?: Partial<AiConnectorPolicySettingsDto["groupToggles"]>;
@@ -1145,6 +1280,32 @@ export interface Persistence {
   listAiConnectorConnectionsForUser(userId: string): Promise<AiConnectorConnectionRecord[]>;
   getAiConnectorPolicySettings(): Promise<AiConnectorPolicySettingsRecord>;
   saveAiConnectorPolicySettings(input: SaveAiConnectorPolicySettingsInput): Promise<AiConnectorPolicySettingsRecord>;
+  saveMcpOAuthAuthorizationRequest(input: SaveMcpOAuthAuthorizationRequestInput): Promise<McpOAuthAuthorizationRequestRecord>;
+  getMcpOAuthAuthorizationRequest(id: string): Promise<McpOAuthAuthorizationRequestRecord | null>;
+  approveMcpOAuthAuthorizationRequest(
+    input: ApproveMcpOAuthAuthorizationRequestInput,
+  ): Promise<ApproveMcpOAuthAuthorizationRequestResult | null>;
+  settleMcpOAuthAuthorizationRequest(
+    id: string,
+    userId: string,
+    decision: "approved" | "denied",
+    decidedAt: string,
+  ): Promise<McpOAuthAuthorizationRequestRecord | null>;
+  saveMcpOAuthAuthorizationCode(input: SaveMcpOAuthAuthorizationCodeInput): Promise<McpOAuthAuthorizationCodeRecord>;
+  consumeMcpOAuthAuthorizationCode(codeHash: string): Promise<McpOAuthAuthorizationCodeRecord | null>;
+  activateAiConnectorConnectionReplacingProvider(
+    input: ActivateAiConnectorConnectionReplacingProviderInput,
+  ): Promise<ActivateAiConnectorConnectionReplacingProviderResult | null>;
+  saveAiConnectorCredential(input: SaveAiConnectorCredentialInput): Promise<AiConnectorCredentialRecord>;
+  getAiConnectorCredentialByHash(tokenHash: string): Promise<AiConnectorCredentialRecord | null>;
+  consumeAiConnectorCredential(id: string): Promise<AiConnectorCredentialRecord | null>;
+  revokeAiConnectorCredential(id: string, replacedByCredentialId?: string | null): Promise<AiConnectorCredentialRecord | null>;
+  revokeAiConnectorCredentialsForConnection(connectionId: string): Promise<void>;
+  revokeAiConnectorConnectionsForProvider(
+    provider: AiConnectorProvider,
+    reason: string,
+    revokedByUserId?: string | null,
+  ): Promise<number>;
   appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord>;
   listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]>;
   saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null>;
@@ -1383,6 +1544,7 @@ export interface Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
     marketDataSearchWindowMs: number | null;
@@ -1457,7 +1619,7 @@ export interface Persistence {
   // never lives outside the persistence boundary. `null` clears the column.
   // Stamps `updated_at`.
   setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey",
+    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void>;
 

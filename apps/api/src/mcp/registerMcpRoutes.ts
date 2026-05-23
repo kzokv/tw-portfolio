@@ -4,6 +4,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { DefaultMcpAuthService } from "./auth.js";
+import {
+  approveMcpOAuthConsent,
+  buildMcpWwwAuthenticateHeader,
+  denyMcpOAuthConsent,
+  getMcpAuthorizationServerMetadata,
+  getMcpOAuthConsentRequest,
+  getMcpOAuthIssuer,
+  handleMcpOAuthAuthorize,
+  handleMcpOAuthToken,
+  setMcpOAuthNoStoreHeaders,
+} from "./oauth.js";
 import { DefaultMcpPolicyService } from "./policy.js";
 import { getMcpToolDefinition, listMcpToolDefinitions, type McpToolName } from "./tools.js";
 import type { McpAuthService, McpPolicyService, McpRequestContext, McpResolvedContext } from "./types.js";
@@ -89,6 +100,20 @@ export async function registerMcpRoutes(
     Object.fromEntries(listMcpToolDefinitions().map((tool) => [tool.name, tool.scope])),
   );
   const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+  if (!app.hasContentTypeParser("application/x-www-form-urlencoded")) {
+    app.addContentTypeParser(
+      "application/x-www-form-urlencoded",
+      { parseAs: "string" },
+      (_req, body, done) => {
+        try {
+          done(null, Object.fromEntries(new URLSearchParams(String(body))));
+        } catch (error) {
+          done(error as Error);
+        }
+      },
+    );
+  }
 
   const executeTool = async (toolName: McpToolName, args: unknown, extra: unknown) => {
     const pending = extractPendingContext(extra);
@@ -294,7 +319,14 @@ export async function registerMcpRoutes(
   };
 
   const handleMcpRequest = async (req: FastifyRequest, reply: FastifyReply) => {
-    const tokenContext = await authService.authenticateRequest(app, req);
+    let tokenContext: Awaited<ReturnType<McpAuthService["authenticateRequest"]>>;
+    try {
+      tokenContext = await authService.authenticateRequest(app, req);
+    } catch (error) {
+      const issuer = await getMcpOAuthIssuer(app, req);
+      reply.header("www-authenticate", buildMcpWwwAuthenticateHeader(`${issuer}/.well-known/oauth-protected-resource`));
+      throw error;
+    }
 
     const sessionIdHeader = req.headers["mcp-session-id"];
     const sessionId = typeof sessionIdHeader === "string" ? sessionIdHeader : undefined;
@@ -338,9 +370,11 @@ export async function registerMcpRoutes(
         } satisfies PendingToolRequestContext,
       },
     };
-    const socket = req.raw.socket as typeof req.raw.socket & { destroySoon?: () => void };
+    const socket = req.raw.socket as typeof req.raw.socket & { destroy?: () => void; destroySoon?: () => void };
     if (typeof socket.destroySoon !== "function") {
-      socket.destroySoon = () => socket.destroy();
+      socket.destroySoon = () => {
+        if (typeof socket.destroy === "function") socket.destroy();
+      };
     }
     await transport.handleRequest(req.raw, reply.raw, req.body);
     reply.hijack();
@@ -356,7 +390,7 @@ export async function registerMcpRoutes(
     status: "ok",
     transport: "streamable_http",
     sessionCount: sessions.size,
-    protectedResourceMetadata: authService.getProtectedResourceMetadata(req),
+    protectedResourceMetadata: await authService.getProtectedResourceMetadata(app, req),
     tools: listMcpToolDefinitions().map((tool) => ({
       name: tool.name,
       scope: tool.scope,
@@ -364,7 +398,26 @@ export async function registerMcpRoutes(
     })),
   }));
 
-  app.get("/.well-known/oauth-protected-resource", async (req) => authService.getProtectedResourceMetadata(req));
+  app.get("/.well-known/oauth-protected-resource", async (req) => authService.getProtectedResourceMetadata(app, req));
+  app.get("/.well-known/oauth-authorization-server", async (req) => getMcpAuthorizationServerMetadata(app, req));
+  app.get("/.well-known/oauth-authorization-server/mcp", async (req) => getMcpAuthorizationServerMetadata(app, req));
+  app.get("/oauth/authorize", async (req, reply) => handleMcpOAuthAuthorize(app, req, reply));
+  app.post("/oauth/token", async (req, reply) => handleMcpOAuthToken(app, req, reply));
+  app.get("/oauth/consent/:requestId", async (req, reply) => {
+    setMcpOAuthNoStoreHeaders(reply);
+    const params = req.params as { requestId: string };
+    return getMcpOAuthConsentRequest(app, req, params.requestId);
+  });
+  app.post("/oauth/consent/:requestId/approve", async (req, reply) => {
+    setMcpOAuthNoStoreHeaders(reply);
+    const params = req.params as { requestId: string };
+    return approveMcpOAuthConsent(app, req, params.requestId, req.body);
+  });
+  app.post("/oauth/consent/:requestId/deny", async (req, reply) => {
+    setMcpOAuthNoStoreHeaders(reply);
+    const params = req.params as { requestId: string };
+    return denyMcpOAuthConsent(app, req, params.requestId, req.body);
+  });
 
   app.post("/mcp", async (req, reply) => handleMcpRequest(req, reply));
   app.get("/mcp", async (req, reply) => handleMcpRequest(req, reply));

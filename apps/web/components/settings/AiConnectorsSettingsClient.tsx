@@ -12,15 +12,7 @@ import {
   updateAiConnector,
   type AiConnectorsResponse,
 } from "../../features/ai-inbox/service";
-
-const SCOPE_LABELS: Record<AiConnectorScope, string> = {
-  "portfolio:mcp_read": "App read",
-  "transaction_draft:create": "Draft create",
-  "transaction_draft:edit": "Draft edit",
-  "transaction_draft:archive": "Draft archive",
-  "transaction_draft:delete": "Draft delete",
-  "transaction:write": "Transaction write",
-};
+import { AI_CONNECTOR_SCOPE_LABELS } from "../connectors/scopeLabels";
 
 const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
   { title: "Read", scopes: ["portfolio:mcp_read"] },
@@ -29,6 +21,7 @@ const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
 ];
 
 function statusClassName(status: AiConnectorConnectionDto["status"]): string {
+  if (status === "pending") return "border-sky-200 bg-sky-50 text-sky-700";
   if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "expired") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-slate-200 bg-slate-50 text-slate-600";
@@ -71,6 +64,10 @@ export function AiConnectorsSettingsClient() {
     drafts: data?.policy.groupToggles.drafts ?? false,
     write: data?.policy.groupToggles.write ?? false,
   }), [data]);
+  const allScopeGroupsDisabled = data !== null
+    && !scopeEnabledByGroup.read
+    && !scopeEnabledByGroup.drafts
+    && !scopeEnabledByGroup.write;
 
   async function toggleScope(connection: AiConnectorConnectionDto, scope: AiConnectorScope, checked: boolean) {
     setBusyId(connection.id);
@@ -151,8 +148,16 @@ export function AiConnectorsSettingsClient() {
         </Button>
       </div>
 
-      {message ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</div> : null}
-      {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+      {message ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status" aria-live="polite">
+          {message}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       <Card className="rounded-lg">
         <div className="grid gap-3 md:grid-cols-4">
@@ -175,8 +180,14 @@ export function AiConnectorsSettingsClient() {
         </div>
       </Card>
 
+      {allScopeGroupsDisabled ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
+          Admin policy has disabled all MCP tool groups. Connector permissions cannot be changed until an admin re-enables at least one group.
+        </div>
+      ) : null}
+
       {isLoading ? (
-        <Card className="rounded-lg"><p className="text-sm text-slate-500">Loading connectors...</p></Card>
+        <Card className="rounded-lg" role="status" aria-live="polite" aria-busy="true"><p className="text-sm text-slate-500">Loading connectors...</p></Card>
       ) : data && data.connections.length === 0 ? (
         <Card className="rounded-lg"><p className="text-sm text-slate-500">No AI connectors are connected.</p></Card>
       ) : (
@@ -192,6 +203,11 @@ export function AiConnectorsSettingsClient() {
                 </div>
                 <p className="mt-1 text-sm text-slate-600">{connection.provider} · last used {formatTime(connection.lastUsedAt)}</p>
                 <p className="mt-1 text-sm text-slate-600">Expires {formatTime(connection.expiresAt)}</p>
+                {connection.status === "pending" ? (
+                  <p className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700" role="status" aria-live="polite">
+                    Waiting for ChatGPT to exchange the authorization code.
+                  </p>
+                ) : null}
               </div>
               <Button
                 variant="destructive"
@@ -210,18 +226,30 @@ export function AiConnectorsSettingsClient() {
                   <p className="text-sm font-medium text-slate-900">{group.title}</p>
                   <div className="mt-3 space-y-2">
                     {group.scopes.map((scope) => {
-                      const disabled =
-                        busyId === connection.id
-                        || (scope === "portfolio:mcp_read" && !scopeEnabledByGroup.read)
+                      const policyDisabled =
+                        (scope === "portfolio:mcp_read" && !scopeEnabledByGroup.read)
                         || (scope.startsWith("transaction_draft") && !scopeEnabledByGroup.drafts)
                         || (scope === "transaction:write" && !scopeEnabledByGroup.write);
+                      const policyDescriptionId = policyDisabled ? `${connection.id}-${scope.replace(/[:_]/g, "-")}-policy-disabled` : undefined;
+                      const disabled =
+                        busyId === connection.id
+                        || connection.status !== "active"
+                        || policyDisabled;
                       return (
                         <label key={scope} className="flex items-center justify-between gap-3 text-sm text-slate-700">
-                          <span>{SCOPE_LABELS[scope]}</span>
+                          <span>
+                            {AI_CONNECTOR_SCOPE_LABELS[scope]}
+                            {policyDisabled ? (
+                              <span id={policyDescriptionId} className="block text-xs text-slate-500">
+                                Disabled by MCP policy
+                              </span>
+                            ) : null}
+                          </span>
                           <input
                             type="checkbox"
                             checked={connection.scopes.includes(scope)}
                             disabled={disabled}
+                            aria-describedby={policyDescriptionId}
                             onChange={(event) => void toggleScope(connection, scope, event.target.checked)}
                           />
                         </label>
@@ -243,7 +271,7 @@ export function AiConnectorsSettingsClient() {
                     <input
                       type="checkbox"
                       checked={enabled}
-                      disabled={busyId === connection.id}
+                      disabled={busyId === connection.id || connection.status !== "active"}
                       onChange={(event) => void toggleTool(connection, toolName, event.target.checked)}
                     />
                   </label>

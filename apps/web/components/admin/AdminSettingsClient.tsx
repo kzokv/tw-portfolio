@@ -57,6 +57,47 @@ interface AdminSettingsClientProps {
   initial: AppConfigDto;
 }
 
+type McpNumericSettingKey =
+  | "maxActiveConnectionsPerUser"
+  | "inactivityExpiryDays"
+  | "expirationWarningDays"
+  | "maxConnectorLifetimeDays";
+
+const MCP_NUMERIC_FIELDS: Array<{
+  key: McpNumericSettingKey;
+  label: string;
+  min: number;
+  max: number;
+}> = [
+  { key: "maxActiveConnectionsPerUser", label: "Max active connectors", min: 1, max: 20 },
+  { key: "inactivityExpiryDays", label: "Inactivity expiry days", min: 1, max: 365 },
+  { key: "expirationWarningDays", label: "Expiry warning days", min: 1, max: 30 },
+  { key: "maxConnectorLifetimeDays", label: "Max connector lifetime days", min: 1, max: 365 },
+];
+
+function numericDraftsFromSettings(
+  settings: AiConnectorPolicySettingsDto,
+): Record<McpNumericSettingKey, string> {
+  return {
+    maxActiveConnectionsPerUser: String(settings.maxActiveConnectionsPerUser),
+    inactivityExpiryDays: String(settings.inactivityExpiryDays),
+    expirationWarningDays: String(settings.expirationWarningDays),
+    maxConnectorLifetimeDays: String(settings.maxConnectorLifetimeDays),
+  };
+}
+
+function parseMcpNumericDrafts(
+  drafts: Record<McpNumericSettingKey, string>,
+): Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey> {
+  return Object.fromEntries(MCP_NUMERIC_FIELDS.map((field) => {
+    const value = Number(drafts[field.key]);
+    if (!Number.isInteger(value) || value < field.min || value > field.max) {
+      throw new Error(`${field.label} must be an integer from ${field.min} to ${field.max}.`);
+    }
+    return [field.key, value];
+  })) as Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey>;
+}
+
 // KZO-159: Predefined chip palette for the Dashboard Timeframe Defaults section.
 // `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (4 items) is the fallback active selection;
 // this 6-chip palette includes longer ranges that admins commonly toggle on.
@@ -87,6 +128,8 @@ function formatTimestamp(dateStr: string): string {
 
 function AdminMcpSettingsPanel({ active }: { active: boolean }) {
   const [settings, setSettings] = useState<AiConnectorPolicySettingsDto | null>(null);
+  const [issuerDraft, setIssuerDraft] = useState("");
+  const [numericDrafts, setNumericDrafts] = useState<Record<McpNumericSettingKey, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -96,7 +139,11 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     let cancelled = false;
     getJson<AiConnectorPolicySettingsDto>("/admin/mcp/settings")
       .then((next) => {
-        if (!cancelled) setSettings(next);
+        if (!cancelled) {
+          setSettings(next);
+          setIssuerDraft(next.oauthPublicIssuer ?? "");
+          setNumericDrafts(numericDraftsFromSettings(next));
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load MCP settings.");
@@ -104,7 +151,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     return () => { cancelled = true; };
   }, [active, settings]);
 
-  async function save(patch: Partial<AiConnectorPolicySettingsDto>) {
+  async function save(patch: Partial<AiConnectorPolicySettingsDto> & { mcpOauthTokenSecret?: string | null }) {
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -116,6 +163,8 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
         { headers: { "x-vakwen-fresh-auth-at": token.freshAuthToken } },
       );
       setSettings(updated);
+      setIssuerDraft(updated.oauthPublicIssuer ?? "");
+      setNumericDrafts(numericDraftsFromSettings(updated));
       setSuccess("MCP settings saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save MCP settings.");
@@ -127,10 +176,30 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
   if (!settings) {
     return (
       <Card data-testid="admin-settings-mcp-section">
-        <p className="text-sm text-slate-600">{error ?? "Loading MCP settings..."}</p>
+        <p
+          className="text-sm text-slate-600"
+          role={error ? "alert" : "status"}
+          aria-live="polite"
+          aria-busy={error ? undefined : true}
+        >
+          {error ?? "Loading MCP settings..."}
+        </p>
       </Card>
     );
   }
+
+  const allGroupsDisabled = !settings.groupToggles.read
+    && !settings.groupToggles.drafts
+    && !settings.groupToggles.write;
+  const currentNumericDrafts = numericDrafts ?? numericDraftsFromSettings(settings);
+  let numericValidation: string | null = null;
+  let numericPatch: Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey> | null = null;
+  try {
+    numericPatch = parseMcpNumericDrafts(currentNumericDrafts);
+  } catch (err) {
+    numericValidation = err instanceof Error ? err.message : "Numeric MCP settings are invalid.";
+  }
+  const numericDirty = MCP_NUMERIC_FIELDS.some((field) => currentNumericDrafts[field.key] !== String(settings[field.key]));
 
   return (
     <Card data-testid="admin-settings-mcp-section">
@@ -142,8 +211,8 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           </p>
         </div>
 
-        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-        {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p> : null}
+        {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p> : null}
+        {success ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status" aria-live="polite">{success}</p> : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
@@ -168,44 +237,102 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           ))}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <label className="text-sm font-medium text-slate-700">
-            Max active connectors
-            <input
-              type="number"
-              value={settings.maxActiveConnectionsPerUser}
-              min={1}
-              max={20}
-              disabled={saving}
-              onChange={(event) => void save({ maxActiveConnectionsPerUser: Number(event.target.value) })}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Inactivity expiry days
-            <input
-              type="number"
-              value={settings.inactivityExpiryDays}
-              min={1}
-              max={365}
-              disabled={saving}
-              onChange={(event) => void save({ inactivityExpiryDays: Number(event.target.value) })}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Expiry warning days
-            <input
-              type="number"
-              value={settings.expirationWarningDays}
-              min={1}
-              max={30}
-              disabled={saving}
-              onChange={(event) => void save({ expirationWarningDays: Number(event.target.value) })}
-              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
-          </label>
+        {allGroupsDisabled ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">
+            All MCP tool groups are disabled. New ChatGPT consent approvals are blocked and user connector scope controls stay disabled until an admin re-enables at least one group.
+          </p>
+        ) : null}
+
+        <div className="rounded-xl border border-slate-200 px-4 py-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            {MCP_NUMERIC_FIELDS.map((field) => (
+              <label key={field.key} className="text-sm font-medium text-slate-700">
+                {field.label}
+                <input
+                  type="number"
+                  value={currentNumericDrafts[field.key]}
+                  min={field.min}
+                  max={field.max}
+                  disabled={saving}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setNumericDrafts((current) => ({
+                      ...(current ?? numericDraftsFromSettings(settings)),
+                      [field.key]: value,
+                    }));
+                  }}
+                  className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+                />
+              </label>
+            ))}
+          </div>
+          {numericValidation ? (
+            <p className="mt-3 text-sm text-red-700" role="alert">{numericValidation}</p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={saving || !numericDirty}
+              onClick={() => setNumericDrafts(numericDraftsFromSettings(settings))}
+            >
+              Reset limits
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving || !numericDirty || numericValidation !== null || numericPatch === null}
+              onClick={() => {
+                if (numericPatch) void save(numericPatch);
+              }}
+            >
+              Save limits
+            </Button>
+          </div>
         </div>
+
+        <div className="rounded-xl border border-slate-200 px-4 py-4">
+          <label className="text-sm font-medium text-slate-700">
+            Public OAuth issuer
+            <input
+              type="url"
+              value={issuerDraft}
+              disabled={saving}
+              placeholder="https://api.example.com"
+              onChange={(event) => setIssuerDraft(event.target.value)}
+              className="mt-1 block w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+          </label>
+          <div className="mt-3 flex justify-end gap-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={saving}
+              onClick={() => {
+                setIssuerDraft(settings.oauthPublicIssuer ?? "");
+              }}
+            >
+              Reset
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving}
+              onClick={() => void save({ oauthPublicIssuer: issuerDraft.trim() || null })}
+            >
+              Save issuer
+            </Button>
+          </div>
+        </div>
+
+        <MaskedSecretInput
+          fieldKey="mcp-oauth-token-secret"
+          label="MCP OAuth token secret"
+          description="HMAC secret used to sign MCP access tokens and hash OAuth codes and refresh tokens."
+          isSet={settings.oauthTokenSecretSet}
+          secretLengthBounds={{ min: 32, max: 500 }}
+          disabled={saving}
+          onRotate={(plaintext) => save({ mcpOauthTokenSecret: plaintext })}
+          onClear={() => save({ mcpOauthTokenSecret: null })}
+        />
       </div>
     </Card>
   );

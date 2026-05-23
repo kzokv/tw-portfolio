@@ -5,9 +5,9 @@
 //                      ticker, quantity>0, unitPrice>0).
 //   [tuple-gate-neg]   Section does NOT appear when ticker is empty
 //                      (representative negative case for the 4-tuple gate).
-//   [unavailable-degrade] When 4-tuple holds but the backend returns null
-//                         fee-estimate, the section STILL renders with
-//                         "estimate unavailable" copy + override input.
+//   [unavailable-degrade] When 4-tuple holds but the estimate endpoint fails,
+//                         the section STILL renders with "estimate unavailable"
+//                         copy + override input.
 //   [override-persistence] Typed override in commissionOverrideInput persists
 //                          across quantity changes (no auto-clear).
 //   [tax-buy-absent]   Tax section absent for BUY (gate by `value.type === "SELL"`).
@@ -65,6 +65,7 @@ test.describe("ui-enhancement — AddTransactionCard fee/tax 4-tuple render gate
     settings,
     transactions,
   }) => {
+    await transactions.arrange.stubTransactionEstimateFailure();
     await settings.arrange.seedInstruments([ACCDEL04]);
     await appShell.actions.navigateToRoute("/transactions");
 
@@ -75,8 +76,6 @@ test.describe("ui-enhancement — AddTransactionCard fee/tax 4-tuple render gate
     await transactions.actions.fillUnitPrice(100);
 
     await transactions.assert.commissionEstimateSectionIsVisible();
-    // Memory backend doesn't compute a real estimate for ACCDEL04 (no profile
-    // rule matches the synthetic ticker), so the degradation path fires.
     await transactions.assert.commissionEstimateUnavailableIsVisible();
     await transactions.assert.commissionOverrideInputIsVisible();
   });

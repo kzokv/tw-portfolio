@@ -35,6 +35,9 @@ function fakeApp() {
         inactivityExpiryDays: 90,
         expirationWarningDays: 7,
         freshAuthMaxAgeMs: 600_000,
+        maxConnectorLifetimeDays: 90,
+        oauthPublicIssuer: null,
+        oauthTokenSecretSet: false,
         updatedAt: new Date(0).toISOString(),
       }),
     },
@@ -51,6 +54,9 @@ function fakeAppWithGroupDisabled() {
     inactivityExpiryDays: 90,
     expirationWarningDays: 7,
     freshAuthMaxAgeMs: 600_000,
+    maxConnectorLifetimeDays: 90,
+    oauthPublicIssuer: null,
+    oauthTokenSecretSet: false,
     updatedAt: new Date(0).toISOString(),
   });
   return app;

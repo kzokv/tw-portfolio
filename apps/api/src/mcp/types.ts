@@ -27,7 +27,7 @@ export interface McpAuthContext {
   scopes: AiConnectorScope[];
   toolToggles: Record<string, boolean>;
   expiresAt: string | null;
-  authMode: "dev_token" | "unconfigured";
+  authMode: "dev_token" | "oauth" | "unconfigured";
 }
 
 export interface McpRequestContext {
@@ -49,7 +49,7 @@ export interface McpProtectedResourceMetadata {
 
 export interface McpAuthService {
   authenticateRequest(app: FastifyInstance, req: FastifyRequest): Promise<McpAuthContext>;
-  getProtectedResourceMetadata(req: FastifyRequest): McpProtectedResourceMetadata;
+  getProtectedResourceMetadata(app: FastifyInstance, req: FastifyRequest): Promise<McpProtectedResourceMetadata>;
 }
 
 export interface McpAuthorizationDecision {

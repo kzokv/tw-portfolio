@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@vakwen/domain";
 import { marketCodeFor } from "@vakwen/shared-types";
-import type { DividendLedgerAggregates, DividendSourceLine, ShareCapability, TickerFundamentalsDto } from "@vakwen/shared-types";
+import type {
+  AiConnectorProvider,
+  DividendLedgerAggregates,
+  DividendSourceLine,
+  ShareCapability,
+  TickerFundamentalsDto,
+} from "@vakwen/shared-types";
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
@@ -71,6 +77,8 @@ import type {
   ListInboundSharesForGranteeResult,
   ListSharesForOwnerResult,
   MaterializePendingSharesInput,
+  McpOAuthAuthorizationCodeRecord,
+  McpOAuthAuthorizationRequestRecord,
   PendingShareInviteRecord,
   PersistedTickerFundamentalsRecord,
   RevokeAnonymousShareTokenInput,
@@ -79,10 +87,14 @@ import type {
   RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
   AggregatedSnapshotPoint,
+  ActivateAiConnectorConnectionReplacingProviderInput,
   AiConnectorAccessLogRecord,
+  AiConnectorCredentialRecord,
   AiConnectorConnectionRecord,
   AiConnectorPolicySettingsRecord,
   AiTransactionDraftBatchAggregate,
+  ApproveMcpOAuthAuthorizationRequestInput,
+  ApproveMcpOAuthAuthorizationRequestResult,
   AiTransactionDraftBatchRecord,
   AiTransactionDraftEventRecord,
   AiTransactionDraftRowRecord,
@@ -93,8 +105,11 @@ import type {
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthUpsert,
+  SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
+  SaveMcpOAuthAuthorizationCodeInput,
+  SaveMcpOAuthAuthorizationRequestInput,
   SaveAiTransactionDraftBatchInput,
   SaveAiTransactionDraftRowInput,
   SaveAiTransactionDraftUnsupportedItemInput,
@@ -331,6 +346,9 @@ export class MemoryPersistence implements Persistence {
   private readonly portfolioShareCapabilities = new Map<string, MemoryCapabilityGrant[]>();
   private readonly pendingShareInviteCapabilities = new Map<string, MemoryCapabilityGrant[]>();
   private readonly aiConnectorConnections = new Map<string, AiConnectorConnectionRecord>();
+  private readonly mcpOAuthAuthorizationRequests = new Map<string, McpOAuthAuthorizationRequestRecord>();
+  private readonly mcpOAuthAuthorizationCodes = new Map<string, McpOAuthAuthorizationCodeRecord>();
+  private readonly aiConnectorCredentials = new Map<string, AiConnectorCredentialRecord>();
   private readonly aiConnectorAccessLogs: AiConnectorAccessLogRecord[] = [];
   private aiConnectorPolicySettings: AiConnectorPolicySettingsRecord = {
     enabled: true,
@@ -340,6 +358,9 @@ export class MemoryPersistence implements Persistence {
     inactivityExpiryDays: 90,
     expirationWarningDays: 7,
     freshAuthMaxAgeMs: 600_000,
+    maxConnectorLifetimeDays: 90,
+    oauthPublicIssuer: null,
+    oauthTokenSecretSet: false,
     updatedAt: new Date(0).toISOString(),
   };
   private readonly aiTransactionDraftBatches = new Map<string, AiTransactionDraftBatchRecord>();
@@ -362,6 +383,7 @@ export class MemoryPersistence implements Persistence {
    *  null = unset, callers (resolvers) fall back to env. */
   private _finmindApiTokenEncrypted: string | null = null;
   private _twelveDataApiKeyEncrypted: string | null = null;
+  private _mcpOauthTokenSecretEncrypted: string | null = null;
   /** KZO-198: Tier 1/2 plain overrides — keyed by AppConfigPlainField. */
   private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, number | null>> = {};
   /** KZO-196: AU GICS sync cron override. null = use Env.ASX_GICS_REFRESH_CRON. */
@@ -1034,6 +1056,7 @@ export class MemoryPersistence implements Persistence {
       ...this.aiConnectorPolicySettings,
       allowedProviders: { ...this.aiConnectorPolicySettings.allowedProviders },
       groupToggles: { ...this.aiConnectorPolicySettings.groupToggles },
+      oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
     };
   }
 
@@ -1041,6 +1064,7 @@ export class MemoryPersistence implements Persistence {
     this.aiConnectorPolicySettings = {
       ...this.aiConnectorPolicySettings,
       ...input,
+      oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
       allowedProviders: {
         ...this.aiConnectorPolicySettings.allowedProviders,
         ...(input.allowedProviders ?? {}),
@@ -1052,6 +1076,317 @@ export class MemoryPersistence implements Persistence {
       updatedAt: new Date().toISOString(),
     };
     return this.getAiConnectorPolicySettings();
+  }
+
+  async saveMcpOAuthAuthorizationRequest(
+    input: SaveMcpOAuthAuthorizationRequestInput,
+  ): Promise<McpOAuthAuthorizationRequestRecord> {
+    this.assertUserExists(input.userId);
+    const existing = this.mcpOAuthAuthorizationRequests.get(input.id);
+    const record: McpOAuthAuthorizationRequestRecord = {
+      id: input.id,
+      userId: input.userId,
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      state: input.state ?? null,
+      resource: input.resource,
+      scopes: [...new Set(input.scopes)].sort(),
+      codeChallenge: input.codeChallenge,
+      codeChallengeMethod: input.codeChallengeMethod,
+      csrfTokenHash: input.csrfTokenHash,
+      expiresAt: input.expiresAt,
+      approvedAt: input.approvedAt ?? existing?.approvedAt ?? null,
+      deniedAt: input.deniedAt ?? existing?.deniedAt ?? null,
+      createdAt: input.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
+    };
+    this.mcpOAuthAuthorizationRequests.set(record.id, record);
+    return { ...record, scopes: [...record.scopes] };
+  }
+
+  async getMcpOAuthAuthorizationRequest(id: string): Promise<McpOAuthAuthorizationRequestRecord | null> {
+    const record = this.mcpOAuthAuthorizationRequests.get(id);
+    return record ? { ...record, scopes: [...record.scopes] } : null;
+  }
+
+  async approveMcpOAuthAuthorizationRequest(
+    input: ApproveMcpOAuthAuthorizationRequestInput,
+  ): Promise<ApproveMcpOAuthAuthorizationRequestResult | null> {
+    this.assertUserExists(input.userId);
+    const request = this.mcpOAuthAuthorizationRequests.get(input.requestId);
+    if (!request || request.userId !== input.userId) return null;
+    if (request.approvedAt || request.deniedAt || Date.parse(request.expiresAt) <= Date.now()) return null;
+
+    const connectionInput = input.connection;
+    if (
+      connectionInput.userId !== request.userId
+      || input.code.userId !== request.userId
+      || input.code.connectionId !== connectionInput.id
+    ) {
+      throw routeError(400, "mcp_oauth_invalid_transition", "OAuth approval artifacts do not match the pending request");
+    }
+
+    const now = new Date().toISOString();
+    const connection: AiConnectorConnectionRecord = {
+      id: connectionInput.id,
+      userId: connectionInput.userId,
+      provider: connectionInput.provider,
+      displayName: connectionInput.displayName,
+      status: connectionInput.status,
+      oauthClientId: connectionInput.oauthClientId ?? null,
+      oauthSubject: connectionInput.oauthSubject ?? null,
+      scopes: [...new Set(connectionInput.scopes)].sort(),
+      toolToggles: this.normalizeToolToggles(connectionInput.toolToggles ?? {}),
+      expiresAt: connectionInput.expiresAt ?? null,
+      expiryNotifiedAt: connectionInput.expiryNotifiedAt ?? null,
+      lastUsedAt: connectionInput.lastUsedAt ?? null,
+      revokedAt: connectionInput.revokedAt ?? null,
+      revokedByUserId: connectionInput.revokedByUserId ?? null,
+      revocationReason: connectionInput.revocationReason ?? null,
+      createdAt: connectionInput.createdAt ?? now,
+      updatedAt: connectionInput.updatedAt ?? now,
+    };
+    this.aiConnectorConnections.set(connection.id, connection);
+
+    const codeInput = input.code;
+    const code: McpOAuthAuthorizationCodeRecord = {
+      id: codeInput.id,
+      codeHash: codeInput.codeHash,
+      connectionId: codeInput.connectionId,
+      userId: codeInput.userId,
+      clientId: codeInput.clientId,
+      redirectUri: codeInput.redirectUri,
+      resource: codeInput.resource,
+      scopes: [...new Set(codeInput.scopes)].sort(),
+      codeChallenge: codeInput.codeChallenge,
+      codeChallengeMethod: codeInput.codeChallengeMethod,
+      expiresAt: codeInput.expiresAt,
+      consumedAt: codeInput.consumedAt ?? null,
+      createdAt: codeInput.createdAt ?? now,
+    };
+    this.mcpOAuthAuthorizationCodes.set(code.id, code);
+
+    const settled: McpOAuthAuthorizationRequestRecord = {
+      ...request,
+      approvedAt: input.approvedAt,
+      deniedAt: null,
+    };
+    this.mcpOAuthAuthorizationRequests.set(request.id, settled);
+    return {
+      request: { ...settled, scopes: [...settled.scopes] },
+      connection: { ...connection, scopes: [...connection.scopes], toolToggles: { ...connection.toolToggles } },
+    };
+  }
+
+  async settleMcpOAuthAuthorizationRequest(
+    id: string,
+    userId: string,
+    decision: "approved" | "denied",
+    decidedAt: string,
+  ): Promise<McpOAuthAuthorizationRequestRecord | null> {
+    const record = this.mcpOAuthAuthorizationRequests.get(id);
+    if (!record || record.userId !== userId) return null;
+    if (record.approvedAt || record.deniedAt || Date.parse(record.expiresAt) <= Date.now()) return null;
+    const next: McpOAuthAuthorizationRequestRecord = {
+      ...record,
+      approvedAt: decision === "approved" ? decidedAt : null,
+      deniedAt: decision === "denied" ? decidedAt : null,
+    };
+    this.mcpOAuthAuthorizationRequests.set(id, next);
+    return { ...next, scopes: [...next.scopes] };
+  }
+
+  async saveMcpOAuthAuthorizationCode(
+    input: SaveMcpOAuthAuthorizationCodeInput,
+  ): Promise<McpOAuthAuthorizationCodeRecord> {
+    this.assertUserExists(input.userId);
+    if (!this.aiConnectorConnections.has(input.connectionId)) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    const existing = this.mcpOAuthAuthorizationCodes.get(input.id);
+    const record: McpOAuthAuthorizationCodeRecord = {
+      id: input.id,
+      codeHash: input.codeHash,
+      connectionId: input.connectionId,
+      userId: input.userId,
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      resource: input.resource,
+      scopes: [...new Set(input.scopes)].sort(),
+      codeChallenge: input.codeChallenge,
+      codeChallengeMethod: input.codeChallengeMethod,
+      expiresAt: input.expiresAt,
+      consumedAt: input.consumedAt ?? existing?.consumedAt ?? null,
+      createdAt: input.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
+    };
+    this.mcpOAuthAuthorizationCodes.set(record.id, record);
+    return { ...record, scopes: [...record.scopes] };
+  }
+
+  async consumeMcpOAuthAuthorizationCode(codeHash: string): Promise<McpOAuthAuthorizationCodeRecord | null> {
+    const now = new Date().toISOString();
+    for (const [id, record] of this.mcpOAuthAuthorizationCodes.entries()) {
+      if (record.codeHash !== codeHash) continue;
+      if (record.consumedAt || Date.parse(record.expiresAt) <= Date.now()) return null;
+      const next = { ...record, consumedAt: now };
+      this.mcpOAuthAuthorizationCodes.set(id, next);
+      return { ...next, scopes: [...next.scopes] };
+    }
+    return null;
+  }
+
+  async activateAiConnectorConnectionReplacingProvider(input: ActivateAiConnectorConnectionReplacingProviderInput) {
+    const current = this.aiConnectorConnections.get(input.connectionId);
+    if (
+      !current
+      || current.userId !== input.userId
+      || current.provider !== input.provider
+      || current.status !== "pending"
+    ) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const activeOtherProviderCount = [...this.aiConnectorConnections.values()].filter((connection) =>
+      connection.userId === input.userId
+      && connection.provider !== input.provider
+      && connection.status === "active"
+      && (!connection.expiresAt || Date.parse(connection.expiresAt) > Date.now())
+    ).length;
+    if (activeOtherProviderCount >= input.maxActiveConnectionsPerUser) {
+      return null;
+    }
+
+    const revokedConnectionIds: string[] = [];
+    for (const [id, connection] of this.aiConnectorConnections.entries()) {
+      if (id === input.connectionId) continue;
+      if (connection.userId !== input.userId || connection.provider !== input.provider) continue;
+      if (connection.status === "revoked" || connection.status === "expired") continue;
+      revokedConnectionIds.push(id);
+      this.aiConnectorConnections.set(id, {
+        ...connection,
+        status: "revoked",
+        revokedAt: now,
+        revokedByUserId: input.revokedByUserId ?? null,
+        revocationReason: input.revocationReason,
+        updatedAt: now,
+      });
+      for (const [credentialId, credential] of this.aiConnectorCredentials.entries()) {
+        if (credential.connectionId !== id || credential.revokedAt) continue;
+        this.aiConnectorCredentials.set(credentialId, {
+          ...credential,
+          revokedAt: now,
+        });
+      }
+    }
+
+    const activated: AiConnectorConnectionRecord = {
+      ...current,
+      status: "active",
+      oauthClientId: input.oauthClientId ?? current.oauthClientId,
+      oauthSubject: input.oauthSubject ?? current.oauthSubject,
+      lastUsedAt: input.lastUsedAt ?? now,
+      updatedAt: now,
+    };
+    this.aiConnectorConnections.set(input.connectionId, activated);
+    return {
+      connection: { ...activated, scopes: [...activated.scopes], toolToggles: { ...activated.toolToggles } },
+      revokedConnectionIds,
+    };
+  }
+
+  async saveAiConnectorCredential(input: SaveAiConnectorCredentialInput): Promise<AiConnectorCredentialRecord> {
+    if (!this.aiConnectorConnections.has(input.connectionId)) {
+      throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
+    }
+    const existing = this.aiConnectorCredentials.get(input.id);
+    const record: AiConnectorCredentialRecord = {
+      id: input.id,
+      connectionId: input.connectionId,
+      credentialType: input.credentialType,
+      tokenHash: input.tokenHash,
+      tokenHint: input.tokenHint ?? existing?.tokenHint ?? null,
+      tokenFamilyId: input.tokenFamilyId ?? existing?.tokenFamilyId ?? null,
+      predecessorCredentialId: input.predecessorCredentialId ?? existing?.predecessorCredentialId ?? null,
+      replacedByCredentialId: input.replacedByCredentialId ?? existing?.replacedByCredentialId ?? null,
+      oauthClientId: input.oauthClientId ?? existing?.oauthClientId ?? null,
+      resource: input.resource ?? existing?.resource ?? null,
+      scopes: [...new Set(input.scopes ?? existing?.scopes ?? [])].sort(),
+      sessionVersion: input.sessionVersion ?? existing?.sessionVersion ?? null,
+      expiresAt: input.expiresAt ?? existing?.expiresAt ?? null,
+      revokedAt: input.revokedAt ?? existing?.revokedAt ?? null,
+      createdAt: input.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
+      lastUsedAt: input.lastUsedAt ?? existing?.lastUsedAt ?? null,
+    };
+    this.aiConnectorCredentials.set(record.id, record);
+    return { ...record, scopes: [...record.scopes] };
+  }
+
+  async getAiConnectorCredentialByHash(tokenHash: string): Promise<AiConnectorCredentialRecord | null> {
+    const record = [...this.aiConnectorCredentials.values()].find((item) => item.tokenHash === tokenHash);
+    return record ? { ...record, scopes: [...record.scopes] } : null;
+  }
+
+  async consumeAiConnectorCredential(id: string): Promise<AiConnectorCredentialRecord | null> {
+    const record = this.aiConnectorCredentials.get(id);
+    if (!record || record.revokedAt || record.replacedByCredentialId) return null;
+    const now = new Date().toISOString();
+    const next: AiConnectorCredentialRecord = {
+      ...record,
+      revokedAt: now,
+      lastUsedAt: now,
+    };
+    this.aiConnectorCredentials.set(id, next);
+    return { ...next, scopes: [...next.scopes] };
+  }
+
+  async revokeAiConnectorCredential(
+    id: string,
+    replacedByCredentialId: string | null = null,
+  ): Promise<AiConnectorCredentialRecord | null> {
+    const record = this.aiConnectorCredentials.get(id);
+    if (!record) return null;
+    const next: AiConnectorCredentialRecord = {
+      ...record,
+      revokedAt: record.revokedAt ?? new Date().toISOString(),
+      replacedByCredentialId: replacedByCredentialId ?? record.replacedByCredentialId,
+      lastUsedAt: new Date().toISOString(),
+    };
+    this.aiConnectorCredentials.set(id, next);
+    return { ...next, scopes: [...next.scopes] };
+  }
+
+  async revokeAiConnectorCredentialsForConnection(connectionId: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const [id, record] of this.aiConnectorCredentials.entries()) {
+      if (record.connectionId !== connectionId || record.revokedAt) continue;
+      this.aiConnectorCredentials.set(id, { ...record, revokedAt: now });
+    }
+  }
+
+  async revokeAiConnectorConnectionsForProvider(
+    provider: AiConnectorProvider,
+    reason: string,
+    revokedByUserId: string | null = null,
+  ): Promise<number> {
+    const now = new Date().toISOString();
+    const revokedConnectionIds = new Set<string>();
+    for (const [id, connection] of this.aiConnectorConnections.entries()) {
+      if (connection.provider !== provider || (connection.status !== "active" && connection.status !== "pending")) continue;
+      revokedConnectionIds.add(id);
+      this.aiConnectorConnections.set(id, {
+        ...connection,
+        status: "revoked",
+        revokedAt: connection.revokedAt ?? now,
+        revokedByUserId,
+        revocationReason: reason,
+        updatedAt: now,
+      });
+    }
+    for (const [id, credential] of this.aiConnectorCredentials.entries()) {
+      if (!revokedConnectionIds.has(credential.connectionId) || credential.revokedAt) continue;
+      this.aiConnectorCredentials.set(id, { ...credential, revokedAt: now });
+    }
+    return revokedConnectionIds.size;
   }
 
   async appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord> {
@@ -3050,6 +3385,7 @@ export class MemoryPersistence implements Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
     marketDataSearchWindowMs: number | null;
@@ -3089,6 +3425,7 @@ export class MemoryPersistence implements Persistence {
       metadataEnrichmentMode: this._metadataEnrichmentMode,
       finmindApiTokenEncrypted: this._finmindApiTokenEncrypted,
       twelveDataApiKeyEncrypted: this._twelveDataApiKeyEncrypted,
+      mcpOauthTokenSecretEncrypted: this._mcpOauthTokenSecretEncrypted,
       marketDataPriceWindowMs: p.marketDataPriceWindowMs ?? null,
       marketDataPriceLimit: p.marketDataPriceLimit ?? null,
       marketDataSearchWindowMs: p.marketDataSearchWindowMs ?? null,
@@ -3142,15 +3479,21 @@ export class MemoryPersistence implements Persistence {
   }
 
   async setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey",
+    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void> {
     const { encryptSecret } = await import("../services/appConfig/encryption.js");
     const stored = plaintext === null ? null : encryptSecret(plaintext);
     if (field === "finmindApiToken") {
       this._finmindApiTokenEncrypted = stored;
-    } else {
+    } else if (field === "twelveDataApiKey") {
       this._twelveDataApiKeyEncrypted = stored;
+    } else {
+      this._mcpOauthTokenSecretEncrypted = stored;
+      this.aiConnectorPolicySettings = {
+        ...this.aiConnectorPolicySettings,
+        oauthTokenSecretSet: stored !== null,
+      };
     }
     this._bumpAppConfigUpdatedAt();
   }
@@ -3174,7 +3517,8 @@ export class MemoryPersistence implements Persistence {
 
     if (
       Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
-      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")
+      Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey") ||
+      Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")
     ) {
       const { encryptSecret } = await import("../services/appConfig/encryption.js");
       if (Object.prototype.hasOwnProperty.call(patch, "finmindApiToken")) {
@@ -3185,6 +3529,15 @@ export class MemoryPersistence implements Persistence {
       if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
         this._twelveDataApiKeyEncrypted =
           patch.twelveDataApiKey == null ? null : encryptSecret(patch.twelveDataApiKey);
+        touched = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")) {
+        this._mcpOauthTokenSecretEncrypted =
+          patch.mcpOauthTokenSecret == null ? null : encryptSecret(patch.mcpOauthTokenSecret);
+        this.aiConnectorPolicySettings = {
+          ...this.aiConnectorPolicySettings,
+          oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
+        };
         touched = true;
       }
     }

@@ -4,6 +4,7 @@ import { buildApp } from "../../src/app.js";
 import { createAiConnectorConnection } from "../../src/services/mcpConnectorLifecycle.js";
 import { createTransactionDraftBatch } from "../../src/services/mcpDrafts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
+import { mcpDevTokenAllowedForRuntime } from "../../src/mcp/auth.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -88,6 +89,13 @@ describe("mcp routes", () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ error: "mcp_auth_required" });
+    expect(response.headers["www-authenticate"]).toContain("resource_metadata=");
+  });
+
+  it("keeps unsigned dev MCP bearer tokens out of production runtime", () => {
+    expect(mcpDevTokenAllowedForRuntime("production")).toBe(false);
+    expect(mcpDevTokenAllowedForRuntime("development")).toBe(true);
+    expect(mcpDevTokenAllowedForRuntime("test")).toBe(true);
   });
 
   it("requires fresh auth for high-risk MCP admin settings changes", async () => {
@@ -126,6 +134,49 @@ describe("mcp routes", () => {
       maxActiveConnectionsPerUser: 2,
       groupToggles: { read: false, drafts: true, write: false },
     });
+  });
+
+  it("revokes existing ChatGPT OAuth connectors when the MCP OAuth token secret changes", async () => {
+    await app.persistence.saveAiConnectorConnection({
+      id: "chatgpt-connection-1",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "active",
+      scopes: ["portfolio:mcp_read"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    await app.persistence.saveAiConnectorCredential({
+      id: "refresh-credential-1",
+      connectionId: "chatgpt-connection-1",
+      credentialType: "oauth_refresh_token",
+      tokenHash: "token-hash-1",
+      tokenFamilyId: "family-1",
+      oauthClientId: "chatgpt",
+      resource: "http://localhost:4000/mcp",
+      scopes: ["portfolio:mcp_read"],
+      sessionVersion: 1,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const freshAuth = await app.inject({ method: "POST", url: "/admin/mcp/fresh-auth" });
+    const { freshAuthToken } = freshAuth.json<{ freshAuthToken: string }>();
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/mcp/settings",
+      headers: { "x-vakwen-fresh-auth-at": freshAuthToken },
+      payload: { mcpOauthTokenSecret: "rotated-mcp-oauth-token-secret-that-is-long-enough" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ oauthTokenSecretSet: true });
+
+    const connection = await app.persistence.getAiConnectorConnection("chatgpt-connection-1");
+    expect(connection).toMatchObject({
+      status: "revoked",
+      revocationReason: "mcp_oauth_secret_rotated",
+    });
+    const credential = await app.persistence.getAiConnectorCredentialByHash("token-hash-1");
+    expect(credential?.revokedAt).toBeTruthy();
   });
 
   it("records access logs for MCP policy denials", async () => {

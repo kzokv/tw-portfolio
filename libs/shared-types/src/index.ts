@@ -873,7 +873,7 @@ export interface AppConfigDto {
 // ── AI connector + MCP draft types (KZO-210+) ──────────────────────────────
 
 export type AiConnectorProvider = "chatgpt" | "self_hosted";
-export type AiConnectorStatus = "active" | "expired" | "revoked";
+export type AiConnectorStatus = "pending" | "active" | "expired" | "revoked";
 export type AiConnectorScope =
   | "portfolio:mcp_read"
   | "transaction_draft:create"
@@ -939,7 +939,25 @@ export interface AiConnectorPolicySettingsDto {
   inactivityExpiryDays: number;
   expirationWarningDays: number;
   freshAuthMaxAgeMs: number;
+  maxConnectorLifetimeDays: number;
+  oauthPublicIssuer: string | null;
+  oauthTokenSecretSet: boolean;
   updatedAt: string;
+}
+
+export interface McpOAuthConsentRequestDto {
+  requestId: string;
+  clientId: string;
+  redirectUri: string;
+  resource: string;
+  scopes: AiConnectorScope[];
+  csrfToken: string;
+  expiresAt: string;
+  policy: Pick<AiConnectorPolicySettingsDto, "maxConnectorLifetimeDays" | "groupToggles">;
+}
+
+export interface McpOAuthConsentDecisionDto {
+  redirectUrl: string;
 }
 
 export interface AiConnectorAccessLogDto {

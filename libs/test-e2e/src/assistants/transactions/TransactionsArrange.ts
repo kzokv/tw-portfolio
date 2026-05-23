@@ -1,8 +1,22 @@
+import { Step } from "@vakwen/test-framework/decorators";
 import { BaseArrange } from "@vakwen/test-framework/mixins";
 
 import type { TransactionsPage } from "../../pages/transactions/TransactionsPage.js";
 
-/** Empty — required by createAssistantFactory's AAA triple. Add page-specific setup here when needed. */
 export class TransactionsArrange extends BaseArrange {
   declare protected readonly _instance: TransactionsPage;
+
+  @Step()
+  async stubTransactionEstimateFailure(): Promise<void> {
+    await this.page.route("**/portfolio/transactions/estimate", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "estimate_unavailable",
+          error: "estimate_unavailable",
+          message: "Estimate temporarily unavailable",
+        }),
+      }));
+  }
 }

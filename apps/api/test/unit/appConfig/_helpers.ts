@@ -29,6 +29,7 @@ export function fakePersistenceWithAppConfig(
     metadataEnrichmentMode: null,
     finmindApiTokenEncrypted: null,
     twelveDataApiKeyEncrypted: null,
+    mcpOauthTokenSecretEncrypted: null,
     marketDataPriceWindowMs: null,
     marketDataPriceLimit: null,
     marketDataSearchWindowMs: null,

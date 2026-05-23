@@ -194,7 +194,18 @@ export async function createAiConnectorConnection(
     throw routeError(403, "mcp_provider_disabled", `AI connector provider ${input.provider} is disabled`);
   }
   const existing = await app.persistence.listAiConnectorConnectionsForUser(input.userId);
-  const activeCount = existing.filter((connection) => activeConnection(connection)).length;
+  for (const connection of existing) {
+    if (
+      connection.provider === input.provider
+      && connection.status === "active"
+      && connection.expiresAt
+      && Date.parse(connection.expiresAt) <= Date.now()
+    ) {
+      await expireAiConnectorConnection(app, connection, "absolute_expiry");
+    }
+  }
+  const refreshedExisting = await app.persistence.listAiConnectorConnectionsForUser(input.userId);
+  const activeCount = refreshedExisting.filter((connection) => activeConnection(connection)).length;
   if (activeCount >= settings.maxActiveConnectionsPerUser) {
     throw routeError(409, "mcp_connection_limit_exceeded", "AI connector connection limit exceeded");
   }
@@ -246,6 +257,7 @@ export async function revokeAiConnectorConnection(
     revocationReason: input.reason ?? "manual",
     updatedAt: now,
   });
+  await app.persistence.revokeAiConnectorCredentialsForConnection(connection.id);
   await app.persistence.appendAuditLog({
     actorUserId: input.revokedByUserId,
     action: "ai_connector_revoked",
@@ -274,6 +286,7 @@ export async function expireAiConnectorConnection(
     expiryNotifiedAt: connection.expiryNotifiedAt ?? now,
     updatedAt: now,
   });
+  await app.persistence.revokeAiConnectorCredentialsForConnection(connection.id);
   await app.persistence.appendAuditLog({
     actorUserId: null,
     action: "ai_connector_expired",

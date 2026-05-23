@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
+const isManagedPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
+const managedPostgresTimeoutMs = 180_000;
 
 export default defineConfig({
   test: {
@@ -12,7 +14,13 @@ export default defineConfig({
     // otherwise 404 on /__e2e/seed-* even when buildApp is passed memory.
     // KZO-164: FX_PROVIDER_MOCK=true forces the deterministic Frankfurter mock so the
     // registry never reaches the real Frankfurter API in unit/integration tests.
-    env: { AUTH_MODE: "dev_bypass", NODE_ENV: "test", PERSISTENCE_BACKEND: "memory", FX_PROVIDER_MOCK: "true" },
+    env: {
+      AUTH_MODE: "dev_bypass",
+      NODE_ENV: "test",
+      PERSISTENCE_BACKEND: "memory",
+      FX_PROVIDER_MOCK: "true",
+      APP_CONFIG_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    },
     // @ts-expect-error globalTeardown is supported at runtime but missing from InlineConfig in this Vitest version
     globalTeardown: "./test/globalTeardown.ts",
     // Default: terminal only. Use npm scripts or CLI to generate file reports:
@@ -21,6 +29,16 @@ export default defineConfig({
     //   npm run test:junit → test-results/junit.xml
     reporters: ["verbose"],
     include: ["test/**/*.test.ts", "test/**/*.integration.test.ts"],
+    ...(isManagedPostgresIntegration
+      ? {
+          // The managed Postgres gate runs against a Docker DB/Redis stack and
+          // several migration-heavy files legitimately exceed Vitest defaults on
+          // host/VM runners. Keep normal unit-test budgets unchanged.
+          hookTimeout: managedPostgresTimeoutMs,
+          teardownTimeout: managedPostgresTimeoutMs,
+          testTimeout: managedPostgresTimeoutMs,
+        }
+      : {}),
     outputFile: {
       html: "vitest-report/index.html",
       json: "test-results/vitest-results.json",
