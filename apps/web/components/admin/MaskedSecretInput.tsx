@@ -37,6 +37,10 @@ interface MaskedSecretInputProps {
   onClear: () => Promise<void>;
   /** Disable interactions while a peer save is in flight. */
   disabled?: boolean;
+  /** Optional client-side generator for secret values. */
+  onGenerateValue?: () => string;
+  /** Label for the optional generator button. */
+  generateLabel?: string;
   /**
    * Plaintext length window. Defaults to `{ min: 20, max: 500 }` for
    * back-compat. Real call sites should pass `config.secretLengthBounds`
@@ -50,11 +54,22 @@ interface RotateModalProps {
   fieldLabel: string;
   testIdPrefix: string;
   bounds: { min: number; max: number };
+  generateLabel?: string;
+  onGenerateValue?: () => string;
   onSubmit: (plaintext: string) => Promise<void>;
   onCancel: () => void;
 }
 
-function RotateModal({ open, fieldLabel, testIdPrefix, bounds, onSubmit, onCancel }: RotateModalProps) {
+function RotateModal({
+  open,
+  fieldLabel,
+  testIdPrefix,
+  bounds,
+  generateLabel,
+  onGenerateValue,
+  onSubmit,
+  onCancel,
+}: RotateModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -95,6 +110,16 @@ function RotateModal({ open, fieldLabel, testIdPrefix, bounds, onSubmit, onCance
     }
   }
 
+  function handleGenerate() {
+    if (!onGenerateValue) return;
+    try {
+      setValue(onGenerateValue());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate secret.");
+    }
+  }
+
   return (
     <dialog
       ref={dialogRef}
@@ -108,12 +133,25 @@ function RotateModal({ open, fieldLabel, testIdPrefix, bounds, onSubmit, onCance
           Paste the new secret. The existing value is never shown and will be replaced once you save.
         </p>
 
-        <label
-          className="mt-4 block text-sm font-medium text-slate-700"
-          htmlFor={`${testIdPrefix}-rotate-input`}
-        >
-          New value
-        </label>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <label
+            className="block text-sm font-medium text-slate-700"
+            htmlFor={`${testIdPrefix}-rotate-input`}
+          >
+            New value
+          </label>
+          {onGenerateValue ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleGenerate}
+              disabled={submitting}
+              data-testid={`${testIdPrefix}-generate-button`}
+            >
+              {generateLabel ?? "Generate"}
+            </Button>
+          ) : null}
+        </div>
         <input
           id={`${testIdPrefix}-rotate-input`}
           type="password"
@@ -185,6 +223,8 @@ export function MaskedSecretInput({
   onRotate,
   onClear,
   disabled = false,
+  onGenerateValue,
+  generateLabel,
   secretLengthBounds = DEFAULT_SECRET_LENGTH_BOUNDS,
 }: MaskedSecretInputProps) {
   const testIdPrefix = `admin-settings-${fieldKey}`;
@@ -276,6 +316,8 @@ export function MaskedSecretInput({
         fieldLabel={label}
         testIdPrefix={testIdPrefix}
         bounds={secretLengthBounds}
+        generateLabel={generateLabel}
+        onGenerateValue={onGenerateValue}
         onSubmit={handleRotate}
         onCancel={() => setRotateOpen(false)}
       />

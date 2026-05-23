@@ -1,4 +1,9 @@
-import { createHash } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  sign as signCrypto,
+} from "node:crypto";
+import type { KeyObject } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +27,7 @@ const testOAuthConfig = {
   sessionSecret: "test-session-secret-that-is-at-least-32-chars",
 };
 const mcpOAuthTokenSecret = "test-mcp-oauth-token-secret-that-is-long-enough";
+const clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
 function codeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
@@ -29,6 +35,44 @@ function codeChallenge(verifier: string): string {
 
 function form(body: Record<string, string>): string {
   return new URLSearchParams(body).toString();
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function signClientAssertion(input: {
+  clientId: string;
+  tokenEndpoint: string;
+  privateKey: KeyObject;
+  kid?: string;
+  audience?: string;
+  expiresAt?: number;
+  issuedAt?: number;
+  notBefore?: number;
+}): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const payload: Record<string, unknown> = {
+    iss: input.clientId,
+    sub: input.clientId,
+    aud: input.audience ?? input.tokenEndpoint,
+    iat: input.issuedAt ?? nowSeconds,
+    exp: input.expiresAt ?? nowSeconds + 300,
+    jti: "client-assertion-jti",
+  };
+  if (input.notBefore !== undefined) payload.nbf = input.notBefore;
+  const encodedHeader = base64UrlJson({
+    alg: "RS256",
+    typ: "JWT",
+    kid: input.kid ?? "test-key",
+  });
+  const encodedPayload = base64UrlJson(payload);
+  const signature = signCrypto(
+    "RSA-SHA256",
+    Buffer.from(`${encodedHeader}.${encodedPayload}`, "utf8"),
+    input.privateKey,
+  ).toString("base64url");
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
@@ -119,7 +163,8 @@ describe("MCP OAuth for ChatGPT", () => {
       authorization_endpoint: "http://localhost:4000/oauth/authorize",
       token_endpoint: "http://localhost:4000/oauth/token",
       code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      token_endpoint_auth_signing_alg_values_supported: ["RS256"],
       client_id_metadata_document_supported: true,
     });
     const pathScopedAuthorizationServer = await app.inject({
@@ -505,6 +550,75 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(badResource.json()).toMatchObject({ error: "invalid_target" });
   });
 
+  it("accepts admin-configured exact OAuth redirect URI additions", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://connector.example.com/oauth-client.json";
+    const redirectUri = "https://connector.example.com/oauth/callback";
+    await app.persistence.saveAiConnectorPolicySettings({
+      oauthRedirectUriAllowlist: [redirectUri],
+    });
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async () => {
+        const body = JSON.stringify({
+          client_id: clientId,
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource: "http://localhost:4000/mcp",
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(response.statusCode).toBe(302);
+    expect(String(response.headers.location)).toContain("/connectors/chatgpt/authorize?requestId=");
+  });
+
+  it("rejects admin-configured redirect URI additions for arbitrary non-URL clients", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "https://connector.example.com/oauth/callback";
+    await app.persistence.saveAiConnectorPolicySettings({
+      oauthRedirectUriAllowlist: [redirectUri],
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: "chatgpt",
+        redirect_uri: redirectUri,
+        resource: "http://localhost:4000/mcp",
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Custom OAuth redirect URIs require URL client metadata",
+    });
+  });
+
   it("validates URL client_id metadata documents against redirect bindings", async () => {
     const verifier = "verifier-1234567890123456789012345678901234567890123";
     const clientId = "https://client.example/oauth-client.json";
@@ -565,6 +679,219 @@ describe("MCP OAuth for ChatGPT", () => {
     });
     expect(mismatch.statusCode).toBe(400);
     expect(mismatch.json()).toMatchObject({ error: "invalid_request" });
+  });
+
+  it("accepts ChatGPT URL client metadata with private_key_jwt token authentication and root JWKS URI", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://chatgpt.com/oauth/qJslh6tN1MVz/client.json";
+    const redirectUri = "https://chatgpt.com/connector/oauth/qJslh6tN1MVz";
+    const jwksUri = "https://chatgpt.com/";
+    const resource = "http://localhost:4000/mcp";
+    const tokenEndpoint = "http://localhost:4000/oauth/token";
+    const fetchedUrls: string[] = [];
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const publicJwk = {
+      ...publicKey.export({ format: "jwk" }),
+      kid: "chatgpt-test-key",
+      use: "sig",
+      alg: "RS256",
+    };
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async (url) => {
+        fetchedUrls.push(url.toString());
+        const body = url.toString() === clientId
+          ? JSON.stringify({
+            client_id: clientId,
+            client_uri: "https://chatgpt.com/",
+            redirect_uris: [redirectUri],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            client_name: "ChatGPT",
+            token_endpoint_auth_method: "private_key_jwt",
+            token_endpoint_auth_signing_alg: "RS256",
+            jwks_uri: jwksUri,
+          })
+          : JSON.stringify({ keys: [publicJwk] });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+
+    const authorize = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource,
+        scope: "portfolio:mcp_read transaction_draft:create transaction_draft:edit transaction_draft:archive transaction_draft:delete transaction:write",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+        state: "oauth_s_test",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(authorize.statusCode).toBe(302);
+    const requestId = new URL(String(authorize.headers.location)).searchParams.get("requestId");
+    expect(requestId).toBeTruthy();
+
+    const consent = await app.inject({ method: "GET", url: `/oauth/consent/${requestId}` });
+    expect(consent.statusCode).toBe(200);
+    const consentBody = consent.json<{ csrfToken: string; scopes: string[] }>();
+    expect(new Set(consentBody.scopes)).toEqual(new Set([
+      "portfolio:mcp_read",
+      "transaction_draft:create",
+      "transaction_draft:edit",
+      "transaction_draft:archive",
+      "transaction_draft:delete",
+    ]));
+    expect(consentBody.scopes).not.toContain("transaction:write");
+
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: {
+        csrfToken: consentBody.csrfToken,
+        scopes: ["portfolio:mcp_read"],
+        lifetimeDays: 7,
+      },
+    });
+    expect(approve.statusCode).toBe(200);
+    const approveRedirect = new URL(approve.json<{ redirectUrl: string }>().redirectUrl);
+    const code = approveRedirect.searchParams.get("code");
+    expect(approveRedirect.origin + approveRedirect.pathname).toBe(redirectUri);
+    expect(code).toBeTruthy();
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource,
+        client_assertion_type: clientAssertionType,
+        client_assertion: signClientAssertion({
+          clientId,
+          tokenEndpoint,
+          privateKey,
+          kid: "chatgpt-test-key",
+        }),
+      }),
+    });
+    expect(token.statusCode, token.body).toBe(200);
+    expect(token.json<{ scope: string }>().scope).toBe("portfolio:mcp_read");
+    expect(fetchedUrls).toContain(jwksUri);
+  });
+
+  it("rejects private_key_jwt token requests with missing assertions, bad signatures, and bad claims", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const clientId = "https://chatgpt.com/oauth/qJslh6tN1MVz/client.json";
+    const redirectUri = "https://chatgpt.com/connector/oauth/qJslh6tN1MVz";
+    const jwksUri = "https://chatgpt.com/oauth/jwks.json";
+    const resource = "http://localhost:4000/mcp";
+    const tokenEndpoint = "http://localhost:4000/oauth/token";
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { privateKey: wrongPrivateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const publicJwk = {
+      ...publicKey.export({ format: "jwk" }),
+      kid: "chatgpt-test-key",
+      use: "sig",
+      alg: "RS256",
+    };
+    resetClientMetadataNetwork = setMcpOAuthClientMetadataNetworkForTest({
+      resolveHost: async () => [{ address: "203.0.113.10", family: 4 }],
+      readDocument: async (url) => {
+        const body = url.toString() === clientId
+          ? JSON.stringify({
+            client_id: clientId,
+            client_uri: "https://chatgpt.com/",
+            redirect_uris: [redirectUri],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            client_name: "ChatGPT",
+            token_endpoint_auth_method: "private_key_jwt",
+            token_endpoint_auth_signing_alg: "RS256",
+            jwks_uri: jwksUri,
+          })
+          : JSON.stringify({ keys: [publicJwk] });
+        return {
+          statusCode: 200,
+          contentLength: Buffer.byteLength(body, "utf8"),
+          body,
+        };
+      },
+    });
+    const basePayload = {
+      grant_type: "authorization_code",
+      code: "unused-code",
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+      resource,
+    };
+
+    const missingAssertion = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form(basePayload),
+    });
+    expect(missingAssertion.statusCode).toBe(400);
+    expect(missingAssertion.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client private_key_jwt assertion is required",
+    });
+
+    const badAudience = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        ...basePayload,
+        client_assertion_type: clientAssertionType,
+        client_assertion: signClientAssertion({
+          clientId,
+          tokenEndpoint,
+          privateKey,
+          kid: "chatgpt-test-key",
+          audience: "http://localhost:4000/not-token",
+        }),
+      }),
+    });
+    expect(badAudience.statusCode).toBe(400);
+    expect(badAudience.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client assertion audience is invalid",
+    });
+
+    const badSignature = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        ...basePayload,
+        client_assertion_type: clientAssertionType,
+        client_assertion: signClientAssertion({
+          clientId,
+          tokenEndpoint,
+          privateKey: wrongPrivateKey,
+          kid: "chatgpt-test-key",
+        }),
+      }),
+    });
+    expect(badSignature.statusCode).toBe(400);
+    expect(badSignature.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client assertion signature is invalid",
+    });
   });
 
   it("rejects unsafe or oversized URL client_id metadata documents", async () => {
@@ -649,6 +976,8 @@ describe("MCP OAuth for ChatGPT", () => {
       "https://chat.openai.com/aip/g-vakwen/oauth/callback",
       "https://chatgpt.com/aip/oauth/callback",
       "https://chatgpt.com/aip/g-vakwen/oauth/callback",
+      "https://chatgpt.com/connector/oauth/qJslh6tN1MVz",
+      "https://chat.openai.com/connector/oauth/qJslh6tN1MVz",
     ]) {
       const response = await app.inject({
         method: "GET",

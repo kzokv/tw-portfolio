@@ -98,6 +98,51 @@ function parseMcpNumericDrafts(
   })) as Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey>;
 }
 
+const MCP_REDIRECT_ALLOWLIST_EXAMPLES = [
+  "https://chatgpt.com/connector/oauth/<connector-id>",
+  "https://chat.openai.com/connector/oauth/<connector-id>",
+  "https://chatgpt.com/aip/oauth/callback",
+  "https://chatgpt.com/aip/<gpt-id>/oauth/callback",
+] as const;
+
+function redirectAllowlistDraftFromSettings(settings: AiConnectorPolicySettingsDto): string {
+  return settings.oauthRedirectUriAllowlist.join("\n");
+}
+
+function parseRedirectAllowlistDraft(draft: string): string[] {
+  const values = draft
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const normalized: string[] = [];
+  for (const value of values) {
+    if (value.includes("<") || value.includes(">")) {
+      throw new Error("Replace example placeholders before saving redirect URIs.");
+    }
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error("Each redirect URI must be a valid URL.");
+    }
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname === "/") {
+      throw new Error("Each redirect URI must be an exact HTTPS path URL without query or hash.");
+    }
+    normalized.push(url.toString());
+  }
+  return [...new Set(normalized)];
+}
+
+function generateHexSecret(bytes = 32): string {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi?.getRandomValues) {
+    throw new Error("Secure random generation is unavailable in this browser.");
+  }
+  const values = new Uint8Array(bytes);
+  cryptoApi.getRandomValues(values);
+  return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 // KZO-159: Predefined chip palette for the Dashboard Timeframe Defaults section.
 // `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` (4 items) is the fallback active selection;
 // this 6-chip palette includes longer ranges that admins commonly toggle on.
@@ -129,6 +174,7 @@ function formatTimestamp(dateStr: string): string {
 function AdminMcpSettingsPanel({ active }: { active: boolean }) {
   const [settings, setSettings] = useState<AiConnectorPolicySettingsDto | null>(null);
   const [issuerDraft, setIssuerDraft] = useState("");
+  const [redirectAllowlistDraft, setRedirectAllowlistDraft] = useState("");
   const [numericDrafts, setNumericDrafts] = useState<Record<McpNumericSettingKey, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +188,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
         if (!cancelled) {
           setSettings(next);
           setIssuerDraft(next.oauthPublicIssuer ?? "");
+          setRedirectAllowlistDraft(redirectAllowlistDraftFromSettings(next));
           setNumericDrafts(numericDraftsFromSettings(next));
         }
       })
@@ -164,6 +211,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
       );
       setSettings(updated);
       setIssuerDraft(updated.oauthPublicIssuer ?? "");
+      setRedirectAllowlistDraft(redirectAllowlistDraftFromSettings(updated));
       setNumericDrafts(numericDraftsFromSettings(updated));
       setSuccess("MCP settings saved.");
     } catch (err) {
@@ -200,6 +248,22 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     numericValidation = err instanceof Error ? err.message : "Numeric MCP settings are invalid.";
   }
   const numericDirty = MCP_NUMERIC_FIELDS.some((field) => currentNumericDrafts[field.key] !== String(settings[field.key]));
+  let redirectAllowlistValidation: string | null = null;
+  let redirectAllowlistValues: string[] | null = null;
+  try {
+    redirectAllowlistValues = parseRedirectAllowlistDraft(redirectAllowlistDraft);
+  } catch (err) {
+    redirectAllowlistValidation = err instanceof Error ? err.message : "Redirect URI allowlist is invalid.";
+  }
+  const redirectAllowlistSavedDraft = redirectAllowlistDraftFromSettings(settings);
+  const redirectAllowlistDraftChanged = redirectAllowlistDraft !== redirectAllowlistSavedDraft;
+  const redirectAllowlistDirty = redirectAllowlistValues !== null
+    && redirectAllowlistValues.join("\n") !== settings.oauthRedirectUriAllowlist.join("\n");
+  const redirectAllowlistDescriptionIds = [
+    "admin-settings-mcp-redirect-help",
+    "admin-settings-mcp-redirect-examples",
+    redirectAllowlistValidation ? "admin-settings-mcp-redirect-error" : null,
+  ].filter(Boolean).join(" ");
 
   return (
     <Card data-testid="admin-settings-mcp-section">
@@ -323,6 +387,55 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           </div>
         </div>
 
+        <div className="rounded-xl border border-slate-200 px-4 py-4">
+          <label className="text-sm font-medium text-slate-700">
+            Additional redirect URI allowlist
+            <textarea
+              value={redirectAllowlistDraft}
+              disabled={saving}
+              placeholder="https://chatgpt.com/connector/oauth/abc123"
+              onChange={(event) => setRedirectAllowlistDraft(event.target.value)}
+              className="mt-1 block min-h-28 w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm"
+              data-testid="admin-settings-mcp-redirect-allowlist"
+              aria-describedby={redirectAllowlistDescriptionIds}
+              aria-invalid={redirectAllowlistValidation ? true : undefined}
+            />
+          </label>
+          <p id="admin-settings-mcp-redirect-help" className="mt-2 text-xs text-slate-500">
+            One exact HTTPS redirect URI per line. Built-in ChatGPT redirect patterns are always allowed.
+          </p>
+          <div id="admin-settings-mcp-redirect-examples" className="mt-3 rounded-xl bg-slate-50 px-3 py-3">
+            <p className="text-xs font-semibold uppercase text-slate-500">Examples</p>
+            <ul className="mt-2 space-y-1 text-xs text-slate-600">
+              {MCP_REDIRECT_ALLOWLIST_EXAMPLES.map((example) => (
+                <li key={example} className="font-mono">{example}</li>
+              ))}
+            </ul>
+          </div>
+          {redirectAllowlistValidation ? (
+            <p id="admin-settings-mcp-redirect-error" className="mt-3 text-sm text-red-700" role="alert">{redirectAllowlistValidation}</p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-3">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={saving || !redirectAllowlistDraftChanged}
+              onClick={() => setRedirectAllowlistDraft(redirectAllowlistDraftFromSettings(settings))}
+            >
+              Reset allowlist
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving || !redirectAllowlistDirty || redirectAllowlistValues === null}
+              onClick={() => {
+                if (redirectAllowlistValues) void save({ oauthRedirectUriAllowlist: redirectAllowlistValues });
+              }}
+            >
+              Save allowlist
+            </Button>
+          </div>
+        </div>
+
         <MaskedSecretInput
           fieldKey="mcp-oauth-token-secret"
           label="MCP OAuth token secret"
@@ -330,6 +443,8 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           isSet={settings.oauthTokenSecretSet}
           secretLengthBounds={{ min: 32, max: 500 }}
           disabled={saving}
+          generateLabel="Generate 64-hex secret"
+          onGenerateValue={() => generateHexSecret(32)}
           onRotate={(plaintext) => save({ mcpOauthTokenSecret: plaintext })}
           onClear={() => save({ mcpOauthTokenSecret: null })}
         />

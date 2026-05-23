@@ -354,6 +354,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   fresh_auth_max_age_ms: number;
   max_connector_lifetime_days: number;
   oauth_public_issuer: string | null;
+  oauth_redirect_uri_allowlist: string[] | null;
   oauth_token_secret_set?: boolean;
   updated_at: string;
 }): AiConnectorPolicySettingsDto {
@@ -374,6 +375,7 @@ function mapAiConnectorPolicySettingsRow(row: {
     freshAuthMaxAgeMs: row.fresh_auth_max_age_ms,
     maxConnectorLifetimeDays: row.max_connector_lifetime_days,
     oauthPublicIssuer: row.oauth_public_issuer,
+    oauthRedirectUriAllowlist: [...(row.oauth_redirect_uri_allowlist ?? [])],
     oauthTokenSecretSet: row.oauth_token_secret_set ?? false,
     updatedAt: row.updated_at,
   };
@@ -2180,6 +2182,7 @@ export class PostgresPersistence implements Persistence {
               fresh_auth_max_age_ms,
               max_connector_lifetime_days,
               oauth_public_issuer,
+              oauth_redirect_uri_allowlist,
               EXISTS (
                 SELECT 1
                 FROM public.app_config
@@ -2207,6 +2210,7 @@ export class PostgresPersistence implements Persistence {
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
                  oauth_public_issuer,
+                 oauth_redirect_uri_allowlist,
                  EXISTS (
                    SELECT 1
                    FROM public.app_config
@@ -2236,6 +2240,10 @@ export class PostgresPersistence implements Persistence {
       freshAuthMaxAgeMs: input.freshAuthMaxAgeMs ?? current.freshAuthMaxAgeMs,
       maxConnectorLifetimeDays: input.maxConnectorLifetimeDays ?? current.maxConnectorLifetimeDays,
       oauthPublicIssuer: input.oauthPublicIssuer === undefined ? current.oauthPublicIssuer : input.oauthPublicIssuer,
+      oauthRedirectUriAllowlist:
+        input.oauthRedirectUriAllowlist === undefined
+          ? current.oauthRedirectUriAllowlist
+          : input.oauthRedirectUriAllowlist,
     };
     const result = await this.pool.query<Parameters<typeof mapAiConnectorPolicySettingsRow>[0]>(
       `INSERT INTO ai_connector_policy_settings (
@@ -2252,9 +2260,10 @@ export class PostgresPersistence implements Persistence {
          fresh_auth_max_age_ms,
          max_connector_lifetime_days,
          oauth_public_issuer,
+         oauth_redirect_uri_allowlist,
          updated_at
        ) VALUES (
-         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
+         TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()
        )
        ON CONFLICT (id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
@@ -2269,6 +2278,7 @@ export class PostgresPersistence implements Persistence {
          fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
          max_connector_lifetime_days = EXCLUDED.max_connector_lifetime_days,
          oauth_public_issuer = EXCLUDED.oauth_public_issuer,
+         oauth_redirect_uri_allowlist = EXCLUDED.oauth_redirect_uri_allowlist,
          updated_at = EXCLUDED.updated_at
        RETURNING enabled,
                  max_active_connections_per_user,
@@ -2282,6 +2292,7 @@ export class PostgresPersistence implements Persistence {
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
                  oauth_public_issuer,
+                 oauth_redirect_uri_allowlist,
                  EXISTS (
                    SELECT 1
                    FROM public.app_config
@@ -2301,6 +2312,7 @@ export class PostgresPersistence implements Persistence {
         next.freshAuthMaxAgeMs,
         next.maxConnectorLifetimeDays,
         next.oauthPublicIssuer,
+        next.oauthRedirectUriAllowlist,
       ],
     );
     return mapAiConnectorPolicySettingsRow(result.rows[0]!);

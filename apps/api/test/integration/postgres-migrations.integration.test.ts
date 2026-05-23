@@ -3253,7 +3253,7 @@ describePostgres("postgres migrations", () => {
     ).rejects.toThrow();
   });
 
-  it("KZO-210: migrations 057-060 add connector, capability, draft, and MCP OAuth persistence tables", async () => {
+  it("KZO-210: migrations 057-061 add connector, capability, draft, and MCP OAuth persistence tables", async () => {
     await applyNumberedMigrations();
 
     const tables = await pool.query<{ tablename: string }>(
@@ -3377,8 +3377,13 @@ describePostgres("postgres migrations", () => {
     );
     expect(appConfigMcpSecret.rows).toHaveLength(1);
 
-    const policyRow = await pool.query<{ enabled: boolean; read_tools_enabled: boolean; draft_tools_enabled: boolean }>(
-      `SELECT enabled, read_tools_enabled, draft_tools_enabled
+    const policyRow = await pool.query<{
+      enabled: boolean;
+      read_tools_enabled: boolean;
+      draft_tools_enabled: boolean;
+      oauth_redirect_uri_allowlist: string[];
+    }>(
+      `SELECT enabled, read_tools_enabled, draft_tools_enabled, oauth_redirect_uri_allowlist
        FROM ai_connector_policy_settings
        WHERE id = TRUE`,
     );
@@ -3386,6 +3391,7 @@ describePostgres("postgres migrations", () => {
       enabled: true,
       read_tools_enabled: true,
       draft_tools_enabled: true,
+      oauth_redirect_uri_allowlist: [],
     });
 
     const draftRowUnique = await pool.query<{ def: string }>(

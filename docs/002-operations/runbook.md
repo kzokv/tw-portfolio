@@ -217,10 +217,11 @@ Before configuring ChatGPT, an admin must configure the Vakwen MCP OAuth setting
 
 1. Set the public API issuer/origin to the externally reachable HTTPS API origin, for example `https://vakwen-dev-api.kzokvdevs.dpdns.org`. Production OAuth rejects header-derived issuers; local development can fall back to localhost request headers.
 2. Confirm the app has a stable `SESSION_SECRET` before OAuth testing. The ChatGPT authorize flow uses the normal Vakwen login session before consent.
-3. Set the encrypted admin-level MCP OAuth token secret in Admin -> Settings -> MCP. The secret signs MCP access tokens and hashes authorization codes and refresh tokens.
+3. Set the encrypted admin-level MCP OAuth token secret in Admin -> Settings -> MCP. The secret signs MCP access tokens and hashes authorization codes and refresh tokens. Use the Generate action in the rotate dialog, or paste a 64-hex value from `openssl rand -hex 32`.
 4. Set the maximum connector lifetime. Users can choose a shorter lifetime during consent, but not a longer one.
 5. Confirm MCP deployment is enabled and ChatGPT is allowed under Admin -> Settings -> MCP.
 6. Confirm the desired tool groups are enabled. Write tools should stay disabled unless intentionally rolled out.
+7. Leave the additional redirect URI allowlist empty unless ChatGPT or another approved MCP client sends a callback that is not covered by the built-in ChatGPT defaults. Custom entries are exact HTTPS redirect URIs, one per line.
 
 Three auth knobs are related but have different blast radii:
 
@@ -230,20 +231,34 @@ Three auth knobs are related but have different blast radii:
 | MCP OAuth token secret | Admin -> Settings -> MCP | Signs MCP access tokens and hashes authorization codes/refresh tokens. Rotation or clearing revokes pending and active ChatGPT connectors; users must reconnect ChatGPT. |
 | User session-version reset | Account security/admin reset path | Revokes ChatGPT connectors on refresh or access-token validation for that user, because tokens carry the session version from consent time. |
 
-Initial ChatGPT rollout scopes:
+ChatGPT rollout scopes:
 
 | Scope | Capability | Default state | User-deselectable |
 |---|---|---|---|
 | `portfolio:mcp_read` | Read portfolio, holdings, transaction context, and connector-safe summaries | Enabled when global MCP read tools are enabled | No for the first rollout; ChatGPT needs read context to be useful |
 | `transaction_draft:create` | Create draft transaction candidates for user review | Disabled unless admins enable write/draft tools | Yes |
 | `transaction_draft:edit` | Update draft transaction candidates before user review | Disabled unless admins enable write/draft tools | Yes |
+| `transaction_draft:archive` | Archive AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
+| `transaction_draft:delete` | Delete AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
+| `transaction:write` | Post confirmed transactions | Disabled unless admins enable transaction write tools | Yes |
 
-Allowed production ChatGPT redirect callbacks are:
+Built-in production ChatGPT redirect callbacks are:
 
 - `https://chat.openai.com/aip/oauth/callback`
 - `https://chat.openai.com/aip/<gpt-id>/oauth/callback`
+- `https://chat.openai.com/connector/oauth/<connector-id>`
 - `https://chatgpt.com/aip/oauth/callback`
 - `https://chatgpt.com/aip/<gpt-id>/oauth/callback`
+- `https://chatgpt.com/connector/oauth/<connector-id>`
+
+The admin UI also supports additional exact redirect URI allowlist entries under Admin -> Settings -> MCP. Useful examples shown in the UI are:
+
+- `https://chatgpt.com/connector/oauth/<connector-id>`
+- `https://chat.openai.com/connector/oauth/<connector-id>`
+- `https://chatgpt.com/aip/oauth/callback`
+- `https://chatgpt.com/aip/<gpt-id>/oauth/callback`
+
+Replace placeholders before saving custom entries. Do not include query strings or fragments.
 
 Local/test-only redirect exceptions are limited to localhost or `127.0.0.1` callbacks. Do not rely on localhost redirects for a production ChatGPT connector.
 
@@ -260,7 +275,7 @@ Expected discovery properties:
 - Protected resource `resource` is `https://<public-api-host>/mcp`.
 - Protected resource `authorization_servers` includes `https://<public-api-host>`.
 - Authorization-server metadata exposes `/oauth/authorize` and `/oauth/token`.
-- Token endpoint auth methods include public-client mode (`none`).
+- Token endpoint auth methods include public-client mode (`none`) and ChatGPT's URL-client mode (`private_key_jwt` with `RS256`).
 - PKCE code challenge method includes `S256`.
 - URL-based client metadata document support is advertised with `client_id_metadata_document_supported: true`.
 
@@ -302,7 +317,9 @@ If discovery exists but advertises the wrong origin or resource, check:
 
 If OAuth starts but token exchange fails, check:
 
-- ChatGPT redirect URI matches the strict allowlist. Vakwen accepts `https://chat.openai.com/aip/oauth/callback`, `https://chatgpt.com/aip/oauth/callback`, and the GPT-scoped variants `https://chat.openai.com/aip/<gpt-id>/oauth/callback` and `https://chatgpt.com/aip/<gpt-id>/oauth/callback`.
+- ChatGPT redirect URI matches the strict allowlist. Vakwen accepts `https://chat.openai.com/aip/oauth/callback`, `https://chatgpt.com/aip/oauth/callback`, GPT-scoped `/aip/<gpt-id>/oauth/callback` variants, and live custom connector callbacks such as `https://chatgpt.com/connector/oauth/<connector-id>`.
+- If ChatGPT uses a new callback shape, add the exact deployed `redirect_uri` to Admin -> Settings -> MCP -> Additional redirect URI allowlist and retry the OAuth flow.
+- ChatGPT URL client metadata is reachable from the API host. Current ChatGPT connectors can use `client_id=https://chatgpt.com/oauth/<connector-id>/client.json` and `token_endpoint_auth_method=private_key_jwt`; the API must be able to fetch that client metadata and its `jwks_uri`.
 - `resource` equals the full public `/mcp` URL.
 - Authorization code is not expired or already used.
 - PKCE method is `S256`.

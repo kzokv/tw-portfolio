@@ -360,6 +360,7 @@ export class MemoryPersistence implements Persistence {
     freshAuthMaxAgeMs: 600_000,
     maxConnectorLifetimeDays: 90,
     oauthPublicIssuer: null,
+    oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: false,
     updatedAt: new Date(0).toISOString(),
   };
@@ -1056,6 +1057,7 @@ export class MemoryPersistence implements Persistence {
       ...this.aiConnectorPolicySettings,
       allowedProviders: { ...this.aiConnectorPolicySettings.allowedProviders },
       groupToggles: { ...this.aiConnectorPolicySettings.groupToggles },
+      oauthRedirectUriAllowlist: [...this.aiConnectorPolicySettings.oauthRedirectUriAllowlist],
       oauthTokenSecretSet: this._mcpOauthTokenSecretEncrypted !== null,
     };
   }
@@ -1073,6 +1075,10 @@ export class MemoryPersistence implements Persistence {
         ...this.aiConnectorPolicySettings.groupToggles,
         ...(input.groupToggles ?? {}),
       },
+      oauthRedirectUriAllowlist:
+        input.oauthRedirectUriAllowlist === undefined
+          ? [...this.aiConnectorPolicySettings.oauthRedirectUriAllowlist]
+          : [...input.oauthRedirectUriAllowlist],
       updatedAt: new Date().toISOString(),
     };
     return this.getAiConnectorPolicySettings();

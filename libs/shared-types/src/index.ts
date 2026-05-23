@@ -941,6 +941,7 @@ export interface AiConnectorPolicySettingsDto {
   freshAuthMaxAgeMs: number;
   maxConnectorLifetimeDays: number;
   oauthPublicIssuer: string | null;
+  oauthRedirectUriAllowlist: string[];
   oauthTokenSecretSet: boolean;
   updatedAt: string;
 }

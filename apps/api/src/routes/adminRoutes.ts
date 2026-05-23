@@ -122,6 +122,19 @@ function normalizeMcpOAuthIssuer(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+function normalizeMcpOAuthRedirectUri(value: string): string {
+  const url = new URL(value);
+  const localRuntime = Env.NODE_ENV === "test" || Env.NODE_ENV === "development";
+  const localHost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(localRuntime && localHost)) {
+    throw routeError(400, "mcp_oauth_redirect_https_required", "MCP OAuth redirect URIs must use HTTPS");
+  }
+  if (url.username || url.password || url.search || url.hash || url.pathname === "/" || url.pathname === "") {
+    throw routeError(400, "mcp_oauth_redirect_invalid", "MCP OAuth redirect URIs must be exact path URLs without query or hash");
+  }
+  return url.toString();
+}
+
 const aiConnectorPolicySettingsPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -149,6 +162,11 @@ const aiConnectorPolicySettingsPatchSchema = z
       z.string().url().transform((value) => normalizeMcpOAuthIssuer(value)),
       z.null(),
     ]).optional(),
+    oauthRedirectUriAllowlist: z
+      .array(z.string().url().transform((value) => normalizeMcpOAuthRedirectUri(value)))
+      .max(100)
+      .transform((values) => [...new Set(values)])
+      .optional(),
     mcpOauthTokenSecret: tier0SecretField,
   })
   .strict();
