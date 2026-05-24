@@ -10,7 +10,7 @@ import {
 } from "node:crypto";
 import type { JsonWebKey, KeyObject } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import type { LookupOptions } from "node:dns";
+import type { LookupAddress, LookupOptions } from "node:dns";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -63,6 +63,12 @@ type ReadClientMetadataDocument = (
   signal: AbortSignal,
 ) => Promise<ClientMetadataFetchResult>;
 
+type PinnedLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | LookupAddress[],
+  family?: number,
+) => void;
+
 class ClientMetadataTooLargeError extends Error {}
 
 let resolveClientMetadataHost: ResolveClientMetadataHost = async (hostname) => {
@@ -74,6 +80,20 @@ let resolveClientMetadataHost: ResolveClientMetadataHost = async (hostname) => {
 };
 
 let readClientMetadataDocument: ReadClientMetadataDocument = readHttpsClientMetadataDocument;
+
+export function createPinnedClientMetadataLookup(address: ClientMetadataAddress) {
+  return (
+    _hostname: string,
+    options: LookupOptions,
+    callback: PinnedLookupCallback,
+  ): void => {
+    if (options.all) {
+      callback(null, [{ address: address.address, family: address.family }]);
+      return;
+    }
+    callback(null, address.address, address.family);
+  };
+}
 
 export function setMcpOAuthClientMetadataNetworkForTest(
   hooks: Partial<{
@@ -269,18 +289,10 @@ async function readHttpsClientMetadataDocument(
   signal: AbortSignal,
 ): Promise<ClientMetadataFetchResult> {
   return new Promise((resolve, reject) => {
-    const pinnedLookup = (
-      _hostname: string,
-      _options: LookupOptions,
-      callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
-    ): void => {
-      callback(null, address.address, address.family);
-    };
-
     const req = httpsRequest(url, {
       method: "GET",
       headers: { accept: "application/json" },
-      lookup: pinnedLookup,
+      lookup: createPinnedClientMetadataLookup(address),
       signal,
     }, (res) => {
       const chunks: Buffer[] = [];
