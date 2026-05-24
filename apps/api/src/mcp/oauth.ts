@@ -128,21 +128,21 @@ const tokenBodySchema = z.discriminatedUnion("grant_type", [
   z.object({
     grant_type: z.literal("authorization_code"),
     code: z.string().trim().min(1),
-    redirect_uri: z.string().url(),
+    redirect_uri: z.string().url().optional(),
     client_id: z.string().trim().min(1).max(2048),
     code_verifier: z.string().trim().min(43).max(256),
-    resource: z.string().url(),
+    resource: z.string().url().optional(),
     client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE_JWT_BEARER).optional(),
     client_assertion: z.string().trim().min(1).max(CLIENT_ASSERTION_MAX_CHARS).optional(),
-  }).strict(),
+  }).passthrough(),
   z.object({
     grant_type: z.literal("refresh_token"),
     refresh_token: z.string().trim().min(1),
     client_id: z.string().trim().min(1).max(2048),
-    resource: z.string().url(),
+    resource: z.string().url().optional(),
     client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE_JWT_BEARER).optional(),
     client_assertion: z.string().trim().min(1).max(CLIENT_ASSERTION_MAX_CHARS).optional(),
-  }).strict(),
+  }).passthrough(),
 ]);
 
 const approveBodySchema = z.object({
@@ -1138,10 +1138,12 @@ export async function handleMcpOAuthToken(
   if (body.grant_type === "authorization_code") {
     const code = await app.persistence.consumeMcpOAuthAuthorizationCode(hashMcpOAuthToken(secret, body.code));
     if (!code) return sendOAuthError(reply, 400, "invalid_grant", "Authorization code is invalid or expired");
+    const redirectUri = body.redirect_uri ?? code.redirectUri;
+    const resource = body.resource ?? code.resource;
     if (
       code.clientId !== body.client_id
-      || code.redirectUri !== body.redirect_uri
-      || code.resource !== body.resource
+      || code.redirectUri !== redirectUri
+      || code.resource !== resource
       || sha256Base64Url(body.code_verifier) !== code.codeChallenge
     ) {
       return sendOAuthError(reply, 400, "invalid_grant", "Authorization code verifier or binding is invalid");
@@ -1198,7 +1200,7 @@ export async function handleMcpOAuthToken(
       connectionId: activated.id,
       userId: code.userId,
       clientId: code.clientId,
-      resource: code.resource,
+      resource,
       scopes: activated.scopes,
       refreshExpiresAt: activated.expiresAt,
     });
@@ -1211,6 +1213,8 @@ export async function handleMcpOAuthToken(
   if (!credential) return sendOAuthError(reply, 400, "invalid_grant", "Refresh token is invalid");
   const connection = await app.persistence.getAiConnectorConnection(credential.connectionId);
   if (!connection) return sendOAuthError(reply, 400, "invalid_grant", "Connector connection is invalid");
+  const resource = body.resource ?? credential.resource;
+  if (!resource) return sendOAuthError(reply, 400, "invalid_grant", "Refresh token binding is invalid");
   if (credential.revokedAt || credential.replacedByCredentialId) {
     if (connection.status === "active") {
       await revokeAiConnectorConnection(app, connection.id, {
@@ -1224,7 +1228,7 @@ export async function handleMcpOAuthToken(
   if (
     credential.credentialType !== "oauth_refresh_token"
     || credential.oauthClientId !== body.client_id
-    || credential.resource !== body.resource
+    || credential.resource !== resource
     || (credential.expiresAt && Date.parse(credential.expiresAt) <= Date.now())
   ) {
     return sendOAuthError(reply, 400, "invalid_grant", "Refresh token binding is invalid");
@@ -1259,7 +1263,7 @@ export async function handleMcpOAuthToken(
     connectionId: connection.id,
     userId: connection.userId,
     clientId: body.client_id,
-    resource: body.resource,
+    resource,
     scopes: credential.scopes.filter((scope) => connection.scopes.includes(scope)),
     refreshExpiresAt: connection.expiresAt,
     refreshCredentialId: nextCredentialId,
