@@ -395,6 +395,62 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(connection).toMatchObject({ status: "revoked", revocationReason: "refresh_token_reuse" });
   });
 
+  it("accepts token exchanges with extra parameters and stored resource bindings", async () => {
+    const headers = { host: "localhost:4000" };
+    const resource = "http://localhost:4000/mcp";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "http://localhost:5555/callback";
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers,
+      resource,
+      verifier,
+      redirectUri,
+    });
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+    });
+    expect(approve.statusCode).toBe(200);
+    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    const token = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        client_id: "chatgpt",
+        code_verifier: verifier,
+        scope: "portfolio:mcp_read transaction:write",
+        audience: resource,
+      }),
+    });
+    expect(token.statusCode, token.body).toBe(200);
+    expect(token.json<{ scope: string }>().scope).toBe("portfolio:mcp_read");
+    const [connection] = await app.persistence.listAiConnectorConnectionsForUser("user-1");
+    expect(connection).toMatchObject({ status: "active" });
+
+    const refreshed = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      payload: form({
+        grant_type: "refresh_token",
+        refresh_token: token.json<{ refresh_token: string }>().refresh_token,
+        client_id: "chatgpt",
+        scope: "portfolio:mcp_read",
+      }),
+    });
+    expect(refreshed.statusCode, refreshed.body).toBe(200);
+    const refreshedCredential = await app.persistence.getAiConnectorCredentialByHash(
+      hashMcpOAuthToken(mcpOAuthTokenSecret, refreshed.json<{ refresh_token: string }>().refresh_token),
+    );
+    expect(refreshedCredential?.resource).toBe(resource);
+  });
+
   it("enforces the active connection cap when ChatGPT exchanges the authorization code", async () => {
     await app.persistence.saveAiConnectorPolicySettings({ maxActiveConnectionsPerUser: 1 });
     await app.persistence.saveAiConnectorConnection({
