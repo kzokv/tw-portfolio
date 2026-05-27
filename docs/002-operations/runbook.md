@@ -240,7 +240,8 @@ ChatGPT rollout scopes:
 | `transaction_draft:edit` | Update draft transaction candidates before user review | Disabled unless admins enable write/draft tools | Yes |
 | `transaction_draft:archive` | Archive AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
 | `transaction_draft:delete` | Delete AI transaction draft batches | Disabled unless admins enable write/draft tools | Yes |
-| `transaction:write` | Post confirmed transactions | Disabled unless admins enable transaction write tools | Yes |
+
+`transaction:write` is reserved for a future posted-transaction MCP tool. Do not advertise or grant it to ChatGPT until a tool descriptor uses that scope.
 
 Built-in production ChatGPT redirect callbacks are:
 
@@ -275,9 +276,10 @@ Expected discovery properties:
 - Protected resource `resource` is `https://<public-api-host>/mcp`.
 - Protected resource `authorization_servers` includes `https://<public-api-host>`.
 - Authorization-server metadata exposes `/oauth/authorize` and `/oauth/token`.
-- Token endpoint auth methods include public-client mode (`none`) and ChatGPT's URL-client mode (`private_key_jwt` with `RS256`).
+- Token endpoint auth methods include public-client PKCE mode (`none`) and ChatGPT CIMD mode (`private_key_jwt` with `RS256`). ChatGPT-created apps currently publish CIMD client metadata with `token_endpoint_auth_method=private_key_jwt`.
 - PKCE code challenge method includes `S256`.
 - URL-based client metadata document support is advertised with `client_id_metadata_document_supported: true`.
+- Public HTTPS issuers advertise `authorization_response_iss_parameter_supported: true`, and approval/denial callbacks back to ChatGPT include `iss=<public-api-origin>`.
 
 Then configure ChatGPT as a custom app / MCP connector:
 
@@ -298,6 +300,44 @@ Official references:
 - OpenAI Apps SDK authentication: https://developers.openai.com/apps-sdk/build/auth
 - OpenAI ChatGPT app connection flow: https://developers.openai.com/apps-sdk/deploy/connect-chatgpt
 - MCP authorization specification: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+- Cloudflare security feature interoperability: https://developers.cloudflare.com/waf/feature-interoperability/
+- Cloudflare bot categories and Block AI bots: https://developers.cloudflare.com/bots/concepts/bot/
+
+#### Cloudflare prerequisites for ChatGPT MCP
+
+The public API host must let non-browser ChatGPT/OpenAI server requests reach the origin for OAuth
+discovery, token exchange, and MCP transport. On Cloudflare, configure a first-match skip rule for the API
+OAuth/MCP paths:
+
+```text
+(http.host eq "<public-api-host>" and (
+  http.request.uri.path eq "/mcp" or
+  starts_with(http.request.uri.path, "/mcp/") or
+  starts_with(http.request.uri.path, "/oauth/") or
+  starts_with(http.request.uri.path, "/.well-known/oauth-") or
+  starts_with(http.request.uri.path, "/.well-known/openid-configuration")
+))
+```
+
+Set the rule action to `Skip`, enable request logging, and skip these components for the matched API
+traffic:
+
+- all remaining custom rules
+- rate limiting rules
+- managed rules
+- Super Bot Fight Mode rules
+- Browser Integrity Check
+
+Do not rely on this skip rule to bypass plain Bot Fight Mode. Cloudflare runs Bot Fight Mode outside the
+Ruleset Engine, so custom WAF skip rules cannot skip it. If the zone is on a plan that only exposes
+`Security -> Settings -> Bot fight mode`, keep that toggle off for the dev/API zone. Use Super Bot Fight
+Mode or Bot Management on paid plans if per-path bot exemptions are required.
+
+`Block AI bots` can stay enabled when the skip rule above is first in order and skips managed rules for the
+API paths. If ChatGPT again returns from approval but the API logs do not show `POST /oauth/token`, check
+Cloudflare Security Events for the exact timestamp and API host before changing OAuth code. A Cloudflare
+block/challenge before origin will produce pending Vakwen connector rows with unconsumed authorization
+codes and no token-exchange log.
 
 #### ChatGPT connector troubleshooting
 
@@ -317,9 +357,13 @@ If discovery exists but advertises the wrong origin or resource, check:
 
 If OAuth starts but token exchange fails, check:
 
+- Cloudflare Bot Fight Mode is off or the plan supports a bot product that the API skip rule can actually
+  bypass. If approval returns to ChatGPT but no `POST /oauth/token` reaches the API, treat Cloudflare edge
+  blocking as the first suspect.
 - ChatGPT redirect URI matches the strict allowlist. Vakwen accepts `https://chat.openai.com/aip/oauth/callback`, `https://chatgpt.com/aip/oauth/callback`, GPT-scoped `/aip/<gpt-id>/oauth/callback` variants, and live custom connector callbacks such as `https://chatgpt.com/connector/oauth/<connector-id>`.
 - If ChatGPT uses a new callback shape, add the exact deployed `redirect_uri` to Admin -> Settings -> MCP -> Additional redirect URI allowlist and retry the OAuth flow.
-- ChatGPT URL client metadata is reachable from the API host. Current ChatGPT connectors can use `client_id=https://chatgpt.com/oauth/<connector-id>/client.json` and `token_endpoint_auth_method=private_key_jwt`; the API must be able to fetch that client metadata and its `jwks_uri`.
+- ChatGPT URL client metadata is reachable from the API host. Current ChatGPT-created CIMD apps publish `client_id=https://chatgpt.com/oauth/<connector-id>/client.json` and `token_endpoint_auth_method=private_key_jwt`; the API must be able to fetch that client metadata and its `jwks_uri`.
+- If approval returns to ChatGPT but ChatGPT never calls `/oauth/token`, confirm the callback URL includes `iss` matching the authorization-server metadata `issuer`. A missing or mismatched authorization response issuer can be rejected by MCP/OAuth clients before token exchange.
 - `resource` equals the full public `/mcp` URL.
 - Authorization code is not expired or already used.
 - PKCE method is `S256`.
@@ -347,6 +391,19 @@ curl -i http://localhost:4000/mcp \
 ```
 
 The response should include an `mcp-session-id` header. Pass that header on subsequent `tools/list` or `tools/call` requests in the same MCP session.
+
+For ChatGPT Apps connector validation, every advertised tool descriptor must include OAuth `securitySchemes`
+at the top level and mirrored under `_meta.securitySchemes`, an `outputSchema`, and MCP tool
+`annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). App tools must also
+point to a readable `text/html;profile=mcp-app` resource through `_meta.ui.resourceUri` (and the ChatGPT
+compatibility alias `_meta["openai/outputTemplate"]`); the static widget resource must be readable during
+pre-OAuth discovery, while `tools/call` remains bearer-protected. If ChatGPT shows the app with "No app
+actions available yet" and OAuth returns to ChatGPT without a follow-up `/oauth/token` request, inspect the
+callback first: it must include an RFC 9207 `iss` parameter matching the public OAuth issuer. Then inspect the
+live `tools/list` and `resources/read` responses before changing token handling. Also verify
+ChatGPT-origin CORS preflight for `/mcp` and `/oauth/token`, plus both OAuth authorization-server and
+OpenID Connect discovery aliases; ChatGPT may probe the OIDC well-known URL even for an OAuth-only MCP
+authorization server.
 
 ### Redeploy a Single Service
 
