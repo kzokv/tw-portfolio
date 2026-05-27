@@ -50,6 +50,36 @@ const currencyCodeSchema = z
 const marketCodeSchema = z.enum(["TW", "US", "AU"]);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
+const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
+
+const candidateSourceMetadataSchema = z.object({
+  fileId: userScopedIdSchema.nullish(),
+  page: z.number().int().positive().nullish(),
+  rowRef: z.string().trim().max(200).nullish(),
+  cellRefs: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  snippet: z.string().trim().max(500).nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+}).strict();
+
+const importProvenanceSchema = z.object({
+  sourceType: importSourceTypeSchema,
+  files: z.array(z.object({
+    fileId: userScopedIdSchema,
+    sourceType: importSourceTypeSchema,
+    displayName: z.string().trim().max(200).nullish(),
+    mediaType: z.string().trim().max(120).nullish(),
+    pageCount: z.number().int().positive().nullish().optional(),
+    rowCount: z.number().int().positive().nullish().optional(),
+    sha256Prefix: z.string().trim().max(32).nullish().optional(),
+    snippet: z.string().trim().max(500).nullish().optional(),
+  }).strict()).min(1).max(10),
+  extractor: z.object({
+    provider: z.string().trim().max(120).nullish().optional(),
+    model: z.string().trim().max(120).nullish().optional(),
+    runId: z.string().trim().max(200).nullish().optional(),
+  }).strict().optional(),
+  warnings: z.array(z.string().trim().max(200)).max(10).optional(),
+}).strict();
 
 export const mcpSharedInputShape = {
   portfolioContextUserId: userScopedIdSchema.optional(),
@@ -77,8 +107,8 @@ export const mcpDraftCandidateSchema = z.object({
   note: z.string().trim().max(1_000).optional(),
   sourceRowRef: z.string().trim().max(200).optional(),
   sourceSnippet: z.string().trim().max(500).optional(),
-  rawPayload: z.record(z.string(), z.unknown()).optional(),
-});
+  sourceMetadata: candidateSourceMetadataSchema.optional(),
+}).strict();
 
 const toolDefinitions = {
   get_portfolio_overview: {
@@ -166,8 +196,9 @@ const toolDefinitions = {
       sourceLabel: z.string().trim().max(200).optional(),
       sourceFilename: z.string().trim().max(200).optional(),
       note: z.string().trim().max(1_000).optional(),
+      provenance: importProvenanceSchema.optional(),
       candidates: z.array(mcpDraftCandidateSchema).min(1).max(200),
-    }),
+    }).strict(),
     scope: "transaction_draft:create" as const,
     accessKind: "draft_create" as const,
   },
@@ -178,9 +209,9 @@ const toolDefinitions = {
       sourceLabel: z.string().trim().max(200).optional(),
       sourceFilename: z.string().trim().max(200).optional(),
       note: z.string().trim().max(1_000).optional(),
-      provenance: z.record(z.string(), z.unknown()).optional(),
+      provenance: importProvenanceSchema.optional(),
       candidates: z.array(mcpDraftCandidateSchema).min(1).max(200),
-    }),
+    }).strict(),
     scope: "transaction_draft:create" as const,
     accessKind: "draft_create" as const,
   },
@@ -202,6 +233,19 @@ const toolDefinitions = {
     }),
     scope: "transaction_draft:edit" as const,
     accessKind: "draft_update" as const,
+  },
+  get_transaction_draft_batch_component: {
+    description: `Return the ChatGPT Apps component state for one transaction draft batch. The component can refresh, edit, and post only through MCP tools. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchId: userScopedIdSchema,
+    }),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+    _meta: {
+      "openai/outputTemplate": "/connectors/chatgpt/transaction-draft",
+      "openai/widgetAccessible": true,
+    },
   },
   update_transaction_draft_rows: {
     description: `Update draft rows with optimistic concurrency and deterministic preflight. Rejects edits that introduce blocking issues. ${adviceBoundary}`,
@@ -270,6 +314,23 @@ const toolDefinitions = {
     scope: "transaction_draft:delete" as const,
     accessKind: "draft_delete" as const,
   },
+  post_transaction_draft_rows: {
+    description: `Post selected ready draft rows into the canonical transaction ledger. Requires transaction:write, expected batch and row versions, an idempotency key, and deterministic server-side revalidation. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchId: userScopedIdSchema,
+      expectedBatchVersion: z.number().int().positive(),
+      expectedRowVersions: z.array(z.object({
+        rowId: userScopedIdSchema,
+        expectedVersion: z.number().int().positive(),
+      }).strict()).min(1).max(200),
+      rowIds: z.array(userScopedIdSchema).min(1).max(200),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      typedConfirmation: z.string().trim().max(100).optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
 } as const;
 
 export type McpToolName = keyof typeof toolDefinitions;
@@ -293,6 +354,7 @@ export function listMcpToolDefinitions(): Array<{
   annotations: McpToolAnnotations;
   scope: AiConnectorScope;
   accessKind: AiConnectorAccessKind;
+  _meta?: Record<string, unknown>;
 }> {
   return Object.entries(toolDefinitions).map(([name, value]) => ({
     name: name as McpToolName,
@@ -302,6 +364,7 @@ export function listMcpToolDefinitions(): Array<{
     annotations: getToolAnnotations(name as McpToolName, value.accessKind),
     scope: value.scope,
     accessKind: value.accessKind,
+    _meta: "_meta" in value ? value._meta : undefined,
   }));
 }
 

@@ -87,7 +87,7 @@ describe("PostgresPersistence pool size reads Env.POSTGRES_POOL_MAX", () => {
     const mainPool = mockPoolCalls.find((c) => c.max === CUSTOM_POOL_MAX);
     expect(mainPool).toBeDefined();
     expect(mainPool?.max).toBe(CUSTOM_POOL_MAX);
-  });
+  }, 15_000);
 });
 
 describe("pgBoss plugin pool size reads Env.BACKFILL_POSTGRES_POOL_MAX", () => {

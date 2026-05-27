@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Check, ExternalLink, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Bot, Check, ExternalLink, ShieldCheck, X } from "lucide-react";
 import type { AiConnectorScope, McpOAuthConsentRequestDto } from "@vakwen/shared-types";
 import { API_PUBLIC } from "../../lib/api";
 import { Button } from "../ui/Button";
@@ -17,6 +17,10 @@ function scopeEnabledByPolicy(scope: AiConnectorScope, consent: McpOAuthConsentR
   if (scope === "portfolio:mcp_read") return consent.policy.groupToggles.read;
   if (scope.startsWith("transaction_draft:")) return consent.policy.groupToggles.drafts;
   return consent.policy.groupToggles.write;
+}
+
+function scopeDefaultsGranted(scope: AiConnectorScope): boolean {
+  return scope !== "transaction:write";
 }
 
 function currentRequestId(): string | null {
@@ -46,7 +50,7 @@ export function ChatGptConnectorAuthorizeClient() {
     try {
       const next = await fetchMcpOAuthConsent(requestId);
       setConsent(next);
-      setSelectedScopes(new Set(next.scopes.filter((scope) => scopeEnabledByPolicy(scope, next))));
+      setSelectedScopes(new Set(next.scopes.filter((scope) => scopeEnabledByPolicy(scope, next) && scopeDefaultsGranted(scope))));
       setLifetimeDays(Math.min(30, next.policy.maxConnectorLifetimeDays));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connector authorization request could not be loaded.");
@@ -186,6 +190,11 @@ export function ChatGptConnectorAuthorizeClient() {
                         <span className={disabled ? "text-slate-400" : "text-slate-800"}>
                           {AI_CONNECTOR_SCOPE_LABELS[scope]}
                           {policyDisabled ? <span className="block text-xs text-slate-500">Disabled by admin policy</span> : null}
+                          {scope === "transaction:write" ? (
+                            <span className="mt-1 block text-xs text-amber-700">
+                              Advanced scope. Off by default and requires fresh auth or re-consent to grant.
+                            </span>
+                          ) : null}
                         </span>
                         <input
                           type="checkbox"
@@ -197,6 +206,17 @@ export function ChatGptConnectorAuthorizeClient() {
                     );
                   })}
                 </div>
+                {consent.scopes.includes("transaction:write") ? (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>
+                        Posting is an advanced opt-in. Leave it unchecked unless you want ChatGPT to call the guarded
+                        `post_transaction_draft_rows` tool after typed or explicit confirmation.
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <label className="block text-sm font-medium text-slate-700">

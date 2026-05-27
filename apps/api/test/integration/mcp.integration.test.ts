@@ -41,6 +41,53 @@ function expectChatGptSafeSchema(schema: unknown): void {
   expect(serialized).not.toContain("\"pattern\"");
 }
 
+async function initializeMcpSession(headers: Record<string, string>) {
+  const initialize = await app.inject({
+    method: "POST",
+    url: "/mcp",
+    headers,
+    payload: {
+      jsonrpc: "2.0",
+      id: "init-1",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "ChatGPT", version: "1.0.0" },
+      },
+    },
+  });
+  expect(initialize.statusCode).toBe(200);
+  const sessionId = initialize.headers["mcp-session-id"];
+  expect(typeof sessionId).toBe("string");
+  return String(sessionId);
+}
+
+async function callMcpTool(
+  headers: Record<string, string>,
+  sessionId: string,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  return app.inject({
+    method: "POST",
+    url: "/mcp",
+    headers: {
+      ...headers,
+      "mcp-session-id": sessionId,
+    },
+    payload: {
+      jsonrpc: "2.0",
+      id: "call-1",
+      method: "tools/call",
+      params: {
+        name,
+        arguments: args,
+      },
+    },
+  });
+}
+
 function createRequestContext(): McpRequestContext {
   return {
     auth: {
@@ -697,5 +744,298 @@ describe("mcp routes", () => {
       note: null,
       sourceSnippet: null,
     });
+  });
+
+  it("attributes shared-context MCP access logs to the owner context and share record", async () => {
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-mcp-user", {
+      email: "shared-mcp@example.com",
+      name: "Shared MCP User",
+    });
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read"],
+      grantedByUserId: "user-1",
+    });
+    const connection = await createAiConnectorConnection(
+      app,
+      {
+        userId: sharedUserId,
+        provider: "chatgpt",
+        displayName: "ChatGPT",
+        scopes: ["portfolio:mcp_read"],
+      },
+      { actorUserId: sharedUserId, ipAddress: "127.0.0.1" },
+    );
+    const token = devToken({ userId: sharedUserId, connectionId: connection.id, clientId: "chatgpt" });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+
+    const call = await callMcpTool(headers, sessionId, "get_portfolio_overview", {
+      portfolioContextUserId: "user-1",
+    });
+
+    expect(call.statusCode).toBe(200);
+    expect(call.body).toContain("portfolio");
+
+    const logs = await app.persistence.listAiConnectorAccessLogsForUser(sharedUserId);
+    expect(logs[0]).toMatchObject({
+      connectionId: connection.id,
+      userId: sharedUserId,
+      portfolioContextUserId: "user-1",
+      shareId: share.id,
+      toolName: "get_portfolio_overview",
+      accessKind: "read",
+      result: "ok",
+    });
+  });
+
+  it("requires transaction:write for shared-context AI draft posting and allows it once the share enables write", async () => {
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-write-user", {
+      email: "shared-write@example.com",
+      name: "Shared Write User",
+    });
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "shared review",
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-05",
+          },
+        ],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate?.rows[0];
+    expect(row).toBeDefined();
+
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction_draft:edit"],
+      grantedByUserId: "user-1",
+    });
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/ai/transaction-drafts/${created.batch.id}/confirm`,
+      headers: {
+        "x-user-id": sharedUserId,
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        rowIds: [row!.id],
+        expectedRowVersions: [{ rowId: row!.id, expectedVersion: row!.version }],
+        expectedBatchVersion: created.batch.version,
+        idempotencyKey: "shared-denied-post-1",
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ error: "ai_draft_share_capability_denied" });
+
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction_draft:edit", "transaction:write"],
+      grantedByUserId: "user-1",
+    });
+
+    const allowed = await app.inject({
+      method: "POST",
+      url: `/ai/transaction-drafts/${created.batch.id}/confirm`,
+      headers: {
+        "x-user-id": sharedUserId,
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        rowIds: [row!.id],
+        expectedRowVersions: [{ rowId: row!.id, expectedVersion: row!.version }],
+        expectedBatchVersion: created.batch.version,
+        idempotencyKey: "shared-allowed-post-1",
+      },
+    });
+    expect(allowed.statusCode).toBe(200);
+    const body = allowed.json<{ rows: Array<{ id: string; state: string; confirmedTradeEventId: string | null }> }>();
+    expect(body.rows[0]).toMatchObject({
+      id: row!.id,
+      state: "confirmed",
+    });
+    expect(body.rows[0]?.confirmedTradeEventId).toBeTruthy();
+  });
+
+  it("omits internal raw and normalized payloads from AI draft detail DTOs", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-06",
+            sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "BUY,2330,1,100" },
+          },
+          {
+            rowNumber: 2,
+            recordType: "unsupported",
+            sourceSnippet: "cash transfer row",
+            sourceMetadata: { fileId: "file-1", rowRef: "2", snippet: "cash transfer details" },
+          },
+        ],
+      },
+    );
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/ai/transaction-drafts/${created.batch.id}`,
+    });
+
+    expect(detail.statusCode).toBe(200);
+    const body = detail.json<{
+      rows: Array<Record<string, unknown>>;
+      unsupportedItems: Array<Record<string, unknown>>;
+    }>();
+    expect(body.rows[0]).not.toHaveProperty("normalizedPayload");
+    expect(body.rows[0]).not.toHaveProperty("rawPayload");
+    expect(body.unsupportedItems[0]).not.toHaveProperty("rawPayload");
+  });
+
+  it("rejects connector-mediated raw source payloads for draft batch creation", async () => {
+    const token = devToken({
+      userId: "user-1",
+      scopes: ["transaction_draft:create"],
+    });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+
+    const call = await callMcpTool(headers, sessionId, "create_transaction_draft_batch", {
+      provenance: {
+        sourceType: "csv",
+        files: [{ fileId: "file-1", sourceType: "csv", snippet: "2330,1" }],
+      },
+      candidates: [{
+        rowNumber: 1,
+        recordType: "trade",
+        accountId: "acc-1",
+        type: "BUY",
+        ticker: "2330",
+        quantity: 1,
+        unitPrice: 100,
+        tradeDate: "2026-01-03",
+        rawPayload: { csv: "ticker,qty\n2330,1" },
+      }],
+    });
+
+    expect(call.statusCode).toBe(200);
+    expect(call.body).toContain("Unrecognized key");
+    expect(call.body).toContain("rawPayload");
+  });
+
+  it("posts draft rows over MCP with compact results and ChatGPT component audit metadata", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        provenance: {
+          sourceType: "csv",
+          files: [{ fileId: "file-1", sourceType: "csv", displayName: "import.csv", snippet: "2330,BUY,1,100" }],
+        },
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+          sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
+        }],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate?.rows[0];
+    expect(row).toBeTruthy();
+
+    const connection = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "ChatGPT",
+        scopes: [
+          "transaction_draft:create",
+          "transaction_draft:edit",
+          "transaction:write",
+        ],
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const token = devToken({ userId: "user-1", connectionId: connection.id, clientId: "chatgpt" });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+
+    const component = await callMcpTool(headers, sessionId, "get_transaction_draft_batch_component", {
+      batchId: created.batch.id,
+    });
+    expect(component.statusCode).toBe(200);
+    expect(component.body).toContain("\"widget\"");
+    expect(component.body).toContain("\"get_transaction_draft_batch_component\"");
+    expect(component.body).toContain("\"openai/outputTemplate\"");
+    expect(component.body).toContain("/connectors/chatgpt/transaction-draft");
+
+    const call = await callMcpTool(headers, sessionId, "post_transaction_draft_rows", {
+      batchId: created.batch.id,
+      rowIds: [row!.id],
+      expectedBatchVersion: aggregate!.batch.version,
+      expectedRowVersions: [{ rowId: row!.id, expectedVersion: row!.version }],
+      idempotencyKey: "chatgpt-post-1",
+    });
+
+    expect(call.statusCode).toBe(200);
+    expect(call.body).toContain("\"outcome\":\"posted\"");
+    expect(call.body).toContain(`"postedRowIds":["${row!.id}"]`);
+
+    const saved = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    expect(saved?.rows[0]).toMatchObject({ state: "confirmed" });
+    expect(saved?.events.at(-1)).toMatchObject({
+      eventType: "rows_confirmed",
+      metadata: expect.objectContaining({
+        source: "chatgpt_component",
+        postedRowIds: [row!.id],
+      }),
+    });
+    const logs = await app.persistence.listAiConnectorAccessLogsForUser("user-1");
+    expect(logs[0]?.metadata).toMatchObject({ source: "chatgpt_component" });
   });
 });

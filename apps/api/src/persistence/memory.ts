@@ -46,6 +46,8 @@ import type {
   AnonymousShareTokenRecord,
   AuditLogInput,
   AuthUserRecord,
+  ConfirmAiTransactionDraftPostingInput,
+  ConfirmAiTransactionDraftPostingResult,
   CreateAnonymousShareTokenInput,
   CreateAnonymousShareTokenResult,
   CreateShareCoupledInviteInput,
@@ -1615,6 +1617,30 @@ export class MemoryPersistence implements Persistence {
 
   async listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]> {
     return (this.aiTransactionDraftEvents.get(batchId) ?? []).map((record) => this.cloneDraftEvent(record));
+  }
+
+  async confirmAiTransactionDraftPosting(
+    input: ConfirmAiTransactionDraftPostingInput,
+  ): Promise<ConfirmAiTransactionDraftPostingResult | null> {
+    const existingBatch = this.aiTransactionDraftBatches.get(input.batch.id);
+    if (!existingBatch || existingBatch.version !== input.batch.expectedVersion) return null;
+    const existingRows = this.aiTransactionDraftRows.get(input.batch.id) ?? [];
+    for (const row of input.rows) {
+      const existing = existingRows.find((candidate) => candidate.id === row.id);
+      if (!existing || existing.version !== row.expectedVersion) return null;
+    }
+
+    await this.saveAccountingStore(input.ownerUserId, input.accounting);
+    const savedRows: AiTransactionDraftRowRecord[] = [];
+    for (const row of input.rows) {
+      const saved = await this.saveAiTransactionDraftRow(row);
+      if (!saved) return null;
+      savedRows.push(saved);
+    }
+    const savedBatch = await this.saveAiTransactionDraftBatch(input.batch);
+    if (!savedBatch) return null;
+    const event = await this.appendAiTransactionDraftEvent(input.event);
+    return { rows: savedRows, batch: savedBatch, event };
   }
 
   async createAnonymousShareToken(

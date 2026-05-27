@@ -58,7 +58,7 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
   const apiServer = {
     command: "bash scripts/reclaim-e2e-server.sh api && npm run build -w @vakwen/config -w libs/domain -w libs/shared-types && npx tsx watch apps/api/src/server.ts",
     url: `http://${host}:${apiPort}/health/live`,
-    timeout: 60_000,
+    timeout: 120_000,
     cwd: repoRoot,
     reuseExistingServer: false,
     stdout: "ignore" as const,
@@ -79,7 +79,7 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
       "bash scripts/reclaim-e2e-server.sh web && cd apps/web && NODE_ENV=test PORT=${WEB_PORT:-3333} node .next/standalone/apps/web/server.js",
     cwd: repoRoot,
     url: `http://${host}:${webPort}`,
-    timeout: 60_000,
+    timeout: 120_000,
     reuseExistingServer: false,
     stdout: "ignore" as const,
     stderr: "pipe" as const,

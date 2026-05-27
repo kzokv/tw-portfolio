@@ -70,6 +70,10 @@ function compactState(state: string): string {
   return state.replace(/_/g, " ");
 }
 
+function sourceChannelLabel(value: DraftBatchSummary["sourceChannel"]): string {
+  return value === "mcp" ? "ChatGPT connector" : "Vakwen web";
+}
+
 function issueText(value: unknown): string {
   if (value && typeof value === "object" && "message" in value && typeof value.message === "string") {
     return value.message;
@@ -200,6 +204,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
   const selectedGrossTwd = selectedReadyRows
     .filter((row) => row.priceCurrency === "TWD")
     .reduce((sum, row) => sum + rowGross(row), 0);
+  const confirmedRowCount = detail?.rows.filter((row) => row.state === "confirmed").length ?? 0;
   const typedPhrase = `POST ${selectedReadyRows.length} TRADES`;
   const requiresTypedConfirm = selectedReadyRows.length >= 6 || selectedGrossTwd >= 1_000_000;
   const activeEditRow = detail?.rows.find((row) => row.id === editRowId) ?? null;
@@ -306,6 +311,9 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                   <span className="mt-1 block text-xs text-slate-500">
                     {batch.rowCount} rows · {batch.unsupportedCount} unsupported · v{batch.version}
                   </span>
+                  <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                    {sourceChannelLabel(batch.sourceChannel)}
+                  </span>
                   <span className="mt-1 block text-xs text-slate-500">{new Date(batch.updatedAt).toLocaleString()}</span>
                 </button>
               );
@@ -327,6 +335,21 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                     <p className="mt-1 text-sm text-slate-600">
                       {detail.batch.rowCount} rows · {detail.batch.unsupportedCount} unsupported · status {detail.batch.status} · version {detail.batch.version}
                     </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        {sourceChannelLabel(detail.batch.sourceChannel)}
+                      </span>
+                      {detail.batch.connectorConnectionId ? (
+                        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                          connector {detail.batch.connectorConnectionId}
+                        </span>
+                      ) : null}
+                      {confirmedRowCount > 0 ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          {confirmedRowCount} rows posted
+                        </span>
+                      ) : null}
+                    </div>
                     {detail.batch.note ? <p className="mt-2 text-sm text-slate-600">{detail.batch.note}</p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -385,6 +408,34 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                   </div>
                 </div>
 
+                <div className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">Connector provenance</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {detail.batch.sourceChannel === "mcp"
+                        ? "Vakwen received structured candidates, capped snippets, row mappings, and source metadata only from the ChatGPT connector."
+                        : "This batch was created in Vakwen and follows the same deterministic draft validation path."}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Source label: {detail.batch.sourceLabel ?? detail.batch.sourceFilename ?? "not provided"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Source snippets stay capped at 500 characters per row.
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-start gap-2 md:items-end">
+                    <a
+                      href={detail.deepLinkUrl}
+                      className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
+                    >
+                      Open deep link
+                    </a>
+                    <span className="text-xs text-slate-500">
+                      Canonical posting path and audit remain in Vakwen.
+                    </span>
+                  </div>
+                </div>
+
                 <div className="mt-4 flex flex-col gap-3 rounded-md border border-border bg-slate-50 p-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
@@ -412,7 +463,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                       || (requiresTypedConfirm && confirmText !== typedPhrase)
                     }
                     onClick={() => void mutate(
-                      () => confirmDraftRows(detail.batch.id, selectedReadyRows.map((row) => row.id), batchVersion, confirmText || undefined),
+                      () => confirmDraftRows(detail.batch.id, selectedReadyRows.map((row) => ({ id: row.id, version: row.version })), batchVersion, confirmText || undefined),
                       "Rows posted.",
                     )}
                   >

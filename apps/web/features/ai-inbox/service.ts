@@ -102,14 +102,27 @@ export async function deleteDraftBatch(batchId: string, expectedBatchVersion: nu
 
 export async function confirmDraftRows(
   batchId: string,
-  rowIds: string[],
+  rows: Array<{ id: string; version: number }>,
   expectedBatchVersion: number,
   typedConfirmation?: string,
 ): Promise<DraftBatchDetail & { created: unknown[] }> {
   return postJson<DraftBatchDetail & { created: unknown[] }>(
     `/ai/transaction-drafts/${encodeURIComponent(batchId)}/confirm`,
-    { rowIds, expectedBatchVersion, typedConfirmation },
+    {
+      rowIds: rows.map((row) => row.id),
+      expectedRowVersions: rows.map((row) => ({ rowId: row.id, expectedVersion: row.version })),
+      expectedBatchVersion,
+      idempotencyKey: buildDraftPostIdempotencyKey(batchId),
+      typedConfirmation,
+    },
   );
+}
+
+function buildDraftPostIdempotencyKey(batchId: string): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `web-ai-draft:${batchId}:${crypto.randomUUID()}`;
+  }
+  return `web-ai-draft:${batchId}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
 export async function fetchAiConnectors(): Promise<AiConnectorsResponse> {

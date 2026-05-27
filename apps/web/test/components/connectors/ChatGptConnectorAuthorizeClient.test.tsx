@@ -121,4 +121,21 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(mockFetchMcpOAuthConsent).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).toContain("http://localhost:4000/mcp");
   });
+
+  it("keeps transaction:write unchecked until the user explicitly opts into advanced posting", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      scopes: ["portfolio:mcp_read", "transaction_draft:create", "transaction:write"],
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    const postingLabel = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
+    const postingCheckbox = postingLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+
+    expect(postingCheckbox?.checked).toBe(false);
+    expect(document.body.textContent).toContain("Advanced scope. Off by default");
+    expect(document.body.textContent).toContain("post_transaction_draft_rows");
+  });
 });

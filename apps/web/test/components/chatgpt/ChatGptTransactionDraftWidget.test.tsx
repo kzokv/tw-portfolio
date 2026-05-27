@@ -1,0 +1,183 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import type { ChatGptTransactionDraftWidgetDto } from "@vakwen/shared-types";
+import { ChatGptTransactionDraftWidget } from "../../../components/chatgpt/ChatGptTransactionDraftWidget";
+import { buildMockTransactionDraftWidgetData } from "../../../components/chatgpt/mockTransactionDraftWidgetData";
+
+beforeAll(() => {
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+async function flushEffects() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+function buttonByText(text: string): HTMLButtonElement {
+  const button = Array.from(document.querySelectorAll("button"))
+    .find((candidate) => candidate.textContent?.includes(text));
+  if (!button) throw new Error(`button not found: ${text}`);
+  return button as HTMLButtonElement;
+}
+
+describe("ChatGptTransactionDraftWidget", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete window.openai;
+  });
+
+  it("renders from the bridge and posts through callTool without direct API access", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    const posted: ChatGptTransactionDraftWidgetDto = {
+      ...initial,
+      batch: { ...initial.batch, version: initial.batch.version + 1 },
+      rows: initial.rows.map((row) => initial.selectedRowIds.includes(row.id)
+        ? {
+            ...row,
+            state: "confirmed",
+            confirmedAt: "2026-05-27T11:00:00.000Z",
+            confirmedTradeEventId: `txn-${row.id}`,
+            version: row.version + 1,
+          }
+        : row),
+      postingResult: {
+        batchId: initial.batch.id,
+        batchVersion: initial.batch.version + 1,
+        postedRowIds: initial.selectedRowIds,
+        createdTransactionIds: initial.selectedRowIds.map((rowId) => `txn-${rowId}`),
+        remainingUnresolvedRowIds: ["row-3", "row-5"],
+        requiresTypedConfirmation: false,
+        typedConfirmationPhrase: null,
+        grossValueAmount: 1_382_000,
+        grossValueCurrency: "TWD",
+        deepLinkUrl: initial.deepLinkUrl,
+        auditEventIds: ["audit-1"],
+      },
+    };
+
+    const callTool = vi.fn()
+      .mockResolvedValueOnce({ structuredContent: posted, _meta: { widget: posted, postResult: posted.postingResult } })
+      .mockResolvedValueOnce({ structuredContent: posted, _meta: { widget: posted } });
+    const setWidgetState = vi.fn();
+    const setOpenInAppUrl = vi.fn();
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: initial.selectedRowIds, editRowId: null, confirmText: "POST 3 TRADES" },
+      callTool,
+      setWidgetState,
+      setOpenInAppUrl,
+      notifyIntrinsicHeight: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("MCP Apps bridge only");
+    expect(document.body.textContent).toContain("High-value confirmation");
+    expect(setOpenInAppUrl).toHaveBeenCalledWith({ href: initial.deepLinkUrl });
+
+    await act(async () => {
+      buttonByText("Post selected rows").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(callTool).toHaveBeenCalledWith(
+      "post_transaction_draft_rows",
+      expect.objectContaining({
+        batchId: initial.batch.id,
+        expectedBatchVersion: initial.batch.version,
+        rowIds: initial.selectedRowIds,
+      }),
+    );
+    expect(document.body.textContent).toContain("Latest posting result");
+    expect(setWidgetState).toHaveBeenCalled();
+  });
+
+  it("keeps the widget in confirmation mode when the MCP post tool requires a phrase", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    initial.selectedRowIds = ["row-2"];
+    initial.grossValueText = "USD 2.98K";
+    const mcpConfirmationRequired = {
+      outcome: "confirmation_required",
+      batchId: initial.batch.id,
+      batchVersion: initial.batch.version,
+      postedRowIds: [],
+      createdTransactionIds: [],
+      remainingUnresolvedRowIds: [],
+      confirmation: {
+        selectedRowCount: 1,
+        totalRowsRequested: 1,
+        typedPhraseRequired: "POST 1 TRADES",
+        typedPhraseSatisfied: false,
+        grossValueTwd: 1_200_000,
+      },
+      deepLinkUrl: initial.deepLinkUrl,
+      eventIds: [],
+      rowErrors: [],
+    };
+    const callTool = vi.fn()
+      .mockResolvedValueOnce({ structuredContent: mcpConfirmationRequired })
+      .mockResolvedValueOnce({ structuredContent: initial, _meta: { widget: initial } });
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: initial.selectedRowIds, editRowId: null, confirmText: "" },
+      callTool,
+      setWidgetState: vi.fn(),
+      notifyIntrinsicHeight: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    await act(async () => {
+      buttonByText("Post selected rows").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Confirmation required");
+    expect(document.body.textContent).toContain("Type POST 1 TRADES before posting these rows.");
+    expect(document.body.textContent).toContain("Typed confirmation required before posting.");
+  });
+
+  it("shows reconnect guidance when transaction:write has not been granted", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    initial.permissions = {
+      ...initial.permissions,
+      canPost: false,
+      writeScopeGranted: false,
+      requiresWriteReconsent: true,
+    };
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: initial.selectedRowIds, editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Reconnect in ChatGPT and opt in during consent");
+    expect(buttonByText("Post selected rows").disabled).toBe(true);
+  });
+});
