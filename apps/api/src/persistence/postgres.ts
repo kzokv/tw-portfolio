@@ -72,6 +72,8 @@ import type {
   AnonymousShareTokenRecord,
   AuditLogInput,
   AuthUserRecord,
+  ConfirmAiTransactionDraftPostingInput,
+  ConfirmAiTransactionDraftPostingResult,
   CreateAnonymousShareTokenInput,
   CreateAnonymousShareTokenResult,
   CreateShareCoupledInviteInput,
@@ -3816,6 +3818,262 @@ export class PostgresPersistence implements Persistence {
       ],
     );
     return mapAiTransactionDraftEventRow(result.rows[0]!);
+  }
+
+  async confirmAiTransactionDraftPosting(
+    input: ConfirmAiTransactionDraftPostingInput,
+  ): Promise<ConfirmAiTransactionDraftPostingResult | null> {
+    validateAccountingStoreInvariants(input.accounting);
+    await this.ensureDefaultPortfolioData(input.ownerUserId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const savedRows: AiTransactionDraftRowRecord[] = [];
+      for (const row of input.rows) {
+        const result = await client.query<{
+          id: string;
+          batch_id: string;
+          owner_user_id: string;
+          row_number: number;
+          state: AiTransactionDraftRowState;
+          version: number;
+          account_id: string | null;
+          account_name_input: string | null;
+          trade_type: "BUY" | "SELL" | null;
+          ticker: string | null;
+          market_code: string | null;
+          quantity: number | null;
+          unit_price: string | number | null;
+          price_currency: string | null;
+          trade_date: string | null;
+          trade_timestamp: string | null;
+          booking_sequence: number | null;
+          is_day_trade: boolean | null;
+          commission_amount: string | number | null;
+          tax_amount: string | number | null;
+          fees_source: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED" | null;
+          note: string | null;
+          source_row_ref: string | null;
+          source_snippet: string | null;
+          normalized_payload: Record<string, unknown> | null;
+          preflight_issues: unknown[] | null;
+          warnings: unknown[] | null;
+          duplicate_trade_event_id: string | null;
+          confirmed_trade_event_id: string | null;
+          confirmed_at: string | null;
+          confirmed_by_user_id: string | null;
+          created_at: string;
+          updated_at: string;
+        }>(
+          `UPDATE ai_transaction_draft_rows
+           SET state = $2,
+               version = $3,
+               fees_source = $4,
+               confirmed_trade_event_id = $5,
+               confirmed_at = $6::timestamptz,
+               confirmed_by_user_id = $7,
+               updated_at = $8::timestamptz
+           WHERE id = $1
+             AND batch_id = $9
+             AND owner_user_id = $10
+             AND version = $11
+           RETURNING id,
+                     batch_id,
+                     owner_user_id,
+                     row_number,
+                     state,
+                     version,
+                     account_id,
+                     account_name_input,
+                     trade_type,
+                     ticker,
+                     market_code,
+                     quantity,
+                     unit_price,
+                     price_currency,
+                     trade_date::text AS trade_date,
+                     trade_timestamp::text AS trade_timestamp,
+                     booking_sequence,
+                     is_day_trade,
+                     commission_amount,
+                     tax_amount,
+                     fees_source,
+                     note,
+                     source_row_ref,
+                     source_snippet,
+                     normalized_payload,
+                     preflight_issues,
+                     warnings,
+                     duplicate_trade_event_id,
+                     confirmed_trade_event_id,
+                     confirmed_at::text AS confirmed_at,
+                     confirmed_by_user_id,
+                     created_at::text AS created_at,
+                     updated_at::text AS updated_at`,
+          [
+            row.id,
+            row.state,
+            row.version,
+            row.feesSource ?? null,
+            row.confirmedTradeEventId ?? null,
+            row.confirmedAt ?? null,
+            row.confirmedByUserId ?? null,
+            row.updatedAt ?? new Date().toISOString(),
+            row.batchId,
+            row.ownerUserId,
+            row.expectedVersion ?? null,
+          ],
+        );
+        const saved = result.rows[0];
+        if (!saved) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+        savedRows.push(mapAiTransactionDraftRowRow(saved));
+      }
+
+      const batchResult = await client.query<{
+        id: string;
+        owner_user_id: string;
+        created_by_user_id: string;
+        connector_connection_id: string | null;
+        share_id: string | null;
+        source_channel: AiTransactionDraftSourceChannel;
+        status: AiTransactionDraftBatchStatus;
+        version: number;
+        source_label: string | null;
+        source_filename: string | null;
+        note: string | null;
+        provenance: Record<string, unknown> | null;
+        row_count: number;
+        unsupported_count: number;
+        created_at: string;
+        updated_at: string;
+        archived_at: string | null;
+        archived_by_user_id: string | null;
+        deleted_at: string | null;
+        deleted_by_user_id: string | null;
+      }>(
+        `UPDATE ai_transaction_draft_batches
+         SET status = $2,
+             version = $3,
+             updated_at = $4::timestamptz
+         WHERE id = $1
+           AND owner_user_id = $5
+           AND version = $6
+         RETURNING id,
+                   owner_user_id,
+                   created_by_user_id,
+                   connector_connection_id,
+                   share_id,
+                   source_channel,
+                   status,
+                   version,
+                   source_label,
+                   source_filename,
+                   note,
+                   provenance,
+                   row_count,
+                   unsupported_count,
+                   created_at::text AS created_at,
+                   updated_at::text AS updated_at,
+                   archived_at::text AS archived_at,
+                   archived_by_user_id,
+                   deleted_at::text AS deleted_at,
+                   deleted_by_user_id`,
+        [
+          input.batch.id,
+          input.batch.status,
+          input.batch.version,
+          input.batch.updatedAt ?? new Date().toISOString(),
+          input.batch.ownerUserId,
+          input.batch.expectedVersion ?? null,
+        ],
+      );
+      const savedBatch = batchResult.rows[0];
+      if (!savedBatch) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      const accountIds = await this.listUserAccountIds(client, input.ownerUserId);
+      await this.saveAccountingStoreTx(client, input.ownerUserId, input.accounting, accountIds);
+
+      const eventResult = await client.query<{
+        id: string;
+        batch_id: string;
+        row_id: string | null;
+        owner_user_id: string | null;
+        actor_user_id: string | null;
+        connector_connection_id: string | null;
+        event_type: AiTransactionDraftEventType;
+        summary: string | null;
+        before_state: Record<string, unknown> | null;
+        after_state: Record<string, unknown> | null;
+        metadata: Record<string, unknown> | null;
+        source_ip: string | null;
+        created_at: string;
+      }>(
+        `INSERT INTO ai_transaction_draft_events (
+           id,
+           batch_id,
+           row_id,
+           owner_user_id,
+           actor_user_id,
+           connector_connection_id,
+           event_type,
+           summary,
+           before_state,
+           after_state,
+           metadata,
+           source_ip,
+           created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb,
+           $12::inet, COALESCE($13::timestamptz, NOW())
+         )
+         RETURNING id,
+                   batch_id,
+                   row_id,
+                   owner_user_id,
+                   actor_user_id,
+                   connector_connection_id,
+                   event_type,
+                   summary,
+                   before_state,
+                   after_state,
+                   metadata,
+                   source_ip::text AS source_ip,
+                   created_at::text AS created_at`,
+        [
+          input.event.id ?? randomUUID(),
+          input.event.batchId,
+          input.event.rowId ?? null,
+          input.event.ownerUserId ?? null,
+          input.event.actorUserId ?? null,
+          input.event.connectorConnectionId ?? null,
+          input.event.eventType,
+          input.event.summary ?? null,
+          input.event.beforeState ? JSON.stringify(input.event.beforeState) : null,
+          input.event.afterState ? JSON.stringify(input.event.afterState) : null,
+          JSON.stringify(input.event.metadata ?? {}),
+          input.event.sourceIp ?? null,
+          input.event.createdAt ?? null,
+        ],
+      );
+
+      await client.query("COMMIT");
+      return {
+        rows: savedRows,
+        batch: mapAiTransactionDraftBatchRow(savedBatch),
+        event: mapAiTransactionDraftEventRow(eventResult.rows[0]!),
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]> {

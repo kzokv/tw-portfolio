@@ -1,12 +1,32 @@
 import { randomUUID } from "node:crypto";
-import { currencyFor, marketCodeFor } from "@vakwen/shared-types";
-import type { AiTransactionDraftEventType } from "@vakwen/shared-types";
+import {
+  currencyFor,
+  marketCodeFor,
+  type AiConnectorImportCandidateSourceDto,
+  type AiConnectorImportProvenanceDto,
+  type AiTransactionDraftEventType,
+  type ChatGptTransactionDraftWidgetAuditItemDto,
+  type ChatGptTransactionDraftWidgetDto,
+  type MarketCode,
+  type McpPostTransactionDraftRowsInputDto,
+  type McpPostTransactionDraftRowsResultDto,
+  type TransactionDraftBatchDto,
+  type TransactionDraftRowDto,
+  type TransactionDraftUnsupportedItemDto,
+} from "@vakwen/shared-types";
 import type {
   AiTransactionDraftBatchAggregate,
+  AiTransactionDraftBatchRecord,
+  AiTransactionDraftEventRecord,
   AiTransactionDraftRowRecord,
+  AiTransactionDraftUnsupportedItemRecord,
 } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import type { McpDraftServiceDeps, McpMutationBatchResult } from "../mcp/types.js";
+import { connectorGroupForScope } from "./mcpConnectorLifecycle.js";
+import { syncAccountingPolicy } from "./accountingStore.js";
+import { createTransaction } from "./portfolio.js";
+import { scheduleReplayWithRetry } from "./replayPositionHistory.js";
 
 type TradeType = "BUY" | "SELL";
 type RowState = AiTransactionDraftRowRecord["state"];
@@ -31,6 +51,7 @@ export interface DraftCandidateInput {
   note?: string | null;
   sourceRowRef?: string | null;
   sourceSnippet?: string | null;
+  sourceMetadata?: AiConnectorImportCandidateSourceDto | null;
   rawPayload?: Record<string, unknown> | null;
 }
 
@@ -38,7 +59,7 @@ interface DraftBatchMetadataInput {
   sourceLabel?: string;
   sourceFilename?: string;
   note?: string;
-  provenance?: Record<string, unknown>;
+  provenance?: AiConnectorImportProvenanceDto;
 }
 
 interface PreflightRowResult {
@@ -85,15 +106,79 @@ function buildDeepLink(appBaseUrl: string, batchId: string, contextUserId: strin
   return `${appBaseUrl}/transactions?tab=ai-inbox&batch=${encodeURIComponent(batchId)}&context=${encodeURIComponent(contextUserId)}`;
 }
 
+function buildChatGptTransactionDraftComponentUrl(appBaseUrl: string): string {
+  return `${appBaseUrl}/connectors/chatgpt/transaction-draft`;
+}
+
+function requestSourceLabel(deps: McpDraftServiceDeps): "chatgpt_component" | "mcp_tool" {
+  return deps.requestContext.auth.connection?.provider === "chatgpt" ? "chatgpt_component" : "mcp_tool";
+}
+
+function assertNoRawSourcePayload(candidates: DraftCandidateInput[]): void {
+  const offending = candidates.find((candidate) => candidate.rawPayload && Object.keys(candidate.rawPayload).length > 0);
+  if (offending) {
+    throw routeError(400, "mcp_raw_source_payload_forbidden", `raw source payloads are not allowed for row ${offending.rowNumber}`);
+  }
+}
+
+function assertCandidateSourceMetadataCaps(candidates: DraftCandidateInput[]): void {
+  for (const candidate of candidates) {
+    const sourceMetadata = candidate.sourceMetadata;
+    if (!sourceMetadata) continue;
+    if ((sourceMetadata.fileId?.length ?? 0) > 200) throw routeError(400, "mcp_source_file_id_too_long", "sourceMetadata.fileId exceeds 200 characters");
+    if ((sourceMetadata.rowRef?.length ?? 0) > 200) throw routeError(400, "mcp_source_row_ref_too_long", "sourceMetadata.rowRef exceeds 200 characters");
+    if ((sourceMetadata.snippet?.length ?? 0) > 500) throw routeError(400, "mcp_source_snippet_too_long", "sourceMetadata.snippet exceeds 500 characters");
+    if ((sourceMetadata.cellRefs?.length ?? 0) > 20) throw routeError(400, "mcp_source_cell_refs_too_many", "sourceMetadata.cellRefs exceeds 20 items");
+    for (const cellRef of sourceMetadata.cellRefs ?? []) {
+      if (cellRef.length > 40) throw routeError(400, "mcp_source_cell_ref_too_long", "sourceMetadata.cellRefs entries exceed 40 characters");
+    }
+    if (sourceMetadata.page !== null && sourceMetadata.page !== undefined && sourceMetadata.page <= 0) {
+      throw routeError(400, "mcp_source_page_invalid", "sourceMetadata.page must be positive");
+    }
+    if (
+      sourceMetadata.confidence !== null
+      && sourceMetadata.confidence !== undefined
+      && (sourceMetadata.confidence < 0 || sourceMetadata.confidence > 1)
+    ) {
+      throw routeError(400, "mcp_source_confidence_invalid", "sourceMetadata.confidence must be between 0 and 1");
+    }
+  }
+}
+
+function assertBatchProvenanceCaps(provenance?: AiConnectorImportProvenanceDto): void {
+  if (!provenance || !("files" in provenance) || !Array.isArray(provenance.files)) return;
+  if (provenance.files.length === 0 || provenance.files.length > 10) {
+    throw routeError(400, "mcp_provenance_file_count_invalid", "provenance.files must contain 1 to 10 items");
+  }
+  for (const file of provenance.files) {
+    if (file.fileId.length > 200) throw routeError(400, "mcp_provenance_file_id_too_long", "provenance.files[].fileId exceeds 200 characters");
+    if ((file.displayName?.length ?? 0) > 200) throw routeError(400, "mcp_provenance_display_name_too_long", "provenance.files[].displayName exceeds 200 characters");
+    if ((file.mediaType?.length ?? 0) > 120) throw routeError(400, "mcp_provenance_media_type_too_long", "provenance.files[].mediaType exceeds 120 characters");
+    if ((file.sha256Prefix?.length ?? 0) > 32) throw routeError(400, "mcp_provenance_sha_prefix_too_long", "provenance.files[].sha256Prefix exceeds 32 characters");
+    if ((file.snippet?.length ?? 0) > 500) throw routeError(400, "mcp_provenance_snippet_too_long", "provenance.files[].snippet exceeds 500 characters");
+  }
+  for (const warning of provenance.warnings ?? []) {
+    if (warning.length > 200) throw routeError(400, "mcp_provenance_warning_too_long", "provenance.warnings entries exceed 200 characters");
+  }
+  if ((provenance.warnings?.length ?? 0) > 10) {
+    throw routeError(400, "mcp_provenance_warning_count_invalid", "provenance.warnings exceeds 10 items");
+  }
+  if ((provenance.extractor?.provider?.length ?? 0) > 120) throw routeError(400, "mcp_provenance_provider_too_long", "provenance.extractor.provider exceeds 120 characters");
+  if ((provenance.extractor?.model?.length ?? 0) > 120) throw routeError(400, "mcp_provenance_model_too_long", "provenance.extractor.model exceeds 120 characters");
+  if ((provenance.extractor?.runId?.length ?? 0) > 200) throw routeError(400, "mcp_provenance_run_id_too_long", "provenance.extractor.runId exceeds 200 characters");
+}
+
 function ensureMetadataCaps(input: DraftBatchMetadataInput): void {
   if ((input.sourceLabel?.length ?? 0) > 200) throw routeError(400, "mcp_source_label_too_long", "sourceLabel exceeds 200 characters");
   if ((input.sourceFilename?.length ?? 0) > 200) throw routeError(400, "mcp_source_filename_too_long", "sourceFilename exceeds 200 characters");
   if ((input.note?.length ?? 0) > 1_000) throw routeError(400, "mcp_note_too_long", "note exceeds 1,000 characters");
+  assertBatchProvenanceCaps(input.provenance);
 }
 
 async function loadDraftStore(deps: McpDraftServiceDeps) {
   const contextUserId = deps.requestContext.resolvedContext.portfolioContextUserId;
   const store = await deps.app.persistence.loadStore(contextUserId);
+  syncAccountingPolicy(store);
   return { store, contextUserId };
 }
 
@@ -113,6 +198,8 @@ async function runPreflight(
   deps: McpDraftServiceDeps,
   candidates: DraftCandidateInput[],
 ): Promise<PreflightResult> {
+  assertNoRawSourcePayload(candidates);
+  assertCandidateSourceMetadataCaps(candidates);
   if (candidates.length === 0 || candidates.length > 200) {
     throw routeError(400, "mcp_invalid_candidate_count", "Draft candidate batches must contain 1 to 200 rows");
   }
@@ -151,7 +238,7 @@ async function runPreflight(
           note: candidate.note ?? null,
           sourceRowRef: candidate.sourceRowRef ?? null,
           sourceSnippet: candidate.sourceSnippet ?? null,
-          normalizedPayload: { ...(candidate.rawPayload ?? {}) },
+          normalizedPayload: { ...(candidate.sourceMetadata ?? {}) },
         },
         issues: [],
         warnings: [],
@@ -159,7 +246,7 @@ async function runPreflight(
           category: "non_trade",
           reason: "Only BUY and SELL trade rows are draftable in V1",
           sourceSnippet: candidate.sourceSnippet ?? null,
-          rawPayload: { ...(candidate.rawPayload ?? {}) },
+          rawPayload: { ...(candidate.sourceMetadata ?? {}) },
         },
       });
       continue;
@@ -172,7 +259,7 @@ async function runPreflight(
     let marketCode = candidate.marketCode ?? null;
     let priceCurrency = candidate.priceCurrency?.trim().toUpperCase() ?? null;
     const ticker = candidate.ticker?.trim().toUpperCase() || null;
-    const normalizedPayload = { ...(candidate.rawPayload ?? {}) };
+    const normalizedPayload = { ...(candidate.sourceMetadata ?? {}) };
 
     if (!accountId && accountNameInput) {
       const matches = accountsByName.get(accountNameInput.toLowerCase()) ?? [];
@@ -400,7 +487,7 @@ async function appendDraftEvent(
     metadata?: Record<string, unknown>;
   } = {},
 ) {
-  await deps.app.persistence.appendAiTransactionDraftEvent({
+  return deps.app.persistence.appendAiTransactionDraftEvent({
     batchId,
     rowId: input.rowId ?? null,
     ownerUserId: deps.requestContext.resolvedContext.portfolioContextUserId,
@@ -410,7 +497,10 @@ async function appendDraftEvent(
     summary: input.summary ?? null,
     beforeState: input.beforeState ?? null,
     afterState: input.afterState ?? null,
-    metadata: input.metadata ?? {},
+    metadata: {
+      source: requestSourceLabel(deps),
+      ...(input.metadata ?? {}),
+    },
     sourceIp: deps.requestContext.sourceIp,
   });
 }
@@ -489,7 +579,7 @@ export async function preflightTransactionDraftCandidates(
 
 export async function createTransactionDraftBatch(
   deps: McpDraftServiceDeps,
-  input: DraftBatchMetadataInput & { provenance?: Record<string, unknown>; candidates: DraftCandidateInput[] },
+  input: DraftBatchMetadataInput & { candidates: DraftCandidateInput[] },
 ): Promise<McpMutationBatchResult> {
   ensureMetadataCaps(input);
   const preflight = await runPreflight(deps, input.candidates);
@@ -510,7 +600,11 @@ export async function createTransactionDraftBatch(
     sourceLabel: input.sourceLabel ?? null,
     sourceFilename: input.sourceFilename ?? null,
     note: input.note ?? null,
-    provenance: { ...(input.provenance ?? {}) },
+    provenance: {
+      source: requestSourceLabel(deps),
+      connectorImportMode: "structured_candidates",
+      ...(input.provenance ?? {}),
+    },
     rowCount: input.candidates.length,
     unsupportedCount: preflight.unsupportedCount,
   });
@@ -629,6 +723,466 @@ export async function getTransactionDraftBatch(
   };
 }
 
+function toTransactionDraftBatchDto(batch: AiTransactionDraftBatchRecord): TransactionDraftBatchDto {
+  return {
+    id: batch.id,
+    ownerUserId: batch.ownerUserId,
+    createdByUserId: batch.createdByUserId,
+    connectorConnectionId: batch.connectorConnectionId,
+    shareId: batch.shareId,
+    sourceChannel: batch.sourceChannel,
+    status: batch.status,
+    version: batch.version,
+    sourceLabel: batch.sourceLabel,
+    sourceFilename: batch.sourceFilename,
+    note: batch.note,
+    rowCount: batch.rowCount,
+    unsupportedCount: batch.unsupportedCount,
+    createdAt: batch.createdAt,
+    updatedAt: batch.updatedAt,
+    archivedAt: batch.archivedAt,
+    deletedAt: batch.deletedAt,
+  };
+}
+
+function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): TransactionDraftRowDto {
+  return {
+    id: row.id,
+    batchId: row.batchId,
+    rowNumber: row.rowNumber,
+    state: row.state,
+    version: row.version,
+    accountId: row.accountId,
+    accountNameInput: row.accountNameInput,
+    type: row.tradeType,
+    ticker: row.ticker,
+    marketCode: row.marketCode as MarketCode | null,
+    quantity: row.quantity,
+    unitPrice: row.unitPrice,
+    priceCurrency: row.priceCurrency,
+    tradeDate: row.tradeDate,
+    tradeTimestamp: row.tradeTimestamp,
+    bookingSequence: row.bookingSequence,
+    isDayTrade: row.isDayTrade,
+    commissionAmount: row.commissionAmount,
+    taxAmount: row.taxAmount,
+    feesSource: row.feesSource,
+    note: row.note,
+    sourceRowRef: row.sourceRowRef,
+    sourceSnippet: row.sourceSnippet,
+    preflightIssues: row.preflightIssues,
+    warnings: row.warnings,
+    confirmedTradeEventId: row.confirmedTradeEventId,
+    confirmedAt: row.confirmedAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toTransactionDraftUnsupportedDto(item: AiTransactionDraftUnsupportedItemRecord): TransactionDraftUnsupportedItemDto {
+  return {
+    id: item.id,
+    batchId: item.batchId,
+    rowNumber: item.rowNumber,
+    category: item.category,
+    reason: item.reason,
+    sourceSnippet: item.sourceSnippet,
+    createdAt: item.createdAt,
+  };
+}
+
+function sourceChannelLabel(provenance: Record<string, unknown>): string {
+  return provenance.source === "chatgpt_component" ? "ChatGPT connector import" : "MCP connector import";
+}
+
+function countRowMappings(aggregate: AiTransactionDraftBatchAggregate): number {
+  return aggregate.rows.length + aggregate.unsupportedItems.length;
+}
+
+function formatGrossValue(rows: AiTransactionDraftRowRecord[], locale = "en"): string {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    if (row.state !== "ready" || !row.priceCurrency || row.quantity === null || row.unitPrice === null) continue;
+    totals.set(row.priceCurrency, (totals.get(row.priceCurrency) ?? 0) + row.quantity * row.unitPrice);
+  }
+  if (totals.size === 0) return "0";
+  return [...totals.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, value]) => {
+      try {
+        return new Intl.NumberFormat(locale, {
+          style: "currency",
+          currency,
+          notation: "compact",
+          maximumFractionDigits: 2,
+        }).format(value);
+      } catch {
+        return `${currency} ${value.toFixed(2)}`;
+      }
+    })
+    .join(" + ");
+}
+
+function eventTone(event: AiTransactionDraftEventRecord): ChatGptTransactionDraftWidgetAuditItemDto["tone"] {
+  if (event.eventType === "rows_confirmed") return "success";
+  if (event.eventType === "rows_rejected" || event.eventType === "batch_archived" || event.eventType === "batch_deleted") return "warning";
+  return "info";
+}
+
+function auditPreview(aggregate: AiTransactionDraftBatchAggregate): ChatGptTransactionDraftWidgetAuditItemDto[] {
+  const unresolvedCount = aggregate.rows.filter((row) =>
+    row.state === "needs_clarification"
+    || row.state === "pending_validation"
+    || row.state === "invalid"
+    || row.state === "duplicate_blocked",
+  ).length;
+  const preview = aggregate.events.slice(-3).map((event) => ({
+    tone: eventTone(event),
+    message: event.summary ?? event.eventType.replace(/_/g, " "),
+  }));
+  if (unresolvedCount > 0) {
+    preview.push({
+      tone: "warning",
+      message: `${unresolvedCount} row${unresolvedCount === 1 ? "" : "s"} still need review before posting.`,
+    });
+  }
+  if (preview.length === 0) {
+    preview.push({
+      tone: "info",
+      message: "Draft batch loaded through the MCP Apps bridge.",
+    });
+  }
+  return preview.slice(-4);
+}
+
+function canUseScope(
+  deps: McpDraftServiceDeps,
+  settings: { groupToggles: Record<"read" | "drafts" | "write", boolean> },
+  scope: "transaction_draft:edit" | "transaction_draft:archive" | "transaction_draft:delete" | "transaction:write",
+  toolName: string,
+): boolean {
+  if (!settings.groupToggles[connectorGroupForScope(scope)]) return false;
+  if (!deps.requestContext.auth.scopes.includes(scope)) return false;
+  if (deps.requestContext.auth.toolToggles[toolName] === false) return false;
+  const { shareId, shareCapabilities } = deps.requestContext.resolvedContext;
+  return !shareId || shareCapabilities.includes(scope);
+}
+
+export async function getTransactionDraftBatchComponent(
+  deps: McpDraftServiceDeps,
+  input: { batchId: string; locale?: string },
+): Promise<{ widget: ChatGptTransactionDraftWidgetDto; _meta: Record<string, unknown> }> {
+  const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(input.batchId), input.batchId);
+  const settings = await deps.app.persistence.getAiConnectorPolicySettings();
+  const selectedRows = aggregate.rows.filter((row) => row.state === "ready");
+  const widget: ChatGptTransactionDraftWidgetDto = {
+    mode: "review",
+    title: "Review transaction draft rows",
+    subtitle: "Vakwen received structured candidates through the AI connector and validated them before this component rendered.",
+    batch: toTransactionDraftBatchDto(aggregate.batch),
+    rows: aggregate.rows.map(toTransactionDraftRowDto),
+    unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
+    selectedRowIds: selectedRows.map((row) => row.id),
+    grossValueText: formatGrossValue(selectedRows, input.locale),
+    deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, aggregate.batch.id, aggregate.batch.ownerUserId),
+    provenance: {
+      sourceLabel: aggregate.batch.sourceLabel,
+      sourceFilename: aggregate.batch.sourceFilename,
+      sourceSummary: "Vakwen stored structured row candidates, capped snippets, row mappings, and provenance metadata only. Raw image/PDF/OCR source files remain outside the app storage path.",
+      sourceChannelLabel: sourceChannelLabel(aggregate.batch.provenance),
+      structuredCandidatesOnly: true,
+      snippetCharacterCap: 500,
+      rowMappingCount: countRowMappings(aggregate),
+    },
+    permissions: {
+      canEdit: canUseScope(deps, settings, "transaction_draft:edit", "update_transaction_draft_rows"),
+      canArchive: canUseScope(deps, settings, "transaction_draft:archive", "archive_transaction_draft_batch"),
+      canDelete: canUseScope(deps, settings, "transaction_draft:delete", "delete_unconfirmed_transaction_draft_batch"),
+      canPost: aggregate.batch.status === "open"
+        && selectedRows.length > 0
+        && canUseScope(deps, settings, "transaction:write", "post_transaction_draft_rows"),
+      writeScopeGranted: deps.requestContext.auth.scopes.includes("transaction:write"),
+      requiresWriteReconsent: settings.groupToggles.write && !deps.requestContext.auth.scopes.includes("transaction:write"),
+      adminWritePolicyEnabled: settings.groupToggles.write,
+    },
+    auditPreview: auditPreview(aggregate),
+    postingResult: null,
+    tools: {
+      refresh: "get_transaction_draft_batch_component",
+      updateRow: "update_transaction_draft_rows",
+      excludeRows: "exclude_transaction_draft_rows",
+      reincludeRows: "reinclude_transaction_draft_rows",
+      rejectRows: "reject_transaction_draft_rows",
+      archiveBatch: "archive_transaction_draft_batch",
+      deleteBatch: "delete_unconfirmed_transaction_draft_batch",
+      postRows: "post_transaction_draft_rows",
+    },
+  };
+  return {
+    widget,
+    _meta: {
+      widget,
+      "openai/outputTemplate": buildChatGptTransactionDraftComponentUrl(deps.app.appBaseUrl),
+      "openai/widgetAccessible": true,
+    },
+  };
+}
+
+function confirmationSummary(rows: AiTransactionDraftRowRecord[]) {
+  const grossValueTwd = rows
+    .filter((row) => row.priceCurrency === "TWD" && row.quantity !== null && row.unitPrice !== null)
+    .reduce((sum, row) => sum + row.quantity! * row.unitPrice!, 0);
+  const typedPhraseRequired = rows.length >= 6 || grossValueTwd >= 1_000_000
+    ? `POST ${rows.length} TRADES`
+    : null;
+  return { grossValueTwd, typedPhraseRequired };
+}
+
+function firstDuplicate(values: string[]): string | null {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) return value;
+    seen.add(value);
+  }
+  return null;
+}
+
+export async function postTransactionDraftRows(
+  deps: McpDraftServiceDeps,
+  input: McpPostTransactionDraftRowsInputDto,
+): Promise<McpPostTransactionDraftRowsResultDto> {
+  const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(input.batchId), input.batchId);
+  assertBatchEditable(aggregate.batch);
+  if (aggregate.batch.version !== input.expectedBatchVersion) {
+    throw routeError(409, "mcp_draft_batch_version_conflict", "Draft batch version conflict");
+  }
+
+  const rowById = new Map(aggregate.rows.map((row) => [row.id, row]));
+  const duplicateRowId = firstDuplicate(input.rowIds);
+  if (duplicateRowId) {
+    throw routeError(400, "mcp_draft_duplicate_row_id", `Draft row ${duplicateRowId} was selected more than once`);
+  }
+  const expectedRowIds = input.expectedRowVersions.map((item) => item.rowId);
+  const duplicateExpectedRowId = firstDuplicate(expectedRowIds);
+  if (duplicateExpectedRowId) {
+    throw routeError(400, "mcp_draft_duplicate_expected_row_version", `Draft row ${duplicateExpectedRowId} has duplicate expected versions`);
+  }
+  const selectedRowIdSet = new Set(input.rowIds);
+  const unexpectedVersionRowId = expectedRowIds.find((rowId) => !selectedRowIdSet.has(rowId));
+  if (unexpectedVersionRowId) {
+    throw routeError(400, "mcp_draft_unselected_expected_row_version", `Draft row ${unexpectedVersionRowId} has a version but was not selected`);
+  }
+  const expectedByRowId = new Map(input.expectedRowVersions.map((item) => [item.rowId, item.expectedVersion]));
+  const selectedRows = input.rowIds.map((rowId) => {
+    const row = rowById.get(rowId);
+    if (!row) throw routeError(404, "mcp_draft_row_not_found", `Draft row ${rowId} not found`);
+    const expectedVersion = expectedByRowId.get(rowId);
+    if (expectedVersion === undefined) throw routeError(409, "mcp_draft_row_version_missing", `Draft row ${rowId} expected version missing`);
+    if (row.version !== expectedVersion) {
+      throw routeError(409, "mcp_draft_row_version_conflict", `Draft row ${rowId} version conflict`);
+    }
+    if (row.state === "confirmed") {
+      throw routeError(409, "mcp_draft_row_confirmed", `Draft row ${rowId} is already confirmed`);
+    }
+    if (row.state !== "ready") {
+      throw routeError(409, "mcp_draft_row_not_ready", `Draft row ${rowId} is not ready`);
+    }
+    return row;
+  });
+
+  const confirmation = confirmationSummary(selectedRows);
+  if (confirmation.typedPhraseRequired && input.typedConfirmation !== confirmation.typedPhraseRequired) {
+    return {
+      outcome: "confirmation_required",
+      batchId: aggregate.batch.id,
+      batchVersion: aggregate.batch.version,
+      postedRowIds: [],
+      createdTransactionIds: [],
+      remainingUnresolvedRowIds: [],
+      confirmation: {
+        selectedRowCount: selectedRows.length,
+        totalRowsRequested: input.rowIds.length,
+        typedPhraseRequired: confirmation.typedPhraseRequired,
+        typedPhraseSatisfied: false,
+        grossValueTwd: confirmation.grossValueTwd,
+      },
+      deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, aggregate.batch.id, aggregate.batch.ownerUserId),
+      eventIds: [],
+      rowErrors: [],
+    };
+  }
+
+  const revalidated = await runPreflight(deps, mapDraftRowsToCandidates(selectedRows));
+  const revalidatedByRowNumber = new Map(revalidated.rows.map((row) => [row.rowNumber, row]));
+  const blockedRows = selectedRows.flatMap((row) => {
+    const next = revalidatedByRowNumber.get(row.rowNumber);
+    if (!next || next.state !== "ready" || next.blocking) {
+      return [{
+        rowId: row.id,
+        state: next?.state ?? row.state,
+        issues: next?.issues ?? row.preflightIssues,
+      }];
+    }
+    return [];
+  });
+  if (blockedRows.length > 0) {
+    return {
+      outcome: "blocked",
+      batchId: aggregate.batch.id,
+      batchVersion: aggregate.batch.version,
+      postedRowIds: [],
+      createdTransactionIds: [],
+      remainingUnresolvedRowIds: blockedRows.map((row) => row.rowId),
+      confirmation: {
+        selectedRowCount: selectedRows.length,
+        totalRowsRequested: input.rowIds.length,
+        typedPhraseRequired: confirmation.typedPhraseRequired,
+        typedPhraseSatisfied: true,
+        grossValueTwd: confirmation.grossValueTwd,
+      },
+      deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, aggregate.batch.id, aggregate.batch.ownerUserId),
+      eventIds: [],
+      rowErrors: blockedRows,
+    };
+  }
+
+  const claimed = await deps.app.persistence.claimIdempotencyKey(
+    deps.requestContext.resolvedContext.portfolioContextUserId,
+    input.idempotencyKey,
+  );
+  if (!claimed) {
+    throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+  }
+
+  const { store, contextUserId } = await loadDraftStore(deps);
+  const draftStore = structuredClone(store);
+  const createdAt = new Date().toISOString();
+  const createdTransactionIds: string[] = [];
+  const postedRowIds: string[] = [];
+  const eventIds: string[] = [];
+  let updatedBatchVersion = aggregate.batch.version + 1;
+
+  try {
+    for (const row of selectedRows) {
+      const tx = createTransaction(draftStore, contextUserId, {
+        id: randomUUID(),
+        accountId: row.accountId!,
+        ticker: row.ticker!,
+        marketCode: row.marketCode as "TW" | "US" | "AU",
+        quantity: row.quantity!,
+        unitPrice: row.unitPrice!,
+        priceCurrency: row.priceCurrency!,
+        tradeDate: row.tradeDate!,
+        tradeTimestamp: row.tradeTimestamp ?? undefined,
+        bookingSequence: row.bookingSequence ?? undefined,
+        commissionAmount: row.commissionAmount ?? undefined,
+        taxAmount: row.taxAmount ?? undefined,
+        type: row.tradeType!,
+        isDayTrade: row.isDayTrade ?? false,
+      });
+      createdTransactionIds.push(tx.id);
+      postedRowIds.push(row.id);
+    }
+
+    const eventId = randomUUID();
+    const confirmed = await deps.app.persistence.confirmAiTransactionDraftPosting({
+      ownerUserId: contextUserId,
+      accounting: draftStore.accounting,
+      rows: selectedRows.map((row, index) => ({
+        ...row,
+        state: "confirmed",
+        version: row.version + 1,
+        feesSource: row.feesSource ?? (row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED"),
+        confirmedTradeEventId: createdTransactionIds[index]!,
+        confirmedAt: createdAt,
+        confirmedByUserId: deps.requestContext.auth.sessionUserId,
+        updatedAt: createdAt,
+        expectedVersion: row.version,
+      })),
+      batch: {
+        ...aggregate.batch,
+        version: aggregate.batch.version + 1,
+        updatedAt: createdAt,
+        expectedVersion: aggregate.batch.version,
+      },
+      event: {
+        id: eventId,
+        batchId: aggregate.batch.id,
+        ownerUserId: contextUserId,
+        actorUserId: deps.requestContext.auth.sessionUserId,
+        connectorConnectionId: deps.requestContext.auth.connection?.id ?? null,
+        eventType: "rows_confirmed",
+        summary: `${createdTransactionIds.length} draft rows posted`,
+        metadata: {
+          source: requestSourceLabel(deps),
+          idempotencyKey: input.idempotencyKey,
+          postedRowIds,
+          createdTransactionIds,
+        },
+        sourceIp: deps.requestContext.sourceIp,
+      },
+    });
+    if (!confirmed) {
+      throw routeError(409, "mcp_draft_post_version_conflict", "Draft posting version conflict");
+    }
+    eventIds.push(confirmed.event.id);
+    updatedBatchVersion = confirmed.batch.version;
+  } catch (error) {
+    await deps.app.persistence.releaseIdempotencyKey(
+      deps.requestContext.resolvedContext.portfolioContextUserId,
+      input.idempotencyKey,
+    );
+    throw error;
+  }
+
+  const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; fromDate: string }>();
+  for (const row of selectedRows) {
+    const key = `${row.accountId}:${row.ticker}`;
+    const current = earliestByAccountTicker.get(key);
+    if (!current || row.tradeDate! < current.fromDate) {
+      earliestByAccountTicker.set(key, { accountId: row.accountId!, ticker: row.ticker!, fromDate: row.tradeDate! });
+    }
+  }
+  for (const item of earliestByAccountTicker.values()) {
+    scheduleReplayWithRetry(deps.app.persistence, deps.app.eventBus, contextUserId, item.accountId, item.ticker, {
+      snapshotFromDate: item.fromDate,
+    });
+  }
+  await deps.app.eventBus.publishEvent(contextUserId, "ai_transaction_draft_confirmed", {
+    batchId: aggregate.batch.id,
+    rowIds: postedRowIds,
+    tradeEventIds: createdTransactionIds,
+    source: requestSourceLabel(deps),
+  });
+
+  const refreshed = await deps.app.persistence.getAiTransactionDraftBatch(aggregate.batch.id);
+  const remainingUnresolvedRowIds = (refreshed?.rows ?? [])
+    .filter((row) =>
+      row.state === "needs_clarification"
+      || row.state === "pending_validation"
+      || row.state === "invalid"
+      || row.state === "duplicate_blocked",
+    )
+    .map((row) => row.id);
+  return {
+    outcome: "posted",
+    batchId: aggregate.batch.id,
+    batchVersion: updatedBatchVersion,
+    postedRowIds,
+    createdTransactionIds,
+    remainingUnresolvedRowIds,
+    confirmation: {
+      selectedRowCount: selectedRows.length,
+      totalRowsRequested: input.rowIds.length,
+      typedPhraseRequired: confirmation.typedPhraseRequired,
+      typedPhraseSatisfied: true,
+      grossValueTwd: confirmation.grossValueTwd,
+    },
+    deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, aggregate.batch.id, aggregate.batch.ownerUserId),
+    eventIds,
+    rowErrors: [],
+  };
+}
+
 function mapDraftRowsToCandidates(rows: AiTransactionDraftRowRecord[]): DraftCandidateInput[] {
   return rows.map((row) => ({
     rowNumber: row.rowNumber,
@@ -650,7 +1204,7 @@ function mapDraftRowsToCandidates(rows: AiTransactionDraftRowRecord[]): DraftCan
     note: row.note ?? undefined,
     sourceRowRef: row.sourceRowRef ?? undefined,
     sourceSnippet: row.sourceSnippet ?? undefined,
-    rawPayload: { ...row.normalizedPayload },
+    sourceMetadata: { ...row.normalizedPayload },
   }));
 }
 

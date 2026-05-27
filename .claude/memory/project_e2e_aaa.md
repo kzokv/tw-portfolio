@@ -22,9 +22,9 @@ If yes → Playwright HTTP AAA. If not (needs `vi.mock()`, `vi.stubGlobal(fetch)
 
 `*-aaa.http.spec.ts` and `*-aaa.spec.ts` must be declarative:
 
-- No direct `expect(...)` in the spec body (enforced by `no-restricted-syntax` ESLint rule).
-- Status/body checks go through assistant `assert` helpers.
-- Body extraction goes through assistant `arrange` helpers.
+- Playwright E2E assertion placement is promoted to `.claude/rules/e2e-aaa-guardrails.md`, including the ban on direct `expect(...)` and conditional assertion branches inside `test(...)` bodies.
+- HTTP status/body checks go through assistant `assert` helpers.
+- HTTP body extraction goes through assistant `arrange` helpers.
 - Public AAA helper methods carry `@Step()` for Playwright step reporting.
 - Shared seed logic (user creation, state seeding) goes in `tests/e2e/specs/helpers/*.ts` — excluded from the `no-restricted-syntax` rule.
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
 import type { AiConnectorConnectionDto, AiConnectorScope } from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/Button";
@@ -20,6 +20,8 @@ const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
   { title: "Posting", scopes: ["transaction:write"] },
 ];
 
+const CHATGPT_RECONNECT_URL = "https://chatgpt.com/";
+
 function statusClassName(status: AiConnectorConnectionDto["status"]): string {
   if (status === "pending") return "border-sky-200 bg-sky-50 text-sky-700";
   if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -34,6 +36,12 @@ function formatTime(value: string | null): string {
 function policyValue(value: number | null | undefined, suffix = ""): string {
   if (value === null || value === undefined) return "-";
   return `${value}${suffix}`;
+}
+
+function scopeNeedsReconnect(connection: AiConnectorConnectionDto, scope: AiConnectorScope): boolean {
+  return scope === "transaction:write"
+    && connection.provider === "chatgpt"
+    && !connection.scopes.includes(scope);
 }
 
 export function AiConnectorsSettingsClient() {
@@ -231,17 +239,26 @@ export function AiConnectorsSettingsClient() {
                         || (scope.startsWith("transaction_draft") && !scopeEnabledByGroup.drafts)
                         || (scope === "transaction:write" && !scopeEnabledByGroup.write);
                       const policyDescriptionId = policyDisabled ? `${connection.id}-${scope.replace(/[:_]/g, "-")}-policy-disabled` : undefined;
+                      const reconnectRequired = scopeNeedsReconnect(connection, scope);
+                      const reconnectDescriptionId = reconnectRequired ? `${connection.id}-${scope.replace(/[:_]/g, "-")}-reconnect-required` : undefined;
                       const disabled =
                         busyId === connection.id
                         || connection.status !== "active"
-                        || policyDisabled;
+                        || policyDisabled
+                        || reconnectRequired;
+                      const describedBy = [policyDescriptionId, reconnectDescriptionId].filter(Boolean).join(" ") || undefined;
                       return (
                         <label key={scope} className="flex items-center justify-between gap-3 text-sm text-slate-700">
-                          <span>
+                          <span className="min-w-0">
                             {AI_CONNECTOR_SCOPE_LABELS[scope]}
                             {policyDisabled ? (
                               <span id={policyDescriptionId} className="block text-xs text-slate-500">
                                 Disabled by MCP policy
+                              </span>
+                            ) : null}
+                            {reconnectRequired ? (
+                              <span id={reconnectDescriptionId} className="mt-1 block text-xs text-amber-700">
+                                Advanced scope. Reconnect or re-consent in ChatGPT to enable posting.
                               </span>
                             ) : null}
                           </span>
@@ -249,16 +266,39 @@ export function AiConnectorsSettingsClient() {
                             type="checkbox"
                             checked={connection.scopes.includes(scope)}
                             disabled={disabled}
-                            aria-describedby={policyDescriptionId}
+                            aria-describedby={describedBy}
                             onChange={(event) => void toggleScope(connection, scope, event.target.checked)}
                           />
                         </label>
                       );
                     })}
                   </div>
+                  {group.title === "Posting" ? (
+                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
+                      `transaction:write` stays off by default and cannot be granted from this settings page.
+                      Use ChatGPT consent to opt in, or revoke and reconnect if you need to request it again.
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
+
+            {connection.provider === "chatgpt" ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                <span className="min-w-0 flex-1">
+                  Need fresh auth or re-consent? Start the connector flow again in ChatGPT, then approve the advanced posting scope there.
+                </span>
+                <a
+                  href={CHATGPT_RECONNECT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-900 transition hover:border-slate-400"
+                >
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                  Reconnect in ChatGPT
+                </a>
+              </div>
+            ) : null}
 
             <div className="mt-5">
               <p className="text-sm font-medium text-slate-900">Tool toggles</p>

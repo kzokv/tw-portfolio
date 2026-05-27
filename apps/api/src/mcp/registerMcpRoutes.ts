@@ -36,8 +36,10 @@ import {
   deleteUnconfirmedTransactionDraftBatch,
   excludeTransactionDraftRows,
   getTransactionDraftBatch,
+  getTransactionDraftBatchComponent,
   getTransactionDraftTemplate,
   listTransactionDraftBatches,
+  postTransactionDraftRows,
   preflightTransactionDraftCandidates,
   rejectTransactionDraftRows,
   reincludeTransactionDraftRows,
@@ -82,10 +84,11 @@ function asStructuredContent(value: unknown): Record<string, unknown> {
 }
 
 function buildToolResult(value: unknown) {
-  const structuredContent = asStructuredContent(value);
+  const { _meta, ...structuredContent } = asStructuredContent(value);
   return {
     content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }],
     structuredContent,
+    ...(_meta && typeof _meta === "object" && !Array.isArray(_meta) ? { _meta: _meta as Record<string, unknown> } : {}),
   };
 }
 
@@ -162,7 +165,10 @@ export async function registerMcpRoutes(
         requestId: pending.requestId,
         sourceIp: pending.sourceIp,
         userAgent: pending.userAgent,
-        metadata: requestedContextUserId ? { requestedPortfolioContextUserId: requestedContextUserId } : {},
+        metadata: {
+          source: auth.connection?.provider === "chatgpt" ? "chatgpt_component" : "mcp_tool",
+          ...(requestedContextUserId ? { requestedPortfolioContextUserId: requestedContextUserId } : {}),
+        },
       });
     };
 
@@ -266,6 +272,12 @@ export async function registerMcpRoutes(
           result = await getTransactionDraftBatch({ app, requestContext }, batchId);
           break;
         }
+        case "get_transaction_draft_batch_component":
+          result = await getTransactionDraftBatchComponent(
+            { app, requestContext },
+            args as Parameters<typeof getTransactionDraftBatchComponent>[1],
+          );
+          break;
         case "update_transaction_draft_rows":
           result = await updateTransactionDraftRows(
             { app, requestContext },
@@ -300,6 +312,12 @@ export async function registerMcpRoutes(
           result = await deleteUnconfirmedTransactionDraftBatch(
             { app, requestContext },
             args as Parameters<typeof deleteUnconfirmedTransactionDraftBatch>[1],
+          );
+          break;
+        case "post_transaction_draft_rows":
+          result = await postTransactionDraftRows(
+            { app, requestContext },
+            args as Parameters<typeof postTransactionDraftRows>[1],
           );
           break;
       }
@@ -353,6 +371,16 @@ export async function registerMcpRoutes(
           inputSchema: tool.inputSchema.shape,
           outputSchema: tool.outputSchema,
           annotations: tool.annotations,
+          _meta: tool._meta
+            ? Object.fromEntries(
+              Object.entries(tool._meta).map(([key, value]) => [
+                key,
+                key === "openai/outputTemplate" && typeof value === "string" && value.startsWith("/")
+                  ? `${app.appBaseUrl}${value}`
+                  : value,
+              ]),
+            )
+            : undefined,
         },
         async (args: unknown, extra: unknown) => executeTool(tool.name, args, extra),
       );

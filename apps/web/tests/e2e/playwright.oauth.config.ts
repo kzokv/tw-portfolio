@@ -21,7 +21,7 @@ export default createPlaywrightConfig({
   authMode: "oauth",
   timeout: 60_000,
   expectTimeout: 15_000,
-  workers: 2,
+  workers: 1,
   reportFolder: "playwright-report-oauth",
   videoMode: "retain-on-failure",
   projects: [

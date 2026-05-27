@@ -893,6 +893,7 @@ export type AiConnectorAccessResult = "ok" | "denied" | "error";
 export type AiConnectorToolGroup = "read" | "drafts" | "write";
 export type AiTransactionDraftBatchStatus = "open" | "archived" | "deleted";
 export type AiTransactionDraftSourceChannel = "mcp" | "web";
+export type AiConnectorImportSourceType = "csv" | "image" | "pdf";
 export type AiTransactionDraftRowState =
   | "needs_clarification"
   | "pending_validation"
@@ -914,6 +915,7 @@ export type AiTransactionDraftEventType =
   | "rows_confirmed"
   | "batch_archived"
   | "batch_deleted";
+export type McpDraftPostingOutcome = "posted" | "blocked" | "confirmation_required";
 
 export interface AiConnectorConnectionDto {
   id: string;
@@ -959,6 +961,72 @@ export interface McpOAuthConsentRequestDto {
 
 export interface McpOAuthConsentDecisionDto {
   redirectUrl: string;
+}
+
+export interface AiConnectorImportFileProvenanceDto {
+  fileId: string;
+  sourceType: AiConnectorImportSourceType;
+  displayName?: string | null;
+  mediaType?: string | null;
+  pageCount?: number | null;
+  rowCount?: number | null;
+  sha256Prefix?: string | null;
+  snippet?: string | null;
+}
+
+export interface AiConnectorImportCandidateSourceDto {
+  fileId?: string | null;
+  page?: number | null;
+  rowRef?: string | null;
+  cellRefs?: string[];
+  snippet?: string | null;
+  confidence?: number | null;
+}
+
+export interface AiConnectorImportProvenanceDto {
+  sourceType: AiConnectorImportSourceType;
+  files: AiConnectorImportFileProvenanceDto[];
+  extractor?: {
+    provider?: string | null;
+    model?: string | null;
+    runId?: string | null;
+  };
+  warnings?: string[];
+}
+
+export interface McpPostTransactionDraftRowsInputDto {
+  batchId: string;
+  rowIds: string[];
+  expectedBatchVersion: number;
+  expectedRowVersions: Array<{
+    rowId: string;
+    expectedVersion: number;
+  }>;
+  idempotencyKey: string;
+  typedConfirmation?: string;
+}
+
+export interface McpPostTransactionDraftRowsResultDto {
+  outcome: McpDraftPostingOutcome;
+  batchId: string;
+  batchVersion: number;
+  postedRowIds: string[];
+  createdTransactionIds: string[];
+  remainingUnresolvedRowIds: string[];
+  confirmation: {
+    selectedRowCount: number;
+    totalRowsRequested: number;
+    typedPhraseRequired: string | null;
+    typedPhraseSatisfied: boolean;
+    grossValueTwd: number;
+  };
+  deepLinkUrl: string;
+  eventIds: string[];
+  rowErrors: Array<{
+    rowId: string;
+    state: AiTransactionDraftRowState;
+    issues: unknown[];
+  }>;
 }
 
 export interface AiConnectorAccessLogDto {
@@ -1045,6 +1113,73 @@ export interface TransactionDraftBatchDetailDto {
   batch: TransactionDraftBatchDto;
   rows: TransactionDraftRowDto[];
   unsupportedItems: TransactionDraftUnsupportedItemDto[];
+}
+
+export interface TransactionDraftPostingResultDto {
+  batchId: string;
+  batchVersion: number;
+  postedRowIds: string[];
+  createdTransactionIds: string[];
+  remainingUnresolvedRowIds: string[];
+  requiresTypedConfirmation: boolean;
+  typedConfirmationPhrase: string | null;
+  grossValueAmount: number | null;
+  grossValueCurrency: string | null;
+  deepLinkUrl: string | null;
+  auditEventIds: string[];
+}
+
+export interface ChatGptTransactionDraftWidgetAuditItemDto {
+  tone: "info" | "success" | "warning";
+  message: string;
+}
+
+export interface ChatGptTransactionDraftWidgetPermissionsDto {
+  canEdit: boolean;
+  canArchive: boolean;
+  canDelete: boolean;
+  canPost: boolean;
+  writeScopeGranted: boolean;
+  requiresWriteReconsent: boolean;
+  adminWritePolicyEnabled: boolean;
+}
+
+export interface ChatGptTransactionDraftWidgetProvenanceDto {
+  sourceLabel: string | null;
+  sourceFilename: string | null;
+  sourceSummary: string;
+  sourceChannelLabel: string;
+  structuredCandidatesOnly: boolean;
+  snippetCharacterCap: number;
+  rowMappingCount: number | null;
+}
+
+export interface ChatGptTransactionDraftWidgetToolsDto {
+  refresh: string | null;
+  updateRow: string | null;
+  excludeRows: string | null;
+  reincludeRows: string | null;
+  rejectRows: string | null;
+  archiveBatch: string | null;
+  deleteBatch: string | null;
+  postRows: string | null;
+}
+
+export interface ChatGptTransactionDraftWidgetDto {
+  mode: "import" | "review" | "post";
+  title: string;
+  subtitle: string;
+  batch: TransactionDraftBatchDto;
+  rows: TransactionDraftRowDto[];
+  unsupportedItems: TransactionDraftUnsupportedItemDto[];
+  selectedRowIds: string[];
+  grossValueText: string;
+  deepLinkUrl: string | null;
+  provenance: ChatGptTransactionDraftWidgetProvenanceDto;
+  permissions: ChatGptTransactionDraftWidgetPermissionsDto;
+  auditPreview: ChatGptTransactionDraftWidgetAuditItemDto[];
+  postingResult: TransactionDraftPostingResultDto | null;
+  tools: ChatGptTransactionDraftWidgetToolsDto;
 }
 
 // ── Sharing types (KZO-145 / KZO-146) ──────────────────────────────────────

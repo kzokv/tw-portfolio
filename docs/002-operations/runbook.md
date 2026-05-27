@@ -295,6 +295,89 @@ Then configure ChatGPT as a custom app / MCP connector:
 10. Manage the connected account in Vakwen under Settings -> AI connectors.
 11. Manage global policy in Vakwen under Admin -> Settings -> MCP.
 
+#### ChatGPT transaction draft component surface
+
+The Phase 3 AI Copilot inbox work adds a ChatGPT Apps component for draft review and guarded posting. The component shell lives in `apps/web`; MCP auth, discovery, render tools, and mutations remain in `apps/api`.
+
+Runtime surface:
+
+- Public component route: `/connectors/chatgpt/transaction-draft`
+- Local harness route: `/connectors/chatgpt/transaction-draft/harness`
+- Render tool: `get_transaction_draft_batch_component`
+- Guarded posting tool: `post_transaction_draft_rows`
+
+The component is intentionally decoupled from the normal Vakwen web session:
+
+- ChatGPT loads the public shell from the web app origin using the MCP tool's `openai/outputTemplate`.
+- The shell does not call Vakwen REST endpoints directly.
+- All state refreshes and mutations go back through the MCP bridge with `window.openai.callTool(...)`.
+- Component-origin mutations are audited as MCP actions with source metadata set to `chatgpt_component`.
+- `post_transaction_draft_rows` commits row confirmations, the accounting snapshot, the batch version, and the confirmation event together; optimistic version conflicts abort before the post is stored.
+
+Expected draft-tool wiring for the widget:
+
+- `get_transaction_draft_batch_component` refreshes the full widget payload for a batch.
+- `update_transaction_draft_rows`
+- `exclude_transaction_draft_rows`
+- `reinclude_transaction_draft_rows`
+- `reject_transaction_draft_rows`
+- `archive_transaction_draft_batch`
+- `delete_unconfirmed_transaction_draft_batch`
+- `post_transaction_draft_rows`
+
+The harness route is for local browser and Playwright verification only. CI uses the mocked `window.openai` bridge there; live ChatGPT is not part of the required automated gate.
+
+#### Connector-mediated CSV/image/PDF handling
+
+Phase 3 does not add a Vakwen raw upload endpoint. CSV, image, and PDF inputs are handled through the ChatGPT connector path, then reduced to structured draft candidates plus bounded provenance before Vakwen sees them.
+
+Current contract:
+
+- Allowed provenance `sourceType` values: `csv`, `image`, `pdf`
+- `preflight_transaction_draft_candidates` and `create_transaction_draft_batch` accept structured candidates plus optional provenance metadata only
+- Candidate-level source metadata is accepted in `sourceMetadata`; raw file blobs are not
+- Row and file snippets are capped at 500 characters
+- Provenance file lists are capped at 10 entries per request
+- Vakwen stores source/file metadata, row mappings, extractor metadata, warnings, capped snippets, and audit history
+- Vakwen does not store raw CSV/image/PDF contents in this flow
+
+Operationally, treat any request body containing a `rawPayload` field as invalid for connector-mediated imports. The server-side validation for this flow is intentionally strict so ChatGPT-side extraction can evolve without turning Vakwen into a file-retention service.
+
+ChatGPT-side file handling should stay ephemeral by default. The temporary file may remain in ChatGPT for the current interaction, but Vakwen should receive only structured candidates and capped provenance unless the user explicitly opts into ChatGPT's own file-library behavior.
+
+#### Optional live ChatGPT smoke checklist
+
+This is an optional post-merge validation path. It is not a CI requirement.
+
+Preconditions:
+
+- Deployed HTTPS API and web origins are reachable
+- `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` resolve on the public API host
+- Admin -> Settings -> MCP has a valid public issuer, token secret, and ChatGPT enabled
+- Draft scopes are enabled; enable `transaction:write` only if you want to exercise posting
+
+Checklist:
+
+1. Connect the Vakwen app in ChatGPT against `https://<public-api-host>/mcp`.
+2. Approve consent with the default draft scopes and confirm `transaction:write` is still off by default.
+3. Ask ChatGPT to import a small CSV, image, or PDF transaction sample into Vakwen.
+4. Confirm ChatGPT renders the transaction draft component rather than falling back to plain text only.
+5. In the widget, verify the provenance copy states that Vakwen received structured candidates/capped provenance only and did not receive a raw file upload.
+6. Edit one row, exclude or reinclude one row, and confirm the widget refreshes through MCP tool calls without requiring a Vakwen browser session.
+7. Open the Vakwen deep link and confirm the same batch appears under `Transactions -> AI Inbox`.
+8. In Vakwen Settings -> AI Connectors or admin access logs, confirm recent connector activity exists for the session.
+9. If you are also validating posting, reconnect or re-consent with `transaction:write`, import or reopen a batch with ready rows, and verify posting only succeeds through `post_transaction_draft_rows`.
+10. For a 6+ row or high-value posting case, confirm the widget requires typed confirmation in the form `POST {N} TRADES`.
+
+If the live smoke test fails, capture which phase broke:
+
+- Discovery/connect failure
+- OAuth consent/token exchange failure
+- Component render failure
+- Draft mutation failure
+- Deep-link/handoff failure
+- Posting gate or typed-confirmation failure
+
 Official references:
 
 - OpenAI Apps SDK authentication: https://developers.openai.com/apps-sdk/build/auth

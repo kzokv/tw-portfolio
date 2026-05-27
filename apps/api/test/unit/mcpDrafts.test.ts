@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
-import { createTransactionDraftBatch, preflightTransactionDraftCandidates } from "../../src/services/mcpDrafts.js";
+import {
+  createTransactionDraftBatch,
+  postTransactionDraftRows,
+  preflightTransactionDraftCandidates,
+} from "../../src/services/mcpDrafts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -127,7 +131,10 @@ describe("mcp draft services", () => {
       { app, requestContext: createRequestContext() },
       {
         sourceLabel: "chatgpt import",
-        provenance: { source: "unit-test" },
+        provenance: {
+          sourceType: "csv",
+          files: [{ fileId: "unit-test-file", sourceType: "csv", displayName: "unit-test.csv" }],
+        },
         candidates: [
           {
             rowNumber: 1,
@@ -156,5 +163,160 @@ describe("mcp draft services", () => {
     expect(aggregate?.rows).toHaveLength(2);
     expect(aggregate?.unsupportedItems).toHaveLength(1);
     expect(aggregate?.events.map((event) => event.eventType)).toEqual(["batch_created", "preflight_run"]);
+  });
+
+  it("rejects raw source payloads and overlong provenance snippets", async () => {
+    await expect(preflightTransactionDraftCandidates(
+      { app, requestContext: createRequestContext() },
+      {
+        provenance: {
+          sourceType: "csv",
+          files: [{
+            fileId: "file-1",
+            sourceType: "csv",
+            snippet: "2330,1",
+          }],
+        },
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+          rawPayload: { csv: "ticker,qty\n2330,1" },
+        } as never],
+      } as never,
+    )).rejects.toMatchObject({
+      code: "mcp_raw_source_payload_forbidden",
+    });
+  });
+
+  it("posts selected ready rows with version checks, idempotency, and compact result", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        provenance: {
+          sourceType: "csv",
+          files: [{
+            fileId: "file-1",
+            sourceType: "csv",
+            displayName: "import.csv",
+            snippet: "2330,BUY,1,100",
+          }],
+        },
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+            sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
+          },
+          {
+            rowNumber: 2,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 2,
+            unitPrice: 101,
+            tradeDate: "2026-01-04",
+            sourceMetadata: { fileId: "file-1", rowRef: "2", snippet: "2330,BUY,2,101" },
+          },
+        ],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    expect(aggregate).toBeTruthy();
+
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+
+    const posted = await postTransactionDraftRows(
+      { app, requestContext: createRequestContext() },
+      {
+        batchId: created.batch.id,
+        rowIds: [aggregate!.rows[0]!.id],
+        expectedBatchVersion: aggregate!.batch.version,
+        expectedRowVersions: [{ rowId: aggregate!.rows[0]!.id, expectedVersion: aggregate!.rows[0]!.version }],
+        idempotencyKey: "mcp-post-rows-1",
+      },
+    );
+
+    expect(posted.outcome).toBe("posted");
+    expect(posted.postedRowIds).toEqual([aggregate!.rows[0]!.id]);
+    expect(posted.createdTransactionIds).toHaveLength(1);
+    expect(posted.remainingUnresolvedRowIds).toEqual([]);
+    expect(posted.batchVersion).toBeGreaterThan(aggregate!.batch.version);
+
+    const updated = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    expect(updated?.rows.find((row) => row.id === aggregate!.rows[0]!.id)).toMatchObject({
+      state: "confirmed",
+      confirmedTradeEventId: posted.createdTransactionIds[0],
+    });
+    expect(updated?.events.at(-1)).toMatchObject({
+      eventType: "rows_confirmed",
+      metadata: expect.objectContaining({
+        source: "mcp_tool",
+        postedRowIds: [aggregate!.rows[0]!.id],
+      }),
+    });
+  });
+
+  it("rejects duplicate row IDs before creating canonical transactions", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        provenance: {
+          sourceType: "csv",
+          files: [{
+            fileId: "file-1",
+            sourceType: "csv",
+            displayName: "import.csv",
+            snippet: "2330,BUY,1,100",
+          }],
+        },
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+          sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
+        }],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate!.rows[0]!;
+    const before = await app.persistence.loadStore("user-1");
+
+    await expect(postTransactionDraftRows(
+      { app, requestContext: createRequestContext() },
+      {
+        batchId: created.batch.id,
+        rowIds: [row.id, row.id],
+        expectedBatchVersion: aggregate!.batch.version,
+        expectedRowVersions: [{ rowId: row.id, expectedVersion: row.version }],
+        idempotencyKey: "mcp-post-duplicate-row",
+      },
+    )).rejects.toMatchObject({
+      code: "mcp_draft_duplicate_row_id",
+    });
+
+    const after = await app.persistence.loadStore("user-1");
+    expect(after.accounting.facts.tradeEvents).toHaveLength(before.accounting.facts.tradeEvents.length);
+    const refreshed = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    expect(refreshed?.rows[0]).toMatchObject({ state: "ready", version: row.version });
   });
 });

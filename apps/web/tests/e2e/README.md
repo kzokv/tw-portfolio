@@ -13,7 +13,7 @@ E2E tests are owned by the web app and run against the full stack (web + API). C
 - **`apps/api/test/http/`** – Browser-free API HTTP contract specs that used to live in E2E or vitest integration when they only needed HTTP requests plus AAA assistants.
 - **`@vakwen/test-e2e/fixtures/*`** – Shared package fixtures for dev-bypass, OAuth, demo, and composed page-assistant flows.
 - **`@vakwen/test-e2e/utils`** – Shared URL and cookie helpers used by both UI and API-style E2E specs.
-- **`playwright.config.ts`** – Configures Playwright to start API and the prebuilt standalone web server via `webServer`, keep the per-test `30_000` ms timeout, and run the dev-bypass suite with one worker.
+- **`playwright.config.ts` / `playwright.oauth.config.ts`** – Configure Playwright to start API and the prebuilt standalone web server via `webServer`, keep suite-specific per-test timeouts, allow up to `120_000` ms for server startup/build readiness, and run the local E2E suites with one worker.
 
 ## Requirements
 
@@ -58,3 +58,4 @@ Selectors use `data-testid` for stability; avoid layout- or text-dependent selec
 - Tests use real session cookies signed by the API (via `/__e2e/oauth-session` or `/__e2e/demo-session`).
 - The packaged demo fixtures create a fresh demo user per test, bypassing the rate limiter entirely. This avoids 429 errors when multiple specs hit `/auth/demo/start`.
 - AAA auth specs still exercise the real sign-in UI and only stub network responses when a case explicitly needs a controlled non-OK response.
+- The OAuth command also uses one worker because its auth-heavy specs share the same local API and web stack and are sensitive to startup and CPU contention.

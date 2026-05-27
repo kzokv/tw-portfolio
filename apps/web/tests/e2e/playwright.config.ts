@@ -22,7 +22,7 @@ export default createPlaywrightConfig({
   repoRoot,
   webServers: "full",
   authMode: "dev_bypass",
-  workers: 2,
+  workers: 1,
   apiEnvOverrides: {
     AU_PROVIDER_MOCK: "true",
   },

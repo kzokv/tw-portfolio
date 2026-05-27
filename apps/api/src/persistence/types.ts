@@ -688,6 +688,20 @@ export interface AiTransactionDraftBatchAggregate {
   events: AiTransactionDraftEventRecord[];
 }
 
+export interface ConfirmAiTransactionDraftPostingInput {
+  ownerUserId: string;
+  accounting: AccountingStore;
+  rows: SaveAiTransactionDraftRowInput[];
+  batch: SaveAiTransactionDraftBatchInput;
+  event: AppendAiTransactionDraftEventInput;
+}
+
+export interface ConfirmAiTransactionDraftPostingResult {
+  rows: AiTransactionDraftRowRecord[];
+  batch: AiTransactionDraftBatchRecord;
+  event: AiTransactionDraftEventRecord;
+}
+
 export interface AnonymousShareTokenRecord {
   id: string;
   token: string;
@@ -1320,6 +1334,15 @@ export interface Persistence {
   listAiTransactionDraftUnsupportedItems(batchId: string): Promise<AiTransactionDraftUnsupportedItemRecord[]>;
   appendAiTransactionDraftEvent(input: AppendAiTransactionDraftEventInput): Promise<AiTransactionDraftEventRecord>;
   listAiTransactionDraftEvents(batchId: string): Promise<AiTransactionDraftEventRecord[]>;
+  /**
+   * Atomically persists posted AI draft rows with the accounting snapshot,
+   * enclosing row version checks, batch version check, and confirmation event in
+   * one transaction where the backend supports it. Returns null on optimistic
+   * version conflict before any write is committed.
+   */
+  confirmAiTransactionDraftPosting(
+    input: ConfirmAiTransactionDraftPostingInput,
+  ): Promise<ConfirmAiTransactionDraftPostingResult | null>;
   /**
    * Atomically create an anonymous share token, enforcing the per-owner active-token
    * cap from `getEffectiveAnonymousShareTokenCap()` (DB override → env-fallback,

@@ -68,6 +68,7 @@ import {
   deleteUnconfirmedTransactionDraftBatch,
   excludeTransactionDraftRows,
   listTransactionDraftBatches,
+  postTransactionDraftRows,
   rejectTransactionDraftRows,
   reincludeTransactionDraftRows,
   updateTransactionDraftRows,
@@ -5027,128 +5028,25 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = z.object({ batchId: userScopedIdSchema }).parse(req.params);
     const body = z.object({
       rowIds: z.array(userScopedIdSchema).min(1).max(200),
+      expectedRowVersions: z.array(z.object({
+        rowId: userScopedIdSchema,
+        expectedVersion: z.number().int().min(1),
+      }).strict()).min(1).max(200),
       expectedBatchVersion: z.number().int().min(1),
+      idempotencyKey: z.string().trim().min(8).max(200),
       typedConfirmation: z.string().trim().max(100).optional(),
     }).strict().parse(req.body);
-    const aggregate = assertDraftAggregateInWebContext(
+    assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
     );
-    if (aggregate.batch.status !== "open") {
-      throw routeError(409, "ai_draft_batch_closed", "Draft batch is not open");
-    }
-    if (aggregate.batch.version !== body.expectedBatchVersion) {
-      throw routeError(409, "ai_draft_batch_version_conflict", "Draft batch version conflict");
-    }
-    const selectedIds = new Set(body.rowIds);
-    const selectedRows = aggregate.rows.filter((row) => selectedIds.has(row.id));
-    if (selectedRows.length !== body.rowIds.length) {
-      throw routeError(404, "ai_draft_row_not_found", "One or more draft rows were not found");
-    }
-    const invalidRow = selectedRows.find((row) => row.state !== "ready");
-    if (invalidRow) {
-      throw routeError(409, "ai_draft_row_not_ready", `Draft row ${invalidRow.id} is not ready`);
-    }
-    const tWdGross = selectedRows
-      .filter((row) => row.priceCurrency === "TWD" && row.quantity !== null && row.unitPrice !== null)
-      .reduce((sum, row) => sum + row.quantity! * row.unitPrice!, 0);
-    const typedPhrase = `POST ${selectedRows.length} TRADES`;
-    if ((selectedRows.length >= 6 || tWdGross >= 1_000_000) && body.typedConfirmation !== typedPhrase) {
-      throw routeError(409, "ai_draft_typed_confirmation_required", `Type ${typedPhrase} to confirm this batch`);
-    }
-
-    const { store, userId } = await loadUserStore(app, req);
-    const draftStore = structuredClone(store);
-    assertStoreIntegrity(draftStore);
-    const created: Transaction[] = [];
-    for (const row of selectedRows) {
-      if (
-        !row.accountId
-        || !row.tradeType
-        || !row.ticker
-        || !row.marketCode
-        || row.quantity === null
-        || row.unitPrice === null
-        || !row.priceCurrency
-        || !row.tradeDate
-      ) {
-        throw routeError(409, "ai_draft_row_incomplete", `Draft row ${row.id} is incomplete`);
-      }
-      created.push(createTransaction(draftStore, userId, {
-        id: randomUUID(),
-        accountId: row.accountId,
-        ticker: row.ticker,
-        marketCode: row.marketCode as SharedMarketCode,
-        quantity: row.quantity,
-        unitPrice: row.unitPrice,
-        priceCurrency: row.priceCurrency,
-        tradeDate: row.tradeDate,
-        tradeTimestamp: row.tradeTimestamp ?? undefined,
-        bookingSequence: row.bookingSequence ?? undefined,
-        commissionAmount: row.commissionAmount ?? undefined,
-        taxAmount: row.taxAmount ?? undefined,
-        type: row.tradeType,
-        isDayTrade: row.isDayTrade ?? false,
-      }));
-    }
-
-    await app.persistence.saveAccountingStore(userId, draftStore.accounting);
-    const confirmedAt = new Date().toISOString();
-    for (let index = 0; index < selectedRows.length; index += 1) {
-      const row = selectedRows[index]!;
-      const createdTrade = created[index]!;
-      const saved = await app.persistence.saveAiTransactionDraftRow({
-        ...row,
-        state: "confirmed",
-        version: row.version + 1,
-        feesSource: row.feesSource ?? (row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED"),
-        confirmedTradeEventId: createdTrade.id,
-        confirmedAt,
-        confirmedByUserId: requestContext.auth.sessionUserId,
-        updatedAt: confirmedAt,
-        expectedVersion: row.version,
-      });
-      if (!saved) {
-        throw routeError(409, "ai_draft_row_version_conflict", `Draft row ${row.id} version conflict`);
-      }
-    }
-    const updatedBatch = await app.persistence.saveAiTransactionDraftBatch({
-      ...aggregate.batch,
-      version: aggregate.batch.version + 1,
-      updatedAt: confirmedAt,
-      expectedVersion: aggregate.batch.version,
-    });
-    if (!updatedBatch) {
-      throw routeError(409, "ai_draft_batch_version_conflict", "Draft batch version conflict");
-    }
-    await app.persistence.appendAiTransactionDraftEvent({
-      batchId: aggregate.batch.id,
-      ownerUserId: userId,
-      actorUserId: requestContext.auth.sessionUserId,
-      connectorConnectionId: null,
-      eventType: "rows_confirmed",
-      summary: `${created.length} draft rows posted`,
-      metadata: { rowIds: body.rowIds, tradeEventIds: created.map((item) => item.id) },
-      sourceIp: req.ip,
-    });
-
-    const earliestByAccountTicker = new Map<string, { accountId: string; ticker: string; fromDate: string }>();
-    for (const tx of created) {
-      const key = `${tx.accountId}:${tx.ticker}`;
-      const current = earliestByAccountTicker.get(key);
-      if (!current || tx.tradeDate < current.fromDate) {
-        earliestByAccountTicker.set(key, { accountId: tx.accountId, ticker: tx.ticker, fromDate: tx.tradeDate });
-      }
-    }
-    for (const item of earliestByAccountTicker.values()) {
-      scheduleReplayWithRetry(app.persistence, app.eventBus, userId, item.accountId, item.ticker, {
-        snapshotFromDate: item.fromDate,
-      });
-    }
-    await app.eventBus.publishEvent(userId, "ai_transaction_draft_confirmed", {
-      batchId: aggregate.batch.id,
+    const posting = await postTransactionDraftRows({ app, requestContext }, {
+      batchId: params.batchId,
       rowIds: body.rowIds,
-      tradeEventIds: created.map((item) => item.id),
+      expectedBatchVersion: body.expectedBatchVersion,
+      expectedRowVersions: body.expectedRowVersions,
+      idempotencyKey: body.idempotencyKey,
+      typedConfirmation: body.typedConfirmation,
     });
     const updated = assertDraftAggregateInWebContext(
       requestContext.resolvedContext,
@@ -5156,7 +5054,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     );
     return {
       ...toTransactionDraftDetailDto(app, updated),
-      created,
+      posting,
     };
   });
 

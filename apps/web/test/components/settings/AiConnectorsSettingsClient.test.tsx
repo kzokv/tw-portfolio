@@ -115,4 +115,24 @@ describe("AiConnectorsSettingsClient", () => {
     const statusRegions = Array.from(document.querySelectorAll("[role='status']"));
     expect(statusRegions.some((region) => region.textContent?.includes("Waiting for ChatGPT"))).toBe(true);
   });
+
+  it("keeps transaction:write as a reconnect-only advanced scope when it was not granted at consent", async () => {
+    const response: AiConnectorsResponse = {
+      connections: [buildConnection()],
+      accessLogs: [],
+      policy: buildPolicy(),
+    };
+    mockFetchAiConnectors.mockResolvedValue(response);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+
+    const postingLabel = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
+    expect(postingLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");
+    const postingCheckbox = postingLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+    expect(postingCheckbox?.checked).toBe(false);
+    expect(postingCheckbox?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Reconnect in ChatGPT");
+  });
 });

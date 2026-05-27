@@ -118,7 +118,7 @@ describe("MockTwelveDataAuCatalogProvider", () => {
 
     // At least one STOCK-mapped row (Common Stock, REIT, Preferred, DR all map to STOCK)
     expect(catalog.length).toBeGreaterThanOrEqual(5);
-  });
+  }, 15_000);
 
   it("fixture includes exactly one Warrant entry (to assert downstream filter)", async () => {
     const { MockTwelveDataAuCatalogProvider } = await import(

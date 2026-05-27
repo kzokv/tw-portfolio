@@ -34,6 +34,7 @@ const advertisedMcpScopes = [
   "transaction_draft:edit",
   "transaction_draft:archive",
   "transaction_draft:delete",
+  "transaction:write",
 ];
 const initialMcpScopes = ["portfolio:mcp_read"];
 
@@ -974,8 +975,8 @@ describe("MCP OAuth for ChatGPT", () => {
       "transaction_draft:edit",
       "transaction_draft:archive",
       "transaction_draft:delete",
+      "transaction:write",
     ]));
-    expect(consentBody.scopes).not.toContain("transaction:write");
 
     const approve = await app.inject({
       method: "POST",
