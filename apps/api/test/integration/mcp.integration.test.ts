@@ -5,6 +5,7 @@ import { createAiConnectorConnection } from "../../src/services/mcpConnectorLife
 import { createTransactionDraftBatch } from "../../src/services/mcpDrafts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 import { mcpDevTokenAllowedForRuntime } from "../../src/mcp/auth.js";
+import { listMcpToolDefinitions } from "../../src/mcp/tools.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -17,6 +18,27 @@ const testOAuthConfig = {
 
 function devToken(payload: Record<string, unknown>): string {
   return `vakwen-dev.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+}
+
+function parseMcpJson<T>(body: string): T {
+  if (body.trim().startsWith("{")) {
+    return JSON.parse(body) as T;
+  }
+  const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
+  if (!dataLine) throw new Error(`Missing MCP SSE data line: ${body}`);
+  return JSON.parse(dataLine.slice("data: ".length)) as T;
+}
+
+function expectChatGptSafeSchema(schema: unknown): void {
+  // ChatGPT drops the action list when descriptors contain unsupported schema keywords.
+  const serialized = JSON.stringify(schema);
+  expect(serialized).not.toContain("\"$ref\"");
+  expect(serialized).not.toContain("\"$schema\"");
+  expect(serialized).not.toContain("\"default\"");
+  expect(serialized).not.toContain("\"exclusiveMinimum\"");
+  expect(serialized).not.toContain("\"format\"");
+  expect(serialized).not.toContain("\"multipleOf\"");
+  expect(serialized).not.toContain("\"pattern\"");
 }
 
 function createRequestContext(): McpRequestContext {
@@ -69,12 +91,20 @@ describe("mcp routes", () => {
     expect(metadata.statusCode).toBe(200);
     expect(metadata.json().resource).toMatch(/\/mcp$/);
     expect(metadata.json().bearer_methods_supported).toEqual(["header"]);
+
+    const pathScopedMetadata = await app.inject({ method: "GET", url: "/.well-known/oauth-protected-resource/mcp" });
+    expect(pathScopedMetadata.statusCode).toBe(200);
+    expect(pathScopedMetadata.json()).toMatchObject(metadata.json());
   });
 
-  it("rejects unauthenticated MCP requests before any cookie-based auth path", async () => {
-    const response = await app.inject({
+  it("allows unauthenticated MCP discovery but rejects unauthenticated tool execution", async () => {
+    const initialize = await app.inject({
       method: "POST",
       url: "/mcp",
+      headers: {
+        accept: "application/json, text/event-stream",
+        origin: "https://chatgpt.com",
+      },
       payload: {
         jsonrpc: "2.0",
         id: "init-1",
@@ -87,15 +117,261 @@ describe("mcp routes", () => {
       },
     });
 
-    expect(response.statusCode).toBe(401);
-    expect(response.json()).toMatchObject({ error: "mcp_auth_required" });
-    expect(response.headers["www-authenticate"]).toContain("resource_metadata=");
+    expect(initialize.statusCode).toBe(200);
+    expect(initialize.headers["content-type"]).toContain("application/json");
+    expect(initialize.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(initialize.headers["access-control-expose-headers"]).toContain("mcp-session-id");
+    const sessionId = initialize.headers["mcp-session-id"];
+    expect(typeof sessionId).toBe("string");
+
+    const listTools = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        accept: "application/json, text/event-stream",
+        origin: "https://chatgpt.com",
+        "mcp-session-id": String(sessionId),
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "list-1",
+        method: "tools/list",
+      },
+    });
+
+    expect(listTools.statusCode).toBe(200);
+    expect(listTools.headers["content-type"]).toContain("application/json");
+    expect(listTools.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(listTools.headers["access-control-expose-headers"]).toContain("mcp-session-id");
+    const body = parseMcpJson<{
+      result: {
+        tools: Array<{
+          name: string;
+          title?: string;
+          inputSchema?: unknown;
+          securitySchemes?: unknown;
+          outputSchema?: { type?: string };
+          annotations?: unknown;
+          execution?: unknown;
+          _meta?: {
+            securitySchemes?: unknown;
+            ui?: { resourceUri?: string; visibility?: string[] };
+            "openai/outputTemplate"?: string;
+          };
+        }>;
+      };
+    }>(listTools.body);
+    const overviewTool = body.result.tools.find((tool) => tool.name === "get_portfolio_overview");
+    expect(overviewTool?.securitySchemes).toEqual([
+      { type: "oauth2", scopes: ["portfolio:mcp_read"] },
+    ]);
+    expect(overviewTool?.execution).toBeUndefined();
+    expect(overviewTool?.title).toBe("Get Portfolio Overview");
+    expect(overviewTool?.outputSchema).toMatchObject({ type: "object" });
+    expectChatGptSafeSchema(overviewTool?.inputSchema);
+    expectChatGptSafeSchema(overviewTool?.outputSchema);
+    expect(overviewTool?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    expect(overviewTool?._meta?.ui).toEqual({
+      resourceUri: "ui://widget/vakwen.html",
+      visibility: ["model", "app"],
+    });
+    expect(overviewTool?._meta?.["openai/outputTemplate"]).toBe("ui://widget/vakwen.html");
+
+    const readWidget = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": String(sessionId),
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "resource-1",
+        method: "resources/read",
+        params: { uri: "ui://widget/vakwen.html" },
+      },
+    });
+    expect(readWidget.statusCode).toBe(200);
+    const widgetBody = parseMcpJson<{
+      result: {
+        contents: Array<{
+          uri: string;
+          mimeType?: string;
+          text?: string;
+        }>;
+      };
+    }>(readWidget.body);
+    expect(widgetBody.result.contents[0]).toMatchObject({
+      uri: "ui://widget/vakwen.html",
+      mimeType: "text/html;profile=mcp-app",
+    });
+    expect(widgetBody.result.contents[0]?.text).toContain("<title>Vakwen</title>");
+
+    const call = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": String(sessionId),
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "call-1",
+        method: "tools/call",
+        params: {
+          name: "get_portfolio_overview",
+          arguments: {},
+        },
+      },
+    });
+
+    expect(call.statusCode).toBe(200);
+    const callBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        content?: Array<{ type: string; text?: string }>;
+        _meta?: { "mcp/www_authenticate"?: string[] };
+      };
+    }>(call.body);
+    expect(callBody.result.isError).toBe(true);
+    expect(callBody.result.content?.[0]?.text).toContain("Authentication required");
+    expect(callBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("/.well-known/oauth-protected-resource/mcp");
+    expect(callBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("scope=\"portfolio:mcp_read\"");
+    expect(callBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"invalid_token\"");
   });
 
   it("keeps unsigned dev MCP bearer tokens out of production runtime", () => {
     expect(mcpDevTokenAllowedForRuntime("production")).toBe(false);
     expect(mcpDevTokenAllowedForRuntime("development")).toBe(true);
     expect(mcpDevTokenAllowedForRuntime("test")).toBe(true);
+  });
+
+  it("advertises OAuth security schemes on MCP tool descriptors", async () => {
+    const token = devToken({
+      userId: "user-1",
+      scopes: [
+        "portfolio:mcp_read",
+        "transaction_draft:create",
+        "transaction_draft:edit",
+        "transaction_draft:archive",
+        "transaction_draft:delete",
+        "transaction:write",
+      ],
+    });
+    const headers = {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    };
+    const initialize = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers,
+      payload: {
+        jsonrpc: "2.0",
+        id: "init-1",
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "ChatGPT", version: "1.0.0" },
+        },
+      },
+    });
+    expect(initialize.statusCode).toBe(200);
+    const sessionId = initialize.headers["mcp-session-id"];
+    expect(typeof sessionId).toBe("string");
+
+    const listTools = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        ...headers,
+        "mcp-session-id": String(sessionId),
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "list-1",
+        method: "tools/list",
+      },
+    });
+    expect(listTools.statusCode).toBe(200);
+    const body = parseMcpJson<{
+      result: {
+        tools: Array<{
+          name: string;
+          inputSchema?: unknown;
+          securitySchemes?: unknown;
+          execution?: unknown;
+          outputSchema?: { type?: string };
+          annotations?: unknown;
+          _meta?: {
+            securitySchemes?: unknown;
+            ui?: { resourceUri?: string; visibility?: string[] };
+            "openai/outputTemplate"?: string;
+          };
+        }>;
+      };
+    }>(listTools.body);
+    const toolsByName = new Map(body.result.tools.map((tool) => [tool.name, tool]));
+    for (const tool of listMcpToolDefinitions()) {
+      const listedTool = toolsByName.get(tool.name);
+      const expectedSecuritySchemes = [{ type: "oauth2", scopes: [tool.scope] }];
+      expect(listedTool?.securitySchemes).toEqual(expectedSecuritySchemes);
+      expect(listedTool?.execution).toBeUndefined();
+      expect(listedTool?._meta?.securitySchemes).toEqual(expectedSecuritySchemes);
+      expect(listedTool?.outputSchema).toMatchObject({ type: "object" });
+      expectChatGptSafeSchema(listedTool?.inputSchema);
+      expectChatGptSafeSchema(listedTool?.outputSchema);
+      expect(listedTool?.annotations).toEqual(tool.annotations);
+      expect(listedTool?._meta?.ui).toEqual({
+        resourceUri: "ui://widget/vakwen.html",
+        visibility: ["model", "app"],
+      });
+      expect(listedTool?._meta?.["openai/outputTemplate"]).toBe("ui://widget/vakwen.html");
+    }
+
+    const readWidget = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        ...headers,
+        "mcp-session-id": String(sessionId),
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "resource-1",
+        method: "resources/read",
+        params: { uri: "ui://widget/vakwen.html" },
+      },
+    });
+    expect(readWidget.statusCode).toBe(200);
+    const widgetBody = parseMcpJson<{
+      result: {
+        contents: Array<{
+          uri: string;
+          mimeType?: string;
+          text?: string;
+          _meta?: {
+            ui?: { csp?: { connectDomains?: string[]; resourceDomains?: string[] } };
+            "openai/widgetDescription"?: string;
+          };
+        }>;
+      };
+    }>(readWidget.body);
+    expect(widgetBody.result.contents[0]).toMatchObject({
+      uri: "ui://widget/vakwen.html",
+      mimeType: "text/html;profile=mcp-app",
+    });
+    expect(widgetBody.result.contents[0]?.text).toContain("<title>Vakwen</title>");
+    expect(widgetBody.result.contents[0]?._meta?.ui?.csp).toEqual({
+      connectDomains: [],
+      resourceDomains: [],
+    });
   });
 
   it("requires fresh auth for high-risk MCP admin settings changes", async () => {
