@@ -17,6 +17,12 @@ import {
   shouldStampContextFallback,
 } from "./routes/registerRoutes.js";
 import { registerPgBoss } from "./plugins/pgBoss.js";
+import {
+  CHATGPT_MCP_CORS_EXPOSED_HEADERS,
+  CHATGPT_MCP_CORS_METHODS,
+  CHATGPT_MCP_CORS_PATHS,
+  isChatGptMcpCorsOrigin,
+} from "./mcp/chatgptCompat.js";
 import { registerMcpRoutes } from "./mcp/registerMcpRoutes.js";
 import { buildFundamentalsRegistry } from "./services/fundamentals/registry.js";
 import { buildMarketDataRegistry } from "./services/market-data/registry.js";
@@ -88,6 +94,19 @@ function getRateLimitKey(req: FastifyRequest): string {
 
 function isLocalDevOrigin(origin: string): boolean {
   return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
+function requestOrigin(req: FastifyRequest): string | undefined {
+  const origin = req.headers.origin;
+  return Array.isArray(origin) ? origin[0] : origin;
+}
+
+function requestPath(req: FastifyRequest): string {
+  return req.url.split("?")[0] ?? req.url;
+}
+
+function isChatGptCorsPath(req: FastifyRequest): boolean {
+  return CHATGPT_MCP_CORS_PATHS.has(requestPath(req));
 }
 
 async function bootstrapAdminAccess(app: AppInstance): Promise<void> {
@@ -246,24 +265,34 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const allowedOrigins = Env.getAllowedOrigins();
   const normalizedAllowed = new Set(allowedOrigins.map(Env.normalizeOrigin));
   await app.register(cors, {
-    credentials: true,
-    origin(origin, callback) {
+    delegator(req, callback) {
+      const origin = requestOrigin(req);
       if (!origin) {
-        callback(null, true);
+        callback(null, { credentials: true, origin: true });
         return;
       }
 
       if (normalizedAllowed.has(Env.normalizeOrigin(origin))) {
-        callback(null, true);
+        callback(null, { credentials: true, origin: true });
         return;
       }
 
       if ((Env.NODE_ENV === "development" || Env.NODE_ENV === "test") && isLocalDevOrigin(origin)) {
-        callback(null, true);
+        callback(null, { credentials: true, origin: true });
         return;
       }
 
-      callback(null, false);
+      if (isChatGptMcpCorsOrigin(origin) && isChatGptCorsPath(req)) {
+        callback(null, {
+          origin: true,
+          methods: [...CHATGPT_MCP_CORS_METHODS],
+          exposedHeaders: [...CHATGPT_MCP_CORS_EXPOSED_HEADERS],
+          maxAge: 600,
+        });
+        return;
+      }
+
+      callback(null, { origin: false });
     },
   });
 

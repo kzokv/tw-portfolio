@@ -3,6 +3,17 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  attachChatGptToolMetadata,
+  buildToolAuthChallengeResult,
+  challengeErrorFor,
+  getMcpRequestMethod,
+  isPublicMcpDiscoveryRequest,
+  registerChatGptAppResource,
+  setMcpTransportCorsHeaders,
+  shouldReturnToolAuthChallenge,
+  toToolTitle,
+} from "./chatgptCompat.js";
 import { DefaultMcpAuthService } from "./auth.js";
 import {
   approveMcpOAuthConsent,
@@ -10,8 +21,9 @@ import {
   denyMcpOAuthConsent,
   getMcpAuthorizationServerMetadata,
   getMcpOAuthConsentRequest,
-  getMcpOAuthIssuer,
+  getMcpProtectedResourceMetadataUrl,
   handleMcpOAuthAuthorize,
+  handleMcpOAuthRedirect,
   handleMcpOAuthToken,
   setMcpOAuthNoStoreHeaders,
 } from "./oauth.js";
@@ -48,7 +60,8 @@ interface RegisterMcpRoutesOptions {
 }
 
 interface PendingToolRequestContext {
-  auth: Awaited<ReturnType<McpAuthService["authenticateRequest"]>>;
+  auth: Awaited<ReturnType<McpAuthService["authenticateRequest"]>> | null;
+  authError?: unknown;
   requestId: string;
   sourceIp: string | null;
   userAgent: string | null;
@@ -116,17 +129,31 @@ export async function registerMcpRoutes(
   }
 
   const executeTool = async (toolName: McpToolName, args: unknown, extra: unknown) => {
+    const tool = getMcpToolDefinition(toolName);
     const pending = extractPendingContext(extra);
     if (!pending) throw new Error("Missing MCP request context");
-    const tool = getMcpToolDefinition(toolName);
+    if (!pending.auth) {
+      const description = pending.authError instanceof Error
+        ? pending.authError.message
+        : "No valid MCP access token was provided.";
+      return buildToolAuthChallengeResult({
+        app,
+        req: pending.req,
+        scope: tool.scope,
+        error: challengeErrorFor(pending.authError),
+        description,
+        text: `Authentication required for ${toToolTitle(toolName)}.`,
+      });
+    }
+    const auth = pending.auth;
     const requestedContextUserId = extractRequestedContextUserId(args);
     let resolvedContext: McpResolvedContext | undefined;
 
     const logAccess = async (result: "ok" | "denied" | "error", denialReason?: string) => {
       await app.persistence.appendAiConnectorAccessLog({
-        connectionId: pending.auth.connection?.id ?? null,
-        userId: pending.auth.sessionUserId,
-        portfolioContextUserId: resolvedContext?.portfolioContextUserId ?? pending.auth.sessionUserId,
+        connectionId: auth.connection?.id ?? null,
+        userId: auth.sessionUserId,
+        portfolioContextUserId: resolvedContext?.portfolioContextUserId ?? auth.sessionUserId,
         shareId: resolvedContext?.shareId ?? null,
         toolName,
         accessKind: tool.accessKind,
@@ -143,13 +170,13 @@ export async function registerMcpRoutes(
       resolvedContext = await policyService.assertToolAccess(
         app,
         pending.req,
-        pending.auth,
+        auth,
         toolName,
         tool.accessKind,
         requestedContextUserId,
       );
       const requestContext: McpRequestContext = {
-        auth: pending.auth,
+        auth,
         resolvedContext,
         requestId: pending.requestId,
         sourceIp: pending.sourceIp,
@@ -288,6 +315,17 @@ export async function registerMcpRoutes(
         ? "denied"
         : "error";
       await logAccess(result, denialReason);
+      if (shouldReturnToolAuthChallenge(error)) {
+        const description = error instanceof Error ? error.message : "MCP authorization failed.";
+        return buildToolAuthChallengeResult({
+          app,
+          req: pending.req,
+          scope: tool.scope,
+          error: challengeErrorFor(error),
+          description,
+          text: `Authorization required for ${toToolTitle(toolName)}.`,
+        });
+      }
       throw error;
     }
   };
@@ -305,27 +343,40 @@ export async function registerMcpRoutes(
       },
     );
 
+    registerChatGptAppResource(server);
+
     for (const tool of listMcpToolDefinitions()) {
       server.registerTool(
         tool.name,
         {
           description: tool.description,
           inputSchema: tool.inputSchema.shape,
+          outputSchema: tool.outputSchema,
+          annotations: tool.annotations,
         },
         async (args: unknown, extra: unknown) => executeTool(tool.name, args, extra),
       );
     }
+    attachChatGptToolMetadata(server);
     return server;
   };
 
   const handleMcpRequest = async (req: FastifyRequest, reply: FastifyReply) => {
-    let tokenContext: Awaited<ReturnType<McpAuthService["authenticateRequest"]>>;
-    try {
-      tokenContext = await authService.authenticateRequest(app, req);
-    } catch (error) {
-      const issuer = await getMcpOAuthIssuer(app, req);
-      reply.header("www-authenticate", buildMcpWwwAuthenticateHeader(`${issuer}/.well-known/oauth-protected-resource`));
-      throw error;
+    let tokenContext: Awaited<ReturnType<McpAuthService["authenticateRequest"]>> | undefined;
+    let tokenAuthError: unknown;
+    const method = getMcpRequestMethod(req.body);
+    const isToolCall = method === "tools/call";
+    if (!isPublicMcpDiscoveryRequest(req)) {
+      try {
+        tokenContext = await authService.authenticateRequest(app, req);
+      } catch (error) {
+        if (isToolCall) {
+          tokenAuthError = error;
+        } else {
+          reply.header("www-authenticate", buildMcpWwwAuthenticateHeader(await getMcpProtectedResourceMetadataUrl(app, req)));
+          throw error;
+        }
+      }
     }
 
     const sessionIdHeader = req.headers["mcp-session-id"];
@@ -343,6 +394,7 @@ export async function registerMcpRoutes(
       const server = createServer();
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
+        enableJsonResponse: true,
         onsessioninitialized: (newSessionId) => {
           sessions.set(newSessionId, transport!);
         },
@@ -356,26 +408,30 @@ export async function registerMcpRoutes(
       await server.connect(transport);
     }
 
-    (req.raw as typeof req.raw & { auth?: { token: string; clientId: string; scopes: string[]; extra: Record<string, unknown> } }).auth = {
-      token: tokenContext.token,
-      clientId: tokenContext.clientId,
-      scopes: [...tokenContext.scopes],
-      extra: {
-        pendingContext: {
-          auth: tokenContext,
-          requestId: getRequestId(req),
-          sourceIp: req.ip ?? null,
-          userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
-          req,
-        } satisfies PendingToolRequestContext,
-      },
-    };
+    if (tokenContext || isToolCall) {
+      (req.raw as typeof req.raw & { auth?: { token: string; clientId: string; scopes: string[]; extra: Record<string, unknown> } }).auth = {
+        token: tokenContext?.token ?? "",
+        clientId: tokenContext?.clientId ?? "anonymous",
+        scopes: [...(tokenContext?.scopes ?? [])],
+        extra: {
+          pendingContext: {
+            auth: tokenContext ?? null,
+            authError: tokenAuthError,
+            requestId: getRequestId(req),
+            sourceIp: req.ip ?? null,
+            userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+            req,
+          } satisfies PendingToolRequestContext,
+        },
+      };
+    }
     const socket = req.raw.socket as typeof req.raw.socket & { destroy?: () => void; destroySoon?: () => void };
     if (typeof socket.destroySoon !== "function") {
       socket.destroySoon = () => {
         if (typeof socket.destroy === "function") socket.destroy();
       };
     }
+    setMcpTransportCorsHeaders(req, reply);
     await transport.handleRequest(req.raw, reply.raw, req.body);
     reply.hijack();
   };
@@ -399,9 +455,13 @@ export async function registerMcpRoutes(
   }));
 
   app.get("/.well-known/oauth-protected-resource", async (req) => authService.getProtectedResourceMetadata(app, req));
+  app.get("/.well-known/oauth-protected-resource/mcp", async (req) => authService.getProtectedResourceMetadata(app, req));
   app.get("/.well-known/oauth-authorization-server", async (req) => getMcpAuthorizationServerMetadata(app, req));
   app.get("/.well-known/oauth-authorization-server/mcp", async (req) => getMcpAuthorizationServerMetadata(app, req));
+  app.get("/.well-known/openid-configuration", async (req) => getMcpAuthorizationServerMetadata(app, req));
+  app.get("/.well-known/openid-configuration/mcp", async (req) => getMcpAuthorizationServerMetadata(app, req));
   app.get("/oauth/authorize", async (req, reply) => handleMcpOAuthAuthorize(app, req, reply));
+  app.get("/oauth/redirect", async (req, reply) => handleMcpOAuthRedirect(app, req, reply));
   app.post("/oauth/token", async (req, reply) => handleMcpOAuthToken(app, req, reply));
   app.get("/oauth/consent/:requestId", async (req, reply) => {
     setMcpOAuthNoStoreHeaders(reply);

@@ -4,6 +4,36 @@ import type { AiConnectorAccessKind, AiConnectorScope } from "@vakwen/shared-typ
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
 
+const genericMcpToolOutputSchema = z.object({}).passthrough();
+
+export interface McpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+}
+
+const readOnlyToolAnnotations: McpToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
+
+const boundedWriteToolAnnotations: McpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
+const destructiveWriteToolAnnotations: McpToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
 const userScopedIdSchema = z
   .string()
   .trim()
@@ -245,6 +275,12 @@ const toolDefinitions = {
 export type McpToolName = keyof typeof toolDefinitions;
 export type McpToolDefinition = typeof toolDefinitions[McpToolName];
 
+function getToolAnnotations(name: McpToolName, accessKind: AiConnectorAccessKind): McpToolAnnotations {
+  if (accessKind === "read") return readOnlyToolAnnotations;
+  if (name === "delete_unconfirmed_transaction_draft_batch") return destructiveWriteToolAnnotations;
+  return boundedWriteToolAnnotations;
+}
+
 export function getMcpToolDefinition(toolName: McpToolName): McpToolDefinition {
   return toolDefinitions[toolName];
 }
@@ -253,6 +289,8 @@ export function listMcpToolDefinitions(): Array<{
   name: McpToolName;
   description: string;
   inputSchema: McpToolDefinition["inputSchema"];
+  outputSchema: typeof genericMcpToolOutputSchema;
+  annotations: McpToolAnnotations;
   scope: AiConnectorScope;
   accessKind: AiConnectorAccessKind;
 }> {
@@ -260,6 +298,8 @@ export function listMcpToolDefinitions(): Array<{
     name: name as McpToolName,
     description: value.description,
     inputSchema: value.inputSchema,
+    outputSchema: genericMcpToolOutputSchema,
+    annotations: getToolAnnotations(name as McpToolName, value.accessKind),
     scope: value.scope,
     accessKind: value.accessKind,
   }));

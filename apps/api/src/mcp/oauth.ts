@@ -1,5 +1,7 @@
 import { Buffer } from "node:buffer";
 import {
+  createCipheriv,
+  createDecipheriv,
   createPublicKey,
   createHash,
   createHmac,
@@ -24,7 +26,7 @@ import type {
 import { Env } from "@vakwen/config";
 import { routeError } from "../lib/routeError.js";
 import { decryptSecret } from "../services/appConfig/encryption.js";
-import { ALL_MCP_SCOPES } from "./tools.js";
+import { ALL_MCP_SCOPES, listMcpToolDefinitions } from "./tools.js";
 import type { McpProtectedResourceMetadata } from "./types.js";
 import {
   connectorGroupForScope,
@@ -37,12 +39,14 @@ const DEFAULT_REFRESH_TOKEN_TTL_DAYS = 90;
 const CLIENT_METADATA_FETCH_TIMEOUT_MS = 3_000;
 const CLIENT_METADATA_MAX_BYTES = 64 * 1024;
 const CONSENT_CSRF_VERSION = 1;
+const OAUTH_REDIRECT_BRIDGE_TTL_MS = 5 * 60 * 1000;
 const CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 const CLIENT_ASSERTION_MAX_CHARS = 16 * 1024;
 const CLIENT_ASSERTION_CLOCK_SKEW_SECONDS = 60;
 const CLIENT_ASSERTION_MAX_TTL_SECONDS = 10 * 60;
 
 const CHATGPT_REDIRECT_HOSTS = new Set(["chat.openai.com", "chatgpt.com"]);
+const INITIAL_MCP_SCOPES: AiConnectorScope[] = ["portfolio:mcp_read"];
 
 type ClientMetadataAddress = {
   address: string;
@@ -70,6 +74,21 @@ type PinnedLookupCallback = (
 ) => void;
 
 class ClientMetadataTooLargeError extends Error {}
+
+function getSupportedMcpScopes(): AiConnectorScope[] {
+  const implementedScopes = new Set(listMcpToolDefinitions().map((tool) => tool.scope));
+  return ALL_MCP_SCOPES.filter((scope) => implementedScopes.has(scope));
+}
+
+function getInitialMcpScopes(): AiConnectorScope[] {
+  const supportedScopes = new Set(getSupportedMcpScopes());
+  return INITIAL_MCP_SCOPES.filter((scope) => supportedScopes.has(scope));
+}
+
+function withInitialMcpScopes(scopes: AiConnectorScope[]): AiConnectorScope[] {
+  const requested = new Set([...getInitialMcpScopes(), ...scopes]);
+  return getSupportedMcpScopes().filter((scope) => requested.has(scope));
+}
 
 let resolveClientMetadataHost: ResolveClientMetadataHost = async (hostname) => {
   const records = await lookup(hostname, { all: true });
@@ -154,6 +173,15 @@ const approveBodySchema = z.object({
 const denyBodySchema = z.object({
   csrfToken: z.string().min(1),
 }).strict();
+
+const redirectBridgeQuerySchema = z.object({
+  payload: z.string().trim().min(1).max(8192),
+}).strict();
+
+const redirectBridgePayloadSchema = z.object({
+  redirectUrl: z.string().url(),
+  exp: z.number().int(),
+});
 
 const accessTokenPayloadSchema = z.object({
   iss: z.string().url(),
@@ -631,14 +659,25 @@ export async function getMcpProtectedResourceMetadata(
   return {
     resource: `${issuer}/mcp`,
     authorization_servers: [issuer],
-    scopes_supported: [...ALL_MCP_SCOPES],
+    scopes_supported: getInitialMcpScopes(),
     bearer_methods_supported: ["header"],
     resource_documentation: `${issuer}/mcp/health`,
   };
 }
 
+export async function getMcpProtectedResourceMetadataUrl(app: FastifyInstance, req: FastifyRequest): Promise<string> {
+  const issuer = await getMcpOAuthIssuer(app, req);
+  return `${issuer}/.well-known/oauth-protected-resource/mcp`;
+}
+
+function getAuthorizationResponseIssuer(issuer: string): string | undefined {
+  const url = new URL(issuer);
+  return url.protocol === "https:" && url.search === "" && url.hash === "" ? issuer : undefined;
+}
+
 export async function getMcpAuthorizationServerMetadata(app: FastifyInstance, req: FastifyRequest) {
   const issuer = await getMcpOAuthIssuer(app, req);
+  const authorizationResponseIssuer = getAuthorizationResponseIssuer(issuer);
   return {
     issuer,
     authorization_endpoint: `${issuer}/oauth/authorize`,
@@ -649,13 +688,35 @@ export async function getMcpAuthorizationServerMetadata(app: FastifyInstance, re
     token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
     token_endpoint_auth_signing_alg_values_supported: ["RS256"],
     client_id_metadata_document_supported: true,
-    scopes_supported: [...ALL_MCP_SCOPES],
+    ...(authorizationResponseIssuer
+      ? { authorization_response_iss_parameter_supported: true }
+      : {}),
+    scopes_supported: getSupportedMcpScopes(),
     resource_documentation: `${issuer}/mcp/health`,
   };
 }
 
-export function buildMcpWwwAuthenticateHeader(metadataUrl: string): string {
-  return `Bearer realm="vakwen-mcp", resource_metadata="${metadataUrl}"`;
+function quoteWwwAuthenticateValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+}
+
+export function buildMcpWwwAuthenticateHeader(
+  metadataUrl: string,
+  options: {
+    scope?: AiConnectorScope | AiConnectorScope[];
+    error?: string;
+    errorDescription?: string;
+  } = {},
+): string {
+  const scope = Array.isArray(options.scope) ? options.scope.join(" ") : options.scope;
+  const params = [
+    ["realm", "vakwen-mcp"],
+    ["resource_metadata", metadataUrl],
+    ...(scope ? [["scope", scope] as const] : []),
+    ...(options.error ? [["error", options.error] as const] : []),
+    ...(options.errorDescription ? [["error_description", options.errorDescription] as const] : []),
+  ];
+  return `Bearer ${params.map(([key, value]) => `${key}=${quoteWwwAuthenticateValue(value)}`).join(", ")}`;
 }
 
 function base64UrlJson(value: unknown): string {
@@ -713,7 +774,7 @@ function assertCsrf(app: FastifyInstance, requestId: string, userId: string, exp
 }
 
 function parseScopes(scope: string | undefined): AiConnectorScope[] {
-  if (!scope) return [...ALL_MCP_SCOPES];
+  if (!scope) return getInitialMcpScopes();
   const parsed = scope
     .split(/\s+/)
     .map((item) => item.trim())
@@ -772,6 +833,63 @@ function oauthRedirect(base: string, params: Record<string, string | undefined |
     if (value !== undefined && value !== null) url.searchParams.set(key, value);
   }
   return url.toString();
+}
+
+function redirectBridgeKey(secret: string): Buffer {
+  return createHash("sha256").update(`vakwen:mcp-oauth-redirect:${secret}`).digest();
+}
+
+function sealOAuthRedirectBridgePayload(secret: string, redirectUrl: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", redirectBridgeKey(secret), iv);
+  const plaintext = JSON.stringify({
+    redirectUrl,
+    exp: Date.now() + OAUTH_REDIRECT_BRIDGE_TTL_MS,
+  });
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, ciphertext]).toString("base64url");
+}
+
+function openOAuthRedirectBridgePayload(secret: string, payload: string): string {
+  let sealed: Buffer;
+  try {
+    sealed = Buffer.from(payload, "base64url");
+  } catch {
+    throw routeError(400, "invalid_request", "OAuth redirect payload is invalid");
+  }
+  if (sealed.length <= 28) {
+    throw routeError(400, "invalid_request", "OAuth redirect payload is invalid");
+  }
+  try {
+    const iv = sealed.subarray(0, 12);
+    const tag = sealed.subarray(12, 28);
+    const ciphertext = sealed.subarray(28);
+    const decipher = createDecipheriv("aes-256-gcm", redirectBridgeKey(secret), iv);
+    decipher.setAuthTag(tag);
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    const parsed = redirectBridgePayloadSchema.parse(JSON.parse(plaintext));
+    if (parsed.exp < Date.now()) {
+      throw routeError(400, "invalid_request", "OAuth redirect payload is expired");
+    }
+    return parsed.redirectUrl;
+  } catch (err) {
+    if (err instanceof Error && "statusCode" in err) throw err;
+    throw routeError(400, "invalid_request", "OAuth redirect payload is invalid");
+  }
+}
+
+async function oauthRedirectViaIssuer(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  finalRedirectUrl: string,
+): Promise<string> {
+  const issuer = await getMcpOAuthIssuer(app, req);
+  const secret = await getMcpOAuthTokenSecret(app);
+  const payload = sealOAuthRedirectBridgePayload(secret, finalRedirectUrl);
+  const bridgeUrl = new URL(`${issuer}/oauth/redirect`);
+  bridgeUrl.searchParams.set("payload", payload);
+  return bridgeUrl.toString();
 }
 
 function sendOAuthError(reply: FastifyReply, statusCode: number, error: string, description: string) {
@@ -939,6 +1057,10 @@ export async function handleMcpOAuthAuthorize(
   } catch {
     return sendOAuthError(reply, 400, "invalid_scope", "OAuth scope contains an unsupported MCP scope");
   }
+  scopes = withInitialMcpScopes(scopes);
+  if (scopes.length === 0) {
+    return sendOAuthError(reply, 400, "invalid_scope", "OAuth scope must include at least one implemented MCP scope");
+  }
 
   if (!settings.enabled || !settings.allowedProviders.chatgpt) {
     return sendOAuthError(reply, 403, "access_denied", "ChatGPT MCP connectors are disabled");
@@ -946,6 +1068,9 @@ export async function handleMcpOAuthAuthorize(
   const policyScopes = filterScopesByPolicy(scopes, settings);
   if (policyScopes.length === 0) {
     return sendOAuthError(reply, 403, "access_denied", "All requested MCP scope groups are disabled");
+  }
+  if (!policyScopes.includes("portfolio:mcp_read")) {
+    return sendOAuthError(reply, 403, "access_denied", "Portfolio read MCP scope is required");
   }
 
   const requestId = randomUUID();
@@ -963,6 +1088,15 @@ export async function handleMcpOAuthAuthorize(
     csrfTokenHash: csrfHash(csrfToken),
     expiresAt: new Date(Date.now() + AUTHORIZATION_CODE_TTL_MS).toISOString(),
   });
+  req.log.info({
+    mcpOAuth: {
+      requestId,
+      clientId: query.client_id,
+      redirectUri: query.redirect_uri,
+      resource,
+      scopes: policyScopes,
+    },
+  }, "mcp_oauth_authorize_started");
 
   return reply.redirect(`${app.appBaseUrl}/connectors/chatgpt/authorize?requestId=${encodeURIComponent(requestId)}`, 302);
 }
@@ -1063,11 +1197,25 @@ export async function approveMcpOAuthConsent(
     throw routeError(410, "mcp_oauth_request_expired", "OAuth consent request is no longer pending");
   }
 
+  const issuer = await getMcpOAuthIssuer(app, req);
+  const finalRedirectUrl = oauthRedirect(request.redirectUri, {
+    code,
+    state: request.state,
+    iss: getAuthorizationResponseIssuer(issuer),
+  });
+  req.log.info({
+    mcpOAuth: {
+      requestId: request.id,
+      clientId: request.clientId,
+      redirectUri: request.redirectUri,
+      resource: request.resource,
+      scopes: allowedScopes,
+      issuer,
+      authorizationResponseIssuer: getAuthorizationResponseIssuer(issuer) ?? null,
+    },
+  }, "mcp_oauth_approval_redirect_issued");
   return {
-    redirectUrl: oauthRedirect(request.redirectUri, {
-      code,
-      state: request.state,
-    }),
+    redirectUrl: await oauthRedirectViaIssuer(app, req, finalRedirectUrl),
   };
 }
 
@@ -1096,13 +1244,28 @@ export async function denyMcpOAuthConsent(
   if (!denied) {
     throw routeError(410, "mcp_oauth_request_expired", "OAuth consent request is no longer pending");
   }
+  const issuer = await getMcpOAuthIssuer(app, req);
+  const finalRedirectUrl = oauthRedirect(request.redirectUri, {
+    error: "access_denied",
+    error_description: "The user denied the Vakwen MCP connector request.",
+    state: request.state,
+    iss: getAuthorizationResponseIssuer(issuer),
+  });
   return {
-    redirectUrl: oauthRedirect(request.redirectUri, {
-      error: "access_denied",
-      error_description: "The user denied the Vakwen MCP connector request.",
-      state: request.state,
-    }),
+    redirectUrl: await oauthRedirectViaIssuer(app, req, finalRedirectUrl),
   };
+}
+
+export async function handleMcpOAuthRedirect(
+  app: FastifyInstance,
+  req: FastifyRequest,
+  reply: FastifyReply,
+) {
+  setMcpOAuthNoStoreHeaders(reply);
+  const query = redirectBridgeQuerySchema.parse(req.query);
+  const secret = await getMcpOAuthTokenSecret(app);
+  const redirectUrl = openOAuthRedirectBridgePayload(secret, query.payload);
+  return reply.redirect(redirectUrl, 302);
 }
 
 export async function handleMcpOAuthToken(
@@ -1194,6 +1357,14 @@ export async function handleMcpOAuthToken(
         oauthClientId: code.clientId,
       },
     });
+    req.log.info({
+      mcpOAuth: {
+        connectionId: activated.id,
+        clientId: code.clientId,
+        resource,
+        scopes: activated.scopes,
+      },
+    }, "mcp_oauth_token_issued");
     const tokens = await issueTokens({
       app,
       req,
