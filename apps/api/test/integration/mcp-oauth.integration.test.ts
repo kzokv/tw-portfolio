@@ -28,6 +28,14 @@ const testOAuthConfig = {
 };
 const mcpOAuthTokenSecret = "test-mcp-oauth-token-secret-that-is-long-enough";
 const clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+const advertisedMcpScopes = [
+  "portfolio:mcp_read",
+  "transaction_draft:create",
+  "transaction_draft:edit",
+  "transaction_draft:archive",
+  "transaction_draft:delete",
+];
+const initialMcpScopes = ["portfolio:mcp_read"];
 
 function codeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
@@ -35,6 +43,29 @@ function codeChallenge(verifier: string): string {
 
 function form(body: Record<string, string>): string {
   return new URLSearchParams(body).toString();
+}
+
+async function resolveOAuthRedirectBridgeWithOrigin(
+  redirectUrl: string,
+  expectedOrigin = "http://localhost:4000",
+  host = "localhost:4000",
+): Promise<URL> {
+  const bridge = new URL(redirectUrl);
+  expect(bridge.origin + bridge.pathname).toBe(`${expectedOrigin}/oauth/redirect`);
+  expect(bridge.searchParams.get("payload")).toBeTruthy();
+  const response = await app.inject({
+    method: "GET",
+    url: `${bridge.pathname}${bridge.search}`,
+    headers: { host },
+  });
+  expect(response.statusCode).toBe(302);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.headers.pragma).toBe("no-cache");
+  return new URL(String(response.headers.location));
+}
+
+async function resolveOAuthRedirectBridge(redirectUrl: string): Promise<URL> {
+  return resolveOAuthRedirectBridgeWithOrigin(redirectUrl);
 }
 
 function base64UrlJson(value: unknown): string {
@@ -46,6 +77,7 @@ function signClientAssertion(input: {
   tokenEndpoint: string;
   privateKey: KeyObject;
   kid?: string;
+  subject?: string;
   audience?: string;
   expiresAt?: number;
   issuedAt?: number;
@@ -54,7 +86,7 @@ function signClientAssertion(input: {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = {
     iss: input.clientId,
-    sub: input.clientId,
+    sub: input.subject ?? input.clientId,
     aud: input.audience ?? input.tokenEndpoint,
     iat: input.issuedAt ?? nowSeconds,
     exp: input.expiresAt ?? nowSeconds + 300,
@@ -166,7 +198,9 @@ describe("MCP OAuth for ChatGPT", () => {
       token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["RS256"],
       client_id_metadata_document_supported: true,
+      scopes_supported: advertisedMcpScopes,
     });
+    expect(authorizationServer.json()).not.toHaveProperty("authorization_response_iss_parameter_supported");
     const pathScopedAuthorizationServer = await app.inject({
       method: "GET",
       url: "/.well-known/oauth-authorization-server/mcp",
@@ -177,6 +211,54 @@ describe("MCP OAuth for ChatGPT", () => {
       issuer: "http://localhost:4000",
       client_id_metadata_document_supported: true,
     });
+    const openIdConfiguration = await app.inject({
+      method: "GET",
+      url: "/.well-known/openid-configuration",
+      headers,
+    });
+    expect(openIdConfiguration.statusCode).toBe(200);
+    expect(openIdConfiguration.json()).toMatchObject({
+      issuer: "http://localhost:4000",
+      token_endpoint: "http://localhost:4000/oauth/token",
+      client_id_metadata_document_supported: true,
+    });
+    const pathScopedOpenIdConfiguration = await app.inject({
+      method: "GET",
+      url: "/.well-known/openid-configuration/mcp",
+      headers,
+    });
+    expect(pathScopedOpenIdConfiguration.statusCode).toBe(200);
+    expect(pathScopedOpenIdConfiguration.json()).toMatchObject({
+      issuer: "http://localhost:4000",
+      authorization_endpoint: "http://localhost:4000/oauth/authorize",
+    });
+
+    const mcpPreflight = await app.inject({
+      method: "OPTIONS",
+      url: "/mcp",
+      headers: {
+        origin: "https://chatgpt.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,mcp-session-id",
+      },
+    });
+    expect(mcpPreflight.statusCode).toBe(204);
+    expect(mcpPreflight.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(mcpPreflight.headers["access-control-allow-credentials"]).toBeUndefined();
+    expect(mcpPreflight.headers["access-control-allow-methods"]).toContain("POST");
+
+    const tokenPreflight = await app.inject({
+      method: "OPTIONS",
+      url: "/oauth/token",
+      headers: {
+        origin: "https://chatgpt.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,authorization",
+      },
+    });
+    expect(tokenPreflight.statusCode).toBe(204);
+    expect(tokenPreflight.headers["access-control-allow-origin"]).toBe("https://chatgpt.com");
+    expect(tokenPreflight.headers["access-control-allow-credentials"]).toBeUndefined();
 
     const protectedResource = await app.inject({
       method: "GET",
@@ -185,6 +267,17 @@ describe("MCP OAuth for ChatGPT", () => {
     });
     expect(protectedResource.statusCode).toBe(200);
     expect(protectedResource.json()).toMatchObject({
+      resource,
+      authorization_servers: ["http://localhost:4000"],
+      scopes_supported: initialMcpScopes,
+    });
+    const pathScopedProtectedResource = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource/mcp",
+      headers,
+    });
+    expect(pathScopedProtectedResource.statusCode).toBe(200);
+    expect(pathScopedProtectedResource.json()).toMatchObject({
       resource,
       authorization_servers: ["http://localhost:4000"],
     });
@@ -229,6 +322,7 @@ describe("MCP OAuth for ChatGPT", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
+      headers,
       payload: {
         csrfToken: consentBody.csrfToken,
         scopes: ["portfolio:mcp_read"],
@@ -239,9 +333,10 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(approve.headers["cache-control"]).toBe("no-store");
     expect(approve.headers.pragma).toBe("no-cache");
     const approveRedirect = approve.json<{ redirectUrl: string }>().redirectUrl;
-    const callback = new URL(approveRedirect);
+    const callback = await resolveOAuthRedirectBridge(approveRedirect);
     expect(callback.origin + callback.pathname).toBe(redirectUri);
     expect(callback.searchParams.get("state")).toBe("state-123");
+    expect(callback.searchParams.has("iss")).toBe(false);
     const code = callback.searchParams.get("code");
     expect(code).toBeTruthy();
     const connectionsAfterApproval = await app.persistence.listAiConnectorConnectionsForUser("user-1");
@@ -395,6 +490,71 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(connection).toMatchObject({ status: "revoked", revocationReason: "refresh_token_reuse" });
   });
 
+  it("advertises and returns the OAuth authorization response issuer for HTTPS ChatGPT callbacks", async () => {
+    const issuer = "https://vakwen-dev-api.kzokvdevs.dpdns.org";
+    const host = "vakwen-dev-api.kzokvdevs.dpdns.org";
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const redirectUri = "https://chatgpt.com/connector/oauth/callback-id";
+    await app.persistence.saveAiConnectorPolicySettings({ oauthPublicIssuer: issuer });
+
+    const authorizationServer = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server",
+      headers: { host },
+    });
+    expect(authorizationServer.statusCode).toBe(200);
+    expect(authorizationServer.json()).toMatchObject({
+      issuer,
+      authorization_response_iss_parameter_supported: true,
+    });
+
+    const { requestId, csrfToken } = await createAuthorizationRequest({
+      headers: { host },
+      resource: `${issuer}/mcp`,
+      verifier,
+      redirectUri,
+    });
+    const approve = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${requestId}/approve`,
+      headers: { host },
+      payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
+    });
+    expect(approve.statusCode).toBe(200);
+    const callback = await resolveOAuthRedirectBridgeWithOrigin(
+      approve.json<{ redirectUrl: string }>().redirectUrl,
+      issuer,
+      host,
+    );
+    expect(callback.origin + callback.pathname).toBe(redirectUri);
+    expect(callback.searchParams.get("state")).toBe("state-123");
+    expect(callback.searchParams.get("iss")).toBe(issuer);
+    expect(callback.searchParams.get("code")).toBeTruthy();
+
+    const denied = await createAuthorizationRequest({
+      headers: { host },
+      resource: `${issuer}/mcp`,
+      verifier,
+      redirectUri,
+    });
+    const deny = await app.inject({
+      method: "POST",
+      url: `/oauth/consent/${denied.requestId}/deny`,
+      headers: { host },
+      payload: { csrfToken: denied.csrfToken },
+    });
+    expect(deny.statusCode).toBe(200);
+    const deniedCallback = await resolveOAuthRedirectBridgeWithOrigin(
+      deny.json<{ redirectUrl: string }>().redirectUrl,
+      issuer,
+      host,
+    );
+    expect(deniedCallback.origin + deniedCallback.pathname).toBe(redirectUri);
+    expect(deniedCallback.searchParams.get("error")).toBe("access_denied");
+    expect(deniedCallback.searchParams.get("state")).toBe("state-123");
+    expect(deniedCallback.searchParams.get("iss")).toBe(issuer);
+  });
+
   it("accepts token exchanges with extra parameters and stored resource bindings", async () => {
     const headers = { host: "localhost:4000" };
     const resource = "http://localhost:4000/mcp";
@@ -409,10 +569,13 @@ describe("MCP OAuth for ChatGPT", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
+      headers,
       payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
     });
     expect(approve.statusCode).toBe(200);
-    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    const approveRedirect = await resolveOAuthRedirectBridge(approve.json<{ redirectUrl: string }>().redirectUrl);
+    expect(approveRedirect.searchParams.has("iss")).toBe(false);
+    const code = approveRedirect.searchParams.get("code");
     expect(code).toBeTruthy();
 
     const token = await app.inject({
@@ -476,10 +639,13 @@ describe("MCP OAuth for ChatGPT", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
+      headers,
       payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
     });
     expect(approve.statusCode).toBe(200);
-    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    const approveRedirect = await resolveOAuthRedirectBridge(approve.json<{ redirectUrl: string }>().redirectUrl);
+    expect(approveRedirect.searchParams.has("iss")).toBe(false);
+    const code = approveRedirect.searchParams.get("code");
     expect(code).toBeTruthy();
 
     const token = await app.inject({
@@ -513,10 +679,13 @@ describe("MCP OAuth for ChatGPT", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
+      headers,
       payload: { csrfToken, scopes: ["portfolio:mcp_read"], lifetimeDays: 7 },
     });
     expect(approve.statusCode).toBe(200);
-    const code = new URL(approve.json<{ redirectUrl: string }>().redirectUrl).searchParams.get("code");
+    const approveRedirect = await resolveOAuthRedirectBridge(approve.json<{ redirectUrl: string }>().redirectUrl);
+    expect(approveRedirect.searchParams.has("iss")).toBe(false);
+    const code = approveRedirect.searchParams.get("code");
     expect(code).toBeTruthy();
 
     const token = await app.inject({
@@ -745,6 +914,7 @@ describe("MCP OAuth for ChatGPT", () => {
     const resource = "http://localhost:4000/mcp";
     const tokenEndpoint = "http://localhost:4000/oauth/token";
     const fetchedUrls: string[] = [];
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const publicJwk = {
       ...publicKey.export({ format: "jwk" }),
@@ -810,6 +980,7 @@ describe("MCP OAuth for ChatGPT", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
+      headers: { host: "localhost:4000" },
       payload: {
         csrfToken: consentBody.csrfToken,
         scopes: ["portfolio:mcp_read"],
@@ -817,7 +988,7 @@ describe("MCP OAuth for ChatGPT", () => {
       },
     });
     expect(approve.statusCode).toBe(200);
-    const approveRedirect = new URL(approve.json<{ redirectUrl: string }>().redirectUrl);
+    const approveRedirect = await resolveOAuthRedirectBridge(approve.json<{ redirectUrl: string }>().redirectUrl);
     const code = approveRedirect.searchParams.get("code");
     expect(approveRedirect.origin + approveRedirect.pathname).toBe(redirectUri);
     expect(code).toBeTruthy();
@@ -906,6 +1077,28 @@ describe("MCP OAuth for ChatGPT", () => {
       error_description: "Client private_key_jwt assertion is required",
     });
 
+    const mismatchedSubject = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        ...basePayload,
+        client_assertion_type: clientAssertionType,
+        client_assertion: signClientAssertion({
+          clientId,
+          tokenEndpoint,
+          privateKey,
+          kid: "chatgpt-test-key",
+          subject: "https://chatgpt.com/oauth/other-client.json",
+        }),
+      }),
+    });
+    expect(mismatchedSubject.statusCode).toBe(400);
+    expect(mismatchedSubject.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client assertion issuer or subject is invalid",
+    });
+
     const badAudience = await app.inject({
       method: "POST",
       url: "/oauth/token",
@@ -926,6 +1119,28 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(badAudience.json()).toMatchObject({
       error: "invalid_client",
       error_description: "Client assertion audience is invalid",
+    });
+
+    const expiredAssertion = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        ...basePayload,
+        client_assertion_type: clientAssertionType,
+        client_assertion: signClientAssertion({
+          clientId,
+          tokenEndpoint,
+          privateKey,
+          kid: "chatgpt-test-key",
+          expiresAt: Math.floor(Date.now() / 1000) - 120,
+        }),
+      }),
+    });
+    expect(expiredAssertion.statusCode).toBe(400);
+    expect(expiredAssertion.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client assertion has expired",
     });
 
     const badSignature = await app.inject({

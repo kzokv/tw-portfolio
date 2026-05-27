@@ -33,6 +33,21 @@ function codeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+async function resolveOAuthRedirectBridge(redirectUrl: string): Promise<URL> {
+  const bridge = new URL(redirectUrl);
+  expect(bridge.origin + bridge.pathname).toBe("http://localhost:4000/oauth/redirect");
+  expect(bridge.searchParams.get("payload")).toBeTruthy();
+  const response = await app.inject({
+    method: "GET",
+    url: `${bridge.pathname}${bridge.search}`,
+    headers: { host: "localhost:4000" },
+  });
+  expect(response.statusCode).toBe(302);
+  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.headers.pragma).toBe("no-cache");
+  return new URL(String(response.headers.location));
+}
+
 describe("MCP OAuth consent under AUTH_MODE=oauth", () => {
   beforeEach(async () => {
     app = await buildApp({
@@ -114,7 +129,7 @@ describe("MCP OAuth consent under AUTH_MODE=oauth", () => {
     const approve = await app.inject({
       method: "POST",
       url: `/oauth/consent/${requestId}/approve`,
-      headers: { cookie: cookieHeader },
+      headers: { host: "localhost:4000", cookie: cookieHeader },
       payload: {
         csrfToken: consentBody.csrfToken,
         scopes: ["portfolio:mcp_read"],
@@ -123,7 +138,7 @@ describe("MCP OAuth consent under AUTH_MODE=oauth", () => {
     });
     expect(approve.statusCode).toBe(200);
     const redirectUrl = approve.json<{ redirectUrl: string }>().redirectUrl;
-    const callback = new URL(redirectUrl);
+    const callback = await resolveOAuthRedirectBridge(redirectUrl);
     expect(callback.origin + callback.pathname).toBe("http://localhost:5555/callback");
     expect(callback.searchParams.get("code")).toBeTruthy();
     expect(callback.searchParams.get("state")).toBe("state-123");
