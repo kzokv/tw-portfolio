@@ -1,0 +1,28 @@
+{
+  "description": "Cloudflare WAF custom-rule fragment for Vakwen ChatGPT MCP/OAuth API compatibility. Prepend this rule to the zone-level http_request_firewall_custom entrypoint ruleset and replace <PUBLIC_API_HOST> before applying.",
+  "rules": [
+    {
+      "ref": "vakwen_chatgpt_mcp_oauth_skip",
+      "description": "Skip security products for ChatGPT MCP/OAuth API paths",
+      "expression": "(http.host eq \"<PUBLIC_API_HOST>\" and (http.request.uri.path eq \"/mcp\" or starts_with(http.request.uri.path, \"/mcp/\") or starts_with(http.request.uri.path, \"/oauth/\") or starts_with(http.request.uri.path, \"/.well-known/oauth-\") or starts_with(http.request.uri.path, \"/.well-known/openid-configuration\")))",
+      "action": "skip",
+      "action_parameters": {
+        "ruleset": "current",
+        "phases": [
+          "http_ratelimit",
+          "http_request_firewall_managed",
+          "http_request_sbfm"
+        ],
+        "products": [
+          "bic",
+          "rateLimit",
+          "waf"
+        ]
+      },
+      "logging": {
+        "enabled": true
+      },
+      "enabled": true
+    }
+  ]
+}

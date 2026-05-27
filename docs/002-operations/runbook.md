@@ -309,6 +309,15 @@ The public API host must let non-browser ChatGPT/OpenAI server requests reach th
 discovery, token exchange, and MCP transport. On Cloudflare, configure a first-match skip rule for the API
 OAuth/MCP paths:
 
+The checked-in rule fragment lives at `infra/cloudflare/chatgpt-mcp-skip-rule.json`. Replace
+`<PUBLIC_API_HOST>` with the deployed API hostname, prepend the rule to the zone-level
+`http_request_firewall_custom` entrypoint, and validate the template or an exported ruleset before deploy:
+
+```bash
+npm run infra:cloudflare:validate
+node infra/cloudflare/validate-chatgpt-mcp-skip-rule.mjs /path/to/exported-ruleset.json
+```
+
 ```text
 (http.host eq "<public-api-host>" and (
   http.request.uri.path eq "/mcp" or

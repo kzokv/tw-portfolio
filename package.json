@@ -44,6 +44,7 @@
     "typecheck": "npm run build -w @vakwen/config -w libs/domain -w libs/shared-types -w @vakwen/test-framework -w @vakwen/test-e2e -w @vakwen/test-api -w @vakwen/api && npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/api/test/tsconfig.json && npx tsc --noEmit -p apps/web/tsconfig.json && npx tsc --noEmit -p apps/api/test/integration/tsconfig.json && npx tsc --noEmit -p apps/api/test/unit/tsconfig.json && npx tsc --noEmit -p apps/api/tsconfig.config.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "infra:cloudflare:validate": "node infra/cloudflare/validate-chatgpt-mcp-skip-rule.mjs",
     "env:setup": "tsx scripts/env-setup.ts",
     "auth:refresh-token": "node scripts/get-google-refresh-token.mjs",
     "admin:promote": "tsx apps/api/src/cli/adminPromote.ts",
