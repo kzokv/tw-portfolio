@@ -276,7 +276,10 @@ export function AppSidebar({
                       <Icon className="h-4 w-4" aria-hidden="true" />
                       <span>{item.label}</span>
                       {item.badgeCount && item.badgeCount > 0 ? (
-                        <span className="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                        <span
+                          className="ml-auto rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700"
+                          data-testid={`app-sidebar-nav-${item.key}-badge`}
+                        >
                           {item.badgeCount}
                         </span>
                       ) : null}

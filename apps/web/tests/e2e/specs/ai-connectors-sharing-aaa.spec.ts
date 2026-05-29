@@ -22,6 +22,21 @@ test.describe("ai connectors and sharing", () => {
     await page.getByText("No AI connectors are connected.").waitFor({ state: "visible" });
   });
 
+  test("[admin mcp settings]: settings route renders deployment and policy controls", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings?tab=mcp");
+    await appShell.assert.appIsReady();
+
+    await page.getByTestId("admin-settings-panel-mcp").waitFor({ state: "visible" });
+    await page.getByRole("heading", { name: "MCP settings" }).waitFor({ state: "visible" });
+    await page.getByText("MCP deployment").waitFor({ state: "visible" });
+    await page.getByText("Global AI connector policy").waitFor({ state: "visible" });
+    await page.getByText("Max active connectors").waitFor({ state: "visible" });
+    await page.getByTestId("admin-settings-mcp-oauth-token-secret-row").waitFor({ state: "visible" });
+  });
+
   test("[sharing]: grant dialog → Editor preset checks AI connector write capability", async ({
     appShell,
     page,

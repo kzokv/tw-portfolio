@@ -104,23 +104,27 @@ async function assertDisabled(locator: Locator, label: string): Promise<void> {
   }
 }
 
+async function assertText(locator: Locator, expected: string, label: string): Promise<void> {
+  const actual = await locator.textContent();
+  if (actual?.trim() !== expected) {
+    throw new Error(`Expected ${label} text "${expected}", received "${actual ?? ""}"`);
+  }
+}
+
 test.describe("ai inbox", () => {
   test("[ai inbox]: MCP-seeded deep link → typed confirmation gates six-row posting", async ({
-    appShell,
-    e2eUserId,
     page,
     request,
+    testUser,
   }) => {
-    const batchId = await seedDraftBatch(request, e2eUserId);
+    const batchId = await seedDraftBatch(request, testUser.userId);
 
-    await appShell.actions.navigateToRoute(
-      `/transactions?tab=ai-inbox&batch=${batchId}&context=${encodeURIComponent(e2eUserId)}`,
-    );
-    await appShell.assert.appIsReady();
+    await page.goto(`/transactions?tab=ai-inbox&batch=${batchId}&context=${encodeURIComponent(testUser.userId)}`);
 
     await page.getByTestId("ai-inbox-panel").waitFor({ state: "visible" });
     await page.getByRole("heading", { name: "Playwright AI Inbox seed" }).waitFor({ state: "visible" });
     await assertAttribute(page.getByTestId("transactions-tab-ai-inbox"), "data-state", "active");
+    await assertText(page.getByTestId("app-sidebar-nav-transactions-badge"), "1", "Transactions AI Inbox badge");
 
     const rowCheckboxes = page.getByLabel(/Select draft row \d+/);
     await assertCount(rowCheckboxes, 6, "draft-row checkboxes");
