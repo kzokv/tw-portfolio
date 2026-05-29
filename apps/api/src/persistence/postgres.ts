@@ -3828,6 +3828,13 @@ export class PostgresPersistence implements Persistence {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      for (const row of input.rows) {
+        if (!row.confirmedTradeEventId) {
+          throw new Error(`confirmed draft row ${row.id} is missing a trade event id`);
+        }
+        await this.savePostedTradeTx(client, input.ownerUserId, input.accounting, row.confirmedTradeEventId);
+      }
+
       const savedRows: AiTransactionDraftRowRecord[] = [];
       for (const row of input.rows) {
         const result = await client.query<{
@@ -3995,9 +4002,6 @@ export class PostgresPersistence implements Persistence {
         await client.query("ROLLBACK");
         return null;
       }
-
-      const accountIds = await this.listUserAccountIds(client, input.ownerUserId);
-      await this.saveAccountingStoreTx(client, input.ownerUserId, input.accounting, accountIds);
 
       const eventResult = await client.query<{
         id: string;
@@ -6320,6 +6324,157 @@ export class PostgresPersistence implements Persistence {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  private async savePostedTradeTx(
+    client: PoolClient,
+    userId: string,
+    accounting: AccountingStore,
+    tradeEventId: string,
+  ): Promise<void> {
+    const trade = accounting.facts.tradeEvents.find((item) => item.id === tradeEventId);
+    if (!trade) {
+      throw new Error(`trade event ${tradeEventId} not found in accounting store`);
+    }
+
+    const cashEntry = accounting.facts.cashLedgerEntries.find((entry) => entry.relatedTradeEventId === tradeEventId);
+    if (!cashEntry) {
+      throw new Error(`cash ledger entry for trade event ${tradeEventId} not found in accounting store`);
+    }
+
+    const nextAllocations = accounting.projections.lotAllocations.filter(
+      (allocation) => allocation.tradeEventId === tradeEventId,
+    );
+    const nextLots = accounting.projections.lots.filter(
+      (lot) => lot.accountId === trade.accountId && lot.ticker === trade.ticker,
+    );
+    const feePolicySnapshotId = feePolicySnapshotIdForTrade(trade.id);
+    await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, trade, trade.feeSnapshot, trade.bookedAt);
+
+    await client.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
+         quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+         tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
+         reversal_of_trade_event_id
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12, $13, $14,
+         $15, $16, $17, $18, $19, $20,
+         $21
+       )`,
+      [
+        trade.id,
+        trade.userId,
+        trade.accountId,
+        trade.ticker,
+        // KZO-169: marketCode is required on BookedTradeEvent.
+        trade.marketCode,
+        trade.instrumentType,
+        trade.type,
+        trade.quantity,
+        trade.unitPrice,
+        trade.priceCurrency,
+        trade.tradeDate,
+        trade.tradeTimestamp ?? trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
+        trade.bookingSequence ?? 1,
+        trade.commissionAmount,
+        trade.taxAmount,
+        trade.isDayTrade,
+        feePolicySnapshotId,
+        trade.source ?? "legacy_transaction",
+        trade.sourceReference ?? trade.id,
+        trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
+        trade.reversalOfTradeEventId ?? null,
+      ],
+    );
+
+    await client.query(
+      `INSERT INTO cash_ledger_entries (
+         id, user_id, account_id, entry_date, entry_type, amount, currency,
+         related_trade_event_id, related_dividend_ledger_entry_id, source,
+         source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+         fx_rate_to_usd, fx_transfer_id
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10,
+         $11, $12, $13, $14,
+         $15, $16
+       )`,
+      [
+        cashEntry.id,
+        cashEntry.userId,
+        cashEntry.accountId,
+        cashEntry.entryDate,
+        cashEntry.entryType,
+        cashEntry.amount,
+        cashEntry.currency,
+        cashEntry.relatedTradeEventId ?? null,
+        cashEntry.relatedDividendLedgerEntryId ?? null,
+        cashEntry.source,
+        cashEntry.sourceReference ?? null,
+        cashEntry.note ?? null,
+        cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
+        cashEntry.reversalOfCashLedgerEntryId ?? null,
+        cashEntry.fxRateToUsd ?? null,
+        cashEntry.fxTransferId ?? null,
+      ],
+    );
+
+    await client.query(
+      `DELETE FROM lot_allocations
+       WHERE user_id = $1
+         AND trade_event_id = $2`,
+      [userId, tradeEventId],
+    );
+    for (const allocation of nextAllocations) {
+      await client.query(
+        `INSERT INTO lot_allocations (
+           id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
+           lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12
+         )`,
+        [
+          allocation.id,
+          allocation.userId,
+          allocation.accountId,
+          allocation.tradeEventId,
+          allocation.ticker,
+          allocation.lotId,
+          allocation.lotOpenedAt,
+          allocation.lotOpenedSequence,
+          allocation.allocatedQuantity,
+          allocation.allocatedCostAmount,
+          allocation.costCurrency,
+          allocation.createdAt ?? new Date().toISOString(),
+        ],
+      );
+    }
+
+    await client.query(
+      `DELETE FROM lots
+       WHERE account_id = $1
+         AND ticker = $2`,
+      [trade.accountId, trade.ticker],
+    );
+    for (const lot of nextLots) {
+      await client.query(
+        `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          lot.id,
+          lot.accountId,
+          lot.ticker,
+          lot.openQuantity,
+          lot.totalCostAmount,
+          lot.costCurrency,
+          lot.openedAt,
+          lot.openedSequence ?? 1,
+        ],
+      );
     }
   }
 
