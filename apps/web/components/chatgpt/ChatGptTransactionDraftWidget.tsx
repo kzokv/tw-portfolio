@@ -46,6 +46,7 @@ interface ChatGptTransactionDraftWidgetProps {
 }
 
 type EditableField = "accountId" | "marketCode" | "quantity" | "unitPrice" | "note" | "sourceSnippet";
+type EditDraftPatch = Partial<Record<EditableField, number | string>>;
 
 interface EditDraft {
   accountId: string;
@@ -76,11 +77,32 @@ function toEditDraft(row: TransactionDraftRowDto): EditDraft {
   };
 }
 
-function parseOptionalNumber(raw: string): number | null {
+function parseOptionalNumber(raw: string): number | undefined {
   const trimmed = raw.trim();
-  if (!trimmed) return null;
+  if (!trimmed) return undefined;
   const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function buildEditDraftPatch(draft: EditDraft): EditDraftPatch {
+  const patch: EditDraftPatch = {};
+  const addText = (field: EditableField, raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed) patch[field] = trimmed;
+  };
+  const addNumber = (field: EditableField, raw: string) => {
+    const parsed = parseOptionalNumber(raw);
+    if (parsed !== undefined) patch[field] = parsed;
+  };
+
+  addText("accountId", draft.accountId);
+  addText("marketCode", draft.marketCode);
+  addText("note", draft.note);
+  addText("sourceSnippet", draft.sourceSnippet);
+  addNumber("quantity", draft.quantity);
+  addNumber("unitPrice", draft.unitPrice);
+
+  return patch;
 }
 
 function stateClassName(state: TransactionDraftRowDto["state"]): string {
@@ -255,16 +277,11 @@ export function ChatGptTransactionDraftWidget({
       data.tools.updateRow,
       {
         batchId: data.batch.id,
-        rowId: activeEditRow.id,
-        expectedVersion: activeEditRow.version,
-        patch: {
-          accountId: editDraft.accountId.trim() || null,
-          marketCode: editDraft.marketCode.trim() || null,
-          note: editDraft.note.trim() || null,
-          quantity: parseOptionalNumber(editDraft.quantity),
-          sourceSnippet: editDraft.sourceSnippet.trim() || null,
-          unitPrice: parseOptionalNumber(editDraft.unitPrice),
-        },
+        rows: [{
+          rowId: activeEditRow.id,
+          expectedVersion: activeEditRow.version,
+          patch: buildEditDraftPatch(editDraft),
+        }],
       },
       "Row saved.",
       { keepMode: true },
@@ -512,7 +529,7 @@ export function ChatGptTransactionDraftWidget({
                           {data.rows.map((row) => {
                             const selectable = row.state !== "confirmed" && row.state !== "unsupported";
                             return (
-                              <TableRow key={row.id}>
+                              <TableRow key={row.id} data-testid={`chatgpt-widget-row-${row.id}`}>
                                 <TableCell>
                                   <input
                                     aria-label={`Select draft row ${row.rowNumber}`}
@@ -531,12 +548,21 @@ export function ChatGptTransactionDraftWidget({
                                 <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, locale as LocaleCode) : "-"}</TableCell>
                                 <TableCell>{row.tradeDate ?? "-"}</TableCell>
                                 <TableCell>
-                                  <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize", stateClassName(row.state))}>
+                                  <span
+                                    className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize", stateClassName(row.state))}
+                                    data-testid={`chatgpt-widget-row-state-${row.id}`}
+                                  >
                                     {compactState(row.state)}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <Button variant="ghost" size="sm" onClick={() => setEditRowId(row.id)} disabled={!data.permissions.canEdit || row.state === "confirmed"}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditRowId(row.id)}
+                                    disabled={!data.permissions.canEdit || row.state === "confirmed"}
+                                    data-testid={`chatgpt-widget-edit-${row.id}`}
+                                  >
                                     <Pencil className="h-4 w-4" aria-hidden="true" />
                                     <span className="sr-only">Edit row</span>
                                   </Button>

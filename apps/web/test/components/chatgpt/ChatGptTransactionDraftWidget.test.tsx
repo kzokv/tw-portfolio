@@ -22,6 +22,24 @@ function buttonByText(text: string): HTMLButtonElement {
   return button as HTMLButtonElement;
 }
 
+function controlByLabel(text: string): HTMLInputElement | HTMLTextAreaElement {
+  const label = Array.from(document.querySelectorAll("label"))
+    .find((candidate) => candidate.textContent?.includes(text));
+  const control = label?.querySelector("input, textarea");
+  if (!control) throw new Error(`control not found: ${text}`);
+  return control as HTMLInputElement | HTMLTextAreaElement;
+}
+
+async function setControlValue(text: string, value: string) {
+  const control = controlByLabel(text);
+  const valueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set;
+  await act(async () => {
+    valueSetter?.call(control, value);
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+  });
+}
+
 describe("ChatGptTransactionDraftWidget", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -155,6 +173,47 @@ describe("ChatGptTransactionDraftWidget", () => {
     expect(document.body.textContent).toContain("Confirmation required");
     expect(document.body.textContent).toContain("Type POST 1 TRADES before posting these rows.");
     expect(document.body.textContent).toContain("Typed confirmation required before posting.");
+  });
+
+  it("omits blank edit fields from MCP row update patches", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    const callTool = vi.fn().mockResolvedValue({ structuredContent: initial, _meta: { widget: initial } });
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "review", selectedRowIds: initial.selectedRowIds, editRowId: "row-3", confirmText: "" },
+      callTool,
+      setWidgetState: vi.fn(),
+      notifyIntrinsicHeight: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    await setControlValue("Account", "  au-brokerage  ");
+    await setControlValue("Note", "");
+    await setControlValue("Source snippet", "");
+
+    await act(async () => {
+      buttonByText("Save row").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(callTool).toHaveBeenCalledWith("update_transaction_draft_rows", {
+      batchId: initial.batch.id,
+      rows: [{
+        rowId: "row-3",
+        expectedVersion: 2,
+        patch: {
+          accountId: "au-brokerage",
+          marketCode: "AU",
+          quantity: 80,
+          unitPrice: 43.18,
+        },
+      }],
+    });
   });
 
   it("shows reconnect guidance when transaction:write has not been granted", async () => {

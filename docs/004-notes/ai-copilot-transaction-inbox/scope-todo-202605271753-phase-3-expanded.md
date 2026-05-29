@@ -57,10 +57,17 @@ superseded_by: null
 - [x] Update AI Inbox/Vakwen UI only where needed to show connector-mediated source/provenance and posted-from-ChatGPT outcomes.
 - [x] Update docs/runbook with optional live ChatGPT smoke testing and current component setup notes.
 - [x] KZO-225: add API/MCP tests covering policy gates, share capabilities, read tools, import candidate submission, preflight, batch creation, draft mutations, `post_transaction_draft_rows`, audit, access logs, conflict handling, duplicate blocking, negative-inventory blocking, and shared-portfolio posting gates.
-- [ ] KZO-225: include memory-backed and relevant Postgres-backed integration coverage where migrations or persistence contracts are touched.
+- [x] KZO-225: include memory-backed and relevant Postgres-backed integration coverage where migrations or persistence contracts are touched.
 - [x] KZO-226: add Playwright E2E coverage for AI Inbox, ChatGPT component harness, connector settings, share permissions, admin MCP settings, notifications/badges, deep links, connector-mediated import, row edit/archive/delete, and guarded posting.
 - [x] KZO-226: include viewer/read-only and shared-portfolio permission cases.
-- [ ] Verify focused test scopes first, then run the full eight-suite repo gate before PR.
+- [x] Verify focused test scopes for the KZO-226 gap-fix branch.
+- [ ] Run the full eight-suite repo gate before merge/release.
+
+## Gap-Fix Verification
+
+- KZO-225 Postgres coverage includes `apps/api/test/integration/postgres-migrations.integration.test.ts`, including the regression that inserts posted trade events before linking `confirmed_trade_event_id`.
+- KZO-226 focused E2E coverage now includes `apps/web/tests/e2e/specs/chatgpt-widget-aaa.spec.ts`, `apps/web/tests/e2e/specs/ai-inbox-aaa.spec.ts`, and `apps/web/tests/e2e/specs/ai-connectors-sharing-aaa.spec.ts`.
+- Focused checks run on the gap-fix branch: touched-file ESLint, `npx tsc --noEmit -p apps/web/tsconfig.json`, ChatGPT widget harness E2E, AI Inbox E2E, and AI connector/sharing/admin MCP E2E.
 
 ## Out Of Scope
 

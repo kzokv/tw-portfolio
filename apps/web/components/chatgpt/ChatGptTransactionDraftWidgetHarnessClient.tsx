@@ -60,22 +60,28 @@ export function ChatGptTransactionDraftWidgetHarnessClient() {
         current = cloneWidget(current);
         switch (name) {
           case "update_transaction_draft_rows": {
-            const rowId = String(args.rowId);
-            const patch = (args.patch ?? {}) as Record<string, unknown>;
-            current.rows = current.rows.map((row) => row.id !== rowId
-              ? row
-              : {
-                  ...row,
-                  accountId: typeof patch.accountId === "string" ? patch.accountId : row.accountId,
-                  marketCode: patch.marketCode === "TW" || patch.marketCode === "US" || patch.marketCode === "AU"
-                    ? patch.marketCode
-                    : row.marketCode,
-                  note: typeof patch.note === "string" ? patch.note : row.note,
-                  quantity: typeof patch.quantity === "number" ? patch.quantity : row.quantity,
-                  sourceSnippet: typeof patch.sourceSnippet === "string" ? patch.sourceSnippet : row.sourceSnippet,
-                  unitPrice: typeof patch.unitPrice === "number" ? patch.unitPrice : row.unitPrice,
-                  version: row.version + 1,
-                });
+            const updates = Array.isArray(args.rows)
+              ? args.rows.map((item) => item && typeof item === "object" ? item as Record<string, unknown> : null)
+              : [];
+            current.rows = current.rows.map((row) => {
+              const update = updates.find((item) => item?.rowId === row.id);
+              if (!update) return row;
+              const patch = update.patch && typeof update.patch === "object"
+                ? update.patch as Record<string, unknown>
+                : {};
+              return {
+                ...row,
+                accountId: typeof patch.accountId === "string" ? patch.accountId : row.accountId,
+                marketCode: patch.marketCode === "TW" || patch.marketCode === "US" || patch.marketCode === "AU"
+                  ? patch.marketCode
+                  : row.marketCode,
+                note: typeof patch.note === "string" ? patch.note : row.note,
+                quantity: typeof patch.quantity === "number" ? patch.quantity : row.quantity,
+                sourceSnippet: typeof patch.sourceSnippet === "string" ? patch.sourceSnippet : row.sourceSnippet,
+                unitPrice: typeof patch.unitPrice === "number" ? patch.unitPrice : row.unitPrice,
+                version: row.version + 1,
+              };
+            });
             break;
           }
           case "exclude_transaction_draft_rows":
