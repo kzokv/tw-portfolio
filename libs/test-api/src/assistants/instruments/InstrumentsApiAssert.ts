@@ -74,4 +74,26 @@ export class InstrumentsApiAssert extends ApiBaseAssert {
       `instruments does not contain (${ticker}, ${marketCode})`,
     );
   }
+
+  @Step()
+  async pairFieldEquals(
+    instruments: Record<string, unknown>[],
+    ticker: string,
+    marketCode: string,
+    field: string,
+    expected: unknown,
+  ): Promise<void> {
+    const found = instruments.find(
+      (i) => i["ticker"] === ticker && i["marketCode"] === marketCode,
+    );
+    await this.mxAssertTruthy(
+      found,
+      `instruments contains (${ticker}, ${marketCode}) before checking ${field}`,
+    );
+    await this.mxAssertEqual(
+      found?.[field],
+      expected,
+      `instruments[(${ticker}, ${marketCode})].${field}`,
+    );
+  }
 }

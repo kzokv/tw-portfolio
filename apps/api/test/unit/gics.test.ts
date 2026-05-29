@@ -10,6 +10,7 @@ import {
   gicsIndustryGroups,
   sectorForIndustryGroup,
   industryGroupsForSector,
+  normalizeInstrumentSector,
 } from "@vakwen/shared-types";
 
 describe("KZO-196 — GICS taxonomy", () => {
@@ -90,6 +91,86 @@ describe("KZO-196 — GICS taxonomy", () => {
     it("returns an empty array for unknown sectors", () => {
       expect(industryGroupsForSector("Aerospace")).toEqual([]);
       expect(industryGroupsForSector("")).toEqual([]);
+    });
+  });
+
+  describe("normalizeInstrumentSector", () => {
+    it("maps representative TW stock categories to GICS sectors", () => {
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "TW",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "半導體業",
+        }),
+      ).toBe("Information Technology");
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "TW",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "金融保險",
+        }),
+      ).toBe("Financials");
+    });
+
+    it("maps representative US subsectors to GICS sectors", () => {
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "US",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "Computer Manufacturing",
+        }),
+      ).toBe("Information Technology");
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "US",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "Aluminum",
+        }),
+      ).toBe("Materials");
+    });
+
+    it("derives AU sectors from GICS industry groups", () => {
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "AU",
+          instrumentType: "STOCK",
+          gicsIndustryGroup: "Banks",
+        }),
+      ).toBe("Financials");
+    });
+
+    it("returns null for TW/US ETF and bond ETF rows", () => {
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "TW",
+          instrumentType: "ETF",
+          industryCategoryRaw: "ETF",
+        }),
+      ).toBeNull();
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "US",
+          instrumentType: "BOND_ETF",
+          industryCategoryRaw: "Investment Trusts/Mutual Funds",
+        }),
+      ).toBeNull();
+    });
+
+    it("returns null for unknown or missing categories", () => {
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "TW",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "其他",
+        }),
+      ).toBeNull();
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "AU",
+          instrumentType: "STOCK",
+          gicsIndustryGroup: "Synthetic Group XYZ",
+        }),
+      ).toBeNull();
     });
   });
 });

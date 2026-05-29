@@ -94,7 +94,7 @@ test.describe("AU GICS sector filter", () => {
   test.describe.configure({ mode: "default" });
 
   // ── A1 ────────────────────────────────────────────────────────────────────
-  test("[A1]: sector dropdown is visible only when AU chip selected", async ({
+  test("[A1]: sector dropdown is visible for TW, US, and AU chips only", async ({
     appShell,
     settings,
   }) => {
@@ -120,15 +120,15 @@ test.describe("AU GICS sector filter", () => {
     // Default chip is "All" → dropdown hidden.
     await settings.assert.sectorFilterIsHidden();
 
-    // TW chip → still hidden.
+    // TW chip → dropdown becomes visible under normalized sector filtering.
     await settings.actions.clickMarketChip("TW");
-    await settings.assert.sectorFilterIsHidden();
+    await settings.assert.sectorFilterIsVisible();
 
-    // US chip → still hidden (no US rows but the gating is on chip identity).
+    // US chip → also visible (gating is on chip identity, not row count).
     await settings.actions.clickMarketChip("US");
-    await settings.assert.sectorFilterIsHidden();
+    await settings.assert.sectorFilterIsVisible();
 
-    // AU chip → dropdown becomes visible.
+    // AU chip → remains visible for GICS industry-group filtering.
     await settings.actions.clickMarketChip("AU");
     await settings.assert.sectorFilterIsVisible();
   });

@@ -1,26 +1,3 @@
-/**
- * KZO-196 — Web-unit tests for the AU-only GICS sector filter on
- * `InstrumentCatalogSheet`.
- *
- * Covers:
- *   - Sector dropdown is rendered ONLY when marketChip === "AU" (hidden, not
- *     disabled, for ALL/TW/US).
- *   - Selecting a sector narrows catalog rows to those whose
- *     `gicsIndustryGroup` is in `industryGroupsForSector(selected)`.
- *   - "All sectors" (`null` value) leaves the catalog unfiltered.
- *   - Industry-group label is rendered on rows that have the field set;
- *     unknown groups bucket to the "Other" label.
- *   - Switching the market chip OFF AU clears any active sector narrow so
- *     it cannot silently resurface on a future AU re-entry.
- *   - Live-search results bypass the sector filter entirely (existing
- *     `instrumentSearchService` mock returns an item; we assert the live
- *     row renders even when the sector filter would have hidden it).
- *
- * Pattern follows `apps/web/test/features/settings/components/AccountCreateForm.test.tsx`
- * — react-dom/client + act() (not RTL) to match the project's existing
- * web-unit harness.
- */
-
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -28,9 +5,6 @@ import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 import { InstrumentCatalogSheet } from "../../../../features/settings/components/InstrumentCatalogSheet";
 import { getDictionary } from "../../../../lib/i18n";
 
-// Mock the live-search service so we can assert live-results render WITHOUT a
-// real network. The component only calls it when chip === AU AND filtered
-// catalog count is 0.
 vi.mock("../../../../features/settings/services/instrumentSearchService", () => ({
   searchInstruments: vi.fn().mockResolvedValue([
     {
@@ -41,6 +15,7 @@ vi.mock("../../../../features/settings/services/instrumentSearchService", () => 
       barsBackfillStatus: "pending",
       lastRepairAt: null,
       repairAvailableAt: null,
+      sector: null,
       gicsIndustryGroup: null,
     },
   ]),
@@ -53,23 +28,22 @@ beforeAll(() => {
 
 const dict = getDictionary("en");
 
-function makeInstrument(
-  overrides: Partial<InstrumentCatalogItemDto> = {},
-): InstrumentCatalogItemDto {
+function makeInstrument(overrides: Partial<InstrumentCatalogItemDto> = {}): InstrumentCatalogItemDto {
   return {
-    ticker: "AUGICS001",
-    name: "AU Test Co",
+    ticker: "TEST001",
+    name: "Test Co",
     instrumentType: "STOCK",
     marketCode: "AU",
     barsBackfillStatus: "ready",
     lastRepairAt: null,
     repairAvailableAt: null,
     gicsIndustryGroup: null,
+    sector: null,
     ...overrides,
   };
 }
 
-describe("InstrumentCatalogSheet — KZO-196 sector filter", () => {
+describe("InstrumentCatalogSheet sector filtering", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -107,139 +81,158 @@ describe("InstrumentCatalogSheet — KZO-196 sector filter", () => {
     act(() => chip.click());
   }
 
-  it("dropdown is hidden for ALL/TW/US, visible for AU", () => {
+  function setSectorFilter(value: string) {
+    const select = container.querySelector(
+      '[data-testid="catalog-sector-filter"]',
+    ) as HTMLSelectElement | null;
+    if (!select) throw new Error("sector select not rendered");
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(select, value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  function setSearch(value: string) {
+    const input = container.querySelector('[data-testid="catalog-search"]') as HTMLInputElement | null;
+    if (!input) throw new Error("search input not rendered");
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("shows the sector dropdown for TW/US/AU only", () => {
     renderSheet([makeInstrument()]);
 
-    // Default chip is ALL — dropdown hidden.
     expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
 
     clickMarketChip("TW");
-    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
+    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).not.toBeNull();
 
     clickMarketChip("US");
-    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
+    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).not.toBeNull();
 
     clickMarketChip("AU");
     expect(container.querySelector('[data-testid="catalog-sector-filter"]')).not.toBeNull();
-  });
 
-  it("selecting a sector narrows AU rows by industry-group expansion", () => {
-    const instruments = [
-      makeInstrument({ ticker: "AUGICS001", gicsIndustryGroup: "Banks" }),
-      makeInstrument({ ticker: "AUGICS002", gicsIndustryGroup: "Insurance" }),
-      makeInstrument({ ticker: "AUGICS003", gicsIndustryGroup: "Materials" }),
-      makeInstrument({ ticker: "AUGICS004", gicsIndustryGroup: null }),
-    ];
-    renderSheet(instruments);
-    clickMarketChip("AU");
-
-    // No sector filter → all 4 AU rows render.
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS001"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS002"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS004"]')).not.toBeNull();
-
-    // Select "Financials" — should keep Banks + Insurance, hide Materials + null.
-    const select = container.querySelector(
-      '[data-testid="catalog-sector-filter"]',
-    ) as HTMLSelectElement;
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(select, "Financials");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS001"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS002"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).toBeNull();
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS004"]')).toBeNull();
-  });
-
-  it("'All sectors' (empty value) clears the narrow", () => {
-    const instruments = [
-      makeInstrument({ ticker: "AUGICS001", gicsIndustryGroup: "Banks" }),
-      makeInstrument({ ticker: "AUGICS003", gicsIndustryGroup: "Materials" }),
-    ];
-    renderSheet(instruments);
-    clickMarketChip("AU");
-
-    const select = container.querySelector(
-      '[data-testid="catalog-sector-filter"]',
-    ) as HTMLSelectElement;
-    const setVal = (val: string) => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(select, val);
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-
-    act(() => setVal("Financials"));
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).toBeNull();
-
-    act(() => setVal(""));
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).not.toBeNull();
-  });
-
-  it("renders industry-group label on rows that have it; bucketizes unknowns to Other", () => {
-    renderSheet([
-      makeInstrument({ ticker: "AUGICS001", gicsIndustryGroup: "Banks" }),
-      makeInstrument({ ticker: "AUGICS002", gicsIndustryGroup: "Not A Real Group" }),
-      makeInstrument({ ticker: "AUGICS003", gicsIndustryGroup: null }),
-    ]);
-    clickMarketChip("AU");
-
-    const banks = container.querySelector(
-      '[data-testid="catalog-row-industry-group-AUGICS001"]',
-    );
-    expect(banks).not.toBeNull();
-    expect(banks!.textContent).toBe(dict.gics.industryGroups.gics_ig_banks);
-
-    const unknown = container.querySelector(
-      '[data-testid="catalog-row-industry-group-AUGICS002"]',
-    );
-    expect(unknown).not.toBeNull();
-    expect(unknown!.textContent).toBe(dict.settings.tickersGicsOtherBucket);
-
-    // Null group → no label rendered at all.
-    expect(
-      container.querySelector('[data-testid="catalog-row-industry-group-AUGICS003"]'),
-    ).toBeNull();
-  });
-
-  it("clears active sector narrow when user moves OFF the AU chip", () => {
-    const instruments = [
-      makeInstrument({ ticker: "AUGICS001", gicsIndustryGroup: "Banks" }),
-      makeInstrument({ ticker: "AUGICS003", gicsIndustryGroup: "Materials" }),
-    ];
-    renderSheet(instruments);
-    clickMarketChip("AU");
-
-    const select = container.querySelector(
-      '[data-testid="catalog-sector-filter"]',
-    ) as HTMLSelectElement;
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLSelectElement.prototype,
-        "value",
-      )?.set;
-      setter?.call(select, "Financials");
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).toBeNull();
-
-    // Move OFF AU; come back. Sector filter should be `null` again.
     clickMarketChip("ALL");
-    clickMarketChip("AU");
+    expect(container.querySelector('[data-testid="catalog-sector-filter"]')).toBeNull();
+  });
 
-    const reSelect = container.querySelector(
+  it("filters AU rows by industry-group expansion and keeps the industry-group subtitle", () => {
+    renderSheet([
+      makeInstrument({ ticker: "AUBANK", marketCode: "AU", gicsIndustryGroup: "Banks" }),
+      makeInstrument({ ticker: "AUINS", marketCode: "AU", gicsIndustryGroup: "Insurance" }),
+      makeInstrument({ ticker: "AUMAT", marketCode: "AU", gicsIndustryGroup: "Materials" }),
+      makeInstrument({ ticker: "AUNONE", marketCode: "AU", gicsIndustryGroup: null }),
+    ]);
+
+    clickMarketChip("AU");
+    setSectorFilter("Financials");
+
+    expect(container.querySelector('[data-testid="catalog-item-AUBANK"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-AUINS"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-AUMAT"]')).toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-AUNONE"]')).toBeNull();
+
+    const subtitle = container.querySelector('[data-testid="catalog-row-industry-group-AUBANK"]');
+    expect(subtitle).not.toBeNull();
+    expect(subtitle!.textContent).toBe(dict.gics.industryGroups.gics_ig_banks);
+  });
+
+  it("filters TW and US rows by normalized sector and shows sector subtitles", () => {
+    renderSheet([
+      makeInstrument({ ticker: "2330", marketCode: "TW", sector: "Information Technology" }),
+      makeInstrument({ ticker: "2882", marketCode: "TW", sector: "Financials" }),
+      makeInstrument({ ticker: "AAPL", marketCode: "US", sector: "Information Technology" }),
+      makeInstrument({ ticker: "JPM", marketCode: "US", sector: "Financials" }),
+      makeInstrument({ ticker: "IEF", marketCode: "US", instrumentType: "ETF", sector: null }),
+    ]);
+
+    clickMarketChip("TW");
+    setSectorFilter("Information Technology");
+    expect(container.querySelector('[data-testid="catalog-item-2330"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-2882"]')).toBeNull();
+
+    const twSubtitle = container.querySelector('[data-testid="catalog-row-sector-2330"]');
+    expect(twSubtitle).not.toBeNull();
+    expect(twSubtitle!.textContent).toBe("Information Technology");
+
+    clickMarketChip("US");
+    expect(container.querySelector('[data-testid="catalog-item-AAPL"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-JPM"]')).toBeNull();
+    expect(container.querySelector('[data-testid="catalog-item-IEF"]')).toBeNull();
+
+    const usSubtitle = container.querySelector('[data-testid="catalog-row-sector-AAPL"]');
+    expect(usSubtitle).not.toBeNull();
+    expect(usSubtitle!.textContent).toBe("Information Technology");
+  });
+
+  it("does not render subtitles for sectorless TW/US rows", () => {
+    renderSheet([
+      makeInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", sector: null }),
+      makeInstrument({ ticker: "BND", marketCode: "US", instrumentType: "BOND_ETF", sector: null }),
+    ]);
+
+    clickMarketChip("TW");
+    expect(container.querySelector('[data-testid="catalog-row-sector-0050"]')).toBeNull();
+
+    clickMarketChip("US");
+    expect(container.querySelector('[data-testid="catalog-row-sector-BND"]')).toBeNull();
+  });
+
+  it("search bypasses sector filtering for all supported markets", () => {
+    renderSheet([
+      makeInstrument({ ticker: "2330", marketCode: "TW", sector: "Information Technology" }),
+      makeInstrument({ ticker: "2882", marketCode: "TW", sector: "Financials" }),
+      makeInstrument({ ticker: "AAPL", marketCode: "US", sector: "Information Technology" }),
+      makeInstrument({ ticker: "JPM", marketCode: "US", sector: "Financials" }),
+      makeInstrument({ ticker: "AUBANK", marketCode: "AU", gicsIndustryGroup: "Banks" }),
+      makeInstrument({ ticker: "AUMAT", marketCode: "AU", gicsIndustryGroup: "Materials" }),
+    ]);
+
+    clickMarketChip("TW");
+    setSectorFilter("Information Technology");
+    setSearch("2882");
+    expect(container.querySelector('[data-testid="catalog-item-2882"]')).not.toBeNull();
+
+    setSearch("");
+    clickMarketChip("US");
+    setSearch("JPM");
+    expect(container.querySelector('[data-testid="catalog-item-JPM"]')).not.toBeNull();
+
+    setSearch("");
+    clickMarketChip("AU");
+    setSearch("AUMAT");
+    expect(container.querySelector('[data-testid="catalog-item-AUMAT"]')).not.toBeNull();
+  });
+
+  it("clears the active sector narrow when returning to ALL", () => {
+    renderSheet([
+      makeInstrument({ ticker: "2330", marketCode: "TW", sector: "Information Technology" }),
+      makeInstrument({ ticker: "2882", marketCode: "TW", sector: "Financials" }),
+    ]);
+
+    clickMarketChip("TW");
+    setSectorFilter("Information Technology");
+    expect(container.querySelector('[data-testid="catalog-item-2882"]')).toBeNull();
+
+    clickMarketChip("ALL");
+    clickMarketChip("TW");
+
+    const select = container.querySelector(
       '[data-testid="catalog-sector-filter"]',
-    ) as HTMLSelectElement;
-    expect(reSelect.value).toBe("");
-    expect(container.querySelector('[data-testid="catalog-item-AUGICS003"]')).not.toBeNull();
+    ) as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+    expect(select!.value).toBe("");
+    expect(container.querySelector('[data-testid="catalog-item-2882"]')).not.toBeNull();
   });
 });

@@ -14,6 +14,8 @@ export interface SeedInstrumentInput {
   barsBackfillStatus: string;
   lastRepairAt?: string | null;
   delistedAt?: string;
+  industryCategoryRaw?: string | null;
+  gicsIndustryGroup?: string | null;
 }
 
 export type InstrumentsMarketFilter = "TW" | "US" | "AU" | "ALL";

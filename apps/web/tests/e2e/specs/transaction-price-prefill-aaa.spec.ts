@@ -10,11 +10,13 @@ test("[transactions form]: exact market-data match → unit price pre-fills and 
   settings,
   transactions,
 }) => {
-  await settings.arrange.seedInstruments([
-    { ticker: "8301", name: "Synthetic Stock 8301", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
-  ]);
-  await dashboard.arrange.seedDailyBars([
-    { ticker: "8301", barDate: "2026-01-15", open: 998, high: 1008, low: 995, close: 1005, volume: 100_000 },
+  await Promise.all([
+    settings.arrange.seedInstruments([
+      { ticker: "8301", name: "Synthetic Stock 8301", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
+    ]),
+    dashboard.arrange.seedDailyBars([
+      { ticker: "8301", barDate: "2026-01-15", open: 998, high: 1008, low: 995, close: 1005, volume: 100_000 },
+    ]),
   ]);
 
   await appShell.actions.navigateToRoute("/transactions");
@@ -35,11 +37,13 @@ test("[transactions form]: weekend fallback → previous close pre-fills", async
   settings,
   transactions,
 }) => {
-  await settings.arrange.seedInstruments([
-    { ticker: "8302", name: "Synthetic Stock 8302", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
-  ]);
-  await dashboard.arrange.seedDailyBars([
-    { ticker: "8302", barDate: "2026-01-16", open: 998, high: 1008, low: 995, close: 1002, volume: 100_000 },
+  await Promise.all([
+    settings.arrange.seedInstruments([
+      { ticker: "8302", name: "Synthetic Stock 8302", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending" },
+    ]),
+    dashboard.arrange.seedDailyBars([
+      { ticker: "8302", barDate: "2026-01-16", open: 998, high: 1008, low: 995, close: 1002, volume: 100_000 },
+    ]),
   ]);
 
   await appShell.actions.navigateToRoute("/transactions");

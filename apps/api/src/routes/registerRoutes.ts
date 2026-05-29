@@ -1802,6 +1802,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             barsBackfillStatus: z.string(),
             lastRepairAt: z.string().nullable().optional(),
             delistedAt: z.string().optional(),
+            industryCategoryRaw: z.string().nullable().optional(),
             // KZO-196 — optional GICS industry-group label (AU only). Lets E2E
             // specs seed the column without invoking the asx-gics-sync worker.
             gicsIndustryGroup: z.string().nullable().optional(),

@@ -6,7 +6,7 @@ import type { SettingsDrawerPage } from "../../pages/settings/SettingsDrawerPage
 export class SettingsActions extends AppBaseActions {
   declare protected readonly _instance: SettingsDrawerPage;
 
-  private static readonly saveOutcomeTimeoutMs = 10_000;
+  private static readonly saveOutcomeTimeoutMs = 2_000;
 
   private get el() {
     return this._instance.elements;

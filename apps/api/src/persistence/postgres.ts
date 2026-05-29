@@ -61,6 +61,7 @@ import type {
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
+import { normalizeInstrumentSector } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { roundToDecimal } from "@vakwen/domain";
 import type { Lot } from "@vakwen/domain";
@@ -10593,12 +10594,13 @@ export class PostgresPersistence implements Persistence {
       name: string | null;
       instrument_type: string | null;
       market_code: string;
+      industry_category_raw: string | null;
       bars_backfill_status: string;
       last_repair_at: string | null;
       // KZO-196 — GICS industry-group projection.
       gics_industry_group: string | null;
     }>(
-      `SELECT ticker, name, instrument_type, market_code, bars_backfill_status, last_repair_at::text,
+      `SELECT ticker, name, instrument_type, market_code, industry_category_raw, bars_backfill_status, last_repair_at::text,
               gics_industry_group
        FROM market_data.instruments i ${where}
        ORDER BY ticker, market_code`,
@@ -10609,6 +10611,12 @@ export class PostgresPersistence implements Persistence {
       ticker: row.ticker,
       name: row.name,
       instrumentType: (row.instrument_type as InstrumentCatalogItemDto["instrumentType"]) ?? null,
+      sector: normalizeInstrumentSector({
+        marketCode: row.market_code,
+        instrumentType: (row.instrument_type as InstrumentCatalogItemDto["instrumentType"]) ?? null,
+        industryCategoryRaw: row.industry_category_raw ?? null,
+        gicsIndustryGroup: row.gics_industry_group ?? null,
+      }),
       marketCode: row.market_code,
       barsBackfillStatus: row.bars_backfill_status,
       lastRepairAt: row.last_repair_at,

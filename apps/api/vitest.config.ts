@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 const isManagedPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
+const apiSuiteTimeoutMs = 30_000;
 const managedPostgresTimeoutMs = 180_000;
 
 export default defineConfig({
@@ -29,16 +30,24 @@ export default defineConfig({
     //   npm run test:junit → test-results/junit.xml
     reporters: ["verbose"],
     include: ["test/**/*.test.ts", "test/**/*.integration.test.ts"],
+    // The API package boots many Fastify app instances and provider registries.
+    // Bounding workers avoids host/VM contention that can make unrelated tests
+    // hit Vitest's very small defaults during full-package runs.
+    maxWorkers: 4,
     ...(isManagedPostgresIntegration
       ? {
           // The managed Postgres gate runs against a Docker DB/Redis stack and
-          // several migration-heavy files legitimately exceed Vitest defaults on
-          // host/VM runners. Keep normal unit-test budgets unchanged.
+          // several migration-heavy files legitimately exceed normal API budgets
+          // on host/VM runners.
           hookTimeout: managedPostgresTimeoutMs,
           teardownTimeout: managedPostgresTimeoutMs,
           testTimeout: managedPostgresTimeoutMs,
         }
-      : {}),
+      : {
+          hookTimeout: apiSuiteTimeoutMs,
+          teardownTimeout: apiSuiteTimeoutMs,
+          testTimeout: apiSuiteTimeoutMs,
+        }),
     outputFile: {
       html: "vitest-report/index.html",
       json: "test-results/vitest-results.json",

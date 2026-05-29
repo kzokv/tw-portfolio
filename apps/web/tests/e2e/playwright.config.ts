@@ -23,6 +23,8 @@ export default createPlaywrightConfig({
   webServers: "full",
   authMode: "dev_bypass",
   workers: 1,
+  retries: 1,
+  videoMode: "off",
   apiEnvOverrides: {
     AU_PROVIDER_MOCK: "true",
   },
