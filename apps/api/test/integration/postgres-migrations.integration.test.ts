@@ -3446,4 +3446,120 @@ describePostgres("postgres migrations", () => {
       "transaction_draft:create",
     ]);
   });
+
+  it("KZO-225: AI draft posting inserts trade events before linking confirmed rows", async () => {
+    await applyNumberedMigrations();
+
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const { userId } = await persistence.resolveOrCreateUser("google", "kzo225-ai-draft-post-sub", {
+      email: "kzo225-ai-draft-post@example.com",
+      name: "KZO 225 AI Draft Post",
+    });
+    const store = await persistence.loadStore(userId);
+    const trade = createTransaction(store, userId, {
+      id: "kzo225-ai-draft-trade",
+      accountId: `${userId}-acc-1`,
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-05-01",
+      tradeTimestamp: "2026-05-01T09:00:00.000Z",
+      commissionAmount: 7,
+      taxAmount: 3,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    const now = "2026-05-01T10:00:00.000Z";
+
+    const batch = await persistence.saveAiTransactionDraftBatch({
+      id: "kzo225-ai-draft-batch",
+      ownerUserId: userId,
+      createdByUserId: userId,
+      sourceChannel: "mcp",
+      status: "open",
+      version: 1,
+      sourceLabel: "ChatGPT",
+      provenance: { sourceType: "csv" },
+      rowCount: 1,
+      unsupportedCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(batch).toBeTruthy();
+
+    const row = await persistence.saveAiTransactionDraftRow({
+      id: "kzo225-ai-draft-row",
+      batchId: batch!.id,
+      ownerUserId: userId,
+      rowNumber: 1,
+      state: "ready",
+      version: 1,
+      accountId: `${userId}-acc-1`,
+      tradeType: "BUY",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-05-01",
+      tradeTimestamp: "2026-05-01T09:00:00.000Z",
+      commissionAmount: 7,
+      taxAmount: 3,
+      feesSource: "SOURCE_PROVIDED",
+      normalizedPayload: { row: 1 },
+      preflightIssues: [],
+      warnings: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(row).toBeTruthy();
+
+    const confirmed = await persistence.confirmAiTransactionDraftPosting({
+      ownerUserId: userId,
+      accounting: store.accounting,
+      rows: [{
+        ...row!,
+        state: "confirmed",
+        version: 2,
+        confirmedTradeEventId: trade.id,
+        confirmedAt: now,
+        confirmedByUserId: userId,
+        updatedAt: now,
+        expectedVersion: 1,
+      }],
+      batch: {
+        ...batch!,
+        version: 2,
+        updatedAt: now,
+        expectedVersion: 1,
+      },
+      event: {
+        id: "kzo225-ai-draft-event",
+        batchId: batch!.id,
+        ownerUserId: userId,
+        actorUserId: userId,
+        eventType: "rows_confirmed",
+        summary: "1 draft rows posted",
+        metadata: { createdTransactionIds: [trade.id], postedRowIds: [row!.id] },
+        sourceIp: "127.0.0.1",
+        createdAt: now,
+      },
+    });
+
+    expect(confirmed?.rows[0]).toMatchObject({
+      id: row!.id,
+      state: "confirmed",
+      confirmedTradeEventId: trade.id,
+    });
+    await expect(
+      pool.query(`SELECT id FROM trade_events WHERE id = $1 AND user_id = $2`, [trade.id, userId]),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
 });
