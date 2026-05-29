@@ -44,8 +44,8 @@ describe("useInstrumentCatalog", () => {
   it("filters null instrument types from the fetched catalog", async () => {
     vi.mocked(fetchTransactionInstrumentCatalog).mockResolvedValue({
       instruments: [
-        { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
-        { ticker: "020000", name: "ETN", instrumentType: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
+        { ticker: "2330", name: "TSMC", instrumentType: "STOCK", sector: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
+        { ticker: "020000", name: "ETN", instrumentType: null, sector: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
       ] satisfies InstrumentCatalogItemDto[],
     });
 
@@ -63,9 +63,9 @@ describe("useInstrumentCatalog", () => {
 
 describe("filterInstrumentCatalog", () => {
   const catalog: TransactionInstrumentOption[] = [
-    { ticker: "2330", name: "TSMC", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
-    { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
-    { ticker: "0050", name: "Yuanta Taiwan 50 ETF", instrumentType: "ETF", marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
+    { ticker: "2330", name: "TSMC", instrumentType: "STOCK", sector: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
+    { ticker: "2317", name: "Hon Hai", instrumentType: "STOCK", sector: null, marketCode: "TW", barsBackfillStatus: "ready", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
+    { ticker: "0050", name: "Yuanta Taiwan 50 ETF", instrumentType: "ETF", sector: null, marketCode: "TW", barsBackfillStatus: "pending", lastRepairAt: null, repairAvailableAt: null, gicsIndustryGroup: null },
   ];
 
   it("matches by ticker and name case-insensitively", () => {
@@ -82,7 +82,8 @@ describe("filterInstrumentCatalog", () => {
       barsBackfillStatus: "pending",
       lastRepairAt: null,
       repairAvailableAt: null,
-        gicsIndustryGroup: null,
+      sector: null,
+      gicsIndustryGroup: null,
     }));
 
     const filtered = filterInstrumentCatalog(largeCatalog, "");

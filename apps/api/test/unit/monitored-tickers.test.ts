@@ -317,5 +317,48 @@ describe("monitored tickers", () => {
       // Default ordering is now (ticker ASC, marketCode ASC) per Postgres parity.
       expect((await persistence.listInstrumentsCatalog()).map((item) => item.ticker)).toEqual(["0050", "2317", "2330"]);
     });
+
+    it("projects normalized sector values without persisting a sector column", async () => {
+      persistence._replaceInstruments([
+        {
+          ticker: "2330",
+          name: "TSMC",
+          instrumentType: "STOCK",
+          marketCode: "TW",
+          industryCategoryRaw: "半導體業",
+          barsBackfillStatus: "ready",
+        },
+        {
+          ticker: "AAPL",
+          name: "Apple Inc.",
+          instrumentType: "STOCK",
+          marketCode: "US",
+          industryCategoryRaw: "Computer Manufacturing",
+          barsBackfillStatus: "ready",
+        },
+        {
+          ticker: "BND",
+          name: "Vanguard Total Bond Market ETF",
+          instrumentType: "BOND_ETF",
+          marketCode: "US",
+          industryCategoryRaw: "Investment Trusts/Mutual Funds",
+          barsBackfillStatus: "ready",
+        },
+        {
+          ticker: "CBA",
+          name: "Commonwealth Bank of Australia",
+          instrumentType: "STOCK",
+          marketCode: "AU",
+          gicsIndustryGroup: "Banks",
+          barsBackfillStatus: "ready",
+        },
+      ]);
+
+      const result = await persistence.listInstrumentsCatalog();
+      expect(result.find((item) => item.ticker === "2330" && item.marketCode === "TW")?.sector).toBe("Information Technology");
+      expect(result.find((item) => item.ticker === "AAPL" && item.marketCode === "US")?.sector).toBe("Information Technology");
+      expect(result.find((item) => item.ticker === "BND" && item.marketCode === "US")?.sector).toBeNull();
+      expect(result.find((item) => item.ticker === "CBA" && item.marketCode === "AU")?.sector).toBe("Financials");
+    });
   });
 });

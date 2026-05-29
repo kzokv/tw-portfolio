@@ -11,6 +11,7 @@ interface SeedInstrument {
   marketCode: string;
   barsBackfillStatus: string;
   lastRepairAt?: string;
+  industryCategoryRaw?: string | null;
   /**
    * KZO-196 — optional GICS industry-group label seeded onto AU rows for
    * sector-filter E2E coverage. Backend-side `/__e2e/seed-instruments`
@@ -42,10 +43,11 @@ export class SettingsArrange extends BaseArrange {
 
   @Step()
   async seedInstruments(instruments: SeedInstrument[]): Promise<void> {
-    await this.request.post(apiUrl("/__e2e/seed-instruments"), {
+    const response = await this.request.post(apiUrl("/__e2e/seed-instruments"), {
       data: { instruments },
       headers: { "x-user-id": this.userId ?? "user-1" },
     });
+    if (!response.ok()) throw new Error(`seedInstruments failed: ${response.status()} ${await response.text()}`);
   }
 
   @Step()

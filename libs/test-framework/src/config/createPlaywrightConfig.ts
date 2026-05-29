@@ -20,6 +20,7 @@ interface TCreatePlaywrightConfigOptions {
   expectTimeout?: number;
   reportFolder?: string;
   projects?: TPlaywrightProject[];
+  retries?: number;
   videoMode?: "off" | "on" | "retain-on-failure";
 }
 
@@ -36,6 +37,7 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
     expectTimeout = 10_000,
     reportFolder = "playwright-report",
     projects,
+    retries,
     videoMode = "retain-on-failure",
   } = options;
 
@@ -104,7 +106,7 @@ export function createPlaywrightConfig(options: TCreatePlaywrightConfigOptions) 
     expect: {
       timeout: expectTimeout,
     },
-    retries: process.env.CI ? 2 : 0,
+    retries: retries ?? (process.env.CI ? 2 : 0),
     ...(workers !== undefined ? { workers } : process.env.CI ? { workers: 2 } : {}),
     reporter: [
       ["list"],

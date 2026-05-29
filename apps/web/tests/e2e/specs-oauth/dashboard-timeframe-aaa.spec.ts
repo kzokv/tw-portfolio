@@ -231,11 +231,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     // instead of the shared default oauth user (sub: "e2e-ci-google-sub-001").
     // Stale prefs on the shared user would corrupt this test across runs.
     // Per `.claude/rules/playwright-oauth-re-login-claim-pollution.md`.
-    const session = await mintMemberSession({
-      sub: "timeframe-L-sub",
-      email: "timeframe-L@example.com",
-      name: "Timeframe L",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-L-sub",
+        email: "timeframe-L@example.com",
+        name: "Timeframe L",
+      }),
+      setAdminTimeframeConfig(["1M", "3M", "YTD", "1Y", "5Y"]),
+    ]);
     // Override the fixture's session cookie before any navigation.
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
@@ -247,7 +250,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
       secure: TestEnv.sessionCookieName.startsWith("__Host-"),
     }]);
 
-    await setAdminTimeframeConfig(["1M", "3M", "YTD", "1Y", "5Y"]);
     // Seed empty prefs for session.userId — ensures no stale custom list pollutes the test.
     await seedUserPreferences(session.cookieHeader, session.userId, {});
 
@@ -315,11 +317,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
   }) => {
     // Arrange — mint a per-test member session to avoid shared-user pollution.
     // Per `.claude/rules/playwright-oauth-re-login-claim-pollution.md`.
-    const session = await mintMemberSession({
-      sub: "timeframe-M-sub",
-      email: "timeframe-M@example.com",
-      name: "Timeframe M",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-M-sub",
+        email: "timeframe-M@example.com",
+        name: "Timeframe M",
+      }),
+      setAdminTimeframeConfig(null),
+    ]);
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
       value: session.cookieHeader.substring(TestEnv.sessionCookieName.length + 1),
@@ -331,7 +336,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     }]);
 
     // Arrange — reset admin config to defaults; clear user prefs.
-    await setAdminTimeframeConfig(null);
     await seedUserPreferences(session.cookieHeader, session.userId, {});
 
     try {
@@ -363,11 +367,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
   }) => {
     // Arrange — mint a per-test member session to avoid shared-user pollution.
     // Per `.claude/rules/playwright-oauth-re-login-claim-pollution.md`.
-    const session = await mintMemberSession({
-      sub: "timeframe-N-sub",
-      email: "timeframe-N@example.com",
-      name: "Timeframe N",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-N-sub",
+        email: "timeframe-N@example.com",
+        name: "Timeframe N",
+      }),
+      setAdminTimeframeConfig(null),
+    ]);
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
       value: session.cookieHeader.substring(TestEnv.sessionCookieName.length + 1),
@@ -379,7 +386,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     }]);
 
     // Arrange — reset admin config to defaults ["1M","3M","YTD","1Y"].
-    await setAdminTimeframeConfig(null);
     await seedUserPreferences(session.cookieHeader, session.userId, {});
 
     try {
@@ -410,11 +416,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     page,
   }) => {
     // Arrange — mint a per-test member session (same reason as [timeframe-L]).
-    const session = await mintMemberSession({
-      sub: "timeframe-O-sub",
-      email: "timeframe-O@example.com",
-      name: "Timeframe O",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-O-sub",
+        email: "timeframe-O@example.com",
+        name: "Timeframe O",
+      }),
+      setAdminTimeframeConfig(null),
+    ]);
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
       value: session.cookieHeader.substring(TestEnv.sessionCookieName.length + 1),
@@ -426,7 +435,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     }]);
 
     // Seed user with a custom list ["1M","3M"] so Reset is observable.
-    await setAdminTimeframeConfig(null);
     await seedUserPreferences(session.cookieHeader, session.userId, {
       dashboardPerformanceRanges: ["1M", "3M"],
     });
@@ -463,11 +471,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
   }) => {
     // Arrange — mint a per-test member session to avoid shared-user pollution.
     // Per `.claude/rules/playwright-oauth-re-login-claim-pollution.md`.
-    const session = await mintMemberSession({
-      sub: "timeframe-P-sub",
-      email: "timeframe-P@example.com",
-      name: "Timeframe P",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-P-sub",
+        email: "timeframe-P@example.com",
+        name: "Timeframe P",
+      }),
+      setAdminTimeframeConfig(["1M", "3M", "YTD", "1Y", "5Y"]),
+    ]);
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
       value: session.cookieHeader.substring(TestEnv.sessionCookieName.length + 1),
@@ -479,7 +490,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     }]);
 
     // Arrange — admin sets ["1M","3M","YTD","1Y","5Y"] and seed user pref to empty.
-    await setAdminTimeframeConfig(["1M", "3M", "YTD", "1Y", "5Y"]);
     await seedUserPreferences(session.cookieHeader, session.userId, {});
 
     try {
@@ -521,11 +531,14 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
   }) => {
     // Arrange — mint a per-test member session to avoid shared-user pollution.
     // Per `.claude/rules/playwright-oauth-re-login-claim-pollution.md`.
-    const session = await mintMemberSession({
-      sub: "timeframe-Q-sub",
-      email: "timeframe-Q@example.com",
-      name: "Timeframe Q",
-    });
+    const [session] = await Promise.all([
+      mintMemberSession({
+        sub: "timeframe-Q-sub",
+        email: "timeframe-Q@example.com",
+        name: "Timeframe Q",
+      }),
+      setAdminTimeframeConfig(null),
+    ]);
     await page.context().addCookies([{
       name: TestEnv.sessionCookieName,
       value: session.cookieHeader.substring(TestEnv.sessionCookieName.length + 1),
@@ -537,7 +550,6 @@ test.describe("dashboard timeframe customization (KZO-161 F4)", () => {
     }]);
 
     // Arrange — reset admin config to defaults; clear user prefs.
-    await setAdminTimeframeConfig(null);
     await seedUserPreferences(session.cookieHeader, session.userId, {});
 
     try {

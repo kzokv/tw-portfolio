@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Lot } from "@vakwen/domain";
-import { marketCodeFor } from "@vakwen/shared-types";
+import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import type {
   AiConnectorProvider,
   DividendLedgerAggregates,
@@ -149,6 +149,7 @@ interface MemoryInstrument {
   name: string | null;
   instrumentType: string | null;
   marketCode: string;
+  industryCategoryRaw?: string | null;
   barsBackfillStatus: string;
   lastRepairAt?: string | null;
   delistedAt?: string;
@@ -3910,6 +3911,12 @@ export class MemoryPersistence implements Persistence {
       ticker: i.ticker,
       name: i.name,
       instrumentType: i.instrumentType as InstrumentCatalogItemDto["instrumentType"],
+      sector: normalizeInstrumentSector({
+        marketCode: i.marketCode,
+        instrumentType: (i.instrumentType as InstrumentCatalogItemDto["instrumentType"]) ?? null,
+        industryCategoryRaw: i.industryCategoryRaw ?? null,
+        gicsIndustryGroup: i.gicsIndustryGroup ?? null,
+      }),
       marketCode: i.marketCode,
       barsBackfillStatus: i.barsBackfillStatus,
       lastRepairAt: i.lastRepairAt ?? null,

@@ -19,7 +19,9 @@ describe("monitored tickers routes", () => {
     instrumentType: string | null;
     marketCode: string;
     barsBackfillStatus: string;
+    industryCategoryRaw?: string;
     delistedAt?: string;
+    gicsIndustryGroup?: string | null;
   }): void {
     (app.persistence as MemoryPersistence)._seedInstrument(instrument);
   }
@@ -76,6 +78,63 @@ describe("monitored tickers routes", () => {
       const res = await app.inject({ method: "GET", url: "/instruments?search=2" });
       expect(res.statusCode).toBe(200);
       expect(res.json().instruments.map((instrument: { ticker: string }) => instrument.ticker)).toEqual(["2330"]);
+    });
+
+    it("returns normalized sector for representative TW, US, and AU rows", async () => {
+      seedInstrument({
+        ticker: "2330",
+        name: "TSMC",
+        instrumentType: "STOCK",
+        marketCode: "TW",
+        industryCategoryRaw: "半導體業",
+        barsBackfillStatus: "ready",
+      });
+      seedInstrument({
+        ticker: "0050",
+        name: "TW Top 50 ETF",
+        instrumentType: "ETF",
+        marketCode: "TW",
+        industryCategoryRaw: "ETF",
+        barsBackfillStatus: "ready",
+      });
+      seedInstrument({
+        ticker: "AAPL",
+        name: "Apple Inc.",
+        instrumentType: "STOCK",
+        marketCode: "US",
+        industryCategoryRaw: "Computer Manufacturing",
+        barsBackfillStatus: "ready",
+      });
+      seedInstrument({
+        ticker: "BND",
+        name: "Vanguard Total Bond Market ETF",
+        instrumentType: "BOND_ETF",
+        marketCode: "US",
+        industryCategoryRaw: "Investment Trusts/Mutual Funds",
+        barsBackfillStatus: "ready",
+      });
+      seedInstrument({
+        ticker: "CBA",
+        name: "Commonwealth Bank of Australia",
+        instrumentType: "STOCK",
+        marketCode: "AU",
+        gicsIndustryGroup: "Banks",
+        barsBackfillStatus: "ready",
+      });
+
+      const res = await app.inject({ method: "GET", url: "/instruments?market_code=ALL" });
+      expect(res.statusCode).toBe(200);
+
+      const instruments = res.json().instruments as Array<{
+        ticker: string;
+        marketCode: string;
+        sector: string | null;
+      }>;
+      expect(instruments.find((instrument) => instrument.ticker === "2330" && instrument.marketCode === "TW")?.sector).toBe("Information Technology");
+      expect(instruments.find((instrument) => instrument.ticker === "0050" && instrument.marketCode === "TW")?.sector).toBeNull();
+      expect(instruments.find((instrument) => instrument.ticker === "AAPL" && instrument.marketCode === "US")?.sector).toBe("Information Technology");
+      expect(instruments.find((instrument) => instrument.ticker === "BND" && instrument.marketCode === "US")?.sector).toBeNull();
+      expect(instruments.find((instrument) => instrument.ticker === "CBA" && instrument.marketCode === "AU")?.sector).toBe("Financials");
     });
   });
 

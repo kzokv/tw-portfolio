@@ -134,6 +134,81 @@ export function industryGroupsForSector(sector: string): readonly string[] {
   return _GICS_INDUSTRY_GROUPS_BY_SECTOR.get(sector) ?? [];
 }
 
+const _TW_SECTOR_BY_CATEGORY: ReadonlyMap<string, string> = new Map([
+  ["半導體業", "Information Technology"],
+  ["電子工業", "Information Technology"],
+  ["電子零組件業", "Information Technology"],
+  ["光電業", "Information Technology"],
+  ["電腦及週邊設備業", "Information Technology"],
+  ["其他電子業", "Information Technology"],
+  ["其他電子類", "Information Technology"],
+  ["通信網路業", "Information Technology"],
+  ["資訊服務業", "Information Technology"],
+  ["電子通路業", "Information Technology"],
+  ["數位雲端", "Information Technology"],
+  ["數位雲端類", "Information Technology"],
+  ["金融保險", "Financials"],
+  ["金融保險業", "Financials"],
+  ["生技醫療業", "Health Care"],
+  ["化學生技醫療", "Health Care"],
+  ["鋼鐵工業", "Materials"],
+  ["塑膠工業", "Materials"],
+  ["化學工業", "Materials"],
+  ["食品工業", "Consumer Staples"],
+  ["貿易百貨", "Consumer Discretionary"],
+  ["觀光餐旅", "Consumer Discretionary"],
+  ["觀光事業", "Consumer Discretionary"],
+  ["汽車工業", "Consumer Discretionary"],
+  ["運動休閒", "Consumer Discretionary"],
+  ["電機機械", "Industrials"],
+  ["綠能環保", "Industrials"],
+  ["建材營造業", "Industrials"],
+  ["航運業", "Industrials"],
+]);
+
+const _US_SECTOR_BY_CATEGORY: ReadonlyMap<string, string> = new Map([
+  ["Computer Manufacturing", "Information Technology"],
+  ["Computer Software: Prepackaged Software", "Information Technology"],
+  ["EDPServices", "Information Technology"],
+  ["Biotechnology: Pharmaceutical Preparations", "Health Care"],
+  ["Biotechnology: Laboratory Analytical Instruments", "Health Care"],
+  ["Medical/Dental Instruments", "Health Care"],
+  ["Aluminum", "Materials"],
+  ["Other Consumer Services", "Consumer Discretionary"],
+  ["Blank Checks", "Financials"],
+  ["Major Banks", "Financials"],
+]);
+
+export function normalizeInstrumentSector(input: {
+  marketCode: string;
+  instrumentType: string | null;
+  industryCategoryRaw?: string | null;
+  gicsIndustryGroup?: string | null;
+}): string | null {
+  if (input.marketCode === "AU") {
+    return input.gicsIndustryGroup ? sectorForIndustryGroup(input.gicsIndustryGroup) : null;
+  }
+
+  if (input.instrumentType === "ETF" || input.instrumentType === "BOND_ETF") {
+    return null;
+  }
+
+  const rawCategory = input.industryCategoryRaw?.trim();
+  if (!rawCategory) {
+    return null;
+  }
+
+  if (input.marketCode === "TW") {
+    return _TW_SECTOR_BY_CATEGORY.get(rawCategory) ?? null;
+  }
+
+  if (input.marketCode === "US") {
+    return _US_SECTOR_BY_CATEGORY.get(rawCategory) ?? null;
+  }
+
+  return null;
+}
+
 // KZO-159 (158A) — Re-export the range parser + bounds resolver from
 // `@vakwen/domain` so consumers (frontend AdminSettingsClient, API
 // routes) can import them alongside `dashboardPerformanceRangesSchema` from
@@ -1314,6 +1389,7 @@ export interface InstrumentCatalogItemDto {
   ticker: string;
   name: string | null;
   instrumentType: InstrumentType | null;
+  sector: string | null;
   marketCode: string;
   barsBackfillStatus: string;
   lastRepairAt: string | null;
