@@ -60,6 +60,11 @@ test.describe("GET /market-data/search (KZO-172)", () => {
       true,
       "body.instruments contains a BHP row",
     );
+    await marketDataApi.assert.mxAssertEqual(
+      instruments.every((row) => Object.prototype.hasOwnProperty.call(row, "sector") && row["sector"] === null),
+      true,
+      "body.instruments rows include sector:null for live-search DTO compatibility",
+    );
   });
 
   // ── S2 — Missing market_code → 400 (Zod required-param rejection) ───────────

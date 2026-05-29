@@ -162,6 +162,7 @@ const _TW_SECTOR_BY_CATEGORY: ReadonlyMap<string, string> = new Map([
   ["運動休閒", "Consumer Discretionary"],
   ["電機機械", "Industrials"],
   ["綠能環保", "Industrials"],
+  ["建材營造", "Industrials"],
   ["建材營造業", "Industrials"],
   ["航運業", "Industrials"],
 ]);

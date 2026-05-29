@@ -3705,6 +3705,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ticker: r.ticker,
         name: r.name,
         instrumentType: classifyInstrument(r.industryCategory, r.ticker, query.market_code),
+        sector: null,
         marketCode: query.market_code,
         // Search results are upstream candidates, not yet persisted catalog rows.
         // The DTO requires these fields; null/"pending" are the truthful defaults
