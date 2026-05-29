@@ -110,6 +110,13 @@ describe("KZO-196 — GICS taxonomy", () => {
           industryCategoryRaw: "金融保險",
         }),
       ).toBe("Financials");
+      expect(
+        normalizeInstrumentSector({
+          marketCode: "TW",
+          instrumentType: "STOCK",
+          industryCategoryRaw: "建材營造",
+        }),
+      ).toBe("Industrials");
     });
 
     it("maps representative US subsectors to GICS sectors", () => {
