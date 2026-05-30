@@ -139,6 +139,28 @@ describe("dashboard components", () => {
     expect(html).toContain("NT$610");
   });
 
+  it("keeps account IDs visible in compact holdings rows", () => {
+    const compactHoldings: DashboardOverviewHoldingDto[] = [
+      holdings[0]!,
+      {
+        ...holdings[0]!,
+        accountId: "acc-2",
+        quantity: 500,
+        costBasisAmount: 296_368,
+        marketValueAmount: 305_000,
+        unrealizedPnlAmount: 8_632,
+      },
+    ];
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={compactHoldings} dict={dict} locale="en" variant="compact" />,
+    );
+
+    expect(html).toContain("Account / Currency");
+    expect(html).toContain("acc-1");
+    expect(html).toContain("acc-2");
+    expect(html).toContain("TWD");
+  });
+
   it("renders freshness badge for stale_amber holdings when showFreshnessBadge=true", () => {
     const stale: DashboardOverviewHoldingDto[] = [
       { ...holdings[0]!, freshness: "stale_amber", freshnessTooltip: "Last quote 3 days ago" },

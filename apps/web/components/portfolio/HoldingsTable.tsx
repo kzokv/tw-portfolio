@@ -149,11 +149,11 @@ export function HoldingsTable({
             <thead>
               <tr className="bg-muted/50 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                 <th className="sticky left-0 z-10 bg-muted/50 border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-3 text-left font-medium">{dict.holdings.tickerTerm}</th>
-                {isCompact ? (
-                  <th className="px-4 py-3 text-left font-medium">{dict.transactions.currencyTerm}</th>
-                ) : (
-                  <th className="px-4 py-3 text-left font-medium">{dict.holdings.accountTerm}</th>
-                )}
+                <th className="px-4 py-3 text-left font-medium">
+                  {isCompact
+                    ? `${dict.holdings.accountTerm} / ${dict.transactions.currencyTerm}`
+                    : dict.holdings.accountTerm}
+                </th>
                 <th className="px-4 py-3 text-right font-medium">{dict.holdings.quantityTerm}</th>
                 <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.averageCostLabel}</th>
                 <th className="px-4 py-3 text-right font-medium">{dict.dashboardHome.currentPriceLabel}</th>
@@ -174,9 +174,12 @@ export function HoldingsTable({
                   </td>
                   <td className="px-4 py-4 text-muted-foreground">
                     {isCompact ? (
-                      <span className="inline-flex rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
-                        {holding.currency}
-                      </span>
+                      <div className="flex min-w-[9rem] flex-col items-start gap-1">
+                        <span className="font-medium text-foreground">{holding.accountId}</span>
+                        <span className="inline-flex rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                          {holding.currency}
+                        </span>
+                      </div>
                     ) : holding.accountId}
                   </td>
                   <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
