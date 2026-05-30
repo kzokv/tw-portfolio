@@ -134,6 +134,7 @@ superseded_by: null
 - Shell warm-navigation feedback now appears immediately for sidebar/topbar quick-search/command-palette navigations, and stale content is visibly dimmed until the destination settles.
 - Added route-specific loading surfaces for `/portfolio`, `/transactions`, `/tickers/[ticker]`, and `/settings` to avoid reusing the dashboard loading state for unrelated routes.
 - Admin now lands on a real overview route at `/admin`, and `/admin/settings` keeps the query-driven `?tab=...` contract while switching to a vertical desktop nav plus mobile select/dropdown.
+- Post-feedback admin settings refinement replaced the heavier description-heavy vertical tab card with a cleaner sidebar-style section nav: visible labels, section icons, short task hints, and no tooltip-dependent discovery.
 - Portfolio, transactions, cash ledger, dividends, sharing, ticker detail, AI surfaces, and auth/public shells were reshaped toward the locked density and hierarchy targets in this slice.
 - Final validation also included the sortable-grid pointer collision fix for tall transaction cards so drag/reorder affordances no longer steal pointer intent from adjacent card content.
 - Hydration error `#418` was not isolated to a straightforward shell-local fix in this slice; it remains follow-up work.
@@ -153,6 +154,10 @@ superseded_by: null
   - `npm run test:e2e:oauth:mem --prefix apps/web` — 129 passed
   - `npm run test:http --prefix apps/api` — 273 passed, 2 skipped
 - [x] `npm run test:integration:full:host` passed earlier in this implementation run as the Postgres-backed integration gate: 78 files, 750 tests passed, 1 skipped. It was not rerun after later web-only changes.
+- [x] Post-feedback admin settings nav checks:
+  - `npx eslint apps/web/components/admin/AdminSettingsClient.tsx`
+  - `npm run test --prefix apps/web -- AdminSettingsClient-tabs.test.tsx` — 5 tests passed
+  - `API_PORT=4100 WEB_PORT=3433 MOCK_OAUTH_PORT=4545 NEXT_PUBLIC_AUTH_MODE=oauth NEXT_PUBLIC_API_BASE_URL=http://localhost:4100 npx playwright test --config=apps/web/tests/e2e/playwright.oauth.config.ts admin-settings-tier-b-aaa.spec.ts` — 8 tests passed
 
 ## References
 
