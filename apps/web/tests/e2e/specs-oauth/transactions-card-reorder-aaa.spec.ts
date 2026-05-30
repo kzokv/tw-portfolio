@@ -1,9 +1,9 @@
 // KZO-162 — AAA E2E for the Transactions right-stack card reorder.
 //
 // Covers (per scope-todo Phase 8):
-//   [transactions-A] drag swap status ↔ recent → debounce → state read-back
-//                    via GET /user-preferences shows
-//                    cardOrder.transactions = ["transactions-recent", "transactions-status"].
+//   [transactions-A] drag swap add ↔ status → debounce → state read-back
+//                    via GET /user-preferences shows the new compact workflow
+//                    order with the form still below the posted table.
 //   [transactions-B] Display tab → "Reset transactions layout" → only
 //                    cardOrder.transactions cleared (sibling sub-keys preserved).
 //   [transactions-C] After drag, AddTransactionCard remains in the LEFT column
@@ -99,7 +99,7 @@ test.describe("transactions card reorder (KZO-162)", () => {
     await appShell.actions.setViewport(1280, 900);
   });
 
-  test("[transactions-A]: drag swap status ↔ recent → debounce → state read-back shows reordered cardOrder.transactions", async ({
+test("[transactions-A]: drag swap add ↔ status → debounce → state read-back shows reordered cardOrder.transactions", async ({
     appShell,
     page,
   }) => {
@@ -121,16 +121,16 @@ test.describe("transactions card reorder (KZO-162)", () => {
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
     await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
-    // Actions — drag transactions-recent above transactions-status. Canonical
-    // is [add, status, recent]; after the swap it should be [add, recent, status].
-    await appShell.actions.dragCard("transactions-recent", "transactions-status");
+    // Actions — drag transactions-add above transactions-status. Canonical
+    // is [recent, status, add]; after the swap it should be [recent, add, status].
+    await appShell.actions.dragCard("transactions-add", "transactions-status");
 
     // Assert — after debounce, the saved cardOrder.transactions reflects the swap.
     await expect
       .poll(
         async () => {
           const order = await getCardOrder(testUserCookieHeader);
-          return order?.transactions?.[1] === "transactions-recent"
+          return order?.transactions?.[1] === "transactions-add"
             && order?.transactions?.[2] === "transactions-status";
         },
         { timeout: 2000, intervals: [300, 500, 700] },
@@ -140,7 +140,7 @@ test.describe("transactions card reorder (KZO-162)", () => {
     const savedOrder = await getCardOrder(testUserCookieHeader);
     await appShell.assert.mxAssertDeepEqual(
       savedOrder?.transactions,
-      ["transactions-add", "transactions-recent", "transactions-status"],
+      ["transactions-recent", "transactions-add", "transactions-status"],
     );
   });
 
@@ -203,9 +203,10 @@ test.describe("transactions card reorder (KZO-162)", () => {
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
     await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
-    // Actions — drag the AddTransactionCard slot below transactions-status,
-    // proving the form slot is now reorderable (KZO-162 follow-up).
-    await appShell.actions.dragCard("transactions-add", "transactions-status");
+    // Actions — drag the AddTransactionCard slot above transactions-recent,
+    // proving the secondary form slot remains reorderable even after the
+    // default route hierarchy makes the posted table primary.
+    await appShell.actions.dragCard("transactions-add", "transactions-recent");
 
     // Assert — saved order reflects the new position; transactions-add no
     // longer leads. Persistence is debounced 250ms; poll until it lands.
@@ -213,7 +214,7 @@ test.describe("transactions card reorder (KZO-162)", () => {
       .poll(
         async () => {
           const order = await getCardOrder(testUserCookieHeader);
-          return order?.transactions?.[0] !== "transactions-add"
+          return order?.transactions?.[0] === "transactions-add"
             && order?.transactions?.includes("transactions-add") === true;
         },
         { timeout: 2000, intervals: [300, 500, 700] },

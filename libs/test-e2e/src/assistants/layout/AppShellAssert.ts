@@ -246,6 +246,16 @@ export class AppShellAssert extends BaseAssert {
     await expect(this.el.testId("client-api-error")).toHaveCount(0);
   }
 
+  @Step()
+  async navigationFeedbackContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.shellNavigationFeedbackLabel).toContainText(text);
+  }
+
+  @Step()
+  async shellContentIsDimmed(): Promise<void> {
+    await expect(this.el.shellContentFrame).toHaveClass(/opacity-60/);
+  }
+
   /**
    * Assert the profile menu is open and shows the sign-out option.
    * Phase 3c: avatar-menu-settings RETIRED (amendment #11). Settings moved to sidebar.
@@ -768,8 +778,18 @@ export class AppShellAssert extends BaseAssert {
   }
 
   @Step()
+  async sharingTabsAreVisible(): Promise<void> {
+    await expect(this.el.testId("sharing-tabs")).toBeVisible();
+  }
+
+  @Step()
   async sharingInboundSectionIsVisible(): Promise<void> {
     await expect(this.el.testId("sharing-inbound-section")).toBeVisible();
+  }
+
+  @Step()
+  async sharingPublicLinksSectionIsVisible(): Promise<void> {
+    await expect(this.el.testId("sharing-public-links-section")).toBeVisible();
   }
 
   @Step()

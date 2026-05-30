@@ -145,10 +145,11 @@ export function AiConnectorsSettingsClient() {
 
   return (
     <div className="space-y-5" data-testid="settings-ai-connectors-page">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-[1.75rem] border border-border bg-card px-5 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-950">AI Connectors</h1>
-          <p className="mt-1 text-sm text-slate-600">MCP clients connected to your Vakwen account.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">AI settings</p>
+          <h1 className="mt-2 text-2xl font-semibold text-foreground">AI Connectors</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Manage MCP clients connected to your Vakwen account and review their granted scopes.</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()} disabled={isLoading}>
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -167,23 +168,23 @@ export function AiConnectorsSettingsClient() {
         </div>
       ) : null}
 
-      <Card className="rounded-lg">
+      <Card className="rounded-[1.5rem]">
         <div className="grid gap-3 md:grid-cols-4">
           <div>
-            <p className="text-xs uppercase text-slate-500">Deployment</p>
-            <p className="mt-1 font-medium text-slate-900">{data ? data.policy.enabled ? "Enabled" : "Disabled" : "-"}</p>
+            <p className="text-xs uppercase text-muted-foreground">Deployment</p>
+            <p className="mt-1 font-medium text-foreground">{data ? data.policy.enabled ? "Enabled" : "Disabled" : "-"}</p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Active connection cap</p>
-            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.maxActiveConnectionsPerUser)}</p>
+            <p className="text-xs uppercase text-muted-foreground">Active connection cap</p>
+            <p className="mt-1 font-medium text-foreground">{policyValue(data?.policy.maxActiveConnectionsPerUser)}</p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Inactivity expiry</p>
-            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.inactivityExpiryDays, " days")}</p>
+            <p className="text-xs uppercase text-muted-foreground">Inactivity expiry</p>
+            <p className="mt-1 font-medium text-foreground">{policyValue(data?.policy.inactivityExpiryDays, " days")}</p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Expiry warning</p>
-            <p className="mt-1 font-medium text-slate-900">{policyValue(data?.policy.expirationWarningDays, " days")}</p>
+            <p className="text-xs uppercase text-muted-foreground">Expiry warning</p>
+            <p className="mt-1 font-medium text-foreground">{policyValue(data?.policy.expirationWarningDays, " days")}</p>
           </div>
         </div>
       </Card>
@@ -195,22 +196,27 @@ export function AiConnectorsSettingsClient() {
       ) : null}
 
       {isLoading ? (
-        <Card className="rounded-lg" role="status" aria-live="polite" aria-busy="true"><p className="text-sm text-slate-500">Loading connectors...</p></Card>
+        <Card className="rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true"><p className="text-sm text-muted-foreground">Loading connectors...</p></Card>
       ) : data && data.connections.length === 0 ? (
-        <Card className="rounded-lg"><p className="text-sm text-slate-500">No AI connectors are connected.</p></Card>
+        <Card className="rounded-[1.5rem] border-dashed">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-foreground">No AI connectors are connected.</p>
+            <p className="text-sm text-muted-foreground">Start a connector flow from ChatGPT, then return here to review connection status and scope toggles.</p>
+          </div>
+        </Card>
       ) : (
         data?.connections.map((connection) => (
-          <Card key={connection.id} className="rounded-lg" data-testid={`ai-connector-${connection.id}`}>
+          <Card key={connection.id} className="rounded-[1.5rem]" data-testid={`ai-connector-${connection.id}`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold text-slate-950">{connection.displayName}</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{connection.displayName}</h2>
                   <span className={cn("rounded-full border px-2 py-0.5 text-xs capitalize", statusClassName(connection.status))}>
                     {connection.status}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-slate-600">{connection.provider} · last used {formatTime(connection.lastUsedAt)}</p>
-                <p className="mt-1 text-sm text-slate-600">Expires {formatTime(connection.expiresAt)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{connection.provider} · last used {formatTime(connection.lastUsedAt)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Expires {formatTime(connection.expiresAt)}</p>
                 {connection.status === "pending" ? (
                   <p className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700" role="status" aria-live="polite">
                     Waiting for ChatGPT to exchange the authorization code.
@@ -230,8 +236,8 @@ export function AiConnectorsSettingsClient() {
 
             <div className="mt-5 grid gap-4 lg:grid-cols-3">
               {GROUPED_SCOPES.map((group) => (
-                <div key={group.title} className="rounded-md border border-border p-3">
-                  <p className="text-sm font-medium text-slate-900">{group.title}</p>
+                <div key={group.title} className="rounded-2xl border border-border bg-muted/20 p-4">
+                  <p className="text-sm font-medium text-foreground">{group.title}</p>
                   <div className="mt-3 space-y-2">
                     {group.scopes.map((scope) => {
                       const policyDisabled =
@@ -248,7 +254,7 @@ export function AiConnectorsSettingsClient() {
                         || reconnectRequired;
                       const describedBy = [policyDescriptionId, reconnectDescriptionId].filter(Boolean).join(" ") || undefined;
                       return (
-                        <label key={scope} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                        <label key={scope} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground hover:bg-background/80">
                           <span className="min-w-0">
                             {AI_CONNECTOR_SCOPE_LABELS[scope]}
                             {policyDisabled ? (
@@ -284,7 +290,7 @@ export function AiConnectorsSettingsClient() {
             </div>
 
             {connection.provider === "chatgpt" ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
                 <span className="min-w-0 flex-1">
                   Need fresh auth or re-consent? Start the connector flow again in ChatGPT, then approve the advanced posting scope there.
                 </span>
@@ -301,10 +307,10 @@ export function AiConnectorsSettingsClient() {
             ) : null}
 
             <div className="mt-5">
-              <p className="text-sm font-medium text-slate-900">Tool toggles</p>
+              <p className="text-sm font-medium text-foreground">Tool toggles</p>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
                 {Object.entries(connection.toolToggles).length === 0 ? (
-                  <p className="text-sm text-slate-500">No tool-level overrides.</p>
+                  <p className="text-sm text-muted-foreground">No tool-level overrides.</p>
                 ) : Object.entries(connection.toolToggles).map(([toolName, enabled]) => (
                   <label key={toolName} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
                     <span className="truncate">{toolName}</span>
@@ -323,13 +329,13 @@ export function AiConnectorsSettingsClient() {
       )}
 
       {data && data.accessLogs.length > 0 ? (
-        <Card className="rounded-lg">
-          <h2 className="text-base font-semibold text-slate-950">Recent access</h2>
+        <Card className="rounded-[1.5rem]">
+          <h2 className="text-base font-semibold text-foreground">Recent access</h2>
           <div className="mt-3 divide-y divide-border">
             {data.accessLogs.slice(0, 12).map((log) => (
               <div key={log.id} className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span className="font-medium text-slate-900">{log.toolName}</span>
-                <span className="text-slate-500">{log.accessKind} · {log.result} · {new Date(log.createdAt).toLocaleString()}</span>
+                <span className="font-medium text-foreground">{log.toolName}</span>
+                <span className="text-muted-foreground">{log.accessKind} · {log.result} · {new Date(log.createdAt).toLocaleString()}</span>
               </div>
             ))}
           </div>

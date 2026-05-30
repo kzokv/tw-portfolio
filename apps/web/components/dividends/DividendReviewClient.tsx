@@ -403,6 +403,7 @@ export function DividendReviewClient({
 
   const totalPages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const aggregates = data.aggregates;
+  const hasOpenItems = aggregates.openCount > 0;
 
   const accountNameById = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name || a.id])),
@@ -475,16 +476,27 @@ export function DividendReviewClient({
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div className="grid gap-6" data-testid="dividend-review-page">
-      {/* Page header */}
-      <Card className="overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(239,246,255,0.94))] p-6 shadow-[0_24px_60px_rgba(14,165,233,0.08)]">
-        <p className="text-[11px] uppercase tracking-[0.24em] text-sky-600/80">{dict.dividends.review.breadcrumb}</p>
-        <h2 className="mt-3 text-3xl font-semibold text-slate-950">{dict.dividends.review.pageTitle}</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">{dict.dividends.review.pageDescription}</p>
-      </Card>
+    <div className="grid gap-4" data-testid="dividend-review-page">
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{dict.dividends.review.breadcrumb}</p>
+        <h2 className="text-2xl font-semibold text-slate-950 sm:text-3xl">{dict.dividends.review.pageTitle}</h2>
+        <p className="max-w-3xl text-sm leading-6 text-slate-600">{dict.dividends.review.pageDescription}</p>
+      </div>
+
+      {hasOpenItems ? (
+        <Card className="rounded-[20px] border-amber-200 bg-amber-50/70 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            <span className="font-semibold">{aggregates.openCount} {dict.dividends.review.stat.openItems.toLowerCase()}.</span>{" "}
+            {dict.dividends.review.filter.needsReconciliation}
+          </p>
+        </Card>
+      ) : null}
+
+      {/* Stats tiles */}
+      <StatTiles aggregates={aggregates} dict={dict} locale={locale} />
 
       {/* Filter bar */}
-      <Card className="space-y-4 rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
+      <Card className="space-y-4 rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]">
         {/* Preset strip */}
         <div
           className="flex flex-wrap gap-2"
@@ -615,27 +627,6 @@ export function DividendReviewClient({
           {errorMessage}
         </p>
       )}
-
-      {/* Stats tiles */}
-      <StatTiles aggregates={aggregates} dict={dict} locale={locale} />
-
-      {/* Charts */}
-      <Card className="rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
-        <DividendReviewCharts
-          byMonth={aggregates.byMonth}
-          byTicker={aggregates.byTicker}
-          dict={dict}
-          defaultGranularity={defaultChartGranularity}
-        />
-      </Card>
-
-      {/* NHI Rollup */}
-      <NhiRollupSection
-        ledgerEntries={data.ledgerEntries}
-        dict={dict}
-        locale={locale}
-        onFilterPending={handleFilterPending}
-      />
 
       {/* Phase 4 — single-DOM responsive (drops legacy `lg:hidden` mobile cards
           and `review-card-grid`). Card-stack at <sm via useIsSmallScreen;
@@ -848,6 +839,24 @@ export function DividendReviewClient({
         </Card>
       )}
 
+      {/* NHI Rollup */}
+      <NhiRollupSection
+        ledgerEntries={data.ledgerEntries}
+        dict={dict}
+        locale={locale}
+        onFilterPending={handleFilterPending}
+      />
+
+      {/* Charts */}
+      <Card className="rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]">
+        <DividendReviewCharts
+          byMonth={aggregates.byMonth}
+          byTicker={aggregates.byTicker}
+          dict={dict}
+          defaultGranularity={defaultChartGranularity}
+        />
+      </Card>
+
       {/* Drawer */}
       <Drawer
         open={drawerEntry !== null}
@@ -929,7 +938,7 @@ function StatTiles({
         locale={locale}
         highlightNonZero
       />
-      <Card className="rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)]" data-testid="stat-open-items">
+      <Card className="rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]" data-testid="stat-open-items">
         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.dividends.review.stat.openItems}</p>
         <p className="mt-2 text-2xl font-semibold text-slate-950">{aggregates.openCount}</p>
       </Card>
@@ -949,7 +958,7 @@ function StatTile({
   highlightNonZero?: boolean;
 }) {
   return (
-    <Card className="rounded-[24px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_36px_rgba(148,163,184,0.12)]">
+    <Card className="rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <div className="mt-2 space-y-1">
         {entries.length === 0 ? (

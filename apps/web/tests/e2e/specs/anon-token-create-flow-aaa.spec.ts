@@ -5,7 +5,7 @@ test.describe("anonymous share links: create flow", () => {
     appShell,
     sharing,
   }) => {
-    await sharing.actions.navigateToSharing();
+    await sharing.actions.navigateToPublicLinks();
     await appShell.assert.appIsReady();
     await sharing.assert.publicLinksSectionIsVisible();
     await sharing.assert.createPublicLinkButtonIsEnabled();

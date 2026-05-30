@@ -26,7 +26,7 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
   };
 
   return (
-    <Card className="space-y-5" data-testid="sharing-inbound-section">
+    <Card className="space-y-4 rounded-[20px] px-5 py-5 sm:px-6 sm:py-5" data-testid="sharing-inbound-section">
       <div>
         <h2 className="text-xl font-semibold text-slate-950">{dict.sharing.inboundTitle}</h2>
         <p className="mt-1 text-sm text-slate-600">{dict.sharing.inboundDescription}</p>
@@ -34,7 +34,7 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
 
       {totalCount === 0 ? (
         <div
-          className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-10 text-center"
+          className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-8 text-center"
           data-testid="sharing-inbound-empty"
         >
           <p className="text-base font-semibold text-slate-900">{dict.sharing.emptyInboundTitle}</p>
@@ -45,7 +45,7 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
           {inbound.active.map((item) => (
             <article
               key={item.id}
-              className="rounded-[24px] border border-slate-200 bg-white/80 p-5 shadow-[0_18px_40px_rgba(148,163,184,0.12)]"
+              className="rounded-[20px] border border-slate-200 bg-white/80 p-4 shadow-[0_14px_30px_rgba(148,163,184,0.1)]"
               data-testid={`sharing-inbound-card-${item.id}`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -59,10 +59,10 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
                   {dict.sharing.status.active}
                 </span>
               </div>
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="mt-3 text-sm text-slate-600">
                 {dict.sharing.row.grantedOn.replace("{date}", formatDateLabel(item.createdAt, locale))}
               </p>
-              <div className="mt-5 flex items-center justify-between gap-3">
+              <div className="mt-4 flex items-center justify-between gap-3">
                 <p className="text-xs text-slate-500">{dict.sharing.switcherHint}</p>
                 <button
                   type="button"
@@ -79,7 +79,7 @@ export function InboundSharesCards({ locale, inbound }: InboundSharesCardsProps)
           {inbound.revoked.map((item) => (
             <article
               key={item.id}
-              className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-5"
+              className="rounded-[20px] border border-slate-200 bg-slate-50/70 p-4"
               data-testid={`sharing-inbound-revoked-${item.id}`}
             >
               <div className="flex items-start justify-between gap-3">

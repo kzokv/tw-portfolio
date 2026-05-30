@@ -14,6 +14,9 @@ export interface TAppShellElements extends TElementLocatorHelpers {
   impersonationBanner: Locator;
   impersonationCountdown: Locator;
   clientApiErrorToast: Locator;
+  shellNavigationFeedback: Locator;
+  shellNavigationFeedbackLabel: Locator;
+  shellContentFrame: Locator;
   topBar: TTopBarElements;
   sideNavigation: TSideNavigationElements;
   search: TSearchElements;
@@ -62,6 +65,9 @@ export class AppShellPage extends BasePage<TAppShellElements> {
       impersonationBanner: this.locate("impersonation-banner", "Impersonation Banner"),
       impersonationCountdown: this.locate("impersonation-countdown", "Impersonation Countdown"),
       clientApiErrorToast: this.locate("client-api-error", "API Client Error Toast"),
+      shellNavigationFeedback: this.locate("shell-navigation-feedback", "Shell Navigation Feedback"),
+      shellNavigationFeedbackLabel: this.locate("shell-navigation-feedback-label", "Shell Navigation Feedback Label"),
+      shellContentFrame: this.locate("shell-content-frame", "Shell Content Frame"),
       topBar: new TopBarComponent(this.page).elements,
       sideNavigation: new SideNavigationComponent(this.page).elements,
       search: new SearchComponent(this.page).elements,

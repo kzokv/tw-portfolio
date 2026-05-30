@@ -278,6 +278,7 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
     {
       key: "ticker",
       header: t.tickerLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => (
         <span className="truncate font-mono text-sm font-medium text-foreground" title={i.ticker}>
           {i.ticker}
@@ -287,26 +288,31 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
     {
       key: "name",
       header: t.nameLabel,
+      cellClassName: "min-w-[16rem] px-4 py-3.5 align-top",
       render: (i) => <span className="break-words text-sm text-foreground">{i.name ?? t.notListedLabel}</span>,
     },
     {
       key: "market",
       header: t.marketLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => <span className="whitespace-nowrap text-sm text-foreground" title={i.marketCode}>{i.marketCode}</span>,
     },
     {
       key: "status",
       header: t.statusLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => <StatusBadge status={i.status} ticker={i.ticker} />,
     },
     {
       key: "absenceStreak",
       header: t.absenceStreakLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => <span className="whitespace-nowrap text-right text-sm text-foreground">{i.absenceStreak}</span>,
     },
     {
       key: "lastSeen",
       header: t.lastSeenLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => (
         <span className="whitespace-nowrap text-sm text-muted-foreground" title={i.lastSeenInCatalogAt ?? ""}>
           {formatTimestamp(i.lastSeenInCatalogAt)}
@@ -316,6 +322,7 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
     {
       key: "delistedAt",
       header: t.delistedAtLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => (
         <span className="whitespace-nowrap text-sm text-muted-foreground" title={i.delistedAt ?? ""}>
           {formatTimestamp(i.delistedAt)}
@@ -325,11 +332,13 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
     {
       key: "statusReason",
       header: t.statusReasonLabel,
+      cellClassName: "min-w-[14rem] px-4 py-3.5 align-top",
       render: (i) => <span className="break-words text-sm text-muted-foreground">{i.statusReason ?? t.notListedLabel}</span>,
     },
     {
       key: "actions",
       header: t.actionsLabel,
+      cellClassName: "px-4 py-3.5 align-top",
       render: (i) => (
         <InstrumentActions
           instrument={i}
@@ -423,6 +432,7 @@ export function AdminInstrumentsClient({ initialData }: AdminInstrumentsClientPr
             rowKey={(i) => `${i.ticker}-${i.marketCode}`}
             rowTestId={(i) => `instrument-row-${i.ticker}`}
             data-testid="admin-instruments-table"
+            tableClassName="[&_th]:bg-slate-50/80 [&_th]:px-4 [&_th]:py-3 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-slate-500 [&_tr]:border-slate-100"
             stickyFirstColumn
             emptyState={
               <div className="flex items-center justify-center py-16">

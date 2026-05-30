@@ -28,7 +28,27 @@ type InviteStatusMessage = {
 interface AuthPageDictionary {
   defaultError: AuthMessage;
   errorReasons: Record<AuthErrorReason, AuthMessage>;
-  invite: {
+	  shared: {
+	    terms: string;
+	    privacy: string;
+	    termsPrivacyPrefix: string;
+	    backHome: string;
+	  };
+	  login: {
+	    demoExpired: string;
+	    title: string;
+	    description: string;
+	    signIn: string;
+	    connecting: string;
+	    apiUnreachable: string;
+	    separator: string;
+	    demoLabel: string;
+	    demoLoadingLabel: string;
+	    demoRateLimited: string;
+	    demoFailed: string;
+	    demoNetworkError: string;
+	  };
+	  invite: {
     valid: InviteStatusMessage;
     unavailable: InviteStatusMessage;
     statuses: Record<Exclude<InviteStatus, "valid">, InviteStatusMessage>;
@@ -36,15 +56,38 @@ interface AuthPageDictionary {
     signedInDescription: string;
     signedInIdentityFallback: string;
     signOut: string;
-    dashboard: string;
-    signIn: string;
-    connecting: string;
-    apiUnreachable: string;
-  };
+	    dashboard: string;
+	    signIn: string;
+	    connecting: string;
+	    apiUnreachable: string;
+	    codeLabel: string;
+	    statusLabel: string;
+	  };
 }
 
 export const authPageCopy: Record<AuthPageLocale, AuthPageDictionary> = {
   en: {
+	    shared: {
+	      terms: "Terms",
+	      privacy: "Privacy",
+	      termsPrivacyPrefix: "By continuing you agree to our",
+	      backHome: "Back to home",
+	    },
+	    login: {
+	      demoExpired: "Your demo session has ended. Sign in to keep your data.",
+	      title: "Sign in to Vakwen",
+	      description: "Track your multi-market portfolio. Bring your own data.",
+	      signIn: "Sign in with Google",
+	      connecting: "Connecting...",
+	      apiUnreachable:
+	        "Cannot reach the API server. If your API runs in a Docker container, create an SSH tunnel forwarding the API port (e.g. -L 4300:192.168.64.1:4300 - replace the IP with your Docker host IP).",
+	      separator: "or",
+	      demoLabel: "Try it - no sign-up needed",
+	      demoLoadingLabel: "Starting demo...",
+	      demoRateLimited: "Too many demo sessions. Please wait a minute and try again.",
+	      demoFailed: "Failed to start demo session.",
+	      demoNetworkError: "Cannot reach the server. Please try again.",
+	    },
     defaultError: {
       title: "Sign-in failed",
       description: "An unexpected error occurred during sign-in. Please try again.",
@@ -143,13 +186,36 @@ export const authPageCopy: Record<AuthPageLocale, AuthPageDictionary> = {
       signedInIdentityFallback: "your current account",
       signOut: "Sign out",
       dashboard: "Dashboard",
-      signIn: "Sign in with Google",
-      connecting: "Connecting…",
-      apiUnreachable:
-        "Cannot reach the API server. If your API runs in a Docker container, create an SSH tunnel forwarding the API port (e.g. -L 4300:192.168.64.1:4300 — replace the IP with your Docker host IP).",
-    },
+	      signIn: "Sign in with Google",
+	      connecting: "Connecting…",
+	      apiUnreachable:
+	        "Cannot reach the API server. If your API runs in a Docker container, create an SSH tunnel forwarding the API port (e.g. -L 4300:192.168.64.1:4300 — replace the IP with your Docker host IP).",
+	      codeLabel: "Invitation code",
+	      statusLabel: "Invite status",
+	    },
   },
   "zh-TW": {
+	    shared: {
+	      terms: "服務條款",
+	      privacy: "隱私權政策",
+	      termsPrivacyPrefix: "繼續使用即表示你同意我們的",
+	      backHome: "返回首頁",
+	    },
+	    login: {
+	      demoExpired: "示範工作階段已結束。登入即可保留你的資料。",
+	      title: "登入 Vakwen",
+	      description: "追蹤你的多市場投資組合，使用自己的資料開始。",
+	      signIn: "使用 Google 登入",
+	      connecting: "連線中...",
+	      apiUnreachable:
+	        "目前無法連到 API 伺服器。如果 API 跑在 Docker 容器裡，請建立 SSH tunnel 轉送 API 埠（例如 -L 4300:192.168.64.1:4300，請依你的 Docker host IP 調整）。",
+	      separator: "或",
+	      demoLabel: "免註冊試用",
+	      demoLoadingLabel: "正在啟動示範...",
+	      demoRateLimited: "示範工作階段建立過於頻繁，請稍後再試。",
+	      demoFailed: "示範工作階段啟動失敗。",
+	      demoNetworkError: "目前無法連到伺服器，請稍後再試。",
+	    },
     defaultError: {
       title: "登入失敗",
       description: "登入時發生未預期錯誤，請稍後再試一次。",
@@ -248,11 +314,13 @@ export const authPageCopy: Record<AuthPageLocale, AuthPageDictionary> = {
       signedInIdentityFallback: "目前帳號",
       signOut: "登出",
       dashboard: "前往儀表板",
-      signIn: "使用 Google 登入",
-      connecting: "連線中…",
-      apiUnreachable:
-        "目前無法連到 API 伺服器。如果 API 跑在 Docker 容器裡，請建立 SSH tunnel 轉送 API 埠（例如 -L 4300:192.168.64.1:4300，請依你的 Docker host IP 調整）。",
-    },
+	      signIn: "使用 Google 登入",
+	      connecting: "連線中…",
+	      apiUnreachable:
+	        "目前無法連到 API 伺服器。如果 API 跑在 Docker 容器裡，請建立 SSH tunnel 轉送 API 埠（例如 -L 4300:192.168.64.1:4300，請依你的 Docker host IP 調整）。",
+	      codeLabel: "邀請代碼",
+	      statusLabel: "邀請狀態",
+	    },
   },
 };
 

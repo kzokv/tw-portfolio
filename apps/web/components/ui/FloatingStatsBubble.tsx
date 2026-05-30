@@ -17,6 +17,7 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
   const [expanded, setExpanded] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [initialized, setInitialized] = useState(false);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -24,7 +25,8 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
   // Set initial position (bottom-right corner)
   useEffect(() => {
     if (!initialized && visible) {
-      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 72 });
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+      setPos({ x: window.innerWidth - 88, y: window.innerHeight - 96 });
       setInitialized(true);
     }
   }, [visible, initialized]);
@@ -68,9 +70,10 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
   // Keep bubble in viewport on resize
   useEffect(() => {
     function clamp() {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
       setPos((prev) => ({
-        x: Math.max(0, Math.min(window.innerWidth - 56, prev.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 56, prev.y)),
+        x: Math.max(12, Math.min(window.innerWidth - 68, prev.x)),
+        y: Math.max(12, Math.min(window.innerHeight - 68, prev.y)),
       }));
     }
     window.addEventListener("resize", clamp);
@@ -78,6 +81,14 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
   }, []);
 
   if (!visible) return null;
+
+  const isMobile = viewport.width > 0 && viewport.width < 640;
+  const popoverWidth = Math.min(Math.max(viewport.width - 32, 280), 576);
+  const desktopLeft = Math.max(16, Math.min(pos.x + 56 - popoverWidth, viewport.width - popoverWidth - 16));
+  const openBelow = pos.y + 360 <= viewport.height - 16;
+  const desktopTop = openBelow
+    ? Math.min(pos.y + 64, viewport.height - 320)
+    : Math.max(16, pos.y - 272);
 
   return (
     <>
@@ -98,11 +109,20 @@ export function FloatingStatsBubble({ visible, children }: FloatingStatsBubblePr
       {/* Expanded popover */}
       {expanded && (
         <div
-          className="fixed z-50 w-[min(calc(100vw-2rem),36rem)] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
-          style={{
-            left: Math.min(pos.x, window.innerWidth - 592),
-            top: pos.y + 56,
-          }}
+          className="fixed z-50 overflow-auto rounded-2xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+          style={isMobile
+            ? {
+                left: 16,
+                right: 16,
+                bottom: 88,
+                maxHeight: "min(60vh, 32rem)",
+              }
+            : {
+                width: popoverWidth,
+                left: desktopLeft,
+                top: desktopTop,
+                maxHeight: "min(70vh, 32rem)",
+              }}
           data-testid="floating-stats-popover"
         >
           <div className="mb-3 flex items-center justify-between">

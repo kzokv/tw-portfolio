@@ -26,6 +26,7 @@ import { useSharedContext } from "./useSharedContext";
 import { useAppNavigation } from "./useAppNavigation";
 import { CommandPalette } from "./CommandPalette";
 import { CommandPaletteProvider } from "./CommandPaletteContext";
+import { NavigationFeedbackProvider } from "./NavigationFeedbackContext";
 import { useCommandPalette } from "../../hooks/useCommandPalette";
 import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
 import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
@@ -307,37 +308,39 @@ export function AppShell({
             context via useAppShellData inside <main> below. */}
         <AppShellDataProvider value={appShellDataValue}>
           <CommandPaletteProvider value={commandPaletteContextValue}>
-            <AppShellLayout
-              initialSidebarOpen={initialSidebarOpen}
-              dashboard={dashboard}
-              profileData={profileData}
-              dict={dict}
-              uiDict={uiDict}
-              locale={locale}
-              switcherSlot={portfolioSwitcher}
-              quickSearchItems={quickSearchItems}
-              unreadCount={notificationData.unreadCount}
-              notifications={notificationData.notifications}
-              notificationDropdownOpen={notificationDropdownOpen}
-              onNotificationOpenChange={setNotificationDropdownOpen}
-              markRead={notificationData.markRead}
-              markAllRead={notificationData.markAllRead}
-              dismiss={notificationData.dismiss}
-              contextMessage={contextMessage}
-              globalError={globalError}
-              transactionMessage={transactionSubmission.message}
-              recomputeMessage={recomputeAction.message}
-              snapshotMessage={snapshotGeneration.snapshotMessage}
-              mutationsMessage={mutations.message}
-              mutationsErrorMessage={mutations.errorMessage}
-              onClearGlobalError={handleClearGlobalError}
-              isClientReady={isClientReady}
-              switcherLoaded={switcherLoaded}
-              onTimeframesSaved={refetchEffectiveRanges}
-              onReportingCurrencySaved={handleReportingCurrencySaved}
-            >
-              {children ?? null}
-            </AppShellLayout>
+            <NavigationFeedbackProvider>
+              <AppShellLayout
+                initialSidebarOpen={initialSidebarOpen}
+                dashboard={dashboard}
+                profileData={profileData}
+                dict={dict}
+                uiDict={uiDict}
+                locale={locale}
+                switcherSlot={portfolioSwitcher}
+                quickSearchItems={quickSearchItems}
+                unreadCount={notificationData.unreadCount}
+                notifications={notificationData.notifications}
+                notificationDropdownOpen={notificationDropdownOpen}
+                onNotificationOpenChange={setNotificationDropdownOpen}
+                markRead={notificationData.markRead}
+                markAllRead={notificationData.markAllRead}
+                dismiss={notificationData.dismiss}
+                contextMessage={contextMessage}
+                globalError={globalError}
+                transactionMessage={transactionSubmission.message}
+                recomputeMessage={recomputeAction.message}
+                snapshotMessage={snapshotGeneration.snapshotMessage}
+                mutationsMessage={mutations.message}
+                mutationsErrorMessage={mutations.errorMessage}
+                onClearGlobalError={handleClearGlobalError}
+                isClientReady={isClientReady}
+                switcherLoaded={switcherLoaded}
+                onTimeframesSaved={refetchEffectiveRanges}
+                onReportingCurrencySaved={handleReportingCurrencySaved}
+              >
+                {children ?? null}
+              </AppShellLayout>
+            </NavigationFeedbackProvider>
 
             <CommandPalette
               open={commandPalette.open}

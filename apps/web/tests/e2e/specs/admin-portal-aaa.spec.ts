@@ -5,6 +5,11 @@ import { test } from "@vakwen/test-e2e/fixtures/appPages";
 // Admin pages are accessible because the default E2E user resolves as admin.
 
 test.describe("admin portal — page access", () => {
+  test("admin user: /admin renders overview", async ({ appShell }) => {
+    await appShell.actions.navigateToRoute("/admin");
+    await appShell.assert.pageContainsText("Operator status");
+  });
+
   test("admin user: /admin/users renders user list table", async ({ appShell }) => {
     await appShell.actions.navigateToRoute("/admin/users");
     await appShell.assert.adminUsersPageIsVisible();

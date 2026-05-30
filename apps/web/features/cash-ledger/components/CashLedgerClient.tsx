@@ -428,12 +428,43 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-4" data-testid="cash-ledger-page">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">{d.pageTitle}</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{d.pageDescription}</p>
+        </div>
+        <Button onClick={openCreateFxDialog} data-testid="new-fx-transfer-button" className="self-start lg:self-auto">
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {d.fxFormTitleCreate}
+        </Button>
+      </div>
+
+      {/* Summary bar */}
+      {summary.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="cash-ledger-summary">
+          {summary.map((s) => (
+            <div
+              key={`${s.accountId}:${s.currency}`}
+              className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {renderAccountLabel(s.accountId)}
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
+                {formatCurrencyAmount(s.amount, s.currency, locale)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">{s.currency}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Filter toolbar — each control triggers fetch immediately on change */}
-      <Card data-testid="cash-ledger-filter-toolbar">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[8rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-500">{d.filterDateFrom}</label>
+      <Card data-testid="cash-ledger-filter-toolbar" className="rounded-[20px] px-4 py-4 sm:px-5 sm:py-5">
+        <div className="grid gap-4 lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.5fr)]">
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{d.filterDateFrom}</label>
             <input
               type="date"
               value={fromEntryDate}
@@ -442,8 +473,8 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
             />
           </div>
-          <div className="min-w-[8rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-500">{d.filterDateTo}</label>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{d.filterDateTo}</label>
             <input
               type="date"
               value={toEntryDate}
@@ -452,8 +483,8 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
             />
           </div>
-          <div className="min-w-[8rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-500">{d.filterAccount}</label>
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{d.filterAccount}</label>
             <select
               value={accountId}
               onChange={(e) => handleAccountChange(e.target.value)}
@@ -466,9 +497,9 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               ))}
             </select>
           </div>
-          <div className="min-w-[10rem]">
-            <label className="mb-1 block text-xs font-medium text-slate-500">{d.filterEntryType}</label>
-            <div className="flex flex-wrap gap-1">
+          <div className="min-w-0">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{d.filterEntryType}</label>
+            <div className="flex flex-wrap gap-2">
               {ENTRY_TYPE_FILTER_OPTIONS.map((type) => {
                 const active = type === "FX_TRANSFER"
                   ? FX_TRANSFER_ENTRY_TYPES.every((item) => entryTypeFilter.includes(item))
@@ -491,31 +522,8 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
               })}
             </div>
           </div>
-          <Button onClick={openCreateFxDialog} data-testid="new-fx-transfer-button">
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            {d.fxFormTitleCreate}
-          </Button>
         </div>
       </Card>
-
-      {/* Summary bar */}
-      {summary.length > 0 && (
-        <div className="flex flex-wrap gap-3" data-testid="cash-ledger-summary">
-          {summary.map((s) => (
-            <div
-              key={`${s.accountId}:${s.currency}`}
-              className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm"
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                {renderAccountLabel(s.accountId)} / {s.currency}
-              </p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">
-                {d.summaryTotalLabel}: {formatCurrencyAmount(s.amount, s.currency, locale)}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Phase 4 — single-DOM table (drops legacy `lg:hidden` mobile cards).
           Scroll + sticky-date column at narrow viewports per scope-grill. */}

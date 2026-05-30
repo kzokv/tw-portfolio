@@ -57,7 +57,7 @@ export function OutboundSharesTable({
   );
 
   return (
-    <Card className="space-y-5" data-testid="sharing-outbound-section">
+    <Card className="space-y-4 rounded-[20px] px-5 py-5 sm:px-6 sm:py-5" data-testid="sharing-outbound-section">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-slate-950">{dict.sharing.sharedByYouTitle}</h2>
@@ -66,7 +66,7 @@ export function OutboundSharesTable({
         {outbound.revoked.length > 0 ? (
           <button
             type="button"
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-white"
             onClick={onToggleHistory}
             data-testid="sharing-history-toggle"
           >
@@ -80,7 +80,7 @@ export function OutboundSharesTable({
 
       {rows.length === 0 ? (
         <div
-          className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-10 text-center"
+          className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/70 px-5 py-8 text-center"
           data-testid="sharing-outbound-empty"
         >
           <p className="text-base font-semibold text-slate-900">{dict.sharing.emptyManageStateTitle}</p>
@@ -93,7 +93,7 @@ export function OutboundSharesTable({
               <tr className="border-b border-slate-200 bg-slate-50/70">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.grantee}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.status}</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">AI access</th>
+	                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.aiAccess}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.created}</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.expires}</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.sharing.table.actions}</th>
@@ -106,13 +106,13 @@ export function OutboundSharesTable({
                   className="border-b border-slate-100 last:border-0"
                   data-testid={`sharing-outbound-row-${row.id}`}
                 >
-                  <td className="px-4 py-4 align-top">
+                  <td className="px-4 py-3 align-top">
                     <div className="font-medium text-slate-900">{row.email}</div>
                     <div className="mt-1 text-xs text-slate-500">
                       {row.displayName ?? dict.sharing.row.notRegistered}
                     </div>
                   </td>
-                  <td className="px-4 py-4 align-top">
+                  <td className="px-4 py-3 align-top">
                     <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", STATUS_STYLES[row.status])}>
                       {dict.sharing.status[row.status]}
                     </span>
@@ -122,10 +122,10 @@ export function OutboundSharesTable({
                       </p>
                     ) : null}
                   </td>
-                  <td className="max-w-[16rem] px-4 py-4 align-top text-xs text-slate-600">{formatCapabilities(row)}</td>
-                  <td className="px-4 py-4 align-top text-slate-600">{formatDateLabel(row.createdAt, locale)}</td>
-                  <td className="px-4 py-4 align-top text-slate-600">{formatOptionalDate(row.expiresAt, locale)}</td>
-                  <td className="px-4 py-4 align-top">
+                  <td className="max-w-[16rem] px-4 py-3 align-top text-xs text-slate-600">{formatCapabilities(row)}</td>
+                  <td className="px-4 py-3 align-top text-slate-600">{formatDateLabel(row.createdAt, locale)}</td>
+                  <td className="px-4 py-3 align-top text-slate-600">{formatOptionalDate(row.expiresAt, locale)}</td>
+                  <td className="px-4 py-3 align-top">
                     <div className="flex justify-end gap-2">
                       {row.status === "pending" ? (
                         <Button

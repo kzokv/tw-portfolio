@@ -6,8 +6,8 @@ test("desktop shell supports collapse persistence and route navigation", async (
   transactions,
 }) => {
   await appShell.actions.setViewport(1440, 960);
-  await portfolio.actions.navigateToPortfolio();
-  await portfolio.assert.portfolioIntroIsVisible();
+  await transactions.actions.navigateToTransactions();
+  await transactions.assert.introIsVisible();
 
   await appShell.assert.desktopSidebarIsVisible();
   await appShell.assert.desktopSidebarCollapsedStateIs(false);
@@ -19,7 +19,9 @@ test("desktop shell supports collapse persistence and route navigation", async (
   await appShell.actions.reloadPage();
   await appShell.assert.desktopSidebarCollapsedStateIs(true);
 
-  await appShell.actions.navigateViaSidebar("portfolio");
+  await appShell.actions.clickSidebarNavItem("portfolio");
+  await appShell.assert.navigationFeedbackContains(/Portfolio/i);
+  await appShell.assert.shellContentIsDimmed();
   await appShell.assert.isOnRoute(/\/portfolio$/);
   await appShell.assert.appIsReady();
   await portfolio.assert.portfolioIntroIsVisible();
@@ -29,7 +31,8 @@ test("desktop shell supports collapse persistence and route navigation", async (
   await appShell.actions.toggleDesktopSidebar();
   await appShell.assert.desktopSidebarCollapsedStateIs(false);
 
-  await appShell.actions.navigateViaSidebar("transactions");
+  await appShell.actions.clickSidebarNavItem("transactions");
+  await appShell.assert.navigationFeedbackContains(/Transactions/i);
   await appShell.assert.isOnRoute(/\/transactions$/);
   await appShell.assert.appIsReady();
   await transactions.assert.introIsVisible();
@@ -81,7 +84,8 @@ test("mobile drawer and mobile quick search stay usable without horizontal overf
   await transactions.assert.introIsVisible();
 
   await appShell.actions.openMobileNavigation();
-  await appShell.actions.navigateViaMobileSidebar("portfolio");
+  await appShell.actions.clickMobileSidebarNavItem("portfolio");
+  await appShell.assert.navigationFeedbackContains(/Portfolio/i);
   await appShell.assert.isOnRoute(/\/portfolio/);
   await appShell.assert.appIsReady();
   await appShell.assert.documentHasNoHorizontalOverflow();

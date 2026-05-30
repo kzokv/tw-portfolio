@@ -159,6 +159,11 @@ export class AppShellActions extends AppBaseActions {
     await this.mxWaitForAppReady();
   }
 
+  @Step()
+  async clickMobileSidebarNavItem(destination: TSidebarDestination): Promise<void> {
+    await this.uiActions.click.perform(this.el.mobileSidebar.getByTestId(`app-sidebar-nav-${destination}`));
+  }
+
   /**
    * Open the mobile sidebar Sheet by clicking the brand link.
    * Phase 3c: mobileNavToggle → app-sidebar-brand (composite trigger on <md).
@@ -278,7 +283,6 @@ export class AppShellActions extends AppBaseActions {
   @Step()
   async clickSidebarNavItem(key: TSidebarDestination): Promise<void> {
     await this.uiActions.click.perform(this.el.sideNavigation[key]);
-    await this.mxWaitForAppReady();
   }
 
   @Step()

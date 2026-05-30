@@ -10,11 +10,13 @@ import {
 } from "react";
 import {
   DndContext,
+  type CollisionDetection,
   type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
   TouchSensor,
   closestCenter,
+  pointerWithin,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -87,6 +89,11 @@ interface UserPreferencesResponse {
 }
 
 const TOAST_MS = 1800;
+
+const pointerWithinThenClosestCenter: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+};
 
 export function SortableCardGrid({
   cards,
@@ -273,7 +280,7 @@ export function SortableCardGrid({
     <>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={pointerWithinThenClosestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >

@@ -5,7 +5,10 @@ import {
   currentMonthQuery,
   searchParamsToReviewQuery,
 } from "../../components/dividends/dividendsPageQuery";
-import { resolveInitialDividendsTab } from "../../components/dividends/dividendsTabsUtils";
+import {
+  DIVIDENDS_LEDGER_ONLY_PARAMS,
+  resolveInitialDividendsTab,
+} from "../../components/dividends/dividendsTabsUtils";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
 import { fetchDashboardSnapshot } from "../../features/dashboard/services/dashboardService";
@@ -22,6 +25,23 @@ import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/u
 
 interface DividendsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+function hasExplicitDividendsView(searchParams: Record<string, string | string[] | undefined>): boolean {
+  const view = typeof searchParams.view === "string"
+    ? searchParams.view
+    : Array.isArray(searchParams.view)
+      ? searchParams.view[0]
+      : undefined;
+
+  if (view === "calendar" || view === "ledger") {
+    return true;
+  }
+
+  return DIVIDENDS_LEDGER_ONLY_PARAMS.some((key) => {
+    const value = searchParams[key];
+    return typeof value === "string" || (Array.isArray(value) && value.length > 0);
+  });
 }
 
 export default async function DividendsPage({ searchParams }: DividendsPageProps) {
@@ -42,33 +62,49 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
     // Fall back to English; client shell will re-fetch.
   }
 
-  const initialTab = resolveInitialDividendsTab(sp);
+  const resolvedInitialTab = resolveInitialDividendsTab(sp);
+  const shouldProbeReviewFirst = !hasExplicitDividendsView(sp);
   const dict = getDictionary(locale);
+  const reviewFallback = {
+    ledgerEntries: [],
+    total: 0,
+    aggregates: {
+      totalExpectedCashAmount: {},
+      totalReceivedCashAmount: {},
+      openCount: 0,
+      byMonth: {},
+      byTicker: {},
+    },
+  };
 
-  const calendarSnapshot = initialTab === "calendar"
-    ? await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
+  let initialTab = resolvedInitialTab;
+  let calendarSnapshot = null;
+  let reviewData = null;
+  let years: number[] = [];
+
+  if (resolvedInitialTab === "ledger") {
+    [reviewData, years] = await Promise.all([
+      fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => reviewFallback),
+      fetchDividendLedgerYears().catch(() => []),
+    ]);
+  } else if (shouldProbeReviewFirst) {
+    const reviewPreview = await fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => null);
+    if ((reviewPreview?.aggregates.openCount ?? 0) > 0) {
+      initialTab = "ledger";
+      reviewData = reviewPreview;
+      years = await fetchDividendLedgerYears().catch(() => []);
+    } else {
+      calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
+        events: [],
+        ledgerEntries: [],
+      }));
+    }
+  } else {
+    calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
       events: [],
       ledgerEntries: [],
-    }))
-    : null;
-
-  const reviewData = initialTab === "ledger"
-    ? await fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => ({
-      ledgerEntries: [],
-      total: 0,
-      aggregates: {
-        totalExpectedCashAmount: {},
-        totalReceivedCashAmount: {},
-        openCount: 0,
-        byMonth: {},
-        byTicker: {},
-      },
-    }))
-    : null;
-
-  const years = initialTab === "ledger"
-    ? await fetchDividendLedgerYears().catch(() => [])
-    : [];
+    }));
+  }
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>

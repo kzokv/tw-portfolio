@@ -279,14 +279,14 @@ export function AdminAuditLogClient() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" data-testid="audit-log-table">
+            <table className="min-w-[920px] w-full text-sm" data-testid="audit-log-table">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Timestamp</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Actor</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Action</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Target</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Details</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Timestamp</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Actor</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Action</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Target</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Details</th>
                 </tr>
               </thead>
               <tbody>
@@ -296,17 +296,33 @@ export function AdminAuditLogClient() {
                     className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
                     data-testid={`audit-row-${entry.id}`}
                   >
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{formatTimestamp(entry.createdAt)}</td>
-                    <td className="px-4 py-3 text-slate-700">{entry.actorEmail ?? "System"}</td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-5 py-4 align-top text-slate-500">{formatTimestamp(entry.createdAt)}</td>
+	                    <td className="px-4 py-4 align-top text-slate-700">
+	                      <div className="min-w-[12rem]">
+	                        <p className="font-medium text-slate-900">{entry.actorEmail ?? "System"}</p>
+	                        <p className="mt-1 text-xs text-slate-500">
+	                          {entry.actorUserId ? "User action" : "System event"}
+	                        </p>
+	                      </div>
+	                    </td>
+                    <td className="px-4 py-4 align-top">
                       <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                         {ACTION_LABELS[entry.action] ?? entry.action}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {entry.targetEmail ?? entry.targetDisplayName ?? "—"}
+                    <td className="px-4 py-4 align-top text-slate-700">
+                      <div className="min-w-[12rem]">
+	                        <p className="font-medium text-slate-900">
+	                          {entry.targetEmail ?? entry.targetDisplayName ?? "—"}
+	                        </p>
+	                        <p className="mt-1 text-xs text-slate-500">
+	                          {entry.targetUserId ? "User target" : "No direct target"}
+	                        </p>
+	                      </div>
+	                    </td>
+                    <td className="px-5 py-4 align-top text-slate-500">
+                      <div className="max-w-[26rem] break-words">{formatMetadata(entry.metadata)}</div>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{formatMetadata(entry.metadata)}</td>
                   </tr>
                 ))}
               </tbody>

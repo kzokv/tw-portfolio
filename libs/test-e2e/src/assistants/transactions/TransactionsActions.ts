@@ -131,10 +131,11 @@ export class TransactionsActions extends AppBaseActions {
   @Step()
   async waitForLedgerRefresh(): Promise<import("@playwright/test").Response> {
     return await this.mxWaitForResponse(
-      (r) =>
-        r.request().method() === "GET" &&
-        r.url().includes("/portfolio/transactions?limit=6") &&
-        r.ok(),
+      (r) => {
+        if (r.request().method() !== "GET" || !r.ok()) return false;
+        const url = new URL(r.url());
+        return url.pathname.endsWith("/portfolio/transactions") && url.searchParams.has("limit");
+      },
     );
   }
 

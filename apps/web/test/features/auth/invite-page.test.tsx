@@ -11,6 +11,9 @@ vi.mock("next/headers", () => ({
     get: (name: string) => mockHeaders.get(name) ?? null,
   })),
 }));
+vi.mock("../../../components/layout/ThemeToggle", () => ({
+  ThemeToggle: () => <div data-testid="theme-toggle-mock">theme toggle</div>,
+}));
 
 vi.mock("../../../lib/auth", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
@@ -51,6 +54,8 @@ describe("InvitePage", () => {
     expect(html).toContain("Accept your invite");
     expect(html).toContain('data-testid="google-sign-in-button"');
     expect(html).toContain("invite_code=INVITE42");
+    expect(html).toContain("Invitation code");
+    expect(html).toContain("INVITE42");
   });
 
   it("renders unavailable state without sign-in button for invalid invite", async () => {
@@ -78,6 +83,7 @@ describe("InvitePage", () => {
     expect(html).toContain("member@example.com");
     expect(html).toContain('data-testid="invite-sign-out-button"');
     expect(html).toContain('data-testid="invite-dashboard-button"');
+    expect(html).toContain("Invitation code");
   });
 
   it("renders localized invite copy from Accept-Language", async () => {

@@ -14,9 +14,17 @@ import {
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
 import { getJson, patchJson, postJson, ApiError } from "../../lib/api";
+import { cn } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { TabsRoot, TabsList, TabsTrigger, TabsContent } from "../ui/Tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/shadcn/select";
 import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
 import { NumericOverrideRow } from "./NumericOverrideRow";
 import { MaskedSecretInput } from "./MaskedSecretInput";
@@ -47,6 +55,17 @@ const TAB_LABELS: Record<TabSlug, string> = {
   "display-defaults": "Display defaults",
   "api-keys": "API keys",
   "mcp": "MCP",
+};
+
+const TAB_DESCRIPTIONS: Record<TabSlug, string> = {
+  "rate-limits": "Traffic windows, budgets, and request throttles.",
+  "sharing": "Public-link caps and anonymous share guardrails.",
+  "provider-health": "Provider cooldowns, retention, and alert suppression.",
+  "backfill-repair": "Repair retries and backfill pacing defaults.",
+  "catalog-metadata": "Catalog absence thresholds and metadata enrichment mode.",
+  "display-defaults": "New-account display defaults and dashboard timeframes.",
+  "api-keys": "Encrypted provider secrets stored in app config.",
+  "mcp": "Global AI connector policy and OAuth redirect allowlist.",
 };
 
 function isValidTabSlug(value: string | null): value is TabSlug {
@@ -673,22 +692,60 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
         </p>
       </div>
 
-      {/* Tabs wrap every per-area knob group, including Display defaults and
-          API keys. The KZO-199-era "intentionally outside tabs" framing was
-          reversed in admin-ui-bugs — both cards now live under their own
-          dedicated tab so they don't render under every active tab. */}
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
-        <TabsList data-testid="admin-settings-tabs">
-          {TAB_SLUGS.map((slug) => (
-            <TabsTrigger
-              key={slug}
-              value={slug}
-              data-testid={`admin-settings-tab-${slug}`}
-            >
-              {TAB_LABELS[slug]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]">
+          <div className="space-y-4">
+            <Card className="hidden px-4 py-4 md:block hover:translate-y-0">
+              <div className="space-y-1">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-primary/78">Sections</p>
+                <p className="text-sm text-slate-600">
+                  Keep admin settings on one query-driven page while grouping related controls by task.
+                </p>
+              </div>
+              <TabsList
+                data-testid="admin-settings-tabs"
+                className="mt-4 hidden h-auto w-full flex-col items-stretch gap-1 overflow-visible rounded-2xl border-0 bg-transparent p-0 md:flex"
+              >
+                {TAB_SLUGS.map((slug) => (
+                  <TabsTrigger
+                    key={slug}
+                    value={slug}
+                    data-testid={`admin-settings-tab-${slug}`}
+                    className={cn(
+                      "h-auto w-full items-start justify-start rounded-xl border border-transparent px-3 py-3 text-left",
+                      "data-[state=active]:border-slate-200 data-[state=active]:bg-white",
+                    )}
+                  >
+                    <span className="block text-sm font-semibold">{TAB_LABELS[slug]}</span>
+                    <span className="mt-1 block whitespace-normal text-xs font-normal text-slate-500">
+                      {TAB_DESCRIPTIONS[slug]}
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Card>
+
+            <div className="md:hidden">
+              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="admin-settings-mobile-nav">
+                Section
+              </label>
+              <Select value={activeTab} onValueChange={handleTabChange}>
+                <SelectTrigger id="admin-settings-mobile-nav" className="w-full" data-testid="admin-settings-mobile-nav">
+                  <SelectValue placeholder={TAB_LABELS[activeTab]} />
+                </SelectTrigger>
+                <SelectContent>
+                  {TAB_SLUGS.map((slug) => (
+                    <SelectItem key={slug} value={slug}>
+                      {TAB_LABELS[slug]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-2 text-sm text-slate-500">{TAB_DESCRIPTIONS[activeTab]}</p>
+            </div>
+          </div>
+
+          <div className="min-w-0">
 
         {/* ── Rate limits tab ───────────────────────────────────────────── */}
         <TabsContent value="rate-limits" data-testid="admin-settings-panel-rate-limits">
@@ -1238,6 +1295,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
         <TabsContent value="mcp" data-testid="admin-settings-panel-mcp">
           <AdminMcpSettingsPanel active={activeTab === "mcp"} />
         </TabsContent>
+          </div>
+        </div>
       </TabsRoot>
 
       <p className="text-xs text-slate-500" data-testid="admin-settings-last-updated">

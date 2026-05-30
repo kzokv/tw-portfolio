@@ -8,6 +8,9 @@ vi.mock("next/headers", () => ({
     get: (name: string) => mockHeaders.get(name) ?? null,
   })),
 }));
+vi.mock("../../../components/layout/ThemeToggle", () => ({
+  ThemeToggle: () => <div data-testid="theme-toggle-mock">theme toggle</div>,
+}));
 
 import AuthErrorPage from "../../../app/auth/error/page";
 
@@ -22,6 +25,7 @@ describe("AuthErrorPage", () => {
     expect(html).toContain("Sign-in failed");
     expect(html).toContain("invalid or expired");
     expect(html).toContain('data-testid="auth-error-try-again"');
+    expect(html).toContain("ERR · invalid_state");
   });
 
   it("renders oauth_error message", async () => {

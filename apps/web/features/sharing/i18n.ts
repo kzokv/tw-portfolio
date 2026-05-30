@@ -7,6 +7,11 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       pageDescription: "Grant or revoke read-only access to your portfolio and review portfolios shared with you.",
       pageEyebrow: "Portfolio Access",
       pageIntro: "Members and admins can share read-only portfolio access. Viewers can review inbound shares here.",
+      tabs: {
+        outbound: "Outbound",
+        inbound: "Inbound",
+        anonymous: "Anonymous links",
+      },
       grantButton: "Share your portfolio",
       refreshButton: "Refresh",
       loading: "Loading sharing data...",
@@ -28,6 +33,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       table: {
         grantee: "Grantee",
         status: "Status",
+        aiAccess: "AI access",
         created: "Created",
         expires: "Expires",
         actions: "Actions",
@@ -176,6 +182,11 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       pageDescription: "在這裡授與或撤銷唯讀存取權，也能查看別人分享給你的投資組合。",
       pageEyebrow: "投資組合存取權",
       pageIntro: "管理員與成員可分享唯讀投資組合。viewer 角色可在此查看收到的分享。",
+      tabs: {
+        outbound: "對外分享",
+        inbound: "收到的分享",
+        anonymous: "公開連結",
+      },
       grantButton: "分享你的投資組合",
       refreshButton: "重新整理",
       loading: "分享資料載入中...",
@@ -197,6 +208,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       table: {
         grantee: "受分享者",
         status: "狀態",
+        aiAccess: "AI 存取",
         created: "建立時間",
         expires: "到期日",
         actions: "操作",

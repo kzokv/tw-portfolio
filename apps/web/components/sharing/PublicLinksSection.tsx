@@ -17,6 +17,7 @@ import { RevokeAnonymousLinkDialog } from "./RevokeAnonymousLinkDialog";
 
 interface PublicLinksSectionProps {
   locale: LocaleCode;
+  onActiveCountChange?: (count: number) => void;
 }
 
 const ACTIVE_CAP = 20;
@@ -59,7 +60,7 @@ function mapRevokeError(error: unknown, copy: ReturnType<typeof getDictionary>["
   return copy.generic;
 }
 
-export function PublicLinksSection({ locale }: PublicLinksSectionProps) {
+export function PublicLinksSection({ locale, onActiveCountChange }: PublicLinksSectionProps) {
   const dict = useMemo(() => getDictionary(locale), [locale]);
   const copy = dict.sharing.publicLinks;
 
@@ -109,6 +110,10 @@ export function PublicLinksSection({ locale }: PublicLinksSectionProps) {
   const atCap = activeCount >= ACTIVE_CAP;
   const showCapBanner = atCap || capErrorText !== null;
   const capBannerBody = capErrorText ?? copy.capBannerBody;
+
+  useEffect(() => {
+    onActiveCountChange?.(activeCount);
+  }, [activeCount, onActiveCountChange]);
 
   useEffect(() => {
     if (!atCap) setCapErrorText(null);
@@ -192,12 +197,12 @@ export function PublicLinksSection({ locale }: PublicLinksSectionProps) {
   }
 
   return (
-    <Card className="space-y-5" data-testid="sharing-public-links-section">
+    <Card className="space-y-4 rounded-[20px] px-5 py-5 sm:px-6 sm:py-5" data-testid="sharing-public-links-section">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{copy.eyebrow}</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-950">{copy.title}</h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+          <h2 className="mt-1.5 text-xl font-semibold text-slate-950">{copy.title}</h2>
+          <p className="mt-1.5 max-w-2xl text-sm text-slate-600">
             {(atCap ? copy.descriptionAtCap : copy.descriptionWithCount)
               .replace("{active}", String(activeCount))
               .replace("{limit}", String(ACTIVE_CAP))}
@@ -222,7 +227,7 @@ export function PublicLinksSection({ locale }: PublicLinksSectionProps) {
 
       {showCapBanner ? (
         <div
-          className="rounded-[20px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800"
+          className="rounded-[18px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800"
           role="status"
           data-testid="sharing-public-links-cap-banner"
         >

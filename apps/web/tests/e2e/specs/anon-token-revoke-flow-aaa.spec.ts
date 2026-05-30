@@ -14,7 +14,7 @@ test.describe("anonymous share links: revoke flow", () => {
       expiresInDays: 30,
     });
 
-    await sharing.actions.navigateToSharing();
+    await sharing.actions.navigateToPublicLinks();
     await appShell.assert.appIsReady();
 
     await sharing.assert.publicLinkRowVisible(token.id);

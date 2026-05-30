@@ -8,7 +8,6 @@ import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
-import { RouteHeroPanel, StatusStripCard } from "../layout/SectionHeroPanels";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import { AddTransactionCard } from "../portfolio/AddTransactionCard";
 import { Card } from "../ui/Card";
@@ -42,7 +41,8 @@ export function TransactionsClient({
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("transactions");
   // TransactionsClient only mounts on /transactions, so enabled is unconditionally true.
-  const recentTransactions = useRecentTransactions({ limit: 6, enabled: true });
+  const recentTransactions = useRecentTransactions({ limit: 12, enabled: true });
+  const addPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -93,36 +93,61 @@ export function TransactionsClient({
     router.replace(query ? `/transactions?${query}` : "/transactions", { scroll: false });
   }
 
+  function handleAddTransactionClick() {
+    if (activeTab !== "posted") {
+      handleTabChange("posted");
+      window.setTimeout(() => {
+        addPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+      return;
+    }
+
+    addPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="stagger grid min-w-0 gap-6">
-      <RouteHeroPanel
-        eyebrow={dict.navigation.transactionsLabel}
-        title={dict.transactions.title}
-        description={dict.navigation.transactionsDescription}
-        testId="transactions-intro"
-        metrics={[
-          {
-            label: dict.dashboardHome.accountCountLabel,
-            value: formatNumber(dashboard.summary.accountCount, locale),
-            detail: dict.navigation.transactionsLabel,
-          },
-          {
-            label: dict.dashboardHome.holdingCountLabel,
-            value: formatNumber(dashboard.summary.holdingCount, locale),
-            detail: dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount)),
-          },
-          {
-            label: dict.dashboardHome.issueCountLabel,
-            value: formatNumber(dashboard.summary.openIssueCount, locale),
-            detail: dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle,
-          },
-          {
-            label: dict.dashboardHome.quoteCoverageLabel,
-            value: quoteCoverageValue,
-            detail: quoteCoverageDetail,
-          },
-        ]}
-      />
+      <section
+        className="grid gap-4 rounded-xl border border-border bg-card px-5 py-5 shadow-sm sm:px-6"
+        data-testid="transactions-intro"
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-primary/78">{dict.navigation.transactionsLabel}</p>
+            <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{dict.navigation.transactionsLabel}</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{dict.navigation.transactionsDescription}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddTransactionClick}
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent"
+          >
+            {dict.transactions.title}
+          </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CompactMetric
+            label={dict.dashboardHome.accountCountLabel}
+            value={formatNumber(dashboard.summary.accountCount, locale)}
+            detail={dict.navigation.transactionsLabel}
+          />
+          <CompactMetric
+            label={dict.dashboardHome.holdingCountLabel}
+            value={formatNumber(dashboard.summary.holdingCount, locale)}
+            detail={dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount))}
+          />
+          <CompactMetric
+            label={dict.dashboardHome.issueCountLabel}
+            value={formatNumber(dashboard.summary.openIssueCount, locale)}
+            detail={dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle}
+          />
+          <CompactMetric
+            label={dict.dashboardHome.quoteCoverageLabel}
+            value={quoteCoverageValue}
+            detail={quoteCoverageDetail}
+          />
+        </div>
+      </section>
 
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
         <TabsList data-testid="transactions-tabs">
@@ -146,13 +171,53 @@ export function TransactionsClient({
             key={`card-grid-transactions-${resetCount}`}
             orderKey="transactions"
             cards={[
-              { slug: "transactions-add", fullWidth: true },
-              { slug: "transactions-status", fullWidth: true },
               { slug: "transactions-recent", fullWidth: true },
+              { slug: "transactions-status", fullWidth: true },
+              { slug: "transactions-add", fullWidth: true },
             ]}
           >
             {(slug) => {
               switch (slug) {
+                case "transactions-recent":
+                  return (
+                    <RecentTransactionsCard
+                      items={recentTransactions.items}
+                      locale={locale}
+                      dict={dict}
+                      isLoading={recentTransactions.isLoading}
+                      errorMessage={recentTransactions.errorMessage}
+                      variant="primary"
+                    />
+                  );
+                case "transactions-status":
+                  return (
+                    <Card data-testid="transactions-verification-panel">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/78">
+                        {dict.transactions.verificationTitle}
+                      </p>
+                      <h2 className="mt-2 text-xl font-semibold text-foreground">{dict.transactions.verificationTitle}</h2>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{dict.transactions.verificationDescription}</p>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        <CompactMetric
+                          label={dict.dashboardHome.marketValueLabel}
+                          value={dashboard.summary.marketValueAmount !== null
+                            ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
+                            : dict.dashboardHome.noMarketValue}
+                          detail={dict.dashboardHome.marketValueLabel}
+                        />
+                        <CompactMetric
+                          label={dict.dashboardHome.totalCostLabel}
+                          value={formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale)}
+                          detail={dict.dashboardHome.totalCostLabel}
+                        />
+                        <CompactMetric
+                          label={dict.dashboardHome.holdingCountLabel}
+                          value={formatNumber(dashboard.summary.holdingCount, locale)}
+                          detail={dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount))}
+                        />
+                      </div>
+                    </Card>
+                  );
                 case "transactions-add":
                   return isSharedContext ? (
                     <Card
@@ -162,59 +227,33 @@ export function TransactionsClient({
                       <p role="status" aria-live="polite">{dict.switcher.readonlyDescription}</p>
                     </Card>
                   ) : (
-                    <AddTransactionCard
-                      value={transactionSubmission.draftTransaction}
-                      accountOptions={transactionAccountOptions}
-                      pending={transactionSubmission.isSubmitting}
-                      onChange={(next) => {
-                        transactionSubmission.setMessage("");
-                        transactionSubmission.setDraftTransaction(next);
-                      }}
-                      onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
-                      onSubmit={async () => {
-                        await transactionSubmission.submit();
-                      }}
-                      dict={dict}
-                      locale={locale}
-                      priceHint={transactionSubmission.priceHint}
-                      showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
-                      feeEstimate={transactionSubmission.feeEstimate}
-                    />
-                  );
-                case "transactions-status":
-                  return (
-                    <StatusStripCard
-                      eyebrow={dict.navigation.transactionsLabel}
-                      title={dict.transactions.verificationTitle}
-                      description={dict.transactions.verificationDescription}
-                      metrics={[
-                        {
-                          label: dict.dashboardHome.marketValueLabel,
-                          value: dashboard.summary.marketValueAmount !== null
-                            ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
-                            : dict.dashboardHome.noMarketValue,
-                        },
-                        {
-                          label: dict.dashboardHome.totalCostLabel,
-                          value: formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale),
-                        },
-                        {
-                          label: dict.dashboardHome.holdingCountLabel,
-                          value: formatNumber(dashboard.summary.holdingCount, locale),
-                        },
-                      ]}
-                      testId="transactions-verification-panel"
-                    />
-                  );
-                case "transactions-recent":
-                  return (
-                    <RecentTransactionsCard
-                      items={recentTransactions.items}
-                      locale={locale}
-                      dict={dict}
-                      isLoading={recentTransactions.isLoading}
-                      errorMessage={recentTransactions.errorMessage}
-                    />
+                    <Card>
+                      <div ref={addPanelRef} className="mb-5 min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/78">{dict.transactions.title}</p>
+                        <h2 className="mt-2 text-xl font-semibold text-foreground">{dict.transactions.title}</h2>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">{dict.transactions.description}</p>
+                      </div>
+                      <AddTransactionCard
+                        value={transactionSubmission.draftTransaction}
+                        accountOptions={transactionAccountOptions}
+                        pending={transactionSubmission.isSubmitting}
+                        onChange={(next) => {
+                          transactionSubmission.setMessage("");
+                          transactionSubmission.setDraftTransaction(next);
+                        }}
+                        onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
+                        onSubmit={async () => {
+                          await transactionSubmission.submit();
+                        }}
+                        dict={dict}
+                        locale={locale}
+                        framed={false}
+                        showHeader={false}
+                        priceHint={transactionSubmission.priceHint}
+                        showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
+                        feeEstimate={transactionSubmission.feeEstimate}
+                      />
+                    </Card>
                   );
                 default:
                   return null;
@@ -231,6 +270,16 @@ export function TransactionsClient({
           />
         </TabsContent>
       </TabsRoot>
+    </div>
+  );
+}
+
+function CompactMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
     </div>
   );
 }

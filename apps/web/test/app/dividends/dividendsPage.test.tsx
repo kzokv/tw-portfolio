@@ -92,13 +92,13 @@ describe("DividendsPage", () => {
     vi.clearAllMocks();
   });
 
-  it("calendar first render skips inactive ledger fetches", async () => {
+  it("plain route probes review once before falling back to calendar", async () => {
     await DividendsPage({
       searchParams: Promise.resolve({}),
     });
 
     expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
-    expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
+    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
   });
 
@@ -110,5 +110,28 @@ describe("DividendsPage", () => {
     expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
     expect(fetchDividendLedgerYearsMock).toHaveBeenCalledTimes(1);
     expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("defaults to review when open review items exist on the plain route", async () => {
+    fetchDividendLedgerReviewMock.mockResolvedValueOnce({
+      ledgerEntries: [{ id: "entry-1" }],
+      total: 1,
+      aggregates: {
+        totalExpectedCashAmount: {},
+        totalReceivedCashAmount: {},
+        openCount: 2,
+        byMonth: {},
+        byTicker: {},
+      },
+    } as never);
+
+    const result = await DividendsPage({
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
+    expect(fetchDividendLedgerYearsMock).toHaveBeenCalledTimes(1);
+    expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+    expect(result).toBeTruthy();
   });
 });

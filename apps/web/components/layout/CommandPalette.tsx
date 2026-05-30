@@ -29,6 +29,7 @@ import {
   getActionCommandItems,
   getRouteCommandItems,
 } from "../../lib/command-registry";
+import { useOptionalNavigationFeedback } from "./NavigationFeedbackContext";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -77,6 +78,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const router = useRouter();
   const { setTheme } = useTheme();
+  const navigationFeedback = useOptionalNavigationFeedback();
 
   const [query, setQuery] = useState(initialQuery);
   const [tickerResults, setTickerResults] = useState<TickerCommandItem[]>([]);
@@ -223,6 +225,7 @@ export function CommandPalette({
                 data-testid={`command-palette-item-route-${item.key}`}
                 onSelect={() => {
                   close();
+                  navigationFeedback?.startNavigation({ href: item.href, label: item.label });
                   router.push(item.href);
                 }}
               >
@@ -243,7 +246,9 @@ export function CommandPalette({
                   data-testid={`command-palette-item-ticker-${item.ticker}-${item.marketCode}`}
                   onSelect={() => {
                     close();
-                    router.push(`/tickers/${encodeURIComponent(item.ticker)}`);
+                    const href = `/tickers/${encodeURIComponent(item.ticker)}`;
+                    navigationFeedback?.startNavigation({ href, label: item.ticker });
+                    router.push(href);
                   }}
                 >
                   <span className="font-medium">{item.ticker}</span>

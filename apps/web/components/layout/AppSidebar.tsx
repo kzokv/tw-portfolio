@@ -35,6 +35,7 @@ import { SidebarResizeRail } from "./SidebarResizeRail";
 import { cn } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
 import { fetchAiInboxBadge } from "../../features/ai-inbox/service";
+import { useOptionalNavigationFeedback } from "./NavigationFeedbackContext";
 
 export type AppSidebarVariant = "user" | "admin";
 
@@ -49,6 +50,7 @@ type NavKey =
   | "settings"
   | "admin"
   // admin variant keys
+  | "overview"
   | "users"
   | "invites"
   | "audit-log"
@@ -124,6 +126,7 @@ export function AppSidebar({
   const pathname = usePathname() ?? "/";
   const { isMobile, setOpenMobile, state } = useSidebar();
   const [aiInboxCount, setAiInboxCount] = useState(0);
+  const navigationFeedback = useOptionalNavigationFeedback();
 
   const refreshAiInboxBadge = useCallback(async () => {
     if (variant !== "user") return;
@@ -151,6 +154,9 @@ export function AppSidebar({
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
+    if (item.href) {
+      navigationFeedback?.startNavigation({ href: item.href, label: item.label });
+    }
     if (item.onClick) item.onClick();
   };
 
@@ -195,6 +201,10 @@ export function AppSidebar({
           // create a strict-mode duplicate.
           onClick={() => {
             if (isMobile) setOpenMobile(false);
+            navigationFeedback?.startNavigation({
+              href: brandHref,
+              label: variant === "admin" ? "Admin overview" : "Dashboard",
+            });
           }}
           // The `app-sidebar-brand` testid lives ONLY on the TopBar mobile
           // brand button (rendered when isMobile) — it is the mobile-nav
@@ -331,6 +341,10 @@ export function AppSidebar({
                   data-testid="admin-back-to-app"
                   onClick={() => {
                     if (isMobile) setOpenMobile(false);
+                    navigationFeedback?.startNavigation({
+                      href: "/dashboard",
+                      label: "Dashboard",
+                    });
                   }}
                 >
                   <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
@@ -383,6 +397,13 @@ function getUserNavGroups({ role, aiInboxCount }: { role?: string; aiInboxCount:
 
 function getAdminNavItems(): NavItem[] {
   return [
+    {
+      key: "overview",
+      href: "/admin",
+      label: "Overview",
+      icon: LayoutDashboard,
+      isActiveOverride: (pathname) => pathname === "/admin",
+    },
     { key: "users", href: "/admin/users", label: "Users", icon: Users },
     { key: "invites", href: "/admin/invites", label: "Invites", icon: Mail },
     { key: "audit-log", href: "/admin/audit-log", label: "Audit Log", icon: ClipboardList },
