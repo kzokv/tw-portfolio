@@ -39,7 +39,7 @@ function makeCronJob(extra?: Partial<FxRefreshJobData>): FxRefreshJobData {
     trigger: "cron",
     startDate: TODAY_UTC,
     endDate: TODAY_UTC,
-    bases: ["TWD", "USD", "AUD"],
+    bases: ["TWD", "USD", "AUD", "KRW"],
     ...extra,
   };
 }
@@ -49,7 +49,7 @@ function makeManualJob(startDate: string, endDate: string, extra?: Partial<FxRef
     trigger: "manual",
     startDate,
     endDate,
-    bases: ["TWD", "USD", "AUD"],
+    bases: ["TWD", "USD", "AUD", "KRW"],
     ...extra,
   };
 }

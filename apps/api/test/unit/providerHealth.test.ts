@@ -53,7 +53,10 @@ const PROVIDERS = [
   "finmind-us",
   "yahoo-finance-au",
   "twelve-data-au",
+  "yahoo-finance-kr",
+  "twelve-data-kr",
   "frankfurter",
+  "asx-gics-csv",
 ] as const;
 
 async function seedHealthRow(

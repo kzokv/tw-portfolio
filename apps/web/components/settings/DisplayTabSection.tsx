@@ -11,6 +11,7 @@ import type {
 } from "@vakwen/shared-types";
 import {
   ACCENT_PRESETS,
+  ACCOUNT_DEFAULT_CURRENCIES,
   DEFAULT_THEME_ACCENT,
   densityModeSchema,
   themeAccentSchema,
@@ -54,7 +55,7 @@ const PRESET_PREVIEW: Record<AccentPreset, string> = {
 
 export type ReorderablePage = "dashboard" | "transactions" | "portfolio";
 
-const REPORTING_CURRENCY_OPTIONS: AccountDefaultCurrency[] = ["TWD", "USD", "AUD"];
+const REPORTING_CURRENCY_OPTIONS: AccountDefaultCurrency[] = [...ACCOUNT_DEFAULT_CURRENCIES];
 
 interface UserPreferencesResponse {
   preferences?: {
@@ -120,7 +121,7 @@ export function DisplayTabSection({
       .then((res) => {
         if (cancelled) return;
         const saved = res?.preferences?.reportingCurrency;
-        if (saved === "TWD" || saved === "USD" || saved === "AUD") {
+        if (saved && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(saved)) {
           setReportingCurrency(saved);
         }
         // Phase 2C — hydrate accent + density from the same response.
@@ -488,7 +489,7 @@ export function DisplayTabSection({
         </div>
 
         {/* KZO-180 — currency codes render untranslated per the KZO-167 D9
-            convention; the codes (TWD/USD/AUD) are inline string literals,
+            convention; the codes are inline string literals,
             not function values, in line with `nextjs-i18n-serialization.md`. */}
         <div className="flex items-center gap-3">
           <select
@@ -498,8 +499,8 @@ export function DisplayTabSection({
             disabled={currencySaving}
             onChange={(event) => {
               const next = event.target.value;
-              if (next === "TWD" || next === "USD" || next === "AUD") {
-                void handleReportingCurrencyChange(next);
+              if ((ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(next)) {
+                void handleReportingCurrencyChange(next as AccountDefaultCurrency);
               }
             }}
           >

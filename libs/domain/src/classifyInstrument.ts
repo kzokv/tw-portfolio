@@ -69,6 +69,16 @@ export function classifyInstrument(
     return industryCategory === "ETF" ? "ETF" : "STOCK";
   }
 
+  // KR branch mirrors the scoped free-provider catalog contract:
+  // Twelve Data KR emits `"ETF"` for ETF rows and stock-like literals
+  // (`"Common Stock"`, `"Preferred Stock"`, `"REIT"`) for included KRX stock rows.
+  // ETNs / warrants are filtered at the provider boundary, so any non-ETF KR row
+  // that reaches classification is stock-like.
+  if (marketCode === "KR") {
+    if (industryCategory === null) return "STOCK";
+    return industryCategory === "ETF" ? "ETF" : "STOCK";
+  }
+
   // TW: legacy substring path.
   if (industryCategory === null) return null;
 

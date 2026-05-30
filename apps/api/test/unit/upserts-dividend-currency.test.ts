@@ -18,6 +18,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { upsertDividendEvents } from "../../src/services/market-data/upserts.js";
 
+const SUPPORTED_DIVIDEND_CURRENCIES = new Set(["TWD", "USD", "AUD", "KRW"]);
+
 function createPoolMock() {
   return {
     query: vi.fn().mockResolvedValue({ rowCount: 0 }),
@@ -49,7 +51,7 @@ describe("upsertDividendEvents — per-row cash_dividend_currency derivation (KZ
     // Per upserts.ts shape — currencies live in a `$N::text[]` parameter, mirroring
     // the per-row sources array. Find the array containing the currency code.
     const currencyArrayIndex = params.findIndex(
-      (p) => Array.isArray(p) && p.length === 1 && (p[0] === "TWD" || p[0] === "USD" || p[0] === "AUD"),
+      (p) => Array.isArray(p) && p.length === 1 && SUPPORTED_DIVIDEND_CURRENCIES.has(String(p[0])),
     );
     expect(currencyArrayIndex).toBeGreaterThanOrEqual(0);
     expect(params[currencyArrayIndex]).toEqual(["TWD"]);
@@ -71,10 +73,32 @@ describe("upsertDividendEvents — per-row cash_dividend_currency derivation (KZ
 
     const params = pickQueryParams(pool);
     const currencyArrayIndex = params.findIndex(
-      (p) => Array.isArray(p) && p.length === 1 && (p[0] === "TWD" || p[0] === "USD" || p[0] === "AUD"),
+      (p) => Array.isArray(p) && p.length === 1 && SUPPORTED_DIVIDEND_CURRENCIES.has(String(p[0])),
     );
     expect(currencyArrayIndex).toBeGreaterThanOrEqual(0);
     expect(params[currencyArrayIndex]).toEqual(["USD"]);
+  });
+
+  it("stamps KRW on KR dividend events", async () => {
+    const pool = createPoolMock();
+    await upsertDividendEvents(pool as never, [
+      {
+        ticker: "005930",
+        marketCode: "KR",
+        exDividendDate: "2025-12-27",
+        paymentDate: "2025-12-27",
+        cashDividendPerShare: 361,
+        stockDividendPerShare: 0,
+        sourceId: "yahoo-finance-kr",
+      },
+    ]);
+
+    const params = pickQueryParams(pool);
+    const currencyArrayIndex = params.findIndex(
+      (p) => Array.isArray(p) && p.length === 1 && SUPPORTED_DIVIDEND_CURRENCIES.has(String(p[0])),
+    );
+    expect(currencyArrayIndex).toBeGreaterThanOrEqual(0);
+    expect(params[currencyArrayIndex]).toEqual(["KRW"]);
   });
 
   it("derives currency per-row when the batch mixes TW + US events", async () => {
@@ -109,7 +133,7 @@ describe("upsertDividendEvents — per-row cash_dividend_currency derivation (KZ
       (p) =>
         Array.isArray(p) &&
         p.length === 2 &&
-        p.every((v) => v === "TWD" || v === "USD" || v === "AUD"),
+        p.every((v) => SUPPORTED_DIVIDEND_CURRENCIES.has(String(v))),
     );
     expect(currencyArrayIndex).toBeGreaterThanOrEqual(0);
     const currencies = (params[currencyArrayIndex] as string[]).slice().sort();
@@ -140,7 +164,7 @@ describe("upsertDividendEvents — per-row cash_dividend_currency derivation (KZ
 
     const params = pickQueryParams(pool);
     const currencyArrayIndex = params.findIndex(
-      (p) => Array.isArray(p) && p.length === 1 && (p[0] === "TWD" || p[0] === "USD" || p[0] === "AUD"),
+      (p) => Array.isArray(p) && p.length === 1 && SUPPORTED_DIVIDEND_CURRENCIES.has(String(p[0])),
     );
     expect(currencyArrayIndex).toBeGreaterThanOrEqual(0);
     expect(params[currencyArrayIndex]).toEqual(["USD"]);

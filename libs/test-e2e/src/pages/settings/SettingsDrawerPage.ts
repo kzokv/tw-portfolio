@@ -44,7 +44,7 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     form: Locator;
     nameInput: Locator;
     typePill: (type: "broker" | "bank" | "wallet") => Locator;
-    currencyCard: (currency: "TWD" | "USD" | "AUD") => Locator;
+    currencyCard: (currency: "TWD" | "USD" | "AUD" | "KRW") => Locator;
     previewChip: Locator;
     submit: Locator;
     error: Locator;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AiConnectorAccessKind, AiConnectorScope } from "@vakwen/shared-types";
+import { MARKET_CODES, type AiConnectorAccessKind, type AiConnectorScope } from "@vakwen/shared-types";
 
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
@@ -47,7 +47,7 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/);
 
-const marketCodeSchema = z.enum(["TW", "US", "AU"]);
+const marketCodeSchema = z.enum(MARKET_CODES);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const importSourceTypeSchema = z.enum(["csv", "image", "pdf"]);
@@ -174,10 +174,10 @@ const toolDefinitions = {
     accessKind: "read" as const,
   },
   search_instruments: {
-    description: `Search supported instruments across TW, US, and AU catalogs for descriptive analysis workflows. ${adviceBoundary}`,
+    description: `Search supported instruments across TW, US, AU, and KR catalogs for descriptive analysis workflows. ${adviceBoundary}`,
     inputSchema: z.object({
       query: z.string().trim().min(1).max(100),
-      markets: z.array(marketCodeSchema).max(3).optional(),
+      markets: z.array(marketCodeSchema).max(MARKET_CODES.length).optional(),
       limit: z.number().int().positive().max(100).default(25),
     }),
     scope: "portfolio:mcp_read" as const,

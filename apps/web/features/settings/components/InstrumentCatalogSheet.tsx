@@ -20,9 +20,10 @@ import { ArrowLeft, Lock, Search, X } from "lucide-react";
 type TypeFilter = "ALL" | "STOCK" | "ETF" | "BOND_ETF";
 type MarketChip = "ALL" | MarketCode;
 // KZO-196 — `null` = "All sectors". Visible only for single-market chips
-// that support sector browsing (TW/US/AU). Carries the canonical sector name
-// (e.g. "Financials") so it feeds both AU's GICS expansion and TW/US's
-// normalized `instrument.sector` equality match.
+// that support sector browsing (TW/US/AU). KR intentionally omits this because
+// Twelve Data's free KRX catalog does not provide sector/GICS coverage. Carries
+// the canonical sector name (e.g. "Financials") so it feeds both AU's GICS
+// expansion and TW/US's normalized `instrument.sector` equality match.
 type SectorFilter = string | null;
 
 // KZO-196 — Inverse lookup `industryGroup → displayKey`, built once per
@@ -73,14 +74,13 @@ export function InstrumentCatalogSheet({
   // KZO-188: market chip filters the catalog client-side; default `ALL`
   // shows every market just like before this ticket.
   const [marketChip, setMarketChip] = useState<MarketChip>("ALL");
-  // KZO-196: shared sector filter for TW/US/AU. `null` = "All sectors".
+  // KZO-196: shared sector filter for TW/US/AU. KR has no sector narrow. `null` = "All sectors".
   // Resets whenever the user moves back to ALL because the control is hidden
   // there and should never leave behind an invisible narrow.
   const [sectorFilter, setSectorFilter] = useState<SectorFilter>(null);
 
-  // KZO-188: live-search state (only fires when chip === "AU" AND filtered
-  // catalog count is 0). The state is cleared whenever the chip moves off
-  // AU or the search box clears.
+  // KZO-188/KR: live-search state fires for Yahoo-backed markets when the
+  // local filtered catalog has no matches.
   const [liveResults, setLiveResults] = useState<InstrumentCatalogItemDto[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<SearchUnavailableError | null>(null);
@@ -167,7 +167,7 @@ export function InstrumentCatalogSheet({
   );
 
   const liveSearchEnabled =
-    debouncedQuery.length >= 2 && marketChip === "AU" && filtered.length === 0;
+    debouncedQuery.length >= 2 && (marketChip === "AU" || marketChip === "KR") && filtered.length === 0;
 
   useEffect(() => {
     // Reset live state when conditions stop matching so a stale message does
@@ -185,7 +185,7 @@ export function InstrumentCatalogSheet({
 
     void (async () => {
       try {
-        const found = await searchInstruments(debouncedQuery, "AU", controller.signal);
+        const found = await searchInstruments(debouncedQuery, marketChip as MarketCode, controller.signal);
         if (controller.signal.aborted) return;
         setLiveResults(found);
         setLiveLoading(false);
@@ -223,6 +223,7 @@ export function InstrumentCatalogSheet({
     { value: "TW", label: dict.settings.tickersMarketChipTw },
     { value: "US", label: dict.settings.tickersMarketChipUs },
     { value: "AU", label: dict.settings.tickersMarketChipAu },
+    { value: "KR", label: dict.settings.tickersMarketChipKr },
   ];
 
   const showLiveResults = liveSearchEnabled && filteredLiveResults.length > 0;

@@ -1,4 +1,5 @@
 import type { MarketCode } from "@vakwen/domain";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 
 /**
  * KZO-170 D7 — Per-market backfill history start map.
@@ -17,11 +18,15 @@ import type { MarketCode } from "@vakwen/domain";
  *   dates get truncated with `pre_provider_history_truncated`, mirroring KZO-170 D13.
  *   Per-ticker floors above this (e.g. VAS listed 2009) are handled natively — Yahoo
  *   returns the available subrange when `period1` predates listing.
+ * - KR: `2000-01-04` — Yahoo Finance `chart()` earliest observed daily bar boundary
+ *   for 005930.KS during the KR provider spike. Per-ticker floors above this are
+ *   handled natively by Yahoo.
  */
 export const HISTORY_START_BY_MARKET: Record<MarketCode, string> = {
   TW: "1994-10-01",
   US: "2019-06-01",
   AU: "1988-01-28",
+  KR: "2000-01-04",
 };
 
 /**
@@ -228,13 +233,13 @@ export interface FxRateProvider {
  * KZO-164: pg-boss job payload for the `fx-refresh` queue. The cron schedule sends `{}`
  * (no body); `deriveFetchWindow` derives the window from `getLatestFxRateDate()` for cron
  * runs, and reads the body verbatim for manual triggers. `bases` defaults to STORED_QUOTES
- * (`['TWD','USD','AUD']`).
+ * (`['TWD','USD','AUD','KRW']`).
  */
 export interface FxRefreshJobData {
   trigger: "cron" | "manual";
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
-  bases: readonly ("TWD" | "USD" | "AUD")[];
+  bases: readonly AccountDefaultCurrency[];
 }
 
 /**

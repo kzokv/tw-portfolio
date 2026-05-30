@@ -33,12 +33,20 @@ export class ProvidersApiAssert extends ApiBaseAssert {
 
   /**
    * KZO-196 — `asx-gics-csv` row added (ASX GICS catalog enrichment provider).
-   * Current canonical assertion. New tests should use this; `hasFiveProviders`
-   * is retained for back-compat.
+   * Retained for back-compat with pre-KR provider expectations.
    */
   @Step()
   async hasSixProviders(body: AdminProvidersListBody): Promise<void> {
     await this.mxAssertEqual(body.providers.length, 6, "providers list length");
+  }
+
+  /**
+   * KR support adds `yahoo-finance-kr` and `twelve-data-kr`. This is the
+   * current canonical assertion for provider-health tests.
+   */
+  @Step()
+  async hasEightProviders(body: AdminProvidersListBody): Promise<void> {
+    await this.mxAssertEqual(body.providers.length, 8, "providers list length");
   }
 
   @Step()

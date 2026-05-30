@@ -38,7 +38,7 @@ export interface DraftCandidateInput {
   accountName?: string | null;
   type?: TradeType | null;
   ticker?: string | null;
-  marketCode?: "TW" | "US" | "AU" | null;
+  marketCode?: MarketCode | null;
   quantity?: number | null;
   unitPrice?: number | null;
   priceCurrency?: string | null;
@@ -71,7 +71,7 @@ interface PreflightRowResult {
     accountNameInput: string | null;
     tradeType: TradeType | null;
     ticker: string | null;
-    marketCode: "TW" | "US" | "AU" | null;
+    marketCode: MarketCode | null;
     quantity: number | null;
     unitPrice: number | null;
     priceCurrency: string | null;
@@ -1067,7 +1067,7 @@ export async function postTransactionDraftRows(
         id: randomUUID(),
         accountId: row.accountId!,
         ticker: row.ticker!,
-        marketCode: row.marketCode as "TW" | "US" | "AU",
+        marketCode: row.marketCode as MarketCode,
         quantity: row.quantity!,
         unitPrice: row.unitPrice!,
         priceCurrency: row.priceCurrency!,
@@ -1191,7 +1191,7 @@ function mapDraftRowsToCandidates(rows: AiTransactionDraftRowRecord[]): DraftCan
     accountName: row.accountNameInput ?? undefined,
     type: row.tradeType ?? undefined,
     ticker: row.ticker ?? undefined,
-    marketCode: row.marketCode as "TW" | "US" | "AU" | undefined,
+    marketCode: row.marketCode as MarketCode | undefined,
     quantity: row.quantity ?? undefined,
     unitPrice: row.unitPrice ?? undefined,
     priceCurrency: row.priceCurrency ?? undefined,

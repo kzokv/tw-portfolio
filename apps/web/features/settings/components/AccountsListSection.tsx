@@ -126,6 +126,7 @@ function marketBadgeLabel(
     case "TWD": return dict.settings.accountsListMarketBadgeTW;
     case "USD": return dict.settings.accountsListMarketBadgeUS;
     case "AUD": return dict.settings.accountsListMarketBadgeAU;
+    case "KRW": return dict.settings.accountsListMarketBadgeKR;
   }
 }
 
@@ -134,6 +135,7 @@ function marketBadgeColorClass(currency: AccountDefaultCurrency): string {
     case "TWD": return "bg-emerald-50 text-emerald-700";
     case "USD": return "bg-indigo-50 text-indigo-700";
     case "AUD": return "bg-rose-50 text-rose-700";
+    case "KRW": return "bg-amber-50 text-amber-700";
   }
 }
 

@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import type { AccountDefaultCurrency } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES } from "@vakwen/shared-types";
 import { useSettingsRouteContext } from "./SettingsRouteProvider";
 import { getDictionary } from "../../lib/i18n";
 import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
@@ -21,7 +22,7 @@ import type {
 import type { TransactionInput } from "../portfolio/types";
 import { toSettingsFormModel } from "../../features/settings/mappers/settingsMappers";
 
-const PREFILL_CURRENCIES = new Set<AccountDefaultCurrency>(["TWD", "USD", "AUD"]);
+const PREFILL_CURRENCIES = new Set<AccountDefaultCurrency>(ACCOUNT_DEFAULT_CURRENCIES);
 
 function parsePrefillCurrency(raw: string | null): AccountDefaultCurrency | undefined {
   if (raw && PREFILL_CURRENCIES.has(raw as AccountDefaultCurrency)) {

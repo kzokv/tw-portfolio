@@ -25,6 +25,10 @@ describe("resolveReportingCurrency", () => {
     expect(resolveReportingCurrency({ reportingCurrency: "AUD" })).toBe("AUD");
   });
 
+  it("passes through valid KRW", () => {
+    expect(resolveReportingCurrency({ reportingCurrency: "KRW" })).toBe("KRW");
+  });
+
   it("defaults to TWD on an invalid string", () => {
     // EUR is not in the AccountDefaultCurrency union; should fall through.
     expect(resolveReportingCurrency({ reportingCurrency: "EUR" })).toBe("TWD");

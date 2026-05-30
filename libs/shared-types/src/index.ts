@@ -290,11 +290,15 @@ export interface FeeProfileDto {
   commissionChargeMode: "CHARGED_UPFRONT" | "CHARGED_UPFRONT_REBATED_LATER";
 }
 
+export const ACCOUNT_DEFAULT_CURRENCIES = ["TWD", "USD", "AUD", "KRW"] as const;
+export const MARKET_CODES = ["TW", "US", "AU", "KR"] as const;
+export const MARKET_FILTER_CODES = [...MARKET_CODES, "ALL"] as const;
+
 // KZO-167: per-account currency + account type metadata. Both are added
 // here (not on a separate `Account` interface in apps/api/src/types/store.ts)
 // because KZO-167 collapses the API-internal `Account` interface into this
 // DTO. New value semantics are gated by D7 lockdown at the route layer.
-export type AccountDefaultCurrency = "TWD" | "USD" | "AUD";
+export type AccountDefaultCurrency = (typeof ACCOUNT_DEFAULT_CURRENCIES)[number];
 export type AccountType = "broker" | "bank" | "wallet";
 
 export interface AccountDto {
@@ -307,20 +311,22 @@ export interface AccountDto {
 }
 
 // KZO-183: closed-set market code derived from an account's defaultCurrency.
-// Currency ↔ market is a 1:1 mapping (TWD↔TW, USD↔US, AUD↔AU). Both helpers
+// Currency ↔ market is a 1:1 mapping (TWD↔TW, USD↔US, AUD↔AU, KRW↔KR). Both helpers
 // throw on any unsupported input.
-export type MarketCode = "TW" | "US" | "AU";
+export type MarketCode = (typeof MARKET_CODES)[number];
 
 export const MARKET_CURRENCY_PAIRS = {
   TWD: "TW",
   USD: "US",
   AUD: "AU",
+  KRW: "KR",
 } as const satisfies Record<AccountDefaultCurrency, MarketCode>;
 
 const MARKET_TO_CURRENCY = {
   TW: "TWD",
   US: "USD",
   AU: "AUD",
+  KR: "KRW",
 } as const satisfies Record<MarketCode, AccountDefaultCurrency>;
 
 export function marketCodeFor(currency: string): MarketCode {

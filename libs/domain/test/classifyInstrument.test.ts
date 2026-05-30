@@ -188,3 +188,20 @@ describe("classifyInstrument — AU (KZO-172)", () => {
     expect(classifyInstrument("ETF", "0050", "TW")).toBe("ETF");
   });
 });
+
+describe("classifyInstrument — KR", () => {
+  it("maps ETF sentinel to ETF and stock-like KRX rows to STOCK", () => {
+    expect(classifyInstrument("ETF", "069500", "KR")).toBe("ETF");
+    expect(classifyInstrument("Common Stock", "005930", "KR")).toBe("STOCK");
+    expect(classifyInstrument("Preferred Stock", "005935", "KR")).toBe("STOCK");
+    expect(classifyInstrument("REIT", "088260", "KR")).toBe("STOCK");
+  });
+
+  it("does NOT apply TW ticker-ending-B bond ETF behavior to KR", () => {
+    expect(classifyInstrument("ETF", "12345B", "KR")).toBe("ETF");
+  });
+
+  it("defaults null KR metadata to STOCK because KR catalog filtering happens at provider boundary", () => {
+    expect(classifyInstrument(null, "005930", "KR")).toBe("STOCK");
+  });
+});

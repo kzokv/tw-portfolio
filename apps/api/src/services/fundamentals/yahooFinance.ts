@@ -5,7 +5,7 @@ import { RateLimiter } from "../market-data/rateLimiter.js";
 import { RateLimitedError } from "../market-data/types.js";
 import { createEmptyTickerFundamentals, type FundamentalsProvider } from "./types.js";
 
-type YahooFundamentalsProviderMarket = "TW" | "US" | "AU";
+type YahooFundamentalsProviderMarket = "TW" | "US" | "AU" | "KR";
 
 const QUERY_MODULES = [
   "price",
@@ -17,6 +17,13 @@ const QUERY_MODULES = [
 interface YahooFundamentalsProviderConfig {
   marketCode: YahooFundamentalsProviderMarket;
   rateLimiter?: RateLimiter;
+}
+
+interface YahooQuoteSummaryResult {
+  summaryDetail?: unknown;
+  defaultKeyStatistics?: unknown;
+  financialData?: unknown;
+  price?: unknown;
 }
 
 export class YahooFundamentalsProvider implements FundamentalsProvider {
@@ -39,13 +46,29 @@ export class YahooFundamentalsProvider implements FundamentalsProvider {
     if (!this.rateLimiter.canConsume(1)) {
       throw new RateLimitedError({ msUntilAvailable: this.rateLimiter.msUntilAvailable(1) });
     }
-    this.rateLimiter.consume(1);
 
-    const symbol = normalizeYahooSymbol(input.ticker, this.marketCode);
-    const result = await this.client.quoteSummary(symbol, {
-      formatted: false,
-      modules: [...QUERY_MODULES],
-    });
+    const symbols = normalizeYahooSymbols(input.ticker, this.marketCode);
+    let result: YahooQuoteSummaryResult | null = null;
+    let lastError: unknown = null;
+    for (const symbol of symbols) {
+      if (!this.rateLimiter.canConsume(1)) {
+        throw new RateLimitedError({ msUntilAvailable: this.rateLimiter.msUntilAvailable(1) });
+      }
+      this.rateLimiter.consume(1);
+      try {
+        result = await this.client.quoteSummary(symbol, {
+          formatted: false,
+          modules: [...QUERY_MODULES],
+        }) as YahooQuoteSummaryResult;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (!result) {
+      if (lastError instanceof RateLimitedError) throw lastError;
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    }
     const asOf = new Date().toISOString();
     const source = this.providerId;
     const summaryDetail = toRecord(result.summaryDetail);
@@ -66,11 +89,15 @@ export class YahooFundamentalsProvider implements FundamentalsProvider {
   }
 }
 
-function normalizeYahooSymbol(ticker: string, marketCode: YahooFundamentalsProviderMarket): string {
+function normalizeYahooSymbols(ticker: string, marketCode: YahooFundamentalsProviderMarket): string[] {
   const normalized = ticker.trim().toUpperCase();
-  if (marketCode === "TW") return normalized.endsWith(".TW") ? normalized : `${normalized}.TW`;
-  if (marketCode === "AU") return normalized.endsWith(".AX") ? normalized : `${normalized}.AX`;
-  return normalized;
+  if (marketCode === "TW") return [normalized.endsWith(".TW") ? normalized : `${normalized}.TW`];
+  if (marketCode === "AU") return [normalized.endsWith(".AX") ? normalized : `${normalized}.AX`];
+  if (marketCode === "KR") {
+    if (normalized.endsWith(".KS") || normalized.endsWith(".KQ")) return [normalized];
+    return [`${normalized}.KS`, `${normalized}.KQ`];
+  }
+  return [normalized];
 }
 
 function field(

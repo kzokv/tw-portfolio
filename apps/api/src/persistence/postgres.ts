@@ -10460,6 +10460,19 @@ export class PostgresPersistence implements Persistence {
     return result.rows.map((row) => ({ ticker: row.ticker, marketCode: "AU" as const }));
   }
 
+  async listCatalogBarsBackfillCandidates(marketCode: MarketCode): Promise<Array<{ ticker: string; marketCode: MarketCode }>> {
+    const result = await this.pool.query<{ ticker: string; market_code: string }>(
+      `SELECT ticker, market_code
+         FROM market_data.instruments
+        WHERE market_code = $1
+          AND bars_backfill_status IN ('pending', 'failed')
+          AND delisted_at IS NULL
+        ORDER BY ticker`,
+      [marketCode],
+    );
+    return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
+  }
+
   async getUsersMonitoringTicker(ticker: string): Promise<string[]> {
     const result = await this.pool.query<{ user_id: string }>(
       `WITH monitored_users AS (

@@ -1692,6 +1692,7 @@ export interface Persistence {
    * in-memory catalog map.
    */
   listAuCatalogBarsBackfillCandidates(): Promise<Array<{ ticker: string; marketCode: "AU" }>>;
+  listCatalogBarsBackfillCandidates(marketCode: MarketCode): Promise<Array<{ ticker: string; marketCode: MarketCode }>>;
   getUsersMonitoringTicker(ticker: string): Promise<string[]>;
   getManualSelections(userId: string): Promise<{ ticker: string; marketCode: string; addedAt: string }[]>;
   // KZO-169: signature change — entries are now keyed by `(ticker, market_code)`

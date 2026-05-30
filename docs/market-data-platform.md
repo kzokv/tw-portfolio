@@ -56,18 +56,18 @@
 
 ## 3. Ingestion Model
 
-### Provider
+### Providers
 
-- **FinMind** is the sole provider for phase 1.
-- Datasets: `TaiwanStockPrice` (daily OHLCV, since 1994), `TaiwanStockDividend` (since 2005), `TaiwanStockInfo` (instrument metadata), `TaiwanStockDelisting` (delisted tickers).
-- Rate limit: 600 requests/hour with authentication token.
-- One request returns a symbol's full date range (no pagination needed).
+- **FinMind** supplies TW and US market data/catalog paths.
+- **Yahoo Finance via `yahoo-finance2`** supplies AU and KR bars, basic dividends, metadata, and live search.
+- **Twelve Data Basic/free** supplies AU and KR bulk catalogs only. Price and time-series endpoints for KRX are not available on the no-paid plan, so KR prices do not use Twelve Data.
+- **Frankfurter** supplies FX rates for stored reporting currencies.
 
 ### FX rates
 
-- **Frankfurter v2 default blend** is the sole FX provider for TWD, USD, and AUD rates. FinMind is not used for FX, so FX refreshes do not consume the shared FinMind budget.
+- **Frankfurter v2 default blend** is the sole FX provider for TWD, USD, AUD, and KRW rates. Market-data providers are not used for FX, so FX refreshes do not consume equity-provider budgets.
 - `market_data.fx_rates` stores one row per `(date, base_currency, quote_currency)` with `NUMERIC(20, 8)` precision, `source='frankfurter'`, and a descending pair/date index for latest-rate lookups.
-- The daily `fx-refresh` pg-boss singleton runs at `0 22 * * *` UTC. Normal operation makes one HTTP call per base currency (`TWD`, `USD`, `AUD`) and stores non-self pairs among those currencies.
+- The daily `fx-refresh` pg-boss singleton runs at `0 22 * * *` UTC. Normal operation makes one HTTP call per base currency (`TWD`, `USD`, `AUD`, `KRW`) and stores non-self pairs among those currencies.
 - The first cron run on an empty table seeds the most recent 30-day window. Subsequent cron runs fetch from `MAX(date)+1` through today's UTC date, capped to the latest 30 days after long gaps.
 - Admins can enqueue a manual window with `POST /admin/fx-rates/refresh`. Freshness is visible through `GET /admin/fx-rates/freshness`, which reports latest date and `ageInDays` per pair.
 
@@ -81,7 +81,7 @@ Historical bars are **not** backfilled for all ~3,071 TWSE symbols. Backfill is 
 4. When a new symbol enters the monitored set (user selection or first trade), an **async backfill job** is enqueued.
 5. The user is **notified via SSE** when backfill completes. No waiting required — the user saves settings and the system handles it in the background.
 
-KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth. Real US/AU ingestion remains separate from this schema/UI work; synthetic multi-market rows are seeded in tests via `/__e2e/seed-instruments`.
+KZO-169 generalizes the selector and monitored-symbol flow from ticker-only to `(ticker, market_code)`. The transaction form exposes market chips (`TW`, `US`, `AU`, `KR`, `All`), `/instruments?market_code=...` filters autocomplete server-side, and `All` mode renders rows with a market suffix for ambiguous symbols. Trade currency is derived from `instrument.market_code`, so account filtering and the server-side `currency_mismatch` guard use the same source of truth.
 
 ### AU provider strategy (KZO-171 spike outcome, KZO-172 implementation)
 
@@ -114,6 +114,24 @@ Switch from Yahoo → EODHD when any of: (1) commercializing beyond personal use
 
 Likely env vars when EODHD lands: `EODHD_API_KEY`, `EODHD_BASE_URL` (default `https://eodhd.com/api`), `EODHD_RATE_LIMIT_PER_DAY` (default 100k), `EODHD_RATE_LIMIT_PER_MINUTE` (default 1000), `EODHD_PLAN` (signals whether `_asx_extra` is available).
 
+### KR provider strategy
+
+KR uses a split provider model because the no-paid Twelve Data plan covers KRX catalog discovery but not KRX price/time-series data.
+
+Key contract:
+- `providerId = "yahoo-finance-kr"`, `sourceId = "yahoo-finance-kr"` for bars, dividends, metadata, and live search.
+- Canonical stored/user-facing KR tickers are bare KRX codes such as `005930`. The provider resolves Yahoo suffixes internally, preferring `.KS` then `.KQ` and caching the validated suffix per bare ticker.
+- `providerId = "twelve-data-kr"` for KRX catalog sync. It reads `/stocks?exchange=KRX` and `/etf?exchange=KRX`, validates `mic_code = "XKRX"`, includes common stock, preferred stock, REIT, and ETF rows, and filters ETN/warrant-like rows out of the app catalog.
+- Basic cash dividends only: Yahoo dividend events are stamped with `paymentDate = exDividendDate`, `stockDividendPerShare = 0`, and no withholding/source automation.
+- No automatic corporate-action handling for KR in v1. Splits, rights, and other corporate actions remain manual or future-provider work.
+- `HISTORY_START_BY_MARKET["KR"] = "2000-01-04"` and the trading calendar uses `Asia/Seoul` with a 15:30 close.
+- KR catalog rows do not expose reliable sector/GICS data on the free catalog path, so the web instrument sheet omits the sector filter for KR.
+
+No-paid-plan research locked on 2026-05-30:
+- Twelve Data Basic/free catalog endpoints returned KRX stock and ETF universes, and `symbol_search` worked for KR queries.
+- Twelve Data `/price` and `/time_series` for KRX tickers were rejected under the free plan, so Twelve Data cannot be the KR market-data provider without a paid upgrade.
+- Yahoo Finance returned quote/chart/dividend/fundamental data for `005930.KS` and `035900.KQ`, with delayed/best-effort coverage and KRW currency.
+
 ### Backfill status
 
 Per-symbol tracking: `pending -> backfilling -> ready -> failed`.
@@ -140,7 +158,7 @@ KZO-173 adds service-layer trading-calendar helpers without a calendar table, se
 
 The cache refreshes from `Persistence.getDistinctBarDates(market, fromDate)` with a 400-day lookback and a 1-hour TTL. It deduplicates concurrent cold refreshes per market and updates synchronously when daily bars are upserted by backfill, opportunistic price fallback, or `/__e2e/seed-daily-bars`. Multi-instance deployments can lag up to the TTL on instances that did not perform the write; this is acceptable for the current freshness thresholds.
 
-Settlement math uses the market-local close time: TW 13:30 Asia/Taipei, US 16:00 America/New_York, and AU 16:00 Australia/Sydney. `settleGraceHours` lets downstream freshness checks delay same-day settlement until ingestion should have landed bars; KZO-177 passes a grace window instead of declaring providers stale in the close-to-cron gap. Synthetic `FX` uses weekdays plus a 16:00 UTC publish threshold. v1 limitations: FX ignores ECB/TARGET2 holidays (KZO-192) and equity markets ignore early-close sessions (KZO-193).
+Settlement math uses the market-local close time: TW 13:30 Asia/Taipei, US 16:00 America/New_York, AU 16:00 Australia/Sydney, and KR 15:30 Asia/Seoul. `settleGraceHours` lets downstream freshness checks delay same-day settlement until ingestion should have landed bars; KZO-177 passes a grace window instead of declaring providers stale in the close-to-cron gap. Synthetic `FX` uses weekdays plus a 16:00 UTC publish threshold. v1 limitations: FX ignores ECB/TARGET2 holidays (KZO-192) and equity markets ignore early-close sessions (KZO-193).
 
 When a market has no recent derived bars, helpers fall back to weekday-only logic and emit a once-per-refresh warning (`trading_calendar_bootstrap_fallback`). This keeps bootstrap and empty-market development flows from failing hard while making missing calendar data visible in logs.
 
@@ -207,7 +225,7 @@ KZO-166 lights up the WAC (weighted-average cost) engine on top of KZO-165's wal
 
 ### Per-account currency and account type (KZO-167)
 
-KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`. Two new shared-type unions (`AccountDefaultCurrency`, `AccountType`) are added to `AccountDto` in `@vakwen/shared-types`; the legacy `interface Account` in `apps/api/src/types/store.ts` is removed.
+KZO-167 ships two per-account schema additions to the `accounts` table: `default_currency CHAR(3)` (enum `'TWD'|'USD'|'AUD'|'KRW'`, default `'TWD'`) and `account_type TEXT` (enum `'broker'|'bank'|'wallet'`, default `'broker'`). Migration `040_kzo167_account_currency_and_type.sql` is idempotent; existing accounts backfill to TWD/broker automatically via `DEFAULT` on `ADD COLUMN`, and migration `062_kr_market_support.sql` extends the currency check to KRW. Two shared-type unions (`AccountDefaultCurrency`, `AccountType`) are part of `AccountDto` in `@vakwen/shared-types`.
 
 A new service module `apps/api/src/services/cashLedgerService.ts` enforces the cash-entry currency invariant on emission paths 1–3: a mismatch between `entry.currency` and `account.defaultCurrency` throws `routeError(400, "currency_mismatch", ...)`. The full-replay path (path 4, `replayPositionHistory.ts:161`) is explicitly exempt per `replay-position-history-invariants.md`. `PATCH /accounts/:id` adds optional `defaultCurrency` and `accountType` fields; a currency change is blocked with `409 currency_change_blocked` if the account has any existing cash entries or trade events. The `/cash-ledger` page now renders `Name (TWD · Broker)` chips in account dropdowns and summary headers.
 

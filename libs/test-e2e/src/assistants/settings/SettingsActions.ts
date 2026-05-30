@@ -180,7 +180,7 @@ export class SettingsActions extends AppBaseActions {
   }
 
   @Step()
-  async selectAccountCreateCurrency(currency: "TWD" | "USD" | "AUD"): Promise<void> {
+  async selectAccountCreateCurrency(currency: "TWD" | "USD" | "AUD" | "KRW"): Promise<void> {
     await this.uiActions.click.perform(this.el.accountCreate.currencyCard(currency));
   }
 

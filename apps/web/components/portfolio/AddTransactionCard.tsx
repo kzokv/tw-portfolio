@@ -8,7 +8,7 @@ import type {
   LocaleCode,
   MarketCode,
 } from "@vakwen/shared-types";
-import { currencyFor, marketCodeFor } from "@vakwen/shared-types";
+import { MARKET_CODES, currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { TooltipInfo } from "../ui/TooltipInfo";
@@ -30,7 +30,7 @@ import type { TransactionEstimateResponse } from "../../features/portfolio/servi
 // `MarketCode` literals. `MARKET_CHIPS` no longer contains `null`.
 export type MarketChip = MarketCode | null;
 
-const MARKET_CHIPS: ReadonlyArray<MarketCode> = ["TW", "US", "AU"];
+const MARKET_CHIPS: ReadonlyArray<MarketCode> = MARKET_CODES;
 
 export interface TransactionAccountOption {
   id: string;
@@ -149,7 +149,8 @@ function chipPillClassName(active: boolean, disabled: boolean): string {
 function chipLabel(dict: AppDictionary, chip: MarketCode): string {
   if (chip === "TW") return dict.transactions.marketChipTW;
   if (chip === "US") return dict.transactions.marketChipUS;
-  return dict.transactions.marketChipAU;
+  if (chip === "AU") return dict.transactions.marketChipAU;
+  return dict.transactions.marketChipKR;
 }
 
 export function AddTransactionCard({

@@ -1821,11 +1821,11 @@ Content-Type: application/json
 {
   "startDate": "2026-04-01",
   "endDate": "2026-04-26",
-  "bases": ["TWD", "USD", "AUD"]
+  "bases": ["TWD", "USD", "AUD", "KRW"]
 }
 ```
 
-All fields are optional. Missing dates default to today's UTC date; missing `bases` defaults to all three stored bases.
+All fields are optional. Missing dates default to today's UTC date; missing `bases` defaults to all stored bases.
 
 Responses:
 
@@ -1990,7 +1990,7 @@ A `search_provider_error` spike (>3 occurrences per minute) may indicate Yahoo s
 - `market_data.provider_health_status` — one row per provider, tracks timestamps, current status, and notification suppression keys.
 - `market_data.provider_error_trail` — append-only error log per provider; indexed on `(provider_id, occurred_at DESC)`.
 
-Both tables are created with `CREATE TABLE IF NOT EXISTS`. Four rows are pre-seeded in `provider_health_status` (initial `status='down'`) via `ON CONFLICT DO NOTHING`. No destructive rewrite or backfill. Safe to re-run.
+Both tables are created with `CREATE TABLE IF NOT EXISTS`. Provider rows are pre-seeded in `provider_health_status` (initial `status='down'`) via `ON CONFLICT DO NOTHING`; later migrations add AU catalog/GICS and KR rows. No destructive rewrite or backfill. Safe to re-run.
 
 **Rollback impact:** Older API images are unaware of these tables and will leave them empty. The new admin page will 404 (old routing) or show empty state. The backfill/FX workers will fail silently if they reference the missing `getProviderHealthStatus` method — ensure old code is never deployed against this migration without the matching API image.
 
@@ -1998,14 +1998,18 @@ Both tables are created with `CREATE TABLE IF NOT EXISTS`. Four rows are pre-see
 
 **Admin UI location:** `/admin` → Providers
 
-The providers page shows real-time health status for the four market-data providers this app uses:
+The providers page shows real-time health status for the market-data providers this app uses:
 
 | Provider ID | Markets covered |
 |---|---|
 | `finmind-tw` | TW equity bars + dividends |
 | `finmind-us` | US equity bars + dividends |
 | `yahoo-finance-au` | AU equity bars + metadata |
-| `frankfurter` | FX rates (TWD, USD, AUD crosses) |
+| `twelve-data-au` | AU catalog sync |
+| `asx-gics-csv` | AU GICS enrichment |
+| `yahoo-finance-kr` | KR equity bars + metadata |
+| `twelve-data-kr` | KR catalog sync |
+| `frankfurter` | FX rates (TWD, USD, AUD, KRW crosses) |
 
 #### Status semantics
 
@@ -2033,13 +2037,15 @@ The Re-run now button dispatches a provider-wide refresh job:
 - **`finmind-tw`:** enqueues daily-refresh for the TW market (all monitored TW tickers).
 - **`finmind-us`:** enqueues daily-refresh for the US market.
 - **`yahoo-finance-au`:** dispatches a **union** of (a) catalog warm-up over `market_data.instruments WHERE market_code='AU' AND bars_backfill_status IN ('pending','failed') AND delisted_at IS NULL`, and (b) daily-refresh for all monitored AU tickers. On a fresh deploy this enqueues ~2,400 backfill jobs. See §25 for the full fresh-deploy warm-up runbook.
+- **`yahoo-finance-kr`:** dispatches the same union for KR instruments and monitored KR tickers. Canonical KR tickers stay bare KRX codes; the provider resolves `.KS` / `.KQ` suffixes internally.
 - **`frankfurter`:** enqueues an FX-refresh job for all stored currency bases.
 - **`twelve-data-au`:** re-syncs the AU instrument catalog from Twelve Data (metadata only, no bars).
+- **`twelve-data-kr`:** re-syncs the KR instrument catalog from Twelve Data (metadata only, no bars).
 - **`asx-gics-csv`:** re-runs the ASX GICS sector + industry-group enrichment from the S&P/ASX CSV.
 
-**Per-provider cooldown (KZO-197):** the cooldown is now per-provider. `yahoo-finance-au` defaults to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
+**Per-provider cooldown (KZO-197/KR):** the cooldown is per-provider. Yahoo market providers (`yahoo-finance-au`, `yahoo-finance-kr`) default to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
 
-**Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. For `yahoo-finance-au` only, the metadata also includes nested `catalogBackfill: { tickerCount, jobId }` and `monitoredRefresh: { tickerCount, jobId }` blocks (top-level `tickerCount` = sum; back-compat). Visible at `/admin/audit-log`.
+**Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. For Yahoo market providers, the metadata also includes nested `catalogBackfill: { tickerCount, jobId }` and `monitoredRefresh: { tickerCount, jobId }` blocks (top-level `tickerCount` = sum; back-compat). Visible at `/admin/audit-log`.
 
 **Existing `/admin/fx-rates/refresh` is NOT deprecated** — it remains the path for targeted date-range FX backfills. Re-run now triggers a full current-day FX refresh.
 
@@ -2051,7 +2057,7 @@ The Re-run now button dispatches a provider-wide refresh job:
 | Auth required | Any authenticated user | Admin only |
 | Typical use | One ticker missing data after a manual trade entry | Provider-wide data lag (e.g., provider outage recovery) |
 | Audit | No audit log | `provider_health_rerun` audit entry |
-| Cooldown | Per-ticker cooldown (`REPAIR_COOLDOWN_MINUTES`) | Per-provider (60 s most providers; 30 min for `yahoo-finance-au` default) |
+| Cooldown | Per-ticker cooldown (`REPAIR_COOLDOWN_MINUTES`) | Per-provider (60 s most providers; 30 min for Yahoo market providers) |
 
 #### Error trail
 
@@ -2355,21 +2361,21 @@ FROM app_config WHERE id = 1;
 `049_kzo195_absence_delisting_detection.sql` adds:
 
 - **Three columns to `market_data.instruments`:**
-  - `last_seen_in_catalog_at TIMESTAMP NULL` — stamped each sync run for AU instruments present in the Twelve Data catalog. `NULL` = LIC or manually-added instrument; these are **never** absence candidates.
+  - `last_seen_in_catalog_at TIMESTAMP NULL` — stamped each sync run for instruments present in a diff-enabled Twelve Data catalog. `NULL` = LIC, manually-added instrument, or untracked legacy row; these are **never** absence candidates.
   - `absence_streak INTEGER NOT NULL DEFAULT 0` — consecutive missed catalog appearances. Reset to `0` when the instrument re-appears.
   - `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` — admin-set exclusion flag; excluded instruments are never bumped or stamped.
 
 - **Three columns to `app_config`** (Tier 1 — admin-editable): `catalog_absence_threshold INT`, `catalog_absence_guard_percent NUMERIC(5,2)`, `catalog_absence_guard_floor INT`.
 
-- **Backfill:** `last_seen_in_catalog_at` is backfilled from `updated_at` for existing AU non-provisional instruments. TW/US rows are left `NULL` (outside the detection scope).
+- **Backfill:** `last_seen_in_catalog_at` is backfilled from `updated_at` for existing AU non-provisional instruments. TW/US rows are left `NULL` (outside the detection scope at the time of KZO-195). KR rows start being stamped when the KR catalog provider runs.
 
 - **`audit_log_action_check` constraint extended** with two new action codes: `instrument_undelete`, `instrument_exclusion_toggle`.
 
 Safe to re-run (columns added with `ADD COLUMN IF NOT EXISTS`). No destructive operations. No down migration.
 
-### How absence detection works (AU only)
+### How absence detection works (AU/KR)
 
-Each catalog-sync run for the AU market (Twelve Data provider):
+Each catalog-sync run for a diff-enabled Twelve Data catalog provider:
 
 1. Present instruments are bulk-upserted and have `last_seen_in_catalog_at` stamped to `NOW()` and `absence_streak` reset to `0`.
 2. Absent instruments (had `last_seen_in_catalog_at IS NOT NULL` before this run, not in the current catalog) are collected.
@@ -2404,7 +2410,7 @@ Default values (env vars):
 1. **Check if the API returned a partial catalog.** Query:
    ```sql
    SELECT COUNT(*) FROM market_data.instruments
-   WHERE market_code = 'AU' AND last_seen_in_catalog_at >= NOW() - INTERVAL '1 hour';
+   WHERE market_code IN ('AU', 'KR') AND last_seen_in_catalog_at >= NOW() - INTERVAL '1 hour';
    ```
    If this count is significantly below the normal ~2,439, the API likely returned a truncated response.
 
@@ -2414,7 +2420,7 @@ Default values (env vars):
 
 4. **If persistent:** raise `CATALOG_ABSENCE_GUARD_PERCENT` or `CATALOG_ABSENCE_GUARD_FLOOR` temporarily via `/admin/settings` to allow the sync to proceed. Review notification again on the next run.
 
-5. **If a genuine bulk exchange event occurred** (e.g. ASX mass-suspended a sector): clear the guard by raising the threshold, then manually verify each absent ticker. Use `/admin/instruments` to exclude tickers that are legitimately still trading despite the API gap.
+5. **If a genuine bulk exchange event occurred**: clear the guard by raising the threshold, then manually verify each absent ticker. Use `/admin/instruments` to exclude tickers that are legitimately still trading despite the API gap.
 
 ### Runbook: Instruments auto-delisted (info notification)
 
@@ -2423,7 +2429,7 @@ Default values (env vars):
 **Investigation:**
 
 1. Navigate to `/admin/instruments`. Filter by **Status: Delisted**.
-2. For each ticker: verify against ASX announcements. If the delisting is genuine, no action required.
+2. For each ticker: verify against the exchange's official announcements. If the delisting is genuine, no action required.
 3. **If false positive (instrument still trading):** click **Undelete**. This clears `delisted_at`, resets `absence_streak = 0`, sets `last_seen_in_catalog_at = NOW()`, and writes an audit row. The instrument will be re-evaluated on the next sync run.
 4. **To prevent recurrence for a specific ticker:** click **Exclude** after undeleting. The instrument will never be auto-delisted again until explicitly re-included.
 
@@ -2433,18 +2439,18 @@ Default values (env vars):
 |---|---|
 | Instrument still actively trading; single transient API gap caused the delisting | Undelete. The next sync will re-stamp it and reset the streak. |
 | Instrument still trading; Twelve Data repeatedly drops it from the catalog | Undelete + Exclude. Prevents repeated false-positive notifications. |
-| Instrument genuinely delisted from ASX | Leave as delisted. No action needed. |
+| Instrument genuinely delisted from the exchange | Leave as delisted. No action needed. |
 | LIC / manually-added instrument showing as delisted | Should not happen — LICs have `last_seen_in_catalog_at = NULL` and are never candidates. If it does appear, file a bug. |
 
 ### Admin UI location
 
-`/admin` → **Instruments** (new sidebar entry). The page displays all AU instruments with their absence/delisting state. A read-only threshold panel at the bottom links to `/admin/settings` for adjustments.
+`/admin` → **Instruments** (sidebar entry). The page displays catalog instruments with their absence/delisting state. A read-only threshold panel at the bottom links to `/admin/settings` for adjustments.
 
 **Audit log:** all undelete and exclusion-toggle actions are visible at `/admin/audit-log` with action codes `instrument_undelete` and `instrument_exclusion_toggle`.
 
 ### Semantic note: `absent` counter vs. `absentTickers`
 
-`CatalogSyncResult.absent` (visible in API logs) counts **all** absent AU instruments in a sync run, including `delisting_detection_excluded = TRUE` rows. `absentTickers` (visible in admin notifications) contains only the non-excluded candidates. If logs show `absent=12` but the notification lists only 7 tickers, the delta (5) are excluded instruments. This is expected and intentional — the `absent` counter gives operators the full picture; `absentTickers` is the actionable subset.
+`CatalogSyncResult.absent` (visible in API logs) counts **all** absent instruments for that market in a sync run, including `delisting_detection_excluded = TRUE` rows. `absentTickers` (visible in admin notifications) contains only the non-excluded candidates. If logs show `absent=12` but the notification lists only 7 tickers, the delta (5) are excluded instruments. This is expected and intentional — the `absent` counter gives operators the full picture; `absentTickers` is the actionable subset.
 
 ### Operational queries
 
@@ -2582,10 +2588,10 @@ A new neutral-grey badge **"Awaiting first run"** (`awaiting` status) is shown f
 
 | Provider | Cooldown (default) | DB-tunable via |
 |---|---|---|
-| `yahoo-finance-au` | 30 min (1,800,000 ms) | `app_config.yahoo_au_rerun_cooldown_ms` |
+| `yahoo-finance-au`, `yahoo-finance-kr` | 30 min (1,800,000 ms) | `app_config.yahoo_au_rerun_cooldown_ms` |
 | All other providers | 60 s (60,000 ms) | `app_config.provider_rerun_cooldown_ms` (global, KZO-177) |
 
-To adjust the AU cooldown without a redeploy:
+To adjust the Yahoo market cooldown without a redeploy:
 ```sql
 UPDATE public.app_config
 SET yahoo_au_rerun_cooldown_ms = 300000   -- 5 min, for example

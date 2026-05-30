@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { PgBoss, JobWithMetadata } from "pg-boss";
 import type { BackfillStatus, MarketCode } from "@vakwen/domain";
+import { MARKET_CODES } from "@vakwen/shared-types";
 import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
 import type { CatalogInstrument, CatalogSyncResult, DelistingRecord } from "../../persistence/types.js";
@@ -37,7 +38,7 @@ export interface BackfillJobData {
 // ZodError surfaces cleanly to pg-boss and the job retries up to retryLimit.
 export const BackfillJobDataSchema = z.object({
   ticker: z.string(),
-  marketCode: z.enum(["TW", "US", "AU"]),
+  marketCode: z.enum(MARKET_CODES),
   userId: z.string().optional(),
   trigger: z.enum(["user_selection", "first_trade", "retry", "daily_refresh", "repair", "admin_rerun"]),
   startDate: z.string().optional(),
@@ -113,6 +114,7 @@ export interface BackfillWorkerDeps {
 export function providerIdForMarket(market: MarketCode): ProviderId {
   if (market === "US") return "finmind-us";
   if (market === "AU") return "yahoo-finance-au";
+  if (market === "KR") return "yahoo-finance-kr";
   return "finmind-tw";
 }
 

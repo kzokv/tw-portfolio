@@ -25,6 +25,7 @@
 //     is NOT the same as "YTD" and is treated as invalid upstream.
 
 import {
+  ACCOUNT_DEFAULT_CURRENCIES,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   DEFAULT_DENSITY,
   DEFAULT_THEME_ACCENT,
@@ -169,6 +170,8 @@ export function resolveReportingCurrency(
   prefs: Record<string, unknown>,
 ): AccountDefaultCurrency {
   const v = prefs.reportingCurrency;
-  if (v === "TWD" || v === "USD" || v === "AUD") return v;
+  if (typeof v === "string" && (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(v)) {
+    return v as AccountDefaultCurrency;
+  }
   return "TWD";
 }

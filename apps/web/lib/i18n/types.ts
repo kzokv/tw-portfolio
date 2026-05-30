@@ -482,21 +482,24 @@ export interface AppDictionary {
     accountCreateSubmit: string;
     accountCreateNameInUseError: string;
     accountCreateGenericError: string;
-    // KZO-183: market labels for AccountCreateForm currency cards. Field
-    // stays `defaultCurrency` (TWD/USD/AUD); the cards display country names.
+    // KZO-183/KR: market labels for AccountCreateForm currency cards. Field
+    // stays `defaultCurrency`; the cards display country names.
     accountCreateMarketLabel: string;
     accountCreateMarketTaiwan: string;
     accountCreateMarketUnitedStates: string;
     accountCreateMarketAustralia: string;
+    accountCreateMarketKorea: string;
     accountCreateMarketTaiwanSubtext: string;
     accountCreateMarketUnitedStatesSubtext: string;
     accountCreateMarketAustraliaSubtext: string;
+    accountCreateMarketKoreaSubtext: string;
     // KZO-183: per-account expandable cards (Accounts tab body).
     accountsTabSearchLabel: string;
     accountsTabSearchPlaceholder: string;
     accountsListMarketBadgeTW: string;
     accountsListMarketBadgeUS: string;
     accountsListMarketBadgeAU: string;
+    accountsListMarketBadgeKR: string;
     accountsListAccountTypeBroker: string;
     accountsListAccountTypeBank: string;
     accountsListAccountTypeWallet: string;
@@ -610,6 +613,7 @@ export interface AppDictionary {
     tickersMarketChipTw: string;
     tickersMarketChipUs: string;
     tickersMarketChipAu: string;
+    tickersMarketChipKr: string;
     tickersCatalogCount: string;
     tickersCatalogShowingOf: string;
     tickersSaveSelections: string;
@@ -1030,6 +1034,7 @@ export interface AppDictionary {
     marketChipTW: string;
     marketChipUS: string;
     marketChipAU: string;
+    marketChipKR: string;
     marketChipAll: string;
     noAccountForCurrency: string;
     createAccountLink: string;

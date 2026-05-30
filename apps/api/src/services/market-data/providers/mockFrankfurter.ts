@@ -8,9 +8,10 @@ import type { FxRate, FxRateProvider } from "../types.js";
  * not by this mock provider.)
  */
 const BASE_RATES: Record<string, Record<string, number>> = {
-  USD: { TWD: 31.5, AUD: 1.4 },
-  TWD: { USD: 1 / 31.5, AUD: 1.4 / 31.5 },
-  AUD: { USD: 1 / 1.4, TWD: 31.5 / 1.4 },
+  USD: { TWD: 31.5, AUD: 1.4, KRW: 1350 },
+  TWD: { USD: 1 / 31.5, AUD: 1.4 / 31.5, KRW: 1350 / 31.5 },
+  AUD: { USD: 1 / 1.4, TWD: 31.5 / 1.4, KRW: 1350 / 1.4 },
+  KRW: { USD: 1 / 1350, TWD: 31.5 / 1350, AUD: 1.4 / 1350 },
 };
 
 function enumerateDates(fromDate: string, toDate: string): string[] {

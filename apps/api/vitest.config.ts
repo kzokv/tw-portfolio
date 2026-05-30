@@ -20,6 +20,10 @@ export default defineConfig({
       NODE_ENV: "test",
       PERSISTENCE_BACKEND: "memory",
       FX_PROVIDER_MOCK: "true",
+      AU_PROVIDER_MOCK: "true",
+      AU_CATALOG_PROVIDER_MOCK: "true",
+      KR_PROVIDER_MOCK: "true",
+      KR_CATALOG_PROVIDER_MOCK: "true",
       APP_CONFIG_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     },
     // @ts-expect-error globalTeardown is supported at runtime but missing from InlineConfig in this Vitest version
