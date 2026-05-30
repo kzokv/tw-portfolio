@@ -5,6 +5,10 @@ import { notFound } from "next/navigation";
 import PublicShareNotFound from "../../../app/share/[token]/not-found";
 import PublicSharePage from "../../../app/share/[token]/page";
 
+vi.mock("../../../components/layout/ThemeToggle", () => ({
+  ThemeToggle: () => <div data-testid="theme-toggle-mock">theme toggle</div>,
+}));
+
 const headersMock = vi.mocked(headers);
 const notFoundMock = vi.mocked(notFound);
 
@@ -123,5 +127,6 @@ describe("PublicShareNotFound", () => {
     expect(html).toContain('data-testid="public-share-not-found"');
     expect(html).toContain('data-testid="public-share-not-found-heading"');
     expect(html).toContain("This link is not available");
+    expect(html).toContain('href="/login"');
   });
 });

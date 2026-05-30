@@ -85,6 +85,7 @@ export function AddTransactionDialog({
           dict={dict}
           locale={locale}
           framed={false}
+          showHeader={false}
           priceHint={priceHint}
           showPriceUnavailableHint={showPriceUnavailableHint}
           feeEstimate={feeEstimate}

@@ -92,6 +92,7 @@ describe("AiConnectorsSettingsClient", () => {
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
+    expect(document.body.textContent).toContain("AI settings");
     const alert = document.querySelector("[role='alert']");
     expect(alert?.textContent).toContain("Admin policy has disabled all MCP tool groups");
     const checkbox = document.querySelector("input[type='checkbox']") as HTMLInputElement | null;
@@ -127,6 +128,7 @@ describe("AiConnectorsSettingsClient", () => {
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
 
+    expect(document.body.textContent).toContain("No tool-level overrides.");
     const postingLabel = Array.from(document.querySelectorAll("label"))
       .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
     expect(postingLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");

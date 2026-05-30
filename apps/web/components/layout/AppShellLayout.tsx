@@ -14,9 +14,12 @@ import { AppShellBanners } from "./AppShellBanners";
 import { AppShellChrome } from "./AppShellChrome";
 import { ApiClientErrorToast } from "./ApiClientErrorToast";
 import { StatusToast } from "../ui/StatusToast";
+import { cn } from "../../lib/utils";
 import type { QuickSearchItem } from "./QuickSearchPanel";
 import type { useDashboardData as useDashboardDataType } from "../../features/dashboard/hooks/useDashboardData";
 import type { useProfile as useProfileType } from "../../features/profile/hooks/useProfile";
+import { useNavigationFeedback } from "./NavigationFeedbackContext";
+import { ShellNavigationFeedback } from "./ShellNavigationFeedback";
 
 interface AppShellLayoutProps {
   initialSidebarOpen: boolean;
@@ -97,6 +100,7 @@ export function AppShellLayout({
   children,
 }: AppShellLayoutProps) {
   const router = useRouter();
+  const { isPending } = useNavigationFeedback();
   // Phase 3d — avatar-menu Profile entry routes directly to /settings/profile.
   // (Drawer-open path retired in S10.)
   const openProfile = useCallback(() => router.push("/settings/profile"), [router]);
@@ -148,17 +152,27 @@ export function AppShellLayout({
             onClearGlobalError={onClearGlobalError}
           />
 
+          <ShellNavigationFeedback />
+
           <div data-testid="app-shell-ready" />
           {isClientReady ? <div data-testid="app-shell-client-ready" /> : null}
           {switcherLoaded ? <div data-testid="switcher-data-ready" /> : null}
 
-          <AppShellChrome
-            dashboard={dashboard}
-            uiDict={uiDict}
-            locale={locale}
+          <div
+            className={cn(
+              "transition-opacity duration-150",
+              isPending ? "opacity-60" : "opacity-100",
+            )}
+            data-testid="shell-content-frame"
           >
-            {children}
-          </AppShellChrome>
+            <AppShellChrome
+              dashboard={dashboard}
+              uiDict={uiDict}
+              locale={locale}
+            >
+              {children}
+            </AppShellChrome>
+          </div>
         </main>
       </SidebarInset>
     </SidebarProvider>

@@ -16,6 +16,11 @@ export class SharingActions extends AppBaseActions {
   }
 
   @Step()
+  async navigateToPublicLinks(): Promise<void> {
+    await this.mxNavigateToRoute("/sharing?tab=anonymous", TestEnv.appBaseUrl);
+  }
+
+  @Step()
   async openGrantDialog(): Promise<void> {
     await this.mxClick(this.el.grantButton);
     await this.el.grantDialog.waitFor({ state: "visible" });

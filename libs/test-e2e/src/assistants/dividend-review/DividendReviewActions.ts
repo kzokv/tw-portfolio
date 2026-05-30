@@ -28,7 +28,9 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async navigateToCalendar(): Promise<void> {
-    await this.mxNavigateToRoute("/dividends", TestEnv.appBaseUrl);
+    // Phase 5a probes the ledger first on /dividends when open review items
+    // exist, so calendar tests use the explicit tab URL.
+    await this.mxNavigateToRoute("/dividends?view=calendar", TestEnv.appBaseUrl);
   }
 
   // ─── Filter bar — presets ────────────────────────────────────────────────

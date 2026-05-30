@@ -91,6 +91,16 @@ export function DividendsTabsClient({
   const [isLedgerLoading, setIsLedgerLoading] = useState(false);
   const [calendarError, setCalendarError] = useState("");
   const [ledgerError, setLedgerError] = useState("");
+  const prioritizeLedger = (initialReviewData?.aggregates.openCount ?? 0) > 0;
+  const orderedTabs = prioritizeLedger
+    ? [
+      { value: "ledger" as const, label: ledgerLabel, testId: "dividends-tab-ledger" },
+      { value: "calendar" as const, label: calendarLabel, testId: "dividends-tab-calendar" },
+    ]
+    : [
+      { value: "calendar" as const, label: calendarLabel, testId: "dividends-tab-calendar" },
+      { value: "ledger" as const, label: ledgerLabel, testId: "dividends-tab-ledger" },
+    ];
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -196,15 +206,14 @@ export function DividendsTabsClient({
       value={activeTab}
       onValueChange={handleTabChange}
       data-testid="dividends-tabs"
-      className="flex flex-col gap-6"
+      className="flex flex-col gap-4"
     >
       <TabsList className="self-start">
-        <TabsTrigger value="calendar" data-testid="dividends-tab-calendar">
-          {calendarLabel}
-        </TabsTrigger>
-        <TabsTrigger value="ledger" data-testid="dividends-tab-ledger">
-          {ledgerLabel}
-        </TabsTrigger>
+        {orderedTabs.map((tab) => (
+          <TabsTrigger key={tab.value} value={tab.value} data-testid={tab.testId}>
+            {tab.label}
+          </TabsTrigger>
+        ))}
       </TabsList>
 
       {/* forceMount-equivalent: only mount the active slot so heavy

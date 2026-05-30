@@ -86,12 +86,17 @@ export interface AppDictionary {
       slate: string;
     };
   };
-  sharing: {
-    pageTitle: string;
-    pageDescription: string;
-    pageEyebrow: string;
-    pageIntro: string;
-    grantButton: string;
+	sharing: {
+	  pageTitle: string;
+	  pageDescription: string;
+	  pageEyebrow: string;
+	  pageIntro: string;
+	  tabs: {
+	    outbound: string;
+	    inbound: string;
+	    anonymous: string;
+	  };
+	  grantButton: string;
     refreshButton: string;
     loading: string;
     loadError: string;
@@ -109,11 +114,12 @@ export interface AppDictionary {
     emptyInboundTitle: string;
     emptyInboundDescription: string;
     switcherHint: string;
-    table: {
-      grantee: string;
-      status: string;
-      created: string;
-      expires: string;
+	  table: {
+	    grantee: string;
+	    status: string;
+	    aiAccess: string;
+	    created: string;
+	    expires: string;
       actions: string;
     };
     status: {
@@ -554,9 +560,12 @@ export interface AppDictionary {
     profileEmailLabel: string;
     profileAvatarLabel: string;
     profileSyncedFromGoogle: string;
-    profileSaveEmail: string;
-    profileSavingEmail: string;
-    profileEmailSaved: string;
+	    profileSaveEmail: string;
+	    profileSavingEmail: string;
+	    profileEmailNoChanges: string;
+	    profileEmailInvalid: string;
+	    profileEmailSaveHint: string;
+	    profileEmailSaved: string;
     profileEmailError: string;
     // Phase 3d S5 (A7) — display-name + picture URL confirmation copy.
     profilePictureUrlLabel: string;
@@ -574,9 +583,10 @@ export interface AppDictionary {
     tickersSearchPlaceholder: string;
     tickersAutoIncludedTitle: string;
     tickersAutoIncludedDescription: string;
-    tickersYourSelectionsTitle: string;
-    tickersYourSelectionsEmpty: string;
-    tickersBrowseCatalog: string;
+	    tickersYourSelectionsTitle: string;
+	    tickersYourSelectionsEmpty: string;
+	    tickersYourSelectionsEmptyDescription: string;
+	    tickersBrowseCatalog: string;
     tickersCatalogTitle: string;
     tickersCatalogBack: string;
     tickersFilterAll: string;
@@ -1033,11 +1043,14 @@ export interface AppDictionary {
     };
     unavailable: string;
   };
-  holdings: {
-    title: string;
-    description: string;
-    entries: string;
-    accountTerm: string;
+	  holdings: {
+	    title: string;
+	    description: string;
+	    entries: string;
+	    visibleRowsLabel: string;
+	    visibleRowsDetail: string;
+	    visibleRowsCurrencyDetail: string;
+	    accountTerm: string;
     tickerTerm: string;
     quantityTerm: string;
     currencyTerm: string;

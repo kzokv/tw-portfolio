@@ -349,7 +349,12 @@ export function MonitoredTickersSection({
 
         {!repairMode ? (
           filteredManual.length === 0 && !search ? (
-            <p className="py-3 text-center text-xs text-muted-foreground">{dict.settings.tickersYourSelectionsEmpty}</p>
+            <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-5 text-center">
+	              <p className="text-sm font-medium text-foreground">{dict.settings.tickersYourSelectionsEmpty}</p>
+	              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+	                {dict.settings.tickersYourSelectionsEmptyDescription}
+	              </p>
+	            </div>
           ) : (
             <div className="max-h-48 space-y-1 overflow-y-auto">
               {filteredManual.map((s) => (
@@ -367,7 +372,7 @@ export function MonitoredTickersSection({
                   <span className="font-mono font-medium text-foreground">
                     {s.ticker} · {s.marketCode}
                   </span>
-                  {s.name && <span className="text-muted-foreground">— {s.name}</span>}
+                  {s.name && <span className="min-w-0 truncate text-muted-foreground">— {s.name}</span>}
                   {s.barsBackfillStatus && (
                     <span className="ml-auto flex items-center gap-1">
                       <span
@@ -465,6 +470,11 @@ export function MonitoredTickersSection({
             <Button type="button" size="sm" disabled={!isDirty || isSaving} onClick={onSave} data-testid="tickers-save-btn">
               {isSaving ? dict.settings.tickersSaving : dict.settings.tickersSaveSelections}
             </Button>
+            {!isDirty && !isSaving ? (
+              <span className="text-xs text-muted-foreground" data-testid="tickers-save-hint">
+                Save stays disabled until you add or remove a ticker.
+              </span>
+            ) : null}
             {saveSuccess && <span className="text-xs text-green-600">{dict.settings.tickersSaved}</span>}
             {saveError && <span className="text-xs text-red-600">{dict.settings.tickersSaveError}</span>}
           </div>

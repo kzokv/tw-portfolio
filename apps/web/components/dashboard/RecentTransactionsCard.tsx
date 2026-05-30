@@ -11,6 +11,7 @@ interface RecentTransactionsCardProps {
   dict: AppDictionary;
   isLoading: boolean;
   errorMessage: string;
+  variant?: "default" | "primary";
 }
 
 export function RecentTransactionsCard({
@@ -19,7 +20,9 @@ export function RecentTransactionsCard({
   dict,
   isLoading,
   errorMessage,
+  variant = "default",
 }: RecentTransactionsCardProps) {
+  const isPrimary = variant === "primary";
   // Phase 4 — single-DOM DataTable migration. Card-stack at <sm (per
   // scope-grill); scroll + sticky-first-column at <md.
   const columns: DataTableColumn<TransactionHistoryItemDto>[] = [
@@ -73,9 +76,15 @@ export function RecentTransactionsCard({
 
   return (
     <Card className="border border-border bg-card" data-testid="recent-transactions-card">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/78">{dict.transactions.recentLedgerTitle}</p>
-      <h2 className="mt-2 text-2xl text-foreground">{dict.transactions.recentLedgerTitle}</h2>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{dict.transactions.recentLedgerDescription}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/78">
+        {isPrimary ? dict.navigation.transactionsLabel : dict.transactions.recentLedgerTitle}
+      </p>
+      <h2 className={cn("text-foreground", isPrimary ? "mt-2 text-2xl sm:text-3xl" : "mt-2 text-2xl")}>
+        {dict.transactions.recentLedgerTitle}
+      </h2>
+      <p className={cn("text-sm leading-6 text-muted-foreground", isPrimary ? "mt-2" : "mt-3")}>
+        {dict.transactions.recentLedgerDescription}
+      </p>
 
       {errorMessage ? (
         <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

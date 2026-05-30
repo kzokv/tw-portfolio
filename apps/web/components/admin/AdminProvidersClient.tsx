@@ -444,14 +444,14 @@ export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
   // Both desktop and mobile share the same testid prefixes — useIsSmallScreen
   // ensures only one variant is in DOM at any viewport.
   const columns: DataTableColumn<ProviderHealthStatusDto>[] = [
-    { key: "provider", header: t.providerLabel, render: (p) => p.providerId },
-    { key: "status", header: t.statusLabel, render: (p) => p.status },
-    { key: "lastSuccess", header: t.lastSuccessLabel, render: (p) => formatTimestamp(p.lastSuccessfulRun) },
-    { key: "lastFailed", header: t.lastFailedLabel, render: (p) => formatTimestamp(p.lastFailedRun) },
-    { key: "errors24h", header: t.errors24hLabel, render: (p) => p.errorCount24h },
-    { key: "errors7d", header: t.errors7dLabel, render: (p) => p.errorCount7d },
-    { key: "rateLimits24h", header: t.rateLimits24hLabel, render: (p) => p.rateLimitCount24h },
-    { key: "actions", header: t.actionsLabel, render: () => null },
+    { key: "provider", header: t.providerLabel, render: (p) => p.providerId, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "status", header: t.statusLabel, render: (p) => p.status, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "lastSuccess", header: t.lastSuccessLabel, render: (p) => formatTimestamp(p.lastSuccessfulRun), cellClassName: "px-4 py-3.5 align-top" },
+    { key: "lastFailed", header: t.lastFailedLabel, render: (p) => formatTimestamp(p.lastFailedRun), cellClassName: "px-4 py-3.5 align-top" },
+    { key: "errors24h", header: t.errors24hLabel, render: (p) => p.errorCount24h, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "errors7d", header: t.errors7dLabel, render: (p) => p.errorCount7d, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "rateLimits24h", header: t.rateLimits24hLabel, render: (p) => p.rateLimitCount24h, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "actions", header: t.actionsLabel, render: () => null, cellClassName: "px-4 py-3.5 align-top" },
   ];
 
   return (
@@ -467,6 +467,7 @@ export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
         data={providers}
         columns={columns}
         rowKey={(p) => p.providerId}
+        tableClassName="[&_th]:bg-slate-50/80 [&_th]:px-4 [&_th]:py-3 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-slate-500 [&_tr]:border-slate-100"
         renderRow={(p) => <ProviderTableRow provider={p} key={p.providerId} />}
         mobileRow={(p) => <ProviderMobileCard provider={p} />}
       />

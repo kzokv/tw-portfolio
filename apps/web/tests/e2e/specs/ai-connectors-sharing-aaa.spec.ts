@@ -32,7 +32,9 @@ test.describe("ai connectors and sharing", () => {
     await page.getByTestId("admin-settings-panel-mcp").waitFor({ state: "visible" });
     await page.getByRole("heading", { name: "MCP settings" }).waitFor({ state: "visible" });
     await page.getByText("MCP deployment").waitFor({ state: "visible" });
-    await page.getByText("Global AI connector policy").waitFor({ state: "visible" });
+    await page.getByTestId("admin-settings-panel-mcp")
+      .getByText(/^Global AI connector policy\./)
+      .waitFor({ state: "visible" });
     await page.getByText("Max active connectors").waitFor({ state: "visible" });
     await page.getByTestId("admin-settings-mcp-oauth-token-secret-row").waitFor({ state: "visible" });
   });

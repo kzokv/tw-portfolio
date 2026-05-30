@@ -53,6 +53,7 @@ interface AddTransactionCardProps {
   dict: AppDictionary;
   locale: LocaleCode;
   framed?: boolean;
+  showHeader?: boolean;
   // KZO-169 (D9a): rename `tickerReadOnly` → `instrumentReadOnly`. Locks BOTH
   // the ticker combobox AND the chip in edit-mode.
   instrumentReadOnly?: boolean;
@@ -161,6 +162,7 @@ export function AddTransactionCard({
   dict,
   locale,
   framed = true,
+  showHeader = true,
   instrumentReadOnly = false,
   priceHint,
   showPriceUnavailableHint,
@@ -321,10 +323,12 @@ export function AddTransactionCard({
 
   const content = (
     <>
-      <div className="mb-5 min-w-0">
-        <h2 className="text-xl leading-tight text-slate-950 sm:text-2xl md:text-[2rem]">{dict.transactions.title}</h2>
-        <p className="mt-3 break-words text-sm leading-6 text-slate-600">{dict.transactions.description}</p>
-      </div>
+      {showHeader ? (
+        <div className="mb-5 min-w-0">
+          <h2 className="text-xl leading-tight text-slate-950 sm:text-2xl md:text-[2rem]">{dict.transactions.title}</h2>
+          <p className="mt-3 break-words text-sm leading-6 text-slate-600">{dict.transactions.description}</p>
+        </div>
+      ) : null}
 
       {/* KZO-169: market_code chip selector. Sits above the existing fields per
           mockup. Disabled in edit mode (D9a). */}

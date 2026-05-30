@@ -6,6 +6,7 @@ import { Search, X } from "lucide-react";
 import { Button } from "../ui/Button";
 import { QuickSearchPanel, type QuickSearchItem } from "./QuickSearchPanel";
 import { useCommandPaletteContext, useHasCommandPalette } from "./CommandPaletteContext";
+import { useOptionalNavigationFeedback } from "./NavigationFeedbackContext";
 
 interface TopBarSearchProps {
   items: QuickSearchItem[];
@@ -42,6 +43,7 @@ export function TopBarSearch({
   const pathname = usePathname();
   const hasPalette = useHasCommandPalette();
   const palette = useCommandPaletteContext();
+  const navigationFeedback = useOptionalNavigationFeedback();
   const [query, setQuery] = useState("");
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -76,6 +78,7 @@ export function TopBarSearch({
   }, [displayedItems]);
 
   function selectItem(item: QuickSearchItem) {
+    navigationFeedback?.startNavigation({ href: item.href, label: item.label });
     router.push(item.href);
     setDesktopOpen(false);
     setMobileOpen(false);

@@ -78,6 +78,13 @@ function formatPercent(locale: LocaleCode, value: number | null): string {
   return `${formatCompactNumber(locale, value)}%`;
 }
 
+function metricValueClassName(value: string, emptyValue: string, compact = false): string {
+  const size = compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl";
+  return value === emptyValue
+    ? "mt-3 break-words text-sm font-medium leading-6 text-muted-foreground sm:text-base"
+    : `mt-3 font-semibold tracking-tight text-foreground ${size}`;
+}
+
 export function TickerHistoryClient({
   transactions,
   dict,
@@ -309,21 +316,33 @@ export function TickerHistoryClient({
   }));
   const floatingSummary = (
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
-      <Card className="rounded-2xl p-4">
+      <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
         <p className="mt-2 text-lg font-semibold text-foreground">{formatNumber(details.position.quantity, locale)}</p>
       </Card>
-      <Card className="rounded-2xl p-4">
+      <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.marketValueLabel}</p>
-        <p className="mt-2 text-lg font-semibold text-foreground">
+        <p className={metricValueClassName(
+          details.position.marketValue != null
+            ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+            : dict.tickerHistory.noHoldingData,
+          dict.tickerHistory.noHoldingData,
+          true,
+        )}>
           {details.position.marketValue != null
             ? formatCurrencyAmount(details.position.marketValue, currency, locale)
             : dict.tickerHistory.noHoldingData}
         </p>
       </Card>
-      <Card className="rounded-2xl p-4">
+      <Card className="min-w-0 rounded-2xl p-4">
         <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
-        <p className="mt-2 text-lg font-semibold text-foreground">
+        <p className={metricValueClassName(
+          details.position.unrealizedPnl != null
+            ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+            : dict.tickerHistory.noHoldingData,
+          dict.tickerHistory.noHoldingData,
+          true,
+        )}>
           {details.position.unrealizedPnl != null
             ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
             : dict.tickerHistory.noHoldingData}
@@ -399,8 +418,8 @@ export function TickerHistoryClient({
   return (
     <>
       {isClientReady ? <div aria-hidden="true" className="sr-only" data-testid="ticker-history-client-ready" /> : null}
-      <section className="grid gap-6" data-testid="ticker-history-section">
-        <Card className="overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(145deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
+      <section className="grid gap-6 pb-24 sm:pb-28" data-testid="ticker-history-section">
+        <Card className="overflow-hidden rounded-[30px] border border-border bg-[linear-gradient(145deg,hsla(var(--background),0.98),hsla(var(--muted),0.35))] p-0 shadow-[0_28px_70px_rgba(15,23,42,0.08)]">
           <div className="grid gap-8 px-5 py-6 sm:px-6 md:px-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.9fr)]">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -415,21 +434,26 @@ export function TickerHistoryClient({
                 ) : null}
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
-                <h1 className="text-3xl font-semibold leading-tight text-slate-950 sm:text-4xl" data-testid="ticker-history-title">
+                <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
                   {details.identity.name ? `${details.identity.name} (${ticker})` : ticker}
                 </h1>
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
                   {details.identity.marketCode} · {details.identity.instrumentType ?? "Instrument"}
                 </span>
               </div>
               <div className="mt-5 flex flex-wrap items-end gap-4">
                 <div>
-                  <p className="text-4xl font-semibold tracking-tight text-slate-950">
+                  <p className={metricValueClassName(
+                    details.quote.currentPrice != null
+                      ? formatCurrencyAmount(details.quote.currentPrice, currency, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                  )}>
                     {details.quote.currentPrice != null
                       ? formatCurrencyAmount(details.quote.currentPrice, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
-                  <p className="mt-2 text-sm text-slate-500">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     {details.quote.previousClose != null
                       ? `${dict.tickerHistory.previousCloseLabel}: ${formatCurrencyAmount(details.quote.previousClose, currency, locale)}`
                       : dict.tickerHistory.noHoldingData}
@@ -445,15 +469,21 @@ export function TickerHistoryClient({
                 </div>
               </div>
               {details.quote.freshnessTooltip ? (
-                <p className="mt-3 text-sm text-slate-500">{details.quote.freshnessTooltip}</p>
-              ) : null}
-            </div>
+              <p className="mt-3 text-sm text-muted-foreground">{details.quote.freshnessTooltip}</p>
+            ) : null}
+          </div>
 
-            <Card className="rounded-[26px] border-slate-200 bg-white/92 p-5 shadow-none">
+            <Card className="rounded-[26px] border-border bg-background/90 p-5 shadow-none">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.floatingSummaryTitle}</p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                  <p className={metricValueClassName(
+                    details.position.marketValue != null
+                      ? formatCurrencyAmount(details.position.marketValue, currency, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                    true,
+                  )}>
                     {details.position.marketValue != null
                       ? formatCurrencyAmount(details.position.marketValue, currency, locale)
                       : dict.tickerHistory.noHoldingData}
@@ -462,29 +492,47 @@ export function TickerHistoryClient({
                 <BarChart3 className="h-5 w-5 text-slate-400" />
               </div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.quantityLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">{formatNumber(details.position.quantity, locale)}</p>
+                <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">{formatNumber(details.position.quantity, locale)}</p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.totalCostLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">
+                <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.totalCostLabel}</p>
+                  <p className={metricValueClassName(
+                    details.position.costBasis != null
+                      ? formatCurrencyAmount(details.position.costBasis, currency, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                    true,
+                  )}>
                     {details.position.costBasis != null
                       ? formatCurrencyAmount(details.position.costBasis, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.unrealizedPnlLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">
+                <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
+                  <p className={metricValueClassName(
+                    details.position.unrealizedPnl != null
+                      ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                    true,
+                  )}>
                     {details.position.unrealizedPnl != null
                       ? formatCurrencyAmount(details.position.unrealizedPnl, currency, locale)
                       : dict.tickerHistory.noHoldingData}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.tickerHistory.nextDividendLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">
+                <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.nextDividendLabel}</p>
+                  <p className={metricValueClassName(
+                    details.dividends.nextPaymentDate
+                      ? formatDateLabel(details.dividends.nextPaymentDate, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                    true,
+                  )}>
                     {details.dividends.nextPaymentDate
                       ? formatDateLabel(details.dividends.nextPaymentDate, locale)
                       : dict.tickerHistory.noHoldingData}
@@ -522,10 +570,10 @@ export function TickerHistoryClient({
 
         <div ref={statsRef} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="ticker-stats-bar">
           {summaryCards.map((card) => (
-            <Card key={card.key} className="rounded-[24px] border-slate-200 bg-white/92 p-5 shadow-[0_14px_28px_rgba(148,163,184,0.1)]" data-testid={card.testId}>
+            <Card key={card.key} className="min-w-0 rounded-[24px] border-border bg-background/90 p-5 shadow-[0_14px_28px_rgba(148,163,184,0.1)]" data-testid={card.testId}>
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
-              <p className="mt-3 text-2xl font-semibold text-slate-950">{card.value}</p>
-              <p className="mt-2 text-sm text-slate-500">{card.detail}</p>
+              <p className={metricValueClassName(card.value, dict.tickerHistory.noHoldingData)}>{card.value}</p>
+              <p className="mt-2 break-words text-sm text-muted-foreground">{card.detail}</p>
             </Card>
           ))}
         </div>

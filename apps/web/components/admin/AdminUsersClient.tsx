@@ -321,16 +321,15 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" data-testid="users-table">
+            <table className="min-w-[760px] w-full text-sm" data-testid="users-table">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Last Seen</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Created</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">User</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Last seen</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Joined</th>
+                  <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -342,16 +341,22 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                       className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
                       data-testid={`user-row-${user.userId}`}
                     >
-                      <td className="px-4 py-3 text-slate-900">
-                        {user.email ?? "—"}
-                        {isSelf && (
-                          <span className="ml-2 inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700" data-testid="you-badge">
-                            you
-                          </span>
-                        )}
+                      <td className="px-5 py-4 align-top text-slate-900">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-slate-950">
+                              {user.displayName ?? user.email ?? "Unknown user"}
+                            </span>
+                            {isSelf && (
+                              <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700" data-testid="you-badge">
+                                you
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 break-all text-sm text-slate-500">{user.email ?? "—"}</p>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{user.displayName ?? "—"}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 align-top">
                         {isSelf ? (
                           <span className="text-sm font-medium text-slate-700">{ROLE_LABELS[user.role]}</span>
                         ) : (
@@ -359,7 +364,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                             value={user.role}
                             onChange={(e) => void handleRoleChange(user, e.target.value as UserRole)}
                             disabled={actionLoading}
-                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
+                            className="w-32 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
                             data-testid={`role-select-${user.userId}`}
                           >
                             {ROLE_OPTIONS.map((r) => (
@@ -368,13 +373,17 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                           </select>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-4 align-top">
                         <UserStatusBadge status={user.status} />
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{formatRelativeTime(user.lastSeenAt)}</td>
-                      <td className="px-4 py-3 text-slate-500">{formatDate(user.createdAt)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="whitespace-nowrap px-4 py-4 align-top text-slate-500" title={user.lastSeenAt ?? undefined}>
+                        {formatRelativeTime(user.lastSeenAt)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 align-top text-slate-500" title={user.createdAt}>
+                        {formatDate(user.createdAt)}
+                      </td>
+                      <td className="px-5 py-4 align-top text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
                           {!isSelf ? (
                             <Button
                               variant="ghost"

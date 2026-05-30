@@ -49,6 +49,16 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
   }
 
   const emailDirty = emailDraft !== (profile.email ?? "");
+  const normalizedEmail = emailDraft.trim();
+  const emailLooksValid = normalizedEmail.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
+  const disableSave = !emailDirty || isSaving || !emailLooksValid;
+  const helperText = isSaving
+    ? dict.settings.profileSavingEmail
+    : !emailDirty
+      ? dict.settings.profileEmailNoChanges
+      : !emailLooksValid
+        ? dict.settings.profileEmailInvalid
+        : dict.settings.profileEmailSaveHint;
 
   return (
     <div className="space-y-5" data-testid="profile-section">
@@ -111,6 +121,7 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
             className={`${fieldClassName} mt-1`}
             data-testid="profile-email-input"
           />
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="profile-email-save-hint">{helperText}</p>
         </div>
 
         {error && (
@@ -124,7 +135,7 @@ export function ProfileSection({ profile, onProfileUpdate, dict }: ProfileSectio
           type="button"
           variant="default"
           size="sm"
-          disabled={!emailDirty || isSaving}
+          disabled={disableSave}
           onClick={handleSave}
           data-testid="profile-save-email"
         >

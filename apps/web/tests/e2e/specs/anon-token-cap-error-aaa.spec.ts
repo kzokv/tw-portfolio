@@ -13,7 +13,7 @@ test.describe("anonymous share links: cap error state", () => {
       expiresInDays: 30,
     });
 
-    await sharing.actions.navigateToSharing();
+    await sharing.actions.navigateToPublicLinks();
     await appShell.assert.appIsReady();
 
     await sharing.assert.capBannerIsVisible();

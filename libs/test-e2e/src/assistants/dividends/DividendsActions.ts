@@ -14,7 +14,9 @@ export class DividendsActions extends AppBaseActions {
 
   @Step()
   async navigateToCalendar(): Promise<void> {
-    await this.mxNavigateToRoute("/dividends", TestEnv.appBaseUrl);
+    // /dividends may prioritize the review tab when open reconciliation items
+    // exist; calendar specs need the explicit tab URL.
+    await this.mxNavigateToRoute("/dividends?view=calendar", TestEnv.appBaseUrl);
   }
 
   @Step()

@@ -1,7 +1,7 @@
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 test.describe("sharing page", () => {
-  test("[sharing page]: avatar menu shows sharing link → /sharing renders sections", async ({ appShell }) => {
+  test("[sharing page]: avatar menu shows sharing link → /sharing renders tabbed sections", async ({ appShell, page }) => {
     await appShell.actions.navigateToRoute("/dashboard");
     await appShell.assert.appIsReady();
 
@@ -11,8 +11,14 @@ test.describe("sharing page", () => {
 
     await appShell.assert.sharingPageIsVisible();
     await appShell.assert.sharingGrantButtonIsVisible();
+    await appShell.assert.sharingTabsAreVisible();
     await appShell.assert.sharingOutboundSectionIsVisible();
+
+    await page.getByTestId("sharing-tab-inbound").click();
     await appShell.assert.sharingInboundSectionIsVisible();
+
+    await page.getByTestId("sharing-tab-anonymous").click();
+    await appShell.assert.sharingPublicLinksSectionIsVisible();
   });
 
   test("[sharing page]: grant button opens dialog → email entry step visible", async ({ appShell }) => {

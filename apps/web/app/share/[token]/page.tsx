@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import type { PublicShareViewDto } from "@vakwen/shared-types";
 import { Card } from "../../../components/ui/Card";
 import { buttonVariants } from "../../../components/ui/Button";
+import { ThemeToggle } from "../../../components/layout/ThemeToggle";
 import { API_BASE } from "../../../lib/api";
 import { resolveAuthLocale } from "../../../lib/authPages";
 import { getDictionary } from "../../../lib/i18n";
@@ -65,21 +66,24 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
           <span data-testid="public-share-top-strip-shared-by">
             {copy.topStripSharedBy.replace("{name}", ownerName)}
           </span>
-          <span data-testid="public-share-top-strip-powered-by">
-            {copy.topStripPoweredBy}
-          </span>
+          <div className="flex items-center gap-2">
+            <span data-testid="public-share-top-strip-powered-by">
+              {copy.topStripPoweredBy}
+            </span>
+            <ThemeToggle className="h-8" />
+          </div>
         </div>
       </div>
 
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
         <Card className="space-y-5" data-testid="public-share-header">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{copy.eyebrow}</p>
-          <h1 className="text-3xl font-semibold text-slate-950" data-testid="public-share-owner-name">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{copy.eyebrow}</p>
+          <h1 className="text-balance text-3xl font-semibold text-foreground" data-testid="public-share-owner-name">
             <span data-testid="public-share-owner">
               {copy.sharedBy.replace("{name}", view.ownerDisplayName || copy.ownerFallback)}
             </span>
           </h1>
-          <p className="text-sm text-slate-600" data-testid="public-share-meta">
+          <p className="text-sm text-muted-foreground" data-testid="public-share-meta">
             <span>{copy.readOnlyLabel}</span>
             <span aria-hidden="true"> · </span>
             <span data-testid="public-share-expires-at">
@@ -97,17 +101,17 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div
-              className="rounded-[22px] border border-slate-200 bg-white/80 px-5 py-4"
+              className="rounded-[22px] border border-border bg-muted/30 px-5 py-4"
               data-testid="public-share-summary-total"
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {copy.totalValueLabel}
               </p>
               <ul className="mt-2 space-y-1">
                 {summaryValues.map((row) => (
                   <li
                     key={row.currency}
-                    className="text-lg font-semibold text-slate-950"
+                    className="text-lg font-semibold text-foreground"
                     data-testid={`public-share-total-${row.currency}`}
                   >
                     {formatCurrencyAmount(row.amount, row.currency, locale)}
@@ -116,20 +120,20 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
               </ul>
             </div>
             <div
-              className="rounded-[22px] border border-slate-200 bg-white/80 px-5 py-4"
+              className="rounded-[22px] border border-border bg-muted/30 px-5 py-4"
               data-testid="public-share-summary-return"
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {copy.returnLabel}
               </p>
               <ul className="mt-2 space-y-1">
                 {summaryReturns.map((row) => (
                   <li
                     key={row.currency}
-                    className="text-lg font-semibold text-slate-950"
+                    className="text-lg font-semibold text-foreground"
                     data-testid={`public-share-return-${row.currency}`}
                   >
-                    <span className="text-xs font-medium text-slate-500">{row.currency}</span>{" "}
+                    <span className="text-xs font-medium text-muted-foreground">{row.currency}</span>{" "}
                     {formatPercent(row.returnPercent, locale)}
                   </li>
                 ))}
@@ -140,49 +144,49 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
 
         <Card className="space-y-4" data-testid="public-share-holdings">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950">{copy.holdingsTitle}</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <h2 className="text-xl font-semibold text-foreground">{copy.holdingsTitle}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {copy.holdingsSubtitle.replace("{count}", String(holdings.length))}
             </p>
           </div>
 
           {holdings.length === 0 ? (
             <p
-              className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-600"
+              className="rounded-[20px] border border-dashed border-border bg-muted/30 px-4 py-6 text-sm text-muted-foreground"
               data-testid="public-share-empty"
             >
               {copy.holdingsEmpty}
             </p>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
               <table className="w-full min-w-[36rem] text-sm" data-testid="public-share-holdings-table">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70">
-                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colTicker}
                     </th>
-                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colShares}
                     </th>
-                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colMarketValue}
                     </th>
-                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colAllocation}
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {holdings.map((row) => (
                     <tr key={row.ticker} data-testid={`public-share-holding-${row.ticker}`}>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-900">{row.ticker}</td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-700">
+                      <td className="px-4 py-3 text-sm font-medium text-foreground">{row.ticker}</td>
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                         {formatNumber(row.quantity, locale, 4)}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-700">
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                         {formatCurrencyAmount(row.marketValueAmount, row.marketValueCurrency, locale)}
                       </td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-700">
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                         {formatPercent(row.allocationPercent, locale, 2)}
                       </td>
                     </tr>

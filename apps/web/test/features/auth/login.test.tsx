@@ -7,7 +7,12 @@ vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   return { ...actual, cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn };
 });
-vi.mock("next/headers", () => ({ cookies: vi.fn(), headers: vi.fn() }));
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+  headers: vi.fn(async () => ({
+    get: () => "en-US",
+  })),
+}));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@vakwen/config/web", () => ({
   WebEnv: { NEXT_PUBLIC_AUTH_MODE: "dev_bypass", SESSION_COOKIE_NAME: "__Host-g_auth_session" },
@@ -15,11 +20,17 @@ vi.mock("@vakwen/config/web", () => ({
 vi.mock("../../../components/SignInButton", () => ({
   SignInButton: function MockSignInButton(props: Record<string, unknown>) {
     const R = (globalThis as Record<string, unknown>).React as typeof import("react");
-    return R.createElement("a", {
-      href: props.href,
-      className: props.className,
-      "data-testid": "google-sign-in-button",
-    }, "Sign in with Google");
+	    return R.createElement("a", {
+	      href: props.href,
+	      className: props.className,
+	      "data-testid": "google-sign-in-button",
+	    }, String(props.label ?? "Sign in with Google"));
+	  },
+	}));
+vi.mock("../../../components/layout/ThemeToggle", () => ({
+  ThemeToggle: function MockThemeToggle() {
+    const R = (globalThis as Record<string, unknown>).React as typeof import("react");
+    return R.createElement("div", { "data-testid": "theme-toggle-mock" }, "theme toggle");
   },
 }));
 
@@ -29,6 +40,9 @@ describe("login page", () => {
   it("renders sign in with Google text", async () => {
     const html = renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve({}) }));
     expect(html).toContain("Sign in with Google");
+    expect(html).toContain("Sign in to Vakwen");
+    expect(html).toContain("Terms");
+    expect(html).toContain("Privacy");
   });
 
   it("sign-in button links to Google OAuth start endpoint", async () => {
