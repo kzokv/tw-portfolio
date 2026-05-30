@@ -23,6 +23,18 @@ const ETF_FIXTURE = {
   ],
 };
 
+const KOSDAQ_STOCKS_FIXTURE = {
+  status: "ok",
+  data: [
+    { symbol: "035900", name: "JYP Entertainment", type: "Common Stock", mic_code: "XKOS" },
+  ],
+};
+
+const EMPTY_FIXTURE = {
+  status: "ok",
+  data: [],
+};
+
 function ok(body: unknown): Response {
   return {
     ok: true,
@@ -32,11 +44,37 @@ function ok(body: unknown): Response {
   } as Response;
 }
 
-function setupFetch(fetchMock: FetchMock, stocks: unknown = STOCKS_FIXTURE, etf: unknown = ETF_FIXTURE): void {
+interface KrCatalogFixtures {
+  kosdaqEtf?: unknown;
+  kosdaqStocks?: unknown;
+  krxEtf?: unknown;
+  krxStocks?: unknown;
+}
+
+function setupFetch(fetchMock: FetchMock, fixtures: KrCatalogFixtures = {}): void {
+  const responses = {
+    kosdaqEtf: EMPTY_FIXTURE,
+    kosdaqStocks: KOSDAQ_STOCKS_FIXTURE,
+    krxEtf: ETF_FIXTURE,
+    krxStocks: STOCKS_FIXTURE,
+    ...fixtures,
+  };
   fetchMock.mockImplementation((url: string | URL) => {
     const value = url.toString();
-    if (value.includes("/stocks")) return Promise.resolve(ok(stocks));
-    if (value.includes("/etf")) return Promise.resolve(ok(etf));
+    const parsed = new URL(value);
+    const exchange = parsed.searchParams.get("exchange");
+    if (parsed.pathname.endsWith("/stocks") && exchange === "KRX") {
+      return Promise.resolve(ok(responses.krxStocks));
+    }
+    if (parsed.pathname.endsWith("/stocks") && exchange === "KOSDAQ") {
+      return Promise.resolve(ok(responses.kosdaqStocks));
+    }
+    if (parsed.pathname.endsWith("/etf") && exchange === "KRX") {
+      return Promise.resolve(ok(responses.krxEtf));
+    }
+    if (parsed.pathname.endsWith("/etf") && exchange === "KOSDAQ") {
+      return Promise.resolve(ok(responses.kosdaqEtf));
+    }
     return Promise.reject(new Error(`Unexpected URL ${value}`));
   });
 }
@@ -103,28 +141,37 @@ describe("TwelveDataKrCatalogProvider — real provider against stubbed fetch", 
     });
   }
 
-  it("fetchInstrumentCatalog calls KRX stocks/etf endpoints, includes stock-like rows, excludes ETNs/warrants, and lets ETF win duplicates", async () => {
+  it("fetchInstrumentCatalog calls KRX/KOSDAQ stocks/etf endpoints, includes stock-like rows, excludes ETNs/warrants, and lets ETF win duplicates", async () => {
     setupFetch(fetchMock);
     const provider = await makeProvider();
     const catalog = await provider.fetchInstrumentCatalog();
 
     expect(fetchMock.mock.calls.map((call) => call[0].toString())).toEqual([
       expect.stringContaining("/stocks?exchange=KRX"),
+      expect.stringContaining("/stocks?exchange=KOSDAQ"),
       expect.stringContaining("/etf?exchange=KRX"),
+      expect.stringContaining("/etf?exchange=KOSDAQ"),
     ]);
-    expect(catalog.map((row) => row.ticker)).toEqual(["069500", "005930", "005935", "088260"]);
+    expect(catalog.map((row) => row.ticker)).toEqual(["069500", "005930", "005935", "088260", "035900"]);
     expect(catalog.find((row) => row.ticker === "069500")).toMatchObject({
       name: "KODEX 200 ETF",
       typeRaw: "KRX",
       industryCategory: "ETF",
+    });
+    expect(catalog.find((row) => row.ticker === "035900")).toMatchObject({
+      name: "JYP Entertainment",
+      typeRaw: "KRX",
+      industryCategory: "Common Stock",
     });
     expect(catalog.some((row) => row.ticker === "580001" || row.ticker === "550001")).toBe(false);
   });
 
   it("throws when Twelve Data returns a non-XKRX MIC row", async () => {
     setupFetch(fetchMock, {
-      status: "ok",
-      data: [{ symbol: "005930", name: "Samsung Electronics", type: "Common Stock", mic_code: "XNAS" }],
+      krxStocks: {
+        status: "ok",
+        data: [{ symbol: "005930", name: "Samsung Electronics", type: "Common Stock", mic_code: "XNAS" }],
+      },
     });
     const provider = await makeProvider();
     await expect(provider.fetchInstrumentCatalog()).rejects.toThrow(/twelve_data_kr_mic_mismatch/);
