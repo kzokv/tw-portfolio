@@ -8,6 +8,17 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  Activity,
+  Bot,
+  Database,
+  Gauge,
+  KeyRound,
+  LayoutDashboard,
+  Link2,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import {
   type AiConnectorPolicySettingsDto,
   type AppConfigDto,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
@@ -67,6 +78,21 @@ const TAB_DESCRIPTIONS: Record<TabSlug, string> = {
   "api-keys": "Encrypted provider secrets stored in app config.",
   "mcp": "Global AI connector policy and OAuth redirect allowlist.",
 };
+
+const TAB_NAV_ITEMS: Array<{
+  slug: TabSlug;
+  icon: LucideIcon;
+  hint: string;
+}> = [
+  { slug: "rate-limits", icon: Gauge, hint: "Traffic controls" },
+  { slug: "sharing", icon: Link2, hint: "Public access" },
+  { slug: "provider-health", icon: Activity, hint: "Provider operations" },
+  { slug: "backfill-repair", icon: Wrench, hint: "Worker pacing" },
+  { slug: "catalog-metadata", icon: Database, hint: "Catalog policy" },
+  { slug: "display-defaults", icon: LayoutDashboard, hint: "User defaults" },
+  { slug: "api-keys", icon: KeyRound, hint: "Provider secrets" },
+  { slug: "mcp", icon: Bot, hint: "AI connector policy" },
+];
 
 function isValidTabSlug(value: string | null): value is TabSlug {
   return value !== null && (TAB_SLUGS as readonly string[]).includes(value);
@@ -694,38 +720,61 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
 
       <TabsRoot value={activeTab} onValueChange={handleTabChange}>
         <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]">
-          <div className="space-y-4">
-            <Card className="hidden px-4 py-4 md:block hover:translate-y-0">
-              <div className="space-y-1">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-primary/78">Sections</p>
-                <p className="text-sm text-slate-600">
-                  Keep admin settings on one query-driven page while grouping related controls by task.
+          <div>
+            <aside
+              className="hidden rounded-xl border border-border bg-card p-2 shadow-sm md:block"
+              aria-label="Admin settings sections"
+            >
+              <div className="px-2 pb-2 pt-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Settings
                 </p>
               </div>
               <TabsList
                 data-testid="admin-settings-tabs"
-                className="mt-4 hidden h-auto w-full flex-col items-stretch gap-1 overflow-visible rounded-2xl border-0 bg-transparent p-0 md:flex"
+                className="hidden h-auto w-full flex-col items-stretch gap-1 overflow-visible rounded-none border-0 bg-transparent p-0 md:flex"
               >
-                {TAB_SLUGS.map((slug) => (
-                  <TabsTrigger
-                    key={slug}
-                    value={slug}
-                    data-testid={`admin-settings-tab-${slug}`}
-                    className={cn(
-                      "h-auto w-full items-start justify-start rounded-xl border border-transparent px-3 py-3 text-left",
-                      "data-[state=active]:border-slate-200 data-[state=active]:bg-white",
-                    )}
-                  >
-                    <span className="block text-sm font-semibold">{TAB_LABELS[slug]}</span>
-                    <span className="mt-1 block whitespace-normal text-xs font-normal text-slate-500">
-                      {TAB_DESCRIPTIONS[slug]}
-                    </span>
-                  </TabsTrigger>
-                ))}
+                {TAB_NAV_ITEMS.map(({ slug, icon: Icon, hint }) => {
+                  const isActive = activeTab === slug;
+                  return (
+                    <TabsTrigger
+                      key={slug}
+                      value={slug}
+                      data-testid={`admin-settings-tab-${slug}`}
+                      className={cn(
+                        "group h-auto w-full justify-start gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left",
+                        "hover:border-border hover:bg-muted/70 hover:text-foreground",
+                        "data-[state=active]:border-border data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-none",
+                      )}
+                    >
+                      <Icon
+                        className={cn(
+                          "mt-0.5 size-4 shrink-0",
+                          isActive ? "text-primary" : "text-muted-foreground",
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center justify-between gap-2">
+                          <span className="truncate text-sm font-semibold">{TAB_LABELS[slug]}</span>
+                          {isActive ? (
+                            <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                              Open
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+                          {hint}
+                        </span>
+                        <span className="sr-only">{TAB_DESCRIPTIONS[slug]}</span>
+                      </span>
+                    </TabsTrigger>
+                  );
+                })}
               </TabsList>
-            </Card>
+            </aside>
 
-            <div className="md:hidden">
+            <div className="rounded-xl border border-border bg-card p-3 md:hidden">
               <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="admin-settings-mobile-nav">
                 Section
               </label>
