@@ -63,6 +63,10 @@ import {
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const fxBaseCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
+function catalogSyncRerunSingletonKey(marketCode: MarketCode): string {
+  return `${CATALOG_SYNC_QUEUE}:${marketCode}`;
+}
+
 const fxRefreshBodySchema = z
   .object({
     startDate: isoDateSchema.optional(),
@@ -1084,13 +1088,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       // KZO-200: Twelve Data is the AU catalog provider (KZO-194). Re-run
       // dispatches the catalog-sync queue for AU only — `pendingMarkets=["AU"]`
       // skips TW/US so we don't re-enumerate FinMind catalogs on this button.
-      // Singleton policy collapses concurrent kicks (cron + manual rerun).
+      // Singleton policy collapses same-market concurrent kicks without letting
+      // an AU-only rerun suppress a KR-only rerun, or vice versa.
       marketCode = "AU";
       if (app.boss) {
         jobId = await app.boss.send(
           CATALOG_SYNC_QUEUE,
           { pendingMarkets: ["AU"] },
-          { singletonKey: CATALOG_SYNC_QUEUE, priority: 5 },
+          { singletonKey: catalogSyncRerunSingletonKey("AU"), priority: 5 },
         );
       }
       // tickerCount intentionally 0 — the catalog-sync worker enumerates the
@@ -1103,7 +1108,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         jobId = await app.boss.send(
           CATALOG_SYNC_QUEUE,
           { pendingMarkets: ["KR"] },
-          { singletonKey: CATALOG_SYNC_QUEUE, priority: 5 },
+          { singletonKey: catalogSyncRerunSingletonKey("KR"), priority: 5 },
         );
       }
       tickerCount = 0;

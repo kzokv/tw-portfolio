@@ -32,6 +32,9 @@ vi.mock("@vakwen/config", async (importOriginal) => {
 const { buildApp } = await import("../../src/app.js");
 const { signSessionCookie } = await import("../../src/auth/googleOAuth.js");
 const { refresh } = await import("../../src/services/appConfig/cache.js");
+const { CATALOG_SYNC_QUEUE } = await import(
+  "../../src/services/market-data/registerCatalogSyncWorker.js"
+);
 
 type BuiltApp = Awaited<ReturnType<typeof buildApp>>;
 
@@ -161,5 +164,46 @@ describe("KZO-197 — per-provider rerun cooldown", () => {
     });
     const auClick = await rerun(app, admin.cookie, "yahoo-finance-au");
     expect(auClick.statusCode).toBe(429);
+  });
+
+  it("Twelve Data catalog reruns use independent AU/KR singleton keys", async () => {
+    const admin = await createAdmin(app);
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "twelve-data-au",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+    await app.persistence.upsertProviderHealthStatus({
+      providerId: "twelve-data-kr",
+      status: "healthy",
+      lastSuccessfulRun: new Date().toISOString(),
+      lastManualRerunAt: null,
+    });
+
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce("catalog-au-job")
+      .mockResolvedValueOnce("catalog-kr-job");
+    (app as unknown as { boss: { send: (...args: unknown[]) => Promise<string | null> } }).boss = { send };
+
+    const auClick = await rerun(app, admin.cookie, "twelve-data-au");
+    const krClick = await rerun(app, admin.cookie, "twelve-data-kr");
+
+    expect(auClick.statusCode).toBe(202);
+    expect(krClick.statusCode).toBe(202);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenNthCalledWith(
+      1,
+      CATALOG_SYNC_QUEUE,
+      { pendingMarkets: ["AU"] },
+      { singletonKey: `${CATALOG_SYNC_QUEUE}:AU`, priority: 5 },
+    );
+    expect(send).toHaveBeenNthCalledWith(
+      2,
+      CATALOG_SYNC_QUEUE,
+      { pendingMarkets: ["KR"] },
+      { singletonKey: `${CATALOG_SYNC_QUEUE}:KR`, priority: 5 },
+    );
   });
 });
