@@ -1,64 +1,180 @@
-import { TooltipInfo } from "../ui/TooltipInfo";
-import { UserAvatarButton } from "../profile/UserAvatarButton";
+"use client";
+
+import type { NotificationDto } from "@vakwen/shared-types";
+import type { AppDictionary } from "../../lib/i18n/types";
+import { Button } from "../ui/Button";
+import { SidebarTrigger, useSidebar } from "../ui/shadcn/sidebar";
+import { Breadcrumb } from "./Breadcrumb";
+import { CommandPaletteTrigger } from "./CommandPaletteTrigger";
+import { NotificationBell } from "./NotificationBell";
+import { ProfileMenu } from "../profile/ProfileMenu";
+import { type QuickSearchItem } from "./QuickSearchPanel";
+import { TopBarSearch } from "./TopBarSearch";
+import { ThemeToggle } from "./ThemeToggle";
+
+// Re-export so existing AppShell imports (`import type { QuickSearchItem } from "./TopBar"`)
+// continue to resolve. The canonical home is `./QuickSearchPanel`.
+export type { QuickSearchItem };
 
 interface TopBarProps {
+  // Identity
   userId?: string;
-  onOpenSettings: () => void;
-  productName: string;
-  title: string;
-  titleTooltip: string;
-  openSettingsLabel: string;
-  /** When true, show skeleton (title area + avatar + pill). Used on first visit only; background refresh keeps static content. */
-  skeleton?: boolean;
+  displayName?: string | null;
+  pictureUrl?: string | null;
+  email?: string | null;
+  role?: string;
+
+  // Profile menu wiring
+  onOpenProfile?: () => void;
+  signOutHref: string;
+
+  // Search
+  searchItems: QuickSearchItem[];
+  searchPlaceholder: string;
+  searchLabel: string;
+  searchEmptyLabel: string;
+  searchRoutesLabel: string;
+  searchTickersLabel: string;
+  openSearchLabel: string;
+  closeSearchLabel: string;
+  /** Hide the inline search input (admin variant). */
+  hideSearch?: boolean;
+
+  // Notifications
+  unreadCount?: number;
+  notifications?: NotificationDto[];
+  notificationDropdownOpen?: boolean;
+  onNotificationOpenChange?: (open: boolean) => void;
+  onNotificationMarkRead?: (id: string) => void;
+  onNotificationMarkAllRead?: () => void;
+  onNotificationDismiss?: (id: string) => void;
+  notificationDict?: AppDictionary;
+  /** Hide the bell (e.g. admin shell). */
+  hideNotifications?: boolean;
 }
 
+/**
+ * Decomposed Phase 3c TopBar. Slots in order:
+ *   `<SidebarTrigger>` (desktop collapse) · `<Breadcrumb>` · `<TopBarSearch>` ·
+ *   `<CommandPaletteTrigger>` · `<NotificationBell>` · `<ThemeToggle>` ·
+ *   `<ProfileMenu>`.
+ *
+ * Brand link and PortfolioSwitcher have moved to `<AppSidebar>` (spec
+ * amendments #18 + #23). The page-title H1 block is dropped — the breadcrumb
+ * replaces it.
+ *
+ * Search behavior + JSX lives in `./TopBarSearch`; quick-search result
+ * rendering lives in `./QuickSearchPanel`.
+ *
+ * Locked testids per design §2.
+ */
 export function TopBar({
   userId,
-  onOpenSettings,
-  productName,
-  title,
-  titleTooltip,
-  openSettingsLabel,
-  skeleton = false,
+  displayName,
+  pictureUrl,
+  email,
+  role,
+  onOpenProfile,
+  signOutHref,
+  searchItems,
+  searchPlaceholder,
+  searchLabel,
+  searchEmptyLabel,
+  searchRoutesLabel,
+  searchTickersLabel,
+  openSearchLabel,
+  closeSearchLabel,
+  hideSearch = false,
+  unreadCount = 0,
+  notifications = [],
+  notificationDropdownOpen = false,
+  onNotificationOpenChange,
+  onNotificationMarkRead,
+  onNotificationMarkAllRead,
+  onNotificationDismiss,
+  notificationDict,
+  hideNotifications = false,
 }: TopBarProps) {
-  if (skeleton) {
-    return (
-      <header className="sticky top-0 z-10 border-b border-line/80 bg-surface-soft/90 backdrop-blur" aria-hidden="true" role="banner">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-4 py-4 md:px-8">
-          <div className="min-w-0 flex-1">
-            <div className="skeleton-line h-3 w-24 rounded" />
-            <div className="skeleton-line skeleton-line--delay mt-2 h-8 w-48 rounded" />
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="skeleton-line h-11 w-11 shrink-0 rounded-full" />
-            <div className="skeleton-line h-10 w-24 rounded-lg" />
-          </div>
-        </div>
-      </header>
-    );
-  }
+  const { isMobile, setOpenMobile } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-10 border-b border-line/80 bg-surface-soft/90 backdrop-blur" role="banner">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-4 py-4 md:px-8">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.2em] text-muted">{productName}</p>
-          <div className="mt-1 flex items-center gap-2">
-            <h1 className="truncate text-xl text-ink sm:text-2xl md:text-3xl" data-testid="topbar-title">
-              {title}
-            </h1>
-            <TooltipInfo
-              label={title}
-              content={titleTooltip}
-              triggerTestId="tooltip-app-title-trigger"
-              contentTestId="tooltip-app-title-content"
-            />
-          </div>
-        </div>
-        <div className="shrink-0">
-          <UserAvatarButton userId={userId} onOpenSettings={onOpenSettings} openSettingsLabel={openSettingsLabel} />
-        </div>
+    <header
+      role="banner"
+      data-testid="topbar"
+      className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b border-border bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:gap-2 md:px-4"
+    >
+      <SidebarTrigger
+        data-testid="app-sidebar-trigger"
+        className="shrink-0"
+        aria-label="Toggle sidebar"
+      />
+      {isMobile ? (
+        // Preserves §8 item 13 — mobile brand-as-trigger. Tapping opens the
+        // sheet so the user lands inside the sidebar tree. The in-Sheet
+        // brand link (inside AppSidebar's SidebarHeader) handles desktop
+        // brand-link semantics; this element is the locator anchor for
+        // `app-sidebar-brand` on `<md`.
+        <Button
+          variant="ghost"
+          className="h-9 shrink-0 px-1.5 text-xs font-semibold"
+          onClick={() => setOpenMobile(true)}
+          data-testid="app-sidebar-brand"
+          aria-label="Open navigation"
+        >
+          V
+        </Button>
+      ) : null}
+
+      <div className="min-w-0 flex-1" data-testid="topbar-breadcrumb">
+        <Breadcrumb />
       </div>
+
+      {!hideSearch ? (
+        <TopBarSearch
+          items={searchItems}
+          placeholder={searchPlaceholder}
+          label={searchLabel}
+          emptyLabel={searchEmptyLabel}
+          routesLabel={searchRoutesLabel}
+          tickersLabel={searchTickersLabel}
+          openLabel={openSearchLabel}
+          closeLabel={closeSearchLabel}
+        />
+      ) : null}
+
+      <CommandPaletteTrigger />
+
+      {!hideNotifications
+        && notificationDict
+        && onNotificationOpenChange
+        && onNotificationMarkRead
+        && onNotificationMarkAllRead
+        && onNotificationDismiss ? (
+        <NotificationBell
+          unreadCount={unreadCount}
+          notifications={notifications}
+          open={notificationDropdownOpen}
+          onOpenChange={onNotificationOpenChange}
+          onMarkRead={onNotificationMarkRead}
+          onMarkAllRead={onNotificationMarkAllRead}
+          onDismiss={onNotificationDismiss}
+          dict={notificationDict}
+        />
+      ) : null}
+
+      <div className="hidden shrink-0 md:block" data-testid="topbar-theme-toggle">
+        <ThemeToggle />
+      </div>
+
+      <ProfileMenu
+        userId={userId}
+        displayName={displayName}
+        pictureUrl={pictureUrl}
+        email={email}
+        role={role}
+        onOpenProfile={onOpenProfile}
+        signOutHref={signOutHref}
+      />
     </header>
   );
 }

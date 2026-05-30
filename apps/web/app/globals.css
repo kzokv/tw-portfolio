@@ -2,19 +2,115 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * shadcn token contract (Phase 0). HSL channels in CSS vars; consumers
+ * wrap in hsl(). Light = :root, Dark = .dark, Density = data attribute.
+ * Status colors (success/danger/warning) do NOT shift with the accent
+ * preset — direction signals stay constant across all 8 + custom accents.
+ * ────────────────────────────────────────────────────────────────────── */
 :root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 238 84% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 36%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 47% 11%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 238 84% 60%;
+  --radius: 0.625rem;
+  --row-h: 36px;
+  --row-px: 12px;
+
+  /* Chart tokens (Phase 6). HSL channels; consumers wrap in hsl().
+   * Semantic tokens (trend + dividend review):
+   *   --chart-primary  follows --primary (accent-bound; flows through AccentApplier)
+   *   --chart-muted    neutral baseline for secondary trend lines (e.g. totalCost)
+   *   --chart-positive success/green for positive-direction series (e.g. totalReturn)
+   *   --chart-expected sky family for "expected" dividend bars
+   *   --chart-received green family for "received" dividend bars
+   * Numbered tokens (categorical palette for the donut, mirroring the prior
+   * DONUT_COLORS palette identity: indigo-600, indigo-500, blue-500, teal-500,
+   * amber-500, slate-400). Light values picked for ≥4.5:1 against --background. */
+  --chart-primary: var(--primary);
+  --chart-muted: 215 16% 47%;
+  --chart-positive: 142 71% 36%;
+  --chart-expected: 200 98% 39%;
+  --chart-received: 142 71% 45%;
+  --chart-1: 245 78% 59%;
+  --chart-2: 239 84% 67%;
+  --chart-3: 217 91% 60%;
+  --chart-4: 173 80% 40%;
+  --chart-5: 38 92% 50%;
+  --chart-6: 215 20% 65%;
+
   color-scheme: light;
-  --bg: #f4efe6;
-  --surface: #fffdf8;
-  --surface-soft: #f8f1e4;
-  --text: #1f2430;
-  --muted: #696e79;
-  --accent: #c49538;
-  --line: #dfd4c1;
+}
+
+.dark {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 238 84% 67%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 33% 17%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 45%;
+  --success-foreground: 222 47% 6%;
+  --warning: 38 92% 60%;
+  --warning-foreground: 222 47% 11%;
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --ring: 238 84% 67%;
+
+  /* Chart tokens (Phase 6) — dark variants. Saturation/luminance bumped for
+   * visibility on the dark --background; semantic intent matches :root. */
+  --chart-primary: var(--primary);
+  --chart-muted: 215 20% 65%;
+  --chart-positive: 142 71% 50%;
+  --chart-expected: 200 98% 55%;
+  --chart-received: 142 71% 55%;
+  --chart-1: 245 78% 65%;
+  --chart-2: 239 84% 72%;
+  --chart-3: 217 91% 65%;
+  --chart-4: 173 70% 50%;
+  --chart-5: 38 92% 60%;
+  --chart-6: 215 20% 75%;
+  color-scheme: dark;
+}
+
+/* Comfortable density opt-in. Default = compact. */
+[data-density="comfortable"] {
+  --row-h: 52px;
+  --row-px: 20px;
 }
 
 * {
   box-sizing: border-box;
+  border-color: hsl(var(--border));
 }
 
 html {
@@ -29,23 +125,94 @@ body {
 
 body {
   overflow-x: hidden;
+  font-family: var(--font-geist-sans), "Noto Sans TC", system-ui, sans-serif;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  text-wrap: pretty;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  font-family: var(--font-body), "Noto Sans TC", sans-serif;
-  color: var(--text);
-  background:
-    radial-gradient(circle at 8% 10%, rgba(196, 149, 56, 0.2), transparent 34%),
-    radial-gradient(circle at 92% 15%, rgba(54, 103, 156, 0.14), transparent 30%),
-    linear-gradient(180deg, #f8f3eb 0%, #f4efe6 45%, #efe6d6 100%);
+h1, h2, h3, h4 {
+  font-family: var(--font-geist-sans), "Noto Sans TC", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  font-weight: 600;
 }
 
-h1,
-h2,
-h3,
-h4 {
-  font-family: var(--font-display), "Noto Serif TC", serif;
-  letter-spacing: 0.01em;
+:lang(zh-TW) h1, :lang(zh-TW) h2, :lang(zh-TW) h3, :lang(zh-TW) h4 {
+  letter-spacing: 0;
+}
+
+.tabular, .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.2);
+}
+
+.app-shell::before,
+.app-shell::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  filter: blur(56px);
+  opacity: 0.42;
+}
+
+.app-shell::before {
+  top: 5rem;
+  left: -8rem;
+  height: 18rem;
+  width: 18rem;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.22), transparent 70%);
+}
+
+.app-shell::after {
+  right: -6rem;
+  top: 12rem;
+  height: 16rem;
+  width: 16rem;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.16), transparent 68%);
+}
+
+.field-base {
+  min-height: 2.75rem;
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 0.75rem 0.875rem;
+  color: hsl(var(--foreground));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 12px 28px rgba(148, 163, 184, 0.1);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+.field-base::placeholder {
+  color: #94a3b8;
+}
+
+.field-base:hover {
+  border-color: rgba(148, 163, 184, 0.52);
+}
+
+.field-base:focus-visible {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.58);
+  box-shadow:
+    0 0 0 4px rgba(99, 102, 241, 0.14),
+    0 14px 30px rgba(99, 102, 241, 0.12);
+}
+
+.field-base option {
+  background: #ffffff;
+  color: #0f172a;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -90,13 +257,13 @@ h4 {
   right: 0;
   height: 4px;
   z-index: 1000;
-  background: var(--line);
+  background: rgba(148, 163, 184, 0.12);
   overflow: hidden;
 }
 
 .loading-progress__bar {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, hsl(var(--accent)), hsl(var(--primary)));
   transition: width 120ms ease-out;
 }
 
@@ -111,7 +278,7 @@ h4 {
   height: 4px;
   margin-bottom: 1.5rem;
   border-radius: 2px;
-  background: var(--line);
+  background: rgba(148, 163, 184, 0.12);
   overflow: hidden;
 }
 
@@ -121,7 +288,7 @@ h4 {
   height: 100%;
   width: 40%;
   border-radius: 2px;
-  background: var(--accent);
+  background: linear-gradient(90deg, rgba(109, 94, 252, 0.85), rgba(143, 133, 255, 0.95));
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -156,7 +323,7 @@ h4 {
     105deg,
     transparent 0%,
     transparent 40%,
-    rgba(196, 149, 56, 0.08) 50%,
+    rgba(109, 94, 252, 0.12) 50%,
     transparent 60%,
     transparent 100%
   );
@@ -165,6 +332,7 @@ h4 {
 
 .dashboard-skeleton-card--delay-1::before { background-position: 20% 0; }
 .dashboard-skeleton-card--delay-2::before { background-position: 40% 0; }
+.dashboard-skeleton-card--delay-3::before { background-position: 60% 0; }
 
 @media (prefers-reduced-motion: no-preference) {
   .dashboard-skeleton-card::before {
@@ -172,6 +340,7 @@ h4 {
   }
   .dashboard-skeleton-card--delay-1::before { animation-delay: 0.2s; }
   .dashboard-skeleton-card--delay-2::before { animation-delay: 0.4s; }
+  .dashboard-skeleton-card--delay-3::before { animation-delay: 0.6s; }
 }
 
 @keyframes skeleton-shimmer {
@@ -181,7 +350,7 @@ h4 {
 
 .skeleton-line {
   position: relative;
-  background: var(--line);
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .skeleton-line::after {
@@ -192,7 +361,7 @@ h4 {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(196, 149, 56, 0.12) 50%,
+    rgba(109, 94, 252, 0.16) 50%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -210,5 +379,30 @@ h4 {
 @media (prefers-reduced-motion: reduce) {
   .skeleton-line {
     opacity: 0.85;
+  }
+}
+
+
+
+@layer base {
+  :root {
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  .dark {
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }

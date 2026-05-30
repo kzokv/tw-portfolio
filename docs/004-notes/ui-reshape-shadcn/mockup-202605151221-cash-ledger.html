@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Cash ledger</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .balance-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:20px; }
+  .filter-row { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input[type=search] { flex: 1; max-width: 280px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); color:hsl(var(--foreground)); font-size:13px; }
+</style>
+</head>
+<body data-section="cash-ledger" data-crumb-here="Cash ledger">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Cash ledger</div>
+      <div class="muted text-sm">Settlement, dividends, transfers · 612 entries</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">Export</button>
+      <button class="btn btn-primary">+ Record entry</button>
+    </div>
+  </div>
+
+  <section class="balance-grid">
+    <div class="card card-tight">
+      <div class="stat-label">TWD balance</div>
+      <div class="text-2xl mono font-semibold" style="margin-top:4px;">NT$ 184,250</div>
+      <div class="muted text-xs">Personal · Spouse</div>
+    </div>
+    <div class="card card-tight">
+      <div class="stat-label">USD balance</div>
+      <div class="text-2xl mono font-semibold" style="margin-top:4px;">US$ 12,840</div>
+      <div class="muted text-xs">Personal</div>
+    </div>
+    <div class="card card-tight">
+      <div class="stat-label">AUD balance</div>
+      <div class="text-2xl mono font-semibold" style="margin-top:4px;">A$ 3,420</div>
+      <div class="muted text-xs">AU Trust</div>
+    </div>
+    <div class="card card-tight">
+      <div class="stat-label">Total (TWD eq.)</div>
+      <div class="text-2xl mono font-semibold" style="margin-top:4px;">NT$ 597,180</div>
+      <div class="muted text-xs gain">▲ +NT$ 4,250 this week</div>
+    </div>
+  </section>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Filter by description, account…" />
+    <button class="chip on">All types</button>
+    <button class="chip">Deposit</button>
+    <button class="chip">Withdraw</button>
+    <button class="chip">Settlement</button>
+    <button class="chip">Dividend</button>
+    <button class="chip">Fee</button>
+    <button class="chip">FX</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm">⚙ More filters</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable sort-desc">Date<span class="sort-ind">▼</span></th>
+          <th class="sortable">Type<span class="sort-ind">↕</span></th>
+          <th>Description</th>
+          <th class="sortable">Account<span class="sort-ind">↕</span></th>
+          <th class="right sortable">Amount<span class="sort-ind">↕</span></th>
+          <th class="right">Running balance</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">2026-05-15</td><td><span class="badge badge-danger">SETTLE</span></td><td>BUY 2330 ×100 @ 610.00</td><td class="muted">Personal · TWD</td><td class="right num loss">−61,028.50</td><td class="right num">184,250.00</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-05-13</td><td><span class="badge badge-success">DIVIDEND</span></td><td>2330 dividend · 4,000 sh × 4.50</td><td class="muted">Personal · TWD</td><td class="right num gain">+18,000.00</td><td class="right num">245,278.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-05-09</td><td><span class="badge badge-success">SETTLE</span></td><td>SELL AAPL ×50 @ 188.40</td><td class="muted">Personal · USD</td><td class="right num gain">+9,407.90</td><td class="right num">12,840.00</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-28</td><td><span class="badge">FX</span></td><td>USD → TWD @ 31.25</td><td class="muted">Personal</td><td class="right num">+62,500 / −2,000</td><td class="right num">227,278.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-21</td><td><span class="badge badge-success">SETTLE</span></td><td>SELL 2454 ×100 @ 1,025.00</td><td class="muted">Personal · TWD</td><td class="right num gain">+102,451.80</td><td class="right num">164,778.50</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-18</td><td><span class="badge badge-danger">SETTLE</span></td><td>BUY BHP ×150 @ 42.10</td><td class="muted">AU Trust · AUD</td><td class="right num loss">−6,323.80</td><td class="right num">3,420.00</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-15</td><td><span class="badge badge-success">DIVIDEND</span></td><td>0050 dividend · 200 sh × 2.10</td><td class="muted">Spouse · TWD</td><td class="right num gain">+420.00</td><td class="right num">62,326.70</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-11</td><td><span class="badge badge-danger">SETTLE</span></td><td>BUY AAPL ×25 @ 185.20</td><td class="muted">Personal · USD</td><td class="right num loss">−4,633.50</td><td class="right num">3,432.10</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-08</td><td><span class="badge">FEE</span></td><td>Annual brokerage fee</td><td class="muted">Personal · TWD</td><td class="right num loss">−250.00</td><td class="right num">62,326.70</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num">2026-04-02</td><td><span class="badge badge-success">DEPOSIT</span></td><td>Bank transfer</td><td class="muted">Personal · TWD</td><td class="right num gain">+50,000.00</td><td class="right num">62,576.70</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:hsl(var(--muted-foreground));">
+      <span>Showing 10 of 612</span>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-sm">← Prev</button>
+        <button class="btn btn-sm">Next →</button>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

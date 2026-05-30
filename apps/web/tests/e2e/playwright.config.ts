@@ -1,62 +1,51 @@
-import { defineConfig } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { devices } from "@playwright/test";
+import { createPlaywrightConfig } from "@vakwen/test-framework/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Resolves to repo root from apps/web/tests/e2e/; update if E2E layout changes
 const repoRoot = path.resolve(__dirname, "../../../..");
 
-const webPort = Number(process.env.WEB_PORT ?? 3333);
-const apiPort = Number(process.env.API_PORT ?? 4000);
-
-export default defineConfig({
+// Phase 3g (§12 A8) — mobile + tablet viewport gates.
+//
+// The default desktop `chromium` project runs every spec EXCEPT
+// `mobile-*-aaa.spec.ts`. The two narrow projects below run ONLY
+// `mobile-*-aaa.spec.ts` at their pinned viewports. This keeps the
+// existing 100+ specs from being multiplied 3× across viewports while
+// surfacing mobile / tablet regressions in dedicated specs.
+//
+// Pinned viewports:
+//   - chromium-mobile: 375 × 667 (iPhone SE — smallest viable target)
+//   - chromium-tablet: 768 × 1024 (iPad portrait — `md` boundary)
+export default createPlaywrightConfig({
   testDir: "./specs",
-  timeout: 45_000,
-  reporter: [
-    ["list"],
-    ["html", { open: "on-failure", outputFolder: path.join(repoRoot, "apps/web/playwright-report") }],
-  ],
-  use: {
-    baseURL: `http://127.0.0.1:${webPort}`,
+  repoRoot,
+  webServers: "full",
+  authMode: "dev_bypass",
+  workers: 1,
+  retries: 1,
+  videoMode: "off",
+  apiEnvOverrides: {
+    AU_PROVIDER_MOCK: "true",
+    AU_CATALOG_PROVIDER_MOCK: "true",
+    KR_PROVIDER_MOCK: "true",
+    KR_CATALOG_PROVIDER_MOCK: "true",
   },
-  webServer: [
+  projects: [
     {
-      command: "npm run dev -w apps/api",
-      url: `http://127.0.0.1:${apiPort}/health/live`,
-      timeout: 60_000,
-      cwd: repoRoot,
-      reuseExistingServer: true,
-      stderr: "pipe",
-      stdout: "ignore",
-      gracefulShutdown: {
-        signal: "SIGINT",
-        timeout: 10_000,
-      },
-      env: {
-        API_PORT: String(apiPort),
-        WEB_PORT: String(webPort),
-        AUTH_MODE: "dev_bypass",
-        NODE_ENV: "development",
-        PERSISTENCE_BACKEND: "memory",
-      },
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /mobile-.*-aaa\.spec\.ts/,
     },
     {
-      command: "npm run dev -w apps/web",
-      cwd: repoRoot,
-      url: `http://127.0.0.1:${webPort}`,
-      timeout: 90_000,
-      reuseExistingServer: true,
-      stderr: "pipe",
-      stdout: "ignore",
-      gracefulShutdown: {
-        signal: "SIGINT",
-        timeout: 10_000,
-      },
-      env: {
-        API_PORT: String(apiPort),
-        WEB_PORT: String(webPort),
-        NEXT_PUBLIC_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
-      },
+      name: "chromium-mobile",
+      use: { ...devices["iPhone SE"], viewport: { width: 375, height: 667 } },
+      testMatch: /mobile-.*-aaa\.spec\.ts/,
+    },
+    {
+      name: "chromium-tablet",
+      use: { ...devices["iPad Mini"], viewport: { width: 768, height: 1024 } },
+      testMatch: /mobile-.*-aaa\.spec\.ts/,
     },
   ],
 });

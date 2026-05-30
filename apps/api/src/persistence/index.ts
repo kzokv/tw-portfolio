@@ -1,15 +1,26 @@
-import { env, getDatabaseUrl, getRedisUrl } from "../config/env.js";
+import { Env } from "@vakwen/config";
 import { MemoryPersistence } from "./memory.js";
 import { PostgresPersistence } from "./postgres.js";
 import type { Persistence } from "./types.js";
 
-export function createPersistence(backend: "postgres" | "memory" = env.PERSISTENCE_BACKEND): Persistence {
+interface PersistenceFactoryOptions {
+  seedMemoryCatalog?: boolean;
+  seedDevBypassUser?: boolean;
+}
+
+export function createPersistence(
+  backend: "postgres" | "memory" = Env.PERSISTENCE_BACKEND,
+  options: PersistenceFactoryOptions = {},
+): Persistence {
   if (backend === "memory") {
-    return new MemoryPersistence();
+    return new MemoryPersistence({
+      seedCatalog: options.seedMemoryCatalog,
+      seedDevBypassUser: options.seedDevBypassUser,
+    });
   }
 
   return new PostgresPersistence({
-    databaseUrl: getDatabaseUrl(),
-    redisUrl: getRedisUrl(),
+    databaseUrl: Env.getDatabaseUrl(),
+    redisUrl: Env.getRedisUrl(),
   });
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@tw-portfolio/domain",
+  "name": "@vakwen/domain",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

@@ -1,0 +1,267 @@
+import type { LocaleCode } from "@vakwen/shared-types";
+import type { AppDictionary } from "../../lib/i18n/types";
+
+export function mapRecomputeStatus(locale: LocaleCode, status: string): string {
+  const normalized = status.toUpperCase();
+  if (locale === "zh-TW") {
+    const statusMap: Record<string, string> = {
+      CONFIRMED: "已確認",
+      PREVIEWED: "已預覽",
+      APPLIED: "已套用",
+      FAILED: "失敗",
+    };
+    return statusMap[normalized] ?? status;
+  }
+  return status;
+}
+
+export function formatRecomputeMessage(locale: LocaleCode, status: string, itemsCount: number): string {
+  const localizedStatus = mapRecomputeStatus(locale, status);
+  if (locale === "zh-TW") {
+    return `重算${localizedStatus}，共 ${itemsCount} 筆項目`;
+  }
+  return `Recompute ${localizedStatus}, items: ${itemsCount}`;
+}
+
+export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recompute" | "transactions" | "priceHint" | "holdings" | "feeProfiles"> & {
+  tooltips: Pick<
+    AppDictionary["tooltips"],
+    | "recomputeTitle"
+    | "recomputeLocale"
+    | "recomputeCostBasis"
+    | "recomputeQuotePoll"
+    | "txAccount"
+    | "txType"
+    | "txTicker"
+    | "txQuantity"
+    | "txPrice"
+    | "txCurrency"
+    | "txTradeDate"
+    | "txDayTrade"
+    | "holdingsAccount"
+    | "holdingsTicker"
+    | "holdingsQuantity"
+    | "holdingsTotalCost"
+    | "feeProfileId"
+    | "feeProfileName"
+    | "feeProfileCommission"
+    | "feeProfileTaxMode"
+  >;
+}> = {
+  en: {
+    recompute: {
+      title: "Portfolio Engine",
+      description: "Run historical recomputation after rule changes or profile updates.",
+      localeTerm: "Locale",
+      costBasisTerm: "Cost Basis",
+      quotePollTerm: "Quote Poll",
+      fallbackConfirm:
+        "Recompute now using per-security overrides first, then each account fallback profile for unmatched tickers?",
+    },
+    transactions: {
+      title: "Record Transaction",
+      description: "Enter trade details and append to your historical ledger.",
+      accountTerm: "Account",
+      typeTerm: "Type",
+      tickerTerm: "Ticker",
+      tickerPlaceholder: "Search by ticker or name...",
+      tickerEmptyCatalog: "No instruments available. Run catalog sync first.",
+      tickerNoMatches: "No instruments match \"{query}\"",
+      tickerMatchCount: "{shown} of {total} matches",
+      tickerRequired: "Choose a ticker before submitting the transaction.",
+      tickerHint: "Choose one of the supported Taiwan tickers.",
+      quantityTerm: "Quantity",
+      unitPriceTerm: "Unit Price",
+      currencyTerm: "Currency",
+      tradeDateTerm: "Trade Date",
+      dayTradeTerm: "Day Trade",
+      typeBuy: "BUY",
+      typeSell: "SELL",
+      dayTradeYes: "Yes",
+      dayTradeNo: "No",
+      verificationTitle: "Verification Snapshot",
+      verificationDescription: "Confirm the latest portfolio totals without turning this route into a second holdings page.",
+      recentLedgerTitle: "Recent Transactions",
+      recentLedgerDescription: "Keep the newest ledger entries close to the form for fast operational review.",
+      recentLedgerEmpty: "Recent transactions will appear here after the first trade is recorded.",
+      commissionEstimateTitle: "Commission",
+      taxEstimateTitle: "Securities Tax",
+      estimatedLabel: "Estimated: {amount}",
+      overrideAmountPlaceholder: "Override amount (optional)",
+      // ui-enhancement (2026-05-13): rendered when 4-tuple gate holds but
+      // `feeEstimate == null` (e.g. price-mismatch race) so the section
+      // doesn't disappear mid-edit.
+      estimatedUnavailable: "—",
+      estimateUnavailableSubLabel: "estimate unavailable",
+      // KZO-169: market_code chip selector + currency-aware account filter.
+      // Strings only per .claude/rules/nextjs-i18n-serialization.md.
+      // `{currency}` placeholder replaced at call site via .replace().
+      marketTerm: "Market",
+      marketChipTW: "TW",
+      marketChipUS: "US",
+      marketChipAU: "AU",
+      marketChipKR: "KR",
+      marketChipAll: "All",
+      noAccountForCurrency: "No {currency} account available — ",
+      createAccountLink: "Create {currency} account",
+      currencyMismatchError: "Trade currency does not match account currency.",
+    },
+    priceHint: {
+      exact: "Closing price • {date}",
+      previous: {
+        weekend: "Previous close • {date}",
+        no_bar: "Previous close • {date}",
+      },
+      unavailable: "Price unavailable for this date — enter manually.",
+    },
+    holdings: {
+      title: "Holdings",
+      description: "Aggregated quantity and total cost by account and ticker.",
+      entries: "{count} entries",
+      visibleRowsLabel: "Visible rows",
+      visibleRowsDetail: "Current table rows",
+      visibleRowsCurrencyDetail: "{currency} positions",
+      accountTerm: "Account",
+      tickerTerm: "Ticker",
+      quantityTerm: "Quantity",
+      currencyTerm: "Currency",
+      totalCostTerm: "Total Cost",
+    },
+    feeProfiles: {
+      title: "Fee Profiles",
+      description: "Reference fee/tax configurations attached to broker accounts.",
+      idTerm: "ID",
+      nameTerm: "Name",
+      commissionBpsTerm: "Board Rate (‰)",
+      taxModeTerm: "Tax Mode",
+    },
+    tooltips: {
+      recomputeTitle: "Reapplies portfolio calculations to historical transactions.",
+      recomputeLocale: "Current UI language loaded from saved settings.",
+      recomputeCostBasis: "Current cost basis method used for PnL and holdings.",
+      recomputeQuotePoll: "Current quote polling frequency in seconds.",
+      txAccount: "Broker account where this transaction should be recorded.",
+      txType: "BUY increases lots; SELL reduces lots and realizes PnL.",
+      txTicker: "Taiwan stock or ETF ticker, for example 2330 or 0050.",
+      txQuantity: "Share count for the trade; must be a positive integer.",
+      txPrice: "Execution price per share in the selected trade currency.",
+      txCurrency: "Derived from the active fee profile. Change it in Settings under Fee Profiles, not in this transaction form.",
+      txTradeDate: "Trade settlement date used in portfolio history ordering.",
+      txDayTrade: "Enable if buy and sell happen within the same day for tax rules.",
+      holdingsAccount: "Broker account identifier where holdings are tracked.",
+      holdingsTicker: "Instrument ticker currently held in the account.",
+      holdingsQuantity: "Open position size after historical transactions.",
+      holdingsTotalCost: "Accumulated cost basis for remaining open quantity.",
+      feeProfileId: "Stable profile ID referenced by accounts.",
+      feeProfileName: "Human-readable broker fee profile name.",
+      feeProfileCommission: "Board commission rate in permille before discounts and minimums.",
+      feeProfileTaxMode: "Rounding strategy used when calculating taxes.",
+    },
+  },
+  "zh-TW": {
+    recompute: {
+      title: "投資組合引擎",
+      description: "規則或費率調整後，可重新計算歷史結果。",
+      localeTerm: "語系",
+      costBasisTerm: "成本計算",
+      quotePollTerm: "報價更新",
+      fallbackConfirm: "是否立即重算？系統會先套用代號覆寫，找不到時再使用帳戶預設費率。",
+    },
+    transactions: {
+      title: "新增交易",
+      description: "輸入交易資訊並寫入歷史帳本。",
+      accountTerm: "帳戶",
+      typeTerm: "交易類型",
+      tickerTerm: "代號",
+      tickerPlaceholder: "依代號或名稱搜尋...",
+      tickerEmptyCatalog: "目前沒有可用標的，請先同步商品目錄。",
+      tickerNoMatches: "找不到符合「{query}」的標的",
+      tickerMatchCount: "顯示 {shown} / {total} 筆結果",
+      tickerRequired: "送出交易前請先選擇標的。",
+      tickerHint: "請從支援的台灣標的清單中選擇。",
+      quantityTerm: "股數",
+      unitPriceTerm: "成交單價",
+      currencyTerm: "幣別",
+      tradeDateTerm: "交易日期",
+      dayTradeTerm: "當沖",
+      typeBuy: "買進",
+      typeSell: "賣出",
+      dayTradeYes: "是",
+      dayTradeNo: "否",
+      verificationTitle: "驗證摘要",
+      verificationDescription: "保留與持倉有關的必要確認資訊，但不讓這頁變成第二個持倉頁。",
+      recentLedgerTitle: "最近交易",
+      recentLedgerDescription: "把最新帳本紀錄放在表單旁邊，方便輸入後立即核對。",
+      recentLedgerEmpty: "新增第一筆交易後，最近交易會顯示在這裡。",
+      commissionEstimateTitle: "手續費",
+      taxEstimateTitle: "證交稅",
+      estimatedLabel: "預估：{amount}",
+      overrideAmountPlaceholder: "覆寫金額（選填）",
+      // ui-enhancement — 4 元組條件成立但估算缺值時顯示。
+      estimatedUnavailable: "—",
+      estimateUnavailableSubLabel: "估算暫不可用",
+      // KZO-169: market_code chip + 帳戶幣別過濾。chip 標籤保持 MarketCode
+      // 字面值（TW / US / AU / All），符合 D5b 鎖定範圍。
+      marketTerm: "市場",
+      marketChipTW: "TW",
+      marketChipUS: "US",
+      marketChipAU: "AU",
+      marketChipKR: "KR",
+      marketChipAll: "All",
+      noAccountForCurrency: "尚未建立 {currency} 帳戶 — ",
+      createAccountLink: "新增 {currency} 帳戶",
+      currencyMismatchError: "交易幣別與帳戶幣別不符。",
+    },
+    priceHint: {
+      exact: "收盤價 • {date}",
+      previous: {
+        weekend: "前一個收盤價 • {date}",
+        no_bar: "前一個收盤價 • {date}",
+      },
+      unavailable: "此日期查無價格，請手動輸入。",
+    },
+    holdings: {
+      title: "持倉",
+      description: "依帳戶與代號彙整持股數量與總成本。",
+      entries: "{count} 筆",
+      visibleRowsLabel: "目前顯示列數",
+      visibleRowsDetail: "目前表格列數",
+      visibleRowsCurrencyDetail: "{currency} 持倉",
+      accountTerm: "帳戶",
+      tickerTerm: "代號",
+      quantityTerm: "股數",
+      currencyTerm: "幣別",
+      totalCostTerm: "總成本",
+    },
+    feeProfiles: {
+      title: "費率設定檔",
+      description: "檢視各券商帳戶套用的手續費與稅率規則。",
+      idTerm: "編號",
+      nameTerm: "名稱",
+      commissionBpsTerm: "牌告費率（‰）",
+      taxModeTerm: "稅額進位",
+    },
+    tooltips: {
+      recomputeTitle: "對歷史交易重新套用計算規則並回寫結果。",
+      recomputeLocale: "目前介面語系，來自已儲存設定。",
+      recomputeCostBasis: "目前使用的成本計算法。",
+      recomputeQuotePoll: "目前報價更新頻率（秒）。",
+      txAccount: "本筆交易將寫入的券商帳戶。",
+      txType: "買進會增加庫存，賣出會減少庫存並計算已實現損益。",
+      txTicker: "台股或 ETF 代號，例如 2330、0050。",
+      txQuantity: "本次交易的股數，需為正整數。",
+      txPrice: "每股成交價格，依所選交易幣別填寫。",
+      txCurrency: "此幣別由目前套用的費率設定檔決定。請到「設定 > 費率設定」修改，不能在交易表單直接編輯。",
+      txTradeDate: "用於排序歷史與重算的交易日期。",
+      txDayTrade: "若同日買賣請開啟，會套用當沖相關稅率。",
+      holdingsAccount: "持倉所屬的券商帳戶識別碼。",
+      holdingsTicker: "目前仍持有部位的商品代號。",
+      holdingsQuantity: "歷史交易後尚未平倉的數量。",
+      holdingsTotalCost: "未平倉數量對應的總成本基礎。",
+      feeProfileId: "供帳戶引用的固定費率設定檔編號。",
+      feeProfileName: "費率設定檔的人類可讀名稱。",
+      feeProfileCommission: "牌告手續費率，套用折扣與最低手續費前的基準值。",
+      feeProfileTaxMode: "計算稅額時採用的進位/捨去規則。",
+    },
+  },
+};

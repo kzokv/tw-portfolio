@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>KZO-161 — Locked Scope Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060912;
+    --bg-soft: #0b101e;
+    --panel: rgba(20, 26, 44, 0.78);
+    --panel-2: rgba(28, 36, 58, 0.68);
+    --panel-3: rgba(38, 48, 76, 0.55);
+    --border: rgba(99, 124, 178, 0.18);
+    --border-strong: rgba(129, 158, 220, 0.32);
+    --accent: #ff8857;
+    --accent-soft: rgba(255, 136, 87, 0.16);
+    --tag: #6cd1ff;
+    --tag-soft: rgba(108, 209, 255, 0.16);
+    --indigo: #7c8cff;
+    --indigo-soft: rgba(124, 140, 255, 0.18);
+    --indigo-strong: #8b9bff;
+    --emerald: #4cd6a3;
+    --emerald-soft: rgba(76, 214, 163, 0.18);
+    --rose: #ff7a93;
+    --rose-soft: rgba(255, 122, 147, 0.18);
+    --amber: #f5c062;
+    --amber-soft: rgba(245, 192, 98, 0.18);
+    --slate-50: #e7eefb;
+    --slate-200: #b9c6e0;
+    --slate-300: #8e9cba;
+    --slate-400: #6f7d99;
+    --slate-500: #525e78;
+    --mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Geist', 'Inter Tight', system-ui, -apple-system, sans-serif;
+    --serif: 'Instrument Serif', 'EB Garamond', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background:
+      radial-gradient(circle at 12% 8%, rgba(124,140,255,0.08), transparent 40%),
+      radial-gradient(circle at 90% 4%, rgba(255,136,87,0.06), transparent 35%),
+      radial-gradient(circle at 50% 100%, rgba(108,209,255,0.06), transparent 50%),
+      var(--bg);
+    color: var(--slate-200);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  .canvas {
+    width: 1280px;
+    margin: 0 auto;
+    padding: 56px 56px 80px;
+    position: relative;
+  }
+
+  /* Subtle grid overlay */
+  .canvas::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(124,140,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,140,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 80%);
+  }
+
+  .canvas > * { position: relative; z-index: 1; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .doc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .doc-title {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 400;
+    color: var(--slate-50);
+    font-size: 38px;
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+  }
+  .doc-title .muted { color: var(--slate-400); font-style: normal; font-family: var(--mono); font-size: 14px; letter-spacing: 0.04em; display: block; margin-bottom: 10px; text-transform: uppercase; }
+  .doc-meta {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--slate-400);
+    text-transform: uppercase;
+    line-height: 1.8;
+  }
+  .doc-meta strong { color: var(--accent); font-weight: 500; }
+  .doc-meta .pill { display: inline-block; padding: 2px 8px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; font-size: 10px; }
+
+  /* ── Section header ─────────────────────────────────────────────────── */
+  section { margin-bottom: 64px; }
+  .section-h {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+  .section-h .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 4px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .section-h h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--slate-200);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .section-h .delta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--slate-500);
+    margin-left: auto;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Tag ─────────────────────────────────────────────────────────────── */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--tag);
+    background: var(--tag-soft);
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .tag.muted { color: var(--slate-400); background: rgba(143, 156, 186, 0.08); }
+  .tag.delete { color: var(--rose); background: var(--rose-soft); }
+  .tag.add { color: var(--emerald); background: var(--emerald-soft); }
+  .tag.pin { color: var(--amber); background: var(--amber-soft); }
+  .tag .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+
+  /* ── Cards / panels ─────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px;
+    backdrop-filter: blur(12px);
+    position: relative;
+  }
+  .panel.dashed { border-style: dashed; background: transparent; }
+  .panel.ghost { background: var(--panel-3); border: 1px dashed var(--border-strong); }
+  .panel-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .panel-title { font-size: 14px; color: var(--slate-50); font-weight: 600; letter-spacing: -0.01em; }
+  .panel-sub { font-size: 11px; color: var(--slate-400); margin-top: 2px; }
+
+  /* ── Drag handle ────────────────────────────────────────────────────── */
+  .grip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--slate-400);
+    cursor: grab;
+    opacity: 0.85;
+  }
+  .grip svg { width: 14px; height: 14px; }
+  .grip.lg svg { width: 16px; height: 16px; }
+
+  /* ── Gear icon ──────────────────────────────────────────────────────── */
+  .gear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    color: var(--slate-300);
+    background: rgba(124, 140, 255, 0.10);
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .gear svg { width: 16px; height: 16px; }
+
+  /* ── F5 dashboard schematic ─────────────────────────────────────────── */
+  .schematic {
+    display: grid;
+    gap: 18px;
+  }
+  .hero-panel {
+    background: linear-gradient(135deg, rgba(124,140,255,0.10), rgba(108,209,255,0.06));
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    padding: 18px 22px;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 22px;
+    align-items: center;
+  }
+  .hero-panel .h-left { }
+  .hero-panel .eyebrow {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--indigo);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .hero-panel .h-title { font-family: var(--serif); font-size: 22px; color: var(--slate-50); line-height: 1.1; margin-bottom: 6px; }
+  .hero-panel .h-desc { font-size: 11px; color: var(--slate-400); }
+  .hero-panel .h-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .hero-panel .h-metric {
+    background: rgba(11, 16, 30, 0.55);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 10px;
+  }
+  .hero-panel .h-metric .ml { font-family: var(--mono); font-size: 8px; color: var(--slate-400); letter-spacing: 0.12em; text-transform: uppercase; }
+  .hero-panel .h-metric .mv { font-size: 14px; color: var(--slate-50); font-weight: 600; margin-top: 3px; }
+
+  .annotation-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: -6px 0 -6px;
+    padding: 0 6px;
+  }
+
+  .sortable-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    position: relative;
+    padding: 18px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(124,140,255,0.05), transparent 80%);
+    border: 1.5px dashed rgba(124, 140, 255, 0.28);
+  }
+  .sortable-grid::before {
+    content: "SORTABLE CONTEXT — flat grid, dense pack";
+    position: absolute;
+    top: -10px;
+    left: 18px;
+    background: var(--bg);
+    padding: 0 10px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--indigo);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .card-mini {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    position: relative;
+  }
+  .card-mini.full { grid-column: 1 / -1; }
+  .card-mini-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .card-mini-title { font-size: 12px; color: var(--slate-50); font-weight: 600; letter-spacing: -0.005em; }
+  .card-mini-sub { font-size: 9px; color: var(--slate-400); font-family: var(--mono); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 1px; }
+  .card-mini-h .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .card-mini-body { min-height: 56px; font-size: 11px; color: var(--slate-300); display: flex; align-items: center; justify-content: center; padding: 12px; border-radius: 8px; background: rgba(11, 16, 30, 0.4); border: 1px dashed var(--border); font-family: var(--mono); }
+  .card-mini-body.tall { min-height: 90px; }
+  .card-mini-body.chart { background: linear-gradient(180deg, rgba(124,140,255,0.10), rgba(124,140,255,0.02)); padding: 8px 0 0; min-height: 84px; position: relative; overflow: hidden; }
+  .card-mini-body.chart svg { width: 100%; height: 84px; display: block; }
+  .card-mini.span-anno {
+    position: absolute;
+    top: 50%;
+    right: -12px;
+    transform: translate(100%, -50%);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+
+  .pill-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(11, 16, 30, 0.5);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--slate-300);
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .pill.active {
+    background: var(--indigo);
+    color: white;
+  }
+
+  .reorder-overlay {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--slate-400);
+    letter-spacing: 0.06em;
+  }
+
+  /* Annotation lines */
+  .removed-strikeout {
+    background: rgba(255, 122, 147, 0.10);
+    border: 1px dashed var(--rose);
+    border-radius: 12px;
+    padding: 10px 14px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--rose);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+  .removed-strikeout::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(255,122,147,0.08) 8px 9px);
+  }
+  .removed-strikeout span { position: relative; }
+
+  /* ── F4 popover layout ──────────────────────────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 26px;
+    align-items: start;
+  }
+
+  .anchor-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    position: relative;
+  }
+  .anchor-box .anchor-h {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .anchor-box .anchor-h .eyebrow {
+    font-family: var(--mono);
+    font-size: 8px;
+    color: var(--indigo);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .anchor-box .anchor-h .title { font-size: 14px; color: var(--slate-50); font-weight: 600; }
+  .anchor-box .anchor-pills {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .anchor-arrow {
+    position: absolute;
+    top: 14px;
+    right: -28px;
+    width: 80px;
+    height: 1px;
+    border-top: 1px dashed var(--accent);
+  }
+  .anchor-arrow::after {
+    content: "";
+    position: absolute;
+    right: -2px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    border-right: 1px solid var(--accent);
+    border-top: 1px solid var(--accent);
+    transform: rotate(45deg);
+  }
+
+  .popover {
+    background: linear-gradient(180deg, rgba(28,36,58,0.92), rgba(20,26,44,0.92));
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 30px 60px -15px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,140,255,0.05);
+    width: 320px;
+  }
+  .popover-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+  .popover-title { font-size: 13px; color: var(--slate-50); font-weight: 600; }
+  .popover-source {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--slate-400);
+    letter-spacing: 0.08em;
+  }
+  .popover-source code { color: var(--tag); }
+
+  .range-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .range-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(11,16,30,0.55);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .range-row.dragging {
+    background: rgba(124, 140, 255, 0.12);
+    border-color: var(--indigo);
+    box-shadow: 0 4px 16px rgba(124,140,255,0.20);
+    transform: translateY(-2px);
+  }
+  .range-row.disabled { opacity: 0.5; }
+  .range-row .lbl {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--slate-50);
+    letter-spacing: 0.06em;
+  }
+  .range-row.disabled .lbl { color: var(--slate-400); text-decoration: line-through; }
+
+  .switch {
+    width: 28px;
+    height: 16px;
+    background: var(--indigo);
+    border-radius: 999px;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 14px;
+    width: 12px;
+    height: 12px;
+    background: white;
+    border-radius: 999px;
+  }
+  .switch.off { background: rgba(143, 156, 186, 0.25); }
+  .switch.off::after { left: 2px; }
+
+  .x-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--slate-400);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .add-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .add-row input {
+    background: rgba(11,16,30,0.6);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--slate-200);
+    outline: none;
+  }
+  .add-row .add-btn {
+    background: var(--indigo-soft);
+    border: 1px solid var(--indigo);
+    color: var(--indigo-strong);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .popover-footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    color: var(--slate-300);
+    background: transparent;
+  }
+  .btn.primary {
+    background: var(--indigo);
+    color: white;
+    border-color: var(--indigo);
+  }
+  .btn.danger { color: var(--rose); border-color: rgba(255, 122, 147, 0.3); }
+
+  /* ── Display tab ────────────────────────────────────────────────────── */
+  .drawer {
+    background: linear-gradient(180deg, rgba(20,26,44,0.94), rgba(11,16,30,0.94));
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 30px 60px -10px rgba(0,0,0,0.5);
+  }
+  .drawer-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 16px;
+  }
+  .drawer-title { font-family: var(--serif); font-size: 22px; color: var(--slate-50); }
+
+  .tab-strip {
+    display: inline-flex;
+    background: rgba(11,16,30,0.6);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+    margin-bottom: 22px;
+  }
+  .tab {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--slate-400);
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .tab.active { background: var(--indigo); color: white; }
+  .tab.new {
+    background: var(--indigo);
+    color: white;
+    position: relative;
+    padding-right: 22px;
+  }
+  .tab.new::after {
+    content: "NEW";
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    background: var(--accent);
+    color: var(--bg);
+    font-family: var(--mono);
+    font-size: 7px;
+    letter-spacing: 0.1em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .display-section {
+    background: rgba(11,16,30,0.45);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .display-section-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .display-section-title { font-size: 13px; color: var(--slate-50); font-weight: 600; }
+  .display-section-sub { font-size: 10px; color: var(--slate-400); margin-top: 2px; }
+
+  .reset-layout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 122, 147, 0.08);
+    border: 1px solid rgba(255, 122, 147, 0.28);
+    color: var(--rose);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .reset-layout-btn svg { width: 14px; height: 14px; }
+
+  /* ── Admin retrofit ─────────────────────────────────────────────────── */
+  .admin-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .admin-title { font-size: 14px; color: var(--slate-50); font-weight: 600; }
+  .admin-sub { font-size: 10px; color: var(--slate-400); margin-bottom: 12px; }
+
+  .admin-active-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+  .admin-row {
+    display: grid;
+    grid-template-columns: 18px auto 1fr;
+    align-items: center;
+    gap: 10px;
+  }
+  .admin-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--indigo-soft);
+    border: 1px solid rgba(124,140,255,0.32);
+    color: var(--indigo-strong);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+    min-width: 56px;
+    justify-content: center;
+  }
+
+  .admin-available-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .admin-chip.available {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--slate-300);
+  }
+  .admin-chip.available::before {
+    content: "+ ";
+    color: var(--slate-400);
+    margin-right: 1px;
+  }
+
+  .admin-helper {
+    font-size: 10px;
+    color: var(--slate-400);
+    margin-top: 12px;
+    line-height: 1.5;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+
+  .label-row {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--slate-400);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 500;
+  }
+
+  /* ── Footer / change log ────────────────────────────────────────────── */
+  .changelog {
+    margin-top: 56px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+  }
+  .changelog h3 {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .changelog ul { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+  .changelog li {
+    font-size: 11px;
+    color: var(--slate-300);
+    padding-left: 18px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .changelog li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 2px;
+    transform: rotate(45deg);
+  }
+  .changelog li.add::before { background: var(--emerald); }
+  .changelog li.remove::before { background: var(--rose); }
+
+  /* ── Helper layout ──────────────────────────────────────────────────── */
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .right-anno {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    margin-left: auto;
+  }
+</style>
+</head>
+<body>
+<div class="canvas">
+
+  <!-- Document Header -->
+  <header class="doc-header">
+    <div>
+      <span class="doc-title">
+        <span class="muted">KZO-161 — F4 + F4a + F5 · Locked Scope</span>
+        <em>User timeframe customization</em><br>
+        + card reorder via dnd-kit.
+      </span>
+    </div>
+    <div class="doc-meta">
+      <div>Scope-grilled <strong>2026-04-24</strong></div>
+      <div>Sub-ticket of KZO-158</div>
+      <div>Consumes KZO-159 prefs infra</div>
+      <div style="margin-top: 6px;">
+        <span class="pill">26 DECISIONS · 14 DELTAS</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Section: F5 Dashboard Layout ──────────────────────────────── -->
+  <section>
+    <div class="section-h">
+      <span class="label">F5</span>
+      <h2>Dashboard layout — flat sortable + ActionCenter below</h2>
+      <span class="delta">Δ collapse 3 grids · drop hero pills · move ActionCenter below</span>
+    </div>
+
+    <div class="schematic">
+
+      <!-- HERO panel: pills row removed -->
+      <div>
+        <div class="hero-panel">
+          <div class="h-left">
+            <div class="eyebrow">Dashboard</div>
+            <div class="h-title">Portfolio overview</div>
+            <div class="h-desc">Markets · holdings · performance — at a glance.</div>
+          </div>
+          <div class="h-metrics">
+            <div class="h-metric"><div class="ml">Market Value</div><div class="mv">NT$ 2,489,621</div></div>
+            <div class="h-metric"><div class="ml">Concentration</div><div class="mv">38.2%</div></div>
+            <div class="h-metric"><div class="ml">Unrealized P/L</div><div class="mv">+ NT$ 504,319</div></div>
+            <div class="h-metric"><div class="ml">Daily Change</div><div class="mv">+ 0.84%</div></div>
+          </div>
+        </div>
+        <!-- Removed annotation -->
+        <div style="margin-top: 10px;">
+          <div class="removed-strikeout">
+            <span>✕ HERO RANGE PILL ROW · REMOVED · Δ — testid `dashboard-hero-range-{range}` no longer rendered</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Annotation -->
+      <div class="annotation-bar">
+        <span class="tag"><span class="dot"></span>Outside SortableContext · fixed</span>
+        <span class="tag muted">5 cards · canonical DASHBOARD_CARDS</span>
+      </div>
+
+      <!-- SORTABLE CONTEXT -->
+      <div class="sortable-grid">
+
+        <!-- Card 1: portfolio-trend (gear + own pills, half-width) -->
+        <div class="card-mini">
+          <div class="card-mini-h">
+            <span class="grip lg" title="drag handle">
+              <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg>
+            </span>
+            <div>
+              <div class="card-mini-title">Portfolio Trend</div>
+              <div class="card-mini-sub">portfolio-trend</div>
+            </div>
+            <div class="right">
+              <div class="pill-row">
+                <span class="pill active">1M</span>
+                <span class="pill">3M</span>
+                <span class="pill">YTD</span>
+                <span class="pill">1Y</span>
+              </div>
+              <span class="gear" title="Customize Ranges">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="card-mini-body chart">
+            <svg viewBox="0 0 320 84" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="gradTrend" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stop-color="#7c8cff" stop-opacity="0.4"/>
+                  <stop offset="100%" stop-color="#7c8cff" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path d="M 0 60 L 30 52 L 60 64 L 90 48 L 120 50 L 150 36 L 180 40 L 210 28 L 240 32 L 270 18 L 300 22 L 320 12 L 320 84 L 0 84 Z" fill="url(#gradTrend)"/>
+              <path d="M 0 60 L 30 52 L 60 64 L 90 48 L 120 50 L 150 36 L 180 40 L 210 28 L 240 32 L 270 18 L 300 22 L 320 12" stroke="#8b9bff" stroke-width="2" fill="none"/>
+            </svg>
+          </div>
+          <div style="margin-top:8px; font-size:9px; color:var(--accent); font-family:var(--mono); letter-spacing:0.08em;">⚙️ GEAR · sole F4 entry · `timeframe-gear-btn` (no `···`)</div>
+        </div>
+
+        <!-- Card 2: allocation-snapshot -->
+        <div class="card-mini">
+          <div class="card-mini-h">
+            <span class="grip lg"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <div>
+              <div class="card-mini-title">Allocation Snapshot</div>
+              <div class="card-mini-sub">allocation-snapshot</div>
+            </div>
+          </div>
+          <div class="card-mini-body">
+            <svg viewBox="0 0 84 84" width="80" height="80">
+              <circle cx="42" cy="42" r="32" fill="none" stroke="rgba(124,140,255,0.18)" stroke-width="14"/>
+              <circle cx="42" cy="42" r="32" fill="none" stroke="#7c8cff" stroke-width="14" stroke-dasharray="80 200" transform="rotate(-90 42 42)"/>
+              <circle cx="42" cy="42" r="32" fill="none" stroke="#6cd1ff" stroke-width="14" stroke-dasharray="60 200" stroke-dashoffset="-80" transform="rotate(-90 42 42)"/>
+              <circle cx="42" cy="42" r="32" fill="none" stroke="#4cd6a3" stroke-width="14" stroke-dasharray="40 200" stroke-dashoffset="-140" transform="rotate(-90 42 42)"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Card 3: return-percent -->
+        <div class="card-mini">
+          <div class="card-mini-h">
+            <span class="grip lg"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <div>
+              <div class="card-mini-title">Return %</div>
+              <div class="card-mini-sub">return-percent</div>
+            </div>
+          </div>
+          <div class="card-mini-body chart">
+            <svg viewBox="0 0 320 84" preserveAspectRatio="none">
+              <path d="M 0 70 L 30 60 L 60 50 L 90 56 L 120 42 L 150 30 L 180 38 L 210 26 L 240 32 L 270 18 L 300 14 L 320 8" stroke="#4cd6a3" stroke-width="2" fill="none" stroke-dasharray="6 3"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- placeholder ghost (3 half-width fits in 2 cols, so [grid-auto-flow:dense] packs) -->
+        <div class="card-mini ghost" style="display: flex; align-items: center; justify-content: center; min-height: 130px; padding: 16px;">
+          <div style="text-align: center; font-family: var(--mono); font-size: 10px; color: var(--indigo); letter-spacing: 0.1em; line-height: 1.6;">
+            <div>[ grid-auto-flow:dense ]</div>
+            <div style="color: var(--slate-400); margin-top: 6px;">empty slot · packed by dense layout</div>
+          </div>
+        </div>
+
+        <!-- Card 4: holdings-table (full-width) -->
+        <div class="card-mini full" style="position: relative;">
+          <div class="card-mini-h">
+            <span class="grip lg"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <div>
+              <div class="card-mini-title">Holdings Table</div>
+              <div class="card-mini-sub">holdings-table · fullWidth · xl:col-span-2</div>
+            </div>
+            <div class="right">
+              <span class="tag pin"><span class="dot"></span>Full Width</span>
+            </div>
+          </div>
+          <div class="card-mini-body" style="min-height:64px; align-items: stretch; flex-direction: column; padding: 10px 14px;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--slate-400); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;">
+              <span>Ticker</span><span>Qty</span><span>Avg Cost</span><span>Market Value</span><span>P/L</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 12px; padding: 6px 0; color: var(--slate-200); font-size: 10px;">
+              <span>2330 · TSMC</span><span>200</span><span>NT$520</span><span>NT$1.2M</span><span style="color:var(--emerald);">+18.4%</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 12px; padding: 6px 0; color: var(--slate-200); font-size: 10px;">
+              <span>0050 · Yuanta TW50</span><span>1000</span><span>NT$148</span><span>NT$162K</span><span style="color:var(--emerald);">+9.5%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5: dividends-section (full-width) -->
+        <div class="card-mini full">
+          <div class="card-mini-h">
+            <span class="grip lg"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <div>
+              <div class="card-mini-title">Dividends</div>
+              <div class="card-mini-sub">dividends-section · fullWidth · xl:col-span-2</div>
+            </div>
+            <div class="right">
+              <span class="tag pin"><span class="dot"></span>Full Width</span>
+            </div>
+          </div>
+          <div class="card-mini-body" style="min-height:54px;">
+            Upcoming · 2330 ex-div Apr 30 · NT$3.50/share · est NT$700
+          </div>
+        </div>
+      </div>
+
+      <!-- ActionCenter below -->
+      <div class="annotation-bar">
+        <span class="tag"><span class="dot"></span>Outside SortableContext · below</span>
+        <span class="tag muted">moved from half-width slot next to HoldingsTable</span>
+      </div>
+      <div class="card-mini" style="background: linear-gradient(135deg, rgba(245, 192, 98, 0.06), transparent); border-color: rgba(245, 192, 98, 0.18);">
+        <div class="card-mini-h">
+          <div>
+            <div class="card-mini-title" style="color: var(--amber);">Action Center</div>
+            <div class="card-mini-sub">utility · always-visible · NOT draggable</div>
+          </div>
+          <div class="right">
+            <span class="tag pin"><span class="dot"></span>Fixed</span>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+          <div class="card-mini-body" style="min-height: 44px; font-size: 10px; padding: 8px;">Recompute snapshots</div>
+          <div class="card-mini-body" style="min-height: 44px; font-size: 10px; padding: 8px;">Generate snapshots</div>
+          <div class="card-mini-body" style="min-height: 44px; font-size: 10px; padding: 8px;">Open settings</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section: F4 Customize Ranges Popover ──────────────────────── -->
+  <section>
+    <div class="section-h">
+      <span class="label">F4</span>
+      <h2>Customize Ranges popover · gear-only entry · reads effective list</h2>
+      <span class="delta">Δ drop `···` · reads /effective-ranges · refetch + range-snap on save</span>
+    </div>
+
+    <div class="two-col">
+      <!-- Anchor box: PortfolioTrendCard with gear & arrow -->
+      <div>
+        <div style="margin-bottom: 10px;" class="label-row">Anchor on PortfolioTrendCard</div>
+        <div class="anchor-box">
+          <div class="anchor-h">
+            <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <div>
+              <div class="eyebrow">Performance</div>
+              <div class="title">Portfolio Trend</div>
+            </div>
+            <span class="gear" style="margin-left: auto; background: var(--indigo-soft); border-color: var(--indigo); color: var(--indigo-strong);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </span>
+          </div>
+          <div class="anchor-pills">
+            <div class="pill-row">
+              <span class="pill active">1M</span>
+              <span class="pill">3M</span>
+              <span class="pill">YTD</span>
+              <span class="pill">1Y</span>
+            </div>
+            <span class="tag muted" style="margin-left: 8px;">SOLE pill row</span>
+          </div>
+          <div style="margin-top: 12px; padding: 10px 12px; background: rgba(11,16,30,0.5); border-radius: 8px; font-family: var(--mono); font-size: 10px; color: var(--slate-400);">
+            chart · trendline · legend
+          </div>
+        </div>
+
+        <div style="margin-top: 22px;" class="label-row">After save — reactive flow</div>
+        <div class="panel" style="background: rgba(11,16,30,0.5); padding: 14px 16px;">
+          <div style="display: flex; gap: 14px; align-items: center; font-family: var(--mono); font-size: 10px; color: var(--slate-300);">
+            <span class="tag add">PATCH</span>
+            <span>/user-preferences { dashboard_performance_ranges: [...] }</span>
+          </div>
+          <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--slate-300);">
+            <div>1. <code style="color: var(--tag); font-family: var(--mono);">refetch()</code> on /effective-ranges</div>
+            <div>2. AppShell rerenders pills</div>
+            <div>3. If <code style="color: var(--tag); font-family: var(--mono);">performanceRange ∉ effectiveRanges</code> → snap to <code style="color: var(--tag); font-family: var(--mono);">effectiveRanges[0]</code></div>
+            <div style="color: var(--slate-400); font-size: 10px;">— prevents <code style="color: var(--rose); font-family: var(--mono);">?range=5Y</code> 400 from dynamic validator</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Popover -->
+      <div>
+        <div style="margin-bottom: 10px;" class="label-row">↳ Customize Ranges popover (anchored to gear)</div>
+        <div class="popover">
+          <div class="popover-h">
+            <div class="popover-title">Customize Ranges</div>
+            <div class="popover-source">source: <code>admin</code></div>
+          </div>
+          <div class="range-list">
+            <div class="range-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="lbl">1M</span>
+              <span class="switch"></span>
+              <span class="x-icon">×</span>
+            </div>
+            <div class="range-row dragging">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="lbl">3M</span>
+              <span class="switch"></span>
+              <span class="x-icon">×</span>
+            </div>
+            <div class="range-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="lbl">YTD</span>
+              <span class="switch"></span>
+              <span class="x-icon">×</span>
+            </div>
+            <div class="range-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="lbl">1Y</span>
+              <span class="switch"></span>
+              <span class="x-icon">×</span>
+            </div>
+            <div class="range-row disabled">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="lbl">5Y</span>
+              <span class="switch off"></span>
+              <span class="x-icon">×</span>
+            </div>
+          </div>
+          <div class="add-row">
+            <input type="text" placeholder="e.g. 18M, 2Y, ALL" value="" />
+            <button class="add-btn">+ Add</button>
+          </div>
+          <div class="popover-footer">
+            <button class="btn danger">Reset</button>
+            <button class="btn primary">Save</button>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="tag">drag handle</span>
+          <span class="tag">per-range toggle</span>
+          <span class="tag">remove</span>
+          <span class="tag">custom Add</span>
+          <span class="tag muted">pruned ranges silently dropped</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section: Display Tab in SettingsDrawer ────────────────────── -->
+  <section>
+    <div class="section-h">
+      <span class="label">DISPLAY</span>
+      <h2>SettingsDrawer · new fifth tab · Timeframes + Layout sections</h2>
+      <span class="delta">Δ new tab · mobile entry for F4 · houses Reset Layout for F5</span>
+    </div>
+
+    <div class="drawer">
+      <div class="drawer-h">
+        <div class="drawer-title">Settings</div>
+        <span class="x-icon" style="font-size: 18px;">×</span>
+      </div>
+      <div class="tab-strip">
+        <div class="tab">Profile</div>
+        <div class="tab">General</div>
+        <div class="tab">Fees</div>
+        <div class="tab">Tickers</div>
+        <div class="tab new">Display</div>
+      </div>
+
+      <!-- Two sections always rendered -->
+      <div class="display-section">
+        <div class="display-section-h">
+          <div>
+            <div class="display-section-title">Timeframes</div>
+            <div class="display-section-sub">Pick which time ranges appear on the Portfolio Trend chart. Drag to reorder.</div>
+          </div>
+          <span class="tag muted">primary mobile entry</span>
+        </div>
+
+        <div class="range-list" style="margin-bottom: 10px;">
+          <div class="range-row">
+            <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <span class="lbl">1M</span>
+            <span class="switch"></span>
+            <span class="x-icon">×</span>
+          </div>
+          <div class="range-row">
+            <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <span class="lbl">YTD</span>
+            <span class="switch"></span>
+            <span class="x-icon">×</span>
+          </div>
+          <div class="range-row">
+            <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+            <span class="lbl">1Y</span>
+            <span class="switch"></span>
+            <span class="x-icon">×</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" placeholder="e.g. 18M, 2Y" style="flex: 1; background: rgba(11,16,30,0.6); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-family: var(--mono); font-size: 11px; color: var(--slate-200); outline: none;" />
+          <button class="add-btn">+ Add</button>
+          <button class="btn">Reset</button>
+          <button class="btn primary">Save</button>
+        </div>
+      </div>
+
+      <div class="display-section">
+        <div class="display-section-h">
+          <div>
+            <div class="display-section-title">Layout</div>
+            <div class="display-section-sub">Restore the dashboard cards to their default order.</div>
+          </div>
+        </div>
+        <button class="reset-layout-btn" data-testid="reset-layout-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          Reset Layout
+          <span class="tag muted" style="margin-left: 6px;">PATCH { card_order: null }</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Section: F4a Admin Retrofit ──────────────────────────────── -->
+  <section>
+    <div class="section-h">
+      <span class="label">F4a</span>
+      <h2>Admin retrofit — ↑↓ → dnd-kit · keep `timeframe-chip-{range}` testids</h2>
+      <span class="delta">Δ replace arrows with grips · drop `[timeframe-H]` test · rewrite `[timeframe-G]` with dragTo</span>
+    </div>
+
+    <div class="two-col" style="grid-template-columns: 1fr 1fr;">
+
+      <!-- Before -->
+      <div>
+        <div class="label-row" style="color: var(--rose);">Before · KZO-159</div>
+        <div class="panel">
+          <div class="admin-h">
+            <span class="admin-title">Dashboard Timeframe Defaults</span>
+          </div>
+          <div class="admin-sub">Users can override these defaults in their own Display Preferences.</div>
+          <div class="label-row" style="margin-top: 10px;">Active</div>
+          <div class="admin-active-list">
+            <div class="admin-row">
+              <span></span>
+              <span class="admin-chip">1M</span>
+              <span style="display: flex; gap: 4px; color: var(--slate-400); font-family: var(--mono); font-size: 13px;">
+                <span style="opacity: 0.3;">↑</span>
+                <span>↓</span>
+              </span>
+            </div>
+            <div class="admin-row">
+              <span></span>
+              <span class="admin-chip">3M</span>
+              <span style="display: flex; gap: 4px; color: var(--slate-400); font-family: var(--mono); font-size: 13px;">
+                <span>↑</span>
+                <span>↓</span>
+              </span>
+            </div>
+            <div class="admin-row">
+              <span></span>
+              <span class="admin-chip">YTD</span>
+              <span style="display: flex; gap: 4px; color: var(--slate-400); font-family: var(--mono); font-size: 13px;">
+                <span>↑</span>
+                <span>↓</span>
+              </span>
+            </div>
+            <div class="admin-row">
+              <span></span>
+              <span class="admin-chip">1Y</span>
+              <span style="display: flex; gap: 4px; color: var(--slate-400); font-family: var(--mono); font-size: 13px;">
+                <span>↑</span>
+                <span style="opacity: 0.3;">↓</span>
+              </span>
+            </div>
+          </div>
+          <div class="admin-helper">↑↓ arrow buttons · boundary-disabled at first/last · `timeframe-chip-up-{range}` / `-down-{range}` testids</div>
+        </div>
+      </div>
+
+      <!-- After -->
+      <div>
+        <div class="label-row" style="color: var(--emerald);">After · KZO-161 (F4a)</div>
+        <div class="panel" style="border-color: rgba(76, 214, 163, 0.32); background: linear-gradient(180deg, rgba(76,214,163,0.04), var(--panel));">
+          <div class="admin-h">
+            <span class="admin-title">Dashboard Timeframe Defaults</span>
+          </div>
+          <div class="admin-sub">Users can override these defaults in their own Display Preferences.</div>
+          <div class="label-row" style="margin-top: 10px;">Active <span style="color: var(--emerald); margin-left: 6px;">· drag to reorder</span></div>
+          <div class="admin-active-list">
+            <div class="admin-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="admin-chip">1M</span>
+              <span></span>
+            </div>
+            <div class="admin-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="admin-chip">3M</span>
+              <span></span>
+            </div>
+            <div class="admin-row" style="background: rgba(124,140,255,0.10); border: 1px solid var(--indigo); border-radius: 6px; padding: 4px 6px; box-shadow: 0 4px 16px rgba(124,140,255,0.25);">
+              <span class="grip" style="color: var(--indigo);"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="admin-chip" style="background: var(--indigo); color: white; border-color: var(--indigo);">YTD</span>
+              <span style="font-family: var(--mono); font-size: 9px; color: var(--indigo); letter-spacing: 0.06em; margin-left: auto;">DRAGGING</span>
+            </div>
+            <div class="admin-row">
+              <span class="grip"><svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.4"/><circle cx="5" cy="8" r="1.4"/><circle cx="5" cy="13" r="1.4"/><circle cx="11" cy="3" r="1.4"/><circle cx="11" cy="8" r="1.4"/><circle cx="11" cy="13" r="1.4"/></svg></span>
+              <span class="admin-chip">1Y</span>
+              <span></span>
+            </div>
+          </div>
+          <div class="label-row" style="margin-top: 8px;">Available</div>
+          <div class="admin-available-row">
+            <span class="admin-chip available">5Y</span>
+            <span class="admin-chip available">10Y</span>
+            <span class="admin-chip available">ALL</span>
+          </div>
+          <div class="admin-helper">
+            ✓ Shared <code style="color: var(--tag); font-family: var(--mono);">&lt;SortableRangeList&gt;</code> primitive · same component as F4 popover<br>
+            ✓ <code style="color: var(--tag); font-family: var(--mono);">timeframe-chip-{range}</code> testid stable<br>
+            <span style="color: var(--rose);">✕ <code style="font-family: var(--mono);">timeframe-chip-up/-down-{range}</code> · removed</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Changelog footer ─────────────────────────────────────────── -->
+  <div class="changelog">
+    <h3>Δ — locked deltas from `scope-todo-202604221500-initial.md`</h3>
+    <ul>
+      <li class="remove">Drop hero range pill row (`dashboard-hero-range-{range}`)</li>
+      <li class="remove">Drop `···` button after last pill</li>
+      <li class="add">Gear-only F4 entry · `timeframe-gear-btn`</li>
+      <li class="add">ActionCenterSection moves below SortableContext</li>
+      <li class="add">Single flat sortable · grid-cols-1 xl:grid-cols-2 [grid-auto-flow:dense]</li>
+      <li class="add">Holdings + Dividends become full-width (xl:col-span-2)</li>
+      <li class="add">New Display tab · Timeframes + Layout sections</li>
+      <li class="add">Popover reads /effective-ranges (not raw stored)</li>
+      <li class="add">Spike rescope = ↑↓ everywhere fallback (admin stays as-is on failure)</li>
+      <li class="add">TouchSensor · 250ms long-press</li>
+      <li class="add">Snapshot last-server-confirmed state on rollback</li>
+      <li class="add">Refetch + range-snap to [0] after F4 save</li>
+      <li class="add">DASHBOARD_CARDS · { slug, fullWidth } only · JSX inline</li>
+      <li class="add">Shared `&lt;SortableRangeList&gt;` primitive (F4 + F4a)</li>
+      <li class="remove">Drop `[timeframe-H]` admin spec entirely</li>
+      <li class="add">Update `[timeframe-K]` to assert only PortfolioTrendCard surface</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

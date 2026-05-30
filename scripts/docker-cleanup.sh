@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 #
-# Docker cleanup script for tw-portfolio (dev machine only).
+# Docker cleanup script for vakwen (dev machine only).
 #
 # What it does:
-#   1. Shows stopped containers and dangling images.
-#   2. Removes all stopped containers.
-#   3. Prunes dangling images only.
+#   1. Shows stopped containers and/or dangling images.
+#   2. Removes selected targets.
 #
 # Defaults:
-#   - Interactive "apply" mode: actually deletes, but asks for confirmation.
+#   - Interactive "apply" mode: actually deletes, but asks what to clean.
 #
 # Usage:
-#   ./scripts/docker-cleanup.sh              # Interactive apply (prompt before deleting)
-#   ./scripts/docker-cleanup.sh --dry-run    # Show what would be removed, do not delete
-#   ./scripts/docker-cleanup.sh --yes        # Non-interactive apply (no prompt)
-#   ./scripts/docker-cleanup.sh --help       # Show help
+#   ./scripts/docker-cleanup.sh                    # Interactive (prompt what to clean)
+#   ./scripts/docker-cleanup.sh --containers       # Clean stopped containers only
+#   ./scripts/docker-cleanup.sh --images           # Clean dangling images only
+#   ./scripts/docker-cleanup.sh --containers --images  # Clean both
+#   ./scripts/docker-cleanup.sh --dry-run          # Show what would be removed
+#   ./scripts/docker-cleanup.sh --yes              # Non-interactive, clean both
+#   ./scripts/docker-cleanup.sh --help             # Show help
 #
 
 set -euo pipefail
@@ -22,34 +24,45 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-DRY_RUN=0        # 0 = apply, 1 = dry-run
-AUTO_CONFIRM=0   # 0 = ask, 1 = skip prompt (non-interactive)
+DRY_RUN=0            # 0 = apply, 1 = dry-run
+AUTO_CONFIRM=0       # 0 = ask, 1 = skip prompt (non-interactive)
+CLEAN_CONTAINERS=0   # 0 = skip, 1 = clean
+CLEAN_IMAGES=0       # 0 = skip, 1 = clean
 
 usage() {
   cat <<'EOF'
 Docker cleanup (dev only)
 
 Removes:
-  - All stopped containers
-  - Dangling images only (unreferenced layers)
+  - Stopped containers (--containers)
+  - Dangling images only (--images)
 
 Defaults:
-  - Interactive apply mode (asks for confirmation before deleting)
+  - Interactive mode: shows targets and prompts what to clean
+  - --yes without --containers/--images: cleans both (backward compatible)
 
 Usage:
   scripts/docker-cleanup.sh
-      Show targets and prompt before deleting stopped containers and dangling images.
+      Show targets and prompt what to clean.
+
+  scripts/docker-cleanup.sh --containers
+      Clean stopped containers only.
+
+  scripts/docker-cleanup.sh --images
+      Clean dangling images only.
 
   scripts/docker-cleanup.sh --dry-run
       Show what would be removed, but do not delete anything.
 
   scripts/docker-cleanup.sh --yes
-      Apply deletions without confirmation (non-interactive).
+      Apply deletions without confirmation (non-interactive, both targets).
 
 Options:
-  --dry-run       Run in dry-run mode (no deletions).
-  --yes, -y       Do not prompt for confirmation, always apply.
-  --help, -h      Show this help text.
+  --containers  Clean stopped containers only.
+  --images      Clean dangling images only.
+  --dry-run     Run in dry-run mode (no deletions).
+  --yes, -y     Do not prompt for confirmation, always apply.
+  --help, -h    Show this help text.
 EOF
 }
 
@@ -61,6 +74,12 @@ parse_args() {
         ;;
       --yes|-y)
         AUTO_CONFIRM=1
+        ;;
+      --containers)
+        CLEAN_CONTAINERS=1
+        ;;
+      --images)
+        CLEAN_IMAGES=1
         ;;
       --help|-h)
         usage
@@ -74,10 +93,21 @@ parse_args() {
     esac
     shift
   done
+
+  # --yes without explicit targets → both (backward compatible)
+  if [[ "$AUTO_CONFIRM" -eq 1 && "$CLEAN_CONTAINERS" -eq 0 && "$CLEAN_IMAGES" -eq 0 ]]; then
+    CLEAN_CONTAINERS=1
+    CLEAN_IMAGES=1
+  fi
 }
 
 log() {
-  echo "[$(date -Is)] $*"
+  local timestamp
+  if timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)"; then
+    echo "[$timestamp] $*"
+  else
+    echo "[unknown-time] $*"
+  fi
 }
 
 require_docker() {
@@ -108,18 +138,22 @@ show_targets() {
   stopped_containers="$(docker ps -aq -f "status=exited" || true)"
   dangling_images="$(docker images -q -f "dangling=true" || true)"
 
-  if [[ -z "$stopped_containers" ]]; then
-    log "No stopped containers."
-  else
-    log "Stopped containers:"
-    docker ps -a -f "status=exited"
+  if [[ "$CLEAN_CONTAINERS" -eq 1 || "$CLEAN_CONTAINERS" -eq 0 && "$CLEAN_IMAGES" -eq 0 ]]; then
+    if [[ -z "$stopped_containers" ]]; then
+      log "No stopped containers."
+    else
+      log "Stopped containers:"
+      docker ps -a -f "status=exited"
+    fi
   fi
 
-  if [[ -z "$dangling_images" ]]; then
-    log "No dangling images."
-  else
-    log "Dangling images:"
-    docker images -f "dangling=true"
+  if [[ "$CLEAN_IMAGES" -eq 1 || "$CLEAN_CONTAINERS" -eq 0 && "$CLEAN_IMAGES" -eq 0 ]]; then
+    if [[ -z "$dangling_images" ]]; then
+      log "No dangling images."
+    else
+      log "Dangling images:"
+      docker images -f "dangling=true"
+    fi
   fi
 
   if [[ -z "$stopped_containers" && -z "$dangling_images" ]]; then
@@ -129,6 +163,45 @@ show_targets() {
   fi
 
   echo ""
+  return 0
+}
+
+prompt_selection() {
+  # If targets were already specified via flags, skip interactive prompt
+  if [[ "$CLEAN_CONTAINERS" -eq 1 || "$CLEAN_IMAGES" -eq 1 ]]; then
+    return 0
+  fi
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry-run mode: no deletions will be performed."
+    return 1
+  fi
+
+  echo "What would you like to clean?"
+  echo "  [c] Stopped containers only"
+  echo "  [i] Dangling images only"
+  echo "  [b] Both"
+  echo "  [n] Cancel"
+  read -r -p "> " answer
+  case "$answer" in
+    c|C)
+      CLEAN_CONTAINERS=1
+      log "Selected: stopped containers only."
+      ;;
+    i|I)
+      CLEAN_IMAGES=1
+      log "Selected: dangling images only."
+      ;;
+    b|B)
+      CLEAN_CONTAINERS=1
+      CLEAN_IMAGES=1
+      log "Selected: both."
+      ;;
+    *)
+      log "Cleanup cancelled by user."
+      return 1
+      ;;
+  esac
   return 0
 }
 
@@ -143,7 +216,16 @@ confirm_if_needed() {
     return 0
   fi
 
-  read -r -p "Proceed with deleting stopped containers and pruning dangling images? [y/N] " answer
+  local target_desc=""
+  if [[ "$CLEAN_CONTAINERS" -eq 1 && "$CLEAN_IMAGES" -eq 1 ]]; then
+    target_desc="stopped containers and dangling images"
+  elif [[ "$CLEAN_CONTAINERS" -eq 1 ]]; then
+    target_desc="stopped containers"
+  elif [[ "$CLEAN_IMAGES" -eq 1 ]]; then
+    target_desc="dangling images"
+  fi
+
+  read -r -p "Proceed with deleting ${target_desc}? [y/N] " answer
   case "$answer" in
     y|Y|yes|YES)
       log "User confirmed cleanup."
@@ -157,11 +239,15 @@ confirm_if_needed() {
 }
 
 cleanup_docker() {
-  log "Removing stopped containers (docker container prune)..."
-  docker container prune -f
+  if [[ "$CLEAN_CONTAINERS" -eq 1 ]]; then
+    log "Removing stopped containers (docker container prune)..."
+    docker container prune -f
+  fi
 
-  log "Pruning dangling images only (docker image prune --filter dangling=true)..."
-  docker image prune -f --filter "dangling=true"
+  if [[ "$CLEAN_IMAGES" -eq 1 ]]; then
+    log "Pruning dangling images only (docker image prune --filter dangling=true)..."
+    docker image prune -f --filter "dangling=true"
+  fi
 }
 
 main() {
@@ -171,6 +257,10 @@ main() {
 
   if ! show_targets; then
     # Nothing to do
+    exit 0
+  fi
+
+  if ! prompt_selection; then
     exit 0
   fi
 
@@ -184,4 +274,3 @@ main() {
 }
 
 main "$@"
-

@@ -1,0 +1,274 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../../../lib/api", () => ({
+  getJson: vi.fn(),
+}));
+
+import { getJson } from "../../../../lib/api";
+import { fetchTickerDetails } from "../../../../features/portfolio/services/tickerDetailsService";
+
+const getJsonMock = vi.mocked(getJson);
+
+function buildDashboard(overrides?: {
+  holdings?: unknown[];
+  upcoming?: unknown[];
+  recent?: unknown[];
+}) {
+  return {
+    holdings: overrides?.holdings ?? [],
+    dividends: {
+      upcoming: overrides?.upcoming ?? [],
+      recent: overrides?.recent ?? [],
+    },
+  } as never;
+}
+
+describe("fetchTickerDetails", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns fallback unavailable states when the ticker details API fails", async () => {
+    getJsonMock.mockRejectedValue(new Error("unavailable"));
+
+    const details = await fetchTickerDetails({
+      ticker: "2330",
+      accountId: "acc-2",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: null,
+    });
+
+    expect(details.identity).toMatchObject({
+      ticker: "2330",
+      marketCode: "TW",
+      currency: "TWD",
+      name: null,
+    });
+    expect(details.quote).toMatchObject({
+      currentPrice: null,
+      previousClose: null,
+      quoteStatus: "missing",
+    });
+    expect(details.position).toMatchObject({
+      accountScope: "acc-2",
+      quantity: 0,
+      transactionsCount: 0,
+      nextDividendDate: null,
+      lastDividendPostedDate: null,
+    });
+    expect(details.chart.points).toHaveLength(1);
+    expect(details.chart.points[0]).toMatchObject({
+      label: "Now",
+      quantity: 0,
+      price: null,
+      averageCost: null,
+    });
+    expect(details.dividends).toMatchObject({
+      upcomingCount: 0,
+      nextPaymentDate: null,
+      lastPostedDate: null,
+    });
+    expect(details.fundamentals.panels).toHaveLength(2);
+    expect(details.fundamentals.panels[0]?.items[0]).toMatchObject({
+      key: "market",
+      value: null,
+      source: null,
+      asOf: null,
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountId=acc-2");
+  });
+
+  it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
+    getJsonMock.mockResolvedValue({
+      quote: {
+        currentPrice: 912,
+        quoteStatus: "current",
+      },
+      position: {
+        quantity: 12,
+      },
+      fundamentals: {
+        panels: [
+          {
+            key: "profitability",
+            title: "Profitability",
+            items: [
+              {
+                key: "roe",
+                label: "ROE",
+                value: null,
+                source: null,
+                asOf: null,
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+
+    const details = await fetchTickerDetails({
+      ticker: "NVDA",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: {
+        ticker: "NVDA",
+        name: "NVIDIA",
+        marketCode: "US",
+        instrumentType: "STOCK",
+      } as never,
+    });
+
+    expect(details.identity).toMatchObject({
+      ticker: "NVDA",
+      name: "NVIDIA",
+      marketCode: "US",
+    });
+    expect(details.quote).toMatchObject({
+      currentPrice: 912,
+      quoteStatus: "current",
+      previousClose: null,
+    });
+    expect(details.position).toMatchObject({
+      accountScope: "all",
+      quantity: 12,
+      averageCost: null,
+    });
+    expect(details.fundamentals.panels).toEqual([
+      {
+        key: "profitability",
+        title: "Profitability",
+        items: [
+          {
+            key: "roe",
+            label: "ROE",
+            value: null,
+            source: null,
+            asOf: null,
+          },
+        ],
+      },
+    ]);
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?marketCode=US");
+  });
+
+  it("maps the ticker details API DTO into the ticker page model", async () => {
+    getJsonMock.mockResolvedValue({
+      identity: {
+        ticker: "2330",
+        marketCode: "TW",
+        accountId: "acc-1",
+        name: "Taiwan Semiconductor Manufacturing",
+        instrumentType: "STOCK",
+        priceCurrency: "TWD",
+        barsBackfillStatus: "ok",
+      },
+      quote: {
+        currentUnitPrice: 610,
+        previousClose: 595.5,
+        change: 14.5,
+        changePercent: 2.41,
+        asOf: "2026-05-20",
+        source: "test",
+        quoteStatus: "current",
+      },
+      position: {
+        quantity: 4000,
+        averageCostPerShare: 555.2,
+        costBasisAmount: 2220800,
+        marketValueAmount: 2440000,
+        unrealizedPnlAmount: 219200,
+        realizedPnlAmount: 1200,
+        currency: "TWD",
+        accountIds: ["acc-1"],
+        lastTradeDate: "2026-01-02",
+      },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-05-20",
+            open: 600,
+            high: 615,
+            low: 598,
+            close: 610,
+            volume: 1000,
+            source: "test",
+          },
+        ],
+      },
+      transactions: [{ id: "trade-1" }],
+      dividends: {
+        upcoming: [{ paymentDate: "2026-06-25", exDividendDate: "2026-06-01" }],
+        recent: [{ postedAt: "2026-03-25" }],
+      },
+      fundamentals: {
+        marketCap: { value: 15_800_000_000_000, source: "provider", asOf: "2026-05-20" },
+        enterpriseValue: { value: null, source: null, asOf: null },
+        priceEarningsRatio: { value: 22.4, source: "provider", asOf: "2026-05-20" },
+        priceBookRatio: { value: null, source: null, asOf: null },
+        dividendYield: { value: 2.95, source: "provider", asOf: "2026-05-20" },
+        earningsPerShare: { value: 27.25, source: "provider", asOf: "2026-05-20" },
+        revenueTrailingTwelveMonths: { value: null, source: null, asOf: null },
+        netIncomeTrailingTwelveMonths: { value: null, source: null, asOf: null },
+      },
+      fundamentalsRefresh: {
+        providerId: "provider",
+        refreshedAt: "2026-05-20T00:00:00.000Z",
+        nextRefreshAt: "2026-05-21T00:00:00.000Z",
+        lastAttemptedAt: "2026-05-20T00:00:00.000Z",
+        lastError: null,
+        status: "fresh",
+      },
+    } as never);
+
+    const details = await fetchTickerDetails({
+      ticker: "2330",
+      accountId: "acc-1",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: {
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        name: "TSMC",
+      } as never,
+    });
+
+    expect(details.identity).toMatchObject({
+      ticker: "2330",
+      name: "Taiwan Semiconductor Manufacturing",
+      currency: "TWD",
+    });
+    expect(details.quote).toMatchObject({
+      currentPrice: 610,
+      changeAmount: 14.5,
+      changePercent: 2.41,
+    });
+    expect(details.position).toMatchObject({
+      quantity: 4000,
+      averageCost: 555.2,
+      marketValue: 2440000,
+      transactionsCount: 1,
+      nextDividendDate: "2026-06-25",
+    });
+    expect(details.chart.points[0]).toMatchObject({
+      price: 610,
+      averageCost: 555.2,
+      quantity: 4000,
+    });
+    expect(details.fundamentals.panels[0]?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "marketCap",
+          value: 15_800_000_000_000,
+          source: "provider",
+        }),
+      ]),
+    );
+  });
+});

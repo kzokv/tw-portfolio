@@ -1,371 +1,399 @@
 "use client";
 
-import * as Dialog from "@radix-ui/react-dialog";
-import { AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type {
-  AccountDto,
-  FeeProfileBindingDto,
-  FeeProfileDto,
-  LocaleCode,
-  UserSettings,
-} from "@tw-portfolio/shared-types";
-import { getJson, postJson, putJson } from "../../lib/api";
-import { formatRecomputeMessage, getDictionary } from "../../lib/i18n";
-import { AddTransactionCard } from "../portfolio/AddTransactionCard";
-import { HoldingsTable } from "../portfolio/HoldingsTable";
-import { RecomputeCard } from "../portfolio/RecomputeCard";
-import type { Holding, TransactionInput } from "../portfolio/types";
-import { SettingsDrawer, type SettingsDraft } from "../settings/SettingsDrawer";
-import { DashboardLoading } from "../dashboard/DashboardLoading";
-import { HeroSkeleton } from "../dashboard/HeroSkeleton";
-import { Button } from "../ui/Button";
-import { TooltipInfo } from "../ui/TooltipInfo";
-import { TopBar } from "./TopBar";
+import { usePathname } from "next/navigation";
+import {
+  type DashboardPerformanceRange,
+  type LocaleCode,
+} from "@vakwen/shared-types";
+import { getDictionary } from "../../lib/i18n";
+import type { TransactionInput } from "../portfolio/types";
+import { AppShellLayout } from "./AppShellLayout";
+import { BreadcrumbProvider } from "./BreadcrumbProvider";
+import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
+import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
+import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
+import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
+import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
+import { useNotifications } from "../../hooks/useNotifications";
+import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
+import { PortfolioSwitcher } from "./PortfolioSwitcher";
+import { ImpersonationBanner } from "./ImpersonationBanner";
+import { AppShellDataProvider } from "./AppShellDataContext";
+import { useAppShellDataValue } from "./useAppShellDataValue";
+import { useSnapshotGeneration } from "./useSnapshotGeneration";
+import { useSharedContext } from "./useSharedContext";
+import { useAppNavigation } from "./useAppNavigation";
+import { CommandPalette } from "./CommandPalette";
+import { CommandPaletteProvider } from "./CommandPaletteContext";
+import { NavigationFeedbackProvider } from "./NavigationFeedbackContext";
+import { useCommandPalette } from "../../hooks/useCommandPalette";
+import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
+import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
+import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
 
-interface FeeConfigResponse {
-  accounts: AccountDto[];
-  feeProfiles: FeeProfileDto[];
-  feeProfileBindings: FeeProfileBindingDto[];
-  integrityIssue: { code: string; message: string } | null;
+type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
+
+interface AppShellProps {
+  /** Retained for back-compat with callers; the new shell derives the
+   * active surface from `usePathname` so callers can stop passing this. */
+  section?: AppSection;
+  isDemo?: boolean;
+  localeOverride?: LocaleCode;
+  /** Legacy props retained for back-compat (used by the sharing page to
+   * pass overrides); now ignored — the breadcrumb owns titling. */
+  titleOverride?: string;
+  descriptionOverride?: string;
+  activeSectionOverride?: AppSection | null;
+  initialProfile?: ProfileWithImpersonationDto | null;
+  /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
+  initialSidebarOpen?: boolean;
+  children?: React.ReactNode;
 }
 
 const DEFAULT_TRANSACTION: TransactionInput = {
   accountId: "",
-  symbol: "2330",
-  quantity: 1,
-  priceNtd: 100,
-  tradeDate: "2026-01-01",
+  ticker: "",
+  marketCode: null,
+  quantity: 1000,
+  unitPrice: 100,
+  priceCurrency: "TWD",
+  tradeDate: new Date().toISOString().slice(0, 10),
   type: "BUY",
   isDayTrade: false,
 };
 
-export function AppShell() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+export function AppShell({
+  section: _section = "dashboard",
+  isDemo = false,
+  localeOverride,
+  titleOverride: _titleOverride,
+  descriptionOverride: _descriptionOverride,
+  activeSectionOverride: _activeSectionOverride,
+  initialProfile = null,
+  initialSidebarOpen = true,
+  children,
+}: AppShellProps) {
+  const [isClientReady, setIsClientReady] = useState(false);
+  const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  // KZO-161 (158C) / KZO-159 — Effective dashboard performance ranges.
+  const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
+  // KZO-161 (158C) F4 — gear icon → customize-ranges popover open state.
+  const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
 
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [accounts, setAccounts] = useState<AccountDto[]>([]);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [profiles, setProfiles] = useState<FeeProfileDto[]>([]);
-  const [feeProfileBindings, setFeeProfileBindings] = useState<FeeProfileBindingDto[]>([]);
-  const [integrityIssue, setIntegrityIssue] = useState<FeeConfigResponse["integrityIssue"]>(null);
-  const [showIntegrityDialog, setShowIntegrityDialog] = useState(false);
-  const [newTx, setNewTx] = useState<TransactionInput>(DEFAULT_TRANSACTION);
+  const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
+  const profileData = useProfile(initialProfile);
+  const impersonation = profileData.profile?.impersonation
+    && profileData.profile.impersonation.active !== false
+    ? profileData.profile.impersonation
+    : null;
 
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSubmittingTx, setIsSubmittingTx] = useState(false);
-  const [isRunningRecompute, setIsRunningRecompute] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-
-  const [globalError, setGlobalError] = useState("");
-  const [recomputeMessage, setRecomputeMessage] = useState("");
-  const [settingsError, setSettingsError] = useState("");
-
-  const locale: LocaleCode = settings?.locale ?? "en";
+  const locale: LocaleCode = localeOverride ?? dashboard.settings?.locale ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
+
+  const sharedContext = useSharedContext({
+    refreshDashboard: dashboard.refresh,
+    refreshProfile: profileData.refresh,
+    dict,
+  });
+  const {
+    inboundShares,
+    switcherLoaded,
+    currentContextOwnerId,
+    currentSharedOwnerLabel,
+    isSharedContext,
+    contextMessage,
+    contextRefreshSignal,
+    bumpContextRefreshSignal,
+    refreshContextDependentData,
+    handleContextSelect,
+    handleSharingNotification,
+  } = sharedContext;
+
+  const hasOwnerEmptyPortfolio = isSharedContext && dashboard.holdings.length === 0;
+  // Preserves §8 item 4 — shared-context dictionary remapping for empty
+  // portfolio / empty transactions copy.
+  const uiDict = useMemo(() => {
+    if (!isSharedContext) return dict;
+    return {
+      ...dict,
+      dashboardHome: hasOwnerEmptyPortfolio
+        ? {
+          ...dict.dashboardHome,
+          holdingsEmpty: dict.switcher.sharedHoldingsEmpty.replace("{owner}", currentSharedOwnerLabel),
+        }
+        : dict.dashboardHome,
+      transactions: {
+        ...dict.transactions,
+        recentLedgerEmpty: dict.switcher.sharedTransactionsEmpty.replace("{owner}", currentSharedOwnerLabel),
+      },
+    };
+  }, [currentSharedOwnerLabel, dict, hasOwnerEmptyPortfolio, isSharedContext]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
 
-  /** Ready when we have user settings (locale). Later: set false until async i18n load completes. */
-  const isI18nReady = !!settings;
-  const showPageSkeleton = isBootstrapping || isRefreshing || !isI18nReady;
-
-  const drawerOpen = searchParams.get("drawer") === "settings";
-
-  const setDrawerOpen = useCallback(
-    (open: boolean) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (open) params.set("drawer", "settings");
-      else params.delete("drawer");
-
-      const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-    },
-    [pathname, router, searchParams],
-  );
-
-  const refresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      const [nextSettings, nextHoldings, nextFeeConfig] = await Promise.all([
-        getJson<UserSettings>("/settings"),
-        getJson<Holding[]>("/portfolio/holdings"),
-        getJson<FeeConfigResponse>("/settings/fee-config"),
-      ]);
-
-      setSettings(nextSettings);
-      setHoldings(nextHoldings);
-      setAccounts(nextFeeConfig.accounts);
-      setProfiles(nextFeeConfig.feeProfiles);
-      setFeeProfileBindings(nextFeeConfig.feeProfileBindings);
-      setIntegrityIssue(nextFeeConfig.integrityIssue);
-      setShowIntegrityDialog(Boolean(nextFeeConfig.integrityIssue));
-
-      const defaultAccountId = nextFeeConfig.accounts[0]?.id ?? "";
-      setNewTx((previous) => ({
-        ...previous,
-        accountId: nextFeeConfig.accounts.some((account) => account.id === previous.accountId)
-          ? previous.accountId
-          : defaultAccountId,
-      }));
-    } finally {
-      setIsRefreshing(false);
-    }
+  useEffect(() => {
+    setIsClientReady(true);
   }, []);
 
+  // KZO-161 (158C) range-snap guard.
   useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      try {
-        await refresh();
-      } catch (error) {
-        if (!mounted) return;
-        setGlobalError(String(error));
-      } finally {
-        if (mounted) setIsBootstrapping(false);
-      }
+    if (effectiveRanges.length === 0) return;
+    if (!effectiveRanges.includes(performanceRange)) {
+      setPerformanceRange(effectiveRanges[0]);
     }
+  }, [effectiveRanges, performanceRange]);
 
-    load();
+  const refreshAfterTransaction = useCallback(async () => {
+    await dashboard.refresh();
+    bumpContextRefreshSignal();
+  }, [bumpContextRefreshSignal, dashboard]);
 
-    return () => {
-      mounted = false;
-    };
-  }, [refresh]);
+  const transactionSubmission = useTransactionSubmission({
+    initialValue: DEFAULT_TRANSACTION,
+    noAccountsMessage: dict.feedback.noAccounts,
+    tickerRequiredMessage: dict.transactions.tickerRequired,
+    successMessage: dict.feedback.transactionSubmitted,
+    refresh: refreshAfterTransaction,
+  });
 
-  const handleSubmitTransaction = useCallback(async () => {
-    if (!newTx.accountId) {
-      setGlobalError(dict.feedback.noAccounts);
-      return;
-    }
+  const recomputeAction = useRecomputeAction({
+    locale,
+    fallbackConfirm: dict.recompute.fallbackConfirm,
+    refresh: refreshAfterTransaction,
+  });
 
-    setIsSubmittingTx(true);
-    setGlobalError("");
+  const snapshotGeneration = useSnapshotGeneration({
+    dict,
+    onSuccess: bumpContextRefreshSignal,
+  });
 
-    try {
-      await postJson("/portfolio/transactions", newTx, {
-        "idempotency-key": `web-${Date.now()}`,
-      });
-      await refresh();
-    } catch (error) {
-      setGlobalError(String(error));
-    } finally {
-      setIsSubmittingTx(false);
-    }
-  }, [dict.feedback.noAccounts, newTx, refresh]);
+  const mutations = useTransactionMutations({
+    locale,
+    dict,
+    refresh: refreshAfterTransaction,
+    onSnapshotsGenerated: snapshotGeneration.handleSnapshotsGenerated,
+  });
 
-  const handleRecompute = useCallback(async () => {
-    const proceed = window.confirm(dict.recompute.fallbackConfirm);
-    if (!proceed) return;
+  // Preserves §8 item 11 — useNotifications stays here with `enabled: true`
+  // (SSE pre-connect) per `react-useEventStream-preconnect-pattern.md`.
+  const notificationData = useNotifications({ onSharingNotification: handleSharingNotification });
+  const [notificationDropdownOpen, setNotificationDropdownOpen] = useState(false);
 
-    setIsRunningRecompute(true);
-    setGlobalError("");
+  const transactionAccountOptions = useMemo(
+    () =>
+      dashboard.accounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        feeProfileName:
+          dashboard.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+        defaultCurrency: account.defaultCurrency,
+        accountType: account.accountType,
+      })),
+    [dashboard.accounts, dashboard.feeProfiles],
+  );
 
-    try {
-      const preview = await postJson<{ id: string; items: Array<{ transactionId: string }> }>(
-        "/portfolio/recompute/preview",
-        {
-          useFallbackBindings: true,
-        },
-      );
+  const isI18nReady = !!dashboard.settings || !!localeOverride;
 
-      const confirmed = await postJson<{ status: string }>("/portfolio/recompute/confirm", {
-        jobId: preview.id,
-      });
+  useEffect(() => {
+    transactionSubmission.setDraftTransaction((previous) => dashboard.synchronizeTransactionDraft(previous));
+  }, [dashboard.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
 
-      setRecomputeMessage(formatRecomputeMessage(locale, confirmed.status, preview.items.length));
-      await refresh();
-    } catch (error) {
-      setGlobalError(String(error));
-    } finally {
-      setIsRunningRecompute(false);
-    }
-  }, [dict.recompute.fallbackConfirm, locale, refresh]);
+  const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || dashboard.errorMessage;
 
-  const handleSaveSettings = useCallback(async (draft: SettingsDraft) => {
-    setIsSavingSettings(true);
-    setSettingsError("");
+  const { quickSearchItems } = useAppNavigation(dict, dashboard.instruments);
 
-    try {
-      await putJson<{
-        settings: UserSettings;
-        accounts: AccountDto[];
-        feeProfiles: FeeProfileDto[];
-        feeProfileBindings: FeeProfileBindingDto[];
-      }>("/settings/full", {
-        settings: {
-          locale: draft.locale,
-          costBasisMethod: draft.costBasisMethod,
-          quotePollIntervalSeconds: draft.quotePollIntervalSeconds,
-        },
-        feeProfiles: draft.feeProfiles.map((profile) => {
-          const payload = {
-            name: profile.name,
-            commissionRateBps: profile.commissionRateBps,
-            commissionDiscountBps: profile.commissionDiscountBps,
-            minCommissionNtd: profile.minCommissionNtd,
-            commissionRoundingMode: profile.commissionRoundingMode,
-            taxRoundingMode: profile.taxRoundingMode,
-            stockSellTaxRateBps: profile.stockSellTaxRateBps,
-            stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
-            etfSellTaxRateBps: profile.etfSellTaxRateBps,
-            bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
-          };
+  const handleClearGlobalError = useCallback(() => {
+    dashboard.setErrorMessage("");
+    transactionSubmission.setErrorMessage("");
+    recomputeAction.setErrorMessage("");
+    void (async () => {
+      await dashboard.refresh();
+      bumpContextRefreshSignal();
+    })().catch(() => undefined);
+  }, [bumpContextRefreshSignal, dashboard, recomputeAction, transactionSubmission]);
 
-          if (profile.id.startsWith("tmp-")) {
-            return { ...payload, tempId: profile.id };
-          }
-          return { ...payload, id: profile.id };
-        }),
-        accounts: draft.accounts.map((account) => ({
-          id: account.id,
-          feeProfileRef: account.feeProfileId,
-        })),
-        feeProfileBindings: draft.feeProfileBindings.map((binding) => ({
-          accountId: binding.accountId,
-          symbol: binding.symbol,
-          feeProfileRef: binding.feeProfileId,
-        })),
-      });
+  const handleReportingCurrencySaved = useCallback(() => {
+    void dashboard.refresh();
+    bumpContextRefreshSignal();
+  }, [bumpContextRefreshSignal, dashboard]);
 
-      await refresh();
-      setDrawerOpen(false);
-    } catch (error) {
-      setSettingsError(String(error));
-    } finally {
-      setIsSavingSettings(false);
-    }
-  }, [refresh, setDrawerOpen]);
+  // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
+  const commandPalette = useCommandPalette();
+  const [addTransactionDialogOpen, setAddTransactionDialogOpen] = useState(false);
+  const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
+
+  const handleAddTransactionFromPalette = useCallback(() => {
+    setAddTransactionDialogOpen(true);
+  }, []);
+
+  const handleRecomputeFromPalette = useCallback(() => {
+    setRecomputeDialogOpen(true);
+  }, []);
+
+  const appShellDataValue = useAppShellDataValue({
+    dashboard,
+    uiDict,
+    locale,
+    isSharedContext,
+    isI18nReady,
+    transactionSubmission,
+    mutations,
+    recomputeAction,
+    openRecomputeConfirm: handleRecomputeFromPalette,
+    transactionAccountOptions,
+    performanceRange,
+    setPerformanceRange,
+    effectiveRanges,
+    refetchEffectiveRanges,
+    customizeRangesOpen,
+    setCustomizeRangesOpen,
+    generateSnapshots: snapshotGeneration.generateSnapshots,
+    isGeneratingSnapshots: snapshotGeneration.isGeneratingSnapshots,
+    contextRefreshSignal,
+  });
+
+  const portfolioSwitcher = inboundShares.length > 0 ? (
+    <PortfolioSwitcher
+      inboundActive={inboundShares}
+      currentContextOwnerId={currentContextOwnerId}
+      onSelect={handleContextSelect}
+      dict={uiDict.switcher}
+    />
+  ) : null;
+
+  // Phase 5e — pathname used to gate the floating ⨁ to /dashboard only.
+  const pathname = usePathname() ?? "/";
+
+  const handleRecomputeConfirm = useCallback(() => {
+    setRecomputeDialogOpen(false);
+    // §12 A2 — skip the in-hook `window.confirm` because the AlertDialog
+    // has already collected the user's confirmation.
+    void recomputeAction.runRecompute({ skipConfirm: true });
+  }, [recomputeAction]);
+
+  const commandPaletteContextValue = useMemo(
+    () => ({
+      open: commandPalette.open,
+      setOpen: commandPalette.setOpen,
+      openWithQuery: commandPalette.openWithQuery,
+    }),
+    [commandPalette.open, commandPalette.setOpen, commandPalette.openWithQuery],
+  );
 
   return (
-    <div className="min-h-screen min-w-0 overflow-x-hidden">
-      <TopBar
-        skeleton={isBootstrapping}
-        userId={settings?.userId}
-        onOpenSettings={() => setDrawerOpen(true)}
-        productName={dict.topBar.productName}
-        title={dict.topBar.title}
-        titleTooltip={dict.topBar.titleTooltip}
-        openSettingsLabel={dict.topBar.openSettingsLabel}
-      />
-
-      <main className="mx-auto min-w-0 w-full max-w-7xl px-4 py-6 md:px-8 md:py-8">
-        {showPageSkeleton ? (
-          <HeroSkeleton />
-        ) : (
-          <div className="mb-6 min-w-0 rounded-2xl border border-line bg-surface px-5 py-4 shadow-card">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted">{dict.hero.eyebrow}</p>
-            <div className="mt-2 flex min-w-0 items-center gap-2">
-              <h2 className="text-xl leading-tight sm:text-2xl md:text-3xl md:leading-none" data-testid="hero-title">
-                {dict.hero.title}
-              </h2>
-              <TooltipInfo
-                label={dict.hero.title}
-                content={dict.tooltips.heroTitle}
-                triggerTestId="tooltip-hero-title-trigger"
-                contentTestId="tooltip-hero-title-content"
-              />
-            </div>
-            <p className="mt-2 text-sm text-muted">{dict.hero.description}</p>
-          </div>
-        )}
-
-        {globalError ? (
-          <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            <p>{dict.feedback.requestFailedPrefix}: {globalError}</p>
-            <div className="mt-2 flex justify-end">
-              <Button type="button" variant="secondary" size="sm" onClick={() => { setGlobalError(""); refresh(); }}>
-                {dict.actions.retry}
-              </Button>
-            </div>
-          </div>
-        ) : recomputeMessage ? (
-          <p
-            className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-            data-testid="recompute-status"
-          >
-            {recomputeMessage}
-          </p>
-        ) : showPageSkeleton ? (
-          <div className="mb-4 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-        ) : null}
-
-        {showPageSkeleton ? (
-          <DashboardLoading />
-        ) : (
-          <div className="stagger grid min-w-0 gap-6 md:grid-cols-2">
-            <RecomputeCard settings={settings} pending={isRunningRecompute} onRecompute={handleRecompute} dict={dict} />
-            <AddTransactionCard
-              value={newTx}
-              accountOptions={accounts.map((account) => ({ id: account.id, name: account.name }))}
-              pending={isSubmittingTx}
-              onChange={setNewTx}
-              onSubmit={handleSubmitTransaction}
-              dict={dict}
-            />
-            <div className="md:col-span-2 min-w-0">
-              <HoldingsTable holdings={holdings} dict={dict} locale={locale} />
-            </div>
-          </div>
-        )}
-      </main>
-
-      {integrityIssue && (
-        <Dialog.Root open={showIntegrityDialog} onOpenChange={(open) => setShowIntegrityDialog(open)}>
-          <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-[70] bg-black/30" />
-            <Dialog.Content
-              className="fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-rose-200 bg-white p-5 shadow-2xl focus:outline-none"
-              data-testid="integrity-dialog"
-            >
-              <div className="mb-3 flex items-start gap-2 text-rose-700">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                <div>
-                  <Dialog.Title className="text-base font-semibold">{dict.dialogs.integrityTitle}</Dialog.Title>
-                  <Dialog.Description className="text-sm text-rose-600">{dict.dialogs.integrityDescription}</Dialog.Description>
-                </div>
-              </div>
-
-              <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{integrityIssue.message}</p>
-
-              <div className="mt-4 flex justify-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => setShowIntegrityDialog(false)}>
-                  {dict.actions.dismiss}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setShowIntegrityDialog(false);
-                    setDrawerOpen(true);
-                  }}
-                >
-                  {dict.actions.openSettings}
-                </Button>
-              </div>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
+    <div className="app-shell relative flex min-h-screen w-full min-w-0 max-w-full flex-col overflow-x-clip" data-testid="app-shell">
+      {isDemo && (
+        <div
+          className="flex h-8 items-center justify-center bg-amber-100 text-xs font-medium text-amber-800"
+          data-testid="demo-banner"
+        >
+          You&apos;re using a demo session.
+        </div>
       )}
-
-      <SettingsDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        settings={settings}
-        accounts={accounts}
-        feeProfiles={profiles}
-        feeProfileBindings={feeProfileBindings}
-        isSaving={isSavingSettings}
-        errorMessage={settingsError}
-        onSave={handleSaveSettings}
-        dict={dict}
+      {/* Preserves §8 item 6 — ImpersonationBanner above SidebarProvider so
+          it spans the full viewport above sidebar + content. ResizeObserver
+          dropped per design §3; banner stacks naturally. */}
+      <ImpersonationBanner
+        impersonation={impersonation}
+        onRefreshContext={refreshContextDependentData}
       />
+
+      <BreadcrumbProvider>
+        {/* AppShellDataProvider lifted to wrap SidebarProvider so the
+            Breadcrumb in TopBar can read `uiDict` for locale-aware fallback
+            labels (e.g. "持倉" in zh-TW). Children still consume the same
+            context via useAppShellData inside <main> below. */}
+        <AppShellDataProvider value={appShellDataValue}>
+          <CommandPaletteProvider value={commandPaletteContextValue}>
+            <NavigationFeedbackProvider>
+              <AppShellLayout
+                initialSidebarOpen={initialSidebarOpen}
+                dashboard={dashboard}
+                profileData={profileData}
+                dict={dict}
+                uiDict={uiDict}
+                locale={locale}
+                switcherSlot={portfolioSwitcher}
+                quickSearchItems={quickSearchItems}
+                unreadCount={notificationData.unreadCount}
+                notifications={notificationData.notifications}
+                notificationDropdownOpen={notificationDropdownOpen}
+                onNotificationOpenChange={setNotificationDropdownOpen}
+                markRead={notificationData.markRead}
+                markAllRead={notificationData.markAllRead}
+                dismiss={notificationData.dismiss}
+                contextMessage={contextMessage}
+                globalError={globalError}
+                transactionMessage={transactionSubmission.message}
+                recomputeMessage={recomputeAction.message}
+                snapshotMessage={snapshotGeneration.snapshotMessage}
+                mutationsMessage={mutations.message}
+                mutationsErrorMessage={mutations.errorMessage}
+                onClearGlobalError={handleClearGlobalError}
+                isClientReady={isClientReady}
+                switcherLoaded={switcherLoaded}
+                onTimeframesSaved={refetchEffectiveRanges}
+                onReportingCurrencySaved={handleReportingCurrencySaved}
+              >
+                {children ?? null}
+              </AppShellLayout>
+            </NavigationFeedbackProvider>
+
+            <CommandPalette
+              open={commandPalette.open}
+              onOpenChange={commandPalette.setOpen}
+              initialQuery={commandPalette.initialQuery}
+              dict={dict}
+              onAddTransaction={handleAddTransactionFromPalette}
+              onRecomputeAll={handleRecomputeFromPalette}
+            />
+
+            <AddTransactionDialog
+              open={addTransactionDialogOpen}
+              onOpenChange={setAddTransactionDialogOpen}
+              value={transactionSubmission.draftTransaction}
+              onChange={transactionSubmission.setDraftTransaction}
+              onUnitPriceEdited={transactionSubmission.markUnitPriceEdited}
+              onSubmit={async () => {
+                const ok = await transactionSubmission.submit();
+                if (ok) setAddTransactionDialogOpen(false);
+              }}
+              pending={transactionSubmission.isSubmitting}
+              accountOptions={transactionAccountOptions}
+              message={transactionSubmission.message}
+              errorMessage={transactionSubmission.errorMessage}
+              dict={dict}
+              locale={locale}
+              priceHint={transactionSubmission.priceHint}
+              showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
+              feeEstimate={transactionSubmission.feeEstimate}
+            />
+
+            <RecomputeConfirmDialog
+              open={recomputeDialogOpen}
+              onOpenChange={setRecomputeDialogOpen}
+              onConfirm={handleRecomputeConfirm}
+              dict={dict}
+              pending={recomputeAction.isRunning}
+            />
+
+            {/* Phase 5e — floating ⨁ quick-actions Sheet. Dashboard-only
+                surface; hidden in shared context (read-only). Reuses the
+                same AddTransactionDialog + RecomputeConfirmDialog handlers
+                already wired for the ⌘K palette. */}
+            <FloatingQuickActions
+              hidden={pathname !== "/dashboard" || isSharedContext}
+              onAddTransaction={handleAddTransactionFromPalette}
+              onRecompute={handleRecomputeFromPalette}
+              onGenerateSnapshots={snapshotGeneration.generateSnapshots}
+              isGeneratingSnapshots={snapshotGeneration.isGeneratingSnapshots}
+            />
+          </CommandPaletteProvider>
+        </AppShellDataProvider>
+      </BreadcrumbProvider>
     </div>
   );
 }

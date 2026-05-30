@@ -1,35 +1,44 @@
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY libs/config/package.json libs/config/
 COPY libs/domain/package.json libs/domain/
 COPY libs/shared-types/package.json libs/shared-types/
 
 RUN npm ci
 
+# Cache-bust: any layer after this ARG is invalidated when the deploy SHA
+# changes, ensuring source code is never stale. The npm ci layer above
+# remains cached as long as package*.json files are unchanged.
+ARG CACHE_BUST
+
 COPY tsconfig.base.json ./
 COPY libs/ libs/
 COPY apps/api/ apps/api/
 
-RUN npm run build -w @tw-portfolio/domain \
- && npm run build -w @tw-portfolio/shared-types \
- && npm run build -w @tw-portfolio/api
+RUN npm run build -w @vakwen/config \
+ && npm run build -w @vakwen/domain \
+ && npm run build -w @vakwen/shared-types \
+ && npm run build -w @vakwen/api
 
-FROM node:22-alpine
+FROM node:24-alpine
 
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app
 
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/apps/api/package.json apps/api/
+COPY --from=build /app/libs/config/package.json libs/config/
 COPY --from=build /app/libs/domain/package.json libs/domain/
 COPY --from=build /app/libs/shared-types/package.json libs/shared-types/
 
 RUN npm ci --omit=dev
 
 COPY --from=build /app/apps/api/dist/ apps/api/dist/
+COPY --from=build /app/libs/config/dist/ libs/config/dist/
 COPY --from=build /app/libs/domain/dist/ libs/domain/dist/
 COPY --from=build /app/libs/shared-types/dist/ libs/shared-types/dist/
 COPY db/migrations/ db/migrations/

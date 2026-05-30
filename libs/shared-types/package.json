@@ -1,5 +1,5 @@
 {
-  "name": "@tw-portfolio/shared-types",
+  "name": "@vakwen/shared-types",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -7,6 +7,10 @@
   "scripts": {
     "build": "npx tsc -p tsconfig.json",
     "test": "echo \"no tests\""
+  },
+  "dependencies": {
+    "@vakwen/domain": "*",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

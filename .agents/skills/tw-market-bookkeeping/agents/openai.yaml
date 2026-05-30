@@ -1,0 +1,4 @@
+interface:
+  display_name: "Taiwan Market Bookkeeping"
+  short_description: "Help with Taiwan stock and ETF bookkeeping"
+  default_prompt: "Use $tw-market-bookkeeping to calculate Taiwan stock or ETF trades, fees, distributions, and tax or NHI bookkeeping treatment."

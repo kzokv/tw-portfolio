@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Invites</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .filter-row { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input[type=search] { flex:1; max-width:280px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; }
+  .issue-card { display:flex; gap:24px; align-items:flex-end; padding:18px; border:1px solid hsl(var(--border)); border-radius:calc(var(--radius)); background:hsl(var(--muted) / 0.3); margin-bottom:20px; }
+  .issue-card .field { flex:1; min-width:160px; }
+  .issue-card .field label { display:block; font-size:11px; color:hsl(var(--muted-foreground)); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px; }
+  .issue-card input, .issue-card select { width:100%; height:34px; padding:0 10px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; color:hsl(var(--foreground)); }
+</style>
+</head>
+<body data-admin data-section="admin-invites" data-crumb-here="Invites">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Invites</div>
+      <div class="muted text-sm">17 pending · 3 expire today · 412 accepted (all time)</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">Export CSV</button>
+    </div>
+  </div>
+
+  <section class="issue-card">
+    <div class="field">
+      <label>Email</label>
+      <input type="email" placeholder="user@example.com" />
+    </div>
+    <div class="field">
+      <label>Initial role</label>
+      <select><option>User</option><option>Operator</option></select>
+    </div>
+    <div class="field">
+      <label>Expires</label>
+      <select><option>7 days</option><option>14 days</option><option>30 days</option></select>
+    </div>
+    <button class="btn btn-primary" style="height:34px;">✉ Issue invite</button>
+  </section>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Filter by email, code…" />
+    <button class="chip on">All</button>
+    <button class="chip">Pending</button>
+    <button class="chip">Expiring today</button>
+    <button class="chip">Accepted</button>
+    <button class="chip">Revoked</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable">Email<span class="sort-ind">↕</span></th>
+          <th class="sortable">Code<span class="sort-ind">↕</span></th>
+          <th class="sortable">Role<span class="sort-ind">↕</span></th>
+          <th class="sortable">Status<span class="sort-ind">↕</span></th>
+          <th class="sortable sort-desc">Issued<span class="sort-ind">▼</span></th>
+          <th class="sortable">Expires<span class="sort-ind">↕</span></th>
+          <th>Issued by</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="font-medium">mei@example.com</td><td class="mono text-xs">VKW-A4F2</td><td><span class="badge">USER</span></td><td><span class="badge badge-warning">PENDING</span></td><td class="num">2026-05-13</td><td class="num" style="color:hsl(var(--warning));">tomorrow</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">accountant@firm.tw</td><td class="mono text-xs">VKW-B81C</td><td><span class="badge">USER</span></td><td><span class="badge badge-warning">PENDING</span></td><td class="num">2026-05-10</td><td class="num">2026-05-24</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">jenny@example.com</td><td class="mono text-xs">VKW-3D9A</td><td><span class="badge badge-primary">OP</span></td><td><span class="badge badge-success">ACCEPTED</span></td><td class="num">2025-11-01</td><td class="num muted">accepted</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="font-medium">kai@example.jp</td><td class="mono text-xs">VKW-7F0E</td><td><span class="badge">USER</span></td><td><span class="badge badge-success">ACCEPTED</span></td><td class="num">2026-01-12</td><td class="num muted">accepted</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="muted">expired-invite@test</td><td class="mono text-xs">VKW-C201</td><td><span class="badge">USER</span></td><td><span class="badge badge-danger">EXPIRED</span></td><td class="num">2026-04-22</td><td class="num">2026-05-06</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="muted line-through">someone@somewhere</td><td class="mono text-xs">VKW-D515</td><td><span class="badge">USER</span></td><td><span class="badge">REVOKED</span></td><td class="num">2026-04-29</td><td class="num muted">—</td><td class="muted">alex@</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

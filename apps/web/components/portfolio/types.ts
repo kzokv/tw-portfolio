@@ -1,16 +1,27 @@
+import type { CurrencyCode, MarketCode } from "@vakwen/shared-types";
+
 export interface Holding {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
 }
 
+// KZO-169: form payload now carries `marketCode` alongside `ticker`. The
+// combobox commits both, the chip preselects which markets are visible, and
+// `priceCurrency` becomes a derived display value (server validates via
+// `account.defaultCurrency === currencyFor(marketCode)`).
 export interface TransactionInput {
   accountId: string;
-  symbol: string;
+  ticker: string;
+  marketCode: MarketCode | null;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
   tradeDate: string;
+  commissionAmount?: number;
+  taxAmount?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }

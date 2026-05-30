@@ -1,7 +1,13 @@
 "use client";
 
-import * as Tooltip from "@radix-ui/react-tooltip";
+// Phase 1 adapter shim: preserves the bespoke `<TooltipInfo>` help-circle API
+// while delegating Provider/Trigger/Content rendering to the shadcn Tooltip
+// primitive at ./shadcn/tooltip. The CircleHelp icon and project-styled
+// trigger button are owned here.
+
+import { useState } from "react";
 import { CircleHelp } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./shadcn/tooltip";
 
 interface TooltipInfoProps {
   label: string;
@@ -11,31 +17,39 @@ interface TooltipInfoProps {
 }
 
 export function TooltipInfo({ label, content, triggerTestId, contentTestId }: TooltipInfoProps) {
+  const [focused, setFocused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const open = focused || hovered;
+
   return (
-    <Tooltip.Provider delayDuration={180}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
+    <TooltipProvider delayDuration={180}>
+      <Tooltip
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            setFocused(false);
+            setHovered(false);
+          }
+        }}
+      >
+        <TooltipTrigger asChild>
           <button
             type="button"
             aria-label={label}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted transition hover:bg-[#e9dcc4] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-testid={triggerTestId}
+            onBlur={() => setFocused(false)}
+            onFocus={() => setFocused(true)}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
           >
             <CircleHelp className="h-3.5 w-3.5" />
           </button>
-        </Tooltip.Trigger>
-        <Tooltip.Portal>
-          <Tooltip.Content
-            side="top"
-            sideOffset={6}
-            className="z-[60] max-w-xs break-words rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink shadow-card"
-            data-testid={contentTestId}
-          >
-            {content}
-            <Tooltip.Arrow className="fill-surface" />
-          </Tooltip.Content>
-        </Tooltip.Portal>
-      </Tooltip.Root>
-    </Tooltip.Provider>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6} data-testid={contentTestId}>
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

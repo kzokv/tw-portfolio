@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Instrument Catalog Sector Filter Mockup</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        --background: #eef2f7;
+        --panel: #ffffff;
+        --ink: #1f2937;
+        --muted: #667085;
+        --line: #d8dee8;
+        --soft: #f7f9fc;
+        --accent: #0f766e;
+        --accent-soft: #d9f2ee;
+        --blue-soft: #e8f0ff;
+        --blue: #1d4ed8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--background);
+        color: var(--ink);
+      }
+
+      .frame {
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+        padding: 32px;
+      }
+
+      .app {
+        width: min(1120px, 100%);
+        min-height: 720px;
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        overflow: hidden;
+        border: 1px solid #cfd7e6;
+        border-radius: 8px;
+        background: #f9fafb;
+        box-shadow: 0 24px 70px rgb(15 23 42 / 18%);
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: #f3f6fa;
+        padding: 28px 22px;
+      }
+
+      .brand {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 28px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav div {
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 13px;
+        padding: 10px 12px;
+      }
+
+      .nav .active {
+        background: var(--panel);
+        color: var(--ink);
+        font-weight: 700;
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .content {
+        padding: 28px;
+      }
+
+      .sheet {
+        height: 664px;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 20px;
+      }
+
+      .back {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+      }
+
+      .title {
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .controls {
+        display: grid;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 16px 20px;
+      }
+
+      .chips {
+        display: inline-flex;
+        width: fit-content;
+        gap: 3px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--soft);
+        padding: 3px;
+      }
+
+      .chip {
+        border-radius: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        padding: 7px 12px;
+      }
+
+      .chip.active {
+        background: var(--panel);
+        color: var(--ink);
+        box-shadow: 0 1px 3px rgb(15 23 42 / 14%);
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .search {
+        display: flex;
+        align-items: center;
+        height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+        background: #fff;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+
+      .sector {
+        display: grid;
+        grid-template-columns: 120px minmax(240px, 360px) 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .sector label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .select {
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        padding: 0 12px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .count {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 12px 20px 0;
+      }
+
+      .list {
+        overflow: hidden;
+        padding: 8px 20px 18px;
+      }
+
+      .item {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        min-height: 66px;
+        border-bottom: 1px solid #edf1f6;
+      }
+
+      .box {
+        width: 16px;
+        height: 16px;
+        border: 1px solid #b8c2d2;
+        border-radius: 4px;
+      }
+
+      .ticker {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .name {
+        color: var(--muted);
+        font-size: 12px;
+        margin-left: 8px;
+      }
+
+      .subtitle {
+        margin-top: 4px;
+        color: #7a8597;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .pill {
+        border-radius: 5px;
+        background: #eef2f6;
+        color: #475467;
+        font-size: 10px;
+        font-weight: 800;
+        padding: 4px 7px;
+      }
+
+      .note {
+        border-left: 3px solid var(--accent);
+        background: var(--accent-soft);
+        color: #0f4f49;
+        font-size: 12px;
+        line-height: 1.45;
+        margin: 0 20px 12px;
+        padding: 10px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="frame">
+      <section class="app" aria-label="Settings catalog mockup">
+        <aside class="sidebar">
+          <div class="brand">Vakwen</div>
+          <nav class="nav" aria-label="Settings navigation">
+            <div>Accounts</div>
+            <div class="active">Tickers</div>
+            <div>Display</div>
+            <div>Provider Health</div>
+          </nav>
+        </aside>
+        <section class="content">
+          <div class="sheet">
+            <header class="header">
+              <div class="back">←</div>
+              <div class="title">Instrument Catalog</div>
+            </header>
+            <div class="controls">
+              <div class="chips" aria-label="Market filter">
+                <div class="chip">All</div>
+                <div class="chip">TW</div>
+                <div class="chip active">US</div>
+                <div class="chip">AU</div>
+              </div>
+              <div class="row">
+                <div class="search">⌕ Search ticker or company name</div>
+                <div class="chips" aria-label="Type filter">
+                  <div class="chip active">All</div>
+                  <div class="chip">Stock</div>
+                  <div class="chip">ETF</div>
+                  <div class="chip">Bond ETF</div>
+                </div>
+              </div>
+              <div class="sector">
+                <label for="sector-filter">Sector</label>
+                <div id="sector-filter" class="select">Information Technology ▾</div>
+                <div class="hint">Visible for TW, US, and AU market chips. Hidden for All.</div>
+              </div>
+            </div>
+            <p class="count">2 instruments match this sector</p>
+            <p class="note">
+              Mocked state: US market chip selected, sector narrowed to Information Technology.
+              ETF rows stay sectorless and are only shown when All sectors is selected.
+            </p>
+            <div class="list">
+              <article class="item">
+                <div class="box"></div>
+                <div>
+                  <span class="ticker">AAPL · US</span>
+                  <span class="name">Apple Inc. Common Stock</span>
+                  <div class="subtitle">Information Technology</div>
+                </div>
+                <div class="pill">STOCK</div>
+              </article>
+              <article class="item">
+                <div class="box"></div>
+                <div>
+                  <span class="ticker">MSFT · US</span>
+                  <span class="name">Microsoft Corporation Common Stock</span>
+                  <div class="subtitle">Information Technology</div>
+                </div>
+                <div class="pill">STOCK</div>
+              </article>
+              <article class="item">
+                <div class="box"></div>
+                <div>
+                  <span class="ticker">VOO · US</span>
+                  <span class="name">Vanguard S&amp;P 500 ETF</span>
+                </div>
+                <div class="pill">ETF</div>
+              </article>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

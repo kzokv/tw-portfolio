@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KZO-183 — Accounts tab restructure mockup</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body {
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      .grain {
+        background-image: radial-gradient(
+            circle at 20% 30%,
+            rgba(99, 102, 241, 0.04),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 80% 10%,
+            rgba(16, 185, 129, 0.03),
+            transparent 50%
+          );
+      }
+      .annotation {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body class="grain min-h-screen">
+    <div class="mx-auto max-w-6xl px-6 py-10">
+      <!-- Header banner — meta about the mockup, not part of the actual UI -->
+      <div class="mb-8 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Mockup · KZO-183 scope-grill 2026-04-28
+        </p>
+        <h1 class="mt-1 text-base font-semibold text-slate-900">
+          Settings drawer — restructured <em>Accounts</em> tab: per-account expandable cards + market re-labeling + search
+        </h1>
+        <p class="mt-1 text-sm text-slate-500">
+          5-tab strip (<strong>Fees tab removed</strong>); fee-profile management moves into per-account expandable cards.
+          Currency cards re-labeled as markets ("Taiwan / United States / Australia"). New top-of-tab search input
+          filters per-account-card visibility by profile name. Live preview at the top of each card shows
+          name + market badge; "Duplicate from another account" CTA is inline.
+        </p>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- Live region: the actual settings drawer UI under KZO-183 -->
+      <!-- ============================================================== -->
+
+      <div class="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-sm">
+        <!-- Drawer top-bar -->
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-900">Settings</h2>
+          <button class="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:text-slate-600" aria-label="Close">
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 8.586L4.707 3.293 3.293 4.707 8.586 10l-5.293 5.293 1.414 1.414L10 11.414l5.293 5.293 1.414-1.414L11.414 10l5.293-5.293-1.414-1.414z" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Tab strip — 5 tabs (Profile / General / Accounts / Tickers / Display); Fees REMOVED -->
+        <div class="mb-5 inline-flex w-fit gap-2 rounded-full border border-slate-200 bg-slate-50/90 p-1">
+          <button class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none">Profile</button>
+          <button class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none">General</button>
+          <!-- ACTIVE TAB — KZO-183 expands this with per-account cards -->
+          <button class="rounded-full border border-indigo-200 bg-white px-3 py-1 text-sm font-semibold text-indigo-700 shadow-sm">
+            Accounts
+            <span class="ml-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-700">RESHAPED</span>
+          </button>
+          <button class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none">Tickers</button>
+          <button class="rounded-full border border-transparent bg-transparent px-3 py-1 text-sm text-slate-500 shadow-none">Display</button>
+        </div>
+        <p class="annotation mb-4 text-[10px] uppercase tracking-wider text-rose-500">
+          ↑ Fees tab DELETED. Tab strip drops 6 → 5.
+        </p>
+
+        <!-- ====================================================== -->
+        <!-- Top-of-tab search input (Q5 Sub-2 — ship from day one) -->
+        <!-- ====================================================== -->
+        <div class="mb-5">
+          <label class="mb-1 block text-xs font-medium text-slate-500" for="profile-search">Search fee profiles across all accounts</label>
+          <div class="relative max-w-md">
+            <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <input id="profile-search" type="text" placeholder="ETF rate, Cathay…" class="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
+          </div>
+          <p class="annotation mt-1 text-[10px] uppercase tracking-wider text-emerald-600">
+            Client-side filter • cards with hits stay expanded; misses collapse
+          </p>
+        </div>
+
+        <!-- ====================================================== -->
+        <!-- AccountCreateForm — re-labeled markets (copy change) -->
+        <!-- ====================================================== -->
+        <section class="mb-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50/40 p-5">
+          <div>
+            <h3 class="text-base font-semibold text-slate-900">Add account</h3>
+            <p class="mt-0.5 text-xs text-slate-500">
+              Each account is tied to one market. Trades in this account must belong to that market.
+            </p>
+          </div>
+
+          <!-- Name input -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-500" for="acc-name">Name</label>
+            <input id="acc-name" type="text" value="Interactive Brokers" placeholder="e.g. Cathay" class="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
+          </div>
+
+          <!-- Type pills -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-500">Type</label>
+            <div class="flex flex-wrap gap-2">
+              <!-- Broker (SELECTED) -->
+              <button class="flex items-center gap-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 shadow-[0_0_0_3px_rgb(199_210_254/0.6)]">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+                  <path d="M6 12H4a2 2 0 0 0-2 2v8h4" />
+                  <path d="M18 9h2a2 2 0 0 1 2 2v11h-4" />
+                  <path d="M10 6h4" /><path d="M10 10h4" /><path d="M10 14h4" /><path d="M10 18h4" />
+                </svg>
+                Broker
+              </button>
+              <button class="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-300">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="3" y1="22" x2="21" y2="22" /><line x1="6" y1="18" x2="6" y2="11" />
+                  <line x1="10" y1="18" x2="10" y2="11" /><line x1="14" y1="18" x2="14" y2="11" />
+                  <line x1="18" y1="18" x2="18" y2="11" /><polygon points="12 2 20 7 4 7" />
+                </svg>
+                Bank
+              </button>
+              <button class="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-slate-300">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+                  <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
+                </svg>
+                Wallet
+              </button>
+            </div>
+          </div>
+
+          <!-- MARKET cards — RE-LABELED from "Currency" -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-500">Market</label>
+            <div class="grid max-w-md grid-cols-3 gap-2">
+              <!-- Taiwan (unselected) -->
+              <button class="flex flex-col items-start rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-slate-300">
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-slate-700">Taiwan</span>
+                <span class="annotation mt-1.5 text-[10px] text-slate-500">TWD · TWSE</span>
+              </button>
+              <!-- United States (SELECTED) -->
+              <button class="flex flex-col items-start rounded-xl border border-indigo-300 bg-indigo-50/40 p-3 text-left ring-2 ring-indigo-300">
+                <span class="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold tracking-wide text-indigo-700">United States</span>
+                <span class="annotation mt-1.5 text-[10px] text-indigo-700">USD · NYSE / NASDAQ</span>
+              </button>
+              <!-- Australia (unselected) -->
+              <button class="flex flex-col items-start rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-slate-300">
+                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-slate-700">Australia</span>
+                <span class="annotation mt-1.5 text-[10px] text-slate-500">AUD · ASX</span>
+              </button>
+            </div>
+            <p class="annotation mt-1.5 text-[10px] uppercase tracking-wider text-rose-500">
+              Field stays <code>defaultCurrency</code> · market derived via <code>marketCodeFor()</code> · no new column
+            </p>
+          </div>
+
+          <!-- Info-blue callout -->
+          <div class="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-700">
+            <svg class="mt-0.5 h-4 w-4 flex-none" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-11.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM9 9.75A.75.75 0 0 1 9.75 9h.5A.75.75 0 0 1 11 9.75V14h.25a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1 0-1.5H9V10.5h-.25a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" />
+            </svg>
+            <span>
+              Trades booked under this account must belong to the selected market. Fee profiles are created per account
+              — a default profile is auto-seeded; you can edit, add, and duplicate later.
+            </span>
+          </div>
+
+          <!-- Live preview row -->
+          <div>
+            <p class="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Preview</p>
+            <div class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+              <span class="font-medium text-slate-900">Interactive Brokers</span>
+              <span class="text-slate-300">·</span>
+              <span class="text-sm text-slate-600">Broker</span>
+              <span class="text-slate-300">·</span>
+              <span class="rounded-full bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-indigo-700">United States</span>
+            </div>
+          </div>
+
+          <!-- Submit button -->
+          <div>
+            <button class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500">
+              Add account
+            </button>
+            <span class="annotation ml-3 text-[10px] uppercase tracking-wider text-emerald-600">
+              POST /accounts auto-seeds default profile (no feeProfileId in body)
+            </span>
+          </div>
+        </section>
+
+        <!-- ====================================================== -->
+        <!-- Per-account expandable cards (Q5 — Accounts tab body) -->
+        <!-- ====================================================== -->
+
+        <div class="space-y-3">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Your accounts</p>
+
+          <!-- Card 1 — EXPANDED — Cathay TW (Broker, Taiwan) -->
+          <article class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <!-- Card header -->
+            <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
+              <button class="text-slate-400 transition hover:text-slate-600" aria-label="Collapse">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-slate-900">Cathay</span>
+                  <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Broker</span>
+                  <span class="rounded-full bg-emerald-50 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-emerald-700">Taiwan</span>
+                </div>
+                <p class="annotation mt-0.5 text-[10px] text-slate-400">acc-tw-cathay · TWD</p>
+              </div>
+              <button class="rounded-full border border-slate-200 p-1.5 text-slate-400 transition hover:text-slate-600" aria-label="Rename">
+                <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Card body -->
+            <div class="space-y-4 px-4 py-4">
+              <!-- Default fee profile selector -->
+              <div>
+                <label class="mb-1 block text-xs font-medium text-slate-500">Default fee profile</label>
+                <select class="w-full max-w-sm rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100">
+                  <option>TW Default</option>
+                  <option>ETF Rate (0.1%)</option>
+                </select>
+                <p class="annotation mt-1 text-[10px] text-slate-400">Options scoped to this account's profiles only</p>
+              </div>
+
+              <!-- Inline fee profiles list -->
+              <div>
+                <div class="mb-2 flex items-center justify-between">
+                  <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Fee profiles for this account</p>
+                  <div class="flex items-center gap-2">
+                    <button class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300">
+                      <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                      Add profile
+                    </button>
+                    <!-- Duplicate from another account CTA -->
+                    <button class="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition hover:border-indigo-300">
+                      <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                      Duplicate from another account
+                    </button>
+                  </div>
+                </div>
+                <div class="space-y-2">
+                  <!-- Profile row 1 -->
+                  <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                    <div>
+                      <p class="text-sm font-medium text-slate-900">TW Default</p>
+                      <p class="annotation text-[10px] text-slate-400">0.1425% commission · 0.3% sell tax · TWD</p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <button class="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Edit">
+                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                      </button>
+                      <button class="rounded p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600" aria-label="Delete">
+                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <!-- Profile row 2 -->
+                  <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                    <div>
+                      <p class="text-sm font-medium text-slate-900">ETF Rate (0.1%)</p>
+                      <p class="annotation text-[10px] text-slate-400">0.1% commission · 0.1% bond-ETF tax · TWD</p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <button class="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Edit">
+                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                      </button>
+                      <button class="rounded p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600" aria-label="Delete">
+                        <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"></path></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Inline per-symbol overrides -->
+              <div>
+                <div class="mb-2 flex items-center justify-between">
+                  <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Per-symbol overrides</p>
+                  <button class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-300">
+                    <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    Add override
+                  </button>
+                </div>
+                <div class="space-y-2">
+                  <div class="grid items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 lg:grid-cols-[120px_1fr_auto]">
+                    <span class="font-mono text-sm font-semibold text-slate-700">0050</span>
+                    <span class="text-sm text-slate-600">→ ETF Rate (0.1%)</span>
+                    <button class="rounded p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600" aria-label="Remove override">
+                      <svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="annotation mt-1 text-[10px] text-slate-400">
+                  market_code dropped — account already implies market. PK is now (account_id, ticker).
+                </p>
+              </div>
+            </div>
+          </article>
+
+          <!-- Card 2 — COLLAPSED — Interactive Brokers US -->
+          <article class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="flex items-center gap-3 px-4 py-3">
+              <button class="text-slate-400 transition hover:text-slate-600" aria-label="Expand">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 6 15 12 9 18"></polyline>
+                </svg>
+              </button>
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-slate-900">Interactive Brokers</span>
+                  <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Broker</span>
+                  <span class="rounded-full bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-indigo-700">United States</span>
+                  <span class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700">just created</span>
+                </div>
+                <p class="annotation mt-0.5 text-[10px] text-slate-400">acc-us-ibkr · USD · 1 profile (auto-seeded)</p>
+              </div>
+              <select class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 shadow-sm">
+                <option>Default — US Market</option>
+              </select>
+            </div>
+          </article>
+
+          <!-- Card 3 — COLLAPSED — Self-managed wallet AU (illustrative) -->
+          <article class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="flex items-center gap-3 px-4 py-3">
+              <button class="text-slate-400 transition hover:text-slate-600" aria-label="Expand">
+                <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 6 15 12 9 18"></polyline>
+                </svg>
+              </button>
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-slate-900">SelfWealth</span>
+                  <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">Broker</span>
+                  <span class="rounded-full bg-rose-50 px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-rose-700">Australia</span>
+                </div>
+                <p class="annotation mt-0.5 text-[10px] text-slate-400">acc-au-selfwealth · AUD · 2 profiles</p>
+              </div>
+              <select class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 shadow-sm">
+                <option>Standard ($9.50)</option>
+                <option>Premium ($0)</option>
+              </select>
+            </div>
+          </article>
+        </div>
+
+        <!-- Footnote / annotation about deletions -->
+        <div class="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+          <p class="font-semibold">Removed in this ticket:</p>
+          <ul class="mt-1 list-disc pl-5">
+            <li><code>FeeProfilesSection.tsx</code> + <code>SecurityBindingsSection.tsx</code> (their UX merges into the per-account cards above)</li>
+            <li>Fees tab on the tab strip</li>
+            <li><code>fee_profiles.user_id</code>, <code>fee_profile_tax_rules.user_id</code>, <code>account_fee_profile_overrides.market_code</code> columns</li>
+            <li><code>defaultFeeProfileIdFor(userId)</code> magic-id helper (replaced by UUID-based per-account auto-seeding)</li>
+            <li><code>feeProfileId?</code> from <code>POST /accounts</code> body</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Bottom annotation block -->
+      <div class="mt-8 grid gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-600 shadow-sm md:grid-cols-2">
+        <div>
+          <p class="font-semibold text-slate-900">Schema deltas (migration 042)</p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li><code>fee_profiles.account_id</code> NOT NULL FK ON DELETE CASCADE</li>
+            <li>Composite FK <code>accounts(fee_profile_id, id) → fee_profiles(id, account_id)</code></li>
+            <li>CHECK <code>trade_events.market_code</code> matches <code>marketCodeFor(account.default_currency)</code></li>
+            <li>Same CHECK on <code>dividend_ledger_entries</code></li>
+            <li>Backfill: per-(account, profile) pair → new owned row; suffix duplicated names</li>
+            <li>Strict pre-flight: migration aborts on existing market mismatches</li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-semibold text-slate-900">UX deltas (frontend)</p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li>Tab strip: 6 → 5 (Fees removed)</li>
+            <li>Currency cards re-labeled "Taiwan / United States / Australia"</li>
+            <li>Per-account expandable cards with inline profile + override lists</li>
+            <li>"Duplicate from another account" deep-copy CTA</li>
+            <li>Top-of-tab profile-name search filter</li>
+            <li>Live market badge on account preview chip</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

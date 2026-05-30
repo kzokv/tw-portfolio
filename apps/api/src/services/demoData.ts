@@ -1,0 +1,71 @@
+import { randomUUID } from "node:crypto";
+import type { Persistence } from "../persistence/types.js";
+import { rebuildHoldingProjection } from "./accountingStore.js";
+import { createTransaction } from "./portfolio.js";
+import { ensureInstrumentDefinition } from "./instrumentRegistry.js";
+
+interface DemoTransaction {
+  accountId: string;
+  ticker: string;
+  type: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  tradeDate: string;
+}
+
+function buildDemoTransactions(accountId: string): DemoTransaction[] {
+  return [
+    { accountId, ticker: "2330", type: "BUY", quantity: 2, unitPrice: 98000, tradeDate: "2026-01-15" },
+    { accountId, ticker: "2330", type: "BUY", quantity: 1, unitPrice: 99500, tradeDate: "2026-01-22" },
+    { accountId, ticker: "2317", type: "BUY", quantity: 5, unitPrice: 18200, tradeDate: "2026-01-16" },
+    { accountId, ticker: "2454", type: "BUY", quantity: 1, unitPrice: 126000, tradeDate: "2026-01-17" },
+    { accountId, ticker: "2454", type: "BUY", quantity: 1, unitPrice: 128500, tradeDate: "2026-02-05" },
+    { accountId, ticker: "2881", type: "BUY", quantity: 10, unitPrice: 7850, tradeDate: "2026-01-20" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 3, unitPrice: 185.50, tradeDate: "2026-01-21" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 2, unitPrice: 189.25, tradeDate: "2026-02-10" },
+    { accountId, ticker: "2330", type: "SELL", quantity: 1, unitPrice: 101000, tradeDate: "2026-02-15" },
+    { accountId, ticker: "2317", type: "SELL", quantity: 2, unitPrice: 19100, tradeDate: "2026-02-20" },
+    { accountId, ticker: "2881", type: "BUY", quantity: 5, unitPrice: 8050, tradeDate: "2026-02-25" },
+    { accountId, ticker: "0050", type: "BUY", quantity: 1, unitPrice: 192.10, tradeDate: "2026-03-01" },
+  ];
+}
+
+export async function seedDemoTransactions(persistence: Persistence, userId: string): Promise<void> {
+  const store = await persistence.loadStore(userId);
+  if (store.accounting.facts.tradeEvents.length > 0) return;
+
+  const accountId = store.accounts[0]?.id;
+  if (!accountId) return;
+
+  const transactions = buildDemoTransactions(accountId);
+
+  // Process each trade through the full booking pipeline so that lots,
+  // cash ledger entries, and holding projections are populated — not just
+  // raw trade events. Without this, the portfolio page shows empty holdings.
+  const marketCode = "TW" as const;
+  for (const tx of transactions) {
+    ensureInstrumentDefinition(store, tx.ticker, marketCode);
+    createTransaction(store, userId, {
+      id: `demo-tx-${randomUUID()}`,
+      accountId: tx.accountId,
+      ticker: tx.ticker,
+      marketCode,
+      type: tx.type,
+      quantity: tx.quantity,
+      unitPrice: tx.unitPrice,
+      priceCurrency: "TWD",
+      tradeDate: tx.tradeDate,
+      isDayTrade: false,
+    });
+  }
+
+  rebuildHoldingProjection(store);
+  await persistence.saveStore(store);
+
+  // KZO-126: Demo instruments should show as 'ready' — no FinMind calls for demo users.
+  // Demo data is TW-only (priceCurrency: "TWD"), so marketCode is "TW".
+  const demoTickers = [...new Set(transactions.map((tx) => tx.ticker))];
+  for (const ticker of demoTickers) {
+    await persistence.updateBackfillStatus(ticker, "TW", "ready");
+  }
+}

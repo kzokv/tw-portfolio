@@ -1,0 +1,54 @@
+# AGENTS.md (apps/api)
+
+## Project overview
+- Follow root AGENTS for global baseline.
+- Fastify API package for server routes, validation boundaries, and persistence orchestration.
+- Keep API behavior consistent across supported persistence backends.
+
+## Build and test commands
+- Dev server: `npm run dev -w apps/api`.
+- Build package: `npm run build -w @vakwen/api`.
+- Run API tests: `npm run test -w apps/api`.
+- Run API HTTP tests: `npm run test:http -w apps/api`.
+- Run integration tests: `npm run test:integration -w apps/api`.
+- Run managed Postgres integration variants from repo root:
+  - `npm run test:integration:full:host` on the macOS host or lume VM shell
+  - `npm run test:integration:full:container` in a Linux container shell
+- Generate reports: `npm run test:html -w apps/api`, `npm run test:json -w apps/api`, `npm run test:junit -w apps/api`.
+
+## Code style guidelines
+- TypeScript policy: keep `compilerOptions.strict` enabled for API tsconfig.
+- Validate route boundaries before business logic execution.
+- Keep handlers thin and move storage details into persistence modules.
+- Use explicit API and storage types for request/response/data contracts.
+
+## Testing instructions
+- Add or update integration tests for route, payload, or behavior changes.
+- Use `test/http/` for API contract coverage that only needs HTTP requests and Playwright fixtures; keep `test/integration/` for in-process, mocked, streaming, or persistence-heavy cases.
+- Cover success, validation failure, and persistence failure paths.
+- Rebuild shared libs before API verification when shared packages change.
+- Coordinate with web tests when API contract changes affect UI flows.
+- Use the managed integration CI commands for Postgres migration or persistence coverage. They start isolated Postgres and Redis containers and set the required environment variables.
+- Do not run `RUN_POSTGRES_INTEGRATION=1` directly with `npm run test:integration`; the Postgres migration suite is guarded to run only via the managed CI variant.
+
+## Security considerations
+- Preserve tenant isolation in reads and writes.
+- Keep query paths parameterized and avoid unsafe dynamic SQL.
+- Keep mutation safeguards active for write endpoints.
+
+## Cached FinMind API Responses
+
+Raw FinMind API snapshots are version-controlled at `data/finmind/` (repo root):
+
+| File | Dataset | Rows | Purpose |
+|---|---|---|---|
+| `TaiwanStockInfo.json` | Full TWSE instrument catalog | ~4,077 | Dedup/classification development, mock fixture source |
+| `TaiwanStockDelisting.json` | Delisted instruments | ~277 | Delisting cross-reference development |
+
+Use these for local development instead of calling the FinMind API. The mock in `finmindClient.mock.ts` uses small subsets; the full files are for debugging dedup logic, verifying classification counts, and regenerating mocks.
+
+Re-fetch when the catalog needs updating (quarterly or after FinMind schema changes).
+
+## Context7 standards sources
+- `/microsoft/typescript`
+- `/typescript-eslint/typescript-eslint`

@@ -1,29 +1,92 @@
 import {
+  applyBuyToLots,
   allocateSellLots,
   calculateBuyFees,
   calculateSellFees,
-  type CostBasisMethod,
+  roundToDecimal,
   type FeeProfile,
   type Lot,
-} from "@tw-portfolio/domain";
-import type { CorporateAction, Store, Transaction } from "../types/store.js";
+} from "@vakwen/domain";
+import { marketCodeFor } from "@vakwen/shared-types";
+import type { AccountDto, MarketCode } from "@vakwen/shared-types";
+import {
+  appendCorporateAction,
+  appendTradeEvent,
+  deriveRealizedPnlForTrade,
+  listInventoryLots,
+  listTradeEvents,
+  rebuildHoldingProjection,
+  replaceLotAllocationsForTrade,
+  replaceInventoryLots,
+} from "./accountingStore.js";
+import { bookCashLedgerEntry, buildTradeSettlementCashEntry } from "./cashLedgerService.js";
+import { routeError } from "../lib/routeError.js";
+import type {
+  BookedTradeEvent,
+  CorporateAction,
+  LotAllocationProjection,
+  Store,
+  Transaction,
+} from "../types/store.js";
+
+// KZO-183: trade market guard — every trade booking must hit an instrument
+// whose market matches the booking account's market (derived from
+// account.defaultCurrency). 1:1 currency↔market mapping. The DB-level
+// trigger on `trade_events` is defense-in-depth; this is the user-facing
+// surface that produces the 400 error envelope.
+export function assertTradeMarketMatchesAccount(
+  account: Pick<AccountDto, "id" | "defaultCurrency">,
+  tradeMarketCode: string,
+): void {
+  // marketCodeFor throws a plain Error if account.defaultCurrency falls outside
+  // the supported account currencies. Catch it here so callers see a stable 400
+  // routeError envelope instead of a 500 (CHECK constraint on
+  // accounts.default_currency makes this branch unreachable in practice; this
+  // is defense-in-depth per service-error-pattern.md).
+  let expected: string;
+  try {
+    expected = marketCodeFor(account.defaultCurrency);
+  } catch {
+    throw routeError(
+      400,
+      "trade_market_mismatch",
+      `Account ${account.id} has unsupported defaultCurrency ${account.defaultCurrency}`,
+    );
+  }
+  if (tradeMarketCode !== expected) {
+    throw routeError(
+      400,
+      "trade_market_mismatch",
+      `Trade market ${tradeMarketCode} does not match account ${account.id} market ${expected}`,
+    );
+  }
+}
 
 export interface CreateTransactionInput {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
+  // KZO-169: provided by the caller as part of the body payload — server
+  // rejects mismatches via the `currency_mismatch` guard in the route handler.
+  marketCode: MarketCode;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: string;
   tradeDate: string;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
+  commissionAmount?: number;
+  taxAmount?: number;
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }
 
 export interface HoldingsRow {
   accountId: string;
-  symbol: string;
+  ticker: string;
   quantity: number;
-  costNtd: number;
+  costBasisAmount: number;
+  currency: string;
 }
 
 export function createTransaction(
@@ -32,85 +95,121 @@ export function createTransaction(
   input: CreateTransactionInput,
 ): Transaction {
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
-  if (!account) throw new Error("Account not found");
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
 
-  const profile = resolveFeeProfileForTransaction(store, account.id, input.symbol, account.feeProfileId);
-  const instrument = store.symbols.find((item) => item.ticker === input.symbol);
-  if (!instrument) throw new Error("Unsupported symbol");
+  const instrument = store.instruments.find((item) => item.ticker === input.ticker && item.marketCode === input.marketCode);
+  if (!instrument) throw routeError(400, "unsupported_ticker", "Unsupported ticker");
+  if (instrument.type === null) throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
+  // KZO-183: enforce account market binding BEFORE running fee resolution
+  // or any side effects. The instrument's market_code must match the
+  // market derived from the booking account's defaultCurrency.
+  assertTradeMarketMatchesAccount(account, instrument.marketCode);
 
-  const tradeValueNtd = input.quantity * input.priceNtd;
-  const fees =
+  const profile = resolveFeeProfileForTransaction(
+    store,
+    account.id,
+    input.ticker,
+    account.feeProfileId,
+  );
+  if (input.priceCurrency !== profile.commissionCurrency) {
+    throw routeError(400, "currency_mismatch", "Trade currency must match fee profile commission currency");
+  }
+
+  const tradeValueAmount = roundToDecimal(input.quantity * input.unitPrice, 2);
+  assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
+  assertBookedCharge(input.commissionAmount, "Commission must be a non-negative integer");
+  assertBookedCharge(input.taxAmount, "Tax must be a non-negative integer");
+  const bookingSequence = resolveBookingSequence(store, input.accountId, input.tradeDate, input.bookingSequence);
+  const suggestedFees =
     input.type === "BUY"
-      ? calculateBuyFees(profile, tradeValueNtd)
+      ? calculateBuyFees(profile, tradeValueAmount, input.priceCurrency)
       : calculateSellFees(profile, {
-          tradeValueNtd,
+          tradeValueAmount,
+          tradeCurrency: input.priceCurrency,
           instrumentType: instrument.type,
           isDayTrade: input.isDayTrade,
+          marketCode: instrument.marketCode,
         });
+  const commissionAmount = input.commissionAmount ?? suggestedFees.commissionAmount;
+  const taxAmount = input.taxAmount ?? suggestedFees.taxAmount;
 
   const tx: Transaction = {
     id: input.id,
     userId,
     accountId: input.accountId,
-    symbol: input.symbol,
+    ticker: input.ticker,
+    marketCode: instrument.marketCode,
     instrumentType: instrument.type,
     type: input.type,
     quantity: input.quantity,
-    priceNtd: input.priceNtd,
+    unitPrice: input.unitPrice,
+    priceCurrency: input.priceCurrency,
     tradeDate: input.tradeDate,
-    commissionNtd: fees.commissionNtd,
-    taxNtd: fees.taxNtd,
+    tradeTimestamp: input.tradeTimestamp ?? new Date(`${input.tradeDate}T00:00:00.000Z`).toISOString(),
+    commissionAmount,
+    taxAmount,
     isDayTrade: input.isDayTrade,
     feeSnapshot: { ...profile },
+    bookingSequence,
+    source: "portfolio_transaction_api",
+    sourceReference: input.id,
+    bookedAt: new Date().toISOString(),
   };
 
-  applyToLots(store, tx, store.settings.costBasisMethod);
-  store.transactions.push(tx);
+  applyToLots(store, tx);
+  appendTradeEvent(store, tx);
+  // KZO-167: route through cashLedgerService so the currency-match guard
+  // fires on path 1 (initial trade booking) before delegating to
+  // appendCashLedgerEntry.
+  bookCashLedgerEntry(store, buildTradeSettlementCashEntry(tx));
   return tx;
 }
 
-function applyToLots(store: Store, tx: Transaction, method: CostBasisMethod): void {
+function applyToLots(store: Store, tx: Transaction): void {
+  const relevantLots = listInventoryLots(store).filter((lot) => lot.accountId === tx.accountId && lot.ticker === tx.ticker);
+
   if (tx.type === "BUY") {
     const lot: Lot = {
       id: `lot-${tx.id}`,
       accountId: tx.accountId,
-      symbol: tx.symbol,
+      ticker: tx.ticker,
       openQuantity: tx.quantity,
-      totalCostNtd: tx.priceNtd * tx.quantity + tx.commissionNtd,
+      totalCostAmount: roundToDecimal(tx.unitPrice * tx.quantity, 2) + tx.commissionAmount + tx.taxAmount,
+      costCurrency: tx.priceCurrency,
       openedAt: tx.tradeDate,
+      openedSequence: tx.bookingSequence,
     };
-    store.lots.push(lot);
+    const applied = applyBuyToLots(relevantLots, lot);
+    replaceLots(store, tx.accountId, tx.ticker, applied.updatedLots);
     return;
   }
 
-  const lots = store.lots.filter(
-    (lot) => lot.accountId === tx.accountId && lot.symbol === tx.symbol && lot.openQuantity > 0,
-  );
-  const allocation = allocateSellLots(lots, tx.quantity, method);
+  const lots = relevantLots.filter((lot) => lot.openQuantity > 0);
+  const allocation = allocateSellLots(lots, tx.quantity);
 
-  const netProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
-  tx.realizedPnlNtd = netProceeds - allocation.allocatedCostNtd;
-
-  for (const updatedLot of allocation.updatedLots) {
-    const idx = store.lots.findIndex((lot) => lot.id === updatedLot.id);
-    if (idx >= 0) store.lots[idx] = updatedLot;
-  }
+  replaceLots(store, tx.accountId, tx.ticker, allocation.updatedLots);
+  replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
+  tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
+  tx.realizedPnlCurrency = tx.priceCurrency;
 }
 
 function mustGetFeeProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error("Fee profile missing");
+  if (!profile) throw routeError(404, "fee_profile_not_found", `Fee profile ${profileId} not found`);
   return profile;
 }
 
 function resolveFeeProfileForTransaction(
   store: Store,
   accountId: string,
-  symbol: string,
+  ticker: string,
   fallbackProfileId: string,
 ): FeeProfile {
+  // KZO-183: bindings no longer carry `marketCode` — resolution is keyed
+  // solely by (accountId, ticker). Market enforcement happens at the trade
+  // booking guard, not in fee-profile resolution.
   const symbolBinding = store.feeProfileBindings.find(
-    (binding) => binding.accountId === accountId && binding.symbol === symbol,
+    (binding) => binding.accountId === accountId && binding.ticker === ticker,
   );
 
   if (symbolBinding) {
@@ -122,38 +221,107 @@ function resolveFeeProfileForTransaction(
 
 export function listHoldings(store: Store, userId: string): HoldingsRow[] {
   const accountIds = new Set(store.accounts.filter((item) => item.userId === userId).map((item) => item.id));
-  const keyMap = new Map<string, HoldingsRow>();
-
-  for (const lot of store.lots) {
-    if (!accountIds.has(lot.accountId) || lot.openQuantity <= 0) continue;
-    const key = `${lot.accountId}:${lot.symbol}`;
-    const current = keyMap.get(key) ?? { accountId: lot.accountId, symbol: lot.symbol, quantity: 0, costNtd: 0 };
-    current.quantity += lot.openQuantity;
-    current.costNtd += lot.totalCostNtd;
-    keyMap.set(key, current);
-  }
-
-  return [...keyMap.values()];
+  return store.accounting.projections.holdings.filter((holding) => accountIds.has(holding.accountId));
 }
 
 export function applyCorporateAction(store: Store, action: CorporateAction): CorporateAction {
   if (action.actionType === "DIVIDEND") {
-    store.corporateActions.push(action);
+    appendCorporateAction(store, action);
     return action;
   }
 
   if (action.denominator <= 0 || action.numerator <= 0) {
-    throw new Error("Invalid split ratio");
+    throw routeError(400, "invalid_split_ratio", "Invalid split ratio");
   }
 
-  for (const lot of store.lots) {
-    if (lot.accountId !== action.accountId || lot.symbol !== action.symbol || lot.openQuantity <= 0) continue;
+  for (const lot of listInventoryLots(store)) {
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) continue;
 
     const splitRatio = action.numerator / action.denominator;
     const nextQty = Math.floor(lot.openQuantity * splitRatio);
     lot.openQuantity = nextQty;
   }
 
-  store.corporateActions.push(action);
+  appendCorporateAction(store, action);
+  rebuildHoldingProjection(store);
   return action;
 }
+
+function replaceLots(store: Store, accountId: string, ticker: string, nextLots: Lot[]): void {
+  replaceInventoryLots(store, accountId, ticker, nextLots);
+}
+
+function buildLotAllocationProjections(
+  tx: BookedTradeEvent,
+  matchedAllocations: Array<{
+    lotId: string;
+    quantity: number;
+    allocatedCostAmount: number;
+    costCurrency: string;
+    openedAt: string;
+    openedSequence?: number;
+  }>,
+): LotAllocationProjection[] {
+  return matchedAllocations.map((allocation) => ({
+    id: `${tx.id}:${allocation.lotId}`,
+    userId: tx.userId,
+    accountId: tx.accountId,
+    tradeEventId: tx.id,
+    ticker: tx.ticker,
+    lotId: allocation.lotId,
+    lotOpenedAt: allocation.openedAt,
+    lotOpenedSequence: allocation.openedSequence ?? 1,
+    allocatedQuantity: allocation.quantity,
+    allocatedCostAmount: allocation.allocatedCostAmount,
+    costCurrency: allocation.costCurrency,
+    createdAt: tx.bookedAt,
+  }));
+}
+
+function nextBookingSequence(store: Store, accountId: string, tradeDate: string): number {
+  const sameDayTrades = listTradeEvents(store).filter(
+    (trade) => trade.accountId === accountId && trade.tradeDate === tradeDate,
+  );
+
+  const highestSequence = sameDayTrades.reduce((max, trade) => Math.max(max, trade.bookingSequence ?? 0), 0);
+  return highestSequence + 1;
+}
+
+function resolveBookingSequence(
+  store: Store,
+  accountId: string,
+  tradeDate: string,
+  requestedSequence?: number,
+): number {
+  if (requestedSequence === undefined) {
+    return nextBookingSequence(store, accountId, tradeDate);
+  }
+
+  const collides = listTradeEvents(store).some(
+    (trade) =>
+      trade.accountId === accountId && trade.tradeDate === tradeDate && trade.bookingSequence === requestedSequence,
+  );
+  if (collides) {
+    throw routeError(409, "duplicate_booking_sequence", "Booking sequence already exists for the same account and trade date");
+  }
+
+  return requestedSequence;
+}
+
+function assertTradeTimestampMatchesTradeDate(tradeDate: string, tradeTimestamp?: string): void {
+  if (!tradeTimestamp) return;
+  if (tradeTimestamp.slice(0, 10) !== tradeDate) {
+    throw routeError(400, "timestamp_date_mismatch", "Trade timestamp must match trade date");
+  }
+}
+
+function assertBookedCharge(value: number | undefined, message: string): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0) {
+    throw routeError(400, "invalid_charge", message);
+  }
+}
+
+// KZO-167: `buildTradeSettlementCashEntry` lives in `cashLedgerService.ts`
+// and is imported above. The local copy was removed to consolidate the
+// builder shared with `recompute.ts`.

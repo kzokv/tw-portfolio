@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Users</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .filter-row { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input[type=search] { flex:1; max-width:320px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; }
+  .role-pill { display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:500; }
+  .role-user { background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
+  .role-operator { background:hsl(var(--primary) / 0.15); color:hsl(var(--primary)); }
+  .role-admin { background:hsl(var(--warning) / 0.15); color:hsl(var(--warning)); }
+  .user-cell { display:flex; align-items:center; gap:10px; }
+  .user-cell .avatar { width:24px; height:24px; font-size:10px; }
+</style>
+</head>
+<body data-admin data-section="admin-users" data-crumb-here="Users">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Users</div>
+      <div class="muted text-sm">2,148 active · 17 pending invite · 3 suspended</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">Export CSV</button>
+      <button class="btn btn-primary">+ Invite user</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Filter by email, name…" />
+    <button class="chip on">All</button>
+    <button class="chip">Active</button>
+    <button class="chip">Pending</button>
+    <button class="chip">Suspended</button>
+    <button class="chip">Role: Operator+</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm">⚙ More filters</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable">User<span class="sort-ind">↕</span></th>
+          <th class="sortable">Role<span class="sort-ind">↕</span></th>
+          <th class="sortable">Status<span class="sort-ind">↕</span></th>
+          <th class="sortable">Provider<span class="sort-ind">↕</span></th>
+          <th class="sortable sort-desc">Joined<span class="sort-ind">▼</span></th>
+          <th class="sortable">Last seen<span class="sort-ind">↕</span></th>
+          <th class="right">Positions</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><div><div class="font-medium">Alex Lin</div><div class="muted text-xs">alex@example.com</div></div></div></td><td><span class="role-pill role-admin">Admin</span></td><td><span class="badge badge-success">ACTIVE</span></td><td>Google</td><td class="num">2025-08-12</td><td class="muted">just now</td><td class="right num">14</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(238 84% 60%); color:white;">J</div><div><div class="font-medium">Jenny Chen</div><div class="muted text-xs">jenny@example.com</div></div></div></td><td><span class="role-pill role-operator">Operator</span></td><td><span class="badge badge-success">ACTIVE</span></td><td>Google</td><td class="num">2025-11-04</td><td class="muted">2h ago</td><td class="right num">8</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(158 64% 40%); color:white;">S</div><div><div class="font-medium">Sam Lin</div><div class="muted text-xs">spouse@example.com</div></div></div></td><td><span class="role-pill role-user">User</span></td><td><span class="badge badge-success">ACTIVE</span></td><td>Google</td><td class="num">2025-08-15</td><td class="muted">12m ago</td><td class="right num">3</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(35 92% 50%); color:white;">M</div><div><div class="font-medium">Mei Wang</div><div class="muted text-xs">mei@example.com</div></div></div></td><td><span class="role-pill role-user">User</span></td><td><span class="badge badge-warning">PENDING</span></td><td>—</td><td class="num">2026-05-13</td><td class="muted">—</td><td class="right num">0</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(347 77% 50%); color:white;">D</div><div><div class="font-medium">David Park</div><div class="muted text-xs">david@example.com</div></div></div></td><td><span class="role-pill role-user">User</span></td><td><span class="badge badge-danger">SUSPENDED</span></td><td>Google</td><td class="num">2025-09-22</td><td class="muted">12 days ago</td><td class="right num">21</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(262 83% 58%); color:white;">L</div><div><div class="font-medium">Lin Kuo</div><div class="muted text-xs">lin@example.com</div></div></div></td><td><span class="role-pill role-user">User</span></td><td><span class="badge badge-success">ACTIVE</span></td><td>Google</td><td class="num">2025-10-08</td><td class="muted">3d ago</td><td class="right num">5</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td><div class="user-cell"><div class="avatar" style="background:hsl(217 91% 60%); color:white;">K</div><div><div class="font-medium">Kai Tanaka</div><div class="muted text-xs">kai@example.jp</div></div></div></td><td><span class="role-pill role-user">User</span></td><td><span class="badge badge-success">ACTIVE</span></td><td>Google</td><td class="num">2026-01-15</td><td class="muted">today</td><td class="right num">9</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:hsl(var(--muted-foreground));">
+      <span>Page 1 of 308</span>
+      <div style="display:flex; gap:6px;"><button class="btn btn-sm">← Prev</button><button class="btn btn-sm">Next →</button></div>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

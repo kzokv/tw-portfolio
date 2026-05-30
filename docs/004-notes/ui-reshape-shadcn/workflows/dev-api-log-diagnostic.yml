@@ -1,0 +1,200 @@
+name: Dev API Log Diagnostic
+
+on:
+  push:
+    branches:
+      - codex/dev-api-log-diagnostic
+    paths:
+      - .github/workflows/dev-api-log-diagnostic.yml
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: dev
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+    steps:
+      - name: Install WARP
+        run: |
+          set -euo pipefail
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y cloudflare-warp
+
+      - name: Configure WARP MDM
+        run: |
+          set -euo pipefail
+          sudo install -d -m 700 /var/lib/cloudflare-warp
+          sudo install -m 600 /dev/null /var/lib/cloudflare-warp/mdm.xml
+          cat <<EOF | sudo tee /var/lib/cloudflare-warp/mdm.xml >/dev/null
+          <dict>
+              <key>auth_client_id</key>
+              <string>${{ secrets.CF_ACCESS_CLIENT_ID }}</string>
+              <key>auth_client_secret</key>
+              <string>${{ secrets.CF_ACCESS_CLIENT_SECRET }}</string>
+              <key>auto_connect</key>
+              <integer>1</integer>
+              <key>onboarding</key>
+              <false/>
+              <key>organization</key>
+              <string>${{ secrets.CF_TEAM_NAME }}</string>
+              <key>service_mode</key>
+              <string>warp</string>
+          </dict>
+          EOF
+          sudo chmod 600 /var/lib/cloudflare-warp/mdm.xml
+
+      - name: Start WARP daemon
+        run: |
+          set -euo pipefail
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now warp-svc
+          sleep 10
+
+      - name: Register and connect WARP
+        run: |
+          set -euo pipefail
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos connect
+          deadline=$((SECONDS + 60))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if warp-cli --accept-tos status 2>/dev/null | grep -q '^Status update: Connected'; then
+              echo "WARP connected"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "WARP failed to reach Connected within 60s; final status:" >&2
+          warp-cli --accept-tos status >&2 || true
+          exit 1
+
+      - name: Install SSH materials
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Collect OAuth diagnostics
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o LogLevel=ERROR \
+            -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo "remote_time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "api_container=$(docker inspect -f "{{.Name}} {{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}" vakwen-dev-api 2>/dev/null || true)"
+
+          echo "::group::filtered api oauth logs"
+          docker logs vakwen-dev-api \
+            --since '2026-05-24T21:03:20Z' \
+            --until '2026-05-24T21:04:30Z' 2>&1 \
+            | grep -E 'mcp_oauth_token_request|oauth/token|33621c73|8f9ea80c' \
+            || true
+          echo "::endgroup::"
+
+          echo "::group::latest chatgpt connections"
+          docker exec vakwen-dev-postgres sh -lc '
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
+              -U "${POSTGRES_USER:-vakwen}" \
+              -d "${POSTGRES_DB:-vakwen}" \
+              -c "
+                SELECT id,
+                       status,
+                       oauth_client_id,
+                       created_at,
+                       updated_at,
+                       last_used_at,
+                       revoked_at,
+                       revocation_reason
+                FROM ai_connector_connections
+                WHERE provider = '\''chatgpt'\''
+                ORDER BY created_at DESC
+                LIMIT 8;
+              "'
+          echo "::endgroup::"
+
+          echo "::group::oauth authorization rows"
+          docker exec vakwen-dev-postgres sh -lc '
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 \
+              -U "${POSTGRES_USER:-vakwen}" \
+              -d "${POSTGRES_DB:-vakwen}" \
+              -c "
+                SELECT r.id AS request_id,
+                       r.client_id,
+                       r.redirect_uri,
+                       r.resource,
+                       r.created_at AS request_created_at,
+                       r.approved_at,
+                       r.denied_at,
+                       c.connection_id,
+                       c.created_at AS code_created_at,
+                       c.consumed_at,
+                       c.expires_at AS code_expires_at
+                FROM mcp_oauth_authorization_requests r
+                LEFT JOIN mcp_oauth_authorization_codes c
+                  ON c.user_id = r.user_id
+                 AND c.client_id = r.client_id
+                 AND c.redirect_uri = r.redirect_uri
+                 AND c.resource = r.resource
+                 AND c.created_at >= r.created_at - interval '\''5 seconds'\''
+                 AND c.created_at <= r.approved_at + interval '\''5 seconds'\''
+                WHERE r.created_at >= timestamp with time zone '\''2026-05-24T21:02:00Z'\''
+                ORDER BY r.created_at DESC
+                LIMIT 10;
+              "'
+          echo "::endgroup::"
+          REMOTE
+
+      - name: Disconnect WARP
+        if: always()
+        run: |
+          set +e
+          warp-cli --accept-tos disconnect || true
+
+      - name: Revoke WARP registration via Cloudflare API
+        if: always()
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set +e
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+            echo "CF_API_TOKEN or CF_ACCOUNT_ID not configured; skipping API revoke."
+            exit 0
+          fi
+          reg_id=$(warp-cli --accept-tos registration show 2>/dev/null | awk -F': *' '/^ID:/ {print $2; exit}')
+          if [ -z "$reg_id" ]; then
+            echo "No registration id surfaced by warp-cli; nothing to revoke."
+            exit 0
+          fi
+          http=$(curl -sS -o /tmp/cf-revoke.json -w '%{http_code}' \
+            -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/devices/registrations?id=${reg_id}" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}")
+          cat /tmp/cf-revoke.json
+          echo
+          if [ "$http" != "200" ]; then
+            echo "Cloudflare API returned HTTP $http; device row may persist." >&2
+            exit 1
+          fi
+          echo "Device $reg_id revoked successfully."
+
+      - name: Cleanup credentials
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          sudo rm -f /var/lib/cloudflare-warp/mdm.xml

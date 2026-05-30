@@ -1,0 +1,35 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": [
+    "../src/types/fastify.d.ts",
+    "http/**/*.ts",
+    "globalTeardown.ts",
+    "integration/user-preferences.integration.test.ts",
+    "integration/fx-rates-postgres.integration.test.ts",
+    "unit/frankfurter-fx-rate-provider.test.ts",
+    "unit/mock-frankfurter-fx-rate-provider.test.ts",
+    "unit/fx-refresh-derive-window.test.ts",
+    "unit/fx-refresh-worker.test.ts",
+    "unit/cashLedgerService.test.ts",
+    "unit/services/market-data/tradingCalendar.test.ts",
+    "unit/tradingCalendarPersistence.test.ts",
+    "integration/account-currency-change-guard.integration.test.ts",
+    "integration/tradingCalendar.integration.test.ts",
+    "unit/twelveDataAuProvider.test.ts",
+    "integration/auCatalogSyncTwelveData.integration.test.ts",
+    "integration/auLicMetadataDelegation.integration.test.ts",
+    "unit/asxGicsCsvParser.test.ts",
+    "integration/asxGicsCatalogSync.integration.test.ts",
+    "unit/market-data/enqueueAuCatalogBarsBackfill.test.ts",
+    "unit/appConfig/providerHealthRerunCooldown.test.ts",
+    "integration/auCatalogRerunUnion.integration.test.ts",
+    "integration/adminProvidersAwaiting.integration.test.ts",
+    "integration/perProviderRerunCooldown.integration.test.ts"
+  ]
+}

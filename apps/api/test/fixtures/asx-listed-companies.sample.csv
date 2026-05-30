@@ -1,0 +1,25 @@
+# KZO-196 — synthetic ASX GICS catalog sample. Source format taken from
+# https://www.asx.com.au/asx/research/ASXListedCompanies.csv (verified 2026-05).
+# All rows are synthesized — none are copied verbatim from the real feed.
+# Column ordering matches the live feed; see asxGicsCatalog.ts for the parser.
+ASX code,Company name,GICS industry group
+BHP,BHP Group Ltd,Materials
+RIO,Rio Tinto Ltd,Materials
+CBA,Commonwealth Bank of Australia,Banks
+WBC,Westpac Banking Corporation,Banks
+ANZ,"ANZ Group Holdings, Ltd",Banks
+NAB,National Australia Bank Ltd,Banks
+CSL,CSL Limited,"Pharmaceuticals, Biotechnology & Life Sciences"
+WES,"Wesfarmers, Ltd",Consumer Discretionary Distribution & Retail
+WOW,Woolworths Group Limited,Consumer Staples Distribution & Retail
+TLS,Telstra Group Ltd,Telecommunication Services
+QAN,Qantas Airways Ltd,Transportation
+GMG,Goodman Group,Real Estate Management & Development
+JBH,JB Hi-Fi Limited,Consumer Discretionary Distribution & Retail
+WTC,WiseTech Global Ltd,Software & Services
+XRO,Xero Limited,Software & Services
+TLC,The Lottery Corporation Ltd,Consumer Services
+COL,Coles Group Limited,Consumer Staples Distribution & Retail
+ORG,Origin Energy Limited,Utilities
+RHC,Ramsay Health Care Limited,Health Care Equipment & Services
+APX,"Appen, Limited (with comma test)",Software & Services

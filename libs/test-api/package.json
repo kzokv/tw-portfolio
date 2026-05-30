@@ -1,0 +1,74 @@
+{
+  "name": "@vakwen/test-api",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "default": "./dist/config/index.js"
+    },
+    "./endpoints": {
+      "types": "./dist/endpoints/index.d.ts",
+      "default": "./dist/endpoints/index.js"
+    },
+    "./assistants": {
+      "types": "./dist/assistants/index.d.ts",
+      "default": "./dist/assistants/index.js"
+    },
+    "./assistants/accounts": {
+      "types": "./dist/assistants/accounts/index.d.ts",
+      "default": "./dist/assistants/accounts/index.js"
+    },
+    "./assistants/feeProfiles": {
+      "types": "./dist/assistants/feeProfiles/index.d.ts",
+      "default": "./dist/assistants/feeProfiles/index.js"
+    },
+    "./assistants/profile": {
+      "types": "./dist/assistants/profile/index.d.ts",
+      "default": "./dist/assistants/profile/index.js"
+    },
+    "./assistants/session": {
+      "types": "./dist/assistants/session/index.d.ts",
+      "default": "./dist/assistants/session/index.js"
+    },
+    "./assistants/settings": {
+      "types": "./dist/assistants/settings/index.d.ts",
+      "default": "./dist/assistants/settings/index.js"
+    },
+    "./assistants/transactions": {
+      "types": "./dist/assistants/transactions/index.d.ts",
+      "default": "./dist/assistants/transactions/index.js"
+    },
+    "./fixtures": {
+      "types": "./dist/fixtures/index.d.ts",
+      "default": "./dist/fixtures/index.js"
+    },
+    "./fixtures/base": {
+      "types": "./dist/fixtures/base.d.ts",
+      "default": "./dist/fixtures/base.js"
+    },
+    "./fixtures/sessionBase": {
+      "types": "./dist/fixtures/sessionBase.d.ts",
+      "default": "./dist/fixtures/sessionBase.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "npx tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.53.0",
+    "@vakwen/config": "0.1.0",
+    "@vakwen/test-framework": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.18"
+  }
+}
