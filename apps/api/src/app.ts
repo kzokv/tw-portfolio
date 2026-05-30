@@ -209,6 +209,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
       "yahoo_finance_tos_notice: ToS limits use to personal/non-commercial. For multi-tenant deployment, switch to EODHD per spike §7.3.",
     );
   }
+  if (!Env.KR_PROVIDER_MOCK) {
+    app.log.warn(
+      { provider: "yahoo-finance-kr" },
+      "yahoo_finance_tos_notice: ToS limits use to personal/non-commercial. For multi-tenant deployment, switch to a commercial market-data provider before multi-tenant production use.",
+    );
+  }
   const ebBackend = options.eventBusBackend ?? options.persistenceBackend;
   app.eventBus = createEventBus(ebBackend);
   // BufferedEventBus has no init() — it handles pub/sub locally via EventEmitter.

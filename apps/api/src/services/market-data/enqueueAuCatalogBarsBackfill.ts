@@ -1,5 +1,6 @@
 import type { PgBoss } from "pg-boss";
 import { randomUUID } from "node:crypto";
+import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 import type { BackfillJobData } from "./backfillWorker.js";
 import { BACKFILL_QUEUE } from "./backfillWorker.js";
@@ -38,6 +39,7 @@ import { getEffectiveDailyRefreshPriority } from "../appConfig/backfill.js";
 export async function enqueueAuCatalogBarsBackfill(
   boss: Pick<PgBoss, "send"> | null,
   persistence: Pick<Persistence, "listAuCatalogBarsBackfillCandidates"> & {
+    listCatalogBarsBackfillCandidates?: Persistence["listCatalogBarsBackfillCandidates"];
     // Optional — when present, the helper allocates a refresh batch for
     // observability (mirrors `enqueueDailyRefresh`). When absent (e.g. unit
     // tests that only care about `boss.send` shape), the helper falls back
@@ -45,12 +47,15 @@ export async function enqueueAuCatalogBarsBackfill(
     createRefreshBatch?: Persistence["createRefreshBatch"];
   },
   log: { info: (...args: unknown[]) => void },
-  options: { trigger: BackfillJobData["trigger"] },
+  options: { trigger: BackfillJobData["trigger"]; marketCode?: MarketCode },
 ): Promise<{ tickerCount: number; batchId: string | null }> {
-  const candidates = await persistence.listAuCatalogBarsBackfillCandidates();
+  const marketCode = options.marketCode ?? "AU";
+  const candidates = marketCode === "AU" || !persistence.listCatalogBarsBackfillCandidates
+    ? await persistence.listAuCatalogBarsBackfillCandidates()
+    : await persistence.listCatalogBarsBackfillCandidates(marketCode);
   if (candidates.length === 0) {
     log.info(
-      { trigger: options.trigger },
+      { trigger: options.trigger, marketCode },
       "au_catalog_bars_backfill_skipped_empty",
     );
     return { tickerCount: 0, batchId: null };
@@ -62,7 +67,7 @@ export async function enqueueAuCatalogBarsBackfill(
   // no batch to report when no jobs will run.
   if (boss === null) {
     log.info(
-      { trigger: options.trigger, candidateCount: candidates.length },
+      { trigger: options.trigger, marketCode, candidateCount: candidates.length },
       "au_catalog_bars_backfill_skipped_no_boss",
     );
     return { tickerCount: 0, batchId: null };
@@ -101,7 +106,7 @@ export async function enqueueAuCatalogBarsBackfill(
   );
 
   log.info(
-    { tickerCount: candidates.length, batchId, trigger: options.trigger },
+    { tickerCount: candidates.length, batchId, trigger: options.trigger, marketCode },
     "au_catalog_bars_backfill_enqueued",
   );
 

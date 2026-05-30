@@ -117,11 +117,8 @@ describePostgres("provider-health state machine (Postgres) — KZO-177", () => {
     await pool.end();
   });
 
-  // I1 — migrations 046 + 048 + 050 pre-seed 6 provider rows.
-  // KZO-200: migration 048 added `twelve-data-au` (the AU catalog provider per
-  // KZO-194). Original migration 046 seeded 4. KZO-196: migration 050 added
-  // `asx-gics-csv` (AU GICS catalog enrichment).
-  it("I1: migrations pre-seed 6 provider rows with status='down' and NULL timestamps", async () => {
+  // I1 — migrations pre-seed canonical provider-health rows.
+  it("I1: migrations pre-seed 8 provider rows with status='down' and NULL timestamps", async () => {
     const result = await pool.query<{ provider_id: string; status: string; last_successful_run: string | null }>(
       "SELECT provider_id, status, last_successful_run FROM market_data.provider_health_status ORDER BY provider_id",
     );
@@ -132,8 +129,10 @@ describePostgres("provider-health state machine (Postgres) — KZO-177", () => {
         "finmind-tw",
         "finmind-us",
         "frankfurter",
-        "yahoo-finance-au",
         "twelve-data-au",
+        "twelve-data-kr",
+        "yahoo-finance-au",
+        "yahoo-finance-kr",
       ].sort(),
     );
     for (const row of result.rows) {

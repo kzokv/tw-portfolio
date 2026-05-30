@@ -15,9 +15,13 @@ import {
   MockFinMindUsStockMarketDataProvider,
   MockFrankfurterFxRateProvider,
   MockTwelveDataAuCatalogProvider,
+  MockTwelveDataKrCatalogProvider,
   MockYahooFinanceAuMarketDataProvider,
+  MockYahooFinanceKrMarketDataProvider,
   TwelveDataAuCatalogProvider,
+  TwelveDataKrCatalogProvider,
   YahooFinanceAuMarketDataProvider,
+  YahooFinanceKrMarketDataProvider,
 } from "./providers/index.js";
 
 /**
@@ -165,7 +169,7 @@ export function buildMarketDataRegistry(
     null,
   );
 
-  const twelveDataAuRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
+  const twelveDataRateLimiter = new RateLimiter(env.TWELVE_DATA_RATE_LIMIT_PER_MINUTE, 60_000);
   // KZO-198: same gate semantics as FinMind above — consult resolver first.
   // KZO-200: source-detection via the cache entry (see FinMind comment above).
   const twelveDataCacheHasKey =
@@ -182,7 +186,7 @@ export function buildMarketDataRegistry(
       : new TwelveDataAuCatalogProvider({
           apiKey: twelveDataBootstrapKey,
           baseUrl: env.TWELVE_DATA_BASE_URL,
-          rateLimiter: twelveDataAuRateLimiter,
+          rateLimiter: twelveDataRateLimiter,
           yahooFallback: yahooAuProvider,
         });
   emit(
@@ -197,6 +201,43 @@ export function buildMarketDataRegistry(
 
   marketData.set("AU", yahooAuProvider);
   catalog.set("AU", twelveDataAuCatalog);
+
+  // KR: free-provider parity mirrors AU. Twelve Data owns KRX catalog
+  // enumeration (`/stocks?exchange=KRX` + `/etf?exchange=KRX`) while Yahoo
+  // owns bars, cash dividends, metadata, and search via internal `.KS/.KQ`
+  // suffix resolution. The shared Twelve Data limiter reflects the single
+  // account-level free quota across AU + KR catalog endpoints.
+  const yahooKrLimiter = new RateLimiter(env.YAHOO_KR_RATE_LIMIT_PER_MINUTE, 60_000);
+  const yahooKrProvider: MarketDataProvider & InstrumentCatalogProvider = env.KR_PROVIDER_MOCK
+    ? new MockYahooFinanceKrMarketDataProvider()
+    : new YahooFinanceKrMarketDataProvider({ rateLimiter: yahooKrLimiter });
+  emit(
+    "yahoo-finance-kr",
+    env.KR_PROVIDER_MOCK ? "mock_forced_by_env" : "real",
+    null,
+  );
+
+  const twelveDataKrCatalog: InstrumentCatalogProvider =
+    env.KR_CATALOG_PROVIDER_MOCK || !twelveDataBootstrapKey
+      ? new MockTwelveDataKrCatalogProvider({ yahooFallback: yahooKrProvider })
+      : new TwelveDataKrCatalogProvider({
+          apiKey: twelveDataBootstrapKey,
+          baseUrl: env.TWELVE_DATA_BASE_URL,
+          rateLimiter: twelveDataRateLimiter,
+          yahooFallback: yahooKrProvider,
+        });
+  emit(
+    "twelve-data-kr",
+    env.KR_CATALOG_PROVIDER_MOCK
+      ? "mock_forced_by_env"
+      : !twelveDataBootstrapKey
+        ? "mock_no_key"
+        : "real",
+    twelveDataKeySource,
+  );
+
+  marketData.set("KR", yahooKrProvider);
+  catalog.set("KR", twelveDataKrCatalog);
 
   const fxRate: FxRateProvider = env.FX_PROVIDER_MOCK
     ? new MockFrankfurterFxRateProvider()

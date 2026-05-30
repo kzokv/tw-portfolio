@@ -76,6 +76,8 @@ describe("envBool — string-aware boolean parsing (KZO-200)", () => {
     "FX_PROVIDER_MOCK",
     "AU_PROVIDER_MOCK",
     "AU_CATALOG_PROVIDER_MOCK",
+    "KR_PROVIDER_MOCK",
+    "KR_CATALOG_PROVIDER_MOCK",
   ] as const;
 
   for (const key of mockKeys) {

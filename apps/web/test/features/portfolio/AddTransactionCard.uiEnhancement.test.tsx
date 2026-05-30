@@ -10,7 +10,7 @@
  *
  * NEW behavioral assertions:
  *  - tx-market-chip-ALL never renders (Item 4)
- *  - MARKET_CHIPS is exactly ["TW","US","AU"] (Item 4)
+ *  - MARKET_CHIPS renders the supported concrete market codes (Item 4)
  *  - deriveDefaultMarketChip returns first-account market for multi-currency
  *    AND "TW" for empty (Item 4, scope item 21)
  *  - Fee/Tax estimate section render gate uses 4-tuple, not feeEstimate (Items 2/3)
@@ -60,6 +60,13 @@ const AUD_ACCOUNT: TransactionAccountOption = {
   defaultCurrency: "AUD",
   accountType: "broker",
 };
+const KRW_ACCOUNT: TransactionAccountOption = {
+  id: "acc-kr",
+  name: "KR Broker",
+  feeProfileName: "KR Broker",
+  defaultCurrency: "KRW",
+  accountType: "broker",
+};
 
 function valueWith(overrides: Partial<TransactionInput> = {}): TransactionInput {
   return {
@@ -84,6 +91,7 @@ describe("ui-enhancement — deriveDefaultMarketChip (scope item 21)", () => {
   it("returns first-account market for multi-currency users (not null)", () => {
     expect(deriveDefaultMarketChip([USD_ACCOUNT, TWD_ACCOUNT, AUD_ACCOUNT])).toBe("US");
     expect(deriveDefaultMarketChip([AUD_ACCOUNT, TWD_ACCOUNT])).toBe("AU");
+    expect(deriveDefaultMarketChip([KRW_ACCOUNT, TWD_ACCOUNT])).toBe("KR");
   });
 
   it("returns 'TW' fallback when accounts list is empty", () => {
@@ -109,10 +117,11 @@ describe("ui-enhancement — Market chip rendering (Item 4)", () => {
       />,
     );
     expect(html).not.toContain('data-testid="tx-market-chip-ALL"');
-    // ALL three legitimate chips still render.
+    // All concrete market chips still render.
     expect(html).toContain('data-testid="tx-market-chip-TW"');
     expect(html).toContain('data-testid="tx-market-chip-US"');
     expect(html).toContain('data-testid="tx-market-chip-AU"');
+    expect(html).toContain('data-testid="tx-market-chip-KR"');
   });
 });
 

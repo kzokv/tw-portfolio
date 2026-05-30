@@ -1,5 +1,6 @@
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { MarketCode } from "@vakwen/domain";
+import { MARKET_CODES } from "@vakwen/shared-types";
 import { z } from "zod";
 import { Env } from "@vakwen/config";
 import type { AppInstance } from "../../app.js";
@@ -38,7 +39,7 @@ const CATALOG_SYNC_QUEUE_OPTIONS = {
  * job must propagate straight to pg-boss without running side effects.
  */
 export const CatalogSyncJobDataSchema = z.object({
-  pendingMarkets: z.array(z.enum(["TW", "US", "AU"])).optional(),
+  pendingMarkets: z.array(z.enum(MARKET_CODES)).optional(),
 });
 
 export type CatalogSyncJobData = z.infer<typeof CatalogSyncJobDataSchema>;
@@ -84,6 +85,7 @@ export interface CatalogSyncWorkerDeps {
  */
 export function catalogProviderIdForMarket(market: MarketCode): ProviderId {
   if (market === "AU") return "twelve-data-au";
+  if (market === "KR") return "twelve-data-kr";
   if (market === "US") return "finmind-us";
   return "finmind-tw";
 }

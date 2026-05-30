@@ -7,6 +7,7 @@ import type {
   AccountDto,
   AccountType,
 } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { ApiError } from "../../../lib/api";
 import { Button } from "../../../components/ui/Button";
@@ -22,10 +23,9 @@ import type { CreateAccountInput } from "../../cash-ledger/services/cashLedgerSe
  * settings drawer, above the per-account expandable cards.
  *
  * KZO-183 changes (copy + structure):
- * - Currency cards now read "Taiwan / United States / Australia" with a
+ * - Currency cards now read market names with a
  *   small `TWD · TWSE` (etc.) subtext. The underlying field stays
- *   `defaultCurrency` (TWD/USD/AUD) — the route still receives the wire
- *   value.
+ *   `defaultCurrency` — the route still receives the wire value.
  * - The fee-profile picker (KZO-179 D5 conditional) was removed entirely:
  *   the route now auto-seeds an account-scoped default profile, so the
  *   client never sets `feeProfileId`.
@@ -39,7 +39,7 @@ import type { CreateAccountInput } from "../../cash-ledger/services/cashLedgerSe
  * Submit flow (D12): `await onCreate(input); onAccountsRefresh(); resetForm();`.
  */
 const ACCOUNT_TYPES: ReadonlyArray<AccountType> = ["broker", "bank", "wallet"];
-const ACCOUNT_CURRENCIES: ReadonlyArray<AccountDefaultCurrency> = ["TWD", "USD", "AUD"];
+const ACCOUNT_CURRENCIES: ReadonlyArray<AccountDefaultCurrency> = ACCOUNT_DEFAULT_CURRENCIES;
 
 const TYPE_ICONS: Record<AccountType, typeof Building2> = {
   broker: Building2,
@@ -180,6 +180,7 @@ export function AccountCreateForm({
       case "TWD": return dict.settings.accountCreateMarketTaiwan;
       case "USD": return dict.settings.accountCreateMarketUnitedStates;
       case "AUD": return dict.settings.accountCreateMarketAustralia;
+      case "KRW": return dict.settings.accountCreateMarketKorea;
     }
   }
 
@@ -188,6 +189,7 @@ export function AccountCreateForm({
       case "TWD": return dict.settings.accountCreateMarketTaiwanSubtext;
       case "USD": return dict.settings.accountCreateMarketUnitedStatesSubtext;
       case "AUD": return dict.settings.accountCreateMarketAustraliaSubtext;
+      case "KRW": return dict.settings.accountCreateMarketKoreaSubtext;
     }
   }
 
@@ -254,7 +256,7 @@ export function AccountCreateForm({
         <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {dict.settings.accountCreateMarketLabel}
         </legend>
-        <div className="grid grid-cols-3 gap-2" role="radiogroup">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup">
           {ACCOUNT_CURRENCIES.map((currency) => {
             const active = defaultCurrency === currency;
             return (

@@ -71,16 +71,18 @@ export function isInstrumentQuoteable(instrument: InstrumentDef | undefined): bo
 }
 
 export function upsertInstrumentDefinitions(current: InstrumentDef[], incoming: InstrumentDef[]): InstrumentDef[] {
+  const keyFor = (instrument: InstrumentDef) => `${instrument.marketCode}:${instrument.ticker}`;
   const merged = new Map<string, InstrumentDef>();
 
   for (const instrument of current) {
-    merged.set(instrument.ticker, { ...instrument });
+    merged.set(keyFor(instrument), { ...instrument });
   }
 
   for (const instrument of incoming) {
-    const previous = merged.get(instrument.ticker);
+    const key = keyFor(instrument);
+    const previous = merged.get(key);
     if (!previous) {
-      merged.set(instrument.ticker, { ...instrument });
+      merged.set(key, { ...instrument });
       continue;
     }
 
@@ -90,7 +92,7 @@ export function upsertInstrumentDefinitions(current: InstrumentDef[], incoming: 
       continue;
     }
 
-    merged.set(instrument.ticker, {
+    merged.set(key, {
       ...previous,
       ...instrument,
       isProvisional: incomingIsProvisional ? previous.isProvisional ?? true : false,

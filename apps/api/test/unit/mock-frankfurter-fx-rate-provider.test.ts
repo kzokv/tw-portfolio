@@ -106,6 +106,14 @@ describe("MockFrankfurterFxRateProvider — deterministic rates", () => {
     expect(audRate!.rate).toBe(1.4);
   });
 
+  it("USD base: includes USD/KRW rate", async () => {
+    const results = await mock.fetchRatesForBase("USD", "2026-04-01", "2026-04-01");
+
+    const krwRate = results.find((r) => r.baseCurrency === "USD" && r.quoteCurrency === "KRW");
+    expect(krwRate).toBeDefined();
+    expect(krwRate!.rate).toBe(1350);
+  });
+
   it("every entry has baseCurrency matching the requested base", async () => {
     const results = await mock.fetchRatesForBase("TWD", "2026-04-01", "2026-04-01");
 

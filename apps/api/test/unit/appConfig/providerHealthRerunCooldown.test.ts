@@ -5,9 +5,9 @@
  *   - `getEffectiveYahooAuRerunCooldownMs()` — env fallback (30 min default),
  *     DB override path via `seedCache({yahooAuRerunCooldownMs: …})`.
  *   - `getEffectiveProviderRerunCooldownMs(providerId)` dispatches:
- *       - `'yahoo-finance-au'` → AU resolver
+ *       - Yahoo market providers → Yahoo resolver
  *       - all other known providerIds → generic `getEffectiveRerunCooldownMs()`
- *   - DB override on the AU column does NOT bleed into other-provider lookups.
+ *   - DB override on the Yahoo column does NOT bleed into non-Yahoo lookups.
  *
  * Per `.claude/rules/vitest-config-patterns.md` Env-Proxy section: we use the
  * shared `seedCache` helper rather than mutating Env, since the resolver
@@ -61,15 +61,25 @@ describe("getEffectiveYahooAuRerunCooldownMs (KZO-197)", () => {
 });
 
 describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
-  it("dispatches 'yahoo-finance-au' to the AU resolver (env fallback path)", () => {
-    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(
-      Env.YAHOO_AU_RERUN_COOLDOWN_MS,
-    );
-  });
+  it.each(["yahoo-finance-au", "yahoo-finance-kr"])(
+    "dispatches '%s' to the Yahoo resolver (env fallback path)",
+    (providerId) => {
+      expect(getEffectiveProviderRerunCooldownMs(providerId)).toBe(
+        Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+      );
+    },
+  );
 
-  it("dispatches 'yahoo-finance-au' to the AU resolver (DB override path)", async () => {
+  it("dispatches Yahoo market providers to the Yahoo resolver (DB override path)", async () => {
     await seedCache({ yahooAuRerunCooldownMs: 9_999 } as never, cacheModule);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(9_999);
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(9_999);
+  });
+
+  it("keeps the longer Yahoo cooldown for KR reruns", () => {
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(
+      Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+    );
   });
 
   it.each([
@@ -77,6 +87,7 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
     "finmind-us",
     "frankfurter",
     "twelve-data-au",
+    "twelve-data-kr",
     "asx-gics-csv",
   ])("dispatches '%s' to the generic resolver (env fallback)", (providerId) => {
     expect(getEffectiveProviderRerunCooldownMs(providerId)).toBe(
@@ -84,11 +95,20 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
     );
   });
 
-  it("AU DB override does NOT bleed into other providers", async () => {
+  it("Yahoo DB override does NOT bleed into non-Yahoo providers", async () => {
     await seedCache({ yahooAuRerunCooldownMs: 5_000 } as never, cacheModule);
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(5_000);
-    // TW / US / others stay on the generic 60-s default.
-    for (const id of ["finmind-tw", "finmind-us", "frankfurter", "twelve-data-au", "asx-gics-csv"]) {
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(5_000);
+    // TW / US / catalog / FX providers stay on the generic 60-s default.
+    const genericProviders = [
+      "finmind-tw",
+      "finmind-us",
+      "frankfurter",
+      "twelve-data-au",
+      "twelve-data-kr",
+      "asx-gics-csv",
+    ];
+    for (const id of genericProviders) {
       expect(getEffectiveProviderRerunCooldownMs(id)).toBe(Env.PROVIDER_RERUN_COOLDOWN_MS);
     }
   });
@@ -100,6 +120,9 @@ describe("getEffectiveProviderRerunCooldownMs (KZO-197)", () => {
     // AU resolves via its own column → falls through to env default since
     // its column is null in this seed.
     expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-au")).toBe(
+      Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+    );
+    expect(getEffectiveProviderRerunCooldownMs("yahoo-finance-kr")).toBe(
       Env.YAHOO_AU_RERUN_COOLDOWN_MS,
     );
   });

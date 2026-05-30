@@ -897,7 +897,7 @@ Fields:
 Currently recognized top-level preference keys:
 - `dashboardPerformanceRanges` (`string[] | null`) — user's saved timeframe list; validated against `dashboardPerformanceRangesSchema`. Read by `useEffectiveRanges` and the `<CustomizeRangesPopover>` (KZO-161 F4).
 - `cardOrder` (`{ dashboard?: string[] | null, transactions?: string[] | null, portfolio?: string[] | null } | null`) — per-page card display order; persisted by `<SortableCardGrid>` debounced 250ms after `onDragEnd` (KZO-161 F5). Three durably scoped consumers (KZO-162): dashboard, transactions section (all three transactions cards reorderable in one grid — see KZO-162 transition guide for the in-flight scope expansion that replaced the original right-stack-only plan), portfolio section. Each sub-key is independently optional and accepts `null` to clear just that page's order; `cardOrder: null` at the top level clears every page atomically. Each slug array is capped at 50 entries per the `cardOrderSchema` in `registerRoutes.ts`. Adding a fourth page (e.g. `/dividends`, `/cash-ledger`) requires extending `cardOrderSchema` — `cash-ledger` is durably out of scope per KZO-162 Q1.
-- `reportingCurrency` (`"TWD" | "USD" | "AUD" | null`) — user's dashboard reporting currency. The key is JSONB-only; there is no typed `user_preferences` column and no DB CHECK constraint. `resolveReportingCurrency(prefs)` defaults missing, null, or invalid stored values to `"TWD"`. The Display tab selector PATCHes this key immediately on change (KZO-180).
+- `reportingCurrency` (`"TWD" | "USD" | "AUD" | "KRW" | null`) — user's dashboard reporting currency. The key is JSONB-only; there is no typed `user_preferences` column and no DB CHECK constraint. `resolveReportingCurrency(prefs)` defaults missing, null, or invalid stored values to `"TWD"`. The Display tab selector PATCHes this key immediately on change (KZO-180/KR).
 
 Read/write path:
 - `getUserPreferences(userId)` — returns `{}` when no row (lazy: no insert on read)
@@ -957,6 +957,7 @@ Current numbered migration inventory:
 - `044_kzo169_composite_market_pk.sql`: rewrites `market_data.instruments` to primary key `(ticker, market_code)`, rewrites `market_data.daily_bars` to primary key `(ticker, market_code, bar_date)`, adds `market_code` to `market_data.dividend_events`, and keys `user_monitored_tickers` by `(user_id, ticker, market_code)`
 - `049_kzo195_absence_delisting_detection.sql`: adds `last_seen_in_catalog_at TIMESTAMP NULL`, `absence_streak INTEGER NOT NULL DEFAULT 0`, `delisting_detection_excluded BOOLEAN NOT NULL DEFAULT FALSE` to `market_data.instruments`; adds `catalog_absence_threshold`, `catalog_absence_guard_percent`, `catalog_absence_guard_floor` to `app_config`; extends `audit_log_action_check` with `instrument_undelete` and `instrument_exclusion_toggle` action codes (KZO-195)
 - `050_kzo196_gics_industry_group.sql`: adds `gics_industry_group TEXT NULL` to `market_data.instruments` with a partial covering index on `(market_code, gics_industry_group) WHERE gics_industry_group IS NOT NULL`; one-time UPDATE nulling `industry_category_raw` for AU rows (KZO-194 cleanup); adds `asx_gics_refresh_cron TEXT NULL` to `app_config` for the Tier A cron-override column; seeds the `asx-gics-csv` row in `market_data.provider_health_status` (KZO-196)
+- `062_kr_market_support.sql`: extends `accounts.default_currency` to include `KRW`, maps `KRW -> KR` in `currency_to_market`, extends `market_data.ticker_fundamentals.market_code` to `KR`, and seeds `yahoo-finance-kr` / `twelve-data-kr` provider-health rows
 
 ### Transaction market selector and symbol disambiguation (KZO-169)
 
@@ -964,7 +965,7 @@ KZO-169 makes BUY/SELL transaction entry market-aware while leaving DIV/STOCK_DI
 
 `POST /portfolio/transactions` and `POST /portfolio/transactions/estimate` require `marketCode`. The route resolves instruments by `(ticker, marketCode)`, derives trade currency with `currencyFor(marketCode)`, and rejects stale clients or bulk paths with `400 currency_mismatch` when `account.defaultCurrency` differs. Edit mode keeps ticker and market locked, and `TransactionHistoryItemDto.marketCode` is non-null after migration `044`.
 
-`GET /instruments` accepts `market_code=TW|US|AU|ALL`, defaulting to `ALL`. Specific-market requests are filtered server-side; `ALL` returns cross-market rows so the web combobox can display disambiguated labels such as `BHP · AU` and `BHP · US`. `PUT /monitored-tickers` accepts `{ tickers: [{ ticker, marketCode }] }`. Backfill job payloads carry `{ ticker, marketCode, userId }`; `marketCode` is required and validated by `BackfillJobDataSchema` (Zod) at handler entry — old-shape jobs without `marketCode` are rejected immediately (ZodError → pg-boss retry → terminal failed). The `getAllMonitoredTickers()` persistence method returns `{ ticker, marketCode }[]` so producers stamp both fields directly without per-ticker lookup.
+`GET /instruments` accepts `market_code=TW|US|AU|KR|ALL`, defaulting to `ALL`. Specific-market requests are filtered server-side; `ALL` returns cross-market rows so the web combobox can display disambiguated labels such as `BHP · AU` and `BHP · US`. `PUT /monitored-tickers` accepts `{ tickers: [{ ticker, marketCode }] }`. Backfill job payloads carry `{ ticker, marketCode, userId }`; `marketCode` is required and validated by `BackfillJobDataSchema` (Zod) at handler entry — old-shape jobs without `marketCode` are rejected immediately (ZodError → pg-boss retry → terminal failed). The `getAllMonitoredTickers()` persistence method returns `{ ticker, marketCode }[]` so producers stamp both fields directly without per-ticker lookup.
 
 ### Persistence write-path map
 
@@ -1431,7 +1432,7 @@ Key validation:
 | Method | Path | Request shape | Response shape | Dependencies | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/user-preferences` | none | `{ preferences: Record<string, unknown> }` | `requireSessionUserId` | Returns `{ preferences: {} }` when no row exists (lazy — no insert on read) |
-| `PATCH` | `/user-preferences` | `{ dashboardPerformanceRanges?: string[] \| null, cardOrder?: { dashboard?: string[] \| null, transactions?: string[] \| null, portfolio?: string[] \| null } \| null, reportingCurrency?: "TWD" \| "USD" \| "AUD" \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. `cardOrder` is sub-key-merged (KZO-162) — null sub-keys delete just that page. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list`; invalid reporting currency → `400 invalid_preference`. Each `cardOrder.{page}` array capped at 50 slugs (`cardOrderSchema`) |
+| `PATCH` | `/user-preferences` | `{ dashboardPerformanceRanges?: string[] \| null, cardOrder?: { dashboard?: string[] \| null, transactions?: string[] \| null, portfolio?: string[] \| null } \| null, reportingCurrency?: "TWD" \| "USD" \| "AUD" \| "KRW" \| null }` | `{ preferences: Record<string, unknown> }` | `requireSessionUserId`, `setUserPreferencePatch` | Top-level merge: non-null values replace keys, null deletes keys. `cardOrder` is sub-key-merged (KZO-162) — null sub-keys delete just that page. 8 KB body cap → `413 payload_too_large`. Unknown top-level key → `400 unknown_preference_key`. Invalid range list → `400 invalid_range_list`; invalid reporting currency → `400 invalid_preference`. Each `cardOrder.{page}` array capped at 50 slugs (`cardOrderSchema`) |
 | `GET` | `/user-preferences/effective-ranges` | none | `{ ranges: string[], source: "user" \| "admin" \| "default" }` | `requireSessionUserId`, `resolveEffectiveRanges` | 3-tier resolution: user prefs (pruned to admin-allowed) → admin override → hardcoded `["1M","3M","YTD","1Y"]`. Never rewrites stored prefs. |
 
 Effective-ranges resolution detail:
@@ -1599,14 +1600,15 @@ Finding:
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/market-data/price` | query `ticker`, `date`, `market_code` (TW\|US\|AU) | `{ ticker, date, close, currency, sourceId }` | `marketDataRegistry.marketData.get(market_code)`, per-IP rate limit (30/min) | yes (quote card) |
-| `GET` | `/market-data/search` | query `q` (2–50 chars, `[A-Za-z0-9 .&'()-]+`), `market_code` (TW\|US\|AU) | `{ instruments: RawInstrumentInfo[] }` | `marketDataRegistry.catalog.get(market_code).searchInstruments`, per-IP rate limit (20/min) | deferred to KZO-188 |
+| `GET` | `/market-data/price` | query `ticker`, `date`, `market_code` (TW\|US\|AU\|KR) | `{ ticker, date, close, currency, sourceId }` | `marketDataRegistry.marketData.get(market_code)`, per-IP rate limit (30/min) | yes (quote card) |
+| `GET` | `/market-data/search` | query `q` (2–50 chars, `[A-Za-z0-9 .&'()-]+`), `market_code` (TW\|US\|AU\|KR) | `{ instruments: RawInstrumentInfo[] }` | `marketDataRegistry.catalog.get(market_code).searchInstruments`, per-IP rate limit (20/min) | instrument sheet live search |
 
 Market data route behavior:
-- `/market-data/price`: auth required (`resolveUserId`). Returns 429 on per-IP limit breach; 503 + `Retry-After` on upstream provider budget exhaustion (`RateLimitedError`). AU uses Yahoo Finance (`yahoo-finance2`); TW and US use FinMind.
+- `/market-data/price`: auth required (`resolveUserId`). Returns 429 on per-IP limit breach; 503 + `Retry-After` on upstream provider budget exhaustion (`RateLimitedError`). AU and KR use Yahoo Finance (`yahoo-finance2`); TW and US use FinMind.
 - `/market-data/search`: auth required. Per-IP limit is a separate bucket from price (configurable via `MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE`, default 20). Non-`RateLimitedError` provider failures (e.g. Yahoo HTML scraper breakage) return 503 + `X-Search-Degraded: true` with empty `{ instruments: [] }` body — degraded search is not a hard failure.
-- TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. Only AU routes search through the Yahoo Finance `search()` SDK call.
+- TW and US implement `searchInstruments` as `async () => []` (no-op); their full catalog dump from `fetchInstrumentCatalog` makes per-query upstream search unnecessary. AU and KR route search through the Yahoo Finance `search()` SDK call.
 - AU catalog (KZO-194): sourced from `TwelveDataAuCatalogProvider` via `/stocks?exchange=ASX` + `/etf?exchange=ASX` (Twelve Data Basic free tier, ~2,439 rows after warrant filter). Yahoo Finance is retained for AU bars/dividends/metadata/search; the catalog provider delegates `fetchInstrumentMetadata` and `searchInstruments` to the Yahoo provider so per-ticker enrichment and live autocomplete are unchanged. LICs not present in Twelve Data bulk endpoints (e.g. AFI, ARG, AUI) remain discoverable via the Yahoo `searchInstruments` delegation and enrich inline at first backfill.
+- KR catalog: sourced from `TwelveDataKrCatalogProvider` via `/stocks?exchange=KRX` + `/etf?exchange=KRX` on the no-paid Twelve Data plan. It validates `mic_code = "XKRX"`, includes common stock, preferred stock, REIT, and ETF rows, and filters ETNs/warrants out. Yahoo Finance is retained for KR bars, dividends, metadata, and live search using internal `.KS` / `.KQ` suffix resolution while storing bare KRX codes.
 
 **Delisting detection (KZO-195):**
 
@@ -1621,11 +1623,11 @@ Each `InstrumentCatalogProvider` carries two orthogonal capability flags that go
 
 ```
 if (provider.supportsDelistingFeed)     → Branch 1: TW feed path (explicit delisting records)
-else if (provider.absenceDetectionEnabled) → Branch 2: AU diff path (consecutive-absence counting)
-else                                    → Branch 3: bare upsert (US / Yahoo-AU — no auto-delisting)
+else if (provider.absenceDetectionEnabled) → Branch 2: diff path (consecutive-absence counting)
+else                                    → Branch 3: bare upsert (US / Yahoo providers — no auto-delisting)
 ```
 
-**Branch 2 — AU diff-based detection flow (inside a single DB transaction):**
+**Branch 2 — AU/KR diff-based detection flow (inside a single DB transaction):**
 
 1. Present instruments are bulk-upserted; `last_seen_in_catalog_at` is stamped, `absence_streak` reset to `0`.
 2. Absent instruments (those with `last_seen_in_catalog_at IS NOT NULL` but not present in this run) are SELECTed. LIC rows (`last_seen_in_catalog_at IS NULL`) and excluded rows (`delisting_detection_excluded = TRUE`) are filtered out.
@@ -1639,9 +1641,11 @@ else                                    → Branch 3: bare upsert (US / Yahoo-AU
 | Provider | `supportsDelistingFeed` | `absenceDetectionEnabled` |
 |---|---|---|
 | `TwelveDataAuCatalogProvider` | `false` | `true` |
+| `TwelveDataKrCatalogProvider` | `false` | `true` |
 | `FinMindMarketDataProvider` (TW) | `true` | `false` |
 | `FinMindUsStockMarketDataProvider` | `false` | `false` |
 | `YahooFinanceAuMarketDataProvider` | `false` | `false` |
+| `YahooFinanceKrMarketDataProvider` | `false` | `false` |
 
 US enablement path (future): flip `FinMindUsStockMarketDataProvider.absenceDetectionEnabled = true` — no persistence changes required.
 
@@ -1661,7 +1665,7 @@ The `asx-gics-csv` provider enriches AU instruments with their S&P/MSCI GICS ind
 | Leave-stale | AU tickers absent from the CSV keep their prior value; no NULL-reset |
 | Idempotent | UPDATE uses `IS DISTINCT FROM` — unchanged rows do not bump `updated_at` |
 | Batch size | ~500 rows/transaction |
-| Markets | AU only; TW/US rows are not touched |
+| Markets | AU/KR catalog providers; TW/US rows are not touched |
 
 **GICS sync worker (`asx-gics-sync` pg-boss queue):**
 
@@ -1968,7 +1972,7 @@ POST /portfolio/dividends/postings
 - `userPreferences.ts` (KZO-159 / KZO-180)
   - pure resolution helper, no side effects
   - `resolveEffectiveRanges(persistence, userId)` → reads `getUserPreferences` + `getAppConfig` concurrently and applies 3-tier resolution
-  - `resolveReportingCurrency(prefs)` → returns `"TWD" | "USD" | "AUD"`, defaulting invalid or missing prefs to `"TWD"`
+  - `resolveReportingCurrency(prefs)` → returns `"TWD" | "USD" | "AUD" | "KRW"`, defaulting invalid or missing prefs to `"TWD"`
   - consumed by `GET /user-preferences/effective-ranges` and the dynamic `z.enum` validator in `GET /dashboard/performance`
   - depends on `DEFAULT_DASHBOARD_PERFORMANCE_RANGES` and `dashboardPerformanceRangesSchema` from `@vakwen/shared-types`
 

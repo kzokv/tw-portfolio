@@ -27,6 +27,9 @@ export default createPlaywrightConfig({
   videoMode: "off",
   apiEnvOverrides: {
     AU_PROVIDER_MOCK: "true",
+    AU_CATALOG_PROVIDER_MOCK: "true",
+    KR_PROVIDER_MOCK: "true",
+    KR_CATALOG_PROVIDER_MOCK: "true",
   },
   projects: [
     {

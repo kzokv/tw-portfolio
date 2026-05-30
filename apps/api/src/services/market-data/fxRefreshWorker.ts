@@ -17,12 +17,11 @@ export const FX_REFRESH_QUEUE = "fx-refresh";
 export const FX_REFRESH_CRON = Env.FX_REFRESH_CRON;
 
 /**
- * KZO-164 Phase 1.5 invariant #4 — hardcoded for v1. KZO-170 (US) and KZO-171 (AU) will
- * expand this list when cross-currency tickers ship. Module-top constant so a single
+ * KZO-164 Phase 1.5 invariant #4 — stored reporting currencies. Module-top constant so a single
  * grep finds all consumers, and so the worker filter rejects non-stored quotes
  * unconditionally regardless of which `bases` the job was launched with.
  */
-export const STORED_QUOTES = ["TWD", "USD", "AUD"] as const;
+export const STORED_QUOTES = ["TWD", "USD", "AUD", "KRW"] as const;
 export type StoredQuote = (typeof STORED_QUOTES)[number];
 
 export interface FxRefreshWorkerDeps {
@@ -49,7 +48,7 @@ export interface FxRefreshWorkerDeps {
  *  - #2 Audit log on manual trigger only — handler emits NO audit; the
  *       `POST /admin/fx-rates/refresh` route owns the `admin_fx_rates_refresh` entry.
  *  - #3 `source` field is column-aligned — provider stamps `'frankfurter'`; we pass through.
- *  - #4 `STORED_QUOTES` filter — only TWD/USD/AUD persisted.
+ *  - #4 `STORED_QUOTES` filter — only supported reporting currencies persisted.
  *  - #5 `today` resolves to UTC — `deriveFetchWindow` defaults `now` to `today_utc()`;
  *       tests can inject a fixed clock via `deps.now`.
  *  - #6 Upsert uses `response.date`, not `today_utc()` — we pass through provider dates.

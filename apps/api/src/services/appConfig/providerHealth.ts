@@ -1,13 +1,11 @@
 /**
  * KZO-198 — provider-health resolvers. DB override wins; env-fallback otherwise.
  *
- * KZO-197 — adds per-provider rerun-cooldown dispatch:
+ * KZO-197/KR — adds per-provider rerun-cooldown dispatch:
  *   - `getEffectiveYahooAuRerunCooldownMs()` resolves the AU-specific cooldown.
- *   - `getEffectiveProviderRerunCooldownMs(providerId)` dispatches `'yahoo-finance-au'`
- *     to the AU resolver and every other provider to the generic
- *     `getEffectiveRerunCooldownMs()`. Use this from any caller that already
- *     knows the providerId — keeps the AU 30-min default + DB override coherent
- *     with the generic 60-s default for everything else.
+ *   - `getEffectiveProviderRerunCooldownMs(providerId)` dispatches Yahoo market
+ *     reruns to the longer Yahoo resolver and every other provider to the generic
+ *     `getEffectiveRerunCooldownMs()`.
  */
 import { Env } from "@vakwen/config";
 import { getAppConfigCacheEntry } from "./cache.js";
@@ -47,9 +45,9 @@ export function getEffectiveYahooAuRerunCooldownMs(): number {
 }
 
 /**
- * KZO-197 — per-provider rerun-cooldown resolver. Dispatch table:
- *   - `'yahoo-finance-au'` → `getEffectiveYahooAuRerunCooldownMs()` (30 min default)
- *   - everything else      → `getEffectiveRerunCooldownMs()` (60 s default)
+ * KZO-197/KR — per-provider rerun-cooldown resolver. Dispatch table:
+ *   - Yahoo market providers → `getEffectiveYahooAuRerunCooldownMs()` (30 min default)
+ *   - everything else        → `getEffectiveRerunCooldownMs()` (60 s default)
  *
  * Per `.claude/rules/capability-flag-polarity.md`: this is an explicit positive
  * dispatch keyed on a known provider id, NOT the negation of a capability. The
@@ -57,7 +55,7 @@ export function getEffectiveYahooAuRerunCooldownMs(): number {
  * extends this switch without the polarity trap.
  */
 export function getEffectiveProviderRerunCooldownMs(providerId: string): number {
-  if (providerId === "yahoo-finance-au") {
+  if (providerId === "yahoo-finance-au" || providerId === "yahoo-finance-kr") {
     return getEffectiveYahooAuRerunCooldownMs();
   }
   return getEffectiveRerunCooldownMs();

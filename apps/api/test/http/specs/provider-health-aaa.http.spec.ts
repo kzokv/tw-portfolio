@@ -9,7 +9,7 @@
  *   • libs/test-api ProvidersEndpoint registration in mapper.ts
  *
  * Coverage mirrors qa-plan.md §3:
- *   H1 — admin: 200 with full shape (6 providers — KZO-196 added asx-gics-csv; errorTrail max 10)
+ *   H1 — admin: 200 with full shape (8 providers; errorTrail max 10)
  *   H2 — non-admin viewer: 403 admin_role_required
  *   H3 — anonymous: 401
  *   H4 — empty trail returns []
@@ -40,7 +40,10 @@ const PROVIDERS = [
   "finmind-us",
   "yahoo-finance-au",
   "twelve-data-au",
+  "yahoo-finance-kr",
+  "twelve-data-kr",
   "frankfurter",
+  "asx-gics-csv",
 ] as const;
 
 async function seedAllHealthy(providersApi: TProvidersApiAssistant): Promise<void> {
@@ -56,7 +59,7 @@ async function seedAllHealthy(providersApi: TProvidersApiAssistant): Promise<voi
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe("GET /admin/providers", () => {
-  test("[H1 admin]: 200 with all 6 providers and DTO shape", async ({
+  test("[H1 admin]: 200 with all 8 providers and DTO shape", async ({
     request,
     providersApi,
   }) => {
@@ -72,7 +75,7 @@ test.describe("GET /admin/providers", () => {
     await providersApi.assert.statusIs(response, 200);
 
     const body = await providersApi.arrange.listBody(response);
-    await providersApi.assert.hasSixProviders(body);
+    await providersApi.assert.hasEightProviders(body);
     await providersApi.assert.providerStatusIs(body, "finmind-tw", "healthy");
 
     // Each row carries the locked DTO fields.

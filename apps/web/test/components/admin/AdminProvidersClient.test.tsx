@@ -148,6 +148,8 @@ describe("AdminProvidersClient — KZO-197 awaiting + tooltip wiring", () => {
       "finmind-us",
       "yahoo-finance-au",
       "twelve-data-au",
+      "yahoo-finance-kr",
+      "twelve-data-kr",
       "frankfurter",
       "asx-gics-csv",
     ];

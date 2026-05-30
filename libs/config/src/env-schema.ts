@@ -90,6 +90,10 @@ export const envSchema = z.object({
   // the deterministic mock for tests/dev without changing call sites.
   YAHOO_AU_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
   AU_PROVIDER_MOCK: envBool,
+  // KR uses the same Yahoo-style provider pattern as AU, with Yahoo suffixes
+  // (`.KS` / `.KQ`) resolved internally and bare KRX tickers kept at app boundaries.
+  YAHOO_KR_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  KR_PROVIDER_MOCK: envBool,
   // KZO-194: Twelve Data AU catalog provider. Free-tier endpoints (`/stocks?exchange=ASX`
   // and `/etf?exchange=ASX`) enumerate the full ASX universe; bars/dividends remain on
   // Yahoo. Default rate-limit budget mirrors Twelve Data's free-tier 8 req/min ceiling.
@@ -100,6 +104,7 @@ export const envSchema = z.object({
   TWELVE_DATA_BASE_URL: z.string().url().default("https://api.twelvedata.com"),
   TWELVE_DATA_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(8),
   AU_CATALOG_PROVIDER_MOCK: envBool,
+  KR_CATALOG_PROVIDER_MOCK: envBool,
   // KZO-172: per-IP rate limit on `GET /market-data/search`. Bounded autocomplete
   // affordance for AU (Yahoo `search()` per-query). 20/min is generous enough for
   // typeahead UX while keeping abuse off the upstream budget.

@@ -39,7 +39,7 @@ export function assertTradeMarketMatchesAccount(
   tradeMarketCode: string,
 ): void {
   // marketCodeFor throws a plain Error if account.defaultCurrency falls outside
-  // the closed TWD/USD/AUD set. Catch it here so callers see a stable 400
+  // the supported account currencies. Catch it here so callers see a stable 400
   // routeError envelope instead of a 500 (CHECK constraint on
   // accounts.default_currency makes this branch unreachable in practice; this
   // is defense-in-depth per service-error-pattern.md).

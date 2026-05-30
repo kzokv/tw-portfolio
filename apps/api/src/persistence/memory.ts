@@ -448,6 +448,8 @@ export class MemoryPersistence implements Persistence {
         "finmind-us",
         "yahoo-finance-au",
         "twelve-data-au",
+        "yahoo-finance-kr",
+        "twelve-data-kr",
         "frankfurter",
         // KZO-196 — ASX GICS catalog provider seed row.
         "asx-gics-csv",
@@ -3807,6 +3809,18 @@ export class MemoryPersistence implements Persistence {
       if (inst.delistedAt) continue;
       if (inst.barsBackfillStatus !== "pending" && inst.barsBackfillStatus !== "failed") continue;
       rows.push({ ticker: inst.ticker, marketCode: "AU" });
+    }
+    rows.sort((a, b) => a.ticker.localeCompare(b.ticker));
+    return rows;
+  }
+
+  async listCatalogBarsBackfillCandidates(marketCode: MarketCode): Promise<Array<{ ticker: string; marketCode: MarketCode }>> {
+    const rows: Array<{ ticker: string; marketCode: MarketCode }> = [];
+    for (const inst of this.instruments.values()) {
+      if (inst.marketCode !== marketCode) continue;
+      if (inst.delistedAt) continue;
+      if (inst.barsBackfillStatus !== "pending" && inst.barsBackfillStatus !== "failed") continue;
+      rows.push({ ticker: inst.ticker, marketCode });
     }
     rows.sort((a, b) => a.ticker.localeCompare(b.ticker));
     return rows;

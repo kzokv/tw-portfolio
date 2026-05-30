@@ -68,7 +68,7 @@ export const cashLedgerI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "cashLed
       fxGenericError: "Could not save this FX transfer.",
       fxDiscardConfirm: "Discard unsaved FX transfer changes?",
       // KZO-167: account-type display labels for the dropdown chip and
-      // per-account summary chip. Currency codes (TWD/USD/AUD) render
+      // per-account summary chip. Currency codes render
       // untranslated by industry convention.
       accountTypeBroker: "Broker",
       accountTypeBank: "Bank",

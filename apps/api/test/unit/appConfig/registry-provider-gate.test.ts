@@ -17,6 +17,8 @@ const {
   MockFinMindMarketDataProvider,
   TwelveDataAuCatalogProvider,
   MockTwelveDataAuCatalogProvider,
+  TwelveDataKrCatalogProvider,
+  MockTwelveDataKrCatalogProvider,
 } = await import("../../../src/services/market-data/providers/index.js");
 
 function makeEnv(overrides: Record<string, unknown> = {}) {
@@ -30,6 +32,9 @@ function makeEnv(overrides: Record<string, unknown> = {}) {
     AU_PROVIDER_MOCK: false,
     AU_CATALOG_PROVIDER_MOCK: false,
     YAHOO_AU_RATE_LIMIT_PER_MINUTE: 60,
+    KR_PROVIDER_MOCK: false,
+    KR_CATALOG_PROVIDER_MOCK: false,
+    YAHOO_KR_RATE_LIMIT_PER_MINUTE: 60,
     FX_PROVIDER_MOCK: true,
     FRANKFURTER_BASE_URL: "https://api.frankfurter.dev/v2",
     ...overrides,
@@ -74,6 +79,7 @@ describe("buildMarketDataRegistry — KZO-198 provider-key gate consults resolve
     vi.mocked(cacheMock.getEffectiveTwelveDataApiKey).mockReturnValue("td-db-key");
     const registry = buildMarketDataRegistry(makeEnv() as never);
     expect(registry.catalog.get("AU")).toBeInstanceOf(TwelveDataAuCatalogProvider);
+    expect(registry.catalog.get("KR")).toBeInstanceOf(TwelveDataKrCatalogProvider);
   });
 
   it("uses MOCK Twelve Data AU catalog when both env and resolver are empty", () => {
@@ -81,5 +87,6 @@ describe("buildMarketDataRegistry — KZO-198 provider-key gate consults resolve
     vi.mocked(cacheMock.getEffectiveTwelveDataApiKey).mockReturnValue(undefined);
     const registry = buildMarketDataRegistry(makeEnv() as never);
     expect(registry.catalog.get("AU")).toBeInstanceOf(MockTwelveDataAuCatalogProvider);
+    expect(registry.catalog.get("KR")).toBeInstanceOf(MockTwelveDataKrCatalogProvider);
   });
 });

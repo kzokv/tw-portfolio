@@ -99,13 +99,16 @@ const PROVIDERS = [
   "finmind-us",
   "yahoo-finance-au",
   "twelve-data-au",
+  "yahoo-finance-kr",
+  "twelve-data-kr",
   "frankfurter",
+  "asx-gics-csv",
 ] as const;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe.serial("admin /admin/providers (KZO-177)", () => {
-  test("[providers-A]: page renders 5 providers with status badges", async ({
+  test("[providers-A]: page renders 8 providers with status badges", async ({
     page,
     appShell,
   }) => {

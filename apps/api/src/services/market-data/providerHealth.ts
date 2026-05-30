@@ -1,8 +1,7 @@
 // KZO-177 — provider health aggregator.
 //
 // Centralizes status computation, error-trail bookkeeping, and admin
-// notification fan-out for the four data providers (`finmind-tw`,
-// `finmind-us`, `yahoo-finance-au`, `frankfurter`). Workers call
+// notification fan-out for market-data providers. Workers call
 // `recordOutcome(persistence, { providerId, outcome })` after each provider
 // call. Provider classes themselves stay pure (no health side effects); the
 // worker is the integration point.
@@ -32,6 +31,8 @@ export type ProviderId =
   | "finmind-us"
   | "yahoo-finance-au"
   | "twelve-data-au"
+  | "yahoo-finance-kr"
+  | "twelve-data-kr"
   | "frankfurter"
   // KZO-196 — ASX GICS catalog provider. Runs weekly (Sun 02:00 UTC) and
   // performs enrichment-only UPDATEs on AU instrument rows. Health
@@ -79,6 +80,10 @@ export function calendarMarketForProvider(providerId: ProviderId): MarketCode | 
     // settled-trading-day yardstick as `yahoo-finance-au`.
     case "twelve-data-au":
       return "AU";
+    case "yahoo-finance-kr":
+      return "KR";
+    case "twelve-data-kr":
+      return "KR";
     // KZO-196 — ASX GICS catalog runs against ASX, calendar-aligned with AU.
     case "asx-gics-csv":
       return "AU";

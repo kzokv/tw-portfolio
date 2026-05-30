@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastif
 import { z } from "zod";
 import type { AiConnectorPolicySettingsDto, AppConfigDto } from "@vakwen/shared-types";
 import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  MARKET_CODES,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   dashboardPerformanceRangesSchema,
 } from "@vakwen/shared-types";
@@ -59,7 +61,7 @@ import {
 } from "./registerRoutes.js";
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const fxBaseCurrencySchema = z.enum(["TWD", "USD", "AUD"]);
+const fxBaseCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 const fxRefreshBodySchema = z
   .object({
@@ -915,7 +917,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   // ── KZO-177: provider health admin surface ────────────────────────────────
 
-  // GET /admin/providers — read-only snapshot of all 4 provider health rows
+  // GET /admin/providers — read-only snapshot of every provider health row
   // with computed counters and the last 10 trail entries each.
   app.get("/providers", async (req): Promise<AdminProvidersResponse> => {
     if (req.authContext?.role !== "admin") {
@@ -1001,6 +1003,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       | "finmind-us"
       | "yahoo-finance-au"
       | "twelve-data-au"
+      | "yahoo-finance-kr"
+      | "twelve-data-kr"
       | "frankfurter"
       // KZO-196 — ASX GICS catalog provider; admin "Run now" enqueues the
       // singleton-keyed `asx-gics-sync` queue (same job pg-boss runs on cron).
@@ -1011,9 +1015,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // (3) cooldown per provider — read live (KZO-198: DB override → env).
-    // KZO-197 — per-provider cooldown dispatch. yahoo-finance-au reads the
-    // 30-min default (or app_config override); other providers fall back to
-    // the global 60-s `getEffectiveRerunCooldownMs()`.
+    // KZO-197/KR — per-provider cooldown dispatch. Yahoo market reruns read
+    // the longer Yahoo cooldown; other providers use the generic cooldown.
     const cooldownMs = getEffectiveProviderRerunCooldownMs(providerId);
     if (existing.lastManualRerunAt) {
       const elapsedMs = Date.now() - new Date(existing.lastManualRerunAt).getTime();
@@ -1041,14 +1044,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     let tickerCount = 0;
     let marketCode: MarketCode | "FX" = "FX";
     let jobId: string | null = null;
-    // KZO-197 — yahoo-finance-au-only nested audit metadata. The two sub-paths
+    // Yahoo market providers use nested audit metadata. The two sub-paths
     // (catalog warm-up + monitored refresh) ship as `{tickerCount, jobId}`
     // each so the audit-log spec can verify both branches independently.
     // Top-level `tickerCount` and `jobId` remain populated as the back-compat
     // sum / first-non-null — KZO-177's audit spec asserts the flat shape and
     // must keep passing for every other provider.
-    let auCatalogBackfill: { tickerCount: number; jobId: string | null } | null = null;
-    let auMonitoredRefresh: { tickerCount: number; jobId: string | null } | null = null;
+    let marketCatalogBackfill: { tickerCount: number; jobId: string | null } | null = null;
+    let marketMonitoredRefresh: { tickerCount: number; jobId: string | null } | null = null;
 
     if (providerId === "frankfurter") {
       if (app.boss) {
@@ -1094,6 +1097,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       // upstream universe and reports `rawCount` in its own log lines; no
       // per-rerun count is meaningful at the route layer.
       tickerCount = 0;
+    } else if (providerId === "twelve-data-kr") {
+      marketCode = "KR";
+      if (app.boss) {
+        jobId = await app.boss.send(
+          CATALOG_SYNC_QUEUE,
+          { pendingMarkets: ["KR"] },
+          { singletonKey: CATALOG_SYNC_QUEUE, priority: 5 },
+        );
+      }
+      tickerCount = 0;
     } else if (providerId === "yahoo-finance-au") {
       // KZO-197 — UNION of catalog warm-up + monitored refresh. The two sets
       // are disjoint by definition: catalog warm-up enumerates `(pending,
@@ -1120,12 +1133,33 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
             { tickerCount: 0, batchId: null as string | null },
             { tickerCount: 0, batchId: null as string | null },
           ];
-      auCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
-      auMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
+      marketCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
+      marketMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
       tickerCount = catalog.tickerCount + monitored.tickerCount;
       // Top-level `jobId` = first non-null. Preserves the back-compat single-id
       // field that KZO-177 audit-log specs assert against; nested blocks carry
       // both ids when both branches dispatched.
+      jobId = catalog.batchId ?? monitored.batchId ?? null;
+    } else if (providerId === "yahoo-finance-kr") {
+      marketCode = "KR";
+      const [catalog, monitored] = app.boss
+        ? await Promise.all([
+            enqueueAuCatalogBarsBackfill(app.boss, app.persistence, app.log, {
+              trigger: "admin_rerun",
+              marketCode: "KR",
+            }),
+            enqueueDailyRefresh(app.boss, app.persistence, app.log, {
+              marketFilter: "KR",
+              trigger: "admin_rerun",
+            }),
+          ])
+        : [
+            { tickerCount: 0, batchId: null as string | null },
+            { tickerCount: 0, batchId: null as string | null },
+          ];
+      marketCatalogBackfill = { tickerCount: catalog.tickerCount, jobId: catalog.batchId };
+      marketMonitoredRefresh = { tickerCount: monitored.tickerCount, jobId: monitored.batchId };
+      tickerCount = catalog.tickerCount + monitored.tickerCount;
       jobId = catalog.batchId ?? monitored.batchId ?? null;
     } else {
       marketCode = providerId === "finmind-tw" ? "TW" : "US";
@@ -1141,7 +1175,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    // KZO-197 — yahoo-finance-au only: append the nested `catalogBackfill` +
+    // Yahoo market providers append the nested `catalogBackfill` +
     // `monitoredRefresh` blocks. Other providers keep the flat audit shape so
     // existing KZO-177 audit-log assertions stay green.
     const auditMetadata: Record<string, unknown> = {
@@ -1150,11 +1184,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       tickerCount,
       jobId,
     };
-    if (auCatalogBackfill !== null) {
-      auditMetadata.catalogBackfill = auCatalogBackfill;
+    if (marketCatalogBackfill !== null) {
+      auditMetadata.catalogBackfill = marketCatalogBackfill;
     }
-    if (auMonitoredRefresh !== null) {
-      auditMetadata.monitoredRefresh = auMonitoredRefresh;
+    if (marketMonitoredRefresh !== null) {
+      auditMetadata.monitoredRefresh = marketMonitoredRefresh;
     }
 
     await app.persistence.appendAuditLog({
@@ -1174,7 +1208,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     requireAdminRole(req);
     const query = z
       .object({
-        marketCode: z.enum(["TW", "US", "AU"]).default("AU"),
+        marketCode: z.enum(MARKET_CODES).default("AU"),
         page: z.coerce.number().int().min(1).default(1),
         limit: z.coerce.number().int().min(1).max(200).default(50),
       })
@@ -1240,7 +1274,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const { ticker, marketCode } = z
       .object({
         ticker: z.string().min(1).max(40),
-        marketCode: z.enum(["TW", "US", "AU"]),
+        marketCode: z.enum(MARKET_CODES),
       })
       .parse(req.params);
 
@@ -1257,7 +1291,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const { ticker, marketCode } = z
       .object({
         ticker: z.string().min(1).max(40),
-        marketCode: z.enum(["TW", "US", "AU"]),
+        marketCode: z.enum(MARKET_CODES),
       })
       .parse(req.params);
     const body = z.object({ excluded: z.boolean() }).parse(req.body ?? {});

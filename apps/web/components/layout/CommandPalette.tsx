@@ -7,6 +7,7 @@ import {
   type AccentPreset,
   type InstrumentCatalogItemDto,
   type MarketCode,
+  MARKET_CODES,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { searchInstruments } from "../../features/settings/services/instrumentSearchService";
@@ -45,7 +46,7 @@ export interface CommandPaletteProps {
 
 const TICKER_DEBOUNCE_MS = 200;
 const TICKER_MAX_RESULTS = 8;
-const TICKER_SEARCH_MARKETS: MarketCode[] = ["TW", "US", "AU"];
+const TICKER_SEARCH_MARKETS: MarketCode[] = [...MARKET_CODES];
 
 interface TickerCommandItem {
   ticker: string;
@@ -96,7 +97,7 @@ export function CommandPalette({
     }
   }, [open, initialQuery]);
 
-  // Live ticker search across TW/US/AU. The 2-char min mirrors the backend
+  // Live ticker search across supported markets. The 2-char min mirrors the backend
   // route's `q: z.string().min(2)` and avoids needless calls.
   useEffect(() => {
     if (!open) return;
@@ -121,9 +122,9 @@ export function CommandPalette({
         const merged: TickerCommandItem[] = [];
         for (const item of flat) {
           // The DTO declares `marketCode: string`, but the search endpoint
-          // only emits the parsed `TW | US | AU` enum back, so the cast is
-          // safe at runtime. Defensive guard skips anything else.
-          if (item.marketCode !== "TW" && item.marketCode !== "US" && item.marketCode !== "AU") {
+          // only emits the parsed MarketCode enum back. Defensive guard skips
+          // anything else.
+          if (!(MARKET_CODES as readonly string[]).includes(item.marketCode)) {
             continue;
           }
           const market = item.marketCode as MarketCode;

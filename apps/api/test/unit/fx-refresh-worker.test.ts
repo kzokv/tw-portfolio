@@ -50,7 +50,7 @@ function cronJob(extra?: Partial<FxRefreshJobData>): JobWithMetadata<FxRefreshJo
     trigger: "cron",
     startDate: TODAY_UTC,
     endDate: TODAY_UTC,
-    bases: ["TWD", "USD", "AUD"],
+    bases: ["TWD", "USD", "AUD", "KRW"],
     ...extra,
   });
 }
@@ -60,7 +60,7 @@ function manualJob(startDate: string, endDate: string): JobWithMetadata<FxRefres
     trigger: "manual",
     startDate,
     endDate,
-    bases: ["TWD", "USD", "AUD"],
+    bases: ["TWD", "USD", "AUD", "KRW"],
   });
 }
 
@@ -71,6 +71,7 @@ function makeRates(base: string, quoteDate: string, includeSelfPair = false): Fx
     { date: quoteDate, baseCurrency: base, quoteCurrency: "TWD", rate: 31.5, source: "frankfurter" },
     { date: quoteDate, baseCurrency: base, quoteCurrency: "USD", rate: 0.032, source: "frankfurter" },
     { date: quoteDate, baseCurrency: base, quoteCurrency: "AUD", rate: 0.049, source: "frankfurter" },
+    { date: quoteDate, baseCurrency: base, quoteCurrency: "KRW", rate: 43.2, source: "frankfurter" },
   ].filter((r) => includeSelfPair || r.quoteCurrency !== r.baseCurrency);
 
   if (includeSelfPair) {
@@ -90,7 +91,7 @@ function createDeps() {
 
   const persistence = {
     getLatestFxRateDate: vi.fn().mockResolvedValue(null),
-    upsertFxRates: vi.fn().mockResolvedValue(3),
+    upsertFxRates: vi.fn().mockResolvedValue(4),
     _resetFxRates: vi.fn(),
   };
 
@@ -115,13 +116,13 @@ describe("fxRefreshWorker — STORED_QUOTES constant", () => {
 // ── Invariant 4: Per-base iteration ──────────────────────────────────────────
 
 describe("fxRefreshWorker — per-base iteration (Invariant 4)", () => {
-  it("calls fetchRatesForBase once for each of the 3 STORED_QUOTES bases", async () => {
+  it("calls fetchRatesForBase once for each STORED_QUOTES base", async () => {
     const deps = createDeps();
     const handler = createFxRefreshHandler(deps as never);
 
     await handler([cronJob()]);
 
-    expect(deps.fxProvider.fetchRatesForBase).toHaveBeenCalledTimes(3);
+    expect(deps.fxProvider.fetchRatesForBase).toHaveBeenCalledTimes(4);
 
     const calledBases = deps.fxProvider.fetchRatesForBase.mock.calls.map(
       (call: unknown[]) => call[0],
@@ -129,6 +130,7 @@ describe("fxRefreshWorker — per-base iteration (Invariant 4)", () => {
     expect(calledBases).toContain("TWD");
     expect(calledBases).toContain("USD");
     expect(calledBases).toContain("AUD");
+    expect(calledBases).toContain("KRW");
   });
 
   it("calls fetchRatesForBase with the computed window dates", async () => {
@@ -164,6 +166,7 @@ describe("fxRefreshWorker — per-base iteration (Invariant 4)", () => {
       expect(quotes).toContain("TWD");
       expect(quotes).toContain("USD");
       expect(quotes).toContain("AUD");
+      expect(quotes).toContain("KRW");
     }
   });
 

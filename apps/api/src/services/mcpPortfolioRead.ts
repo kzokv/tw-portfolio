@@ -1,5 +1,10 @@
 import type { CurrencyCode, MarketCode, QuoteSnapshot } from "@vakwen/domain";
-import type { AccountDefaultCurrency, DashboardPerformanceRange } from "@vakwen/shared-types";
+import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  MARKET_CODES,
+  type AccountDefaultCurrency,
+  type DashboardPerformanceRange,
+} from "@vakwen/shared-types";
 import { resolveReportingCurrency, resolveEffectiveRanges } from "./userPreferences.js";
 import { buildDashboardOverview } from "./dashboard.js";
 import { translateOverviewSummary, translatePerformancePoints } from "./dashboardReportingCurrency.js";
@@ -62,8 +67,8 @@ function resolveRequestedReportingCurrency(
   fallback: AccountDefaultCurrency,
 ): AccountDefaultCurrency {
   if (!requested) return fallback;
-  if (requested === "TWD" || requested === "USD" || requested === "AUD") return requested;
-  throw routeError(400, "mcp_invalid_reporting_currency", "reportingCurrency must be TWD, USD, or AUD");
+  if ((ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(requested)) return requested as AccountDefaultCurrency;
+  throw routeError(400, "mcp_invalid_reporting_currency", "reportingCurrency must be TWD, USD, AUD, or KRW");
 }
 
 function resolveOverrides(prefs: Record<string, unknown>, overrides: ReadOverrides): {
@@ -298,9 +303,9 @@ export async function getCashBalanceSummary(
 
 export async function searchInstruments(
   deps: McpReadServiceDeps,
-  input: { query: string; markets?: Array<"TW" | "US" | "AU">; limit: number },
+  input: { query: string; markets?: MarketCode[]; limit: number },
 ) {
-  const markets = input.markets && input.markets.length > 0 ? input.markets : ["TW", "US", "AU"];
+  const markets = input.markets && input.markets.length > 0 ? input.markets : [...MARKET_CODES];
   const rows = await Promise.all(
     markets.map((market) => deps.app.persistence.listInstrumentsCatalog(input.query, undefined, market, deps.requestContext.auth.sessionUserId)),
   );

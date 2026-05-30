@@ -36,7 +36,16 @@ import type {
   TransactionDraftUnsupportedItemDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
-import { dashboardPerformanceRangesSchema, densityModeSchema, themeAccentSchema, currencyFor, marketCodeFor } from "@vakwen/shared-types";
+import {
+  ACCOUNT_DEFAULT_CURRENCIES,
+  MARKET_CODES,
+  MARKET_FILTER_CODES,
+  dashboardPerformanceRangesSchema,
+  densityModeSchema,
+  themeAccentSchema,
+  currencyFor,
+  marketCodeFor,
+} from "@vakwen/shared-types";
 import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
   translateOverviewSummary,
@@ -172,7 +181,8 @@ const aiConnectorScopesSchema = z.array(z.enum(aiConnectorScopeValues)).max(aiCo
 
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
 // transactions must commit to a specific market).
-const marketCodeSchema = z.enum(["TW", "US", "AU"]);
+const marketCodeSchema = z.enum(MARKET_CODES);
+const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 const transactionSchema = z.object({
   accountId: userScopedIdSchema,
@@ -1874,6 +1884,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           "finmind-us",
           "yahoo-finance-au",
           "twelve-data-au",
+          "yahoo-finance-kr",
+          "twelve-data-kr",
           "frankfurter",
           // KZO-196 — ASX GICS catalog provider for E2E seed of the admin
           // /providers row (run-now button + status badge tests).
@@ -2720,10 +2732,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .optional(),
       // KZO-180: user-level reporting currency. Stored as a JSONB key (no
       // migration); enum mirrors `AccountDefaultCurrency` from
-      // `@vakwen/shared-types` (TWD/USD/AUD). `null` clears the key
+      // `@vakwen/shared-types`. `null` clears the key
       // and the resolver falls back to the `'TWD'` default.
       reportingCurrency: z
-        .union([z.enum(["TWD", "USD", "AUD"]), z.null()])
+        .union([accountDefaultCurrencySchema, z.null()])
         .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.
@@ -3235,7 +3247,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .object({
         name: z.string().trim().min(1).max(80),
         // Enum values match migration 040's CHECK constraints.
-        defaultCurrency: z.enum(["TWD", "USD", "AUD"]),
+        defaultCurrency: accountDefaultCurrencySchema,
         accountType: z.enum(["broker", "bank", "wallet"]),
       })
       .parse(req.body);
@@ -3284,7 +3296,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         feeProfileId: userScopedIdSchema.optional(),
         // KZO-167: per-account default currency + account type metadata.
         // Enum values match the migration 040 CHECK constraint.
-        defaultCurrency: z.enum(["TWD", "USD", "AUD"]).optional(),
+        defaultCurrency: accountDefaultCurrencySchema.optional(),
         accountType: z.enum(["broker", "bank", "wallet"]).optional(),
       })
       .refine(
@@ -3594,7 +3606,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       ticker: tickerSchema,
       date: isoDateSchema,
-      market_code: z.enum(["TW", "US", "AU"]),
+      market_code: marketCodeSchema,
     }).parse(req.query);
 
     if (query.date > todayIsoDate()) {
@@ -3679,7 +3691,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // (`.`, `&`, `'`, `()`, `-`, space). Rejects path-traversal / SQL-meta /
       // NUL / non-ASCII to keep abuse off Yahoo's upstream search.
       q: z.string().trim().min(2).max(50).regex(/^[A-Za-z0-9 .&'()-]+$/),
-      market_code: z.enum(["TW", "US", "AU"]),
+      market_code: marketCodeSchema,
     }).parse(req.query);
 
     const provider = app.marketDataRegistry.catalog.get(query.market_code);
@@ -5232,7 +5244,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         type: z.enum(["STOCK", "ETF", "BOND_ETF"]).optional(),
         // KZO-169: optional `market_code` filter; "ALL" disables filtering.
         // Default ALL preserves back-compat with existing consumers.
-        market_code: z.enum(["TW", "US", "AU", "ALL"]).default("ALL").optional(),
+        market_code: z.enum(MARKET_FILTER_CODES).default("ALL").optional(),
       })
       .parse(req.query);
 
