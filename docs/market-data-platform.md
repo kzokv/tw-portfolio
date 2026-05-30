@@ -116,12 +116,12 @@ Likely env vars when EODHD lands: `EODHD_API_KEY`, `EODHD_BASE_URL` (default `ht
 
 ### KR provider strategy
 
-KR uses a split provider model because the no-paid Twelve Data plan covers KRX catalog discovery but not KRX price/time-series data.
+KR uses a split provider model because the no-paid Twelve Data plan covers KRX/KOSDAQ catalog discovery but not KR price/time-series data.
 
 Key contract:
 - `providerId = "yahoo-finance-kr"`, `sourceId = "yahoo-finance-kr"` for bars, dividends, metadata, and live search.
 - Canonical stored/user-facing KR tickers are bare KRX codes such as `005930`. The provider resolves Yahoo suffixes internally, preferring `.KS` then `.KQ` and caching the validated suffix per bare ticker.
-- `providerId = "twelve-data-kr"` for KRX catalog sync. It reads `/stocks?exchange=KRX` and `/etf?exchange=KRX`, validates `mic_code = "XKRX"`, includes common stock, preferred stock, REIT, and ETF rows, and filters ETN/warrant-like rows out of the app catalog.
+- `providerId = "twelve-data-kr"` for KR catalog sync. It reads `/stocks` and `/etf` for `exchange=KRX` plus `exchange=KOSDAQ`, validates `mic_code = "XKRX"` / `"XKOS"`, includes common stock, preferred stock, REIT, and ETF rows, and filters ETN/warrant-like rows out of the app catalog.
 - Basic cash dividends only: Yahoo dividend events are stamped with `paymentDate = exDividendDate`, `stockDividendPerShare = 0`, and no withholding/source automation.
 - No automatic corporate-action handling for KR in v1. Splits, rights, and other corporate actions remain manual or future-provider work.
 - `HISTORY_START_BY_MARKET["KR"] = "2000-01-04"` and the trading calendar uses `Asia/Seoul` with a 15:30 close.

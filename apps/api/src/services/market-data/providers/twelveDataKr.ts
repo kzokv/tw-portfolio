@@ -31,6 +31,11 @@ interface TwelveDataListResponse<T> {
   status: string;
 }
 
+interface KoreanExchangeSegment {
+  exchange: "KRX" | "KOSDAQ";
+  micCode: "XKRX" | "XKOS";
+}
+
 export interface TwelveDataKrCatalogProviderConfig {
   apiKey: string;
   baseUrl: string;
@@ -39,6 +44,11 @@ export interface TwelveDataKrCatalogProviderConfig {
 }
 
 const INCLUDED_KR_STOCK_TYPES = new Set(["Common Stock", "Preferred Stock", "REIT"]);
+const KR_EXCHANGE_SEGMENTS: readonly KoreanExchangeSegment[] = [
+  { exchange: "KRX", micCode: "XKRX" },
+  { exchange: "KOSDAQ", micCode: "XKOS" },
+];
+const KR_CATALOG_REQUEST_COUNT = KR_EXCHANGE_SEGMENTS.length * 2;
 
 export class TwelveDataKrCatalogProvider implements InstrumentCatalogProvider {
   readonly providerId = "twelve-data-kr";
@@ -74,9 +84,12 @@ export class TwelveDataKrCatalogProvider implements InstrumentCatalogProvider {
     }
   }
 
-  private async fetchListEndpoint<T>(path: "stocks" | "etf"): Promise<T[]> {
+  private async fetchListEndpoint<T>(
+    path: "stocks" | "etf",
+    exchange: KoreanExchangeSegment["exchange"],
+  ): Promise<T[]> {
     const params = new URLSearchParams({
-      exchange: "KRX",
+      exchange,
       apikey: this.apiKey,
     });
     const res = await fetch(`${this.baseUrl}/${path}?${params.toString()}`);
@@ -93,31 +106,43 @@ export class TwelveDataKrCatalogProvider implements InstrumentCatalogProvider {
     return body.data;
   }
 
+  private assertMicCode(
+    path: "stocks" | "etf",
+    row: { symbol: string; mic_code: string },
+    expectedMicCode: KoreanExchangeSegment["micCode"],
+  ): void {
+    if (row.mic_code !== expectedMicCode) {
+      throw new Error(
+        `twelve_data_kr_mic_mismatch: /${path} row ${row.symbol} has mic_code='${row.mic_code}', expected '${expectedMicCode}'`,
+      );
+    }
+  }
+
+  private async fetchRowsForSegments<T extends { symbol: string; mic_code: string }>(
+    path: "stocks" | "etf",
+  ): Promise<T[]> {
+    const out: T[] = [];
+    for (const segment of KR_EXCHANGE_SEGMENTS) {
+      this.assertCanConsume();
+      const rows = await this.fetchListEndpoint<T>(path, segment.exchange);
+      for (const row of rows) {
+        this.assertMicCode(path, row, segment.micCode);
+      }
+      out.push(...rows);
+    }
+    return out;
+  }
+
   async fetchInstrumentCatalog(): Promise<RawInstrumentInfo[]> {
-    this.reserveCapacity(2);
+    this.reserveCapacity(KR_CATALOG_REQUEST_COUNT);
     const today = new Date().toISOString().slice(0, 10);
 
-    this.assertCanConsume();
-    const stocksRaw = await this.fetchListEndpoint<TwelveDataStockRow>("stocks");
-    for (const row of stocksRaw) {
-      if (row.mic_code !== "XKRX") {
-        throw new Error(
-          `twelve_data_kr_mic_mismatch: /stocks row ${row.symbol} has mic_code='${row.mic_code}', expected 'XKRX'`,
-        );
-      }
-    }
-
-    this.assertCanConsume();
-    const etfsRaw = await this.fetchListEndpoint<TwelveDataEtfRow>("etf");
+    const stocksRaw = await this.fetchRowsForSegments<TwelveDataStockRow>("stocks");
+    const etfsRaw = await this.fetchRowsForSegments<TwelveDataEtfRow>("etf");
 
     const out: RawInstrumentInfo[] = [];
     const etfTickers = new Set<string>();
     for (const row of etfsRaw) {
-      if (row.mic_code !== "XKRX") {
-        throw new Error(
-          `twelve_data_kr_mic_mismatch: /etf row ${row.symbol} has mic_code='${row.mic_code}', expected 'XKRX'`,
-        );
-      }
       const ticker = row.symbol.trim().toUpperCase();
       etfTickers.add(ticker);
       out.push({

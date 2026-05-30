@@ -182,6 +182,7 @@ export function InstrumentCatalogSheet({
     const controller = new AbortController();
     setLiveLoading(true);
     setLiveError(null);
+    setLiveResults([]);
 
     void (async () => {
       try {
@@ -209,7 +210,7 @@ export function InstrumentCatalogSheet({
     return () => {
       controller.abort();
     };
-  }, [debouncedQuery, liveSearchEnabled]);
+  }, [debouncedQuery, liveSearchEnabled, marketChip]);
 
   const filters: { value: TypeFilter; label: string }[] = [
     { value: "ALL", label: dict.settings.tickersFilterAll },
