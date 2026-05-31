@@ -37,7 +37,6 @@ const advertisedMcpScopes = [
   "transaction_draft:delete",
   "transaction:write",
 ];
-const initialMcpScopes = ["portfolio:mcp_read"];
 
 function codeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
@@ -271,7 +270,7 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(protectedResource.json()).toMatchObject({
       resource,
       authorization_servers: ["http://localhost:4000"],
-      scopes_supported: initialMcpScopes,
+      scopes_supported: advertisedMcpScopes,
     });
     const pathScopedProtectedResource = await app.inject({
       method: "GET",
@@ -977,7 +976,7 @@ describe("MCP OAuth for ChatGPT", () => {
         client_id: clientId,
         redirect_uri: redirectUri,
         resource,
-        scope: "portfolio:mcp_read transaction_draft:create transaction_draft:edit transaction_draft:archive transaction_draft:delete transaction:write",
+        scope: "portfolio:mcp_read account:manage transaction_draft:create transaction_draft:edit transaction_draft:archive transaction_draft:delete transaction:write",
         code_challenge: codeChallenge(verifier),
         code_challenge_method: "S256",
         state: "oauth_s_test",
@@ -993,6 +992,7 @@ describe("MCP OAuth for ChatGPT", () => {
     const consentBody = consent.json<{ csrfToken: string; scopes: string[] }>();
     expect(new Set(consentBody.scopes)).toEqual(new Set([
       "portfolio:mcp_read",
+      "account:manage",
       "transaction_draft:create",
       "transaction_draft:edit",
       "transaction_draft:archive",
@@ -1006,7 +1006,7 @@ describe("MCP OAuth for ChatGPT", () => {
       headers: { host: "localhost:4000" },
       payload: {
         csrfToken: consentBody.csrfToken,
-        scopes: ["portfolio:mcp_read"],
+        scopes: ["portfolio:mcp_read", "account:manage"],
         lifetimeDays: 7,
       },
     });
@@ -1037,7 +1037,9 @@ describe("MCP OAuth for ChatGPT", () => {
       }),
     });
     expect(token.statusCode, token.body).toBe(200);
-    expect(token.json<{ scope: string }>().scope).toBe("portfolio:mcp_read");
+    expect(new Set(token.json<{ scope: string }>().scope.split(" "))).toEqual(
+      new Set(["portfolio:mcp_read", "account:manage"]),
+    );
     expect(fetchedUrls).toContain(jwksUri);
   });
 
