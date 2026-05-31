@@ -4,6 +4,7 @@ import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { Card } from "../ui/Card";
 import { DataTable, type DataTableColumn } from "../ui/DataTable";
+import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
 
 interface RecentTransactionsCardProps {
   items: TransactionHistoryItemDto[];
@@ -42,6 +43,11 @@ export function RecentTransactionsCard({
       key: "type",
       header: dict.transactions.typeTerm,
       render: (item) => <TypePill type={item.type} />,
+    },
+    {
+      key: "account",
+      header: dict.holdings.accountTerm,
+      render: (item) => <span className="text-muted-foreground">{transactionAccountDisplayName(item)}</span>,
     },
     {
       key: "tradeDate",
@@ -124,7 +130,7 @@ export function RecentTransactionsCard({
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <HistoryDetail label={dict.transactions.quantityTerm} value={formatNumber(item.quantity, locale)} />
                   <HistoryDetail label={dict.transactions.unitPriceTerm} value={formatCurrencyAmount(item.unitPrice, item.priceCurrency, locale)} />
-                  <HistoryDetail label={dict.holdings.accountTerm} value={item.accountId} />
+                  <HistoryDetail label={dict.holdings.accountTerm} value={transactionAccountDisplayName(item)} />
                   <HistoryDetail
                     label={dict.tickerHistory.realizedPnlLabel}
                     value={item.realizedPnlAmount === null

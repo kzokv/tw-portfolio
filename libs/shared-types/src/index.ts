@@ -388,6 +388,7 @@ export interface DashboardOverviewSummaryDto {
 
 export interface DashboardOverviewHoldingDto {
   accountId: string;
+  accountName?: string;
   ticker: string;
   quantity: number;
   costBasisAmount: number;
@@ -410,6 +411,7 @@ export interface DashboardOverviewHoldingDto {
 
 export interface DashboardOverviewUpcomingDividendDto {
   accountId: string;
+  accountName?: string;
   ticker: string;
   exDividendDate: string | null;
   paymentDate: string | null;
@@ -420,6 +422,7 @@ export interface DashboardOverviewUpcomingDividendDto {
 
 export interface DashboardOverviewRecentDividendDto {
   accountId: string;
+  accountName?: string;
   ticker: string;
   postedAt: string;
   netAmount: number;
@@ -587,6 +590,7 @@ export interface DashboardPerformanceDto {
 export interface TransactionHistoryItemDto {
   id: string;
   accountId: string;
+  accountName: string;
   ticker: string;
   // KZO-169: trade events stamp market_code at booking time. Backfilled to
   // `'TW'` for legacy rows by migration 044's NOT NULL DEFAULT.
@@ -958,6 +962,7 @@ export type AiConnectorProvider = "chatgpt" | "self_hosted";
 export type AiConnectorStatus = "pending" | "active" | "expired" | "revoked";
 export type AiConnectorScope =
   | "portfolio:mcp_read"
+  | "account:manage"
   | "transaction_draft:create"
   | "transaction_draft:edit"
   | "transaction_draft:archive"
@@ -1157,6 +1162,7 @@ export interface TransactionDraftRowDto {
   state: AiTransactionDraftRowState;
   version: number;
   accountId: string | null;
+  accountName: string | null;
   accountNameInput: string | null;
   type: "BUY" | "SELL" | null;
   ticker: string | null;
@@ -1211,6 +1217,99 @@ export interface TransactionDraftPostingResultDto {
   auditEventIds: string[];
 }
 
+export interface McpAccountLiveBalanceDto {
+  currency: CurrencyCode;
+  amount: number;
+}
+
+export interface McpAccountDisplayDto {
+  id: string;
+  name: string;
+  defaultCurrency: AccountDefaultCurrency;
+  accountType: AccountType;
+  feeProfileId: string;
+  feeProfileName: string | null;
+  status: "active" | "deleted";
+  deletedAt: string | null;
+  liveBalance: McpAccountLiveBalanceDto[];
+}
+
+export interface ChatGptAccountManagerWidgetPermissionsDto {
+  canCreate: boolean;
+  canEdit: boolean;
+  canSoftDelete: boolean;
+  canRestore: boolean;
+  manageScopeGranted: boolean;
+  adminWritePolicyEnabled: boolean;
+}
+
+export interface ChatGptAccountManagerWidgetToolsDto {
+  refresh: string | null;
+  createAccount: string | null;
+  updateAccount: string | null;
+  softDeleteAccount: string | null;
+  restoreAccount: string | null;
+}
+
+export interface ChatGptAccountManagerWidgetDto {
+  title: string;
+  subtitle: string;
+  accounts: McpAccountDisplayDto[];
+  deletedAccounts: McpAccountDisplayDto[];
+  permissions: ChatGptAccountManagerWidgetPermissionsDto;
+  suggestions: string[];
+  tools: ChatGptAccountManagerWidgetToolsDto;
+}
+
+export interface McpTransactionDraftPostingPreviewRowDto {
+  rowId: string;
+  rowNumber: number;
+  accountId: string;
+  accountName: string;
+  accountType: AccountType;
+  accountDefaultCurrency: AccountDefaultCurrency;
+  ticker: string;
+  marketCode: MarketCode;
+  type: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
+  tradeDate: string;
+  grossValueAmount: number;
+  commissionAmount: number;
+  taxAmount: number;
+  calculatedCommissionAmount: number;
+  calculatedTaxAmount: number;
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
+  netCashImpactAmount: number;
+  warnings: string[];
+  suggestions: string[];
+  sourceSnippet: string | null;
+}
+
+export interface McpTransactionDraftPostingPreviewGroupDto {
+  accountId: string;
+  accountName: string;
+  currency: CurrencyCode;
+  rowCount: number;
+  totalGrossBuyAmount: number;
+  totalGrossSellAmount: number;
+  totalCommissionAmount: number;
+  totalTaxAmount: number;
+  netCashImpactAmount: number;
+}
+
+export interface McpTransactionDraftPostingPreviewDto {
+  batchId: string;
+  batchVersion: number;
+  selectedRowIds: string[];
+  rows: McpTransactionDraftPostingPreviewRowDto[];
+  groups: McpTransactionDraftPostingPreviewGroupDto[];
+  warnings: string[];
+  suggestions: string[];
+  typedPhraseRequired: string | null;
+}
+
 export interface ChatGptTransactionDraftWidgetAuditItemDto {
   tone: "info" | "success" | "warning";
   message: string;
@@ -1238,6 +1337,7 @@ export interface ChatGptTransactionDraftWidgetProvenanceDto {
 
 export interface ChatGptTransactionDraftWidgetToolsDto {
   refresh: string | null;
+  previewPosting: string | null;
   updateRow: string | null;
   excludeRows: string | null;
   reincludeRows: string | null;
@@ -1254,9 +1354,12 @@ export interface ChatGptTransactionDraftWidgetDto {
   batch: TransactionDraftBatchDto;
   rows: TransactionDraftRowDto[];
   unsupportedItems: TransactionDraftUnsupportedItemDto[];
+  accounts: McpAccountDisplayDto[];
   selectedRowIds: string[];
   grossValueText: string;
   deepLinkUrl: string | null;
+  postingPreview: McpTransactionDraftPostingPreviewDto | null;
+  suggestions: string[];
   provenance: ChatGptTransactionDraftWidgetProvenanceDto;
   permissions: ChatGptTransactionDraftWidgetPermissionsDto;
   auditPreview: ChatGptTransactionDraftWidgetAuditItemDto[];

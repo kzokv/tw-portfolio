@@ -57,6 +57,10 @@ function rowKey(event: DividendEventListItem): string {
   return `${event.accountId}:${event.id}`;
 }
 
+function eventAccountLabel(event: Pick<DividendEventListItem, "accountId" | "accountName">): string {
+  return event.accountName?.trim() || event.accountId;
+}
+
 function buildRows(snapshot: DividendCalendarSnapshot): DividendCalendarRow[] {
   const ledgerByKey = new Map<string, DividendLedgerEntryDetails>();
   for (const entry of snapshot.ledgerEntries) {
@@ -332,7 +336,7 @@ export function DividendCalendarClient({
             setIsDrawerDirty(false);
           }
         }}
-        title={drawerRow ? `${drawerRow.event.ticker} · ${drawerRow.event.accountId}` : dict.dividends.pageTitle}
+        title={drawerRow ? `${drawerRow.event.ticker} · ${eventAccountLabel(drawerRow.event)}` : dict.dividends.pageTitle}
         dirty={isDrawerDirty}
         dirtyConfirmMessage={dict.dividends.form.unsavedChangesConfirm}
       >
@@ -404,7 +408,7 @@ function DividendRowCard({
               {resolveBadgeLabel(dict, badge)}
             </span>
           </div>
-          <p className="mt-1 truncate text-sm text-slate-500">{row.event.accountId}</p>
+          <p className="mt-1 truncate text-sm text-slate-500">{eventAccountLabel(row.event)}</p>
         </div>
 
         <div className="flex flex-wrap gap-2 lg:shrink-0 lg:justify-end">

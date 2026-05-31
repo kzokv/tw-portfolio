@@ -66,7 +66,7 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
-                    <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
                   </div>
                   <StatusPill label={resolveUpcomingStatusLabel(dict, item.status)} />
                 </div>
@@ -94,7 +94,7 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
-                    <p className="mt-1 text-sm text-slate-500">{item.accountId}</p>
+                    <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
                   </div>
                   <StatusPill label={item.status === "posted" ? dict.dashboardHome.statusPosted : dict.dashboardHome.statusUnreconciled} />
                 </div>

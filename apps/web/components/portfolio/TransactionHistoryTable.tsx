@@ -9,6 +9,7 @@ import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../l
 import { Card } from "../ui/Card";
 import { EditableTransactionRow } from "./EditableTransactionRow";
 import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
+import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
 
 interface TransactionHistoryTableProps {
   transactions: TransactionHistoryItemDto[];
@@ -86,7 +87,7 @@ export function TransactionHistoryTable({
                     </div>
 
                     <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                      <HistoryDetail label={dict.holdings.accountTerm} value={transaction.accountId} />
+                      <HistoryDetail label={dict.holdings.accountTerm} value={transactionAccountDisplayName(transaction)} />
                       <HistoryDetail label={dict.transactions.quantityTerm} value={formatNumber(transaction.quantity, locale)} />
                       <HistoryDetail
                         label={dict.transactions.unitPriceTerm}
@@ -193,7 +194,7 @@ export function TransactionHistoryTable({
                     data-testid="transaction-row"
                   >
                     <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-4">{formatDateLabel(transaction.tradeDate, locale)}</td>
-                    <td className="px-4 py-4 text-muted-foreground">{transaction.accountId}</td>
+                    <td className="px-4 py-4 text-muted-foreground">{transactionAccountDisplayName(transaction)}</td>
                     <td className="px-4 py-4">
                       <TypePill type={transaction.type} />
                     </td>

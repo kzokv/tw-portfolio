@@ -22,6 +22,8 @@ export interface TransactionPatch {
   quantity?: number;
   price?: number;
   side?: "BUY" | "SELL";
+  commissionAmount?: number;
+  taxAmount?: number;
   confirmFeeRecalculation?: boolean;
   keepManualFees?: boolean;
 }
@@ -240,6 +242,8 @@ export function useTransactionMutations({
         if (patch.quantity !== undefined) patchBody.quantity = patch.quantity;
         if (patch.price !== undefined) patchBody.price = patch.price;
         if (patch.side !== undefined) patchBody.side = patch.side;
+        if (patch.commissionAmount !== undefined) patchBody.commissionAmount = patch.commissionAmount;
+        if (patch.taxAmount !== undefined) patchBody.taxAmount = patch.taxAmount;
         if (patch.confirmFeeRecalculation) patchBody.confirmFeeRecalculation = true;
         if (patch.keepManualFees) patchBody.keepManualFees = true;
 

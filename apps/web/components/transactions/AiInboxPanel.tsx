@@ -86,10 +86,14 @@ function rowGross(row: DraftRow): number {
   return row.quantity && row.unitPrice ? row.quantity * row.unitPrice : 0;
 }
 
+function rowAccountLabel(row: DraftRow): string {
+  return row.accountName?.trim() || row.accountNameInput?.trim() || row.accountId?.trim() || "-";
+}
+
 function toEditDraft(row: DraftRow): EditDraft {
   return {
-    accountId: row.accountId ?? "",
-    accountName: row.accountNameInput ?? "",
+    accountId: "",
+    accountName: row.accountName ?? row.accountNameInput ?? "",
     type: row.type ?? "",
     ticker: row.ticker ?? "",
     marketCode: row.marketCode ?? "",
@@ -544,7 +548,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                                 {row.tradeDate ?? "-"} · {row.marketCode ?? "-"} · {row.priceCurrency ?? "-"}
                               </div>
                             </TableCell>
-                            <TableCell>{row.accountId ?? row.accountNameInput ?? "-"}</TableCell>
+                            <TableCell>{rowAccountLabel(row)}</TableCell>
                             <TableCell className="text-right">
                               {row.priceCurrency ? formatCurrencyAmount(rowGross(row), row.priceCurrency, locale) : "-"}
                             </TableCell>
@@ -581,7 +585,7 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale }: AiInb
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     {([
-                      ["accountId", "Account ID"],
+                      ["accountName", "Account"],
                       ["type", "Type"],
                       ["ticker", "Ticker"],
                       ["marketCode", "Market"],

@@ -5,6 +5,7 @@ import { routeError } from "../lib/routeError.js";
 import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvents } from "./accountingStore.js";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
+import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 import { listHoldings } from "./portfolio.js";
 import type { Store, Transaction } from "../types/store.js";
 
@@ -130,7 +131,7 @@ export async function buildTickerDetails(
         source: bar.source,
       })),
     },
-    transactions: filteredTransactions.map(mapTransactionHistoryItem),
+    transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById)),
     dividends: {
       upcoming: buildUpcomingDividends(input.store, normalizedTicker, scopedAccountIds),
       recent: buildRecentDividends(input.store, normalizedTicker, scopedAccountIds),
@@ -257,6 +258,7 @@ function buildUpcomingDividends(
 
         return [{
           accountId: account.id,
+          accountName: account.name,
           ticker: event.ticker,
           exDividendDate: event.exDividendDate,
           paymentDate: event.paymentDate,
@@ -284,6 +286,7 @@ function buildRecentDividends(
       .filter((event) => event.ticker === ticker)
       .map((event) => [event.id, event]),
   );
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const deductionsByLedgerId = new Map<string, number>();
 
   for (const deduction of listDividendDeductionEntries(store)) {
@@ -302,6 +305,7 @@ function buildRecentDividends(
       const deductionAmount = deductionsByLedgerId.get(entry.id) ?? 0;
       return [{
         accountId: entry.accountId,
+        accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: event.ticker,
         postedAt: entry.bookedAt ?? event.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
@@ -346,10 +350,14 @@ function buildFundamentalsRefresh(
   };
 }
 
-function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDto {
+function mapTransactionHistoryItem(
+  trade: Transaction,
+  accountById: ReadonlyMap<string, { id: string; name: string }>,
+): TransactionHistoryItemDto {
   return {
     id: trade.id,
     accountId: trade.accountId,
+    accountName: resolveAccountDisplayName(accountById, trade.accountId),
     ticker: trade.ticker,
     marketCode: trade.marketCode,
     instrumentType: trade.instrumentType,

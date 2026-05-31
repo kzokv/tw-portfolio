@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MARKET_CODES, type AiConnectorAccessKind, type AiConnectorScope } from "@vakwen/shared-types";
+import { ACCOUNT_DEFAULT_CURRENCIES, MARKET_CODES, type AiConnectorAccessKind, type AiConnectorScope } from "@vakwen/shared-types";
 
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
@@ -46,6 +46,7 @@ const currencyCodeSchema = z
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{3}$/);
+const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 
 const marketCodeSchema = z.enum(MARKET_CODES);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -183,6 +184,69 @@ const toolDefinitions = {
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },
+  list_accounts: {
+    description: "List active accounts and, optionally, recently deleted accounts available to the current portfolio context.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      includeDeleted: z.boolean().optional(),
+    }),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  create_account: {
+    description: "Create an account with a seeded default fee profile. Post-create default-currency changes are not supported through MCP.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      name: z.string().trim().min(1).max(80),
+      defaultCurrency: accountDefaultCurrencySchema,
+      accountType: z.enum(["broker", "bank", "wallet"]),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  update_account: {
+    description: "Update active account metadata by id or by a uniquely resolvable active account name. Default currency is immutable over MCP after creation.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountId: userScopedIdSchema.optional(),
+      accountName: z.string().trim().min(1).max(120).optional(),
+      name: z.string().trim().min(1).max(80).optional(),
+      accountType: z.enum(["broker", "bank", "wallet"]).optional(),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  soft_delete_account: {
+    description: "Soft-delete an active account by id or by a uniquely resolvable active account name.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountId: userScopedIdSchema.optional(),
+      accountName: z.string().trim().min(1).max(120).optional(),
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  restore_account: {
+    description: "Restore a soft-deleted account by id. If its prior name collides with an active account, Vakwen auto-renames it deterministically.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      accountId: userScopedIdSchema,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+  },
+  get_account_manager_component: {
+    description: "Return the ChatGPT Apps account manager component state with active and deleted accounts plus MCP tool bindings.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+    }).strict(),
+    scope: "account:manage" as const,
+    accessKind: "write" as const,
+    _meta: {
+      "openai/outputTemplate": "/connectors/chatgpt/account-manager",
+      "openai/widgetAccessible": true,
+    },
+  },
   get_transaction_draft_template: {
     description: `Return the trade-only draft template and constraints for BUY/SELL candidate rows. ${adviceBoundary}`,
     inputSchema: z.object({ ...mcpSharedInputShape }),
@@ -314,6 +378,17 @@ const toolDefinitions = {
     scope: "transaction_draft:delete" as const,
     accessKind: "draft_delete" as const,
   },
+  get_transaction_draft_posting_preview: {
+    description: "Return a deterministic posting preview for selected ready draft rows, including account names, fee source, gross/net cash impact, and operational warnings.",
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      batchId: userScopedIdSchema,
+      expectedBatchVersion: z.number().int().positive().optional(),
+      rowIds: z.array(userScopedIdSchema).min(1).max(200).optional(),
+    }).strict(),
+    scope: "transaction_draft:edit" as const,
+    accessKind: "draft_update" as const,
+  },
   post_transaction_draft_rows: {
     description: `Post selected ready draft rows into the canonical transaction ledger. Requires transaction:write, expected batch and row versions, an idempotency key, and deterministic server-side revalidation. ${adviceBoundary}`,
     inputSchema: z.object({
@@ -338,7 +413,7 @@ export type McpToolDefinition = typeof toolDefinitions[McpToolName];
 
 function getToolAnnotations(name: McpToolName, accessKind: AiConnectorAccessKind): McpToolAnnotations {
   if (accessKind === "read") return readOnlyToolAnnotations;
-  if (name === "delete_unconfirmed_transaction_draft_batch") return destructiveWriteToolAnnotations;
+  if (name === "delete_unconfirmed_transaction_draft_batch" || name === "soft_delete_account") return destructiveWriteToolAnnotations;
   return boundedWriteToolAnnotations;
 }
 
@@ -370,6 +445,7 @@ export function listMcpToolDefinitions(): Array<{
 
 export const ALL_MCP_SCOPES: AiConnectorScope[] = [
   "portfolio:mcp_read",
+  "account:manage",
   "transaction_draft:create",
   "transaction_draft:edit",
   "transaction_draft:archive",

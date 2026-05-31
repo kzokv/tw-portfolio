@@ -114,7 +114,7 @@ async function createConnectorNotification(
 
 export function connectorGroupForScope(scope: AiConnectorScope): "read" | "drafts" | "write" {
   if (scope === "portfolio:mcp_read") return "read";
-  if (scope === "transaction:write") return "write";
+  if (scope === "transaction:write" || scope === "account:manage") return "write";
   return "drafts";
 }
 

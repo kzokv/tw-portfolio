@@ -61,6 +61,10 @@ const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
   "INTEREST_INCOME",
 ]);
 
+function eventAccountLabel(row: DividendCalendarRow): string {
+  return row.event.accountName?.trim() || row.event.accountId;
+}
+
 function roundTwd(value: number): number {
   return Math.round(value + Number.EPSILON);
 }
@@ -361,7 +365,7 @@ export function DividendPostingForm({
         <div className="min-w-0">
           <h3 className="text-xl font-semibold text-slate-950">{row.event.ticker}</h3>
           <p className="mt-1 break-all text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            {row.event.accountId}
+            {eventAccountLabel(row)}
           </p>
         </div>
         <div className="shrink-0 text-right">
