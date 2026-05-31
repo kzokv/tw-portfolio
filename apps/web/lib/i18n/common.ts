@@ -8,6 +8,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
       loadingSettings: "Loading settings...",
       noAccounts: "No account is available. Open settings to bind an account profile first.",
       transactionSubmitted: "Transaction recorded successfully.",
+      demoSession: "You're using a demo session.",
     },
     actions: {
       recomputeHistory: "Recompute History",
@@ -35,6 +36,7 @@ export const commonI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "feedback" |
       loadingSettings: "設定載入中...",
       noAccounts: "目前沒有可用帳戶，請先在設定中綁定帳戶預設費率。",
       transactionSubmitted: "交易已成功寫入。",
+      demoSession: "你正在使用示範工作階段。",
     },
     actions: {
       recomputeHistory: "重算歷史",

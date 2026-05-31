@@ -207,7 +207,7 @@ export const portfolioI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "recomput
       marketChipUS: "US",
       marketChipAU: "AU",
       marketChipKR: "KR",
-      marketChipAll: "All",
+      marketChipAll: "全部",
       noAccountForCurrency: "尚未建立 {currency} 帳戶 — ",
       createAccountLink: "新增 {currency} 帳戶",
       currencyMismatchError: "交易幣別與帳戶幣別不符。",
