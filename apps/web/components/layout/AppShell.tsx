@@ -290,7 +290,7 @@ export function AppShell({
           className="flex h-8 items-center justify-center bg-amber-100 text-xs font-medium text-amber-800"
           data-testid="demo-banner"
         >
-          You&apos;re using a demo session.
+          {dict.feedback.demoSession}
         </div>
       )}
       {/* Preserves §8 item 6 — ImpersonationBanner above SidebarProvider so

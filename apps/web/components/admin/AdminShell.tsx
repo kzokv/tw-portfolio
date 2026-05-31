@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { LocaleCode } from "@vakwen/shared-types";
 import { useRouter } from "next/navigation";
 import { API_PUBLIC } from "../../lib/api";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
@@ -11,6 +12,7 @@ import { TopBar } from "../layout/TopBar";
 import { AppSidebar } from "../layout/AppSidebar";
 import { BreadcrumbProvider } from "../layout/BreadcrumbProvider";
 import { SidebarInset, SidebarProvider } from "../ui/shadcn/sidebar";
+import { AdminI18nProvider, adminI18n } from "./admin-i18n";
 
 interface AdminShellProps {
   userId: string;
@@ -18,6 +20,7 @@ interface AdminShellProps {
   pictureUrl: string | null;
   email: string | null;
   role: string;
+  locale: LocaleCode;
   initialProfile: ProfileWithImpersonationDto;
   /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
   initialSidebarOpen?: boolean;
@@ -35,11 +38,13 @@ export function AdminShell({
   pictureUrl,
   email,
   role,
+  locale,
   initialProfile,
   initialSidebarOpen = true,
   children,
 }: AdminShellProps) {
   const router = useRouter();
+  const dict = adminI18n[locale === "zh-TW" ? "zh-TW" : "en"];
   const [isClientReady, setIsClientReady] = useState(false);
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation
@@ -57,13 +62,35 @@ export function AdminShell({
   }, [profileData, router]);
 
   return (
+    <AdminI18nProvider locale={locale}>
     <div className="flex min-h-screen flex-col">
       {/* Preserves §8 item 6 — ImpersonationBanner above SidebarProvider. */}
       <ImpersonationBanner impersonation={impersonation} onRefreshContext={refreshAdminShell} />
 
       <BreadcrumbProvider>
         <SidebarProvider defaultOpen={initialSidebarOpen}>
-          <AppSidebar variant="admin" role={role} productName="Vakwen" />
+          <AppSidebar
+            variant="admin"
+            role={role}
+            productName="Vakwen"
+            labels={{
+              productSubtitle: dict.shell.productSubtitle,
+              management: dict.shell.management,
+              brandMobileAria: dict.shell.brandMobileAria,
+              brandDesktopAria: dict.shell.brandDesktopAria,
+              backToApp: dict.shell.backToApp,
+              dashboardFeedbackLabel: dict.shell.dashboard,
+              nav: {
+                overview: dict.shell.nav.overview,
+                users: dict.shell.nav.users,
+                invites: dict.shell.nav.invites,
+                "audit-log": dict.shell.nav.auditLog,
+                providers: dict.shell.nav.providers,
+                instruments: dict.shell.nav.instruments,
+                settings: dict.shell.nav.settings,
+              },
+            }}
+          />
 
           <SidebarInset className="relative min-w-0">
             <TopBar
@@ -73,13 +100,13 @@ export function AdminShell({
               email={email}
               role={role}
               signOutHref={`${API_PUBLIC}/auth/logout`}
-              searchPlaceholder="Search..."
-              searchLabel="Search"
-              searchEmptyLabel="No results"
-              searchRoutesLabel="Pages"
-              searchTickersLabel="Tickers"
-              openSearchLabel="Open search"
-              closeSearchLabel="Close search"
+              searchPlaceholder={dict.shell.searchPlaceholder}
+              searchLabel={dict.shell.searchLabel}
+              searchEmptyLabel={dict.shell.searchEmptyLabel}
+              searchRoutesLabel={dict.shell.searchRoutesLabel}
+              searchTickersLabel={dict.shell.searchTickersLabel}
+              openSearchLabel={dict.shell.openSearchLabel}
+              closeSearchLabel={dict.shell.closeSearchLabel}
               searchItems={[]}
               hideSearch
               hideNotifications
@@ -95,5 +122,6 @@ export function AdminShell({
         </SidebarProvider>
       </BreadcrumbProvider>
     </div>
+    </AdminI18nProvider>
   );
 }

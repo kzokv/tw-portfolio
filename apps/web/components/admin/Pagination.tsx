@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "../ui/Button";
+import { useAdminI18n } from "./admin-i18n";
 
 interface PaginationProps {
   page: number;
@@ -11,6 +12,7 @@ interface PaginationProps {
 }
 
 export function Pagination({ page, limit, total, onPageChange }: PaginationProps) {
+  const dict = useAdminI18n();
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const from = total === 0 ? 0 : (page - 1) * limit + 1;
   const to = Math.min(page * limit, total);
@@ -18,7 +20,12 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
   return (
     <div className="flex items-center justify-between" data-testid="pagination">
       <p className="text-sm text-slate-500">
-        {total === 0 ? "No results" : `${from}–${to} of ${total}`}
+        {total === 0
+          ? dict.pagination.noResults
+          : dict.pagination.summary
+            .replace("{start}", String(from))
+            .replace("{end}", String(to))
+            .replace("{total}", String(total))}
       </p>
       <div className="flex items-center gap-1">
         <Button
@@ -26,7 +33,7 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
           size="sm"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          aria-label="Previous page"
+          aria-label={dict.common.previousPage}
           data-testid="pagination-prev"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -39,7 +46,7 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
           size="sm"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          aria-label="Next page"
+          aria-label={dict.common.nextPage}
           data-testid="pagination-next"
         >
           <ChevronRight className="h-4 w-4" />

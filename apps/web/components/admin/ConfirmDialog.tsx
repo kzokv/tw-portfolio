@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Button } from "../ui/Button";
+import { useAdminI18n } from "./admin-i18n";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const dict = useAdminI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export function ConfirmDialog({
             disabled={loading}
             data-testid={confirmTestId}
           >
-            {loading ? "Processing..." : confirmLabel}
+            {loading ? dict.confirmDialog.processing : confirmLabel}
           </Button>
         </div>
       </div>
