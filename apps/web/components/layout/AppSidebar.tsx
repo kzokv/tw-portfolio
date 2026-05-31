@@ -78,6 +78,17 @@ interface NavGroup {
   items: NavItem[];
 }
 
+export interface AppSidebarLabels {
+  productSubtitle?: string;
+  management?: string;
+  brandMobileAria?: string;
+  brandDesktopAria?: string;
+  operatorGroupLabel?: string;
+  backToApp?: string;
+  dashboardFeedbackLabel?: string;
+  nav?: Partial<Record<NavKey, string>>;
+}
+
 interface AppSidebarProps {
   variant?: AppSidebarVariant;
   /** Role from `/profile` — used to gate the Admin entry on the user variant. */
@@ -86,6 +97,7 @@ interface AppSidebarProps {
   productName?: string;
   /** Brand subtitle. */
   productSubtitle?: string;
+  labels?: AppSidebarLabels;
   /** Optional slot rendered inside `<SidebarHeader>` below the brand link.
    *  AppShell injects `<PortfolioSwitcher>` here so the switcher lives in
    *  the sidebar (per spec amendment #23). */
@@ -121,6 +133,7 @@ export function AppSidebar({
   role,
   productName = "Vakwen",
   productSubtitle,
+  labels,
   switcherSlot,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? "/";
@@ -149,8 +162,8 @@ export function AppSidebar({
   });
 
   const groups: NavGroup[] = variant === "admin"
-    ? [{ key: "admin", items: getAdminNavItems() }]
-    : getUserNavGroups({ role, aiInboxCount });
+    ? [{ key: "admin", items: getAdminNavItems(labels?.nav) }]
+    : getUserNavGroups({ role, aiInboxCount, labels });
 
   const handleNavClick = (item: NavItem) => {
     if (isMobile) setOpenMobile(false);
@@ -203,7 +216,7 @@ export function AppSidebar({
             if (isMobile) setOpenMobile(false);
             navigationFeedback?.startNavigation({
               href: brandHref,
-              label: variant === "admin" ? "Admin overview" : "Dashboard",
+              label: labels?.nav?.overview ?? labels?.dashboardFeedbackLabel ?? "Dashboard",
             });
           }}
           // The `app-sidebar-brand` testid lives ONLY on the TopBar mobile
@@ -224,7 +237,11 @@ export function AppSidebar({
             // collapsed rail and getting clipped.
             "group-data-[collapsible=icon]:!size-8 group-data-[collapsible=icon]:!p-0 group-data-[collapsible=icon]:justify-center",
           )}
-          aria-label={isMobile ? `${productName} — close menu and go home` : `${productName} — go to dashboard`}
+          aria-label={
+            isMobile
+              ? labels?.brandMobileAria ?? `${productName} - close menu and go home`
+              : labels?.brandDesktopAria ?? `${productName} - go to dashboard`
+          }
         >
           <span
             className={cn(
@@ -243,10 +260,10 @@ export function AppSidebar({
           </span>
           <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate text-[10px] font-semibold uppercase tracking-[0.32em] text-sidebar-foreground/60">
-              {productSubtitle ?? (variant === "admin" ? "Admin" : productName)}
+              {productSubtitle ?? labels?.productSubtitle ?? (variant === "admin" ? "Admin" : productName)}
             </span>
             <span className="truncate text-sm font-semibold text-sidebar-foreground">
-              {variant === "admin" ? "Management" : productName}
+              {variant === "admin" ? labels?.management ?? "Management" : productName}
             </span>
           </span>
         </Link>
@@ -335,7 +352,7 @@ export function AppSidebar({
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Back to app">
+              <SidebarMenuButton asChild tooltip={labels?.backToApp ?? "Back to app"}>
                 <Link
                   href="/dashboard"
                   data-testid="admin-back-to-app"
@@ -343,12 +360,12 @@ export function AppSidebar({
                     if (isMobile) setOpenMobile(false);
                     navigationFeedback?.startNavigation({
                       href: "/dashboard",
-                      label: "Dashboard",
+                      label: labels?.dashboardFeedbackLabel ?? "Dashboard",
                     });
                   }}
                 >
                   <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
-                  <span>Back to app</span>
+                  <span>{labels?.backToApp ?? "Back to app"}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -365,50 +382,58 @@ export function AppSidebar({
   );
 }
 
-function getUserNavGroups({ role, aiInboxCount }: { role?: string; aiInboxCount: number }): NavGroup[] {
+function getUserNavGroups({
+  role,
+  aiInboxCount,
+  labels,
+}: {
+  role?: string;
+  aiInboxCount: number;
+  labels?: AppSidebarLabels;
+}): NavGroup[] {
   const main: NavItem[] = [
-    { key: "dashboard", href: "/dashboard", label: "Dashboard", icon: Gauge },
-    { key: "portfolio", href: "/portfolio", label: "Portfolio", icon: TrendingUp },
-    { key: "transactions", href: "/transactions", label: "Transactions", icon: Wallet, badgeCount: aiInboxCount },
-    { key: "cash-ledger", href: "/cash-ledger", label: "Cash Ledger", icon: CreditCard },
-    { key: "dividends", href: "/dividends", label: "Dividends", icon: LineChart },
-    { key: "sharing", href: "/sharing", label: "Sharing", icon: Share2 },
+    { key: "dashboard", href: "/dashboard", label: labels?.nav?.dashboard ?? "Dashboard", icon: Gauge },
+    { key: "portfolio", href: "/portfolio", label: labels?.nav?.portfolio ?? "Portfolio", icon: TrendingUp },
+    { key: "transactions", href: "/transactions", label: labels?.nav?.transactions ?? "Transactions", icon: Wallet, badgeCount: aiInboxCount },
+    { key: "cash-ledger", href: "/cash-ledger", label: labels?.nav?.["cash-ledger"] ?? "Cash Ledger", icon: CreditCard },
+    { key: "dividends", href: "/dividends", label: labels?.nav?.dividends ?? "Dividends", icon: LineChart },
+    { key: "sharing", href: "/sharing", label: labels?.nav?.sharing ?? "Sharing", icon: Share2 },
   ];
 
   // Operator group — Admin (role-gated) + Settings. Matches the mockup design
   // (`_shell.js` "Operator" nav-section).
   const operator: NavItem[] = [];
   if (role === "admin") {
-    operator.push({ key: "admin", href: "/admin", label: "Admin", icon: ShieldAlert });
+    operator.push({ key: "admin", href: "/admin", label: labels?.nav?.admin ?? "Admin", icon: ShieldAlert });
   }
   operator.push({
     key: "settings",
     href: "/settings",
-    label: "Settings",
+    label: labels?.nav?.settings ?? "Settings",
     icon: Settings,
     isActiveOverride: (pathname) => pathname.startsWith("/settings"),
   });
 
   return [
     { key: "main", items: main },
-    { key: "operator", label: "Operator", items: operator },
+    { key: "operator", label: labels?.operatorGroupLabel ?? "Operator", items: operator },
   ];
 }
 
-function getAdminNavItems(): NavItem[] {
+function getAdminNavItems(labels?: Partial<Record<NavKey, string>>): NavItem[] {
   return [
     {
       key: "overview",
       href: "/admin",
-      label: "Overview",
+      label: labels?.overview ?? "Overview",
       icon: LayoutDashboard,
       isActiveOverride: (pathname) => pathname === "/admin",
     },
-    { key: "users", href: "/admin/users", label: "Users", icon: Users },
-    { key: "invites", href: "/admin/invites", label: "Invites", icon: Mail },
-    { key: "audit-log", href: "/admin/audit-log", label: "Audit Log", icon: ClipboardList },
-    { key: "providers", href: "/admin/providers", label: "Providers", icon: Activity },
-    { key: "instruments", href: "/admin/instruments", label: "Instruments", icon: LineChart },
-    { key: "settings", href: "/admin/settings", label: "Settings", icon: Settings },
+    { key: "users", href: "/admin/users", label: labels?.users ?? "Users", icon: Users },
+    { key: "invites", href: "/admin/invites", label: labels?.invites ?? "Invites", icon: Mail },
+    { key: "audit-log", href: "/admin/audit-log", label: labels?.["audit-log"] ?? "Audit Log", icon: ClipboardList },
+    { key: "providers", href: "/admin/providers", label: labels?.providers ?? "Providers", icon: Activity },
+    { key: "instruments", href: "/admin/instruments", label: labels?.instruments ?? "Instruments", icon: LineChart },
+    { key: "settings", href: "/admin/settings", label: labels?.settings ?? "Settings", icon: Settings },
   ];
 }

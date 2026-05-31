@@ -17,6 +17,7 @@ import { Pagination } from "./Pagination";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { HardPurgeDialog } from "./HardPurgeDialog";
 import { cn } from "../../lib/utils";
+import { formatAdminRelativeTime, useAdminI18n } from "./admin-i18n";
 
 interface AdminUsersClientProps {
   currentUserId: string;
@@ -27,25 +28,10 @@ type StatusFilter = AdminUserStatus | "all";
 
 const ROLE_OPTIONS: UserRole[] = ["admin", "member", "viewer"];
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Admin",
-  member: "Member",
-  viewer: "Viewer",
-};
-
-function formatRelativeTime(dateStr: string | null): string {
+function formatRelativeTime(dateStr: string | null, dict: ReturnType<typeof useAdminI18n>): string {
   if (!dateStr) return "—";
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return "Just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  const locale = dict.common.justNow === "剛剛" ? "zh-TW" : "en";
+  return formatAdminRelativeTime(dateStr, locale, dict);
 }
 
 function formatDate(dateStr: string): string {
@@ -53,7 +39,13 @@ function formatDate(dateStr: string): string {
 }
 
 export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsersClientProps) {
+  const dict = useAdminI18n();
   const router = useRouter();
+  const roleLabels: Record<UserRole, string> = {
+    admin: dict.common.roleAdmin,
+    member: dict.common.roleMember,
+    viewer: dict.common.roleViewer,
+  };
   const [users, setUsers] = useState<AdminUserListItemDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -105,7 +97,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
       setUsers(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      setError(err instanceof Error ? err.message : dict.users.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -118,13 +110,13 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
   function handleApiError(err: unknown): string {
     if (err instanceof ApiError) {
       if (err.code === "impersonation_write_blocked") return "";
-      if (err.code === "last_admin_blocked") return "Cannot remove the last admin";
-      if (err.code === "self_operation_blocked") return "Cannot modify yourself";
-      if (err.code === "active_jobs_blocked") return "User has active background jobs";
-      if (err.code === "cannot_impersonate_self") return "Cannot impersonate yourself";
+      if (err.code === "last_admin_blocked") return dict.users.lastAdminBlocked;
+      if (err.code === "self_operation_blocked") return dict.users.selfBlocked;
+      if (err.code === "active_jobs_blocked") return dict.users.activeJobsBlocked;
+      if (err.code === "cannot_impersonate_self") return dict.users.cannotImpersonateSelf;
       return err.message;
     }
-    return err instanceof Error ? err.message : "Operation failed";
+    return err instanceof Error ? err.message : dict.users.operationFailed;
   }
 
   function setHandledActionError(err: unknown): void {
@@ -138,9 +130,11 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
     if (user.userId === currentUserId) return;
     if (user.role === "admin" && newRole !== "admin") {
       setConfirmDialog({
-        title: "Demote Admin",
-        description: `Are you sure you want to change ${user.email ?? user.displayName ?? "this user"}'s role from Admin to ${ROLE_LABELS[newRole]}? They will lose admin access.`,
-        confirmLabel: "Demote",
+        title: dict.users.demoteTitle,
+        description: dict.users.demoteDescription
+          .replace("{user}", user.email ?? user.displayName ?? dict.users.thisUser)
+          .replace("{role}", roleLabels[newRole]),
+        confirmLabel: dict.users.demoteConfirm,
         variant: "danger",
         action: async () => {
           await patchJson(`/admin/users/${user.userId}/role`, { role: newRole });
@@ -162,9 +156,9 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
 
   async function handleDisable(user: AdminUserListItemDto) {
     setConfirmDialog({
-      title: "Disable User",
-      description: `Are you sure you want to disable ${user.email ?? user.displayName ?? "this user"}? They will be unable to log in.`,
-      confirmLabel: "Disable",
+      title: dict.users.disableTitle,
+      description: dict.users.disableDescription.replace("{user}", user.email ?? user.displayName ?? dict.users.thisUser),
+      confirmLabel: dict.users.disableConfirm,
       variant: "danger",
       action: async () => {
         await postJson(`/admin/users/${user.userId}/disable`, {});
@@ -187,9 +181,9 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
 
   async function handleDelete(user: AdminUserListItemDto) {
     setConfirmDialog({
-      title: "Delete User",
-      description: `Are you sure you want to delete ${user.email ?? user.displayName ?? "this user"}? Their data will be preserved but they will be unable to log in.`,
-      confirmLabel: "Delete",
+      title: dict.users.deleteTitle,
+      description: dict.users.deleteDescription.replace("{user}", user.email ?? user.displayName ?? dict.users.thisUser),
+      confirmLabel: dict.users.deleteConfirm,
       variant: "danger",
       action: async () => {
         await deleteJson(`/admin/users/${user.userId}`);
@@ -247,17 +241,17 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
   }
 
   const statusTabs: { value: StatusFilter; label: string }[] = [
-    { value: "active", label: "Active" },
-    { value: "disabled", label: "Disabled" },
-    { value: "deleted", label: "Deleted" },
-    { value: "all", label: "All" },
+    { value: "active", label: dict.common.statusActive },
+    { value: "disabled", label: dict.common.statusDisabled },
+    { value: "deleted", label: dict.common.statusDeleted },
+    { value: "all", label: dict.common.all },
   ];
 
   return (
     <div className="space-y-6" data-testid="admin-users-page">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Users</h1>
-        <p className="mt-1 text-sm text-slate-600">Manage user accounts, roles, and access.</p>
+        <h1 className="text-2xl font-semibold text-slate-950">{dict.users.title}</h1>
+        <p className="mt-1 text-sm text-slate-600">{dict.users.description}</p>
       </div>
 
       {actionError && (
@@ -268,7 +262,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
         >
           {actionError}
           <button className="ml-2 text-red-500 hover:text-red-700" onClick={() => setActionError(null)}>
-            Dismiss
+            {dict.common.dismiss}
           </button>
         </div>
       )}
@@ -297,7 +291,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by email or name..."
+          placeholder={dict.users.searchPlaceholder}
           className="w-full rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 sm:max-w-xs"
           data-testid="user-search"
         />
@@ -306,30 +300,30 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
       <Card className="overflow-hidden p-0 hover:translate-y-0">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-slate-500">Loading users...</p>
+            <p className="text-sm text-slate-500">{dict.users.loading}</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
             <p className="text-sm text-red-600">{error}</p>
             <Button variant="secondary" size="sm" onClick={() => void fetchUsers()}>
-              Retry
+              {dict.common.retry}
             </Button>
           </div>
         ) : users.length === 0 ? (
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-slate-500">No users found.</p>
+            <p className="text-sm text-slate-500">{dict.users.empty}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-[760px] w-full text-sm" data-testid="users-table">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">User</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Last seen</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Joined</th>
-                  <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.user}</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.role}</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.status}</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.lastSeen}</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.joined}</th>
+                  <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.actions}</th>
                 </tr>
               </thead>
               <tbody>
@@ -345,11 +339,11 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium text-slate-950">
-                              {user.displayName ?? user.email ?? "Unknown user"}
+                              {user.displayName ?? user.email ?? dict.users.unknownUser}
                             </span>
                             {isSelf && (
                               <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700" data-testid="you-badge">
-                                you
+                                {dict.users.you}
                               </span>
                             )}
                           </div>
@@ -358,7 +352,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                       </td>
                       <td className="px-4 py-4 align-top">
                         {isSelf ? (
-                          <span className="text-sm font-medium text-slate-700">{ROLE_LABELS[user.role]}</span>
+                          <span className="text-sm font-medium text-slate-700">{roleLabels[user.role]}</span>
                         ) : (
                           <select
                             value={user.role}
@@ -368,7 +362,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                             data-testid={`role-select-${user.userId}`}
                           >
                             {ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                              <option key={r} value={r}>{roleLabels[r]}</option>
                             ))}
                           </select>
                         )}
@@ -377,7 +371,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                         <UserStatusBadge status={user.status} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 align-top text-slate-500" title={user.lastSeenAt ?? undefined}>
-                        {formatRelativeTime(user.lastSeenAt)}
+                        {formatRelativeTime(user.lastSeenAt, dict)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 align-top text-slate-500" title={user.createdAt}>
                         {formatDate(user.createdAt)}
@@ -395,10 +389,10 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                               )}
                               disabled={user.status !== "active" || actionLoading}
                               onClick={() => void handleImpersonate(user)}
-                              title="Impersonate user"
+                              title={dict.users.impersonateTitle}
                               data-testid={`impersonate-btn-${user.userId}`}
                             >
-                              Impersonate
+                              {dict.users.impersonate}
                             </Button>
                           ) : null}
                           {user.status === "active" && (
@@ -408,10 +402,10 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                                 size="sm"
                                 disabled={isSelf || actionLoading}
                                 onClick={() => void handleDisable(user)}
-                                title={isSelf ? "Cannot modify yourself" : "Disable user"}
+                                title={isSelf ? dict.users.selfBlocked : dict.users.disableUserTitle}
                                 data-testid={`disable-btn-${user.userId}`}
                               >
-                                Disable
+                                {dict.users.disableConfirm}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -419,10 +413,10 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                                 className="text-red-600 hover:text-red-700"
                                 disabled={isSelf || actionLoading}
                                 onClick={() => void handleDelete(user)}
-                                title={isSelf ? "Cannot modify yourself" : "Delete user"}
+                                title={isSelf ? dict.users.selfBlocked : dict.users.deleteUserTitle}
                                 data-testid={`delete-btn-${user.userId}`}
                               >
-                                Delete
+                                {dict.users.deleteConfirm}
                               </Button>
                             </>
                           )}
@@ -435,7 +429,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                                 onClick={() => void handleEnable(user)}
                                 data-testid={`enable-btn-${user.userId}`}
                               >
-                                Enable
+                                {dict.users.enable}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -445,7 +439,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                                 onClick={() => void handleDelete(user)}
                                 data-testid={`delete-btn-${user.userId}`}
                               >
-                                Delete
+                                {dict.users.deleteConfirm}
                               </Button>
                             </>
                           )}
@@ -456,10 +450,10 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
                               className="text-red-600 hover:text-red-700"
                               disabled={isSelf || actionLoading}
                               onClick={() => setPurgeTarget(user)}
-                              title={isSelf ? "Cannot modify yourself" : "Permanently purge user data"}
+                              title={isSelf ? dict.users.selfBlocked : dict.users.purgeTitle}
                               data-testid={`purge-btn-${user.userId}`}
                             >
-                              Purge
+                              {dict.users.purge}
                             </Button>
                           )}
                         </div>
@@ -481,7 +475,7 @@ export function AdminUsersClient({ currentUserId, currentUserEmail }: AdminUsers
         open={confirmDialog !== null}
         title={confirmDialog?.title ?? ""}
         description={confirmDialog?.description ?? ""}
-        confirmLabel={confirmDialog?.confirmLabel ?? "Confirm"}
+        confirmLabel={confirmDialog?.confirmLabel ?? dict.common.confirm}
         variant={confirmDialog?.variant ?? "default"}
         loading={actionLoading}
         onConfirm={() => void executeConfirmAction()}

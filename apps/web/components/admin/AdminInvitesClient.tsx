@@ -13,25 +13,17 @@ import { Card } from "../ui/Card";
 import { Pagination } from "./Pagination";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { cn } from "../../lib/utils";
+import { useAdminI18n } from "./admin-i18n";
 
 type StatusFilter = InviteListStatus | "all";
 
 const ROLE_OPTIONS: UserRole[] = ["admin", "member", "viewer"];
-const ROLE_LABELS: Record<UserRole, string> = { admin: "Admin", member: "Member", viewer: "Viewer" };
 
-const EXPIRY_PRESETS = [
-  { label: "1 day", days: 1 },
-  { label: "7 days", days: 7 },
-  { label: "14 days", days: 14 },
-  { label: "30 days", days: 30 },
-  { label: "Custom", days: 0 },
-];
-
-const STATUS_BADGE: Record<InviteListStatus, { label: string; className: string }> = {
-  pending: { label: "Pending", className: "border-blue-200 bg-blue-50 text-blue-700" },
-  used: { label: "Used", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  expired: { label: "Expired", className: "border-slate-200 bg-slate-50 text-slate-500" },
-  revoked: { label: "Revoked", className: "border-red-200 bg-red-50 text-red-700" },
+const STATUS_BADGE_CLASS: Record<InviteListStatus, string> = {
+  pending: "border-blue-200 bg-blue-50 text-blue-700",
+  used: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  expired: "border-slate-200 bg-slate-50 text-slate-500",
+  revoked: "border-red-200 bg-red-50 text-red-700",
 };
 
 function formatDate(dateStr: string): string {
@@ -39,6 +31,25 @@ function formatDate(dateStr: string): string {
 }
 
 export function AdminInvitesClient() {
+  const dict = useAdminI18n();
+  const roleLabels: Record<UserRole, string> = {
+    admin: dict.common.roleAdmin,
+    member: dict.common.roleMember,
+    viewer: dict.common.roleViewer,
+  };
+  const expiryPresets = [
+    { label: dict.invites.expiry1Day, days: 1 },
+    { label: dict.invites.expiry7Days, days: 7 },
+    { label: dict.invites.expiry14Days, days: 14 },
+    { label: dict.invites.expiry30Days, days: 30 },
+    { label: dict.invites.expiryCustom, days: 0 },
+  ];
+  const statusLabels: Record<InviteListStatus, string> = {
+    pending: dict.common.statusPending,
+    used: dict.common.statusUsed,
+    expired: dict.common.statusExpired,
+    revoked: dict.common.statusRevoked,
+  };
   const [invites, setInvites] = useState<AdminInviteListItemDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -74,7 +85,7 @@ export function AdminInvitesClient() {
       setInvites(data.items);
       setTotal(data.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load invites");
+      setError(err instanceof Error ? err.message : dict.invites.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -100,12 +111,12 @@ export function AdminInvitesClient() {
       }
 
       await postJson("/invites", { email: formEmail, role: formRole, expiresAt });
-      setFormSuccess(`Invite sent to ${formEmail}`);
+      setFormSuccess(dict.invites.sent.replace("{email}", formEmail));
       setFormEmail("");
       setFormRole("member");
       await fetchInvites();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to create invite");
+      setFormError(err instanceof ApiError ? err.message : dict.invites.createFailed);
     } finally {
       setFormSubmitting(false);
     }
@@ -119,7 +130,7 @@ export function AdminInvitesClient() {
       setRevokeTarget(null);
       await fetchInvites();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to revoke invite");
+      setError(err instanceof ApiError ? err.message : dict.invites.revokeFailed);
       setRevokeTarget(null);
     } finally {
       setActionLoading(false);
@@ -137,25 +148,25 @@ export function AdminInvitesClient() {
   }
 
   const statusTabs: { value: StatusFilter; label: string }[] = [
-    { value: "all", label: "All" },
-    { value: "pending", label: "Pending" },
-    { value: "used", label: "Used" },
-    { value: "expired", label: "Expired" },
-    { value: "revoked", label: "Revoked" },
+    { value: "all", label: dict.common.all },
+    { value: "pending", label: dict.common.statusPending },
+    { value: "used", label: dict.common.statusUsed },
+    { value: "expired", label: dict.common.statusExpired },
+    { value: "revoked", label: dict.common.statusRevoked },
   ];
 
   return (
     <div className="space-y-6" data-testid="admin-invites-page">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Invites</h1>
-        <p className="mt-1 text-sm text-slate-600">Send invitations and manage pending invites.</p>
+        <h1 className="text-2xl font-semibold text-slate-950">{dict.invites.title}</h1>
+        <p className="mt-1 text-sm text-slate-600">{dict.invites.description}</p>
       </div>
 
       <Card data-testid="invite-form">
-        <h2 className="text-lg font-semibold text-slate-900">Create Invite</h2>
+        <h2 className="text-lg font-semibold text-slate-900">{dict.invites.createTitle}</h2>
         <form onSubmit={(e) => void handleCreateInvite(e)} className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto_auto_auto]">
           <div>
-            <label htmlFor="invite-email" className="block text-sm font-medium text-slate-700">Email</label>
+            <label htmlFor="invite-email" className="block text-sm font-medium text-slate-700">{dict.invites.email}</label>
             <input
               id="invite-email"
               type="email"
@@ -168,7 +179,7 @@ export function AdminInvitesClient() {
             />
           </div>
           <div>
-            <label htmlFor="invite-role" className="block text-sm font-medium text-slate-700">Role</label>
+            <label htmlFor="invite-role" className="block text-sm font-medium text-slate-700">{dict.invites.role}</label>
             <select
               id="invite-role"
               value={formRole}
@@ -177,12 +188,12 @@ export function AdminInvitesClient() {
               data-testid="invite-role-select"
             >
               {ROLE_OPTIONS.map((r) => (
-                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                <option key={r} value={r}>{roleLabels[r]}</option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="invite-expiry" className="block text-sm font-medium text-slate-700">Expires</label>
+            <label htmlFor="invite-expiry" className="block text-sm font-medium text-slate-700">{dict.invites.expires}</label>
             <select
               id="invite-expiry"
               value={formExpiryPreset}
@@ -190,7 +201,7 @@ export function AdminInvitesClient() {
               className="mt-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-300 focus:outline-none"
               data-testid="invite-expiry-select"
             >
-              {EXPIRY_PRESETS.map((p) => (
+              {expiryPresets.map((p) => (
                 <option key={p.days} value={p.days}>{p.label}</option>
               ))}
             </select>
@@ -208,7 +219,7 @@ export function AdminInvitesClient() {
           </div>
           <div className="flex items-end">
             <Button type="submit" size="sm" disabled={formSubmitting} data-testid="invite-submit">
-              {formSubmitting ? "Sending..." : "Send Invite"}
+              {formSubmitting ? dict.invites.sending : dict.invites.sendInvite}
             </Button>
           </div>
         </form>
@@ -242,34 +253,34 @@ export function AdminInvitesClient() {
       <Card className="overflow-hidden p-0 hover:translate-y-0">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-slate-500">Loading invites...</p>
+            <p className="text-sm text-slate-500">{dict.invites.loading}</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
             <p className="text-sm text-red-600">{error}</p>
-            <Button variant="secondary" size="sm" onClick={() => void fetchInvites()}>Retry</Button>
+            <Button variant="secondary" size="sm" onClick={() => void fetchInvites()}>{dict.common.retry}</Button>
           </div>
         ) : invites.length === 0 ? (
           <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-slate-500">No invites found.</p>
+            <p className="text-sm text-slate-500">{dict.invites.empty}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-testid="invites-table">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50/80">
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Issued By</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Expires</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Created</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.email}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.role}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.users.status}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.issuedBy}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.expires}</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.created}</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">{dict.invites.actions}</th>
                 </tr>
               </thead>
               <tbody>
                 {invites.map((invite) => {
-                  const badge = STATUS_BADGE[invite.status];
+                  const badgeClassName = STATUS_BADGE_CLASS[invite.status];
                   return (
                     <tr
                       key={invite.code}
@@ -277,10 +288,10 @@ export function AdminInvitesClient() {
                       data-testid={`invite-row-${invite.code}`}
                     >
                       <td className="px-4 py-3 text-slate-900">{invite.email}</td>
-                      <td className="px-4 py-3 text-slate-700">{ROLE_LABELS[invite.role]}</td>
+                      <td className="px-4 py-3 text-slate-700">{roleLabels[invite.role]}</td>
                       <td className="px-4 py-3">
-                        <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium", badge.className)} data-testid={`status-badge-${invite.status}`}>
-                          {badge.label}
+                        <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium", badgeClassName)} data-testid={`status-badge-${invite.status}`}>
+                          {statusLabels[invite.status]}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{invite.issuedByEmail ?? "—"}</td>
@@ -294,7 +305,7 @@ export function AdminInvitesClient() {
                             onClick={() => void copyToClipboard(`${window.location.origin}/invite/${invite.code}`, invite.code)}
                             data-testid={`copy-url-${invite.code}`}
                           >
-                            {copiedCode === invite.code ? "Copied!" : "Copy URL"}
+                            {copiedCode === invite.code ? dict.invites.copied : dict.invites.copyUrl}
                           </Button>
                           {invite.status === "pending" && (
                             <Button
@@ -305,7 +316,7 @@ export function AdminInvitesClient() {
                               disabled={actionLoading}
                               data-testid={`revoke-btn-${invite.code}`}
                             >
-                              Revoke
+                              {dict.invites.revoke}
                             </Button>
                           )}
                         </div>
@@ -325,9 +336,9 @@ export function AdminInvitesClient() {
 
       <ConfirmDialog
         open={revokeTarget !== null}
-        title="Revoke Invite"
-        description={`Are you sure you want to revoke the invite for ${revokeTarget?.email ?? ""}? They will no longer be able to use this invitation.`}
-        confirmLabel="Revoke"
+        title={dict.invites.revokeTitle}
+        description={dict.invites.revokeDescription.replace("{email}", revokeTarget?.email ?? "")}
+        confirmLabel={dict.invites.revoke}
         variant="danger"
         loading={actionLoading}
         onConfirm={() => void handleRevoke()}

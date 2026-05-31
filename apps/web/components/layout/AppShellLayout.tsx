@@ -110,6 +110,22 @@ export function AppShellLayout({
         variant="user"
         role={profileData.profile?.role}
         productName={uiDict.topBar.productName}
+        labels={{
+          brandMobileAria: uiDict.topBar.openNavigationLabel,
+          brandDesktopAria: uiDict.topBar.titleTooltip,
+          dashboardFeedbackLabel: uiDict.navigation.dashboardLabel,
+          operatorGroupLabel: uiDict.commandPalette.groupActions,
+          nav: {
+            dashboard: uiDict.navigation.dashboardLabel,
+            portfolio: uiDict.navigation.portfolioLabel,
+            transactions: uiDict.navigation.transactionsLabel,
+            "cash-ledger": uiDict.navigation.cashLedgerLabel,
+            dividends: uiDict.navigation.dividendsLabel,
+            sharing: uiDict.commandPalette.routeSharing,
+            admin: locale === "zh-TW" ? "管理" : "Admin",
+            settings: uiDict.settings.title,
+          },
+        }}
         switcherSlot={switcherSlot}
       />
 

@@ -359,7 +359,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       validationProfileName: "每個費率設定檔都需要名稱。",
       validationProfileNumbers: "費率設定檔數值欄位必須是非負數。",
       validationProfileCurrency: "每個費率設定檔都必須使用有效的三碼大寫幣別代碼。",
-      validationDiscount: "手續費折扣換算後必須介於 0% 到 100% off（即 0 折到 10 折）。",
+      validationDiscount: "手續費折扣換算後必須介於 0% 到 100% 減免（即 0 折到 10 折）。",
       validationAccountProfile: "每個帳戶都必須綁定有效的預設備率設定檔。",
       validationBindingTicker: "覆寫代號必須為 1-16 碼英數大寫。",
       validationBindingAccount: "覆寫資料包含不存在的帳戶。",
@@ -373,7 +373,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       profileNameLabel: "名稱",
       profileCommissionLabel: "牌告手續費率（‰）",
       profileDiscountLabel: "手續費折數（折）",
-      profileDiscountHint: "輸入券商合約折數；例如 4 折代表收取牌告手續費的 40%，等於 60% off。",
+      profileDiscountHint: "輸入券商合約折數；例如 4 折代表收取牌告手續費的 40%，等於減免 60%。",
       profileMinimumCommissionLabel: "最低手續費",
       profileCommissionCurrencyLabel: "手續費幣別",
       profileCommissionRoundLabel: "手續費進位",
@@ -399,7 +399,7 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       accountCreateCurrencyLabel: "幣別",
       accountCreateFeeProfileLabel: "費率組合",
       accountCreateCurrencyLockBody:
-        "每個帳戶使用單一幣別。日後若要在幣別之間移動資金，請使用 FX Transfer 流程。",
+        "每個帳戶使用單一幣別。日後若要在幣別之間移動資金，請使用換匯轉帳流程。",
       accountCreatePreviewLabel: "預覽",
       accountCreateSubmit: "新增帳戶",
       accountCreateNameInUseError: "已有相同名稱的帳戶。",
@@ -578,14 +578,14 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       displayAccentDescription:
         "設定按鈕、連結和圖表的主要強調色。狀態顏色（漲跌警告）不受影響。",
       displayAccentCustom: "自訂",
-      displayAccentHex: "Hex",
+      displayAccentHex: "十六進位色碼",
       displayAccentAaPass: "AA 對比 ✓",
       displayAccentAaFail: "AA 對比 ⚠",
       displayAccentApply: "套用",
       displayAccentReset: "重設為靛藍",
       displayDensityTitle: "密度",
       displayDensityDescription:
-        "影響表格列高與清單間距。Compact 在筆電螢幕約 10–12 列；Comfortable 換取較舒適的留白。",
+        "影響表格列高與清單間距。緊湊模式在筆電螢幕約 10–12 列；舒適模式會保留更多留白。",
       displayDensityCompact: "緊湊",
       displayDensityComfortable: "舒適",
       // Phase 3d S4 (A5) — 語言列 + 計算子區塊（/settings/display）

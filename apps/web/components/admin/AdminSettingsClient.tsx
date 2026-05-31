@@ -39,6 +39,7 @@ import {
 import { SortableRangeList, type SortableRangeRow } from "../settings/SortableRangeList";
 import { NumericOverrideRow } from "./NumericOverrideRow";
 import { MaskedSecretInput } from "./MaskedSecretInput";
+import { useAdminI18n } from "./admin-i18n";
 
 // KZO-199 — locked tab structure. Architect-design.md §0:
 //   admin-settings-tabs                  — list container
@@ -93,6 +94,110 @@ const TAB_NAV_ITEMS: Array<{
   { slug: "api-keys", icon: KeyRound, hint: "Provider secrets" },
   { slug: "mcp", icon: Bot, hint: "AI connector policy" },
 ];
+
+const ADMIN_SETTINGS_ZH: Record<string, string> = {
+  "Rate limits": "速率限制",
+  "Sharing": "分享",
+  "Provider health": "資料提供者健康度",
+  "Backfill & repair": "回補與修復",
+  "Catalog & metadata": "目錄與中繼資料",
+  "Display defaults": "顯示預設值",
+  "API keys": "API 金鑰",
+  "MCP": "MCP",
+  "Traffic windows, budgets, and request throttles.": "流量視窗、配額與請求節流。",
+  "Public-link caps and anonymous share guardrails.": "公開連結上限與匿名分享防護。",
+  "Provider cooldowns, retention, and alert suppression.": "資料提供者冷卻時間、保留期限與警示抑制。",
+  "Repair retries and backfill pacing defaults.": "修復重試與回補節奏預設值。",
+  "Catalog absence thresholds and metadata enrichment mode.": "目錄缺席門檻與中繼資料補全模式。",
+  "New-account display defaults and dashboard timeframes.": "新帳戶顯示預設值與儀表板時間範圍。",
+  "Encrypted provider secrets stored in app config.": "儲存在應用設定中的加密資料提供者密鑰。",
+  "Global AI connector policy and OAuth redirect allowlist.": "全域 AI 連接器政策與 OAuth 重新導向允許清單。",
+  "Traffic controls": "流量控制",
+  "Public access": "公開存取",
+  "Provider operations": "資料提供者作業",
+  "Worker pacing": "背景工作節奏",
+  "Catalog policy": "目錄政策",
+  "User defaults": "使用者預設",
+  "Provider secrets": "資料提供者密鑰",
+  "AI connector policy": "AI 連接器政策",
+  "Settings": "設定",
+  "Runtime configuration. Changes apply immediately and are recorded in the audit log.": "執行階段設定。變更會立即生效並記錄到稽核記錄。",
+  "Admin settings sections": "管理設定區段",
+  "Open": "開啟",
+  "Section": "區段",
+  "Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.": "每個 IP 的速率限制視窗與請求配額。覆寫留空時會回退使用環境值。",
+  "Market data price · window": "市場資料價格 · 視窗",
+  "Market data price · limit": "市場資料價格 · 上限",
+  "Market data search · window": "市場資料搜尋 · 視窗",
+  "Market data search · limit": "市場資料搜尋 · 上限",
+  "Invite status · window": "邀請狀態 · 視窗",
+  "Invite status · limit": "邀請狀態 · 上限",
+  "Anonymous-share-token cap and per-IP rate limits. Off = use the environment default.": "匿名分享權杖上限與每個 IP 的速率限制。關閉時使用環境預設值。",
+  "Anonymous share token cap": "匿名分享權杖上限",
+  "Maximum active anonymous share tokens per owner. New token requests above this fail with cap-exceeded.": "每位擁有者可啟用的匿名分享權杖上限。超過上限的新權杖請求會以 cap-exceeded 失敗。",
+  "Anonymous share rate limit · max": "匿名分享速率限制 · 最大值",
+  "Maximum requests per window for anonymous-share endpoints (per IP).": "匿名分享端點每個視窗的最大請求數（每個 IP）。",
+  "Anonymous share rate limit · window": "匿名分享速率限制 · 視窗",
+  "Sliding-window length for the anonymous-share rate limiter.": "匿名分享速率限制器的滑動視窗長度。",
+  "Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.": "資料提供者健康度頁面的通知抑制、錯誤軌跡保留期限與重新執行冷卻時間。",
+  "Down notification suppression": "故障通知抑制",
+  "Cooldown between repeat 'provider down' notifications for the same provider+market.": "相同資料提供者與市場重複發送「提供者故障」通知之間的冷卻時間。",
+  "Error trail retention": "錯誤軌跡保留",
+  "Days of historical provider errors to keep before the purge cron evicts them.": "提供者歷史錯誤在清除排程移除前保留的天數。",
+  "Re-run cooldown": "重新執行冷卻時間",
+  "Minimum interval between admin-triggered re-runs for the same provider+market.": "管理員對相同資料提供者與市場觸發重新執行的最小間隔。",
+  "Yahoo Finance AU re-run cooldown": "Yahoo Finance 澳洲重新執行冷卻時間",
+  "Yahoo-AU-specific override for the re-run cooldown. Falls back to the generic re-run cooldown when off.": "Yahoo 澳洲專用的重新執行冷卻時間覆寫。關閉時回退使用一般重新執行冷卻時間。",
+  "Repair cooldown": "修復冷卻時間",
+  "Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.": "同一代號兩次修復之間的最短等待時間（分鐘）。關閉時使用環境預設值。",
+  "Cooldown": "冷卻時間",
+  "Backfill": "回補",
+  "Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.": "FinMind/Yahoo 回補背景工作的重試配額與限流退避設定。",
+  "Retry limit": "重試上限",
+  "Maximum pg-boss retry attempts per backfill job before it is marked failed.": "每個回補工作被標記失敗前的最大 pg-boss 重試次數。",
+  "Retry delay": "重試延遲",
+  "Base backoff between failed retries. The reschedule path additionally honours provider Retry-After.": "失敗重試之間的基礎退避時間。重新排程路徑也會遵守提供者的 Retry-After。",
+  "FinMind 402 retry": "FinMind 402 重試",
+  "Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue.": "FinMind 回傳 HTTP 402（配額用盡）後，恢復佇列前的暫停時間。",
+  "Absence-based delisting detection": "基於缺席的下市偵測",
+  "Thresholds that govern when a catalog instrument is auto-flagged as delisted. Off = use the environment defaults.": "控制目錄標的何時自動標記為下市的門檻。關閉時使用環境預設值。",
+  "Absence threshold": "缺席門檻",
+  "Number of consecutive catalog-sync runs an instrument must be absent before being flagged delisted.": "標的必須連續缺席多少次目錄同步才會被標記為下市。",
+  "Absence guard · percent": "缺席防護 · 百分比",
+  "Reject a catalog-sync diff that would mark more than this percent of the universe absent in a single run.": "拒絕單次同步中將超過此百分比標的標記為缺席的目錄差異。",
+  "Absence guard · floor": "缺席防護 · 最低列數",
+  "Minimum absent-row count below which the percent guard does not engage (small universes are forgiving).": "低於此缺席列數時不啟用百分比防護（小型標的池較寬鬆）。",
+  "Metadata enrichment mode": "中繼資料補全模式",
+  "Mode": "模式",
+  "Use environment default": "使用環境預設值",
+  "Always enrich (unconditional)": "一律補全（無條件）",
+  "Skip on daily refresh (conditional)": "每日更新時略過（條件式）",
+  "Effective:": "實際值：",
+  "(env default)": "（環境預設）",
+  "(admin override)": "（管理覆寫）",
+  "Dashboard Timeframe Defaults": "儀表板時間範圍預設值",
+  "Users can override these defaults in their own Display Preferences.": "使用者可在自己的顯示偏好中覆寫這些預設值。",
+  "Active timeframes": "啟用中的時間範圍",
+  "No active timeframes — add at least one.": "沒有啟用中的時間範圍，請至少新增一個。",
+  "Available": "可用",
+  "Add custom range": "新增自訂範圍",
+  "Add": "新增",
+  "Format:": "格式：",
+  "Reset to defaults": "重設為預設值",
+  "Provider API keys": "資料提供者 API 金鑰",
+  "Encrypted secrets stored in": "加密密鑰儲存在",
+  ". Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.": "。現有值永不顯示；可透過輪替替換，或清除以回退使用環境值。稽核記錄只記錄輪替事件，不記錄密鑰本身。",
+  "FinMind API token": "FinMind API 權杖",
+  "Bearer token used by the TWSE/FinMind data provider.": "TWSE/FinMind 資料提供者使用的 Bearer 權杖。",
+  "Twelve Data API key": "Twelve Data API 金鑰",
+  "API key used by the AU catalog (Twelve Data) provider.": "澳洲目錄（Twelve Data）資料提供者使用的 API 金鑰。",
+  "Last updated": "最後更新",
+  "· Change will be recorded in the audit log": "· 變更將記錄到稽核記錄",
+};
+
+function translateAdminSettingsCopy(isZhTW: boolean, text: string): string {
+  return isZhTW ? ADMIN_SETTINGS_ZH[text] ?? text : text;
+}
 
 function isValidTabSlug(value: string | null): value is TabSlug {
   return value !== null && (TAB_SLUGS as readonly string[]).includes(value);
@@ -217,6 +322,8 @@ function formatTimestamp(dateStr: string): string {
 }
 
 function AdminMcpSettingsPanel({ active }: { active: boolean }) {
+  const adminDict = useAdminI18n();
+  const isZhTW = adminDict.common.justNow === "剛剛";
   const [settings, setSettings] = useState<AiConnectorPolicySettingsDto | null>(null);
   const [issuerDraft, setIssuerDraft] = useState("");
   const [redirectAllowlistDraft, setRedirectAllowlistDraft] = useState("");
@@ -275,7 +382,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           aria-live="polite"
           aria-busy={error ? undefined : true}
         >
-          {error ?? "Loading MCP settings..."}
+          {error ?? (isZhTW ? "MCP 設定載入中..." : "Loading MCP settings...")}
         </p>
       </Card>
     );
@@ -314,9 +421,9 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     <Card data-testid="admin-settings-mcp-section">
       <div className="space-y-5">
         <div>
-          <h2 className="text-base font-semibold text-slate-900">MCP settings</h2>
+          <h2 className="text-base font-semibold text-slate-900">{isZhTW ? "MCP 設定" : "MCP settings"}</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Global AI connector policy. Fresh-auth is requested automatically before saving.
+            {isZhTW ? "全域 AI 連接器政策。儲存前會自動要求重新驗證。" : "Global AI connector policy. Fresh-auth is requested automatically before saving."}
           </p>
         </div>
 
@@ -325,7 +432,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-            <span className="font-medium text-slate-800">MCP deployment</span>
+            <span className="font-medium text-slate-800">{isZhTW ? "MCP 部署" : "MCP deployment"}</span>
             <input
               type="checkbox"
               checked={settings.enabled}
@@ -335,7 +442,11 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           </label>
           {(["read", "drafts", "write"] as const).map((group) => (
             <label key={group} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-              <span className="font-medium capitalize text-slate-800">{group} tools</span>
+              <span className="font-medium capitalize text-slate-800">
+                {isZhTW
+                  ? `${group === "read" ? "讀取" : group === "drafts" ? "草稿" : "寫入"}工具`
+                  : `${group} tools`}
+              </span>
               <input
                 type="checkbox"
                 checked={settings.groupToggles[group]}
@@ -348,7 +459,9 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
 
         {allGroupsDisabled ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">
-            All MCP tool groups are disabled. New ChatGPT consent approvals are blocked and user connector scope controls stay disabled until an admin re-enables at least one group.
+            {isZhTW
+              ? "所有 MCP 工具群組都已停用。新的 ChatGPT 同意授權會被封鎖，使用者連接器權限控制也會保持停用，直到管理員重新啟用至少一個群組。"
+              : "All MCP tool groups are disabled. New ChatGPT consent approvals are blocked and user connector scope controls stay disabled until an admin re-enables at least one group."}
           </p>
         ) : null}
 
@@ -356,7 +469,14 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
           <div className="grid gap-4 md:grid-cols-3">
             {MCP_NUMERIC_FIELDS.map((field) => (
               <label key={field.key} className="text-sm font-medium text-slate-700">
-                {field.label}
+                {isZhTW
+                  ? ({
+                    maxActiveConnectionsPerUser: "最大啟用連接器數",
+                    inactivityExpiryDays: "閒置到期天數",
+                    expirationWarningDays: "到期警告天數",
+                    maxConnectorLifetimeDays: "連接器最長有效天數",
+                  } satisfies Record<McpNumericSettingKey, string>)[field.key]
+                  : field.label}
                 <input
                   type="number"
                   value={currentNumericDrafts[field.key]}
@@ -385,7 +505,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
               disabled={saving || !numericDirty}
               onClick={() => setNumericDrafts(numericDraftsFromSettings(settings))}
             >
-              Reset limits
+              {isZhTW ? "重設限制" : "Reset limits"}
             </Button>
             <Button
               size="sm"
@@ -394,14 +514,14 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                 if (numericPatch) void save(numericPatch);
               }}
             >
-              Save limits
+              {isZhTW ? "儲存限制" : "Save limits"}
             </Button>
           </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 px-4 py-4">
           <label className="text-sm font-medium text-slate-700">
-            Public OAuth issuer
+            {isZhTW ? "公開 OAuth 發行者" : "Public OAuth issuer"}
             <input
               type="url"
               value={issuerDraft}
@@ -420,21 +540,21 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                 setIssuerDraft(settings.oauthPublicIssuer ?? "");
               }}
             >
-              Reset
+              {adminDict.common.reset}
             </Button>
             <Button
               size="sm"
               disabled={saving}
               onClick={() => void save({ oauthPublicIssuer: issuerDraft.trim() || null })}
             >
-              Save issuer
+              {isZhTW ? "儲存發行者" : "Save issuer"}
             </Button>
           </div>
         </div>
 
         <div className="rounded-xl border border-slate-200 px-4 py-4">
           <label className="text-sm font-medium text-slate-700">
-            Additional redirect URI allowlist
+            {isZhTW ? "額外重新導向 URI 允許清單" : "Additional redirect URI allowlist"}
             <textarea
               value={redirectAllowlistDraft}
               disabled={saving}
@@ -447,10 +567,12 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
             />
           </label>
           <p id="admin-settings-mcp-redirect-help" className="mt-2 text-xs text-slate-500">
-            One exact HTTPS redirect URI per line. Built-in ChatGPT redirect patterns are always allowed.
+            {isZhTW
+              ? "每行一個完整 HTTPS 重新導向 URI。內建 ChatGPT 重新導向模式一律允許。"
+              : "One exact HTTPS redirect URI per line. Built-in ChatGPT redirect patterns are always allowed."}
           </p>
           <div id="admin-settings-mcp-redirect-examples" className="mt-3 rounded-xl bg-slate-50 px-3 py-3">
-            <p className="text-xs font-semibold uppercase text-slate-500">Examples</p>
+            <p className="text-xs font-semibold uppercase text-slate-500">{isZhTW ? "範例" : "Examples"}</p>
             <ul className="mt-2 space-y-1 text-xs text-slate-600">
               {MCP_REDIRECT_ALLOWLIST_EXAMPLES.map((example) => (
                 <li key={example} className="font-mono">{example}</li>
@@ -467,7 +589,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
               disabled={saving || !redirectAllowlistDraftChanged}
               onClick={() => setRedirectAllowlistDraft(redirectAllowlistDraftFromSettings(settings))}
             >
-              Reset allowlist
+              {isZhTW ? "重設允許清單" : "Reset allowlist"}
             </Button>
             <Button
               size="sm"
@@ -476,19 +598,19 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                 if (redirectAllowlistValues) void save({ oauthRedirectUriAllowlist: redirectAllowlistValues });
               }}
             >
-              Save allowlist
+              {isZhTW ? "儲存允許清單" : "Save allowlist"}
             </Button>
           </div>
         </div>
 
         <MaskedSecretInput
           fieldKey="mcp-oauth-token-secret"
-          label="MCP OAuth token secret"
-          description="HMAC secret used to sign MCP access tokens and hash OAuth codes and refresh tokens."
+          label={isZhTW ? "MCP OAuth 權杖密鑰" : "MCP OAuth token secret"}
+          description={isZhTW ? "用於簽署 MCP 存取權杖，並雜湊 OAuth code 與 refresh token 的 HMAC 密鑰。" : "HMAC secret used to sign MCP access tokens and hash OAuth codes and refresh tokens."}
           isSet={settings.oauthTokenSecretSet}
           secretLengthBounds={{ min: 32, max: 500 }}
           disabled={saving}
-          generateLabel="Generate 64-hex secret"
+          generateLabel={isZhTW ? "產生 64 位十六進位密鑰" : "Generate 64-hex secret"}
           onGenerateValue={() => generateHexSecret(32)}
           onRotate={(plaintext) => save({ mcpOauthTokenSecret: plaintext })}
           onClear={() => save({ mcpOauthTokenSecret: null })}
@@ -499,6 +621,9 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
 }
 
 export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
+  const adminDict = useAdminI18n();
+  const isZhTW = adminDict.common.justNow === "剛剛";
+  const t = (text: string) => translateAdminSettingsCopy(isZhTW, text);
   const [config, setConfig] = useState<AppConfigDto>(initial);
 
   // ── KZO-199: Tab state synced to ?tab=<slug> URL query ────────────────────
@@ -712,9 +837,9 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
   return (
     <div className="space-y-6" data-testid="admin-settings-page">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Settings</h1>
+        <h1 className="text-2xl font-semibold text-slate-950">{t("Settings")}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Runtime configuration. Changes apply immediately and are recorded in the audit log.
+          {t("Runtime configuration. Changes apply immediately and are recorded in the audit log.")}
         </p>
       </div>
 
@@ -723,11 +848,11 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <div>
             <aside
               className="hidden rounded-xl border border-border bg-card p-2 shadow-sm md:block"
-              aria-label="Admin settings sections"
+              aria-label={t("Admin settings sections")}
             >
               <div className="px-2 pb-2 pt-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Settings
+                  {t("Settings")}
                 </p>
               </div>
               <TabsList
@@ -756,17 +881,17 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex min-w-0 items-center justify-between gap-2">
-                          <span className="truncate text-sm font-semibold">{TAB_LABELS[slug]}</span>
+                          <span className="truncate text-sm font-semibold">{t(TAB_LABELS[slug])}</span>
                           {isActive ? (
                             <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
-                              Open
+                              {t("Open")}
                             </span>
                           ) : null}
                         </span>
                         <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
-                          {hint}
+                          {t(hint)}
                         </span>
-                        <span className="sr-only">{TAB_DESCRIPTIONS[slug]}</span>
+                        <span className="sr-only">{t(TAB_DESCRIPTIONS[slug])}</span>
                       </span>
                     </TabsTrigger>
                   );
@@ -776,21 +901,21 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
 
             <div className="rounded-xl border border-border bg-card p-3 md:hidden">
               <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="admin-settings-mobile-nav">
-                Section
+                {t("Section")}
               </label>
               <Select value={activeTab} onValueChange={handleTabChange}>
                 <SelectTrigger id="admin-settings-mobile-nav" className="w-full" data-testid="admin-settings-mobile-nav">
-                  <SelectValue placeholder={TAB_LABELS[activeTab]} />
+                  <SelectValue placeholder={t(TAB_LABELS[activeTab])} />
                 </SelectTrigger>
                 <SelectContent>
                   {TAB_SLUGS.map((slug) => (
                     <SelectItem key={slug} value={slug}>
-                      {TAB_LABELS[slug]}
+                      {t(TAB_LABELS[slug])}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="mt-2 text-sm text-slate-500">{TAB_DESCRIPTIONS[activeTab]}</p>
+              <p className="mt-2 text-sm text-slate-500">{t(TAB_DESCRIPTIONS[activeTab])}</p>
             </div>
           </div>
 
@@ -801,14 +926,14 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <Card data-testid="admin-settings-rate-limits-section">
             <div className="space-y-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Rate limits</h2>
+                <h2 className="text-base font-semibold text-slate-900">{t("Rate limits")}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.
+                  {t("Per-IP rate-limiter windows and request budgets. Empty override → fall back to environment value.")}
                 </p>
               </div>
               <NumericOverrideRow
                 fieldKey="market-data-price-window-ms"
-                label="Market data price · window"
+                label={t("Market data price · window")}
                 override={config.marketDataPriceWindowMs}
                 effective={config.effectiveMarketDataPriceWindowMs}
                 bounds={config.bounds.marketDataPriceWindowMs}
@@ -817,7 +942,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="market-data-price-limit"
-                label="Market data price · limit"
+                label={t("Market data price · limit")}
                 override={config.marketDataPriceLimit}
                 effective={config.effectiveMarketDataPriceLimit}
                 bounds={config.bounds.marketDataPriceLimit}
@@ -826,7 +951,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="market-data-search-window-ms"
-                label="Market data search · window"
+                label={t("Market data search · window")}
                 override={config.marketDataSearchWindowMs}
                 effective={config.effectiveMarketDataSearchWindowMs}
                 bounds={config.bounds.marketDataSearchWindowMs}
@@ -835,7 +960,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="market-data-search-limit"
-                label="Market data search · limit"
+                label={t("Market data search · limit")}
                 override={config.marketDataSearchLimit}
                 effective={config.effectiveMarketDataSearchLimit}
                 bounds={config.bounds.marketDataSearchLimit}
@@ -844,7 +969,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="invite-status-window-ms"
-                label="Invite status · window"
+                label={t("Invite status · window")}
                 override={config.inviteStatusWindowMs}
                 effective={config.effectiveInviteStatusWindowMs}
                 bounds={config.bounds.inviteStatusWindowMs}
@@ -853,7 +978,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="invite-status-limit"
-                label="Invite status · limit"
+                label={t("Invite status · limit")}
                 override={config.inviteStatusLimit}
                 effective={config.effectiveInviteStatusLimit}
                 bounds={config.bounds.inviteStatusLimit}
@@ -869,15 +994,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <Card data-testid="admin-settings-sharing-section">
             <div className="space-y-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Sharing</h2>
+                <h2 className="text-base font-semibold text-slate-900">{t("Sharing")}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Anonymous-share-token cap and per-IP rate limits. Off = use the environment default.
+                  {t("Anonymous-share-token cap and per-IP rate limits. Off = use the environment default.")}
                 </p>
               </div>
               <NumericOverrideRow
                 fieldKey="anonymousShareTokenCap"
-                label="Anonymous share token cap"
-                description="Maximum active anonymous share tokens per owner. New token requests above this fail with cap-exceeded."
+                label={t("Anonymous share token cap")}
+                description={t("Maximum active anonymous share tokens per owner. New token requests above this fail with cap-exceeded.")}
                 override={config.anonymousShareTokenCap}
                 effective={config.effectiveAnonymousShareTokenCap}
                 bounds={config.bounds.anonymousShareTokenCap}
@@ -887,8 +1012,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="anonymousShareRateLimitMax"
-                label="Anonymous share rate limit · max"
-                description="Maximum requests per window for anonymous-share endpoints (per IP)."
+                label={t("Anonymous share rate limit · max")}
+                description={t("Maximum requests per window for anonymous-share endpoints (per IP).")}
                 override={config.anonymousShareRateLimitMax}
                 effective={config.effectiveAnonymousShareRateLimitMax}
                 bounds={config.bounds.anonymousShareRateLimitMax}
@@ -898,8 +1023,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="anonymousShareRateLimitWindowMs"
-                label="Anonymous share rate limit · window"
-                description="Sliding-window length for the anonymous-share rate limiter."
+                label={t("Anonymous share rate limit · window")}
+                description={t("Sliding-window length for the anonymous-share rate limiter.")}
                 override={config.anonymousShareRateLimitWindowMs}
                 effective={config.effectiveAnonymousShareRateLimitWindowMs}
                 bounds={config.bounds.anonymousShareRateLimitWindowMs}
@@ -916,15 +1041,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <Card data-testid="admin-settings-provider-health-section">
             <div className="space-y-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Provider health</h2>
+                <h2 className="text-base font-semibold text-slate-900">{t("Provider health")}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.
+                  {t("Notification suppression, error-trail retention, and re-run cooldown for the provider health surface.")}
                 </p>
               </div>
               <NumericOverrideRow
                 fieldKey="provider-down-suppression-ms"
-                label="Down notification suppression"
-                description="Cooldown between repeat 'provider down' notifications for the same provider+market."
+                label={t("Down notification suppression")}
+                description={t("Cooldown between repeat 'provider down' notifications for the same provider+market.")}
                 override={config.providerDownNotificationSuppressionMs}
                 effective={config.effectiveProviderDownNotificationSuppressionMs}
                 bounds={config.bounds.providerDownNotificationSuppressionMs}
@@ -933,8 +1058,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="provider-error-trail-retention-days"
-                label="Error trail retention"
-                description="Days of historical provider errors to keep before the purge cron evicts them."
+                label={t("Error trail retention")}
+                description={t("Days of historical provider errors to keep before the purge cron evicts them.")}
                 override={config.providerErrorTrailRetentionDays}
                 effective={config.effectiveProviderErrorTrailRetentionDays}
                 bounds={config.bounds.providerErrorTrailRetentionDays}
@@ -943,8 +1068,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <NumericOverrideRow
                 fieldKey="provider-rerun-cooldown-ms"
-                label="Re-run cooldown"
-                description="Minimum interval between admin-triggered re-runs for the same provider+market."
+                label={t("Re-run cooldown")}
+                description={t("Minimum interval between admin-triggered re-runs for the same provider+market.")}
                 override={config.providerRerunCooldownMs}
                 effective={config.effectiveProviderRerunCooldownMs}
                 bounds={config.bounds.providerRerunCooldownMs}
@@ -954,8 +1079,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               {/* KZO-197 (surfaced in KZO-199 Phase 4) — yahoo-finance-au override. */}
               <NumericOverrideRow
                 fieldKey="yahooAuRerunCooldownMs"
-                label="Yahoo Finance AU re-run cooldown"
-                description="Yahoo-AU-specific override for the re-run cooldown. Falls back to the generic re-run cooldown when off."
+                label={t("Yahoo Finance AU re-run cooldown")}
+                description={t("Yahoo-AU-specific override for the re-run cooldown. Falls back to the generic re-run cooldown when off.")}
                 override={config.yahooAuRerunCooldownMs}
                 effective={config.effectiveYahooAuRerunCooldownMs}
                 bounds={config.bounds.yahooAuRerunCooldownMs}
@@ -973,14 +1098,14 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             <Card data-testid="admin-settings-repair-cooldown-section">
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Repair cooldown</h2>
+                  <h2 className="text-base font-semibold text-slate-900">{t("Repair cooldown")}</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.
+                    {t("Minimum wait time (in minutes) between repair runs for the same symbol. Off = use the environment default.")}
                   </p>
                 </div>
                 <NumericOverrideRow
                   fieldKey="repair-cooldown-minutes"
-                  label="Cooldown"
+                  label={t("Cooldown")}
                   override={config.repairCooldownMinutes}
                   effective={config.effectiveRepairCooldownMinutes}
                   bounds={config.bounds.repairCooldownMinutes}
@@ -992,15 +1117,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             <Card data-testid="admin-settings-backfill-section">
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Backfill</h2>
+                  <h2 className="text-base font-semibold text-slate-900">{t("Backfill")}</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.
+                    {t("Retry budget and rate-limit backoff for the FinMind/Yahoo backfill worker.")}
                   </p>
                 </div>
                 <NumericOverrideRow
                   fieldKey="backfill-retry-limit"
-                  label="Retry limit"
-                  description="Maximum pg-boss retry attempts per backfill job before it is marked failed."
+                  label={t("Retry limit")}
+                  description={t("Maximum pg-boss retry attempts per backfill job before it is marked failed.")}
                   override={config.backfillRetryLimit}
                   effective={config.effectiveBackfillRetryLimit}
                   bounds={config.bounds.backfillRetryLimit}
@@ -1009,8 +1134,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 />
                 <NumericOverrideRow
                   fieldKey="backfill-retry-delay-seconds"
-                  label="Retry delay"
-                  description="Base backoff between failed retries. The reschedule path additionally honours provider Retry-After."
+                  label={t("Retry delay")}
+                  description={t("Base backoff between failed retries. The reschedule path additionally honours provider Retry-After.")}
                   override={config.backfillRetryDelaySeconds}
                   effective={config.effectiveBackfillRetryDelaySeconds}
                   bounds={config.bounds.backfillRetryDelaySeconds}
@@ -1019,8 +1144,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 />
                 <NumericOverrideRow
                   fieldKey="backfill-finmind-402-retry-ms"
-                  label="FinMind 402 retry"
-                  description="Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue."
+                  label={t("FinMind 402 retry")}
+                  description={t("Pause window after FinMind returns HTTP 402 (quota exceeded) before resuming the queue.")}
                   override={config.backfillFinmind402RetryMs}
                   effective={config.effectiveBackfillFinmind402RetryMs}
                   bounds={config.bounds.backfillFinmind402RetryMs}
@@ -1041,16 +1166,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             <Card data-testid="admin-settings-catalog-absence-section">
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Absence-based delisting detection</h2>
+                  <h2 className="text-base font-semibold text-slate-900">{t("Absence-based delisting detection")}</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Thresholds that govern when a catalog instrument is auto-flagged as delisted.
-                    Off = use the environment defaults.
+                    {t("Thresholds that govern when a catalog instrument is auto-flagged as delisted. Off = use the environment defaults.")}
                   </p>
                 </div>
                 <NumericOverrideRow
                   fieldKey="catalogAbsenceThreshold"
-                  label="Absence threshold"
-                  description="Number of consecutive catalog-sync runs an instrument must be absent before being flagged delisted."
+                  label={t("Absence threshold")}
+                  description={t("Number of consecutive catalog-sync runs an instrument must be absent before being flagged delisted.")}
                   override={config.catalogAbsenceThreshold}
                   effective={config.effectiveCatalogAbsenceThreshold}
                   bounds={config.bounds.catalogAbsenceThreshold}
@@ -1060,8 +1184,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 />
                 <NumericOverrideRow
                   fieldKey="catalogAbsenceGuardPercent"
-                  label="Absence guard · percent"
-                  description="Reject a catalog-sync diff that would mark more than this percent of the universe absent in a single run."
+                  label={t("Absence guard · percent")}
+                  description={t("Reject a catalog-sync diff that would mark more than this percent of the universe absent in a single run.")}
                   override={config.catalogAbsenceGuardPercent}
                   effective={config.effectiveCatalogAbsenceGuardPercent}
                   bounds={config.bounds.catalogAbsenceGuardPercent}
@@ -1071,8 +1195,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 />
                 <NumericOverrideRow
                   fieldKey="catalogAbsenceGuardFloor"
-                  label="Absence guard · floor"
-                  description="Minimum absent-row count below which the percent guard does not engage (small universes are forgiving)."
+                  label={t("Absence guard · floor")}
+                  description={t("Minimum absent-row count below which the percent guard does not engage (small universes are forgiving).")}
                   override={config.catalogAbsenceGuardFloor}
                   effective={config.effectiveCatalogAbsenceGuardFloor}
                   bounds={config.bounds.catalogAbsenceGuardFloor}
@@ -1086,11 +1210,13 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
             <Card data-testid="admin-settings-metadata-enrichment-mode-section">
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Metadata enrichment mode</h2>
+                  <h2 className="text-base font-semibold text-slate-900">{t("Metadata enrichment mode")}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Controls whether AU instrument metadata (name, type) is enriched on every backfill or
-                  only on user-driven triggers. Use {`"Skip on daily refresh"`} to conserve the Yahoo
-                  budget when the daily-refresh cron sweeps every monitored ticker.
+                  {isZhTW
+                    ? "控制澳洲標的中繼資料（名稱、類型）是在每次回補時補全，或只在使用者觸發時補全。使用「每日更新時略過」可在每日更新排程掃描所有監控代號時節省 Yahoo 配額。"
+                    : <>Controls whether AU instrument metadata (name, type) is enriched on every backfill or
+                      only on user-driven triggers. Use {`"Skip on daily refresh"`} to conserve the Yahoo
+                      budget when the daily-refresh cron sweeps every monitored ticker.</>}
                 </p>
               </div>
 
@@ -1099,7 +1225,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   className="block text-sm font-medium text-slate-700"
                   htmlFor="admin-settings-metadata-enrichment-mode-select"
                 >
-                  Mode
+                  {t("Mode")}
                 </label>
                 <select
                   id="admin-settings-metadata-enrichment-mode-select"
@@ -1114,17 +1240,17 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   data-testid="admin-settings-metadata-enrichment-mode-select"
                 >
                   <option value="">
-                    Use environment default ({config.effectiveMetadataEnrichmentMode})
+                    {t("Use environment default")} ({config.effectiveMetadataEnrichmentMode})
                   </option>
-                  <option value="unconditional">Always enrich (unconditional)</option>
-                  <option value="conditional">Skip on daily refresh (conditional)</option>
+                  <option value="unconditional">{t("Always enrich (unconditional)")}</option>
+                  <option value="conditional">{t("Skip on daily refresh (conditional)")}</option>
                 </select>
                 <p
                   className="mt-2 text-xs text-slate-500"
                   data-testid="admin-settings-metadata-enrichment-mode-effective"
                 >
-                  Effective: {config.effectiveMetadataEnrichmentMode}
-                  {config.metadataEnrichmentMode === null ? " (env default)" : " (admin override)"}
+                  {t("Effective:")} {config.effectiveMetadataEnrichmentMode}
+                  {config.metadataEnrichmentMode === null ? ` ${t("(env default)")}` : ` ${t("(admin override)")}`}
                 </p>
               </div>
 
@@ -1154,7 +1280,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                     disabled={metadataModeSaving}
                     data-testid="admin-settings-metadata-enrichment-mode-save"
                   >
-                    {metadataModeSaving ? "Saving..." : "Save"}
+                    {metadataModeSaving ? adminDict.common.saving : adminDict.common.save}
                   </Button>
                 </div>
               </div>
@@ -1168,16 +1294,16 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <Card data-testid="timeframe-defaults-section">
             <div className="space-y-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Dashboard Timeframe Defaults</h2>
-                <p className="mt-1 text-sm text-slate-600">{TIMEFRAME_HELPER_TEXT}</p>
+                <h2 className="text-base font-semibold text-slate-900">{t("Dashboard Timeframe Defaults")}</h2>
+                <p className="mt-1 text-sm text-slate-600">{t(TIMEFRAME_HELPER_TEXT)}</p>
               </div>
     
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Active timeframes
+                  {t("Active timeframes")}
                 </p>
                 {pendingRanges.length === 0 ? (
-                  <p className="text-sm text-slate-500">No active timeframes — add at least one.</p>
+                  <p className="text-sm text-slate-500">{t("No active timeframes — add at least one.")}</p>
                 ) : (
                   // KZO-161 (158C) F4a: dnd-kit retrofit. Drop-in replacement for
                   // the ↑/↓ arrow buttons — `timeframe-chip-{range}` testid is
@@ -1198,7 +1324,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                     onToggleVisibility={(range) => toggleChip(range)}
                     dragHandleTestId={(r) => `timeframe-drag-handle-${r}`}
                     chipTestId={(r) => `timeframe-chip-${r}`}
-                    toggleLabel={(r) => `Remove ${r} from active timeframes`}
+                    toggleLabel={(r) => isZhTW ? `從啟用時間範圍移除 ${r}` : `Remove ${r} from active timeframes`}
                   />
                 )}
               </div>
@@ -1206,14 +1332,14 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               {availablePredefinedChips.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Available
+                    {t("Available")}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {availablePredefinedChips.map((range) => (
                       <button
                         key={range}
                         type="button"
-                        aria-label={`Add ${range} to active timeframes`}
+                        aria-label={isZhTW ? `新增 ${range} 到啟用時間範圍` : `Add ${range} to active timeframes`}
                         onClick={() => toggleChip(range)}
                         disabled={timeframeSaving}
                         className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:border-slate-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1229,7 +1355,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
     
               <div className="space-y-2">
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="timeframe-add-input">
-                  Add custom range
+                  {t("Add custom range")}
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
@@ -1247,7 +1373,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                       }
                     }}
                     disabled={timeframeSaving}
-                    placeholder="e.g. 5Y, 18M, ALL"
+                    placeholder={isZhTW ? "例如 5Y、18M、ALL" : "e.g. 5Y, 18M, ALL"}
                     className="w-40 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                     data-testid="timeframe-add-input"
                   />
@@ -1258,11 +1384,11 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                     disabled={!canAddCustom}
                     data-testid="timeframe-add-button"
                   >
-                    Add
+                    {t("Add")}
                   </Button>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Format: {`{n}M`}, {`{n}Y`}, YTD, or ALL. Months ≤ 240, years ≤ 50.
+                  {t("Format:")} {`{n}M`}, {`{n}Y`}, YTD, {isZhTW ? "或" : "or"} ALL. {isZhTW ? "月數 ≤ 240，年數 ≤ 50。" : "Months ≤ 240, years ≤ 50."}
                 </p>
               </div>
     
@@ -1294,14 +1420,14 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                   disabled={timeframeSaving}
                   data-testid="timeframe-reset-button"
                 >
-                  Reset to defaults
+                  {t("Reset to defaults")}
                 </Button>
                 <Button
                   onClick={() => void handleSaveTimeframes()}
                   disabled={!canSaveTimeframes}
                   data-testid="timeframe-save-button"
                 >
-                  {timeframeSaving ? "Saving..." : "Save"}
+                  {timeframeSaving ? adminDict.common.saving : adminDict.common.save}
                 </Button>
               </div>
             </div>
@@ -1314,15 +1440,15 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
           <Card data-testid="admin-settings-provider-keys-section">
             <div className="space-y-5">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">Provider API keys</h2>
+                <h2 className="text-base font-semibold text-slate-900">{t("Provider API keys")}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Encrypted secrets stored in <code>app_config</code>. Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.
+                  {t("Encrypted secrets stored in")} <code>app_config</code>{t(". Existing values are never displayed; rotate to replace, clear to fall back to the environment value. Audit log records the rotation event but never the secret.")}
                 </p>
               </div>
               <MaskedSecretInput
                 fieldKey="finmind-api-token"
-                label="FinMind API token"
-                description="Bearer token used by the TWSE/FinMind data provider."
+                label={t("FinMind API token")}
+                description={t("Bearer token used by the TWSE/FinMind data provider.")}
                 isSet={config.finmindApiTokenSet}
                 secretLengthBounds={config.secretLengthBounds}
                 onRotate={(plaintext) => patchAppConfigField("finmindApiToken", plaintext)}
@@ -1330,8 +1456,8 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
               />
               <MaskedSecretInput
                 fieldKey="twelve-data-api-key"
-                label="Twelve Data API key"
-                description="API key used by the AU catalog (Twelve Data) provider."
+                label={t("Twelve Data API key")}
+                description={t("API key used by the AU catalog (Twelve Data) provider.")}
                 isSet={config.twelveDataApiKeySet}
                 secretLengthBounds={config.secretLengthBounds}
                 onRotate={(plaintext) => patchAppConfigField("twelveDataApiKey", plaintext)}
@@ -1349,7 +1475,7 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
       </TabsRoot>
 
       <p className="text-xs text-slate-500" data-testid="admin-settings-last-updated">
-        Last updated {formatTimestamp(config.updatedAt)} · Change will be recorded in the audit log
+        {t("Last updated")} {formatTimestamp(config.updatedAt)} {t("· Change will be recorded in the audit log")}
       </p>
     </div>
   );
