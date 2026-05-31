@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { redirect } from "next/navigation";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
@@ -18,6 +19,14 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect("/dashboard");
   }
 
+  let locale: LocaleCode = "en";
+  try {
+    const settings = await getJson<UserSettings>("/settings");
+    locale = settings.locale;
+  } catch {
+    locale = "en";
+  }
+
   return (
     <AdminShell
       userId={profile.userId}
@@ -25,6 +34,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
       pictureUrl={profile.providerPictureUrl}
       email={profile.email}
       role={profile.role}
+      locale={locale}
       initialProfile={profile}
       initialSidebarOpen={sidebarOpen}
     >

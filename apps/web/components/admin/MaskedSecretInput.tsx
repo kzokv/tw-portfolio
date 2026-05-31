@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useAdminI18n } from "./admin-i18n";
 
 // KZO-198 — Tier 0 plaintext length bounds default. Real call sites pass
 // `config.secretLengthBounds` from the DTO (single source of truth in
@@ -70,6 +71,7 @@ function RotateModal({
   onSubmit,
   onCancel,
 }: RotateModalProps) {
+  const dict = useAdminI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -93,8 +95,12 @@ function RotateModal({
       : trimmed.length < bounds.min
         ? `Value must be at least ${bounds.min} characters.`
         : trimmed.length > bounds.max
-          ? `Value must be at most ${bounds.max} characters.`
+          ? dict.inputs.maxCharacters.replace("{max}", String(bounds.max))
           : null;
+  const localizedLengthError =
+    trimmed.length > 0 && trimmed.length < bounds.min
+      ? dict.inputs.minCharacters.replace("{min}", String(bounds.min))
+      : lengthError;
   const canSubmit = !submitting && trimmed.length >= bounds.min && trimmed.length <= bounds.max;
 
   async function handleSubmit() {
@@ -104,7 +110,7 @@ function RotateModal({
     try {
       await onSubmit(trimmed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rotate secret.");
+      setError(err instanceof Error ? err.message : dict.inputs.rotateFailed);
     } finally {
       setSubmitting(false);
     }
@@ -116,7 +122,7 @@ function RotateModal({
       setValue(onGenerateValue());
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate secret.");
+      setError(err instanceof Error ? err.message : dict.inputs.generateFailed);
     }
   }
 
@@ -128,9 +134,11 @@ function RotateModal({
       data-testid={`${testIdPrefix}-rotate-dialog`}
     >
       <div className="p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Rotate {fieldLabel}</h2>
+        <h2 className="text-lg font-semibold text-slate-900">
+          {dict.inputs.rotateTitle.replace("{label}", fieldLabel)}
+        </h2>
         <p className="mt-2 text-sm text-slate-600">
-          Paste the new secret. The existing value is never shown and will be replaced once you save.
+          {dict.inputs.rotateDescription}
         </p>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -138,7 +146,7 @@ function RotateModal({
             className="block text-sm font-medium text-slate-700"
             htmlFor={`${testIdPrefix}-rotate-input`}
           >
-            New value
+            {dict.inputs.newValue}
           </label>
           {onGenerateValue ? (
             <Button
@@ -148,7 +156,7 @@ function RotateModal({
               disabled={submitting}
               data-testid={`${testIdPrefix}-generate-button`}
             >
-              {generateLabel ?? "Generate"}
+              {generateLabel ?? dict.inputs.generate}
             </Button>
           ) : null}
         </div>
@@ -163,21 +171,23 @@ function RotateModal({
             setError(null);
           }}
           disabled={submitting}
-          placeholder={`Min ${bounds.min}, max ${bounds.max} characters`}
+          placeholder={dict.inputs.passwordPlaceholder
+            .replace("{min}", String(bounds.min))
+            .replace("{max}", String(bounds.max))}
           className="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
           data-testid={`${testIdPrefix}-rotate-input`}
         />
         <p className="mt-1 text-xs text-slate-500">
-          Length: {trimmed.length} / {bounds.max}
+          {dict.inputs.length} {trimmed.length} / {bounds.max}
         </p>
 
-        {lengthError && (
+        {localizedLengthError && (
           <p
             className="mt-2 text-sm text-red-600"
             role="alert"
             data-testid={`${testIdPrefix}-rotate-validation-error`}
           >
-            {lengthError}
+            {localizedLengthError}
           </p>
         )}
 
@@ -199,7 +209,7 @@ function RotateModal({
             disabled={submitting}
             data-testid={`${testIdPrefix}-rotate-cancel`}
           >
-            Cancel
+            {dict.common.cancel}
           </Button>
           <Button
             size="sm"
@@ -207,7 +217,7 @@ function RotateModal({
             disabled={!canSubmit}
             data-testid={`${testIdPrefix}-rotate-submit`}
           >
-            {submitting ? "Saving..." : "Save"}
+            {submitting ? dict.common.saving : dict.common.save}
           </Button>
         </div>
       </div>
@@ -227,6 +237,7 @@ export function MaskedSecretInput({
   generateLabel,
   secretLengthBounds = DEFAULT_SECRET_LENGTH_BOUNDS,
 }: MaskedSecretInputProps) {
+  const dict = useAdminI18n();
   const testIdPrefix = `admin-settings-${fieldKey}`;
   const [rotateOpen, setRotateOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -246,7 +257,7 @@ export function MaskedSecretInput({
       await onClear();
       setClearOpen(false);
     } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Failed to clear secret.");
+      setStatusError(err instanceof Error ? err.message : dict.inputs.clearFailed);
     } finally {
       setClearing(false);
     }
@@ -275,7 +286,7 @@ export function MaskedSecretInput({
           }
           data-testid={`${testIdPrefix}-status`}
         >
-          {isSet ? "Set" : "Not set (using env default)"}
+          {isSet ? dict.inputs.set : dict.inputs.notSet}
         </span>
       </div>
 
@@ -296,7 +307,7 @@ export function MaskedSecretInput({
           disabled={disabled}
           data-testid={`${testIdPrefix}-rotate-button`}
         >
-          Rotate
+          {dict.inputs.rotate}
         </Button>
         {isSet && (
           <Button
@@ -306,7 +317,7 @@ export function MaskedSecretInput({
             disabled={disabled || clearing}
             data-testid={`${testIdPrefix}-clear-button`}
           >
-            Clear
+            {dict.inputs.clear}
           </Button>
         )}
       </div>
@@ -324,9 +335,9 @@ export function MaskedSecretInput({
 
       <ConfirmDialog
         open={clearOpen}
-        title={`Clear ${label}?`}
-        description={`The override will be removed and the system will fall back to the environment-provided ${label}.`}
-        confirmLabel="Clear"
+        title={dict.inputs.clearTitle.replace("{label}", label)}
+        description={dict.inputs.clearDescription.replace("{label}", label)}
+        confirmLabel={dict.inputs.clear}
         variant="danger"
         loading={clearing}
         dialogTestId={`${testIdPrefix}-clear-dialog`}

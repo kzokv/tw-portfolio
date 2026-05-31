@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { AdminAuditLogEntryDto, ProviderHealthStatusDto } from "@vakwen/shared-types";
 import { Card } from "../ui/Card";
 import { cn } from "../../lib/utils";
+import { formatAdminRelativeTime, useAdminI18n } from "./admin-i18n";
 
 interface AdminOverviewClientProps {
   activeUsers: number;
@@ -14,35 +15,8 @@ interface AdminOverviewClientProps {
   lastUpdatedAt: string;
 }
 
-const ACTION_LABELS: Record<string, string> = {
-  admin_role_change: "Role change",
-  admin_disable_user: "Disabled user",
-  admin_enable_user: "Enabled user",
-  admin_delete_user: "Deleted user",
-  admin_hard_purge_user: "Purged user",
-  admin_invite_issued: "Invite issued",
-  admin_invite_revoked: "Invite revoked",
-  app_config_updated: "Settings updated",
-  provider_health_rerun: "Provider re-run",
-  impersonation_start: "Impersonation started",
-  impersonation_end: "Impersonation ended",
-  instrument_undelete: "Instrument restored",
-  instrument_exclusion_toggle: "Detection toggled",
-};
-
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
-}
-
-function formatRelativeTime(value: string): string {
-  const ts = new Date(value).getTime();
-  const diffMinutes = Math.max(0, Math.floor((Date.now() - ts) / 60000));
-  if (diffMinutes < 1) return "just now";
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return diffDays < 7 ? `${diffDays}d ago` : new Date(value).toLocaleDateString();
 }
 
 function providerTone(status: ProviderHealthStatusDto["status"]): string {
@@ -66,18 +40,20 @@ export function AdminOverviewClient({
   recentActivity,
   lastUpdatedAt,
 }: AdminOverviewClientProps) {
+  const dict = useAdminI18n();
+  const locale = dict.common.justNow === "剛剛" ? "zh-TW" : "en";
   const providersNeedingAttention = providers.filter((provider) => provider.status !== "healthy");
 
   return (
     <div className="space-y-6" data-testid="admin-overview-page">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">Admin overview</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">{dict.overview.eyebrow}</p>
           <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">
-            Operator status
+            {dict.overview.title}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Snapshot of admin workload, provider health, and recent changes.
+            {dict.overview.description}
           </p>
         </div>
         <p
@@ -85,33 +61,35 @@ export function AdminOverviewClient({
           data-testid="admin-overview-last-updated"
           title={formatTimestamp(lastUpdatedAt)}
         >
-          Last refreshed {formatRelativeTime(lastUpdatedAt)}
+          {dict.overview.lastRefreshed.replace("{time}", formatAdminRelativeTime(lastUpdatedAt, locale, dict))}
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-users">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Active users</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.activeUsers}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">{activeUsers.toLocaleString()}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Accounts currently able to sign in.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{dict.overview.activeUsersDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-invites">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Pending invites</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.pendingInvites}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">{pendingInvites.toLocaleString()}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Outstanding onboarding tasks for operators.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{dict.overview.pendingInvitesDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-instruments">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">AU instruments</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.auInstruments}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">{instrumentCount.toLocaleString()}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Catalog rows currently visible in admin instruments.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{dict.overview.auInstrumentsDescription}</p>
         </Card>
         <Card className="px-5 py-4 hover:translate-y-0" data-testid="admin-overview-metric-providers">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Providers needing attention</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">{dict.overview.providersNeedingAttention}</p>
           <p className="mt-3 text-3xl font-semibold text-foreground">
             {providersNeedingAttention.length.toLocaleString()}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            {providers.length - providersNeedingAttention.length} healthy, {providers.length} total.
+            {dict.overview.providersSummary
+              .replace("{healthy}", String(providers.length - providersNeedingAttention.length))
+              .replace("{total}", String(providers.length))}
           </p>
         </Card>
       </div>
@@ -120,14 +98,14 @@ export function AdminOverviewClient({
         <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="admin-overview-provider-health">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Provider health</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Current ingestion and refresh posture.</p>
+              <h2 className="text-base font-semibold text-foreground">{dict.overview.providerHealth}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{dict.overview.providerHealthDescription}</p>
             </div>
             <Link
               href="/admin/providers"
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
-              Open providers
+              {dict.overview.openProviders}
             </Link>
           </div>
           <ul className="divide-y divide-border">
@@ -143,12 +121,12 @@ export function AdminOverviewClient({
                     <p className="truncate font-medium text-foreground">{provider.providerId}</p>
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Last success: {provider.lastSuccessfulRun ? formatRelativeTime(provider.lastSuccessfulRun) : "never"}
+                    {dict.overview.lastSuccess} {provider.lastSuccessfulRun ? formatAdminRelativeTime(provider.lastSuccessfulRun, locale, dict) : dict.common.never}
                   </p>
                 </div>
                 <div className="text-left text-sm text-muted-foreground sm:text-right">
-                  <p>{provider.errorCount24h} errors / 24h</p>
-                  <p className="mt-1">{provider.rateLimitCount24h} rate limits / 24h</p>
+                  <p>{dict.overview.errors24h.replace("{count}", String(provider.errorCount24h))}</p>
+                  <p className="mt-1">{dict.overview.rateLimits24h.replace("{count}", String(provider.rateLimitCount24h))}</p>
                 </div>
               </li>
             ))}
@@ -158,28 +136,28 @@ export function AdminOverviewClient({
         <Card className="overflow-hidden p-0 hover:translate-y-0" data-testid="admin-overview-activity">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold text-foreground">Recent admin activity</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Latest audited operator actions.</p>
+              <h2 className="text-base font-semibold text-foreground">{dict.overview.recentActivity}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{dict.overview.recentActivityDescription}</p>
             </div>
             <Link
               href="/admin/audit-log"
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
-              Open audit log
+              {dict.overview.openAuditLog}
             </Link>
           </div>
           <ul className="divide-y divide-border">
             {recentActivity.map((entry) => (
               <li key={entry.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[auto_minmax(0,1fr)]">
                 <div className="text-sm text-muted-foreground" title={formatTimestamp(entry.createdAt)}>
-                  {formatRelativeTime(entry.createdAt)}
+                  {formatAdminRelativeTime(entry.createdAt, locale, dict)}
                 </div>
                 <div className="min-w-0">
                   <p className="truncate font-medium text-foreground">
-                    {ACTION_LABELS[entry.action] ?? entry.action}
+                    {dict.overview.actionLabels[entry.action as keyof typeof dict.overview.actionLabels] ?? entry.action}
                   </p>
                   <p className="mt-1 truncate text-sm text-muted-foreground">
-                    {entry.actorEmail ?? "System"}
+                    {entry.actorEmail ?? dict.common.system}
                     {entry.targetEmail || entry.targetDisplayName
                       ? ` -> ${entry.targetEmail ?? entry.targetDisplayName}`
                       : ""}

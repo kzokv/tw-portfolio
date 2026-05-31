@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "../ui/Button";
+import { useAdminI18n, type AdminDictionary } from "./admin-i18n";
 
 interface NumericOverrideRowProps {
   /** Stable key used to derive testids (e.g. `market-data-price-window-ms`). */
@@ -37,22 +38,29 @@ interface NumericOverrideRowProps {
   inputTestId?: string;
 }
 
-function validate(raw: string, bounds: { min: number; max: number }): {
+function validate(raw: string, bounds: { min: number; max: number }, dict: AdminDictionary): {
   value: number | null;
   error: string | null;
 } {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    return { value: null, error: `Enter a number between ${bounds.min} and ${bounds.max}.` };
+    return {
+      value: null,
+      error: dict.inputs.valueBetween
+        .replace("{min}", String(bounds.min))
+        .replace("{max}", String(bounds.max)),
+    };
   }
   const num = Number(trimmed);
   if (!Number.isFinite(num) || !Number.isInteger(num)) {
-    return { value: null, error: "Value must be a whole number." };
+    return { value: null, error: dict.inputs.valueWholeNumber };
   }
   if (num < bounds.min || num > bounds.max) {
     return {
       value: null,
-      error: `Value must be between ${bounds.min} and ${bounds.max}.`,
+      error: dict.inputs.valueMustBeBetween
+        .replace("{min}", String(bounds.min))
+        .replace("{max}", String(bounds.max)),
     };
   }
   return { value: num, error: null };
@@ -70,6 +78,7 @@ export function NumericOverrideRow({
   onSave,
   inputTestId,
 }: NumericOverrideRowProps) {
+  const dict = useAdminI18n();
   const [overrideEnabled, setOverrideEnabled] = useState<boolean>(override !== null);
   const [input, setInput] = useState<string>(override !== null ? String(override) : "");
   const [saving, setSaving] = useState(false);
@@ -83,7 +92,7 @@ export function NumericOverrideRow({
     setInput(override !== null ? String(override) : "");
   }, [override]);
 
-  const validation = overrideEnabled ? validate(input, bounds) : { value: null, error: null };
+  const validation = overrideEnabled ? validate(input, bounds, dict) : { value: null, error: null };
   const inlineError = overrideEnabled ? validation.error : null;
   const canSave = !saving && !disabled && (!overrideEnabled || validation.error === null);
 
@@ -104,7 +113,7 @@ export function NumericOverrideRow({
       await onSave(next);
       setSuccess("Saved.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
+      setError(err instanceof Error ? err.message : dict.inputs.failedToSave);
     } finally {
       setSaving(false);
     }
@@ -139,7 +148,7 @@ export function NumericOverrideRow({
           className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
           data-testid={`${testIdPrefix}-toggle`}
         />
-        <span className="text-sm font-medium text-slate-700">Override</span>
+        <span className="text-sm font-medium text-slate-700">{dict.inputs.override}</span>
       </label>
 
       {overrideEnabled ? (
@@ -163,7 +172,7 @@ export function NumericOverrideRow({
             {unit && <span className="text-xs text-slate-500">{unit}</span>}
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Allowed range: {bounds.min}–{bounds.max}
+            {dict.inputs.allowedRange} {bounds.min}–{bounds.max}
             {unit ? ` ${unit}` : ""}.
           </p>
           {inlineError && (
@@ -181,7 +190,7 @@ export function NumericOverrideRow({
           className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700"
           data-testid={`${testIdPrefix}-env-default-badge`}
         >
-          Using env default · {effective}
+          {dict.inputs.usingEnvDefault} {effective}
           {unit ? ` ${unit}` : ""}
         </span>
       )}
@@ -214,7 +223,7 @@ export function NumericOverrideRow({
             disabled={saving || disabled}
             data-testid={`${testIdPrefix}-reset-button`}
           >
-            Reset to default
+            {dict.inputs.resetToDefault}
           </Button>
         )}
         <Button
@@ -223,7 +232,7 @@ export function NumericOverrideRow({
           disabled={!canSave}
           data-testid={`${testIdPrefix}-save-button`}
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? dict.common.saving : dict.common.save}
         </Button>
       </div>
     </div>

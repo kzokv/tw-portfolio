@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button";
+import { useAdminI18n } from "./admin-i18n";
 
 interface HardPurgeDialogProps {
   open: boolean;
@@ -22,6 +23,7 @@ export function HardPurgeDialog({
   onConfirm,
   onCancel,
 }: HardPurgeDialogProps) {
+  const dict = useAdminI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [purgeInput, setPurgeInput] = useState("");
@@ -54,9 +56,9 @@ export function HardPurgeDialog({
       data-testid="hard-purge-dialog"
     >
       <div className="p-6">
-        <h2 className="text-lg font-semibold text-red-900">Permanently Purge User</h2>
+        <h2 className="text-lg font-semibold text-red-900">{dict.hardPurge.title}</h2>
         <p className="mt-2 text-sm text-red-700">
-          This will permanently delete all data for <strong>{targetEmail}</strong>. This action cannot be undone.
+          {dict.hardPurge.bodyPrefix} <strong>{targetEmail}</strong>{dict.hardPurge.bodySuffix}
         </p>
 
         {error && (
@@ -68,7 +70,7 @@ export function HardPurgeDialog({
         {step === 1 && (
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">
-              Type <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">{expectedPurge}</code> to continue
+              {dict.hardPurge.type} <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">{expectedPurge}</code> {dict.hardPurge.toContinue}
             </label>
             <input
               value={purgeInput}
@@ -80,7 +82,7 @@ export function HardPurgeDialog({
             />
             <div className="mt-4 flex justify-end gap-3">
               <Button variant="secondary" size="sm" onClick={onCancel}>
-                Cancel
+                {dict.common.cancel}
               </Button>
               <Button
                 size="sm"
@@ -89,7 +91,7 @@ export function HardPurgeDialog({
                 onClick={() => setStep(2)}
                 data-testid="purge-step1-next"
               >
-                Next
+                {dict.hardPurge.next}
               </Button>
             </div>
           </div>
@@ -98,7 +100,7 @@ export function HardPurgeDialog({
         {step === 2 && (
           <div className="mt-4">
             <label className="block text-sm font-medium text-slate-700">
-              Type your email <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">{adminEmail}</code> to confirm
+              {dict.hardPurge.typeYourEmail} <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">{adminEmail}</code> {dict.hardPurge.toConfirm}
             </label>
             <input
               value={emailInput}
@@ -110,7 +112,7 @@ export function HardPurgeDialog({
             />
             <div className="mt-4 flex justify-end gap-3">
               <Button variant="secondary" size="sm" onClick={() => setStep(1)} disabled={loading}>
-                Back
+                {dict.hardPurge.back}
               </Button>
               <Button
                 size="sm"
@@ -119,7 +121,7 @@ export function HardPurgeDialog({
                 onClick={() => onConfirm(expectedPurge, emailInput)}
                 data-testid="purge-confirm-button"
               >
-                {loading ? "Purging..." : "Permanently Purge"}
+                {loading ? dict.hardPurge.purging : dict.hardPurge.confirm}
               </Button>
             </div>
           </div>

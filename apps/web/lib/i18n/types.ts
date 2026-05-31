@@ -399,6 +399,7 @@ export interface AppDictionary {
     loadingSettings: string;
     noAccounts: string;
     transactionSubmitted: string;
+    demoSession: string;
   };
   actions: {
     recomputeHistory: string;

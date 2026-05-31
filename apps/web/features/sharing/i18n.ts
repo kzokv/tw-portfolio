@@ -181,7 +181,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       pageTitle: "分享",
       pageDescription: "在這裡授與或撤銷唯讀存取權，也能查看別人分享給你的投資組合。",
       pageEyebrow: "投資組合存取權",
-      pageIntro: "管理員與成員可分享唯讀投資組合。viewer 角色可在此查看收到的分享。",
+    pageIntro: "管理員與成員可分享唯讀投資組合。檢視者角色可在此查看收到的分享。",
       tabs: {
         outbound: "對外分享",
         inbound: "收到的分享",
@@ -203,7 +203,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
       historyDescription: "在下方表格中包含已撤銷的分享紀錄。",
       noHistory: "目前還沒有可顯示的已撤銷分享。",
       emptyInboundTitle: "目前還沒有人分享投資組合給你",
-      emptyInboundDescription: "請請一位 member 或 admin 將他們的投資組合分享給你。",
+    emptyInboundDescription: "請一位成員或管理員將他們的投資組合分享給你。",
       switcherHint: "從頂部導覽列打開切換器，即可切換到分享給你的投資組合。",
       table: {
         grantee: "受分享者",
@@ -232,7 +232,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
         emailPlaceholder: "teammate@example.com",
         continueLabel: "繼續",
         confirmTitle: "確認分享",
-        confirmDescription: "如果 {email} 尚未註冊，我們會建立一個 viewer 邀請連結讓你轉送。如果他們已經有帳號，系統會直接授權。",
+      confirmDescription: "如果 {email} 尚未註冊，我們會建立一個檢視者邀請連結讓你轉送。如果他們已經有帳號，系統會直接授權。",
         confirmAction: "建立分享",
         successTitle: "邀請已建立",
         successDescription: "把這個連結傳給 {email}。對方必須以該 Google 電子郵件登入，才會接受這份分享。",
