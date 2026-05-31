@@ -167,6 +167,78 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: aggregates same-market ticker data across multiple accounts", async () => {
+    const createSecondAccount = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "Second TWD Brokerage",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(createSecondAccount.statusCode).toBe(200);
+    const secondAccount = createSecondAccount.json() as { id: string; name: string };
+
+    const createMainTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "ticker-details-multi-main" },
+      payload: transactionPayload({
+        ticker: "2330",
+        accountId: "acc-1",
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createMainTrade.statusCode).toBe(200);
+
+    const createSecondTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "ticker-details-multi-second" },
+      payload: transactionPayload({
+        ticker: "2330",
+        accountId: secondAccount.id,
+        quantity: 5,
+        unitPrice: 120,
+        tradeDate: "2026-01-03",
+      }),
+    });
+    expect(createSecondTrade.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/details",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expect.objectContaining({
+      identity: expect.objectContaining({
+        ticker: "2330",
+        accountId: null,
+        marketCode: "TW",
+      }),
+      position: expect.objectContaining({
+        quantity: 15,
+        accountIds: expect.arrayContaining(["acc-1", secondAccount.id]),
+      }),
+      transactions: expect.arrayContaining([
+        expect.objectContaining({
+          accountId: "acc-1",
+          accountName: "Main",
+          quantity: 10,
+        }),
+        expect.objectContaining({
+          accountId: secondAccount.id,
+          accountName: "Second TWD Brokerage",
+          quantity: 5,
+        }),
+      ]),
+    }));
+  });
+
   it("[ticker details]: hanging fundamentals refresh does not block the response", async () => {
     const ticker = "QAASYNC";
     const createTrade = await app.inject({

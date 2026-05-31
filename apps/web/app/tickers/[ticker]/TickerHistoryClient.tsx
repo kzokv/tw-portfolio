@@ -131,6 +131,10 @@ export function TickerHistoryClient({
   const isSharedContext = sharedContextOwnerId !== null;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = details.identity.currency;
+  const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
+  const accountScopeDisplayName = transactionAccountFilter
+    ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
+    : dict.tickerHistory.allAccountsLabel;
 
   useEffect(() => {
     setIsClientReady(true);
@@ -261,7 +265,7 @@ export function TickerHistoryClient({
       key: "quantity",
       label: dict.tickerHistory.quantityLabel,
       value: formatNumber(details.position.quantity, locale),
-      detail: transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel,
+      detail: accountScopeDisplayName,
       testId: "ticker-history-quantity",
     },
     {
@@ -288,7 +292,7 @@ export function TickerHistoryClient({
       value: details.position.costBasis != null
         ? formatCurrencyAmount(details.position.costBasis, currency, locale)
         : dict.tickerHistory.noHoldingData,
-      detail: `${dict.tickerHistory.accountScopeLabel}: ${transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel}`,
+      detail: `${dict.tickerHistory.accountScopeLabel}: ${accountScopeDisplayName}`,
       testId: "ticker-history-total-cost",
     },
     {
@@ -655,7 +659,7 @@ export function TickerHistoryClient({
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-sm text-slate-500">{dict.tickerHistory.accountScopeLabel}</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{transactionAccountFilter ?? dict.tickerHistory.allAccountsLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{accountScopeDisplayName}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
                     <p className="text-sm text-slate-500">{dict.tickerHistory.entriesLabel}</p>
