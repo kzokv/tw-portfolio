@@ -75,10 +75,21 @@ export function ChatGptAccountManagerWidget({
     try {
       const result = await bridge.callTool(toolName, args);
       const payload = extractToolPayload(result);
+      let refreshFailed = false;
       if (payload.accountManager) {
         setData(payload.accountManager);
+      } else if (toolName !== data?.tools.refresh && data?.tools.refresh) {
+        try {
+          const refreshResult = await bridge.callTool(data.tools.refresh, {});
+          const refreshPayload = extractToolPayload(refreshResult);
+          if (refreshPayload.accountManager) {
+            setData(refreshPayload.accountManager);
+          }
+        } catch {
+          refreshFailed = true;
+        }
       }
-      setMessage(successMessage);
+      setMessage(refreshFailed ? `${successMessage} Refresh accounts to see the latest account list.` : successMessage);
       setEditingId(null);
       setDraft(EMPTY_DRAFT);
     } catch (toolError) {

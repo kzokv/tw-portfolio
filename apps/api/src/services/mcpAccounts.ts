@@ -111,11 +111,23 @@ function accountSuggestions(accounts: McpAccountDisplayDto[], deletedAccounts: M
   return suggestions;
 }
 
-function canManageAccountTools(deps: McpDraftServiceDeps, settings: { groupToggles: Record<"read" | "drafts" | "write", boolean> }): boolean {
+const ACCOUNT_MANAGER_TOOLS = {
+  refresh: "get_account_manager_component",
+  createAccount: "create_account",
+  updateAccount: "update_account",
+  softDeleteAccount: "soft_delete_account",
+  restoreAccount: "restore_account",
+} as const;
+
+function canUseAccountManageScope(deps: McpDraftServiceDeps, settings: { groupToggles: Record<"read" | "drafts" | "write", boolean> }): boolean {
   if (!settings.groupToggles[connectorGroupForScope("account:manage")]) return false;
   if (!deps.requestContext.auth.scopes.includes("account:manage")) return false;
   const { shareId, shareCapabilities } = deps.requestContext.resolvedContext;
   return !shareId || shareCapabilities.includes("account:manage");
+}
+
+function canUseAccountTool(deps: McpDraftServiceDeps, toolName: string, canUseManageScope: boolean): boolean {
+  return canUseManageScope && deps.requestContext.auth.toolToggles[toolName] !== false;
 }
 
 export async function getAccountManagerComponent(
@@ -123,27 +135,28 @@ export async function getAccountManagerComponent(
 ): Promise<{ widget: ChatGptAccountManagerWidgetDto; _meta: Record<string, unknown> }> {
   const settings = await deps.app.persistence.getAiConnectorPolicySettings();
   const { accounts, deletedAccounts } = await listMcpAccountDisplays(deps, { includeDeleted: true });
-  const canManage = canManageAccountTools(deps, settings);
+  const canManage = canUseAccountManageScope(deps, settings);
+  const permissions = {
+    canCreate: canUseAccountTool(deps, ACCOUNT_MANAGER_TOOLS.createAccount, canManage),
+    canEdit: canUseAccountTool(deps, ACCOUNT_MANAGER_TOOLS.updateAccount, canManage),
+    canSoftDelete: canUseAccountTool(deps, ACCOUNT_MANAGER_TOOLS.softDeleteAccount, canManage),
+    canRestore: canUseAccountTool(deps, ACCOUNT_MANAGER_TOOLS.restoreAccount, canManage),
+    manageScopeGranted: deps.requestContext.auth.scopes.includes("account:manage"),
+    adminWritePolicyEnabled: settings.groupToggles.write,
+  };
   const widget: ChatGptAccountManagerWidgetDto = {
     title: "Manage accounts",
     subtitle: "Create, edit, soft-delete, and restore portfolio accounts through MCP tools.",
     accounts,
     deletedAccounts,
-    permissions: {
-      canCreate: canManage,
-      canEdit: canManage,
-      canSoftDelete: canManage,
-      canRestore: canManage,
-      manageScopeGranted: deps.requestContext.auth.scopes.includes("account:manage"),
-      adminWritePolicyEnabled: settings.groupToggles.write,
-    },
+    permissions,
     suggestions: accountSuggestions(accounts, deletedAccounts),
     tools: {
-      refresh: "get_account_manager_component",
-      createAccount: "create_account",
-      updateAccount: "update_account",
-      softDeleteAccount: "soft_delete_account",
-      restoreAccount: "restore_account",
+      refresh: canUseAccountTool(deps, ACCOUNT_MANAGER_TOOLS.refresh, canManage) ? ACCOUNT_MANAGER_TOOLS.refresh : null,
+      createAccount: permissions.canCreate ? ACCOUNT_MANAGER_TOOLS.createAccount : null,
+      updateAccount: permissions.canEdit ? ACCOUNT_MANAGER_TOOLS.updateAccount : null,
+      softDeleteAccount: permissions.canSoftDelete ? ACCOUNT_MANAGER_TOOLS.softDeleteAccount : null,
+      restoreAccount: permissions.canRestore ? ACCOUNT_MANAGER_TOOLS.restoreAccount : null,
     },
   };
   return {

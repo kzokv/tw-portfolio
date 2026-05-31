@@ -5,6 +5,7 @@ import {
   postTransactionDraftRows,
   preflightTransactionDraftCandidates,
 } from "../../src/services/mcpDrafts.js";
+import { getAccountManagerComponent } from "../../src/services/mcpAccounts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -79,6 +80,36 @@ describe("mcp draft services", () => {
     expect(result.summary.unsupportedCount).toBe(1);
     expect(result.rows[0]?.state).toBe("ready");
     expect(result.unsupportedItems[0]?.category).toBe("non_trade");
+  });
+
+  it("renders account manager permissions from per-tool toggles", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const requestContext = createRequestContext();
+    requestContext.auth.scopes.push("account:manage");
+    requestContext.auth.toolToggles = {
+      create_account: false,
+      update_account: false,
+      soft_delete_account: false,
+      restore_account: true,
+    };
+
+    const result = await getAccountManagerComponent({ app, requestContext });
+
+    expect(result.widget.permissions).toMatchObject({
+      canCreate: false,
+      canEdit: false,
+      canSoftDelete: false,
+      canRestore: true,
+      manageScopeGranted: true,
+      adminWritePolicyEnabled: true,
+    });
+    expect(result.widget.tools).toMatchObject({
+      refresh: "get_account_manager_component",
+      createAccount: null,
+      updateAccount: null,
+      softDeleteAccount: null,
+      restoreAccount: "restore_account",
+    });
   });
 
   it("blocks same-day collisions against posted transactions when ordering data is missing", async () => {
