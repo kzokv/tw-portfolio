@@ -31,12 +31,21 @@ import { DefaultMcpPolicyService } from "./policy.js";
 import { getMcpToolDefinition, listMcpToolDefinitions, type McpToolName } from "./tools.js";
 import type { McpAuthService, McpPolicyService, McpRequestContext, McpResolvedContext } from "./types.js";
 import {
+  createAccount,
+  getAccountManagerComponent,
+  listAccounts,
+  restoreAccount,
+  softDeleteAccount,
+  updateAccount,
+} from "../services/mcpAccounts.js";
+import {
   archiveTransactionDraftBatch,
   createTransactionDraftBatch,
   deleteUnconfirmedTransactionDraftBatch,
   excludeTransactionDraftRows,
   getTransactionDraftBatch,
   getTransactionDraftBatchComponent,
+  getTransactionDraftPostingPreview,
   getTransactionDraftTemplate,
   listTransactionDraftBatches,
   postTransactionDraftRows,
@@ -246,6 +255,39 @@ export async function registerMcpRoutes(
             args as { query: string; markets?: Array<"TW" | "US" | "AU">; limit: number },
           );
           break;
+        case "list_accounts":
+          result = await listAccounts(
+            { app, requestContext },
+            args as { includeDeleted?: boolean },
+          );
+          break;
+        case "create_account":
+          result = await createAccount(
+            { app, requestContext },
+            args as Parameters<typeof createAccount>[1],
+          );
+          break;
+        case "update_account":
+          result = await updateAccount(
+            { app, requestContext },
+            args as Parameters<typeof updateAccount>[1],
+          );
+          break;
+        case "soft_delete_account":
+          result = await softDeleteAccount(
+            { app, requestContext },
+            args as Parameters<typeof softDeleteAccount>[1],
+          );
+          break;
+        case "restore_account":
+          result = await restoreAccount(
+            { app, requestContext },
+            args as Parameters<typeof restoreAccount>[1],
+          );
+          break;
+        case "get_account_manager_component":
+          result = await getAccountManagerComponent({ app, requestContext });
+          break;
         case "get_transaction_draft_template":
           result = await getTransactionDraftTemplate();
           break;
@@ -312,6 +354,12 @@ export async function registerMcpRoutes(
           result = await deleteUnconfirmedTransactionDraftBatch(
             { app, requestContext },
             args as Parameters<typeof deleteUnconfirmedTransactionDraftBatch>[1],
+          );
+          break;
+        case "get_transaction_draft_posting_preview":
+          result = await getTransactionDraftPostingPreview(
+            { app, requestContext },
+            args as Parameters<typeof getTransactionDraftPostingPreview>[1],
           );
           break;
         case "post_transaction_draft_rows":

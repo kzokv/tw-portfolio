@@ -165,6 +165,89 @@ describe("mcp draft services", () => {
     expect(aggregate?.events.map((event) => event.eventType)).toEqual(["batch_created", "preflight_run"]);
   });
 
+  it("infers account metadata from a unique account name and preserves explicit zero fees", async () => {
+    const result = await preflightTransactionDraftCandidates(
+      { app, requestContext: createRequestContext() },
+      {
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountName: "Main",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+            commissionAmount: 0,
+            taxAmount: 0,
+          },
+        ],
+      },
+    );
+
+    expect(result.summary.blockingRowCount).toBe(0);
+    expect(result.rows[0]).toMatchObject({
+      state: "ready",
+      warnings: expect.arrayContaining([
+        "account inferred from unique account name",
+        "marketCode inferred from account",
+        "priceCurrency inferred from account",
+      ]),
+      normalized: {
+        accountId: "acc-1",
+        accountNameInput: "Main",
+        marketCode: "TW",
+        priceCurrency: "TWD",
+        commissionAmount: 0,
+        taxAmount: 0,
+      },
+    });
+  });
+
+  it("blocks ambiguous account names before batch creation", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const duplicateFeeProfile = {
+      ...store.feeProfiles[0]!,
+      id: "fp-duplicate-main",
+      accountId: "acc-duplicate-main",
+    };
+    store.feeProfiles.push(duplicateFeeProfile);
+    store.accounts.push({
+      ...store.accounts[0]!,
+      id: "acc-duplicate-main",
+      name: "Main",
+      defaultCurrency: "USD",
+      feeProfileId: duplicateFeeProfile.id,
+    });
+    await app.persistence.saveStore(store);
+
+    const result = await preflightTransactionDraftCandidates(
+      { app, requestContext: createRequestContext() },
+      {
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountName: "Main",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+          },
+        ],
+      },
+    );
+
+    expect(result.summary.blockingRowCount).toBe(1);
+    expect(result.rows[0]?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "ambiguous_account" }),
+      ]),
+    );
+  });
+
   it("rejects raw source payloads and overlong provenance snippets", async () => {
     await expect(preflightTransactionDraftCandidates(
       { app, requestContext: createRequestContext() },

@@ -77,6 +77,7 @@ export interface CreateTransactionInput {
   bookingSequence?: number;
   commissionAmount?: number;
   taxAmount?: number;
+  feesSource?: "CALCULATED" | "MANUAL";
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }
@@ -154,6 +155,7 @@ export function createTransaction(
     source: "portfolio_transaction_api",
     sourceReference: input.id,
     bookedAt: new Date().toISOString(),
+    feesSource: input.feesSource ?? (input.commissionAmount !== undefined || input.taxAmount !== undefined ? "MANUAL" : "CALCULATED"),
   };
 
   applyToLots(store, tx);

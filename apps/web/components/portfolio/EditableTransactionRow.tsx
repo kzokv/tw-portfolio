@@ -5,6 +5,7 @@ import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPatch } from "../../features/portfolio/hooks/useTransactionMutations";
 import { Button } from "../ui/Button";
+import { transactionAccountDisplayName } from "../chatgpt/accountDisplay";
 
 interface EditableTransactionRowProps {
   transaction: TransactionHistoryItemDto;
@@ -25,7 +26,9 @@ export function EditableTransactionRow({
   const [date, setDate] = useState(transaction.tradeDate);
   const [quantity, setQuantity] = useState(String(transaction.quantity));
   const [price, setPrice] = useState(String(transaction.unitPrice));
+  const [commissionAmount, setCommissionAmount] = useState(String(transaction.commissionAmount));
   const [side, setSide] = useState<"BUY" | "SELL">(transaction.type);
+  const [taxAmount, setTaxAmount] = useState(String(transaction.taxAmount));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSave() {
@@ -34,7 +37,9 @@ export function EditableTransactionRow({
     if (date !== transaction.tradeDate) patch.date = date;
     if (Number(quantity) !== transaction.quantity) patch.quantity = Number(quantity);
     if (Number(price) !== transaction.unitPrice) patch.price = Number(price);
+    if (Number(commissionAmount) !== transaction.commissionAmount) patch.commissionAmount = Number(commissionAmount);
     if (side !== transaction.type) patch.side = side;
+    if (Number(taxAmount) !== transaction.taxAmount) patch.taxAmount = Number(taxAmount);
 
     try {
       await onSave(patch);
@@ -84,6 +89,30 @@ export function EditableTransactionRow({
             />
           </div>
           <div>
+            <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Commission</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={commissionAmount}
+              onChange={(e) => setCommissionAmount(e.target.value)}
+              className={`mt-1 block w-full ${inputBase}`}
+              data-testid="edit-commission-input"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Tax</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={taxAmount}
+              onChange={(e) => setTaxAmount(e.target.value)}
+              className={`mt-1 block w-full ${inputBase}`}
+              data-testid="edit-tax-input"
+            />
+          </div>
+          <div className="col-span-2">
             <label className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Price</label>
             <input
               type="number"
@@ -121,7 +150,7 @@ export function EditableTransactionRow({
           data-testid="edit-date-input"
         />
       </td>
-      <td className="px-4 py-2 text-slate-600">{transaction.accountId}</td>
+      <td className="px-4 py-2 text-slate-600">{transactionAccountDisplayName(transaction)}</td>
       <td className="px-4 py-2">
         <select
           value={side}
@@ -155,7 +184,29 @@ export function EditableTransactionRow({
           data-testid="edit-price-input"
         />
       </td>
-      <td colSpan={4} className="px-4 py-2">
+      <td className="px-4 py-2 text-right">
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={commissionAmount}
+          onChange={(e) => setCommissionAmount(e.target.value)}
+          className={`w-[100px] text-right ${inputBase}`}
+          data-testid="edit-commission-input"
+        />
+      </td>
+      <td className="px-4 py-2 text-right">
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={taxAmount}
+          onChange={(e) => setTaxAmount(e.target.value)}
+          className={`w-[100px] text-right ${inputBase}`}
+          data-testid="edit-tax-input"
+        />
+      </td>
+      <td colSpan={2} className="px-4 py-2">
         <p className="text-xs italic text-slate-400">{dict.mutations.editTickerAccountHint}</p>
       </td>
       <td className="px-4 py-2">

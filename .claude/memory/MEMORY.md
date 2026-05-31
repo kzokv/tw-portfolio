@@ -76,6 +76,9 @@
 ## Promoted to .claude/rules/ (ui-gap-refactor, 2026-05-30)
 - `appshell-navigation-feedback-remount.md` — Shell-owned navigation feedback must survive page-level `AppShell` remounts; mirror pending destination outside the shell tree, restore briefly on the destination route, and cap pending state so failed navigations cannot leave stale dimming.
 
+## Promoted to .claude/rules/ (MCP account tools scope, 2026-05-31)
+- `mcp-tool-scope-extension-checklist.md` — New MCP tool families/scopes require shared DTO/scope types, OAuth/MCP metadata, lifecycle policy mapping, service auth, connector consent UI, ChatGPT Apps resources, and API/web/E2E tests in the same PR.
+
 ## Promoted to .claude/rules/ (ui-enhancement, 2026-05-14)
 - `agent-team-workflow.md` (addendum) — Architect (and Dispatcher) first-action-on-wake = re-poll inbox+TaskList+state.json, always; 5-stall canonical anti-pattern from ui-enhancement original architect; respawn with pre-baked triage is the canonical recovery
 - `agent-team-workflow.md` (addendum) — Holistic audit pattern at 3rd-strike same-class findings; iter-5 audit caught 7 defensive sites including critical `listUserAccountIds` data-loss path that spot-fix-only would have missed

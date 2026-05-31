@@ -7,6 +7,7 @@ import type {
 } from "@vakwen/shared-types";
 import { ChatGptTransactionDraftWidget } from "./ChatGptTransactionDraftWidget";
 import type { OpenAiBridge, OpenAiToolCallResult } from "./openaiBridge";
+import { readAccountOptions, readPostingPreview } from "./chatGptWidgetTypes";
 import { buildMockTransactionDraftWidgetData } from "./mockTransactionDraftWidgetData";
 
 function cloneWidget(widget: ChatGptTransactionDraftWidgetDto): ChatGptTransactionDraftWidgetDto {
@@ -71,17 +72,57 @@ export function ChatGptTransactionDraftWidgetHarnessClient() {
                 : {};
               return {
                 ...row,
-                accountId: typeof patch.accountId === "string" ? patch.accountId : row.accountId,
+                accountId: typeof patch.accountName === "string"
+                  ? readAccountOptions(current).find((account) => account.name === patch.accountName)?.id ?? row.accountId
+                  : typeof patch.accountId === "string"
+                    ? patch.accountId
+                    : row.accountId,
+                accountName: typeof patch.accountName === "string"
+                  ? patch.accountName
+                  : typeof patch.accountId === "string"
+                    ? readAccountOptions(current).find((account) => account.id === patch.accountId)?.name ?? row.accountName
+                  : row.accountName,
                 marketCode: patch.marketCode === "TW" || patch.marketCode === "US" || patch.marketCode === "AU"
                   ? patch.marketCode
                   : row.marketCode,
+                commissionAmount: typeof patch.commissionAmount === "number" ? patch.commissionAmount : row.commissionAmount,
                 note: typeof patch.note === "string" ? patch.note : row.note,
                 quantity: typeof patch.quantity === "number" ? patch.quantity : row.quantity,
                 sourceSnippet: typeof patch.sourceSnippet === "string" ? patch.sourceSnippet : row.sourceSnippet,
+                taxAmount: typeof patch.taxAmount === "number" ? patch.taxAmount : row.taxAmount,
                 unitPrice: typeof patch.unitPrice === "number" ? patch.unitPrice : row.unitPrice,
                 version: row.version + 1,
               };
             });
+            const postingPreview = readPostingPreview(current);
+            if (postingPreview) {
+              postingPreview.rows = postingPreview.rows.map((row) => {
+                const update = updates.find((item) => item?.rowId === row.rowId);
+                if (!update) return row;
+                const patch = update.patch && typeof update.patch === "object"
+                  ? update.patch as Record<string, unknown>
+                  : {};
+                return {
+                  ...row,
+                  accountId: typeof patch.accountName === "string"
+                    ? readAccountOptions(current).find((account) => account.name === patch.accountName)?.id ?? row.accountId
+                    : typeof patch.accountId === "string"
+                      ? patch.accountId
+                      : row.accountId,
+                  accountName: typeof patch.accountName === "string"
+                    ? patch.accountName
+                    : typeof patch.accountId === "string"
+                      ? readAccountOptions(current).find((account) => account.id === patch.accountId)?.name ?? row.accountName
+                    : row.accountName,
+                  commissionAmount: typeof patch.commissionAmount === "number" ? patch.commissionAmount : row.commissionAmount,
+                  taxAmount: typeof patch.taxAmount === "number" ? patch.taxAmount : row.taxAmount,
+                  warnings: typeof patch.commissionAmount === "number" && patch.commissionAmount === 0
+                    ? ["Manual zero commission differs from calculated fee"]
+                    : row.warnings,
+                };
+              });
+              Object.assign(current, { postingPreview });
+            }
             break;
           }
           case "exclude_transaction_draft_rows":

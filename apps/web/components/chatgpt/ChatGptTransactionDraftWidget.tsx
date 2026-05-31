@@ -39,40 +39,48 @@ import {
   readWidgetPayloadFromBridge,
   readWidgetViewStateFromBridge,
 } from "./openaiBridge";
+import { accountDisplayName } from "./accountDisplay";
+import { readAccountOptions, readPostingPreview, type ChatGptPostingPreviewSection } from "./chatGptWidgetTypes";
 
 interface ChatGptTransactionDraftWidgetProps {
   fallbackData?: ChatGptTransactionDraftWidgetDto | null;
   locale?: LocaleCode | string;
 }
 
-type EditableField = "accountId" | "marketCode" | "quantity" | "unitPrice" | "note" | "sourceSnippet";
+type EditableField = "accountName" | "marketCode" | "quantity" | "unitPrice" | "commissionAmount" | "taxAmount" | "note" | "sourceSnippet";
 type EditDraftPatch = Partial<Record<EditableField, number | string>>;
 
 interface EditDraft {
-  accountId: string;
+  accountName: string;
+  commissionAmount: string;
   marketCode: string;
   note: string;
   quantity: string;
   sourceSnippet: string;
+  taxAmount: string;
   unitPrice: string;
 }
 
 const EMPTY_EDIT_DRAFT: EditDraft = {
-  accountId: "",
+  accountName: "",
+  commissionAmount: "",
   marketCode: "",
   note: "",
   quantity: "",
   sourceSnippet: "",
+  taxAmount: "",
   unitPrice: "",
 };
 
 function toEditDraft(row: TransactionDraftRowDto): EditDraft {
   return {
-    accountId: row.accountId ?? row.accountNameInput ?? "",
+    accountName: row.accountName ?? row.accountNameInput ?? "",
+    commissionAmount: row.commissionAmount === null ? "" : String(row.commissionAmount),
     marketCode: row.marketCode ?? "",
     note: row.note ?? "",
     quantity: row.quantity === null ? "" : String(row.quantity),
     sourceSnippet: row.sourceSnippet ?? "",
+    taxAmount: row.taxAmount === null ? "" : String(row.taxAmount),
     unitPrice: row.unitPrice === null ? "" : String(row.unitPrice),
   };
 }
@@ -95,10 +103,12 @@ function buildEditDraftPatch(draft: EditDraft): EditDraftPatch {
     if (parsed !== undefined) patch[field] = parsed;
   };
 
-  addText("accountId", draft.accountId);
+  addText("accountName", draft.accountName);
+  addNumber("commissionAmount", draft.commissionAmount);
   addText("marketCode", draft.marketCode);
   addText("note", draft.note);
   addText("sourceSnippet", draft.sourceSnippet);
+  addNumber("taxAmount", draft.taxAmount);
   addNumber("quantity", draft.quantity);
   addNumber("unitPrice", draft.unitPrice);
 
@@ -140,6 +150,75 @@ function issueText(value: unknown): string {
   }
   if (typeof value === "string") return value;
   return JSON.stringify(value);
+}
+
+function rowAccountName(row: TransactionDraftRowDto): string {
+  return accountDisplayName({
+    accountName: (row as TransactionDraftRowDto & { accountName?: string | null }).accountName ?? row.accountNameInput,
+    accountId: row.accountId,
+  });
+}
+
+function rowFeeSourceLabel(row: TransactionDraftRowDto): string {
+  if (row.feesSource === "MANUAL") return "Manual";
+  if (row.feesSource === "SOURCE_PROVIDED") return "Source provided";
+  if (row.feesSource === "CALCULATED") return "Calculated";
+  return "N/A";
+}
+
+function buildFallbackPostingPreview(rows: TransactionDraftRowDto[]): ChatGptPostingPreviewSection {
+  const previewRows = rows.map((row) => {
+    const gross = (row.quantity ?? 0) * (row.unitPrice ?? 0);
+    const commission = row.commissionAmount ?? 0;
+    const tax = row.taxAmount ?? 0;
+    const direction = row.type === "SELL" ? 1 : -1;
+    return {
+      rowId: row.id,
+      accountId: row.accountId,
+      accountName: rowAccountName(row),
+      ticker: row.ticker ?? "-",
+      side: row.type ?? "-",
+      quantity: row.quantity,
+      unitPrice: row.unitPrice,
+      priceCurrency: row.priceCurrency,
+      commissionAmount: row.commissionAmount,
+      taxAmount: row.taxAmount,
+      feeSourceLabel: rowFeeSourceLabel(row),
+      netCashImpactAmount: direction * gross - commission - tax,
+      netCashImpactCurrency: row.priceCurrency,
+      warnings: [
+        ...row.warnings.map(issueText),
+        ...(row.feesSource === "MANUAL" && row.commissionAmount === 0 ? ["Manual zero commission differs from calculated fee"] : []),
+      ],
+    };
+  });
+  const summaryMap = new Map<string, ChatGptPostingPreviewSection["summaryRows"][number]>();
+  for (const row of previewRows) {
+    const key = `${row.accountId ?? "unknown"}:${row.priceCurrency ?? "UNK"}`;
+    const current = summaryMap.get(key) ?? {
+      accountId: row.accountId ?? null,
+      accountName: row.accountName ?? null,
+      currency: row.priceCurrency ?? "UNK",
+      totalBuysAmount: 0,
+      totalSellsAmount: 0,
+      totalCommissionAmount: 0,
+      totalTaxAmount: 0,
+      netCashImpactAmount: 0,
+    };
+    const gross = (row.quantity ?? 0) * (row.unitPrice ?? 0);
+    if (row.side === "SELL") current.totalSellsAmount = (current.totalSellsAmount ?? 0) + gross;
+    else current.totalBuysAmount = (current.totalBuysAmount ?? 0) + gross;
+    current.totalCommissionAmount = (current.totalCommissionAmount ?? 0) + (row.commissionAmount ?? 0);
+    current.totalTaxAmount = (current.totalTaxAmount ?? 0) + (row.taxAmount ?? 0);
+    current.netCashImpactAmount = (current.netCashImpactAmount ?? 0) + (row.netCashImpactAmount ?? 0);
+    summaryMap.set(key, current);
+  }
+  return {
+    title: "Draft posting preview",
+    rows: previewRows,
+    summaryRows: [...summaryMap.values()],
+    warnings: [],
+  };
 }
 
 export function ChatGptTransactionDraftWidget({
@@ -188,6 +267,23 @@ export function ChatGptTransactionDraftWidget({
   const selectedRows = useMemo(
     () => data?.rows.filter((row) => selectedRowIds.has(row.id)) ?? [],
     [data?.rows, selectedRowIds],
+  );
+  const accountOptions = useMemo(() => readAccountOptions(data), [data]);
+  const accountSelectOptions = useMemo(() => {
+    if (!editDraft.accountName || accountOptions.some((account) => account.name === editDraft.accountName)) {
+      return accountOptions;
+    }
+    return [
+      ...accountOptions,
+      {
+        id: `unresolved-${editDraft.accountName}`,
+        name: editDraft.accountName,
+      },
+    ];
+  }, [accountOptions, editDraft.accountName]);
+  const postingPreview = useMemo(
+    () => readPostingPreview(data) ?? buildFallbackPostingPreview(selectedRows),
+    [data, selectedRows],
   );
   const readySelectedRows = selectedRows.filter((row) => row.state === "ready");
   const needsReviewCount = data?.rows.filter((row) => row.state !== "ready" && row.state !== "confirmed").length ?? 0;
@@ -516,10 +612,12 @@ export function ChatGptTransactionDraftWidget({
                         <TableHeader>
                           <TableRow>
                             <TableHead className="w-12" />
+                            <TableHead>Account</TableHead>
                             <TableHead>Ticker</TableHead>
                             <TableHead>Side</TableHead>
                             <TableHead>Quantity</TableHead>
                             <TableHead>Price</TableHead>
+                            <TableHead>Fees</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -540,12 +638,26 @@ export function ChatGptTransactionDraftWidget({
                                   />
                                 </TableCell>
                                 <TableCell>
+                                  <div className="font-medium text-slate-900">{rowAccountName(row)}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {row.accountNameInput && row.accountNameInput !== rowAccountName(row)
+                                      ? `Input: ${row.accountNameInput}`
+                                      : row.accountId ? "Matched account" : "Unassigned"}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
                                   <div className="font-semibold text-slate-950">{row.ticker ?? "-"}</div>
                                   <div className="text-xs text-slate-500">{row.marketCode ?? "-"}</div>
                                 </TableCell>
                                 <TableCell>{row.type ?? "-"}</TableCell>
                                 <TableCell>{row.quantity === null ? "-" : formatNumber(row.quantity, locale as LocaleCode)}</TableCell>
                                 <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, locale as LocaleCode) : "-"}</TableCell>
+                                <TableCell>
+                                  <div className="text-slate-900">
+                                    {row.commissionAmount ?? 0} / {row.taxAmount ?? 0}
+                                  </div>
+                                  <div className="text-xs text-slate-500">{rowFeeSourceLabel(row)}</div>
+                                </TableCell>
                                 <TableCell>{row.tradeDate ?? "-"}</TableCell>
                                 <TableCell>
                                   <span
@@ -638,7 +750,7 @@ export function ChatGptTransactionDraftWidget({
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Gross value</p>
-                        <p className="mt-2 text-2xl font-semibold text-slate-950">{data.grossValueText}</p>
+                        <p className="mt-2 text-2xl font-semibold text-slate-950">{postingPreview.rows.length > 0 ? data.grossValueText : "0"}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 px-4 py-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Confirmed rows</p>
@@ -651,6 +763,82 @@ export function ChatGptTransactionDraftWidget({
                         </p>
                       </div>
                     </div>
+
+                    {postingPreview.rows.length > 0 ? (
+                      <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h4 className="text-base font-semibold text-slate-950">{postingPreview.title ?? "Draft posting preview"}</h4>
+                            <p className="mt-1 text-sm text-slate-600">Server-computed account confirmation, fee source, and net cash impact before posting.</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Account</TableHead>
+                                <TableHead>Ticker</TableHead>
+                                <TableHead>Side</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Price</TableHead>
+                                <TableHead>Commission</TableHead>
+                                <TableHead>Tax</TableHead>
+                                <TableHead>Fee source</TableHead>
+                                <TableHead className="text-right">Net cash impact</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {postingPreview.rows.map((row) => (
+                                <TableRow key={row.rowId}>
+                                  <TableCell>
+                                    <div className="font-medium text-slate-900">{row.accountName ?? "Unassigned"}</div>
+                                    {row.warnings?.length ? <div className="mt-1 text-xs text-amber-700">{row.warnings[0]}</div> : null}
+                                  </TableCell>
+                                  <TableCell>{row.ticker}</TableCell>
+                                  <TableCell>{row.side}</TableCell>
+                                  <TableCell>{row.quantity ?? "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.unitPrice ?? 0, row.priceCurrency, locale as LocaleCode) : "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.commissionAmount ?? 0, row.priceCurrency, locale as LocaleCode) : row.commissionAmount ?? "-"}</TableCell>
+                                  <TableCell>{row.priceCurrency ? formatCurrencyAmount(row.taxAmount ?? 0, row.priceCurrency, locale as LocaleCode) : row.taxAmount ?? "-"}</TableCell>
+                                  <TableCell>{row.feeSourceLabel ?? "N/A"}</TableCell>
+                                  <TableCell className="text-right">{row.netCashImpactCurrency ? formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.netCashImpactCurrency, locale as LocaleCode) : "-"}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        {postingPreview.summaryRows.length > 0 ? (
+                          <div className="mt-4 overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Account</TableHead>
+                                  <TableHead>Currency</TableHead>
+                                  <TableHead>Total buys</TableHead>
+                                  <TableHead>Total sells</TableHead>
+                                  <TableHead>Total commission</TableHead>
+                                  <TableHead>Total tax</TableHead>
+                                  <TableHead className="text-right">Net cash impact</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {postingPreview.summaryRows.map((row, index) => (
+                                  <TableRow key={`${row.accountId ?? "summary"}-${row.currency}-${index}`}>
+                                    <TableCell>{row.accountName ?? "Unknown account"}</TableCell>
+                                    <TableCell>{row.currency}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalBuysAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalSellsAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalCommissionAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                    <TableCell>{formatCurrencyAmount(row.totalTaxAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                    <TableCell className="text-right">{formatCurrencyAmount(row.netCashImpactAmount ?? 0, row.currency, locale as LocaleCode)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     {data.permissions.requiresWriteReconsent ? (
                       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
@@ -694,7 +882,7 @@ export function ChatGptTransactionDraftWidget({
                             data-testid="chatgpt-widget-post-button"
                           >
                             <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                            Post selected rows
+                            Post selected
                           </Button>
                         </div>
                       </div>
@@ -754,18 +942,33 @@ export function ChatGptTransactionDraftWidget({
                       <>
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
                           {([
-                            ["accountId", "Account"],
+                            ["accountName", "Account"],
                             ["marketCode", "Market"],
                             ["quantity", "Quantity"],
                             ["unitPrice", "Unit price"],
+                            ["commissionAmount", "Commission"],
+                            ["taxAmount", "Tax"],
                           ] as Array<[EditableField, string]>).map(([field, label]) => (
                             <label key={field} className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                               {label}
-                              <input
-                                className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
-                                onChange={(event) => setEditDraft((current) => ({ ...current, [field]: event.target.value }))}
-                                value={editDraft[field]}
-                              />
+                              {field === "accountName" && accountSelectOptions.length > 0 ? (
+                                <select
+                                  className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
+                                  onChange={(event) => setEditDraft((current) => ({ ...current, accountName: event.target.value }))}
+                                  value={editDraft.accountName}
+                                >
+                                  <option value="">Select account</option>
+                                  {accountSelectOptions.map((account) => (
+                                    <option key={account.id} value={account.name}>{account.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className="mt-2 block w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950"
+                                  onChange={(event) => setEditDraft((current) => ({ ...current, [field]: event.target.value }))}
+                                  value={editDraft[field]}
+                                />
+                              )}
                             </label>
                           ))}
                           <label className="sm:col-span-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -803,6 +1006,11 @@ export function ChatGptTransactionDraftWidget({
                             <li key={`${activeEditRow?.id ?? "row"}-issue-${index}`}>{item}</li>
                           ))}
                         </ul>
+                      </div>
+                    ) : null}
+                    {activeEditRow?.feesSource === "MANUAL" && (activeEditRow.commissionAmount === 0 || activeEditRow.taxAmount === 0) ? (
+                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
+                        Manual zero-fee overrides remain explicit and will not be recalculated unless you clear them.
                       </div>
                     ) : null}
                   </Card>

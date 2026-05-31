@@ -4,6 +4,8 @@ import type {
   ChatGptTransactionDraftWidgetDto,
   TransactionDraftPostingResultDto,
 } from "@vakwen/shared-types";
+import type { ChatGptAccountManagerWidgetPayload } from "./chatGptWidgetTypes";
+import { readAccountManagerPayload } from "./chatGptWidgetTypes";
 
 export interface OpenAiToolCallResult {
   structuredContent?: unknown;
@@ -119,10 +121,12 @@ export function persistWidgetViewState(next: ChatGptTransactionDraftWidgetViewSt
 }
 
 export function extractToolPayload(result: OpenAiToolCallResult | null | undefined): {
+  accountManager: ChatGptAccountManagerWidgetPayload | null;
   postingResult: TransactionDraftPostingResultDto | null;
   widget: ChatGptTransactionDraftWidgetDto | null;
 } {
   return {
+    accountManager: readAccountManagerPayload(result?._meta) ?? readAccountManagerPayload(result?.structuredContent),
     widget: maybeWidgetPayload(result?._meta) ?? maybeWidgetPayload(result?.structuredContent),
     postingResult: maybePostingResult(result?._meta) ?? maybePostingResult(result?.structuredContent),
   };

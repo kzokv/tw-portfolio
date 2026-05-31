@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   currencyFor,
+  type McpAccountDisplayDto,
+  type McpTransactionDraftPostingPreviewDto,
   marketCodeFor,
   type AiConnectorImportCandidateSourceDto,
   type AiConnectorImportProvenanceDto,
@@ -14,6 +16,7 @@ import {
   type TransactionDraftRowDto,
   type TransactionDraftUnsupportedItemDto,
 } from "@vakwen/shared-types";
+import { calculateBuyFees, calculateSellFees } from "@vakwen/domain";
 import type {
   AiTransactionDraftBatchAggregate,
   AiTransactionDraftBatchRecord,
@@ -24,6 +27,7 @@ import type {
 import { routeError } from "../lib/routeError.js";
 import type { McpDraftServiceDeps, McpMutationBatchResult } from "../mcp/types.js";
 import { connectorGroupForScope } from "./mcpConnectorLifecycle.js";
+import { resolveAccountDisplayName, toMcpAccountDisplayDto } from "./mcpAccountHelpers.js";
 import { syncAccountingPolicy } from "./accountingStore.js";
 import { createTransaction } from "./portfolio.js";
 import { scheduleReplayWithRetry } from "./replayPositionHistory.js";
@@ -184,6 +188,15 @@ async function loadDraftStore(deps: McpDraftServiceDeps) {
 
 function cloneWarnings(warnings: string[]): string[] {
   return warnings.slice(0, 10);
+}
+
+function deriveDraftFeesSource(row: {
+  state: RowState;
+  commissionAmount: number | null;
+  taxAmount: number | null;
+}): AiTransactionDraftRowRecord["feesSource"] {
+  if (row.state === "unsupported") return null;
+  return row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED";
 }
 
 function getCurrentQuantity(
@@ -633,6 +646,11 @@ export async function createTransactionDraftBatch(
     isDayTrade: row.normalized.isDayTrade,
     commissionAmount: row.normalized.commissionAmount,
     taxAmount: row.normalized.taxAmount,
+    feesSource: deriveDraftFeesSource({
+      state: row.state,
+      commissionAmount: row.normalized.commissionAmount,
+      taxAmount: row.normalized.taxAmount,
+    }),
     note: row.normalized.note,
     sourceRowRef: row.normalized.sourceRowRef,
     sourceSnippet: row.normalized.sourceSnippet,
@@ -745,7 +763,10 @@ function toTransactionDraftBatchDto(batch: AiTransactionDraftBatchRecord): Trans
   };
 }
 
-function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): TransactionDraftRowDto {
+function toTransactionDraftRowDto(
+  row: AiTransactionDraftRowRecord,
+  accountById: ReadonlyMap<string, { id: string; name: string }>,
+): TransactionDraftRowDto {
   return {
     id: row.id,
     batchId: row.batchId,
@@ -753,6 +774,7 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): Transaction
     state: row.state,
     version: row.version,
     accountId: row.accountId,
+    accountName: row.accountId ? resolveAccountDisplayName(accountById, row.accountId) : row.accountNameInput,
     accountNameInput: row.accountNameInput,
     type: row.tradeType,
     ticker: row.ticker,
@@ -766,7 +788,7 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): Transaction
     isDayTrade: row.isDayTrade,
     commissionAmount: row.commissionAmount,
     taxAmount: row.taxAmount,
-    feesSource: row.feesSource,
+    feesSource: row.feesSource ?? deriveDraftFeesSource(row),
     note: row.note,
     sourceRowRef: row.sourceRowRef,
     sourceSnippet: row.sourceSnippet,
@@ -796,6 +818,139 @@ function sourceChannelLabel(provenance: Record<string, unknown>): string {
 
 function countRowMappings(aggregate: AiTransactionDraftBatchAggregate): number {
   return aggregate.rows.length + aggregate.unsupportedItems.length;
+}
+
+function collectWidgetAccounts(
+  store: Awaited<ReturnType<typeof loadDraftStore>>["store"],
+): McpAccountDisplayDto[] {
+  const feeProfileById = new Map(store.feeProfiles.map((profile) => [profile.id, profile]));
+  return store.accounts
+    .map((account) => toMcpAccountDisplayDto(account, feeProfileById.get(account.feeProfileId)?.name ?? null))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function collectPreviewWarnings(
+  row: AiTransactionDraftRowRecord,
+  calculatedCommissionAmount: number,
+  calculatedTaxAmount: number,
+): { warnings: string[]; suggestions: string[] } {
+  const warnings = row.warnings.filter((warning): warning is string => typeof warning === "string");
+  const suggestions: string[] = [];
+  if (row.commissionAmount === 0 && calculatedCommissionAmount > 0) {
+    warnings.push(`Commission was explicitly set to 0; profile would calculate ${calculatedCommissionAmount}.`);
+  } else if (row.commissionAmount !== null && row.commissionAmount !== calculatedCommissionAmount) {
+    warnings.push(`Manual commission ${row.commissionAmount} differs from calculated ${calculatedCommissionAmount}.`);
+  }
+  if (row.taxAmount === 0 && calculatedTaxAmount > 0) {
+    warnings.push(`Tax was explicitly set to 0; profile would calculate ${calculatedTaxAmount}.`);
+  } else if (row.taxAmount !== null && row.taxAmount !== calculatedTaxAmount) {
+    warnings.push(`Manual tax ${row.taxAmount} differs from calculated ${calculatedTaxAmount}.`);
+  }
+  if (warnings.some((warning) => warning.includes("Manual") || warning.includes("explicitly set to 0"))) {
+    suggestions.push("Confirm the manual fee override before posting; Vakwen will preserve the submitted values.");
+  }
+  return { warnings: cloneWarnings(warnings), suggestions };
+}
+
+function feeProfileForPreview(
+  store: Awaited<ReturnType<typeof loadDraftStore>>["store"],
+  account: Awaited<ReturnType<typeof loadDraftStore>>["store"]["accounts"][number],
+  ticker: string,
+) {
+  const binding = store.feeProfileBindings.find((item) => item.accountId === account.id && item.ticker === ticker);
+  const feeProfileId = binding?.feeProfileId ?? account.feeProfileId;
+  return store.feeProfiles.find((profile) => profile.id === feeProfileId) ?? null;
+}
+
+function buildPostingPreview(
+  store: Awaited<ReturnType<typeof loadDraftStore>>["store"],
+  aggregate: AiTransactionDraftBatchAggregate,
+  selectedRows: AiTransactionDraftRowRecord[],
+): McpTransactionDraftPostingPreviewDto {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const previewRows = selectedRows.map((row) => {
+    const account = accountById.get(row.accountId ?? "");
+    if (!account || !row.accountId || !row.tradeType || !row.marketCode || row.quantity === null || row.unitPrice === null || !row.priceCurrency || !row.ticker || !row.tradeDate) {
+      throw routeError(409, "mcp_draft_preview_blocked", `Draft row ${row.id} is missing required posting fields`);
+    }
+    const profile = feeProfileForPreview(store, account, row.ticker);
+    if (!profile) {
+      throw routeError(409, "mcp_draft_preview_missing_fee_profile", `Draft row ${row.id} references a missing fee profile`);
+    }
+    const tradeValueAmount = row.quantity * row.unitPrice;
+    const fees = row.tradeType === "BUY"
+      ? calculateBuyFees(profile, tradeValueAmount, row.priceCurrency)
+      : calculateSellFees(profile, {
+          tradeValueAmount,
+          tradeCurrency: row.priceCurrency,
+          instrumentType: store.instruments.find((instrument) => instrument.ticker === row.ticker && instrument.marketCode === row.marketCode)?.type ?? "STOCK",
+          isDayTrade: row.isDayTrade ?? false,
+          marketCode: row.marketCode,
+        });
+    const feeSource = (row.feesSource ?? deriveDraftFeesSource(row)) as "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
+    const commissionAmount = row.commissionAmount ?? fees.commissionAmount;
+    const taxAmount = row.taxAmount ?? fees.taxAmount;
+    const { warnings, suggestions } = collectPreviewWarnings(row, fees.commissionAmount, fees.taxAmount);
+    return {
+      rowId: row.id,
+      rowNumber: row.rowNumber,
+      accountId: account.id,
+      accountName: account.name,
+      accountType: account.accountType,
+      accountDefaultCurrency: account.defaultCurrency,
+      ticker: row.ticker,
+      marketCode: row.marketCode as MarketCode,
+      type: row.tradeType,
+      quantity: row.quantity,
+      unitPrice: row.unitPrice,
+      priceCurrency: row.priceCurrency,
+      tradeDate: row.tradeDate,
+      grossValueAmount: tradeValueAmount,
+      commissionAmount,
+      taxAmount,
+      calculatedCommissionAmount: fees.commissionAmount,
+      calculatedTaxAmount: fees.taxAmount,
+      feesSource: feeSource,
+      netCashImpactAmount: row.tradeType === "BUY"
+        ? -(tradeValueAmount + commissionAmount + taxAmount)
+        : tradeValueAmount - commissionAmount - taxAmount,
+      warnings,
+      suggestions,
+      sourceSnippet: row.sourceSnippet,
+    };
+  });
+  const grouped = new Map<string, McpTransactionDraftPostingPreviewDto["groups"][number]>();
+  for (const row of previewRows) {
+    const key = `${row.accountId}:${row.priceCurrency}`;
+    const current = grouped.get(key) ?? {
+      accountId: row.accountId,
+      accountName: row.accountName,
+      currency: row.priceCurrency,
+      rowCount: 0,
+      totalGrossBuyAmount: 0,
+      totalGrossSellAmount: 0,
+      totalCommissionAmount: 0,
+      totalTaxAmount: 0,
+      netCashImpactAmount: 0,
+    };
+    current.rowCount += 1;
+    if (row.type === "BUY") current.totalGrossBuyAmount += row.grossValueAmount;
+    if (row.type === "SELL") current.totalGrossSellAmount += row.grossValueAmount;
+    current.totalCommissionAmount += row.commissionAmount;
+    current.totalTaxAmount += row.taxAmount;
+    current.netCashImpactAmount += row.netCashImpactAmount;
+    grouped.set(key, current);
+  }
+  return {
+    batchId: aggregate.batch.id,
+    batchVersion: aggregate.batch.version,
+    selectedRowIds: selectedRows.map((row) => row.id),
+    rows: previewRows,
+    groups: [...grouped.values()].sort((left, right) => left.accountName.localeCompare(right.accountName) || left.currency.localeCompare(right.currency)),
+    warnings: previewRows.flatMap((row) => row.warnings).slice(0, 20),
+    suggestions: [...new Set(previewRows.flatMap((row) => row.suggestions))].slice(0, 10),
+    typedPhraseRequired: confirmationSummary(selectedRows).typedPhraseRequired,
+  };
 }
 
 function formatGrossValue(rows: AiTransactionDraftRowRecord[], locale = "en"): string {
@@ -872,18 +1027,24 @@ export async function getTransactionDraftBatchComponent(
   input: { batchId: string; locale?: string },
 ): Promise<{ widget: ChatGptTransactionDraftWidgetDto; _meta: Record<string, unknown> }> {
   const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(input.batchId), input.batchId);
+  const { store } = await loadDraftStore(deps);
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const settings = await deps.app.persistence.getAiConnectorPolicySettings();
   const selectedRows = aggregate.rows.filter((row) => row.state === "ready");
+  const postingPreview = selectedRows.length > 0 ? buildPostingPreview(store, aggregate, selectedRows) : null;
   const widget: ChatGptTransactionDraftWidgetDto = {
     mode: "review",
     title: "Review transaction draft rows",
     subtitle: "Vakwen received structured candidates through the AI connector and validated them before this component rendered.",
     batch: toTransactionDraftBatchDto(aggregate.batch),
-    rows: aggregate.rows.map(toTransactionDraftRowDto),
+    rows: aggregate.rows.map((row) => toTransactionDraftRowDto(row, accountById)),
     unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
+    accounts: collectWidgetAccounts(store),
     selectedRowIds: selectedRows.map((row) => row.id),
     grossValueText: formatGrossValue(selectedRows, input.locale),
     deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, aggregate.batch.id, aggregate.batch.ownerUserId),
+    postingPreview,
+    suggestions: postingPreview?.suggestions ?? [],
     provenance: {
       sourceLabel: aggregate.batch.sourceLabel,
       sourceFilename: aggregate.batch.sourceFilename,
@@ -908,6 +1069,7 @@ export async function getTransactionDraftBatchComponent(
     postingResult: null,
     tools: {
       refresh: "get_transaction_draft_batch_component",
+      previewPosting: "get_transaction_draft_posting_preview",
       updateRow: "update_transaction_draft_rows",
       excludeRows: "exclude_transaction_draft_rows",
       reincludeRows: "reinclude_transaction_draft_rows",
@@ -925,6 +1087,30 @@ export async function getTransactionDraftBatchComponent(
       "openai/widgetAccessible": true,
     },
   };
+}
+
+export async function getTransactionDraftPostingPreview(
+  deps: McpDraftServiceDeps,
+  input: { batchId: string; rowIds?: string[]; expectedBatchVersion?: number },
+): Promise<McpTransactionDraftPostingPreviewDto> {
+  const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(input.batchId), input.batchId);
+  if (input.expectedBatchVersion !== undefined && aggregate.batch.version !== input.expectedBatchVersion) {
+    throw routeError(409, "mcp_draft_batch_version_conflict", `Draft batch ${input.batchId} version conflict`);
+  }
+  const rowById = new Map(aggregate.rows.map((row) => [row.id, row]));
+  for (const rowId of input.rowIds ?? []) {
+    if (!rowById.has(rowId)) {
+      throw routeError(404, "mcp_draft_row_not_found", `Draft row ${rowId} not found`);
+    }
+  }
+  const { store } = await loadDraftStore(deps);
+  const selectedRows = aggregate.rows
+    .filter((row) => row.state === "ready")
+    .filter((row) => !input.rowIds || input.rowIds.includes(row.id));
+  if (selectedRows.length === 0) {
+    throw routeError(409, "mcp_draft_preview_empty_selection", "No ready draft rows were selected for preview");
+  }
+  return buildPostingPreview(store, aggregate, selectedRows);
 }
 
 function confirmationSummary(rows: AiTransactionDraftRowRecord[]) {
@@ -1076,6 +1262,9 @@ export async function postTransactionDraftRows(
         bookingSequence: row.bookingSequence ?? undefined,
         commissionAmount: row.commissionAmount ?? undefined,
         taxAmount: row.taxAmount ?? undefined,
+        feesSource: row.feesSource === "MANUAL" || row.feesSource === "SOURCE_PROVIDED" || row.commissionAmount !== null || row.taxAmount !== null
+          ? "MANUAL"
+          : "CALCULATED",
         type: row.tradeType!,
         isDayTrade: row.isDayTrade ?? false,
       });
@@ -1251,8 +1440,10 @@ export async function updateTransactionDraftRows(
   }
 
   for (const current of aggregate.rows) {
-    if (!patchById.has(current.id)) continue;
+    const patchItem = patchById.get(current.id);
+    if (!patchItem) continue;
     const next = preflightByRowNumber.get(current.rowNumber)!;
+    const feeFieldsPatched = Object.hasOwn(patchItem.patch, "commissionAmount") || Object.hasOwn(patchItem.patch, "taxAmount");
     const saved = await deps.app.persistence.saveAiTransactionDraftRow({
       id: current.id,
       batchId: current.batchId,
@@ -1274,6 +1465,13 @@ export async function updateTransactionDraftRows(
       isDayTrade: next.normalized.isDayTrade,
       commissionAmount: next.normalized.commissionAmount,
       taxAmount: next.normalized.taxAmount,
+      feesSource: feeFieldsPatched
+        ? "MANUAL"
+        : current.feesSource ?? deriveDraftFeesSource({
+            state: next.state,
+            commissionAmount: next.normalized.commissionAmount,
+            taxAmount: next.normalized.taxAmount,
+          }),
       note: next.normalized.note,
       sourceRowRef: next.normalized.sourceRowRef,
       sourceSnippet: next.normalized.sourceSnippet,
@@ -1417,6 +1615,11 @@ export async function reincludeTransactionDraftRows(
       isDayTrade: next.normalized.isDayTrade,
       commissionAmount: next.normalized.commissionAmount,
       taxAmount: next.normalized.taxAmount,
+      feesSource: deriveDraftFeesSource({
+        state: next.state,
+        commissionAmount: next.normalized.commissionAmount,
+        taxAmount: next.normalized.taxAmount,
+      }),
       note: next.normalized.note,
       sourceRowRef: next.normalized.sourceRowRef,
       sourceSnippet: next.normalized.sourceSnippet,

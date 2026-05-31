@@ -16,6 +16,7 @@ import { AI_CONNECTOR_SCOPE_LABELS } from "../connectors/scopeLabels";
 
 const GROUPED_SCOPES: Array<{ title: string; scopes: AiConnectorScope[] }> = [
   { title: "Read", scopes: ["portfolio:mcp_read"] },
+  { title: "Accounts", scopes: ["account:manage"] },
   { title: "Drafts", scopes: ["transaction_draft:create", "transaction_draft:edit", "transaction_draft:archive", "transaction_draft:delete"] },
   { title: "Posting", scopes: ["transaction:write"] },
 ];
@@ -39,9 +40,16 @@ function policyValue(value: number | null | undefined, suffix = ""): string {
 }
 
 function scopeNeedsReconnect(connection: AiConnectorConnectionDto, scope: AiConnectorScope): boolean {
-  return scope === "transaction:write"
+  return (scope === "transaction:write" || scope === "account:manage")
     && connection.provider === "chatgpt"
     && !connection.scopes.includes(scope);
+}
+
+function reconnectCopy(scope: AiConnectorScope): string {
+  if (scope === "transaction:write") {
+    return "Advanced scope. Reconnect or re-consent in ChatGPT to enable posting.";
+  }
+  return "Reconnect or re-consent in ChatGPT to enable account management tools.";
 }
 
 export function AiConnectorsSettingsClient() {
@@ -242,6 +250,7 @@ export function AiConnectorsSettingsClient() {
                     {group.scopes.map((scope) => {
                       const policyDisabled =
                         (scope === "portfolio:mcp_read" && !scopeEnabledByGroup.read)
+                        || (scope === "account:manage" && !scopeEnabledByGroup.write)
                         || (scope.startsWith("transaction_draft") && !scopeEnabledByGroup.drafts)
                         || (scope === "transaction:write" && !scopeEnabledByGroup.write);
                       const policyDescriptionId = policyDisabled ? `${connection.id}-${scope.replace(/[:_]/g, "-")}-policy-disabled` : undefined;
@@ -264,7 +273,7 @@ export function AiConnectorsSettingsClient() {
                             ) : null}
                             {reconnectRequired ? (
                               <span id={reconnectDescriptionId} className="mt-1 block text-xs text-amber-700">
-                                Advanced scope. Reconnect or re-consent in ChatGPT to enable posting.
+                                {reconnectCopy(scope)}
                               </span>
                             ) : null}
                           </span>
@@ -292,7 +301,7 @@ export function AiConnectorsSettingsClient() {
             {connection.provider === "chatgpt" ? (
               <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
                 <span className="min-w-0 flex-1">
-                  Need fresh auth or re-consent? Start the connector flow again in ChatGPT, then approve the advanced posting scope there.
+                  Need fresh auth or re-consent? Start the connector flow again in ChatGPT, then approve the missing account-management or posting scopes there.
                 </span>
                 <a
                   href={CHATGPT_RECONNECT_URL}

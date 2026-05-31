@@ -30,6 +30,7 @@ const mcpOAuthTokenSecret = "test-mcp-oauth-token-secret-that-is-long-enough";
 const clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 const advertisedMcpScopes = [
   "portfolio:mcp_read",
+  "account:manage",
   "transaction_draft:create",
   "transaction_draft:edit",
   "transaction_draft:archive",

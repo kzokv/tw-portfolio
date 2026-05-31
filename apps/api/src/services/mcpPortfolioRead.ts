@@ -14,6 +14,7 @@ import { isInstrumentQuoteable } from "./instrumentRegistry.js";
 import { routeError } from "../lib/routeError.js";
 import type { McpReadServiceDeps } from "../mcp/types.js";
 import type { Store } from "../types/store.js";
+import { resolveAccountDisplayName } from "./mcpAccountHelpers.js";
 
 interface ReadOverrides {
   reportingCurrency?: CurrencyCode;
@@ -202,6 +203,7 @@ export async function getRecentTransactions(
   }
   const tickerFilter = input.tickers ? new Set(input.tickers.map((ticker) => ticker.trim().toUpperCase())) : null;
   const accountFilter = input.accountIds ? new Set(input.accountIds) : null;
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const all = store.accounting.facts.tradeEvents
     .filter((trade) => trade.tradeDate >= fromDate && trade.tradeDate <= toDate)
     .filter((trade) => !tickerFilter || tickerFilter.has(trade.ticker))
@@ -210,6 +212,7 @@ export async function getRecentTransactions(
     .map((trade) => ({
       id: trade.id,
       accountId: trade.accountId,
+      accountName: resolveAccountDisplayName(accountById, trade.accountId),
       ticker: trade.ticker,
       marketCode: trade.marketCode,
       type: trade.type,

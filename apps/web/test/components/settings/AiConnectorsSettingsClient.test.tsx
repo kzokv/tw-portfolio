@@ -129,6 +129,13 @@ describe("AiConnectorsSettingsClient", () => {
     await flushEffects();
 
     expect(document.body.textContent).toContain("No tool-level overrides.");
+    const accountLabel = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("Manage accounts"));
+    expect(accountLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");
+    const accountCheckbox = accountLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+    expect(accountCheckbox?.checked).toBe(false);
+    expect(accountCheckbox?.disabled).toBe(true);
+
     const postingLabel = Array.from(document.querySelectorAll("label"))
       .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
     expect(postingLabel?.textContent).toContain("Reconnect or re-consent in ChatGPT");

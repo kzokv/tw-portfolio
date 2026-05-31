@@ -18,6 +18,23 @@ import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
 import { getDictionary } from "../../../lib/i18n";
 
+vi.mock("recharts", () => ({
+  Cell: () => null,
+  Area: () => null,
+  Pie: () => null,
+  PieChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  CartesianGrid: () => null,
+  ComposedChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  Legend: () => null,
+  Line: () => null,
+  LineChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  ReferenceDot: () => null,
+  Tooltip: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+}));
+
 const dict = getDictionary("en");
 
 // Phase 5d — `summary` fixture removed alongside SummarySection deletion.
@@ -25,6 +42,7 @@ const dict = getDictionary("en");
 const holdings: DashboardOverviewHoldingDto[] = [
   {
     accountId: "acc-1",
+    accountName: "Main Brokerage",
     ticker: "2330",
     quantity: 2_000,
     costBasisAmount: 1_185_472,
@@ -49,6 +67,7 @@ const transactions: TransactionHistoryItemDto[] = [
   {
     id: "tx-1",
     accountId: "acc-1",
+    accountName: "Main Brokerage",
     ticker: "2330",
     marketCode: "TW",
     instrumentType: "STOCK",
@@ -68,7 +87,7 @@ const transactions: TransactionHistoryItemDto[] = [
     feeProfileName: "Default Broker",
     bookedAt: "2026-03-12T08:00:00.000Z",
     feesSource: "CALCULATED",
-  },
+  } as TransactionHistoryItemDto & { accountName: string },
 ];
 
 const performance: DashboardPerformanceDto = {
@@ -139,12 +158,13 @@ describe("dashboard components", () => {
     expect(html).toContain("NT$610");
   });
 
-  it("keeps account IDs visible in compact holdings rows", () => {
+  it("keeps account names visible in compact holdings rows", () => {
     const compactHoldings: DashboardOverviewHoldingDto[] = [
       holdings[0]!,
       {
         ...holdings[0]!,
         accountId: "acc-2",
+        accountName: "Retirement Brokerage",
         quantity: 500,
         costBasisAmount: 296_368,
         marketValueAmount: 305_000,
@@ -156,8 +176,8 @@ describe("dashboard components", () => {
     );
 
     expect(html).toContain("Account / Currency");
-    expect(html).toContain("acc-1");
-    expect(html).toContain("acc-2");
+    expect(html).toContain("Main Brokerage");
+    expect(html).toContain("Retirement Brokerage");
     expect(html).toContain("TWD");
   });
 
@@ -240,6 +260,7 @@ describe("dashboard components", () => {
     );
     expect(recentTransactionsHtml).toContain("Recent Transactions");
     expect(recentTransactionsHtml).toContain("href=\"/tickers/2330?accountId=acc-1\"");
+    expect(recentTransactionsHtml).toContain("Main Brokerage");
   });
 
   it("renders symbol history empty and populated states", () => {
@@ -248,6 +269,7 @@ describe("dashboard components", () => {
 
     const populatedHtml = renderToStaticMarkup(<TransactionHistoryTable transactions={transactions} dict={dict} locale="en" />);
     expect(populatedHtml).toContain("Default Broker");
+    expect(populatedHtml).toContain("Main Brokerage");
     expect(populatedHtml).toContain("Realized P&amp;L");
     expect(populatedHtml).toContain("SELL");
   });
