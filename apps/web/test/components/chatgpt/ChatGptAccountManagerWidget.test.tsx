@@ -47,7 +47,18 @@ describe("ChatGptAccountManagerWidget", () => {
     }
 
     const callTool = vi.fn()
+      .mockResolvedValueOnce({
+        structuredContent: {
+          account: {
+            id: "acct-new",
+            name: "KR Brokerage",
+            defaultCurrency: "KRW",
+            accountType: "broker",
+          },
+        },
+      })
       .mockResolvedValueOnce({ structuredContent: next, _meta: next })
+      .mockResolvedValueOnce({ structuredContent: { accountId: "acct-demo", finalName: "Demo Brokerage" } })
       .mockResolvedValueOnce({ structuredContent: restored, _meta: restored });
 
     window.openai = {
@@ -70,7 +81,8 @@ describe("ChatGptAccountManagerWidget", () => {
       addButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(callTool).toHaveBeenCalledWith("create_account", expect.objectContaining({ name: "KR Brokerage" }));
+    expect(callTool).toHaveBeenNthCalledWith(1, "create_account", expect.objectContaining({ name: "KR Brokerage" }));
+    expect(callTool).toHaveBeenNthCalledWith(2, "get_account_manager_component", {});
     expect(document.body.textContent).toContain("KR Brokerage");
 
     const restoreButton = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("Restore"));
@@ -78,6 +90,7 @@ describe("ChatGptAccountManagerWidget", () => {
       restoreButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(callTool).toHaveBeenCalledWith("restore_account", { accountId: "acct-demo" });
+    expect(callTool).toHaveBeenNthCalledWith(3, "restore_account", { accountId: "acct-demo" });
+    expect(callTool).toHaveBeenNthCalledWith(4, "get_account_manager_component", {});
   });
 });
