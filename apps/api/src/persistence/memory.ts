@@ -19,7 +19,7 @@ import type {
   MarketDataFacts,
   Store,
 } from "../types/store.js";
-import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
+import type { DailyBar, DailyBarWithMarket, InstrumentType, MarketCode } from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import type {
   AdminAuditLogResponse,
@@ -2643,6 +2643,27 @@ export class MemoryPersistence implements Persistence {
       grouped.set(bar.ticker, list);
     }
     const result: DailyBar[] = [];
+    for (const bars of grouped.values()) {
+      bars.sort((a, b) => b.barDate.localeCompare(a.barDate));
+      result.push(...bars.slice(0, limit));
+    }
+    return result;
+  }
+
+  async getLatestBarsByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+    limit: number,
+  ): Promise<DailyBarWithMarket[]> {
+    const pairKeys = new Set(pairs.map((pair) => `${pair.ticker}:${pair.marketCode}`));
+    const grouped = new Map<string, MemoryDailyBar[]>();
+    for (const bar of this.dailyBars) {
+      const key = `${bar.ticker}:${bar.marketCode}`;
+      if (!pairKeys.has(key)) continue;
+      const list = grouped.get(key) ?? [];
+      list.push(bar);
+      grouped.set(key, list);
+    }
+    const result: DailyBarWithMarket[] = [];
     for (const bars of grouped.values()) {
       bars.sort((a, b) => b.barDate.localeCompare(a.barDate));
       result.push(...bars.slice(0, limit));

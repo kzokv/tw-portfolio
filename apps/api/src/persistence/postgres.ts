@@ -12,7 +12,7 @@ import {
   type FeeProfile,
   type FeeProfileTaxRule,
 } from "@vakwen/domain";
-import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
+import type { DailyBar, DailyBarWithMarket, InstrumentType, MarketCode } from "@vakwen/domain";
 import type { FxRate } from "../services/market-data/types.js";
 import { loadMigrationManifest } from "./migrationManifest.js";
 import {
@@ -5112,6 +5112,51 @@ export class PostgresPersistence implements Persistence {
     );
     return result.rows.map(row => ({
       ticker: row.ticker,
+      barDate: row.bar_date,
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      volume: Number(row.volume),
+      source: row.source,
+      ingestedAt: row.ingested_at,
+    }));
+  }
+
+  async getLatestBarsByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+    limit: number,
+  ): Promise<DailyBarWithMarket[]> {
+    if (pairs.length === 0) return [];
+    const tickers = pairs.map((p) => p.ticker);
+    const markets = pairs.map((p) => p.marketCode);
+    const result = await this.pool.query<{
+      ticker: string; market_code: string; bar_date: string; open: string; high: string; low: string;
+      close: string; volume: string; source: string; ingested_at: string;
+    }>(
+      `WITH input AS (
+         SELECT DISTINCT ticker, market_code
+         FROM unnest($1::text[], $2::text[]) AS t(ticker, market_code)
+       ),
+       ranked AS (
+         SELECT b.ticker, b.market_code, b.bar_date, b.open, b.high, b.low, b.close,
+                b.volume, b.source, b.ingested_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY b.ticker, b.market_code
+                  ORDER BY b.bar_date DESC
+                ) AS rn
+         FROM market_data.daily_bars b
+         INNER JOIN input i
+           ON i.ticker = b.ticker AND i.market_code = b.market_code
+       )
+       SELECT ticker, market_code, bar_date::text, open, high, low, close, volume, source, ingested_at::text
+       FROM ranked WHERE rn <= $3
+       ORDER BY ticker, market_code, bar_date DESC`,
+      [tickers, markets, limit],
+    );
+    return result.rows.map(row => ({
+      ticker: row.ticker,
+      marketCode: row.market_code,
       barDate: row.bar_date,
       open: Number(row.open),
       high: Number(row.high),

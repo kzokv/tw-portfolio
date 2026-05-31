@@ -6,12 +6,20 @@ export interface QuoteSnapshotPair {
   marketCode?: MarketCode;
 }
 
+type SnapshotBar = DailyBar & { marketCode?: MarketCode };
+
+export function quoteSnapshotKey(ticker: string, marketCode?: MarketCode): string {
+  return marketCode ? `${ticker}:${marketCode}` : ticker;
+}
+
 /**
  * Resolve quote snapshots for a list of (ticker, marketCode) pairs.
  *
- * Fetches the latest 2 bars per ticker to compute derived fields
- * (previousClose, change, changePercent). Returns a map keyed by ticker
- * with explicit nulls for tickers with no bars.
+ * Fetches the latest 2 bars per ticker/market pair to compute derived fields
+ * (previousClose, change, changePercent). Returns a map keyed by
+ * `${ticker}:${marketCode}` when marketCode is known, or by bare ticker for
+ * legacy callers without market context. For compatibility, a bare ticker alias
+ * is also emitted when that ticker has exactly one requested market.
  *
  * KZO-191: provisional is now market-aware. A bar is provisional iff
  * `barDate < settledByMarket.get(marketCode)`. Callers pre-resolve the
@@ -27,34 +35,57 @@ export async function resolveQuoteSnapshots(
 ): Promise<Record<string, QuoteSnapshot | null>> {
   if (pairs.length === 0) return {};
 
-  const tickers = [...new Set(pairs.map((pair) => pair.ticker))];
-  const marketByTicker = new Map<string, MarketCode>();
+  const marketPairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
+  const legacyTickers = new Set<string>();
+  const marketsByTicker = new Map<string, Set<MarketCode>>();
   for (const pair of pairs) {
-    if (pair.marketCode && !marketByTicker.has(pair.ticker)) {
-      marketByTicker.set(pair.ticker, pair.marketCode);
+    if (pair.marketCode) {
+      marketPairs.set(quoteSnapshotKey(pair.ticker, pair.marketCode), {
+        ticker: pair.ticker,
+        marketCode: pair.marketCode,
+      });
+      const markets = marketsByTicker.get(pair.ticker) ?? new Set<MarketCode>();
+      markets.add(pair.marketCode);
+      marketsByTicker.set(pair.ticker, markets);
+    } else {
+      legacyTickers.add(pair.ticker);
     }
   }
 
-  const bars = await persistence.getLatestBars(tickers, 2);
+  const [marketBars, legacyBars] = await Promise.all([
+    persistence.getLatestBarsByTickerMarket([...marketPairs.values()], 2),
+    legacyTickers.size > 0 ? persistence.getLatestBars([...legacyTickers], 2) : Promise.resolve([]),
+  ]);
 
-  const grouped = new Map<string, DailyBar[]>();
-  for (const bar of bars) {
-    const list = grouped.get(bar.ticker) ?? [];
+  const grouped = new Map<string, SnapshotBar[]>();
+  for (const bar of marketBars) {
+    const key = quoteSnapshotKey(bar.ticker, bar.marketCode);
+    const list = grouped.get(key) ?? [];
     list.push(bar);
-    grouped.set(bar.ticker, list);
+    grouped.set(key, list);
+  }
+  for (const bar of legacyBars) {
+    const key = quoteSnapshotKey(bar.ticker);
+    const list = grouped.get(key) ?? [];
+    list.push(bar);
+    grouped.set(key, list);
   }
 
   const result: Record<string, QuoteSnapshot | null> = {};
 
-  for (const ticker of tickers) {
-    const tickerBars = grouped.get(ticker);
+  for (const pair of pairs) {
+    const key = quoteSnapshotKey(pair.ticker, pair.marketCode);
+    const tickerBars = grouped.get(key);
     if (!tickerBars || tickerBars.length === 0) {
-      result[ticker] = null;
+      result[key] = null;
+      if (shouldEmitBareTickerAlias(pair, marketsByTicker)) {
+        result[pair.ticker] = null;
+      }
       continue;
     }
 
     // Bars are ordered by bar_date DESC from persistence
-    const latest = tickerBars[0];
+    const latest = tickerBars[0] as SnapshotBar;
     const previous = tickerBars.length >= 2 ? tickerBars[1] : null;
 
     const previousClose = previous ? previous.close : null;
@@ -66,19 +97,32 @@ export async function resolveQuoteSnapshots(
       changePercent = (change / previousClose) * 100;
     }
 
-    result[ticker] = {
-      ticker,
+    const snapshot: QuoteSnapshot = {
+      ticker: pair.ticker,
+      ...(pair.marketCode ? { marketCode: pair.marketCode } : {}),
       close: latest.close,
       previousClose,
       change,
       changePercent,
       asOf: latest.barDate,
       source: latest.source,
-      isProvisional: computeIsProvisional(latest.barDate, marketByTicker.get(ticker), settledByMarket),
+      isProvisional: computeIsProvisional(latest.barDate, pair.marketCode, settledByMarket),
     };
+    result[key] = snapshot;
+    if (shouldEmitBareTickerAlias(pair, marketsByTicker)) {
+      result[pair.ticker] = snapshot;
+    }
   }
 
   return result;
+}
+
+function shouldEmitBareTickerAlias(
+  pair: QuoteSnapshotPair,
+  marketsByTicker: ReadonlyMap<string, ReadonlySet<MarketCode>>,
+): boolean {
+  if (!pair.marketCode) return false;
+  return marketsByTicker.get(pair.ticker)?.size === 1;
 }
 
 /**

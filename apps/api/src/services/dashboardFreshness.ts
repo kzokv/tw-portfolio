@@ -10,6 +10,7 @@
 // reused across holdings.
 
 import type { DashboardOverviewHoldingDto } from "@vakwen/shared-types";
+import { MARKET_CODES, marketCodeFor } from "@vakwen/shared-types";
 import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../persistence/types.js";
 import type { TradingCalendarCache } from "./market-data/tradingCalendar.js";
@@ -37,10 +38,14 @@ export async function enrichHoldingsWithFreshness(
   if (holdings.length === 0) return;
 
   const now = deps.now ?? new Date();
-  const tickerToMarket = new Map<string, MarketCode>();
+  const accountMarket = new Map<string, MarketCode>();
+  for (const account of store.accounts) {
+    accountMarket.set(account.id, marketCodeFor(account.defaultCurrency));
+  }
+  const instrumentKeys = new Set<string>();
   for (const inst of store.instruments) {
-    if (inst.marketCode && (inst.marketCode === "TW" || inst.marketCode === "US" || inst.marketCode === "AU")) {
-      tickerToMarket.set(inst.ticker, inst.marketCode as MarketCode);
+    if ((MARKET_CODES as readonly string[]).includes(inst.marketCode)) {
+      instrumentKeys.add(`${inst.ticker}:${inst.marketCode}`);
     }
   }
 
@@ -60,7 +65,8 @@ export async function enrichHoldingsWithFreshness(
   // colliding under the bare ticker.
   const distinctPairs = new Map<string, { ticker: string; marketCode: MarketCode }>();
   for (const h of holdings) {
-    const market = tickerToMarket.get(h.ticker);
+    const market = accountMarket.get(h.accountId);
+    if (market && !instrumentKeys.has(`${h.ticker}:${market}`)) continue;
     if (!market) continue;
     distinctPairs.set(`${h.ticker}:${market}`, { ticker: h.ticker, marketCode: market });
   }
@@ -69,7 +75,12 @@ export async function enrichHoldingsWithFreshness(
   );
 
   for (const holding of holdings) {
-    const market = tickerToMarket.get(holding.ticker);
+    const market = accountMarket.get(holding.accountId);
+    if (market && !instrumentKeys.has(`${holding.ticker}:${market}`)) {
+      holding.freshness = "current";
+      holding.freshnessTooltip = null;
+      continue;
+    }
     if (!market) {
       holding.freshness = "current";
       holding.freshnessTooltip = null;

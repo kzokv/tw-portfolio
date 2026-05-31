@@ -30,6 +30,7 @@ export interface InstrumentRef {
 
 export interface QuoteSnapshot {
   ticker: string;
+  marketCode?: MarketCode;
   close: number;
   previousClose: number | null;
   change: number | null;
@@ -49,6 +50,10 @@ export interface DailyBar {
   volume: number;
   source: string;
   ingestedAt: string;
+}
+
+export interface DailyBarWithMarket extends DailyBar {
+  marketCode: MarketCode;
 }
 
 export interface FeeProfileTaxRule {

@@ -6,10 +6,12 @@ import type {
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@vakwen/shared-types";
+import { marketCodeFor } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
+import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
 
 interface BuildDashboardOverviewOptions {
@@ -52,13 +54,17 @@ export function buildDashboardOverview(
   store: Store,
   { integrityIssue, quotes = [] }: BuildDashboardOverviewOptions,
 ): RawDashboardOverview {
-  const quoteByTicker = new Map(quotes.map((quote) => [quote.ticker, quote]));
+  const quoteByKey = new Map(quotes.flatMap((quote): Array<[string, QuoteSnapshot]> => {
+    const entries: Array<[string, QuoteSnapshot]> = [[quoteSnapshotKey(quote.ticker, quote.marketCode), quote]];
+    if (!quote.marketCode) entries.push([quote.ticker, quote]);
+    return entries;
+  }));
   const dividends = {
     upcoming: buildUpcomingDividends(store),
     recent: buildRecentDividends(store),
   };
   const totalCostAmount = store.accounting.projections.holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
-  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteByTicker, dividends);
+  const holdings = buildOverviewHoldings(store, totalCostAmount, quoteByKey, dividends);
   const hasCompleteQuotes = holdings.length > 0 && holdings.every((holding) => holding.currentUnitPrice !== null);
   const marketValueAmount = hasCompleteQuotes
     ? holdings.reduce((sum, holding) => sum + (holding.marketValueAmount ?? 0), 0)
@@ -138,9 +144,13 @@ function mapInstrumentOption(def: Store["instruments"][number]): InstrumentOptio
 function buildOverviewHoldings(
   store: Store,
   totalCostAmount: number,
-  quoteByTicker: Map<string, QuoteSnapshot>,
+  quoteByKey: Map<string, QuoteSnapshot>,
   dividends: DashboardOverviewDividends,
 ): DashboardOverviewHoldingDto[] {
+  const accountMarket = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
   const recentPostedDividends = new Map(
     dividends.recent.map((dividend) => [`${dividend.accountId}:${dividend.ticker}`, dividend.postedAt]),
   );
@@ -150,7 +160,8 @@ function buildOverviewHoldings(
 
   return [...store.accounting.projections.holdings]
     .map((holding) => {
-      const quote = quoteByTicker.get(holding.ticker);
+      const market = accountMarket.get(holding.accountId);
+      const quote = quoteByKey.get(quoteSnapshotKey(holding.ticker, market)) ?? quoteByKey.get(holding.ticker);
       const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
       return {
         accountId: holding.accountId,

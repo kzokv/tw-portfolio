@@ -34,13 +34,17 @@ async function buildQuoteInputs(
   store: Store,
   tickers: ReadonlyArray<string>,
 ): Promise<{ pairs: QuoteSnapshotPair[]; settledByMarket: Map<MarketCode, string> }> {
-  const tickerToMarket = new Map<string, MarketCode>();
+  const tickerToMarkets = new Map<string, Set<MarketCode>>();
   for (const instrument of store.instruments) {
-    tickerToMarket.set(instrument.ticker, instrument.marketCode);
+    if ((MARKET_CODES as readonly string[]).includes(instrument.marketCode)) {
+      const markets = tickerToMarkets.get(instrument.ticker) ?? new Set<MarketCode>();
+      markets.add(instrument.marketCode);
+      tickerToMarkets.set(instrument.ticker, markets);
+    }
   }
-  const pairs = tickers.map((ticker) => {
-    const marketCode = tickerToMarket.get(ticker);
-    return marketCode ? { ticker, marketCode } : { ticker };
+  const pairs: QuoteSnapshotPair[] = tickers.flatMap((ticker) => {
+    const markets = tickerToMarkets.get(ticker);
+    return markets ? [...markets].map((marketCode) => ({ ticker, marketCode })) : [{ ticker }];
   });
   const settledByMarket = new Map<MarketCode, string>();
   for (const pair of pairs) {
