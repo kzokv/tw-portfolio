@@ -26,16 +26,23 @@ interface PrefsResponse {
 
 let cachedAccent: ThemeAccent | null = null;
 
+export function shouldSkipPreferenceHydration(pathname: string): boolean {
+  return pathname === "/login"
+    || pathname.startsWith("/auth/")
+    || pathname === "/invite"
+    || pathname.startsWith("/invite/");
+}
+
 export function AccentApplier(): null {
   const { resolvedTheme } = useTheme();
 
   // Fetch on mount and apply.
-  // Skip on auth surfaces (/login, /auth/*) — getJson redirects on 401 which
-  // would break the returnTo/session_expired routing dance on the login flow.
+  // Skip on public auth surfaces — getJson redirects on 401 which would break
+  // the login, auth-error, and invite flows before the user can sign in.
   useEffect(() => {
     if (typeof window !== "undefined") {
       const path = window.location.pathname;
-      if (path === "/login" || path.startsWith("/auth/")) return;
+      if (shouldSkipPreferenceHydration(path)) return;
     }
     let cancelled = false;
     void getJson<PrefsResponse>("/user-preferences")
