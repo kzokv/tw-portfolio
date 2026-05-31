@@ -51,7 +51,7 @@ const authorizeQuerySchema = z.object({
   scope: z.string().max(2000).optional(),
   code_challenge: z.string().trim().min(43).max(256),
   code_challenge_method: z.literal("S256"),
-}).strict();
+}).passthrough();
 
 const approveBodySchema = z.object({
   csrfToken: z.string().min(1),

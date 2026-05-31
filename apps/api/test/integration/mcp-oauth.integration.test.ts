@@ -776,6 +776,27 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(badResource.json()).toMatchObject({ error: "invalid_target" });
   });
 
+  it("accepts OAuth authorization extension parameters from ChatGPT", async () => {
+    const verifier = "verifier-1234567890123456789012345678901234567890123";
+    const response = await app.inject({
+      method: "GET",
+      url: `/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: "chatgpt",
+        redirect_uri: "http://localhost:5555/callback",
+        resource: "http://localhost:4000/mcp",
+        scope: "portfolio:mcp_read",
+        code_challenge: codeChallenge(verifier),
+        code_challenge_method: "S256",
+        state: "state-123",
+        ui_locales: "en-US",
+      }).toString()}`,
+      headers: { host: "localhost:4000" },
+    });
+    expect(response.statusCode).toBe(302);
+    expect(String(response.headers.location)).toContain("/connectors/chatgpt/authorize?requestId=");
+  });
+
   it("accepts admin-configured exact OAuth redirect URI additions", async () => {
     const verifier = "verifier-1234567890123456789012345678901234567890123";
     const clientId = "https://connector.example.com/oauth-client.json";
