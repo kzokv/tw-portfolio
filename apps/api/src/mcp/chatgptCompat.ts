@@ -97,6 +97,11 @@ export const CHATGPT_MCP_CORS_PATHS = new Set([
   "/oauth/token",
 ]);
 const CHATGPT_MCP_CORS_ORIGINS = new Set(["https://chatgpt.com", "https://chat.openai.com"]);
+const DEFAULT_TOOL_META = {
+  outputTemplate: MCP_APP_RESOURCE_URI,
+  widgetAccessible: false,
+  uiResourceUri: MCP_APP_RESOURCE_URI,
+} as const;
 
 export function getMcpRequestMethod(body: unknown): string | undefined {
   if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
@@ -221,8 +226,23 @@ function getToolSecuritySchemes(toolName: McpToolName): McpOAuthSecurityScheme[]
   return [{ type: "oauth2", scopes: [getMcpToolDefinition(toolName).scope] }];
 }
 
+function getToolOpenAiMeta(tool: McpToolListResult["tools"][number]) {
+  const outputTemplate = typeof tool._meta?.["openai/outputTemplate"] === "string"
+    ? tool._meta["openai/outputTemplate"]
+    : DEFAULT_TOOL_META.outputTemplate;
+  const widgetAccessible = typeof tool._meta?.["openai/widgetAccessible"] === "boolean"
+    ? tool._meta["openai/widgetAccessible"]
+    : DEFAULT_TOOL_META.widgetAccessible;
+  return {
+    outputTemplate,
+    widgetAccessible,
+    uiResourceUri: outputTemplate,
+  };
+}
+
 function withToolSecurityMetadata(tool: McpToolListResult["tools"][number]) {
   const securitySchemes = getToolSecuritySchemes(tool.name as McpToolName);
+  const openAiMeta = getToolOpenAiMeta(tool);
   const chatGptTool = { ...tool };
   delete chatGptTool.execution;
   return {
@@ -235,11 +255,11 @@ function withToolSecurityMetadata(tool: McpToolListResult["tools"][number]) {
       ...tool._meta,
       securitySchemes,
       ui: {
-        resourceUri: MCP_APP_RESOURCE_URI,
+        resourceUri: openAiMeta.uiResourceUri,
         visibility: ["model", "app"],
       },
-      "openai/outputTemplate": MCP_APP_RESOURCE_URI,
-      "openai/widgetAccessible": false,
+      "openai/outputTemplate": openAiMeta.outputTemplate,
+      "openai/widgetAccessible": openAiMeta.widgetAccessible,
       "openai/toolInvocation/invoking": "Running Vakwen tool",
       "openai/toolInvocation/invoked": "Vakwen result ready",
     },
