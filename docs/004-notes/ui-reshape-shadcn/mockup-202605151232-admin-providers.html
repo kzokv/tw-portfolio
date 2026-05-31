@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Providers</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; }
+  .provider-card { padding:0; overflow:hidden; }
+  .provider-card .head { padding:16px 20px; border-bottom:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; }
+  .provider-card .name { font-size:15px; font-weight:600; display:flex; align-items:center; gap:10px; }
+  .provider-card .body { padding:16px 20px; display:grid; grid-template-columns: 1fr 1fr; gap:12px 24px; font-size:13px; }
+  .provider-card .body dt { color:hsl(var(--muted-foreground)); font-size:11px; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px; }
+  .provider-card .body dd { font-family:"Geist Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; margin:0 0 6px; }
+  .dot { width:8px; height:8px; border-radius:999px; display:inline-block; }
+  .dot.ok { background: hsl(var(--success)); }
+  .dot.warn { background: hsl(var(--warning)); }
+  .dot.bad { background: hsl(var(--destructive)); }
+  .provider-card .actions { padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; }
+  .error-trail { padding: 8px 20px; background:hsl(var(--warning) / 0.06); border-top:1px solid hsl(var(--warning) / 0.3); font-size:12px; color:hsl(var(--warning)); }
+</style>
+</head>
+<body data-admin data-section="admin-providers" data-crumb-here="Providers">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Providers</div>
+      <div class="muted text-sm">Data sources for prices, dividends, instrument catalogs, and FX</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">↻ Refresh status</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card provider-card">
+      <div class="head">
+        <div class="name"><span class="dot ok"></span> FinMind <span class="badge">TWSE</span></div>
+        <div style="display:flex; align-items:center; gap:8px;"><span class="badge badge-success">HEALTHY</span><button class="btn btn-ghost btn-sm">⋮</button></div>
+      </div>
+      <dl class="body">
+        <div><dt>Last sync</dt><dd>2m ago</dd></div>
+        <div><dt>Rate</dt><dd>14 / 60 req/min</dd></div>
+        <div><dt>Errors (24h)</dt><dd>0</dd></div>
+        <div><dt>API token</dt><dd>fmd_••••a2c1 <button class="btn btn-ghost btn-sm" style="margin-left:6px;">Rotate</button></dd></div>
+      </dl>
+      <div class="actions">
+        <span class="muted text-xs">Next refresh in 18 min</span>
+        <div><button class="btn btn-sm">↻ Re-run now</button></div>
+      </div>
+    </div>
+
+    <div class="card provider-card">
+      <div class="head">
+        <div class="name"><span class="dot ok"></span> Twelve Data <span class="badge">US</span></div>
+        <div style="display:flex; align-items:center; gap:8px;"><span class="badge badge-success">HEALTHY</span><button class="btn btn-ghost btn-sm">⋮</button></div>
+      </div>
+      <dl class="body">
+        <div><dt>Last sync</dt><dd>4m ago</dd></div>
+        <div><dt>Rate</dt><dd>22 / 800 req/day</dd></div>
+        <div><dt>Errors (24h)</dt><dd>0</dd></div>
+        <div><dt>API token</dt><dd>td_••••8f4d <button class="btn btn-ghost btn-sm" style="margin-left:6px;">Rotate</button></dd></div>
+      </dl>
+      <div class="actions">
+        <span class="muted text-xs">Quota resets at 00:00 UTC</span>
+        <button class="btn btn-sm">↻ Re-run now</button>
+      </div>
+    </div>
+
+    <div class="card provider-card" style="border-color: hsl(var(--warning) / 0.5);">
+      <div class="head">
+        <div class="name"><span class="dot warn"></span> Yahoo Finance <span class="badge">AU</span></div>
+        <div style="display:flex; align-items:center; gap:8px;"><span class="badge badge-warning">DEGRADED</span><button class="btn btn-ghost btn-sm">⋮</button></div>
+      </div>
+      <dl class="body">
+        <div><dt>Last sync</dt><dd>14m ago</dd></div>
+        <div><dt>Rate</dt><dd>5 / 30 req/min</dd></div>
+        <div><dt>Errors (24h)</dt><dd style="color:hsl(var(--warning));">6 (HTTP 429)</dd></div>
+        <div><dt>API token</dt><dd>—</dd></div>
+      </dl>
+      <div class="error-trail">⚠ Recent: 429 Too Many Requests (×6) · last 14m ago · backfill paused for 8 tickers</div>
+      <div class="actions">
+        <span class="muted text-xs">Backing off · retry in 11 min</span>
+        <button class="btn btn-sm">↻ Re-run now</button>
+      </div>
+    </div>
+
+    <div class="card provider-card">
+      <div class="head">
+        <div class="name"><span class="dot ok"></span> ECB FX rates</div>
+        <div style="display:flex; align-items:center; gap:8px;"><span class="badge badge-success">HEALTHY</span><button class="btn btn-ghost btn-sm">⋮</button></div>
+      </div>
+      <dl class="body">
+        <div><dt>Last sync</dt><dd>16:00 UTC</dd></div>
+        <div><dt>Schedule</dt><dd>Daily 16:00 UTC</dd></div>
+        <div><dt>Currencies</dt><dd>32 active</dd></div>
+        <div><dt>Errors (24h)</dt><dd>0</dd></div>
+      </dl>
+      <div class="actions">
+        <span class="muted text-xs">Next refresh tomorrow 16:00 UTC</span>
+        <button class="btn btn-sm">↻ Re-run now</button>
+      </div>
+    </div>
+
+    <div class="card provider-card">
+      <div class="head">
+        <div class="name"><span class="dot ok"></span> ASX GICS</div>
+        <div style="display:flex; align-items:center; gap:8px;"><span class="badge badge-success">HEALTHY</span><button class="btn btn-ghost btn-sm">⋮</button></div>
+      </div>
+      <dl class="body">
+        <div><dt>Last sync</dt><dd>3 days ago</dd></div>
+        <div><dt>Schedule</dt><dd>Weekly · Sun 02:00 UTC</dd></div>
+        <div><dt>Industries</dt><dd>11 sectors · 25 groups</dd></div>
+        <div><dt>Errors (24h)</dt><dd>0</dd></div>
+      </dl>
+      <div class="actions">
+        <span class="muted text-xs">Next refresh Sunday</span>
+        <button class="btn btn-sm">↻ Re-run now</button>
+      </div>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

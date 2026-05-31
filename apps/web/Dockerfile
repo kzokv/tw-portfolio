@@ -1,32 +1,52 @@
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/
+COPY libs/domain/package.json libs/domain/
 COPY libs/shared-types/package.json libs/shared-types/
+COPY libs/config/package.json libs/config/
 
 RUN npm ci
 
+# Cache-bust: any layer after this ARG is invalidated when the deploy SHA
+# changes, ensuring source code is never stale. The npm ci layer above
+# remains cached as long as package*.json files are unchanged.
+ARG CACHE_BUST
+
 COPY tsconfig.base.json ./
+COPY libs/domain/ libs/domain/
 COPY libs/shared-types/ libs/shared-types/
+COPY libs/config/ libs/config/
 COPY apps/web/ apps/web/
 
 ARG NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
-ARG NEXT_PUBLIC_AUTH_USER_ID
-ENV NEXT_PUBLIC_AUTH_USER_ID=${NEXT_PUBLIC_AUTH_USER_ID}
+ARG NEXT_PUBLIC_AUTH_MODE
+ENV NEXT_PUBLIC_AUTH_MODE=${NEXT_PUBLIC_AUTH_MODE}
 
-RUN npm run build -w @tw-portfolio/shared-types \
- && npm run build -w @tw-portfolio/web
+# Mitigate intermittent @vercel/nft mkdir failures on Docker overlay2:
+# - UV_THREADPOOL_SIZE=1 serialises filesystem operations during trace
+# - Increased heap avoids GC pressure that amplifies the race
+RUN UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
+    npm run build -w @vakwen/config \
+ && npm run build -w @vakwen/domain \
+ && npm run build -w @vakwen/shared-types \
+ && UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=4096" \
+    npm run build -w @vakwen/web
 
-FROM node:22-alpine
+FROM node:24-alpine
 
 RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app
 
 COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static apps/web/.next/static
+COPY --from=build /app/apps/web/public/ apps/web/public/
+COPY --from=build /app/libs/domain/dist/ libs/domain/dist/
+COPY --from=build /app/libs/shared-types/dist/ libs/shared-types/dist/
+COPY --from=build /app/libs/config/dist/ libs/config/dist/
 
 RUN chown -R app:app /app
 USER app

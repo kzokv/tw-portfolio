@@ -1,0 +1,73 @@
+"use client";
+
+// Phase 2B — 3-state segmented control: ☀ Light · 🌓 System · 🌙 Dark.
+// Reads / writes via next-themes. Theme MODE persists per-device
+// (localStorage key "vakwen-theme" — set in ThemeProvider config).
+// Locked testids per phase-2-spec §5.
+
+import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
+import { Monitor, Moon, Sun } from "lucide-react";
+import { cn } from "../../lib/utils";
+
+const OPTIONS: ReadonlyArray<{ value: "light" | "system" | "dark"; label: string; Icon: typeof Sun }> = [
+  { value: "light", label: "Light", Icon: Sun },
+  { value: "system", label: "System", Icon: Monitor },
+  { value: "dark", label: "Dark", Icon: Moon },
+];
+
+interface ThemeToggleProps {
+  className?: string;
+  /** When true (default in TopBar), render icon-only buttons. */
+  iconOnly?: boolean;
+}
+
+export function ThemeToggle({ className, iconOnly = true }: ThemeToggleProps) {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch — next-themes resolves the theme client-side.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const active = (mounted ? theme : "system") ?? "system";
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Theme"
+      className={cn(
+        "inline-flex h-9 items-center rounded-full border border-border bg-card p-0.5 shadow-sm",
+        className,
+      )}
+      data-testid="theme-toggle"
+    >
+      {OPTIONS.map(({ value, label, Icon }) => {
+        const on = active === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            title={label}
+            aria-label={label}
+            onClick={() => setTheme(value)}
+            data-testid={`theme-toggle-${value}`}
+            className={cn(
+              "inline-flex h-8 items-center justify-center rounded-full px-2 text-xs font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              on
+                ? "bg-secondary text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+            {!iconOnly && <span className="ml-1.5">{label}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

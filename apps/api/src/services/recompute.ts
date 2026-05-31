@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { calculateBuyFees, calculateSellFees, type FeeProfile } from "@tw-portfolio/domain";
+import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@vakwen/domain";
+import { routeError } from "../lib/routeError.js";
+import { deriveRealizedPnlForTrade, listTradeEvents } from "./accountingStore.js";
+import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
 import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 
 interface PreviewInput {
@@ -12,38 +15,48 @@ interface PreviewInput {
 export function previewRecompute(store: Store, input: PreviewInput): RecomputeJob {
   const selectedProfile = input.profileId ? mustGetProfile(store, input.profileId) : undefined;
   const accountsById = new Map(store.accounts.map((account) => [account.id, account]));
-  const candidates = store.transactions.filter(
+  const candidates = listTradeEvents(store).filter(
     (tx) => tx.userId === input.userId && (!input.accountId || tx.accountId === input.accountId),
   );
 
   const items: RecomputePreviewItem[] = candidates.map((tx) => {
     const account = accountsById.get(tx.accountId);
     if (!account) {
-      throw new Error(`Account not found for transaction ${tx.id}`);
+      throw routeError(404, "account_not_found", `Account not found for transaction ${tx.id}`);
     }
 
+    // KZO-183: bindings no longer carry `marketCode` — the market is derived
+    // from the binding's account.defaultCurrency. Resolution is keyed solely
+    // by (accountId, ticker).
     const symbolBinding = input.useFallbackBindings
-      ? store.feeProfileBindings.find((binding) => binding.accountId === tx.accountId && binding.symbol === tx.symbol)
+      ? store.feeProfileBindings.find(
+          (binding) => binding.accountId === tx.accountId && binding.ticker === tx.ticker,
+        )
       : undefined;
     const fallbackProfileId = selectedProfile?.id ?? account.feeProfileId;
     const profile = symbolBinding ? mustGetProfile(store, symbolBinding.feeProfileId) : mustGetProfile(store, fallbackProfileId);
+    const tradeCurrency = tx.priceCurrency ?? profile.commissionCurrency ?? "TWD";
 
-    const tradeValue = tx.priceNtd * tx.quantity;
+    const tradeValue = roundToDecimal(tx.unitPrice * tx.quantity, 2);
     const next =
       tx.type === "BUY"
-        ? calculateBuyFees(profile, tradeValue)
+        ? calculateBuyFees(profile, tradeValue, tradeCurrency)
         : calculateSellFees(profile, {
-            tradeValueNtd: tradeValue,
+            tradeValueAmount: tradeValue,
+            tradeCurrency,
             instrumentType: tx.instrumentType,
             isDayTrade: tx.isDayTrade,
+            // KZO-169: marketCode is required on BookedTradeEvent — the
+            // legacy `?? "TW"` was provider-stamping audit (G1) target.
+            marketCode: tx.marketCode,
           });
 
     return {
-      transactionId: tx.id,
-      previousCommissionNtd: tx.commissionNtd,
-      previousTaxNtd: tx.taxNtd,
-      nextCommissionNtd: next.commissionNtd,
-      nextTaxNtd: next.taxNtd,
+      tradeEventId: tx.id,
+      previousCommissionAmount: tx.commissionAmount,
+      previousTaxAmount: tx.taxAmount,
+      nextCommissionAmount: next.commissionAmount,
+      nextTaxAmount: next.taxAmount,
     };
   });
 
@@ -63,23 +76,25 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
 
 export function confirmRecompute(store: Store, userId: string, jobId: string): RecomputeJob {
   const job = store.recomputeJobs.find((item) => item.id === jobId && item.userId === userId);
-  if (!job) throw new Error("Recompute job not found");
+  if (!job) throw routeError(404, "job_not_found", "Recompute job not found");
 
   for (const item of job.items) {
-    const tx = store.transactions.find((entry) => entry.id === item.transactionId);
+    const tx = listTradeEvents(store).find((entry) => entry.id === item.tradeEventId);
     if (!tx) continue;
 
-    const previousCommissionNtd = tx.commissionNtd;
-    const previousTaxNtd = tx.taxNtd;
-    const previousRealizedPnlNtd = tx.realizedPnlNtd;
-    tx.commissionNtd = item.nextCommissionNtd;
-    tx.taxNtd = item.nextTaxNtd;
+    tx.commissionAmount = item.nextCommissionAmount;
+    tx.taxAmount = item.nextTaxAmount;
+    // KZO-167: route through cashLedgerService so the currency-match guard
+    // fires on path 3 (fee-profile recompute single-trade replacement)
+    // before delegating to replaceCashLedgerEntryForTrade.
+    bookTradeSettlementRecompute(store, tx);
 
-    if (tx.type === "SELL" && previousRealizedPnlNtd !== undefined) {
-      const previousNetProceeds = tx.priceNtd * tx.quantity - previousCommissionNtd - previousTaxNtd;
-      const allocatedCostNtd = previousNetProceeds - previousRealizedPnlNtd;
-      const nextNetProceeds = tx.priceNtd * tx.quantity - tx.commissionNtd - tx.taxNtd;
-      tx.realizedPnlNtd = nextNetProceeds - allocatedCostNtd;
+    if (tx.type === "SELL") {
+      tx.realizedPnlAmount = deriveRealizedPnlForTrade(store.accounting, tx);
+      tx.realizedPnlCurrency =
+        tx.realizedPnlAmount === undefined
+          ? undefined
+          : (tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD");
     }
   }
 
@@ -89,6 +104,11 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
 
 function mustGetProfile(store: Store, profileId: string): FeeProfile {
   const profile = store.feeProfiles.find((item) => item.id === profileId);
-  if (!profile) throw new Error("Fee profile not found");
+  if (!profile) throw routeError(404, "fee_profile_not_found", `Fee profile ${profileId} not found`);
   return profile;
 }
+
+// KZO-167: `buildTradeSettlementCashEntry` lives in `cashLedgerService.ts`
+// and `bookTradeSettlementRecompute` (imported above) wraps it with the
+// currency-match guard. The local copy was removed to consolidate the
+// builder shared with `portfolio.ts`.

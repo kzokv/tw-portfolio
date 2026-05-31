@@ -14,8 +14,11 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "paths": {
-      "@tw-portfolio/shared-types": [
+      "@vakwen/shared-types": [
         "../../libs/shared-types/src/index.ts"
+      ],
+      "@/*": [
+        "./*"
       ]
     },
     "plugins": [

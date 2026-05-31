@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Settings · Display</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .settings-shell { display: grid; grid-template-columns: 220px 1fr; gap: 32px; padding: 32px; max-width: 1100px; margin: 0 auto; }
+  .settings-nav { display: flex; flex-direction: column; gap: 2px; }
+  .settings-nav .group { color: hsl(var(--muted-foreground)); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px 10px 4px; }
+  .settings-nav a { padding: 8px 10px; border-radius: 8px; font-size: 13px; color: hsl(var(--foreground)); cursor: pointer; text-decoration: none; }
+  .settings-nav a:hover { background: hsl(var(--muted)); }
+  .settings-nav a.active { background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); font-weight: 500; }
+  .dark .settings-nav a.active { background: hsl(var(--primary) / 0.18); }
+  .row { display: grid; grid-template-columns: 220px 1fr; gap: 24px; padding: 24px 0; border-bottom: 1px solid hsl(var(--border)); }
+  .row:last-child { border-bottom: 0; }
+  .row-label .name { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+  .row-label .desc { color: hsl(var(--muted-foreground)); font-size: 12px; }
+  .row-control { min-width: 0; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(8, 36px); gap: 12px; margin-bottom: 12px; }
+  .swatch { width: 36px; height: 36px; border-radius: 12px; border: 2px solid transparent; cursor: pointer; position: relative; }
+  .swatch.on { border-color: hsl(var(--foreground)); }
+  .swatch.on::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: white; font-weight: 700; font-size: 14px; }
+  .preview-row { display: flex; gap: 8px; align-items: center; padding: 12px; border: 1px dashed hsl(var(--border)); border-radius: 8px; }
+  .density-card { padding: 0; overflow: hidden; }
+  .density-card table.dt thead th { font-size: 10px; }
+  .switch-control { display: inline-flex; border: 1px solid hsl(var(--border)); border-radius: 8px; height: 32px; overflow: hidden; }
+  .switch-control button { background: transparent; border: 0; padding: 0 14px; cursor: pointer; color: hsl(var(--muted-foreground)); font-size: 13px; }
+  .switch-control button.on { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: inset 0 0 0 1px hsl(var(--border)); }
+</style>
+<script>
+  const sp = new URLSearchParams(location.search);
+  if (sp.get("theme") === "dark") document.documentElement.classList.add("dark");
+</script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <button class="sidebar-toggle" title="Collapse sidebar">‹</button>
+    <div class="sidebar-brand"><div class="logo">V</div><span>Vakwen</span></div>
+    <a class="nav-item"><span class="icon">▦</span><span class="lbl">Dashboard</span></a>
+    <a class="nav-item"><span class="icon">◧</span><span class="lbl">Portfolio</span></a>
+    <a class="nav-item"><span class="icon">↔</span><span class="lbl">Transactions</span></a>
+    <a class="nav-item"><span class="icon">$</span><span class="lbl">Cash ledger</span></a>
+    <a class="nav-item"><span class="icon">◔</span><span class="lbl">Dividends</span></a>
+    <a class="nav-item"><span class="icon">↗</span><span class="lbl">Sharing</span></a>
+    <div class="nav-section">Operator</div>
+    <a class="nav-item"><span class="icon">⚙</span><span class="lbl">Admin</span></a>
+    <a class="nav-item active"><span class="icon">⊕</span><span class="lbl">Settings</span></a>
+  </aside>
+  <div>
+    <header class="topbar" style="padding-right: 110px;">
+      <div class="crumbs"><span>Vakwen</span> <span>›</span> <span>Settings</span> <span>›</span> <span class="here">Display</span></div>
+      <div class="cmd-trigger"><span>🔍</span><span>Search anything…</span><kbd>⌘K</kbd></div>
+      <div class="theme-seg"><button title="Light">☀</button><button class="on">🌓</button><button>🌙</button></div>
+    </header>
+    <div class="settings-shell">
+      <nav class="settings-nav">
+        <div class="group">Personal</div>
+        <a>Profile</a>
+        <a>Accounts</a>
+        <a class="active">Display</a>
+        <a>Notifications</a>
+        <div class="group">Data</div>
+        <a>API keys</a>
+        <a>Import / Export</a>
+        <a>Privacy &amp; sharing</a>
+      </nav>
+      <section>
+        <h1 style="font-size:24px; margin-bottom:4px;">Display</h1>
+        <p class="muted text-sm" style="margin-bottom:24px;">Personalize how Vakwen looks and feels. Changes apply across this account.</p>
+
+        <div class="row">
+          <div class="row-label">
+            <div class="name">Theme mode</div>
+            <div class="desc">Choose how light and dark behave. <strong>System</strong> follows your OS preference automatically.</div>
+          </div>
+          <div class="row-control">
+            <div class="switch-control">
+              <button>☀ &nbsp;Light</button>
+              <button class="on">🌓 &nbsp;System</button>
+              <button>🌙 &nbsp;Dark</button>
+            </div>
+            <div class="muted text-xs" style="margin-top:8px;">Saved on this device.</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-label">
+            <div class="name">Accent color</div>
+            <div class="desc">Sets the primary highlight color across buttons, links, and charts. Status colors (gain / loss / warning) are unaffected.</div>
+          </div>
+          <div class="row-control">
+            <div class="swatch-grid" style="grid-template-columns: repeat(9, 36px);">
+              <button class="swatch on" style="background:hsl(238 84% 60%)" title="Indigo (default)"></button>
+              <button class="swatch" style="background:hsl(262 83% 58%)" title="Violet"></button>
+              <button class="swatch" style="background:hsl(217 91% 60%)" title="Blue"></button>
+              <button class="swatch" style="background:hsl(188 86% 38%)" title="Cyan"></button>
+              <button class="swatch" style="background:hsl(158 64% 40%)" title="Emerald"></button>
+              <button class="swatch" style="background:hsl(35 92% 50%)" title="Amber"></button>
+              <button class="swatch" style="background:hsl(347 77% 50%)" title="Rose"></button>
+              <button class="swatch" style="background:hsl(222 47% 11%)" title="Slate"></button>
+              <button class="swatch custom-swatch" title="Custom color" style="background: conic-gradient(from 0deg, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(0 90% 55%));">
+                <span style="position:absolute; inset:0; display:grid; place-items:center; color:white; font-weight:700; font-size:18px; text-shadow: 0 1px 2px rgba(0,0,0,0.4);">+</span>
+              </button>
+            </div>
+            <div class="muted text-xs" style="margin-bottom:16px;">Indigo · default · or pick a custom hue ↓</div>
+
+            <div class="card card-tight" style="padding: 16px; max-width: 480px; background: hsl(var(--muted) / 0.3);">
+              <div class="text-sm font-semibold" style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                <span style="display:inline-block; width:18px; height:18px; border-radius:6px; background: conic-gradient(from 0deg, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(0 90% 55%));"></span>
+                Custom accent
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 100px; gap:12px; align-items:center; margin-bottom:12px;">
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Hue</label>
+                  <div style="position:relative; height:24px; border-radius:6px; background: linear-gradient(to right, hsl(0 90% 55%), hsl(60 90% 55%), hsl(120 90% 45%), hsl(180 90% 45%), hsl(240 90% 60%), hsl(300 90% 55%), hsl(360 90% 55%)); border: 1px solid hsl(var(--border));">
+                    <div style="position:absolute; top:-3px; left:38%; width:14px; height:30px; border-radius:3px; background:white; border: 2px solid hsl(var(--foreground)); box-shadow: 0 1px 3px rgba(0,0,0,0.2); transform: translateX(-7px);"></div>
+                  </div>
+                </div>
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Hex</label>
+                  <input type="text" value="#5B6FFF" style="width:100%; height:24px; padding:0 8px; border:1px solid hsl(var(--input)); border-radius:6px; background:hsl(var(--background)); color:hsl(var(--foreground)); font-family:'Geist Mono', ui-monospace, monospace; font-size:12px;" />
+                </div>
+              </div>
+              <div style="display:grid; grid-template-columns: 1fr 100px; gap:12px; align-items:center;">
+                <div>
+                  <label class="muted text-xs" style="display:block; margin-bottom:4px;">Saturation</label>
+                  <div style="position:relative; height:24px; border-radius:6px; background: linear-gradient(to right, hsl(238 0% 60%), hsl(238 100% 60%)); border: 1px solid hsl(var(--border));">
+                    <div style="position:absolute; top:-3px; left:84%; width:14px; height:30px; border-radius:3px; background:white; border: 2px solid hsl(var(--foreground)); box-shadow: 0 1px 3px rgba(0,0,0,0.2); transform: translateX(-7px);"></div>
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; padding-top:18px;">
+                  <span style="display:inline-block; width:32px; height:32px; border-radius:8px; background:hsl(238 84% 60%); border:1px solid hsl(var(--border));"></span>
+                  <span class="badge badge-success" style="height:18px; font-size:10px;">AA ✓</span>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+                <button class="btn btn-sm">Reset to Indigo</button>
+                <button class="btn btn-sm btn-primary">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-label">
+            <div class="name">Density</div>
+            <div class="desc">Affects table row heights and list spacing. <strong>Compact</strong> shows ~10–12 rows per laptop screen; <strong>Comfortable</strong> trades density for breathing room.</div>
+          </div>
+          <div class="row-control">
+            <div class="switch-control" style="margin-bottom:12px;">
+              <button class="on">Compact</button>
+              <button>Comfortable</button>
+            </div>
+            <div class="card density-card">
+              <table class="dt">
+                <thead><tr><th>Date</th><th>Type</th><th>Ticker</th><th class="right">Amount</th></tr></thead>
+                <tbody>
+                  <tr><td class="num">2026-05-15</td><td><span class="badge badge-success">BUY</span></td><td>2330</td><td class="right num">NT$ 61,000</td></tr>
+                  <tr><td class="num">2026-05-13</td><td><span class="badge badge-primary">DIV</span></td><td>2330</td><td class="right num">NT$ 4,500</td></tr>
+                  <tr><td class="num">2026-05-09</td><td><span class="badge badge-danger">SELL</span></td><td>AAPL</td><td class="right num">US$ 9,420</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-label">
+            <div class="name">Language</div>
+            <div class="desc">UI strings and number formatting.</div>
+          </div>
+          <div class="row-control">
+            <div class="switch-control">
+              <button class="on">English</button>
+              <button>繁體中文</button>
+            </div>
+          </div>
+        </div>
+
+      </section>
+    </div>
+  </div>
+</div>
+<div class="profile-corner">
+  <button class="btn btn-ghost btn-icon" title="Notifications">🔔</button>
+  <button class="avatar-trigger" title="Account menu">
+    <div class="avatar">A</div>
+    <span class="chev">▼</span>
+  </button>
+</div>
+</body>
+</html>

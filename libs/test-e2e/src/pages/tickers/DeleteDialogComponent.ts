@@ -1,0 +1,31 @@
+import type { Locator } from "@playwright/test";
+import { BasePage } from "@vakwen/test-framework/core";
+
+export interface TDeleteDialogElements {
+  deleteTransactionButton: Locator;
+  confirmationDialog: Locator;
+  tradeSummary: Locator;
+  impactCounts: Locator;
+  snapshotImpact: Locator;
+  negativeLotsWarning: Locator;
+  confirmButton: Locator;
+  cancelButton: Locator;
+}
+
+export class DeleteDialogComponent extends BasePage<TDeleteDialogElements> {
+  protected initializeElements(): void {
+    this._elements = {
+      deleteTransactionButton: this.locate("delete-transaction-button", "Delete Transaction Button"),
+      confirmationDialog: this.locate("delete-confirmation-dialog", "Delete Confirmation Dialog"),
+      tradeSummary: this.locate("delete-trade-summary", "Delete Trade Summary"),
+      impactCounts: this.locate("delete-impact-counts", "Delete Impact Counts"),
+      snapshotImpact: this.locate("delete-snapshot-impact", "Delete Snapshot Impact"),
+      negativeLotsWarning: this.locate("delete-negative-lots-warning", "Delete Negative Lots Warning"),
+      confirmButton: this.locate("delete-confirm-button", "Delete Confirm Button"),
+      cancelButton: this.withDescription(
+        this.page.getByTestId("delete-confirmation-dialog").getByRole("button", { name: /cancel/i }),
+        "Delete Cancel Button",
+      ),
+    };
+  }
+}

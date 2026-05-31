@@ -44,7 +44,7 @@ describe("corporate-actions", () => {
     const dividend = dividendResponse.json();
     expect(dividend.actionType).toBe("DIVIDEND");
     expect(dividend.accountId).toBe("acc-1");
-    expect(dividend.symbol).toBe("2330");
+    expect(dividend.ticker).toBe("2330");
 
     const splitResponse = await app.inject({
       method: "POST",
@@ -66,7 +66,7 @@ describe("corporate-actions", () => {
     expect(holdingsResponse.statusCode).toBe(200);
     const holdings = holdingsResponse.json();
     expect(holdings.length).toBe(1);
-    expect(holdings[0].symbol).toBe("2330");
+    expect(holdings[0].ticker).toBe("2330");
     expect(holdings[0].quantity).toBe(20);
   });
 });

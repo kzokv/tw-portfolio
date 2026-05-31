@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vakwen ChatGPT Transaction Draft Component</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #111827;
+      --muted: #64748b;
+      --soft: #f8fafc;
+      --line: #d8e0ea;
+      --line-strong: #c5cfdd;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --teal: #0f766e;
+      --teal-soft: #ecfdf5;
+      --amber: #b45309;
+      --amber-soft: #fffbeb;
+      --red: #b91c1c;
+      --red-soft: #fef2f2;
+      --violet: #6d28d9;
+      --violet-soft: #f5f3ff;
+      --shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    .frame {
+      width: 1440px;
+      min-height: 1050px;
+      padding: 28px;
+      display: grid;
+      grid-template-columns: 292px 1fr;
+      gap: 20px;
+    }
+
+    .chat-rail,
+    .conversation,
+    .widget,
+    .panel,
+    .summary,
+    .side-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .chat-rail {
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 18px;
+      min-height: 994px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 720;
+    }
+
+    .mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: #111827;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .rail-section {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .rail-item {
+      padding: 10px 12px;
+      color: var(--muted);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    .rail-item.active {
+      color: #1d4ed8;
+      background: var(--blue-soft);
+      font-weight: 650;
+    }
+
+    .rail-footer {
+      display: grid;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 20px;
+    }
+
+    .conversation {
+      padding: 18px 22px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .conversation h1,
+    .widget h2,
+    .panel h3,
+    .side-panel h3 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .conversation h1 {
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .conversation p,
+    .panel p,
+    .side-panel p,
+    .summary p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .pill.teal { color: var(--teal); border-color: #99f6e4; background: var(--teal-soft); }
+    .pill.amber { color: var(--amber); border-color: #fde68a; background: var(--amber-soft); }
+    .pill.red { color: var(--red); border-color: #fecaca; background: var(--red-soft); }
+    .pill.violet { color: var(--violet); border-color: #ddd6fe; background: var(--violet-soft); }
+    .pill.blue { color: #1d4ed8; border-color: #bfdbfe; background: var(--blue-soft); }
+
+    .model-note {
+      max-width: 370px;
+      padding: 12px 14px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .widget {
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      min-height: 850px;
+    }
+
+    .widget-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+
+    .widget-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .widget-title h2 {
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .widget-subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .app-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: white;
+      display: grid;
+      place-items: center;
+      font-weight: 750;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+    }
+
+    .tab {
+      min-height: 36px;
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: #334155;
+      font-weight: 650;
+      font-size: 13px;
+    }
+
+    .tab.active {
+      color: white;
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+
+    .widget-body {
+      display: grid;
+      grid-template-columns: 1fr 330px;
+      gap: 0;
+      min-height: 0;
+    }
+
+    .content {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .side-panel {
+      border-top: 0;
+      border-right: 0;
+      border-bottom: 0;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+      background: #fbfdff;
+    }
+
+    .panel {
+      box-shadow: none;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel h3,
+    .side-panel h3 {
+      font-size: 15px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary {
+      box-shadow: none;
+      padding: 12px;
+    }
+
+    .summary .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .summary .value {
+      margin-top: 5px;
+      font-size: 18px;
+      font-weight: 760;
+      line-height: 1.15;
+    }
+
+    .source-strip {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .source-strip strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: white;
+      color: #334155;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .btn.primary {
+      color: white;
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+
+    .btn.danger {
+      color: var(--red);
+      border-color: #fecaca;
+      background: white;
+    }
+
+    .btn.ghost {
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .table {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: white;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 42px 0.85fr 0.55fr 0.7fr 0.7fr 96px 1fr 118px;
+      gap: 10px;
+      align-items: center;
+      min-height: 58px;
+      padding: 10px 12px;
+      border-top: 1px solid #edf2f7;
+      font-size: 13px;
+    }
+
+    .row.header {
+      min-height: 42px;
+      border-top: 0;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+    }
+
+    .row > div:nth-child(6) {
+      white-space: nowrap;
+    }
+
+    .checkbox {
+      width: 20px;
+      height: 20px;
+      border: 1px solid #93c5fd;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: var(--blue);
+      font-size: 12px;
+    }
+
+    .checkbox.off {
+      background: white;
+      color: transparent;
+      border-color: #cbd5e1;
+    }
+
+    .ticker {
+      font-weight: 760;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .mini-stack {
+      display: grid;
+      gap: 5px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+    }
+
+    .input {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      padding: 9px 10px;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    .audit-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .audit-item {
+      display: grid;
+      grid-template-columns: 9px 1fr;
+      gap: 9px;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.35;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      margin-top: 4px;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .dot.amber { background: var(--amber); }
+    .dot.blue { background: var(--blue); }
+
+    .confirm-box {
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      background: var(--amber-soft);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .confirm-box strong {
+      color: #7c2d12;
+    }
+
+    .typed {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .deep-link {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid #bfdbfe;
+      background: var(--blue-soft);
+      color: #1d4ed8;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <aside class="chat-rail">
+      <div class="brand"><div class="mark">C</div><span>ChatGPT</span></div>
+      <div class="rail-section">
+        <div class="rail-item">Portfolio questions</div>
+        <div class="rail-item active">Import broker trades</div>
+        <div class="rail-item">Dividend summary</div>
+        <div class="rail-item">Quote freshness</div>
+        <div class="rail-item">Settings help</div>
+      </div>
+      <div class="rail-footer">
+        <div class="pill teal">Vakwen connected</div>
+        <div>Connected as lume@example.com</div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <div class="conversation">
+        <div>
+          <h1>Import these broker statement rows into my Vakwen AI Inbox.</h1>
+          <p>ChatGPT extracted structured candidates from an uploaded PDF. Vakwen validated the candidates and returned row-level issues for review.</p>
+          <div class="pill-row">
+            <span class="pill teal">No raw file sent to Vakwen</span>
+            <span class="pill blue">7 candidate rows</span>
+            <span class="pill amber">2 need review</span>
+            <span class="pill violet">transaction:write enabled</span>
+          </div>
+        </div>
+        <div class="model-note">The component is using the MCP Apps bridge. Actions below call Vakwen MCP tools with the same connector scopes and audit policy as model-initiated tool calls.</div>
+      </div>
+
+      <section class="widget">
+        <header class="widget-header">
+          <div class="widget-title">
+            <div class="app-mark">V</div>
+            <div>
+              <h2>Vakwen transaction draft</h2>
+              <div class="widget-subtitle">Connector-mediated import from ChatGPT. Final writes require explicit confirmation.</div>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn">Refresh</button>
+            <button class="btn">Open in Vakwen</button>
+          </div>
+        </header>
+
+        <nav class="tabs">
+          <button class="tab">Import</button>
+          <button class="tab active">Review</button>
+          <button class="tab">Post</button>
+        </nav>
+
+        <div class="widget-body">
+          <div class="content">
+            <div class="source-strip">
+              <div>
+                <strong>May broker statement.pdf</strong>
+                <p>Extracted by ChatGPT from a temporary file. Vakwen received structured candidates, capped snippets, row mappings, and provenance metadata only.</p>
+              </div>
+              <div class="pill-row">
+                <span class="pill teal">preflight complete</span>
+                <span class="pill">batch v12</span>
+              </div>
+            </div>
+
+            <div class="summary-grid">
+              <div class="summary"><div class="label">Rows</div><div class="value">7</div><p>5 selected</p></div>
+              <div class="summary"><div class="label">Ready</div><div class="value">5</div><p>All can post</p></div>
+              <div class="summary"><div class="label">Needs review</div><div class="value">2</div><p>Account and fee conflict</p></div>
+              <div class="summary"><div class="label">Gross value</div><div class="value">TWD 1.42M</div><p>Typed confirmation required</p></div>
+            </div>
+
+            <div class="table">
+              <div class="row header">
+                <div></div><div>Ticker</div><div>Side</div><div>Quantity</div><div>Price</div><div>Date</div><div>Status</div><div>Actions</div>
+              </div>
+              <div class="row">
+                <div class="checkbox">✓</div>
+                <div class="mini-stack"><span class="ticker">2330 TW</span><span class="muted">TSMC</span></div>
+                <div>BUY</div>
+                <div>1,000</div>
+                <div>TWD 812.00</div>
+                <div>2026-05-24</div>
+                <div><span class="pill teal">ready</span></div>
+                <div><button class="btn">Edit</button></div>
+              </div>
+              <div class="row">
+                <div class="checkbox">✓</div>
+                <div class="mini-stack"><span class="ticker">AAPL US</span><span class="muted">Apple</span></div>
+                <div>SELL</div>
+                <div>15</div>
+                <div>USD 198.40</div>
+                <div>2026-05-24</div>
+                <div><span class="pill teal">ready</span></div>
+                <div><button class="btn">Edit</button></div>
+              </div>
+              <div class="row">
+                <div class="checkbox off">✓</div>
+                <div class="mini-stack"><span class="ticker">BHP AU</span><span class="muted">BHP Group</span></div>
+                <div>BUY</div>
+                <div>80</div>
+                <div>AUD 43.18</div>
+                <div>2026-05-25</div>
+                <div><span class="pill amber">needs clarification</span></div>
+                <div><button class="btn">Fix</button></div>
+              </div>
+              <div class="row">
+                <div class="checkbox">✓</div>
+                <div class="mini-stack"><span class="ticker">0050 TW</span><span class="muted">Yuanta Taiwan 50</span></div>
+                <div>BUY</div>
+                <div>3,000</div>
+                <div>TWD 186.75</div>
+                <div>2026-05-25</div>
+                <div><span class="pill teal">ready</span></div>
+                <div><button class="btn">Edit</button></div>
+              </div>
+              <div class="row">
+                <div class="checkbox off">✓</div>
+                <div class="mini-stack"><span class="ticker">NVDA US</span><span class="muted">NVIDIA</span></div>
+                <div>BUY</div>
+                <div>10</div>
+                <div>USD 138.12</div>
+                <div>2026-05-25</div>
+                <div><span class="pill red">fee conflict</span></div>
+                <div><button class="btn">Fix</button></div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="side-panel">
+            <div class="panel">
+              <h3>Selected row edit</h3>
+              <p>Saving edits re-runs deterministic preflight on Vakwen. Blocking issues reject the edit and return current row state.</p>
+              <div class="field-grid">
+                <div class="field"><label>Account</label><div class="input">TW Brokerage</div></div>
+                <div class="field"><label>Market</label><div class="input">TW</div></div>
+                <div class="field"><label>Quantity</label><div class="input">1,000</div></div>
+                <div class="field"><label>Unit price</label><div class="input">812.00</div></div>
+              </div>
+              <div class="actions"><button class="btn">Discard</button><button class="btn primary">Save row</button></div>
+            </div>
+
+            <div class="panel">
+              <h3>Audit preview</h3>
+              <div class="audit-list">
+                <div class="audit-item"><div class="dot blue"></div><div>Created by ChatGPT connector from structured candidates.</div></div>
+                <div class="audit-item"><div class="dot"></div><div>Source snippet capped at 500 characters per row.</div></div>
+                <div class="audit-item"><div class="dot amber"></div><div>Two rows excluded from posting until clarified.</div></div>
+              </div>
+            </div>
+
+            <div class="confirm-box">
+              <div>
+                <strong>High-value confirmation</strong>
+                <p>This selected post exceeds the configured threshold. Type the phrase before posting.</p>
+              </div>
+              <div class="field">
+                <label>Required phrase</label>
+                <div class="input typed">POST 5 TRADES</div>
+              </div>
+              <button class="btn primary">Post selected rows</button>
+            </div>
+
+            <div class="deep-link">
+              <span>Review/post in Vakwen</span>
+              <span>/transactions?tab=ai-inbox</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

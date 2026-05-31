@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KZO-167 — /cash-ledger chip mockup</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body {
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      .grain {
+        background-image: radial-gradient(
+            circle at 20% 30%,
+            rgba(99, 102, 241, 0.04),
+            transparent 60%
+          ),
+          radial-gradient(
+            circle at 80% 10%,
+            rgba(16, 185, 129, 0.03),
+            transparent 50%
+          );
+      }
+      /* Annotation callouts */
+      .annotation {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .arrow {
+        position: absolute;
+        z-index: 5;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body class="grain min-h-screen">
+    <div class="mx-auto max-w-6xl px-6 py-10">
+      <!-- Header banner — meta about the mockup, not part of the actual UI -->
+      <div
+        class="mb-8 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm"
+      >
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          Mockup · KZO-167 scope-grill 2026-04-27
+        </p>
+        <h1 class="mt-1 text-base font-semibold text-slate-900">
+          /cash-ledger — account dropdown &amp; summary chip update
+        </h1>
+        <p class="mt-1 text-sm text-slate-500">
+          Matches existing Tailwind utility classes used in
+          <code class="rounded bg-slate-100 px-1 py-0.5 text-xs">
+            apps/web/features/cash-ledger/components/CashLedgerClient.tsx
+          </code>. Annotations point to changed regions.
+        </p>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- Live region: this is what the user sees on /cash-ledger -->
+      <!-- ============================================================== -->
+
+      <div class="space-y-4">
+        <!-- Page title + description (existing, unchanged) -->
+        <div>
+          <h1 class="text-2xl font-semibold text-slate-900">Cash Ledger</h1>
+          <p class="mt-1 text-sm text-slate-500">
+            Track settlement and dividend cash flows across accounts
+          </p>
+        </div>
+
+        <!-- Filter card with dropdown OPEN -->
+        <div
+          class="relative rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm"
+        >
+          <div class="flex flex-wrap items-end gap-3">
+            <!-- From date -->
+            <div class="min-w-[8rem]">
+              <label
+                class="mb-1 block text-xs font-medium text-slate-500"
+                >From</label
+              >
+              <input
+                type="date"
+                value="2026-04-01"
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              />
+            </div>
+            <!-- To date -->
+            <div class="min-w-[8rem]">
+              <label
+                class="mb-1 block text-xs font-medium text-slate-500"
+                >To</label
+              >
+              <input
+                type="date"
+                value="2026-04-27"
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+              />
+            </div>
+            <!-- Account dropdown — RENDERED OPEN to show new option label -->
+            <div class="relative min-w-[14rem]">
+              <label
+                class="mb-1 block text-xs font-medium text-slate-500"
+                >Account</label
+              >
+              <!-- Closed-state pill (the visible select trigger) -->
+              <div
+                class="flex w-full items-center justify-between rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-[0_0_0_3px_rgb(199_210_254/0.6)]"
+              >
+                <span class="flex items-center gap-2">
+                  <span class="font-medium">Main</span>
+                  <span class="text-slate-400">·</span>
+                  <span
+                    class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                    >TWD</span
+                  >
+                  <span
+                    class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                    >Broker</span
+                  >
+                </span>
+                <svg
+                  class="h-4 w-4 text-slate-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.24 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  />
+                </svg>
+              </div>
+              <!-- Open dropdown panel -->
+              <div
+                class="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+              >
+                <ul class="max-h-64 overflow-auto py-1 text-sm">
+                  <li
+                    class="cursor-pointer px-3 py-2 text-slate-400 hover:bg-slate-50"
+                  >
+                    —
+                  </li>
+                  <li
+                    class="flex cursor-pointer items-center gap-2 bg-indigo-50 px-3 py-2 text-slate-900"
+                  >
+                    <span class="font-medium">Main</span>
+                    <span class="text-slate-400">·</span>
+                    <span
+                      class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                      >TWD</span
+                    >
+                    <span
+                      class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                      >Broker</span
+                    >
+                  </li>
+                  <!-- Phantom option to hint at the multi-account future (KZO-179)
+                       — visually muted to make clear it's a forward-looking suggestion. -->
+                  <li
+                    class="flex cursor-not-allowed items-center gap-2 px-3 py-2 text-slate-400"
+                    title="Available after KZO-179 — multi-account creation"
+                  >
+                    <span class="font-medium">USD Brokerage</span>
+                    <span class="text-slate-300">·</span>
+                    <span
+                      class="rounded-full bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-400"
+                      >USD</span
+                    >
+                    <span
+                      class="rounded-full bg-blue-50/40 px-1.5 py-0.5 text-[11px] font-medium text-blue-400"
+                      >Broker</span
+                    >
+                    <span
+                      class="ml-auto rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700"
+                      >KZO-179</span
+                    >
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <!-- Entry type pills (existing, unchanged) -->
+            <div class="min-w-[10rem]">
+              <label
+                class="mb-1 block text-xs font-medium text-slate-500"
+                >Entry Type</label
+              >
+              <div class="flex flex-wrap gap-1">
+                <button
+                  class="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700"
+                >
+                  Trade Settlement (In)
+                </button>
+                <button
+                  class="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700"
+                >
+                  Trade Settlement (Out)
+                </button>
+                <button
+                  class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
+                >
+                  Dividend Receipt
+                </button>
+                <button
+                  class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
+                >
+                  Dividend Deduction
+                </button>
+                <button
+                  class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
+                >
+                  Manual Adjustment
+                </button>
+                <button
+                  class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
+                >
+                  Reversal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary chips — the second changed region -->
+        <div class="flex flex-wrap gap-3" data-testid="cash-ledger-summary">
+          <!-- Single existing TWD/Broker account, current ticket -->
+          <div
+            class="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 shadow-sm"
+          >
+            <p class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+              <span class="text-slate-700">Main</span>
+              <span class="text-slate-300">·</span>
+              <span
+                class="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-700"
+                >TWD</span
+              >
+              <span
+                class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                >Broker</span
+              >
+            </p>
+            <p class="mt-1 text-lg font-semibold text-slate-900">
+              Total: NT$ 4,827,310
+            </p>
+          </div>
+          <!-- Forward-looking USD Brokerage chip — same visual contract -->
+          <div
+            class="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-3 shadow-sm"
+            title="Available after KZO-179 — multi-account creation"
+          >
+            <p class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+              <span class="text-slate-500">USD Brokerage</span>
+              <span class="text-slate-300">·</span>
+              <span
+                class="rounded-full bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-slate-500"
+                >USD</span
+              >
+              <span
+                class="rounded-full bg-blue-50/60 px-1.5 py-0.5 text-[11px] font-medium text-blue-600"
+                >Broker</span
+              >
+              <span
+                class="ml-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700"
+                >KZO-179</span
+              >
+            </p>
+            <p class="mt-1 text-lg font-semibold text-slate-400">
+              Total: $ 12,840.18
+            </p>
+          </div>
+        </div>
+
+        <!-- Table — column "Account" stays simple (no chip on rows; rows are crowded) -->
+        <div class="hidden lg:block">
+          <div
+            class="overflow-x-auto rounded-2xl border border-slate-200 bg-white/90 shadow-sm"
+          >
+            <table class="w-full text-sm">
+              <thead>
+                <tr
+                  class="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
+                >
+                  <th class="px-3 py-3">Date</th>
+                  <th class="px-3 py-3">Type</th>
+                  <th class="px-3 py-3">Ticker</th>
+                  <th class="px-3 py-3">Side</th>
+                  <th class="px-3 py-3 text-right">Amount</th>
+                  <th class="px-3 py-3">Currency</th>
+                  <th class="px-3 py-3">Account</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  class="cursor-pointer border-b border-slate-100 transition hover:bg-slate-50"
+                >
+                  <td class="px-3 py-3 whitespace-nowrap">2026-04-25</td>
+                  <td class="px-3 py-3">Trade Settlement (In)</td>
+                  <td class="px-3 py-3 whitespace-nowrap font-medium">2330</td>
+                  <td class="px-3 py-3 whitespace-nowrap">SELL</td>
+                  <td
+                    class="px-3 py-3 whitespace-nowrap text-right font-medium text-emerald-700"
+                  >
+                    NT$ 412,580
+                  </td>
+                  <td class="px-3 py-3 whitespace-nowrap text-slate-500">TWD</td>
+                  <td class="px-3 py-3 text-slate-500">Main</td>
+                </tr>
+                <tr
+                  class="cursor-pointer border-b border-slate-100 transition hover:bg-slate-50"
+                >
+                  <td class="px-3 py-3 whitespace-nowrap">2026-04-22</td>
+                  <td class="px-3 py-3">Trade Settlement (Out)</td>
+                  <td class="px-3 py-3 whitespace-nowrap font-medium">2454</td>
+                  <td class="px-3 py-3 whitespace-nowrap">BUY</td>
+                  <td
+                    class="px-3 py-3 whitespace-nowrap text-right font-medium text-rose-700"
+                  >
+                    NT$ −198,440
+                  </td>
+                  <td class="px-3 py-3 whitespace-nowrap text-slate-500">TWD</td>
+                  <td class="px-3 py-3 text-slate-500">Main</td>
+                </tr>
+                <tr
+                  class="cursor-pointer border-b border-slate-100 transition hover:bg-slate-50"
+                >
+                  <td class="px-3 py-3 whitespace-nowrap">2026-04-19</td>
+                  <td class="px-3 py-3">Dividend Receipt</td>
+                  <td class="px-3 py-3 whitespace-nowrap font-medium">0050</td>
+                  <td class="px-3 py-3 whitespace-nowrap">—</td>
+                  <td
+                    class="px-3 py-3 whitespace-nowrap text-right font-medium text-emerald-700"
+                  >
+                    NT$ 6,420
+                  </td>
+                  <td class="px-3 py-3 whitespace-nowrap text-slate-500">TWD</td>
+                  <td class="px-3 py-3 text-slate-500">Main</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- Annotation legend (not part of UI; for design review) -->
+      <!-- ============================================================== -->
+
+      <div
+        class="annotation mt-12 grid gap-4 rounded-xl border border-slate-200 bg-white p-5 text-xs leading-relaxed text-slate-600 shadow-sm md:grid-cols-2"
+      >
+        <div>
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            Visual contract
+          </p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li>
+              <span class="font-medium text-slate-700">Account name</span>
+              — primary text weight, no decoration. Replaces the raw
+              <code>${accountId}</code>.
+            </li>
+            <li>
+              <span class="font-mono font-semibold text-slate-700">TWD</span>
+              — currency code rendered in
+              <code>rounded-full bg-slate-100 font-mono text-[11px]</code>.
+              Untranslated by industry convention; mono face signals
+              <em>code, not prose</em>.
+            </li>
+            <li>
+              <span
+                class="rounded-full bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700"
+                >Broker</span
+              >
+              — type label rendered in
+              <code>rounded-full bg-blue-50 text-blue-700</code>. Localized
+              via <code>accountTypeBroker</code> / <code>accountTypeBank</code>
+              / <code>accountTypeWallet</code> in
+              <code>cash-ledger/i18n.ts</code>.
+            </li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            What changes vs current
+          </p>
+          <ul class="mt-2 space-y-1 list-disc pl-5">
+            <li>
+              <span class="font-medium text-slate-700">Filter dropdown</span>
+              — was <code>{accountId}</code> (raw); becomes
+              <code>{name} (TWD · Broker)</code>.
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">Summary chip header</span>
+              — was <code>{accountId} / {currency}</code>; becomes
+              <code>{name}</code> + currency-mono chip + type pill.
+            </li>
+            <li>
+              <span class="font-medium text-slate-700">Table account column</span>
+              — upgraded to <code>{name}</code> only (rows already crowded; no chip
+              there). Implementer judgment, scope-todo confirms this is OK.
+            </li>
+          </ul>
+        </div>
+        <div class="md:col-span-2">
+          <p class="font-semibold uppercase tracking-wider text-slate-500">
+            Forward-looking elements (not in KZO-167)
+          </p>
+          <p class="mt-2">
+            The dashed-border <em>USD Brokerage</em> chip and the muted second
+            dropdown entry are shown only to demonstrate that the visual
+            contract scales when KZO-179 lands multi-account creation. KZO-167
+            ships with a single auto-seeded
+            <em>Main</em> account; the dashed/muted treatment is illustrative
+            only and tagged with the
+            <span
+              class="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700"
+              >KZO-179</span
+            > badge here for clarity in this mockup. They do not appear in the
+            actual KZO-167 PR.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -7,7 +7,10 @@ npm-debug.log*
 infra/docker/.env.prod
 .env.dev
 infra/docker/.env.dev
+infra/docker/.env.local
 .next
+.worktrees/
+.worklog/
 
 **/*next-env.d.ts
 dist
@@ -15,3 +18,14 @@ coverage
 playwright-report
 test-results
 vitest-report
+apps/api/test/**/*.js
+apps/api/test/**/*.js.map
+apps/api/test/**/*.d.ts
+libs/*/src/**/*.js
+libs/*/src/**/*.js.map
+libs/*/src/**/*.d.ts
+
+**/plans/**.md
+
+**/playwright-report*
+.playwright-mcp/

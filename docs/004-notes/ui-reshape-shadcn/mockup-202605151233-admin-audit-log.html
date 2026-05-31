@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Audit log</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .filter-row { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input[type=search] { flex:1; max-width:320px; height:34px; padding:0 12px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; }
+  .filter-row select { height:34px; padding:0 28px 0 10px; border:1px solid hsl(var(--input)); border-radius:8px; background:hsl(var(--background)); font-size:13px; color:hsl(var(--foreground)); }
+  .cat-pill { display:inline-flex; align-items:center; padding:1px 8px; border-radius:4px; font-size:11px; font-weight:500; }
+  .cat-auth { background:hsl(var(--primary) / 0.15); color:hsl(var(--primary)); }
+  .cat-config { background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
+  .cat-role { background:hsl(var(--warning) / 0.15); color:hsl(var(--warning)); }
+  .cat-data { background:hsl(var(--success) / 0.15); color:hsl(var(--success)); }
+  .cat-purge { background:hsl(var(--destructive) / 0.15); color:hsl(var(--destructive)); }
+  .meta-cell { font-family:"Geist Mono", ui-monospace, monospace; font-size:11px; color:hsl(var(--muted-foreground)); }
+  .actor-cell { display:flex; align-items:center; gap:8px; }
+  .actor-cell .avatar { width:22px; height:22px; font-size:10px; }
+</style>
+</head>
+<body data-admin data-section="admin-audit-log" data-crumb-here="Audit log">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Audit log</div>
+      <div class="muted text-sm">Immutable record of operator actions · retained 365 days</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn">Export JSON</button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <input type="search" placeholder="Filter by actor, target, action…" />
+    <select>
+      <option>All categories</option>
+      <option>auth</option>
+      <option>config</option>
+      <option>role</option>
+      <option>data</option>
+      <option>purge</option>
+    </select>
+    <select>
+      <option>All actors</option>
+      <option>alex@example.com</option>
+      <option>jenny@example.com</option>
+    </select>
+    <select>
+      <option>Last 30 days</option>
+      <option>Last 7 days</option>
+      <option>Last 24 hours</option>
+      <option>Custom range…</option>
+    </select>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm">⚙ More filters</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="dt">
+      <thead>
+        <tr>
+          <th class="sortable sort-desc">When<span class="sort-ind">▼</span></th>
+          <th>Actor</th>
+          <th>Category</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th class="sortable">IP<span class="sort-ind">↕</span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="num text-xs">2026-05-15 16:32:01</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-role">role</span></td><td>user.role_promoted</td><td class="meta-cell">jenny@example.com → operator</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-15 15:18:42</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-config">config</span></td><td>app_config.updated</td><td class="meta-cell">anonymous_share_rate_limit_window_ms · 60000 → 600000</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-15 13:01:08</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(238 84% 60%); color:white;">J</div><span class="text-xs">jenny@</span></div></td><td><span class="cat-pill cat-data">data</span></td><td>instrument.metadata_overridden</td><td class="meta-cell">BHP · sector → Materials</td><td class="meta-cell">203.85.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-15 11:44:15</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-auth">auth</span></td><td>invite.issued</td><td class="meta-cell">mei@example.com · user · 7d</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-15 10:12:33</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-config">config</span></td><td>provider.token_rotated</td><td class="meta-cell">finmind · token id 8f4d</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-14 22:00:01</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--muted)); color:hsl(var(--muted-foreground));">⚙</div><span class="text-xs">system</span></div></td><td><span class="cat-pill cat-purge">purge</span></td><td>anonymous_share_token.purged</td><td class="meta-cell">cron · 14 tokens older than 90d</td><td class="meta-cell">—</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-14 09:23:17</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(238 84% 60%); color:white;">J</div><span class="text-xs">jenny@</span></div></td><td><span class="cat-pill cat-auth">auth</span></td><td>impersonation.started</td><td class="meta-cell">target: kai@example.jp · reason: support ticket #4421</td><td class="meta-cell">203.85.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-14 09:31:08</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(238 84% 60%); color:white;">J</div><span class="text-xs">jenny@</span></div></td><td><span class="cat-pill cat-auth">auth</span></td><td>impersonation.ended</td><td class="meta-cell">target: kai@example.jp · duration: 7m51s</td><td class="meta-cell">203.85.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-13 16:45:22</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-config">config</span></td><td>feature_flag.toggled</td><td class="meta-cell">enable_au_catalog · false → true</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+        <tr><td class="num text-xs">2026-05-13 14:20:00</td><td><div class="actor-cell"><div class="avatar" style="background:hsl(var(--primary)); color:hsl(var(--primary-foreground));">A</div><span class="text-xs">alex@</span></div></td><td><span class="cat-pill cat-purge">purge</span></td><td>user.hard_purge_requested</td><td class="meta-cell">david@example.com · reason: GDPR DSR-1834</td><td class="meta-cell">114.32.x.x</td><td class="actions"><button class="btn btn-ghost btn-sm">⋮</button></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px; border-top:1px solid hsl(var(--border)); display:flex; justify-content:space-between; align-items:center; font-size:12px; color:hsl(var(--muted-foreground));">
+      <span>10 of 4,218 entries</span>
+      <div style="display:flex; gap:6px;"><button class="btn btn-sm">← Prev</button><button class="btn btn-sm">Next →</button></div>
+    </div>
+  </div>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>

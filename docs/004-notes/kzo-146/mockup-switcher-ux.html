@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>KZO-146 Mock-up: Portfolio Switcher UX</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+    .glass-panel { backdrop-filter: blur(12px); }
+    .section-label { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-[rgba(243,247,255,0.92)] text-slate-900 pb-20">
+
+<div class="mx-auto max-w-[1600px] px-4 md:px-8 xl:px-10 py-8">
+
+  <!-- Page heading -->
+  <div class="mb-10">
+    <p class="section-label text-indigo-600">KZO-146 · Visual reference</p>
+    <h1 class="mt-2 text-3xl font-semibold text-slate-950">Portfolio Switcher UX</h1>
+    <p class="mt-2 text-sm text-slate-600 max-w-3xl">
+      Shape B (impersonation-style, read-only). TopBar switcher is the source-of-truth affordance for viewing a
+      shared portfolio. Cookie-backed context propagation. Hidden write CTAs when switched-in. SSE-proactive
+      revoke fallback.
+    </p>
+  </div>
+
+  <!-- ============ STATE 1: TopBar — default, "My Portfolio" selected ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 1 · Switcher idle, "My Portfolio" active</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <header class="border-b border-slate-200/70 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl">
+        <div class="flex items-center gap-3 px-6 py-4">
+          <button class="h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-4 w-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium uppercase tracking-[0.36em] text-slate-500">TW Portfolio</p>
+            <h2 class="mt-1 text-2xl font-semibold text-slate-950">Dashboard</h2>
+          </div>
+
+          <!-- SWITCHER (Q3 lock: always in TopBar when inbound >= 1) -->
+          <button class="h-11 flex items-center gap-2 px-4 rounded-full border border-slate-200 bg-white/88 shadow-sm hover:border-slate-300" data-testid="portfolio-switcher">
+            <svg class="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 4h14l-1 14H6L5 4zm3 4v6m4-6v6m4-6v6"/></svg>
+            <span class="text-sm font-semibold text-slate-900">My Portfolio</span>
+            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+
+          <div class="hidden lg:block w-[18rem]">
+            <input placeholder="Quick search" class="w-full h-11 rounded-full border border-slate-200/80 bg-white/72 px-5 text-sm">
+          </div>
+          <button class="relative h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg>
+            <span class="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">2</span>
+          </button>
+          <button class="h-11 w-11 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">KC</button>
+        </div>
+      </header>
+      <div class="px-6 py-6 bg-white">
+        <p class="text-xs text-slate-500">Viewing: your own portfolio · write actions enabled</p>
+        <div class="mt-3 flex gap-3">
+          <button class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold shadow-sm">+ Add Transaction</button>
+          <button class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold">Edit Holdings</button>
+        </div>
+      </div>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Behavior:</span>
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">tw_context_user_id</code> cookie absent or equals
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">sessionUserId</code>. Write CTAs visible. Write guard passes.
+    </p>
+  </section>
+
+  <!-- ============ STATE 2: Switcher open — dropdown ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 2 · Switcher open — dropdown menu</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <header class="border-b border-slate-200/70 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl relative">
+        <div class="flex items-center gap-3 px-6 py-4">
+          <button class="h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-4 w-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium uppercase tracking-[0.36em] text-slate-500">TW Portfolio</p>
+            <h2 class="mt-1 text-2xl font-semibold text-slate-950">Dashboard</h2>
+          </div>
+
+          <!-- Switcher (open state) -->
+          <div class="relative">
+            <button class="h-11 flex items-center gap-2 px-4 rounded-full border-2 border-indigo-400 bg-white shadow-[0_8px_20px_rgba(79,70,229,0.18)]">
+              <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 4h14l-1 14H6L5 4zm3 4v6m4-6v6m4-6v6"/></svg>
+              <span class="text-sm font-semibold text-slate-900">My Portfolio</span>
+              <svg class="h-4 w-4 text-indigo-500 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <!-- Dropdown -->
+            <div class="absolute top-[calc(100%+0.5rem)] right-0 w-[20rem] rounded-2xl border border-slate-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] p-2 z-30">
+              <p class="px-3 pt-2 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Select portfolio</p>
+              <!-- Self option -->
+              <button class="w-full flex items-center gap-3 rounded-xl px-3 py-3 bg-indigo-50 text-left">
+                <div class="h-9 w-9 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center text-sm">KC</div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-slate-900">My Portfolio</p>
+                  <p class="text-xs text-slate-500">keith@example.com</p>
+                </div>
+                <svg class="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              </button>
+
+              <div class="px-3 pt-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Shared with you</div>
+
+              <!-- Option: Alice -->
+              <button class="w-full flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-50 text-left">
+                <div class="h-9 w-9 rounded-full bg-rose-500 text-white font-semibold flex items-center justify-center text-sm">AS</div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-slate-900">Alice Smith's Portfolio</p>
+                  <p class="text-xs text-slate-500">alice@example.com · shared 3 days ago</p>
+                </div>
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Read</span>
+              </button>
+
+              <!-- Option: Bob -->
+              <button class="w-full flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-50 text-left">
+                <div class="h-9 w-9 rounded-full bg-amber-500 text-white font-semibold flex items-center justify-center text-sm">BW</div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold text-slate-900">Bob Wang's Portfolio</p>
+                  <p class="text-xs text-slate-500">bob@example.com · shared 2 weeks ago</p>
+                </div>
+                <span class="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">Read</span>
+              </button>
+
+              <div class="mt-2 pt-2 border-t border-slate-100">
+                <a href="/sharing" class="flex items-center gap-2 px-3 py-2 text-xs text-slate-500 hover:text-slate-700">
+                  <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                  Manage sharing
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div class="hidden lg:block w-[18rem] opacity-40 pointer-events-none">
+            <input placeholder="Quick search" class="w-full h-11 rounded-full border border-slate-200/80 bg-white/72 px-5 text-sm">
+          </div>
+          <button class="relative h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm opacity-40 pointer-events-none flex items-center justify-center">
+            <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg>
+          </button>
+          <button class="h-11 w-11 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm opacity-40 pointer-events-none">KC</button>
+        </div>
+        <div class="h-[12rem]"></div>
+      </header>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Ordering:</span> own portfolio pinned top; shared portfolios sorted by grant date desc.
+      <span class="font-semibold text-slate-700 ml-3">Footer:</span> link to <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">/sharing</code> to manage grants.
+    </p>
+  </section>
+
+  <!-- ============ STATE 3: Switched-in — viewing Alice's portfolio ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 3 · Switched in — viewing Alice's portfolio (read-only)</p>
+    <div class="rounded-[24px] border-2 border-rose-200 bg-white shadow-sm overflow-hidden">
+      <header class="border-b border-rose-200/70 bg-[rgba(254,242,242,0.45)] backdrop-blur-xl">
+        <div class="flex items-center gap-3 px-6 py-4">
+          <button class="h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-4 w-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium uppercase tracking-[0.36em] text-rose-600">Viewing shared portfolio</p>
+            <h2 class="mt-1 text-2xl font-semibold text-slate-950">Dashboard</h2>
+          </div>
+
+          <!-- Switcher showing switched-in state -->
+          <button class="h-11 flex items-center gap-2 px-4 rounded-full border-2 border-rose-300 bg-rose-50 shadow-sm">
+            <div class="h-6 w-6 rounded-full bg-rose-500 text-white font-semibold flex items-center justify-center text-[10px]">AS</div>
+            <span class="text-sm font-semibold text-rose-900">Alice's Portfolio</span>
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">Read-only</span>
+            <svg class="h-4 w-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+
+          <div class="hidden lg:block w-[18rem]">
+            <input placeholder="Quick search" class="w-full h-11 rounded-full border border-slate-200/80 bg-white/72 px-5 text-sm">
+          </div>
+          <button class="relative h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-12 0v3.2a2 2 0 01-.6 1.4/></svg>
+            <!-- Bell shows grantee's own notifications (narrow taxonomy: sessionUserId) -->
+            <span class="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">2</span>
+          </button>
+          <button class="h-11 w-11 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">KC</button>
+        </div>
+      </header>
+      <div class="px-6 py-6 bg-white">
+        <p class="text-xs text-rose-600 font-medium">
+          <svg class="inline h-3.5 w-3.5 mr-0.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          Viewing Alice Smith's portfolio · Write actions are disabled
+        </p>
+        <!-- Write CTAs are HIDDEN per ultrathink gap #3 -->
+        <div class="mt-3 flex gap-3">
+          <button class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold">Export CSV</button>
+          <button class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold">Performance report</button>
+          <!-- "+ Add Transaction" and "Edit Holdings" are NOT rendered -->
+        </div>
+
+        <div class="mt-6 grid grid-cols-3 gap-4">
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500">Alice's Holdings</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900">$248,530</p>
+          </div>
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500">YTD Return</p>
+            <p class="mt-1 text-2xl font-semibold text-emerald-700">+12.4%</p>
+          </div>
+          <div class="rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500">Positions</p>
+            <p class="mt-1 text-2xl font-semibold text-slate-900">18</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Server state:</span>
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">sessionUserId</code> = keith,
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">contextUserId</code> = alice,
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">isSharedContext</code> = true.
+      Portfolio-store reads honor <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">contextUserId</code>. Notifications bell still shows keith's own.
+    </p>
+  </section>
+
+  <!-- ============ STATE 4: Revoke SSE event ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 4 · SSE-proactive revoke fallback</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm overflow-hidden relative">
+      <header class="border-b border-slate-200/70 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl">
+        <div class="flex items-center gap-3 px-6 py-4">
+          <button class="h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-4 w-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium uppercase tracking-[0.36em] text-slate-500">TW Portfolio</p>
+            <h2 class="mt-1 text-2xl font-semibold text-slate-950">Dashboard</h2>
+          </div>
+
+          <!-- Switcher reset to My Portfolio after SSE revoke -->
+          <button class="h-11 flex items-center gap-2 px-4 rounded-full border border-slate-200 bg-white/88 shadow-sm">
+            <svg class="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 4h14l-1 14H6L5 4zm3 4v6m4-6v6m4-6v6"/></svg>
+            <span class="text-sm font-semibold text-slate-900">My Portfolio</span>
+            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+
+          <div class="hidden lg:block w-[18rem]">
+            <input placeholder="Quick search" class="w-full h-11 rounded-full border border-slate-200/80 bg-white/72 px-5 text-sm">
+          </div>
+          <button class="h-11 w-11 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">KC</button>
+        </div>
+      </header>
+      <div class="px-6 py-6 bg-white min-h-[8rem]"></div>
+
+      <!-- Toast (bottom-right) -->
+      <div class="absolute bottom-4 right-4 w-[22rem] rounded-2xl border border-amber-200 bg-amber-50 shadow-[0_18px_40px_rgba(217,119,6,0.18)] p-4">
+        <div class="flex items-start gap-3">
+          <div class="h-9 w-9 rounded-full bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-amber-900">Access to Alice's portfolio was revoked</p>
+            <p class="mt-1 text-xs text-amber-800">You've been switched back to your own view.</p>
+          </div>
+          <button class="text-amber-700 hover:text-amber-900 flex-shrink-0">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Trigger:</span> SSE event
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">source="sharing"</code> with
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">detail.ownerUserId === currentSwitcherSelection</code>.
+      <span class="font-semibold text-slate-700 ml-3">Actions:</span> clear
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">tw_context_user_id</code> cookie,
+      reset selection to self, invalidate portfolio queries, show toast.
+      <span class="font-semibold text-slate-700 ml-3">Fallback:</span> if SSE missed, server responds 200 with
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">x-context-fallback: revoked</code> + Set-Cookie clear on next request.
+    </p>
+  </section>
+
+  <!-- ============ STATE 5: Write-block via server (lazy safety net) ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 5 · Server-side write guard (defense-in-depth)</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm p-6">
+      <p class="text-sm text-slate-600 mb-4">
+        Client-side, CTAs are hidden when <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">isSharedContext === true</code>.
+        If a request reaches the server with <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">sessionUserId !== contextUserId</code>
+        on a portfolio-write endpoint (e.g. direct API call, race with stale UI), server rejects.
+      </p>
+      <div class="rounded-xl border border-slate-200 bg-slate-900 text-slate-100 p-4 font-mono text-xs overflow-x-auto">
+        <div class="text-slate-400">POST /transactions</div>
+        <div class="text-slate-400">Cookie: tw_context_user_id=alice-uid; session=keith.v1.sig</div>
+        <div class="mt-2"></div>
+        <div><span class="text-red-300">HTTP/1.1 403 Forbidden</span></div>
+        <div>Content-Type: application/json</div>
+        <div></div>
+        <div>{</div>
+        <div class="pl-4"><span class="text-emerald-300">"error"</span>: <span class="text-amber-200">"write_blocked_viewing_shared"</span>,</div>
+        <div class="pl-4"><span class="text-emerald-300">"message"</span>: <span class="text-amber-200">"Writes are disabled while viewing a shared portfolio."</span></div>
+        <div>}</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STATE 6: Auto-hide when no inbound ============ -->
+  <section class="mb-12">
+    <p class="section-label text-slate-500 mb-3">State 6 · No inbound shares — switcher auto-hidden</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <header class="border-b border-slate-200/70 bg-[rgba(243,247,255,0.88)] backdrop-blur-xl">
+        <div class="flex items-center gap-3 px-6 py-4">
+          <button class="h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-4 w-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium uppercase tracking-[0.36em] text-slate-500">TW Portfolio</p>
+            <h2 class="mt-1 text-2xl font-semibold text-slate-950">Dashboard</h2>
+          </div>
+          <!-- Switcher is NOT rendered when inbound.active.length === 0 -->
+          <div class="hidden lg:block w-[18rem]">
+            <input placeholder="Quick search" class="w-full h-11 rounded-full border border-slate-200/80 bg-white/72 px-5 text-sm">
+          </div>
+          <button class="relative h-11 w-11 rounded-full border border-slate-200 bg-white/88 shadow-sm flex items-center justify-center">
+            <svg class="h-5 w-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 00-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg>
+          </button>
+          <button class="h-11 w-11 rounded-full bg-indigo-600 text-white font-semibold flex items-center justify-center shadow-sm">KC</button>
+        </div>
+      </header>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">
+      <span class="font-semibold text-slate-700">Rule:</span> switcher rendered only when
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">inbound.active.length >= 1</code>. SSE
+      <code class="px-1.5 py-0.5 bg-slate-100 rounded text-[11px]">share_granted</code> event refreshes inbound list so switcher appears without reload.
+    </p>
+  </section>
+
+  <!-- ============ Data flow diagram ============ -->
+  <section class="mb-8">
+    <p class="section-label text-slate-500 mb-3">Data flow · Context propagation</p>
+    <div class="rounded-[24px] border border-slate-200 bg-white shadow-sm p-6">
+      <div class="grid grid-cols-5 gap-2 text-center text-xs">
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p class="font-semibold text-slate-900">User clicks<br/>switcher</p>
+          <p class="mt-1 text-slate-500">Selects Alice</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p class="font-semibold text-slate-900">Client writes cookie</p>
+          <p class="mt-1 text-slate-500"><code class="text-[10px]">tw_context_user_id=alice-uid</code></p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p class="font-semibold text-slate-900">Invalidate queries</p>
+          <p class="mt-1 text-slate-500">Portfolio reads refetch</p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+          <p class="font-semibold text-indigo-900">Client fetch wrapper</p>
+          <p class="mt-1 text-indigo-700">Reads cookie → injects header</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </div>
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+          <p class="font-semibold text-indigo-900">Next.js proxy</p>
+          <p class="mt-1 text-indigo-700">Forwards cookie → header (SSR)</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </div>
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+          <p class="font-semibold text-indigo-900">Fastify auth middleware</p>
+          <p class="mt-1 text-indigo-700">Validates share → sets contextUserId</p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <p class="font-semibold text-emerald-900">Valid share?</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="col-span-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+          <p class="font-semibold text-emerald-900">Set <code class="text-[10px]">contextUserId = owner</code>, <code class="text-[10px]">isSharedContext = true</code> · Portfolio-store reads return owner's data · Writes → 403</p>
+        </div>
+      </div>
+      <div class="mt-2 grid grid-cols-5 gap-2 text-center text-xs">
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+          <p class="font-semibold text-rose-900">Invalid / revoked</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <svg class="h-5 w-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </div>
+        <div class="col-span-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+          <p class="font-semibold text-rose-900">Fallback <code class="text-[10px]">contextUserId = sessionUserId</code> · Response header <code class="text-[10px]">x-context-fallback: revoked</code> + Set-Cookie clear · Client shows toast</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

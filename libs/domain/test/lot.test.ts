@@ -1,33 +1,262 @@
 import { describe, expect, it } from "vitest";
-import { allocateSellLots, type Lot } from "../src/index.js";
+import { allocateSellLots, applyBuyToLots, roundToDecimal, type Lot } from "../src/index.js";
 
-const lots: Lot[] = [
-  {
-    id: "lot-1",
-    accountId: "acc-1",
-    symbol: "2330",
-    openQuantity: 100,
-    totalCostNtd: 100_000,
-    openedAt: "2026-01-01",
-  },
-  {
-    id: "lot-2",
-    accountId: "acc-1",
-    symbol: "2330",
-    openQuantity: 100,
-    totalCostNtd: 120_000,
-    openedAt: "2026-01-02",
-  },
-];
+const existingLot: Lot = {
+  id: "lot-1",
+  accountId: "acc-1",
+  ticker: "2330",
+  openQuantity: 100,
+  totalCostAmount: 100_000,
+  costCurrency: "TWD",
+  openedAt: "2026-01-01",
+  openedSequence: 1,
+};
 
-describe("lot allocation", () => {
-  it("uses fifo", () => {
-    const result = allocateSellLots(lots, 100, "FIFO");
-    expect(result.allocatedCostNtd).toBe(100000);
+const nextBuyLot: Lot = {
+  id: "lot-2",
+  accountId: "acc-1",
+  ticker: "2330",
+  openQuantity: 100,
+  totalCostAmount: 120_000,
+  costCurrency: "TWD",
+  openedAt: "2026-01-02",
+  openedSequence: 1,
+};
+
+describe("weighted-average lot accounting", () => {
+  it("updates open lots to the latest weighted-average cost on buy", () => {
+    const result = applyBuyToLots([existingLot], nextBuyLot);
+
+    expect(result.averageCostAmount).toBe(1_100);
+    expect(result.updatedLots).toEqual([
+      { ...existingLot, totalCostAmount: 110_000 },
+      { ...nextBuyLot, totalCostAmount: 110_000 },
+    ]);
   });
 
-  it("uses lifo", () => {
-    const result = allocateSellLots(lots, 100, "LIFO");
-    expect(result.allocatedCostNtd).toBe(120000);
+  it("allocates the full remaining cost when selling the full position", () => {
+    const bought = applyBuyToLots([existingLot], nextBuyLot);
+
+    const result = allocateSellLots([...bought.updatedLots].reverse(), 200);
+
+    expect(result.averageCostAmount).toBe(1_100);
+    expect(result.allocatedCostAmount).toBe(220_000);
+    expect(result.matchedLotIds).toEqual(["lot-1", "lot-2"]);
+    expect(result.matchedAllocations).toEqual([
+      {
+        lotId: "lot-1",
+        quantity: 100,
+        allocatedCostAmount: 110_000,
+        costCurrency: "TWD",
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+      {
+        lotId: "lot-2",
+        quantity: 100,
+        allocatedCostAmount: 110_000,
+        costCurrency: "TWD",
+        openedAt: "2026-01-02",
+        openedSequence: 1,
+      },
+    ]);
+    expect(result.updatedLots).toEqual([
+      { ...nextBuyLot, totalCostAmount: 0, openQuantity: 0 },
+      { ...existingLot, totalCostAmount: 0, openQuantity: 0 },
+    ]);
+  });
+
+  it("preserves the weighted-average cost after a partial sell", () => {
+    const bought = applyBuyToLots([existingLot], nextBuyLot);
+
+    const result = allocateSellLots(bought.updatedLots, 80);
+    const remainingCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    const remainingQuantity = result.updatedLots.reduce((sum, lot) => sum + lot.openQuantity, 0);
+
+    expect(result.allocatedCostAmount).toBe(88_000);
+    expect(remainingQuantity).toBe(120);
+    expect(remainingCost).toBe(132_000);
+    expect(remainingCost / remainingQuantity).toBe(1_100);
+    expect(result.updatedLots).toEqual([
+      { ...existingLot, totalCostAmount: 22_000, openQuantity: 20 },
+      { ...nextBuyLot, totalCostAmount: 110_000, openQuantity: 100 },
+    ]);
+  });
+
+  it("stays cost-conservative across sequential partial sells", () => {
+    const bought = applyBuyToLots([existingLot], nextBuyLot);
+    const firstSell = allocateSellLots(bought.updatedLots, 33);
+    const secondSell = allocateSellLots(firstSell.updatedLots, 67);
+    const finalRemainingCost = secondSell.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+
+    expect(firstSell.allocatedCostAmount).toBe(36_300);
+    expect(secondSell.allocatedCostAmount).toBe(73_700);
+    expect(finalRemainingCost).toBe(110_000);
+    expect(firstSell.allocatedCostAmount + secondSell.allocatedCostAmount + finalRemainingCost).toBe(
+      220_000,
+    );
+  });
+
+  it("supports odd-lot quantities without board-lot assumptions", () => {
+    const oddLotA: Lot = {
+      ...existingLot,
+      id: "odd-1",
+      openQuantity: 250,
+      totalCostAmount: 125_000,
+    };
+    const oddLotB: Lot = {
+      ...nextBuyLot,
+      id: "odd-2",
+      openQuantity: 375,
+      totalCostAmount: 202_500,
+    };
+
+    const bought = applyBuyToLots([oddLotA], oddLotB);
+    const result = allocateSellLots(bought.updatedLots, 125);
+    const remainingCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    const remainingQuantity = result.updatedLots.reduce((sum, lot) => sum + lot.openQuantity, 0);
+
+    expect(bought.averageCostAmount).toBe(524);
+    expect(result.allocatedCostAmount).toBe(65_500);
+    expect(remainingQuantity).toBe(500);
+    expect(remainingCost).toBe(262_000);
+    expect(remainingCost / remainingQuantity).toBe(524);
+  });
+
+  it("rejects oversells and invalid sell quantities", () => {
+    const bought = applyBuyToLots([existingLot], nextBuyLot);
+
+    expect(() => allocateSellLots(bought.updatedLots, 201)).toThrowError("Insufficient quantity to sell");
+    expect(() => allocateSellLots(bought.updatedLots, 0)).toThrowError(
+      "Sell quantity must be a positive integer",
+    );
+  });
+
+  it("orders same-day matched lots deterministically by lot id", () => {
+    const sameDayLots: Lot[] = [
+      {
+        ...existingLot,
+        id: "lot-b",
+        openQuantity: 50,
+        totalCostAmount: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+      {
+        ...existingLot,
+        id: "lot-a",
+        openQuantity: 50,
+        totalCostAmount: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+    ];
+
+    const result = allocateSellLots(sameDayLots, 50);
+
+    expect(result.matchedLotIds).toEqual(["lot-a"]);
+    expect(result.updatedLots).toEqual([
+      { ...sameDayLots[0], totalCostAmount: 50_000, openQuantity: 50 },
+      { ...sameDayLots[1], totalCostAmount: 0, openQuantity: 0 },
+    ]);
+  });
+
+  it("accepts decimal cost amounts for ETF odd-lot trades", () => {
+    const decimalLot: Lot = {
+      ...existingLot,
+      id: "lot-decimal-1",
+      openQuantity: 1,
+      totalCostAmount: 152.35,
+    };
+    const decimalLot2: Lot = {
+      ...nextBuyLot,
+      id: "lot-decimal-2",
+      openQuantity: 1,
+      totalCostAmount: 153.80,
+    };
+
+    const result = applyBuyToLots([decimalLot], decimalLot2);
+
+    // Total: 306.15, qty: 2, avg: 153.075 → toFixed(2) = "153.07" (IEEE 754: 153.075 stored as 153.07499...)
+    expect(result.averageCostAmount).toBe(153.07);
+    // Lot 1 (first): roundToDecimal(306.15 * 1/2, 2) = 153.07
+    expect(result.updatedLots[0].totalCostAmount).toBe(153.07);
+    // Lot 2 (last): remainder = 306.15 - 153.07 = 153.08
+    expect(result.updatedLots[1].totalCostAmount).toBe(153.08);
+    // Verify total cost is preserved to 2dp
+    const totalCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    expect(roundToDecimal(totalCost, 2)).toBe(306.15);
+  });
+
+  it("distributes decimal costs across multiple lots with zero-residual", () => {
+    const lots: Lot[] = [
+      { ...existingLot, id: "lot-d1", openQuantity: 3, totalCostAmount: 457.05 },
+      { ...existingLot, id: "lot-d2", openQuantity: 2, totalCostAmount: 304.70, openedAt: "2026-01-02" },
+    ];
+    const newLot: Lot = {
+      ...existingLot,
+      id: "lot-d3",
+      openQuantity: 5,
+      totalCostAmount: 761.75,
+      openedAt: "2026-01-03",
+    };
+
+    const result = applyBuyToLots(lots, newLot);
+    const totalCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+
+    // Total must be preserved: 457.05 + 304.70 + 761.75 = 1523.50
+    expect(roundToDecimal(totalCost, 2)).toBe(1523.50);
+    expect(result.averageCostAmount).toBe(152.35);
+  });
+
+  it("handles decimal costs in sell allocation", () => {
+    const decimalLot: Lot = {
+      ...existingLot,
+      id: "lot-sell-d1",
+      openQuantity: 10,
+      totalCostAmount: 1523.50,
+    };
+
+    const result = allocateSellLots([decimalLot], 3);
+
+    // avg = 152.35, allocated = roundToDecimal(152.35 * 3, 2) = 457.05
+    expect(result.allocatedCostAmount).toBe(457.05);
+    const remainingCost = result.updatedLots.reduce((sum, lot) => sum + lot.totalCostAmount, 0);
+    expect(roundToDecimal(remainingCost, 2)).toBe(1066.45);
+  });
+
+  it("orders same-day matched lots by opened sequence before lot id", () => {
+    const sameDayLots: Lot[] = [
+      {
+        ...existingLot,
+        id: "lot-b",
+        openQuantity: 50,
+        totalCostAmount: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 2,
+      },
+      {
+        ...existingLot,
+        id: "lot-a",
+        openQuantity: 50,
+        totalCostAmount: 50_000,
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+    ];
+
+    const result = allocateSellLots(sameDayLots, 50);
+
+    expect(result.matchedLotIds).toEqual(["lot-a"]);
+    expect(result.matchedAllocations).toEqual([
+      {
+        lotId: "lot-a",
+        quantity: 50,
+        allocatedCostAmount: 50_000,
+        costCurrency: "TWD",
+        openedAt: "2026-01-01",
+        openedSequence: 1,
+      },
+    ]);
   });
 });

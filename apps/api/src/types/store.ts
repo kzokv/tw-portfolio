@@ -1,49 +1,165 @@
-import type { FeeProfile, InstrumentType, Lot } from "@tw-portfolio/domain";
-import type { UserSettings } from "@tw-portfolio/shared-types";
+import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@vakwen/domain";
+import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@vakwen/shared-types";
 
-export interface Account {
-  id: string;
-  name: string;
-  userId: string;
-  feeProfileId: string;
-}
-
+// KZO-183: `marketCode` removed. Market is now derived from the binding's
+// account.defaultCurrency rather than stored on the binding. Per-symbol
+// override resolution is keyed by (accountId, ticker) only.
 export interface FeeProfileBinding {
   accountId: string;
-  symbol: string;
+  ticker: string;
   feeProfileId: string;
 }
 
-export interface SymbolDef {
+export interface InstrumentDef {
   ticker: string;
-  type: InstrumentType;
+  type: InstrumentType | null;
+  // KZO-169: required after migration 044's composite PK + provider stamping
+  // audit (G1). Every code path that produces an InstrumentDef must supply a
+  // valid market — fail-loud is preferred over a `?? "TW"` fallback.
+  marketCode: MarketCode;
+  isProvisional?: boolean;
+  lastSyncedAt?: string | null;
+  typeRaw?: string | null;
+  industryCategoryRaw?: string | null;
+  finmindDate?: string | null;
 }
 
 export type TransactionType = "BUY" | "SELL";
 
-export interface Transaction {
+export interface BookedTradeEvent {
   id: string;
   userId: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
+  // KZO-169: required after migration 044. Books a trade against a specific
+  // (ticker, market_code) — derives `priceCurrency` via `currencyFor()`.
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   type: TransactionType;
   quantity: number;
-  priceNtd: number;
+  unitPrice: number;
+  priceCurrency: CurrencyCode;
   tradeDate: string;
-  commissionNtd: number;
-  taxNtd: number;
+  commissionAmount: number;
+  taxAmount: number;
   isDayTrade: boolean;
   feeSnapshot: FeeProfile;
-  realizedPnlNtd?: number;
+  realizedPnlAmount?: number;
+  realizedPnlCurrency?: CurrencyCode;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
+  source?: string;
+  sourceReference?: string;
+  bookedAt?: string;
+  reversalOfTradeEventId?: string;
+  feesSource?: "CALCULATED" | "MANUAL";
 }
 
+export type Transaction = BookedTradeEvent;
+
+export type CashLedgerEntryType =
+  | "TRADE_SETTLEMENT_IN"
+  | "TRADE_SETTLEMENT_OUT"
+  | "DIVIDEND_RECEIPT"
+  | "DIVIDEND_DEDUCTION"
+  | "MANUAL_ADJUSTMENT"
+  | "FX_TRANSFER_OUT"
+  | "FX_TRANSFER_IN"
+  | "REVERSAL";
+
+export interface CashLedgerEntry {
+  id: string;
+  userId: string;
+  accountId: string;
+  entryDate: string;
+  entryType: CashLedgerEntryType;
+  amount: number;
+  currency: CurrencyCode;
+  relatedTradeEventId?: string;
+  relatedDividendLedgerEntryId?: string;
+  source: string;
+  sourceReference?: string;
+  note?: string;
+  reversalOfCashLedgerEntryId?: string;
+  bookedAt?: string;
+  fxTransferId?: string | null;
+  /**
+   * KZO-166: USD rate at the moment of FX conversion. Non-null **only** for
+   * cash entries that represent an FX conversion (KZO-168 FX_TRANSFER pair).
+   * MANUAL_ADJUSTMENT entries set by tests may also stamp this field to drive
+   * the WAC engine in the absence of KZO-168.
+   */
+  fxRateToUsd?: number | null;
+}
+
+export type DividendEventType = "CASH" | "STOCK" | "CASH_AND_STOCK";
+
+export interface DividendEvent {
+  id: string;
+  ticker: string;
+  eventType: DividendEventType;
+  exDividendDate: string;
+  paymentDate: string | null;
+  cashDividendPerShare: number;
+  cashDividendCurrency: CurrencyCode;
+  stockDividendPerShare: number;
+  source: string;
+  sourceReference?: string;
+  createdAt?: string;
+  fiscalYearPeriod?: string;
+  announcementDate?: string;
+  totalDistributionShares?: number;
+}
+
+export type DividendPostingStatus = "expected" | "posted" | "adjusted";
+export type DividendReconciliationStatus = "open" | "matched" | "explained" | "resolved";
+
+export interface DividendLedgerEntry {
+  id: string;
+  accountId: string;
+  dividendEventId: string;
+  eligibleQuantity: number;
+  expectedCashAmount: number;
+  expectedStockQuantity: number;
+  receivedCashAmount: number;
+  receivedStockQuantity: number;
+  postingStatus: DividendPostingStatus;
+  reconciliationStatus: DividendReconciliationStatus;
+  version: number;
+  sourceCompositionStatus: SourceCompositionStatus;
+  reconciliationNote?: string;
+  reversalOfDividendLedgerEntryId?: string;
+  supersededAt?: string;
+  bookedAt?: string;
+}
+export type DividendDeductionType =
+  | "NHI_SUPPLEMENTAL_PREMIUM"
+  | "WITHHOLDING_TAX"
+  | "BROKER_FEE"
+  | "BANK_FEE"
+  | "TRANSFER_FEE"
+  | "CASH_IN_LIEU_ADJUSTMENT"
+  | "ROUNDING_ADJUSTMENT"
+  | "OTHER";
+
+export interface DividendDeductionEntry {
+  id: string;
+  dividendLedgerEntryId: string;
+  deductionType: DividendDeductionType;
+  amount: number;
+  currencyCode: CurrencyCode;
+  withheldAtSource: boolean;
+  source: string;
+  sourceReference?: string;
+  note?: string;
+  bookedAt?: string;
+}
 export interface RecomputePreviewItem {
-  transactionId: string;
-  previousCommissionNtd: number;
-  previousTaxNtd: number;
-  nextCommissionNtd: number;
-  nextTaxNtd: number;
+  tradeEventId: string;
+  previousCommissionAmount: number;
+  previousTaxAmount: number;
+  nextCommissionAmount: number;
+  nextTaxAmount: number;
 }
 
 export interface RecomputeJob {
@@ -61,23 +177,92 @@ export type CorporateActionType = "DIVIDEND" | "SPLIT" | "REVERSE_SPLIT";
 export interface CorporateAction {
   id: string;
   accountId: string;
-  symbol: string;
+  ticker: string;
   actionType: CorporateActionType;
   numerator: number;
   denominator: number;
   actionDate: string;
 }
 
+export interface HoldingProjection {
+  accountId: string;
+  ticker: string;
+  quantity: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
+}
+
+export interface LotAllocationProjection {
+  id: string;
+  userId: string;
+  accountId: string;
+  tradeEventId: string;
+  ticker: string;
+  lotId: string;
+  lotOpenedAt: string;
+  lotOpenedSequence: number;
+  allocatedQuantity: number;
+  allocatedCostAmount: number;
+  costCurrency: CurrencyCode;
+  createdAt?: string;
+}
+
+export interface DailyPortfolioSnapshot {
+  id: string;
+  snapshotDate: string;
+  totalMarketValueAmount: number;
+  totalCostAmount: number;
+  totalUnrealizedPnlAmount: number;
+  totalRealizedPnlAmount: number;
+  totalDividendReceivedAmount: number;
+  totalCashBalanceAmount: number;
+  totalNavAmount: number;
+  currency: CurrencyCode;
+  generatedAt: string;
+  generationRunId: string;
+}
+
+export interface AccountingFacts {
+  tradeEvents: BookedTradeEvent[];
+  cashLedgerEntries: CashLedgerEntry[];
+  dividendLedgerEntries: DividendLedgerEntry[];
+  dividendDeductionEntries: DividendDeductionEntry[];
+  dividendSourceLines: DividendSourceLine[];
+  corporateActions: CorporateAction[];
+}
+
+export interface MarketDataFacts {
+  dividendEvents: DividendEvent[];
+  instruments: InstrumentRef[];
+}
+
+export interface AccountingProjections {
+  lots: Lot[];
+  lotAllocations: LotAllocationProjection[];
+  holdings: HoldingProjection[];
+  dailyPortfolioSnapshots: DailyPortfolioSnapshot[];
+}
+
+export interface AccountingPolicy {
+  inventoryModel: "LOT_CAPABLE";
+  disposalPolicy: "WEIGHTED_AVERAGE";
+}
+
+export interface AccountingStore {
+  facts: AccountingFacts;
+  projections: AccountingProjections;
+  policy: AccountingPolicy;
+}
+
 export interface Store {
   userId: string;
   settings: UserSettings;
-  accounts: Account[];
+  accounts: AccountDto[];
   feeProfileBindings: FeeProfileBinding[];
   feeProfiles: FeeProfile[];
-  transactions: Transaction[];
-  lots: Lot[];
-  symbols: SymbolDef[];
+  accounting: AccountingStore;
+  marketData: MarketDataFacts;
+  instruments: InstrumentDef[];
   recomputeJobs: RecomputeJob[];
-  corporateActions: CorporateAction[];
   idempotencyKeys: Set<string>;
 }

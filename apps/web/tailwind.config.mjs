@@ -1,41 +1,137 @@
+import tailwindcssAnimate from "tailwindcss-animate";
+
 /** @type {import('tailwindcss').Config} */
 const config = {
+  darkMode: ["class"],
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./lib/**/*.{js,ts,jsx,tsx,mdx}",
+    "./features/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-    extend: {
-      fontFamily: {
-        body: ["var(--font-body)", "Noto Sans TC", "sans-serif"],
-        display: ["var(--font-display)", "Noto Serif TC", "serif"],
-      },
-      colors: {
-        bg: "var(--bg)",
-        surface: "var(--surface)",
-        "surface-soft": "var(--surface-soft)",
-        ink: "var(--text)",
-        muted: "var(--muted)",
-        accent: "var(--accent)",
-        line: "var(--line)",
-      },
-      boxShadow: {
-        card: "0 16px 40px rgba(15, 36, 66, 0.08)",
-        focus: "0 0 0 4px rgba(196, 149, 56, 0.22)",
-      },
-      keyframes: {
-        "fade-in-up": {
-          "0%": { opacity: "0", transform: "translateY(10px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-      },
-      animation: {
-        "fade-in-up": "fade-in-up 0.45s ease-out both",
-      },
-    },
+  	extend: {
+  		fontFamily: {
+  			body: [
+  				'var(--font-geist-sans)',
+  				'Noto Sans TC',
+  				'system-ui',
+  				'sans-serif'
+  			],
+  			display: [
+  				'var(--font-geist-sans)',
+  				'Noto Sans TC',
+  				'system-ui',
+  				'sans-serif'
+  			],
+  			mono: [
+  				'var(--font-geist-mono)',
+  				'ui-monospace',
+  				'SFMono-Regular',
+  				'monospace'
+  			]
+  		},
+  		colors: {
+  			border: 'hsl(var(--border))',
+  			input: 'hsl(var(--input))',
+  			ring: 'hsl(var(--ring))',
+  			background: 'hsl(var(--background))',
+  			foreground: 'hsl(var(--foreground))',
+  			primary: {
+  				DEFAULT: 'hsl(var(--primary))',
+  				foreground: 'hsl(var(--primary-foreground))'
+  			},
+  			secondary: {
+  				DEFAULT: 'hsl(var(--secondary))',
+  				foreground: 'hsl(var(--secondary-foreground))'
+  			},
+  			destructive: {
+  				DEFAULT: 'hsl(var(--destructive))',
+  				foreground: 'hsl(var(--destructive-foreground))'
+  			},
+  			muted: {
+  				DEFAULT: 'hsl(var(--muted))',
+  				foreground: 'hsl(var(--muted-foreground))'
+  			},
+  			accent: {
+  				DEFAULT: 'hsl(var(--accent))',
+  				foreground: 'hsl(var(--accent-foreground))'
+  			},
+  			popover: {
+  				DEFAULT: 'hsl(var(--popover))',
+  				foreground: 'hsl(var(--popover-foreground))'
+  			},
+  			card: {
+  				DEFAULT: 'hsl(var(--card))',
+  				foreground: 'hsl(var(--card-foreground))'
+  			},
+  			success: {
+  				DEFAULT: 'hsl(var(--success))',
+  				foreground: 'hsl(var(--success-foreground))'
+  			},
+  			warning: {
+  				DEFAULT: 'hsl(var(--warning))',
+  				foreground: 'hsl(var(--warning-foreground))'
+  			},
+  			sidebar: {
+  				DEFAULT: 'hsl(var(--sidebar-background))',
+  				foreground: 'hsl(var(--sidebar-foreground))',
+  				primary: 'hsl(var(--sidebar-primary))',
+  				'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
+  				accent: 'hsl(var(--sidebar-accent))',
+  				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+  				border: 'hsl(var(--sidebar-border))',
+  				ring: 'hsl(var(--sidebar-ring))'
+  			}
+  		},
+  		borderRadius: {
+  			lg: 'var(--radius)',
+  			md: 'calc(var(--radius) - 2px)',
+  			sm: 'calc(var(--radius) - 4px)'
+  		},
+  		boxShadow: {
+  			card: '0 24px 80px rgba(2, 6, 23, 0.45)',
+  			focus: '0 0 0 4px hsl(var(--ring) / 0.28)',
+  		},
+  		keyframes: {
+  			'fade-in-up': {
+  				'0%': {
+  					opacity: '0',
+  					transform: 'translateY(10px)'
+  				},
+  				'100%': {
+  					opacity: '1',
+  					transform: 'translateY(0)'
+  				}
+  			},
+  			'accordion-down': {
+  				from: {
+  					height: '0'
+  				},
+  				to: {
+  					height: 'var(--radix-accordion-content-height)'
+  				}
+  			},
+  			'accordion-up': {
+  				from: {
+  					height: 'var(--radix-accordion-content-height)'
+  				},
+  				to: {
+  					height: '0'
+  				}
+  			}
+  		},
+  		animation: {
+  			'fade-in-up': 'fade-in-up 0.45s ease-out both',
+  			'accordion-down': 'accordion-down 0.2s ease-out',
+  			'accordion-up': 'accordion-up 0.2s ease-out'
+  		},
+  		backgroundImage: {
+  			sheen: 'linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0))'
+  		}
+  	}
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

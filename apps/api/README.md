@@ -1,6 +1,6 @@
-# API (`@tw-portfolio/api`)
+# API (`@vakwen/api`)
 
-Fastify API for Taiwan portfolio tracking: accounts, fee profiles, portfolio transactions, corporate actions, settings, and health. Port is set by `API_PORT` (default `4000`).
+Fastify API for Vakwen multi-market portfolio tracking: accounts, fee profiles, portfolio transactions, corporate actions, settings, and health. Port is set by `API_PORT` (default `4000`).
 
 ## Run
 

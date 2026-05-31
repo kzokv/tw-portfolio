@@ -1,0 +1,1391 @@
+{
+  "msg": "success",
+  "status": 200,
+  "data": [
+    {
+      "date": "2005-10-04",
+      "stock_id": "1204",
+      "stock_name": "津津"
+    },
+    {
+      "date": "2001-11-01",
+      "stock_id": "1230",
+      "stock_name": "聯成食品"
+    },
+    {
+      "date": "2005-10-04",
+      "stock_id": "1306",
+      "stock_name": "合發興業"
+    },
+    {
+      "date": "2006-06-26",
+      "stock_id": "1408",
+      "stock_name": "中興紡織"
+    },
+    {
+      "date": "2002-11-08",
+      "stock_id": "1431",
+      "stock_name": "新燕實業"
+    },
+    {
+      "date": "2004-04-28",
+      "stock_id": "1458",
+      "stock_name": "嘉新畜產"
+    },
+    {
+      "date": "2010-09-01",
+      "stock_id": "1523",
+      "stock_name": "臺灣開億"
+    },
+    {
+      "date": "2007-10-15",
+      "stock_id": "1601",
+      "stock_name": "台灣日光燈"
+    },
+    {
+      "date": "2017-11-21",
+      "stock_id": "1613",
+      "stock_name": "台一"
+    },
+    {
+      "date": "2018-01-02",
+      "stock_id": "1729",
+      "stock_name": "必翔實業"
+    },
+    {
+      "date": "2006-08-08",
+      "stock_id": "1807",
+      "stock_name": "羅馬磁磚"
+    },
+    {
+      "date": "2003-01-08",
+      "stock_id": "2005",
+      "stock_name": "友力工業"
+    },
+    {
+      "date": "2002-11-04",
+      "stock_id": "2322",
+      "stock_name": "致福"
+    },
+    {
+      "date": "2006-07-12",
+      "stock_id": "2335",
+      "stock_name": "清三電子"
+    },
+    {
+      "date": "2007-01-01",
+      "stock_id": "2343",
+      "stock_name": "精業"
+    },
+    {
+      "date": "2024-11-19",
+      "stock_id": "2358",
+      "stock_name": "廷鑫"
+    },
+    {
+      "date": "2006-03-01",
+      "stock_id": "2366",
+      "stock_name": "亞旭電腦"
+    },
+    {
+      "date": "2006-07-12",
+      "stock_id": "2378",
+      "stock_name": "鴻運電子"
+    },
+    {
+      "date": "2015-07-07",
+      "stock_id": "2384",
+      "stock_name": "勝華科技"
+    },
+    {
+      "date": "2006-05-10",
+      "stock_id": "2407",
+      "stock_name": "陞技電腦"
+    },
+    {
+      "date": "2022-01-05",
+      "stock_id": "2456",
+      "stock_name": "奇力新"
+    },
+    {
+      "date": "2007-07-30",
+      "stock_id": "2469",
+      "stock_name": "力信"
+    },
+    {
+      "date": "2008-10-27",
+      "stock_id": "2494",
+      "stock_name": "突破"
+    },
+    {
+      "date": "2003-01-22",
+      "stock_id": "2517",
+      "stock_name": "長谷科技"
+    },
+    {
+      "date": "2007-03-12",
+      "stock_id": "2523",
+      "stock_name": "德寶營造"
+    },
+    {
+      "date": "2005-03-21",
+      "stock_id": "2544",
+      "stock_name": "益鼎光電"
+    },
+    {
+      "date": "2003-01-02",
+      "stock_id": "2802",
+      "stock_name": "第一銀行"
+    },
+    {
+      "date": "2002-12-31",
+      "stock_id": "2806",
+      "stock_name": "中國商銀"
+    },
+    {
+      "date": "2002-02-19",
+      "stock_id": "2818",
+      "stock_name": "新光人壽"
+    },
+    {
+      "date": "2002-12-31",
+      "stock_id": "2819",
+      "stock_name": "中國產險"
+    },
+    {
+      "date": "2002-05-09",
+      "stock_id": "2839",
+      "stock_name": "華信銀行"
+    },
+    {
+      "date": "2002-01-28",
+      "stock_id": "2840",
+      "stock_name": "玉山銀行"
+    },
+    {
+      "date": "2001-02-20",
+      "stock_id": "2914",
+      "stock_name": "台灣工礦"
+    },
+    {
+      "date": "2010-03-18",
+      "stock_id": "3009",
+      "stock_name": "奇美"
+    },
+    {
+      "date": "2007-10-20",
+      "stock_id": "3053",
+      "stock_name": "鼎營"
+    },
+    {
+      "date": "2013-02-01",
+      "stock_id": "3080",
+      "stock_name": "威力盟"
+    },
+    {
+      "date": "2024-03-04",
+      "stock_id": "3089",
+      "stock_name": "億杰"
+    },
+    {
+      "date": "2022-09-26",
+      "stock_id": "3383",
+      "stock_name": "新世紀"
+    },
+    {
+      "date": "2018-10-01",
+      "stock_id": "3561",
+      "stock_name": "昇陽光電"
+    },
+    {
+      "date": "2016-08-03",
+      "stock_id": "3584",
+      "stock_name": "介面"
+    },
+    {
+      "date": "2021-01-06",
+      "stock_id": "3698",
+      "stock_name": "隆達"
+    },
+    {
+      "date": "2021-01-18",
+      "stock_id": "4725",
+      "stock_name": "信昌化"
+    },
+    {
+      "date": "2025-09-08",
+      "stock_id": "4945",
+      "stock_name": "陞達科技"
+    },
+    {
+      "date": "2020-11-30",
+      "stock_id": "5305",
+      "stock_name": "敦南"
+    },
+    {
+      "date": "2021-07-05",
+      "stock_id": "6131",
+      "stock_name": "鈞泰"
+    },
+    {
+      "date": "2022-06-29",
+      "stock_id": "6172",
+      "stock_name": "互億"
+    },
+    {
+      "date": "2010-09-15",
+      "stock_id": "6255",
+      "stock_name": "奈普"
+    },
+    {
+      "date": "2025-06-23",
+      "stock_id": "6287",
+      "stock_name": "元隆"
+    },
+    {
+      "date": "2022-09-26",
+      "stock_id": "6289",
+      "stock_name": "華上"
+    },
+    {
+      "date": "2026-01-22",
+      "stock_id": "6423",
+      "stock_name": "億而得-創"
+    },
+    {
+      "date": "2025-01-01",
+      "stock_id": "6457",
+      "stock_name": "紘康"
+    },
+    {
+      "date": "2012-12-28",
+      "stock_id": "8199",
+      "stock_name": "廣鎵"
+    },
+    {
+      "date": "2008-07-14",
+      "stock_id": "9101",
+      "stock_name": "福雷電"
+    },
+    {
+      "date": "2016-01-26",
+      "stock_id": "911612",
+      "stock_name": "滬安電力"
+    },
+    {
+      "date": "2016-11-01",
+      "stock_id": "911626",
+      "stock_name": "MSH-DR"
+    },
+    {
+      "date": "2021-12-13",
+      "stock_id": "912398",
+      "stock_name": "友佳-DR"
+    },
+    {
+      "date": "2015-12-29",
+      "stock_id": "913889",
+      "stock_name": "大成糖"
+    },
+    {
+      "date": "2003-01-09",
+      "stock_id": "1222",
+      "stock_name": "源益農畜"
+    },
+    {
+      "date": "2002-09-16",
+      "stock_id": "1226",
+      "stock_name": "立大農畜"
+    },
+    {
+      "date": "2004-03-15",
+      "stock_id": "1228",
+      "stock_name": "臺芳開發"
+    },
+    {
+      "date": "2005-07-05",
+      "stock_id": "1450",
+      "stock_name": "新藝纖維"
+    },
+    {
+      "date": "2018-07-11",
+      "stock_id": "1469",
+      "stock_name": "理隆纖維"
+    },
+    {
+      "date": "2002-04-17",
+      "stock_id": "2016",
+      "stock_name": "名佳利金屬"
+    },
+    {
+      "date": "2001-04-10",
+      "stock_id": "2202",
+      "stock_name": "三富汽車"
+    },
+    {
+      "date": "2002-11-04",
+      "stock_id": "2301",
+      "stock_name": "光寶電子"
+    },
+    {
+      "date": "2002-03-21",
+      "stock_id": "2306",
+      "stock_name": "宏碁電腦"
+    },
+    {
+      "date": "2006-06-26",
+      "stock_id": "2326",
+      "stock_name": "亞瑟科技"
+    },
+    {
+      "date": "2007-06-20",
+      "stock_id": "2333",
+      "stock_name": "碧悠電子"
+    },
+    {
+      "date": "2010-10-16",
+      "stock_id": "2341",
+      "stock_name": "英群"
+    },
+    {
+      "date": "2015-12-28",
+      "stock_id": "2361",
+      "stock_name": "\t鴻友科技"
+    },
+    {
+      "date": "2009-07-12",
+      "stock_id": "2381",
+      "stock_name": "華宇光能"
+    },
+    {
+      "date": "2004-09-08",
+      "stock_id": "2398",
+      "stock_name": "博達科技"
+    },
+    {
+      "date": "2004-12-16",
+      "stock_id": "2490",
+      "stock_name": "皇統"
+    },
+    {
+      "date": "2001-05-15",
+      "stock_id": "2519",
+      "stock_name": "宏福建設"
+    },
+    {
+      "date": "2002-11-08",
+      "stock_id": "2531",
+      "stock_name": "三采建設"
+    },
+    {
+      "date": "2006-02-07",
+      "stock_id": "2533",
+      "stock_name": "昱成科技"
+    },
+    {
+      "date": "2002-11-01",
+      "stock_id": "2604",
+      "stock_name": "立榮海運"
+    },
+    {
+      "date": "2002-02-04",
+      "stock_id": "2821",
+      "stock_name": "復華證金"
+    },
+    {
+      "date": "2006-05-01",
+      "stock_id": "2822",
+      "stock_name": "農民銀行"
+    },
+    {
+      "date": "2021-12-30",
+      "stock_id": "2823",
+      "stock_name": "中壽"
+    },
+    {
+      "date": "2002-02-04",
+      "stock_id": "2824",
+      "stock_name": "交通銀行"
+    },
+    {
+      "date": "2006-09-14",
+      "stock_id": "2825",
+      "stock_name": "中央產保"
+    },
+    {
+      "date": "2002-12-18",
+      "stock_id": "2826",
+      "stock_name": "世華銀行"
+    },
+    {
+      "date": "2002-12-23",
+      "stock_id": "2830",
+      "stock_name": "台北銀行"
+    },
+    {
+      "date": "2014-09-15",
+      "stock_id": "2837",
+      "stock_name": "萬泰銀行"
+    },
+    {
+      "date": "2002-02-18",
+      "stock_id": "2844",
+      "stock_name": "台新銀行"
+    },
+    {
+      "date": "2002-01-17",
+      "stock_id": "2846",
+      "stock_name": "中興銀行"
+    },
+    {
+      "date": "2008-01-10",
+      "stock_id": "3020",
+      "stock_name": "奇普仕"
+    },
+    {
+      "date": "2010-04-01",
+      "stock_id": "3063",
+      "stock_name": "飛信"
+    },
+    {
+      "date": "2007-03-01",
+      "stock_id": "3214",
+      "stock_name": "元砷"
+    },
+    {
+      "date": "2019-05-02",
+      "stock_id": "3519",
+      "stock_name": "綠能"
+    },
+    {
+      "date": "2023-06-26",
+      "stock_id": "3536",
+      "stock_name": "誠創"
+    },
+    {
+      "date": "2016-06-01",
+      "stock_id": "3598",
+      "stock_name": "奕力"
+    },
+    {
+      "date": "2023-12-15",
+      "stock_id": "3682",
+      "stock_name": "亞太電"
+    },
+    {
+      "date": "2016-08-31",
+      "stock_id": "4733",
+      "stock_name": "上緯"
+    },
+    {
+      "date": "2015-01-02",
+      "stock_id": "5280",
+      "stock_name": "F-敦泰"
+    },
+    {
+      "date": "2022-08-25",
+      "stock_id": "6251",
+      "stock_name": "定穎"
+    },
+    {
+      "date": "2025-12-04",
+      "stock_id": "6747",
+      "stock_name": "亨泰光"
+    },
+    {
+      "date": "2024-11-29",
+      "stock_id": "8420",
+      "stock_name": "明揚"
+    },
+    {
+      "date": "2011-01-17",
+      "stock_id": "9102",
+      "stock_name": "東亞科"
+    },
+    {
+      "date": "2020-06-15",
+      "stock_id": "910482",
+      "stock_name": "聖馬丁-DR"
+    },
+    {
+      "date": "2013-07-30",
+      "stock_id": "910579",
+      "stock_name": "歐聖集團"
+    },
+    {
+      "date": "2019-06-10",
+      "stock_id": "910708",
+      "stock_name": "恒大健-DR"
+    },
+    {
+      "date": "2014-01-28",
+      "stock_id": "911610",
+      "stock_name": "聯合環境"
+    },
+    {
+      "date": "2003-06-18",
+      "stock_id": "1221",
+      "stock_name": "久津實業"
+    },
+    {
+      "date": "2001-11-30",
+      "stock_id": "1317",
+      "stock_name": "尚鋒興業"
+    },
+    {
+      "date": "2022-01-27",
+      "stock_id": "1592",
+      "stock_name": "英瑞-KY"
+    },
+    {
+      "date": "2004-04-28",
+      "stock_id": "1602",
+      "stock_name": "太平洋電纜"
+    },
+    {
+      "date": "2008-11-06",
+      "stock_id": "1606",
+      "stock_name": "歌林"
+    },
+    {
+      "date": "2002-11-04",
+      "stock_id": "2310",
+      "stock_name": "旭麗"
+    },
+    {
+      "date": "2018-04-30",
+      "stock_id": "2311",
+      "stock_name": "日月光"
+    },
+    {
+      "date": "2013-09-12",
+      "stock_id": "2315",
+      "stock_name": "神達電腦"
+    },
+    {
+      "date": "2004-08-30",
+      "stock_id": "2319",
+      "stock_name": "大眾電腦"
+    },
+    {
+      "date": "2010-08-16",
+      "stock_id": "2391",
+      "stock_name": "合勤科技"
+    },
+    {
+      "date": "2010-11-15",
+      "stock_id": "2403",
+      "stock_name": "友尚"
+    },
+    {
+      "date": "2008-09-01",
+      "stock_id": "2432",
+      "stock_name": "倚天資訊"
+    },
+    {
+      "date": "2003-06-18",
+      "stock_id": "2445",
+      "stock_name": "南方"
+    },
+    {
+      "date": "2005-01-05",
+      "stock_id": "2525",
+      "stock_name": "寶祥實業"
+    },
+    {
+      "date": "2001-12-31",
+      "stock_id": "2805",
+      "stock_name": "國泰人壽"
+    },
+    {
+      "date": "2007-01-18",
+      "stock_id": "2807",
+      "stock_name": "新竹商銀"
+    },
+    {
+      "date": "2002-01-17",
+      "stock_id": "2810",
+      "stock_name": "高雄企銀"
+    },
+    {
+      "date": "2006-12-19",
+      "stock_id": "2811",
+      "stock_name": "台東企銀"
+    },
+    {
+      "date": "2002-03-26",
+      "stock_id": "2813",
+      "stock_name": "國際票券"
+    },
+    {
+      "date": "2002-08-22",
+      "stock_id": "2814",
+      "stock_name": "中興票券"
+    },
+    {
+      "date": "2002-05-17",
+      "stock_id": "2815",
+      "stock_name": "中國信託"
+    },
+    {
+      "date": "2001-12-19",
+      "stock_id": "2817",
+      "stock_name": "富邦產保"
+    },
+    {
+      "date": "2015-10-15",
+      "stock_id": "2833",
+      "stock_name": "台灣人壽"
+    },
+    {
+      "date": "2002-08-01",
+      "stock_id": "2843",
+      "stock_name": "亞太銀行"
+    },
+    {
+      "date": "2018-10-01",
+      "stock_id": "2856",
+      "stock_name": "元富證券"
+    },
+    {
+      "date": "2025-07-24",
+      "stock_id": "2888",
+      "stock_name": "新光金"
+    },
+    {
+      "date": "2022-06-27",
+      "stock_id": "2936",
+      "stock_name": "客思達-KY"
+    },
+    {
+      "date": "2007-04-13",
+      "stock_id": "3007",
+      "stock_name": "綠點"
+    },
+    {
+      "date": "2005-11-13",
+      "stock_id": "3039",
+      "stock_name": "宏傳"
+    },
+    {
+      "date": "2007-06-20",
+      "stock_id": "3142",
+      "stock_name": "遠茂"
+    },
+    {
+      "date": "2025-07-21",
+      "stock_id": "3202",
+      "stock_name": "樺晟"
+    },
+    {
+      "date": "2026-03-27",
+      "stock_id": "3454",
+      "stock_name": "晶睿"
+    },
+    {
+      "date": "2016-07-01",
+      "stock_id": "3573",
+      "stock_name": "穎台"
+    },
+    {
+      "date": "2014-02-01",
+      "stock_id": "3697",
+      "stock_name": "F-晨星"
+    },
+    {
+      "date": "2022-05-03",
+      "stock_id": "4141",
+      "stock_name": "龍燈-KY"
+    },
+    {
+      "date": "2020-10-30",
+      "stock_id": "4144",
+      "stock_name": "康聯-KY"
+    },
+    {
+      "date": "2018-09-01",
+      "stock_id": "4984",
+      "stock_name": "科納-KY"
+    },
+    {
+      "date": "2021-01-15",
+      "stock_id": "5264",
+      "stock_name": "鎧勝-KY"
+    },
+    {
+      "date": "2005-11-07",
+      "stock_id": "6132",
+      "stock_name": "銳普"
+    },
+    {
+      "date": "2018-10-01",
+      "stock_id": "6145",
+      "stock_name": "勁永"
+    },
+    {
+      "date": "2016-04-29",
+      "stock_id": "6286",
+      "stock_name": "立錡"
+    },
+    {
+      "date": "2025-08-15",
+      "stock_id": "6288",
+      "stock_name": "聯嘉光電"
+    },
+    {
+      "date": "2018-09-28",
+      "stock_id": "6422",
+      "stock_name": "君耀-KY"
+    },
+    {
+      "date": "2022-12-21",
+      "stock_id": "8480",
+      "stock_name": "泰昇-KY"
+    },
+    {
+      "date": "2017-06-27",
+      "stock_id": "9106",
+      "stock_name": "新焦點-DR"
+    },
+    {
+      "date": "2017-12-13",
+      "stock_id": "910801",
+      "stock_name": "金衛-DR"
+    },
+    {
+      "date": "2013-12-03",
+      "stock_id": "911602",
+      "stock_name": "華豐泰國"
+    },
+    {
+      "date": "2016-11-29",
+      "stock_id": "911611",
+      "stock_name": "中泰山-DR"
+    },
+    {
+      "date": "2021-08-31",
+      "stock_id": "911616",
+      "stock_name": "杜康-DR"
+    },
+    {
+      "date": "2019-08-19",
+      "stock_id": "911619",
+      "stock_name": "耀傑-DR"
+    },
+    {
+      "date": "2012-03-28",
+      "stock_id": "916665",
+      "stock_name": "爾必達"
+    },
+    {
+      "date": "2002-01-17",
+      "stock_id": "9913",
+      "stock_name": "美式家具"
+    },
+    {
+      "date": "2005-06-20",
+      "stock_id": "9936",
+      "stock_name": "欣錩國際"
+    },
+    {
+      "date": "2007-10-20",
+      "stock_id": "1107",
+      "stock_name": "建台水泥"
+    },
+    {
+      "date": "2007-04-11",
+      "stock_id": "1207",
+      "stock_name": "嘉新食化"
+    },
+    {
+      "date": "2002-01-17",
+      "stock_id": "1214",
+      "stock_name": "尚德實業"
+    },
+    {
+      "date": "2004-07-07",
+      "stock_id": "1224",
+      "stock_name": "惠勝實業"
+    },
+    {
+      "date": "2008-04-23",
+      "stock_id": "1311",
+      "stock_name": "福聚"
+    },
+    {
+      "date": "2008-01-01",
+      "stock_id": "1520",
+      "stock_name": "復盛"
+    },
+    {
+      "date": "2004-12-16",
+      "stock_id": "1534",
+      "stock_name": "新企"
+    },
+    {
+      "date": "2017-10-25",
+      "stock_id": "1715",
+      "stock_name": "萬洲化學"
+    },
+    {
+      "date": "2021-11-01",
+      "stock_id": "1724",
+      "stock_name": "台硝"
+    },
+    {
+      "date": "2020-06-01",
+      "stock_id": "1902",
+      "stock_name": "台紙"
+    },
+    {
+      "date": "2002-11-08",
+      "stock_id": "2304",
+      "stock_name": "誠洲"
+    },
+    {
+      "date": "2005-07-05",
+      "stock_id": "2318",
+      "stock_name": "佳錄"
+    },
+    {
+      "date": "2010-06-17",
+      "stock_id": "2350",
+      "stock_name": "環電"
+    },
+    {
+      "date": "2004-04-01",
+      "stock_id": "2386",
+      "stock_name": "國碁電子"
+    },
+    {
+      "date": "2005-10-30",
+      "stock_id": "2389",
+      "stock_name": "世昕企業"
+    },
+    {
+      "date": "2006-12-01",
+      "stock_id": "2394",
+      "stock_name": "普立爾"
+    },
+    {
+      "date": "2009-04-08",
+      "stock_id": "2396",
+      "stock_name": "精碟科技"
+    },
+    {
+      "date": "2007-03-19",
+      "stock_id": "2410",
+      "stock_name": "鼎大興業"
+    },
+    {
+      "date": "2005-12-30",
+      "stock_id": "2422",
+      "stock_name": "國聯光電"
+    },
+    {
+      "date": "2024-11-19",
+      "stock_id": "2443",
+      "stock_name": "昶虹"
+    },
+    {
+      "date": "2009-12-01",
+      "stock_id": "2446",
+      "stock_name": "全懋"
+    },
+    {
+      "date": "2021-01-06",
+      "stock_id": "2448",
+      "stock_name": "晶電"
+    },
+    {
+      "date": "2003-11-12",
+      "stock_id": "2512",
+      "stock_name": "寶成建設"
+    },
+    {
+      "date": "2003-06-03",
+      "stock_id": "2521",
+      "stock_name": "宏總建設"
+    },
+    {
+      "date": "2010-04-08",
+      "stock_id": "2526",
+      "stock_name": "大陸工程"
+    },
+    {
+      "date": "2025-10-01",
+      "stock_id": "2809",
+      "stock_name": "京城銀"
+    },
+    {
+      "date": "2007-04-30",
+      "stock_id": "2827",
+      "stock_name": "中聯信託"
+    },
+    {
+      "date": "2003-09-30",
+      "stock_id": "2828",
+      "stock_name": "萬通銀行"
+    },
+    {
+      "date": "2002-02-18",
+      "stock_id": "2829",
+      "stock_name": "大安銀行"
+    },
+    {
+      "date": "2007-06-20",
+      "stock_id": "2831",
+      "stock_name": "中華商銀"
+    },
+    {
+      "date": "2002-04-22",
+      "stock_id": "2835",
+      "stock_name": "匯通銀行"
+    },
+    {
+      "date": "2022-08-04",
+      "stock_id": "2841",
+      "stock_name": "台開"
+    },
+    {
+      "date": "2003-08-15",
+      "stock_id": "2848",
+      "stock_name": "華南產保"
+    },
+    {
+      "date": "2011-10-03",
+      "stock_id": "2854",
+      "stock_name": "寶來證"
+    },
+    {
+      "date": "2004-11-15",
+      "stock_id": "3001",
+      "stock_name": "協和"
+    },
+    {
+      "date": "2006-10-01",
+      "stock_id": "3012",
+      "stock_name": "廣輝"
+    },
+    {
+      "date": "2011-10-01",
+      "stock_id": "3534",
+      "stock_name": "雷凌"
+    },
+    {
+      "date": "2019-06-26",
+      "stock_id": "3579",
+      "stock_name": "尚志"
+    },
+    {
+      "date": "2013-05-31",
+      "stock_id": "3599",
+      "stock_name": "旺能"
+    },
+    {
+      "date": "2024-09-25",
+      "stock_id": "4712",
+      "stock_name": "南璋"
+    },
+    {
+      "date": "2020-01-09",
+      "stock_id": "5259",
+      "stock_name": "奕智博"
+    },
+    {
+      "date": "2011-12-01",
+      "stock_id": "5854",
+      "stock_name": "合庫"
+    },
+    {
+      "date": "2007-04-02",
+      "stock_id": "6004",
+      "stock_name": "元京證"
+    },
+    {
+      "date": "2007-08-21",
+      "stock_id": "6280",
+      "stock_name": "崇貿"
+    },
+    {
+      "date": "2024-10-18",
+      "stock_id": "6514",
+      "stock_name": "芮特-KY"
+    },
+    {
+      "date": "2025-07-21",
+      "stock_id": "6589",
+      "stock_name": "台康生技"
+    },
+    {
+      "date": "2014-02-27",
+      "stock_id": "8078",
+      "stock_name": "華寶"
+    },
+    {
+      "date": "2024-01-31",
+      "stock_id": "8418",
+      "stock_name": "捷必勝-KY"
+    },
+    {
+      "date": "2013-10-15",
+      "stock_id": "9151",
+      "stock_name": "旺旺"
+    },
+    {
+      "date": "2019-11-12",
+      "stock_id": "9157",
+      "stock_name": "陽光能源-DR"
+    },
+    {
+      "date": "2007-04-11",
+      "stock_id": "9801",
+      "stock_name": "中國力霸"
+    },
+    {
+      "date": "2010-06-21",
+      "stock_id": "9922",
+      "stock_name": "優美"
+    },
+    {
+      "date": "2005-10-28",
+      "stock_id": "1212",
+      "stock_name": "中日國際"
+    },
+    {
+      "date": "2019-10-14",
+      "stock_id": "1262",
+      "stock_name": "綠悅-KY"
+    },
+    {
+      "date": "2003-11-10",
+      "stock_id": "1407",
+      "stock_name": "華隆"
+    },
+    {
+      "date": "2003-05-06",
+      "stock_id": "1422",
+      "stock_name": "民興國際"
+    },
+    {
+      "date": "2005-07-05",
+      "stock_id": "1462",
+      "stock_name": "東雲"
+    },
+    {
+      "date": "2001-01-20",
+      "stock_id": "1505",
+      "stock_name": "楊鐵工廠"
+    },
+    {
+      "date": "2022-04-21",
+      "stock_id": "1507",
+      "stock_name": "永大"
+    },
+    {
+      "date": "2001-07-02",
+      "stock_id": "1509",
+      "stock_name": "元富鋁業"
+    },
+    {
+      "date": "2003-09-30",
+      "stock_id": "1510",
+      "stock_name": "台安電機"
+    },
+    {
+      "date": "2024-09-02",
+      "stock_id": "1701",
+      "stock_name": "中化"
+    },
+    {
+      "date": "2019-01-30",
+      "stock_id": "1704",
+      "stock_name": "榮化"
+    },
+    {
+      "date": "2011-01-03",
+      "stock_id": "1716",
+      "stock_name": "永信藥品"
+    },
+    {
+      "date": "2001-01-20",
+      "stock_id": "2011",
+      "stock_name": "彥武企業"
+    },
+    {
+      "date": "2001-01-20",
+      "stock_id": "2019",
+      "stock_name": "桂宏企業"
+    },
+    {
+      "date": "2018-04-30",
+      "stock_id": "2325",
+      "stock_name": "矽品"
+    },
+    {
+      "date": "2001-01-20",
+      "stock_id": "2334",
+      "stock_name": "國豐企業"
+    },
+    {
+      "date": "2007-12-28",
+      "stock_id": "2336",
+      "stock_name": "致伸"
+    },
+    {
+      "date": "2005-09-01",
+      "stock_id": "2370",
+      "stock_name": "匯僑工業"
+    },
+    {
+      "date": "2008-10-31",
+      "stock_id": "2411",
+      "stock_name": "飛瑞"
+    },
+    {
+      "date": "2005-11-09",
+      "stock_id": "2416",
+      "stock_name": "世平興業"
+    },
+    {
+      "date": "2008-01-14",
+      "stock_id": "2418",
+      "stock_name": "雅新實業"
+    },
+    {
+      "date": "2005-05-03",
+      "stock_id": "2435",
+      "stock_name": "台灣電路"
+    },
+    {
+      "date": "2017-06-30",
+      "stock_id": "2437",
+      "stock_name": "旺詮"
+    },
+    {
+      "date": "2008-01-31",
+      "stock_id": "2447",
+      "stock_name": "鼎新"
+    },
+    {
+      "date": "2010-03-31",
+      "stock_id": "2452",
+      "stock_name": "乾坤"
+    },
+    {
+      "date": "2011-06-01",
+      "stock_id": "2463",
+      "stock_name": "研揚"
+    },
+    {
+      "date": "2005-11-09",
+      "stock_id": "2470",
+      "stock_name": "品佳"
+    },
+    {
+      "date": "2012-11-30",
+      "stock_id": "2473",
+      "stock_name": "思源"
+    },
+    {
+      "date": "2019-05-13",
+      "stock_id": "2475",
+      "stock_name": "華映"
+    },
+    {
+      "date": "2007-12-24",
+      "stock_id": "2479",
+      "stock_name": "和立"
+    },
+    {
+      "date": "2006-10-24",
+      "stock_id": "2487",
+      "stock_name": "友立資"
+    },
+    {
+      "date": "2020-11-10",
+      "stock_id": "2499",
+      "stock_name": "東貝"
+    },
+    {
+      "date": "2003-04-23",
+      "stock_id": "2518",
+      "stock_name": "長億實業"
+    },
+    {
+      "date": "2001-08-24",
+      "stock_id": "2522",
+      "stock_name": "啟阜工程"
+    },
+    {
+      "date": "2001-12-19",
+      "stock_id": "2803",
+      "stock_name": "華南銀行"
+    },
+    {
+      "date": "2001-12-31",
+      "stock_id": "2804",
+      "stock_name": "中華開發"
+    },
+    {
+      "date": "2005-12-26",
+      "stock_id": "2808",
+      "stock_name": "台北商銀"
+    },
+    {
+      "date": "2001-12-19",
+      "stock_id": "2842",
+      "stock_name": "富邦銀行"
+    },
+    {
+      "date": "2016-03-22",
+      "stock_id": "2847",
+      "stock_name": "大眾銀行"
+    },
+    {
+      "date": "2005-06-13",
+      "stock_id": "2902",
+      "stock_name": "中信"
+    },
+    {
+      "date": "2014-12-30",
+      "stock_id": "3061",
+      "stock_name": "璨圓"
+    },
+    {
+      "date": "2008-06-30",
+      "stock_id": "3271",
+      "stock_name": "其樂達"
+    },
+    {
+      "date": "2017-10-01",
+      "stock_id": "3315",
+      "stock_name": "宣昶"
+    },
+    {
+      "date": "2011-10-07",
+      "stock_id": "3367",
+      "stock_name": "英華達"
+    },
+    {
+      "date": "2016-12-06",
+      "stock_id": "3474",
+      "stock_name": "華亞科"
+    },
+    {
+      "date": "2018-10-01",
+      "stock_id": "3514",
+      "stock_name": "昱晶"
+    },
+    {
+      "date": "2017-08-30",
+      "stock_id": "3559",
+      "stock_name": "全智科"
+    },
+    {
+      "date": "2010-10-01",
+      "stock_id": "3614",
+      "stock_name": "誠致"
+    },
+    {
+      "date": "2014-09-10",
+      "stock_id": "3638",
+      "stock_name": "F-IML"
+    },
+    {
+      "date": "2024-05-31",
+      "stock_id": "5383",
+      "stock_name": "金利"
+    },
+    {
+      "date": "2011-05-02",
+      "stock_id": "6012",
+      "stock_name": "金鼎證"
+    },
+    {
+      "date": "2012-03-01",
+      "stock_id": "6119",
+      "stock_name": "大傳"
+    },
+    {
+      "date": "2024-07-02",
+      "stock_id": "6404",
+      "stock_name": "通訊-KY"
+    },
+    {
+      "date": "2024-01-25",
+      "stock_id": "6446",
+      "stock_name": "藥華藥"
+    },
+    {
+      "date": "2021-04-01",
+      "stock_id": "6452",
+      "stock_name": "康友-KY"
+    },
+    {
+      "date": "2017-02-02",
+      "stock_id": "6702",
+      "stock_name": "興航"
+    },
+    {
+      "date": "2013-07-12",
+      "stock_id": "8008",
+      "stock_name": "建興電"
+    },
+    {
+      "date": "2022-03-03",
+      "stock_id": "8427",
+      "stock_name": "基勝-KY"
+    },
+    {
+      "date": "2020-10-30",
+      "stock_id": "8497",
+      "stock_name": "格威傳媒"
+    },
+    {
+      "date": "2015-05-13",
+      "stock_id": "910069",
+      "stock_name": "新曄科技"
+    },
+    {
+      "date": "2012-08-28",
+      "stock_id": "9104",
+      "stock_name": "萬宇科"
+    },
+    {
+      "date": "2015-03-01",
+      "stock_id": "910948",
+      "stock_name": "融達"
+    },
+    {
+      "date": "2014-12-30",
+      "stock_id": "911201",
+      "stock_name": "僑威集團"
+    },
+    {
+      "date": "2012-11-06",
+      "stock_id": "911606",
+      "stock_name": "超級集團"
+    },
+    {
+      "date": "2015-06-17",
+      "stock_id": "911609",
+      "stock_name": "揚子江"
+    },
+    {
+      "date": "2022-03-18",
+      "stock_id": "9188",
+      "stock_name": "精熙-DR"
+    },
+    {
+      "date": "2008-03-01",
+      "stock_id": "9915",
+      "stock_name": "億豐"
+    },
+    {
+      "date": "2002-04-17",
+      "stock_id": "9932",
+      "stock_name": "順大裕"
+    }
+  ]
+}

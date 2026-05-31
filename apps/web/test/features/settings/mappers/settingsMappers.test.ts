@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
+import { toSaveSettingsRequest, toSettingsFormModel } from "../../../../features/settings/mappers/settingsMappers";
+
+const settings: UserSettings = {
+  userId: "user-1",
+  locale: "en",
+  costBasisMethod: "WEIGHTED_AVERAGE",
+  quotePollIntervalSeconds: 10,
+};
+
+const accounts: AccountDto[] = [
+  // KZO-167: AccountDto now requires defaultCurrency + accountType. Defaults
+  // mirror the auto-seed shape (TWD / broker).
+  { id: "account-1", name: "Broker A", userId: "user-1", feeProfileId: "profile-1", defaultCurrency: "TWD", accountType: "broker" },
+];
+
+const feeProfiles: FeeProfileDto[] = [
+  {
+    id: "profile-1",
+    accountId: "account-1",
+    name: "Default",
+    boardCommissionRate: 1.425,
+    commissionDiscountPercent: 60,
+    minimumCommissionAmount: 20,
+    commissionCurrency: "TWD",
+    commissionRoundingMode: "FLOOR",
+    taxRoundingMode: "FLOOR",
+    stockSellTaxRateBps: 30,
+    stockDayTradeTaxRateBps: 15,
+    etfSellTaxRateBps: 10,
+    bondEtfSellTaxRateBps: 0,
+    commissionChargeMode: "CHARGED_UPFRONT",
+  },
+];
+
+const bindings: FeeProfileBindingDto[] = [
+  { accountId: "account-1", ticker: "2330", feeProfileId: "profile-1" },
+];
+
+describe("settingsMappers", () => {
+  it("maps dto payloads into a settings form model", () => {
+    const model = toSettingsFormModel(settings, accounts, feeProfiles, bindings);
+
+    expect(model.locale).toBe("en");
+    expect(model.accounts[0]).toEqual({ id: "account-1", feeProfileId: "profile-1" });
+    expect(model.feeProfileBindings[0].ticker).toBe("2330");
+    expect(model.feeProfiles[0].commissionDiscountPercent).toBe(60);
+    expect(model.feeProfiles[0].commissionCurrency).toBe("TWD");
+  });
+
+  it("maps temporary and persisted profiles into the save request contract", () => {
+    const model = toSettingsFormModel(settings, accounts, feeProfiles, bindings);
+    model.feeProfiles.push({
+      ...model.feeProfiles[0],
+      id: "tmp-1",
+      name: "Temporary",
+    });
+
+    const request = toSaveSettingsRequest(model);
+    expect(request.feeProfiles[0]).toMatchObject({ id: "profile-1" });
+    expect(request.feeProfiles[1]).toMatchObject({ tempId: "tmp-1" });
+    expect(request.feeProfiles[0]).toMatchObject({ minimumCommissionAmount: 20, commissionCurrency: "TWD" });
+    expect(request.accounts[0]).toEqual({ id: "account-1", feeProfileRef: "profile-1" });
+    expect(request.feeProfileBindings[0]).toEqual({
+      accountId: "account-1",
+      ticker: "2330",
+      feeProfileRef: "profile-1",
+    });
+  });
+});

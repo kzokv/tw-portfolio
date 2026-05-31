@@ -1,0 +1,63 @@
+import type { Locator } from "@playwright/test";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
+
+async function assertToggleChecked(toggle: Locator, label: string): Promise<void> {
+  if (!(await toggle.isChecked())) {
+    throw new Error(`Expected ${label} to be checked`);
+  }
+}
+
+test.describe("ai connectors and sharing", () => {
+  test("[ai connectors]: settings route renders deployment summary and empty-state", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/settings/ai-connectors");
+    await appShell.assert.appIsReady();
+
+    await page.getByTestId("settings-ai-connectors-page").waitFor({ state: "visible" });
+    await page.getByRole("heading", { name: "AI Connectors" }).waitFor({ state: "visible" });
+    await page.getByText("Deployment").waitFor({ state: "visible" });
+    await page.getByText("Active connection cap").waitFor({ state: "visible" });
+    await page.getByText("No AI connectors are connected.").waitFor({ state: "visible" });
+  });
+
+  test("[admin mcp settings]: settings route renders deployment and policy controls", async ({
+    appShell,
+    page,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings?tab=mcp");
+    await appShell.assert.appIsReady();
+
+    await page.getByTestId("admin-settings-panel-mcp").waitFor({ state: "visible" });
+    await page.getByRole("heading", { name: "MCP settings" }).waitFor({ state: "visible" });
+    await page.getByText("MCP deployment").waitFor({ state: "visible" });
+    await page.getByTestId("admin-settings-panel-mcp")
+      .getByText(/^Global AI connector policy\./)
+      .waitFor({ state: "visible" });
+    await page.getByText("Max active connectors").waitFor({ state: "visible" });
+    await page.getByTestId("admin-settings-mcp-oauth-token-secret-row").waitFor({ state: "visible" });
+  });
+
+  test("[sharing]: grant dialog → Editor preset checks AI connector write capability", async ({
+    appShell,
+    page,
+    sharing,
+  }) => {
+    await appShell.actions.navigateToRoute("/sharing");
+    await appShell.assert.appIsReady();
+
+    await sharing.actions.openGrantDialog();
+    await page.getByText("AI connector access").waitFor({ state: "visible" });
+    await page.getByText("App read").waitFor({ state: "visible" });
+    await page.getByText("Draft create").waitFor({ state: "visible" });
+    await page.getByText("Transaction write").waitFor({ state: "visible" });
+
+    await page.getByRole("button", { name: "Editor" }).click();
+
+    const transactionWriteToggle = page
+      .locator("label", { hasText: "Transaction write" })
+      .locator('input[type="checkbox"]');
+    await assertToggleChecked(transactionWriteToggle, "Transaction write");
+  });
+});

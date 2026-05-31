@@ -1,0 +1,88 @@
+import type { AccountDto, FeeProfileBindingDto, FeeProfileDto, UserSettings } from "@vakwen/shared-types";
+import type { SaveSettingsRequest, SettingsFormModel, SettingsProfileModel } from "../types/settingsUi";
+
+export function toSettingsProfileModel(profile: FeeProfileDto): SettingsProfileModel {
+  return {
+    id: profile.id,
+    // KZO-183: per-account ownership flows from the wire DTO into the form
+    // model unchanged; the validator + per-account view rely on it.
+    accountId: profile.accountId,
+    name: profile.name,
+    boardCommissionRate: profile.boardCommissionRate,
+    commissionDiscountPercent: profile.commissionDiscountPercent,
+    minimumCommissionAmount: profile.minimumCommissionAmount,
+    commissionCurrency: profile.commissionCurrency,
+    commissionRoundingMode: profile.commissionRoundingMode,
+    taxRoundingMode: profile.taxRoundingMode,
+    stockSellTaxRateBps: profile.stockSellTaxRateBps,
+    stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
+    etfSellTaxRateBps: profile.etfSellTaxRateBps,
+    bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+    commissionChargeMode: profile.commissionChargeMode,
+  };
+}
+
+export function toSettingsFormModel(
+  settings: UserSettings,
+  accounts: AccountDto[],
+  feeProfiles: FeeProfileDto[],
+  feeProfileBindings: FeeProfileBindingDto[],
+): SettingsFormModel {
+  return {
+    locale: settings.locale,
+    costBasisMethod: settings.costBasisMethod,
+    quotePollIntervalSeconds: settings.quotePollIntervalSeconds,
+    feeProfiles: feeProfiles.map(toSettingsProfileModel),
+    accounts: accounts.map((account) => ({
+      id: account.id,
+      feeProfileId: account.feeProfileId,
+    })),
+    feeProfileBindings: feeProfileBindings.map((binding) => ({
+      accountId: binding.accountId,
+      ticker: binding.ticker,
+      feeProfileId: binding.feeProfileId,
+    })),
+  };
+}
+
+export function toSaveSettingsRequest(model: SettingsFormModel): SaveSettingsRequest {
+  return {
+    settings: {
+      locale: model.locale,
+      costBasisMethod: model.costBasisMethod,
+      quotePollIntervalSeconds: model.quotePollIntervalSeconds,
+    },
+    feeProfiles: model.feeProfiles.map((profile) => {
+      const payload = {
+        accountId: profile.accountId,
+        name: profile.name,
+        boardCommissionRate: profile.boardCommissionRate,
+        commissionDiscountPercent: profile.commissionDiscountPercent,
+        minimumCommissionAmount: profile.minimumCommissionAmount,
+        commissionCurrency: profile.commissionCurrency,
+        commissionRoundingMode: profile.commissionRoundingMode,
+        taxRoundingMode: profile.taxRoundingMode,
+        stockSellTaxRateBps: profile.stockSellTaxRateBps,
+        stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
+        etfSellTaxRateBps: profile.etfSellTaxRateBps,
+        bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+        commissionChargeMode: profile.commissionChargeMode,
+      };
+
+      if (profile.id.startsWith("tmp-")) {
+        return { ...payload, tempId: profile.id };
+      }
+
+      return { ...payload, id: profile.id };
+    }),
+    accounts: model.accounts.map((account) => ({
+      id: account.id,
+      feeProfileRef: account.feeProfileId,
+    })),
+    feeProfileBindings: model.feeProfileBindings.map((binding) => ({
+      accountId: binding.accountId,
+      ticker: binding.ticker,
+      feeProfileRef: binding.feeProfileId,
+    })),
+  };
+}
