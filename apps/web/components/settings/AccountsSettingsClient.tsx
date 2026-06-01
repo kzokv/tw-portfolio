@@ -227,7 +227,8 @@ export function AccountsSettingsClient() {
     setBindings((current) => current.filter((_, idx) => idx !== index));
   }, []);
 
-  if (!initialSettings || shellData.isPortfolioConfigLoading) {
+  const hasShellAccountConfig = shellData.accounts.length > 0 || shellData.feeProfiles.length > 0;
+  if (!initialSettings || (shellData.isPortfolioConfigLoading && !hasShellAccountConfig)) {
     return (
       <div data-testid="settings-section-accounts" className="text-sm text-muted-foreground">
         {dict.feedback.loadingSettings}
