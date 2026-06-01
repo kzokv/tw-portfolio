@@ -490,7 +490,9 @@ at the top level and mirrored under `_meta.securitySchemes`, an `outputSchema`, 
 point to a readable `text/html;profile=mcp-app` resource through `_meta.ui.resourceUri` (and the ChatGPT
 compatibility alias `_meta["openai/outputTemplate"]`). The protected-resource metadata should advertise every
 implemented MCP scope, including advanced scopes such as `account:manage`, so ChatGPT can reconcile reconnect
-and insufficient-scope consent flows. The static widget resource must be readable during
+and insufficient-scope consent flows. When adding a new MCP scope, update the Postgres check constraints for
+connector scopes and share capabilities in a forward migration; otherwise consent can authorize the scope but
+fail with `internal_error` while persisting the connector. The static widget resource must be readable during
 pre-OAuth discovery, while `tools/call` remains bearer-protected. If ChatGPT shows the app with "No app
 actions available yet" and OAuth returns to ChatGPT without a follow-up `/oauth/token` request, inspect the
 callback first: it must include an RFC 9207 `iss` parameter matching the public OAuth issuer. Then inspect the
