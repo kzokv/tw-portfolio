@@ -42,12 +42,14 @@ import {
   MARKET_FILTER_CODES,
   dashboardPerformanceRangesSchema,
   densityModeSchema,
+  holdingAllocationBasisSchema,
   themeAccentSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
-import { resolveEffectiveRanges, resolveReportingCurrency } from "../services/userPreferences.js";
+import { resolveEffectiveRanges, resolveHoldingAllocationBasis, resolveReportingCurrency } from "../services/userPreferences.js";
 import {
+  translateOverviewHoldingGroups,
   translateOverviewSummary,
   translatePerformancePoints,
 } from "../services/dashboardReportingCurrency.js";
@@ -2746,6 +2748,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reportingCurrency: z
         .union([accountDefaultCurrencySchema, z.null()])
         .optional(),
+      holdingAllocationBasis: z
+        .union([holdingAllocationBasisSchema, z.null()])
+        .optional(),
       // ui-reshape Phase 2 — user-level theme accent + density. Stored as
       // JSONB keys (no migration); shape validated by Zod from shared-types.
       themeAccent: z
@@ -4257,6 +4262,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     const reportingCurrency = resolveReportingCurrency(prefs);
+    const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
     const translatedSummary = await translateOverviewSummary(
       overview.summary,
       overview.holdings,
@@ -4265,7 +4271,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       overview.summary.asOf,
       app.persistence,
     );
-    return { ...overview, summary: translatedSummary };
+    const translatedHoldingGroups = await translateOverviewHoldingGroups(
+      overview.holdingGroups,
+      reportingCurrency,
+      holdingAllocationBasis,
+      overview.summary.asOf,
+      app.persistence,
+    );
+    return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
   });
 
   app.get("/dashboard/performance", async (req) => {

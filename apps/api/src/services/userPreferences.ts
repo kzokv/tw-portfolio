@@ -26,14 +26,16 @@
 
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
+  DEFAULT_HOLDING_ALLOCATION_BASIS,
   DEFAULT_DASHBOARD_PERFORMANCE_RANGES,
   DEFAULT_DENSITY,
   DEFAULT_THEME_ACCENT,
+  HOLDING_ALLOCATION_BASES,
   dashboardPerformanceRangesSchema,
   densityModeSchema,
   themeAccentSchema,
 } from "@vakwen/shared-types";
-import type { AccountDefaultCurrency, DensityMode, ThemeAccent } from "@vakwen/shared-types";
+import type { AccountDefaultCurrency, DensityMode, HoldingAllocationBasis, ThemeAccent } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
 
 export type EffectiveRangesSource = "user" | "admin" | "default";
@@ -174,4 +176,14 @@ export function resolveReportingCurrency(
     return v as AccountDefaultCurrency;
   }
   return "TWD";
+}
+
+export function resolveHoldingAllocationBasis(
+  prefs: Record<string, unknown>,
+): HoldingAllocationBasis {
+  const v = prefs.holdingAllocationBasis;
+  if (typeof v === "string" && (HOLDING_ALLOCATION_BASES as readonly string[]).includes(v)) {
+    return v as HoldingAllocationBasis;
+  }
+  return DEFAULT_HOLDING_ALLOCATION_BASIS;
 }

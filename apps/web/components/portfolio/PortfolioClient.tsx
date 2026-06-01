@@ -8,6 +8,8 @@ import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { SortableCardGrid } from "../layout/SortableCardGrid";
 import { HoldingsTable } from "./HoldingsTable";
+import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
+import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 
 export function PortfolioClient() {
   const {
@@ -20,6 +22,7 @@ export function PortfolioClient() {
     mutations,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("portfolio");
+  const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
 
   if (isBootstrapping || !isI18nReady) {
     return (
@@ -30,15 +33,21 @@ export function PortfolioClient() {
     );
   }
 
-  const largestHolding = dashboard.holdings[0] ?? null;
-  const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
-  const marketCount = new Set(dashboard.holdings.map((holding) => holding.currency)).size;
-  const quoteCoverageValue = dashboard.holdings.length === 0
+  const holdingGroups = resolveHoldingGroups({
+    holdings: dashboard.holdings,
+    holdingGroups: dashboard.holdingGroups,
+    instruments: dashboard.instruments,
+    accounts: dashboard.accounts,
+  });
+  const largestHolding = holdingGroups[0] ?? null;
+  const quotedHoldingCount = holdingGroups.filter((holding) => holding.currentUnitPrice !== null).length;
+  const marketCount = new Set(holdingGroups.map((holding) => holding.marketCode)).size;
+  const quoteCoverageValue = holdingGroups.length === 0
     ? "-"
-    : formatPercent((quotedHoldingCount / dashboard.holdings.length) * 100, locale);
-  const quoteCoverageDetail = dashboard.holdings.length === 0
+    : formatPercent((quotedHoldingCount / holdingGroups.length) * 100, locale);
+  const quoteCoverageDetail = holdingGroups.length === 0
     ? dict.dashboardHome.holdingsEmpty
-    : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(dashboard.holdings.length, locale)}`;
+    : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(holdingGroups.length, locale)}`;
 
   return (
     <div className="stagger grid min-w-0 gap-6">
@@ -51,7 +60,7 @@ export function PortfolioClient() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-primary/78">{dict.navigation.portfolioLabel}</p>
             <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{dict.navigation.portfolioLabel}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {`${formatNumber(dashboard.holdings.length, locale)} positions`}
+              {`${formatNumber(holdingGroups.length, locale)} positions`}
               {" · "}
               {`${formatNumber(marketCount, locale)} markets`}
               {" · "}
@@ -67,7 +76,7 @@ export function PortfolioClient() {
             label={dict.dashboardHome.largestPositionLabel}
             value={largestHolding?.ticker ?? "-"}
             detail={largestHolding
-              ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.currency, locale)
+              ? formatCurrencyAmount(largestHolding.costBasisAmount, largestHolding.reportingCurrency ?? largestHolding.currency, locale)
               : dict.dashboardHome.holdingsEmpty}
           />
           <CompactMetric
@@ -79,8 +88,8 @@ export function PortfolioClient() {
           />
           <CompactMetric
             label={dict.dashboardHome.holdingCountLabel}
-            value={formatNumber(dashboard.holdings.length, locale)}
-            detail={dict.holdings.entries.replace("{count}", String(dashboard.holdings.length))}
+            value={formatNumber(holdingGroups.length, locale)}
+            detail={dict.holdings.entries.replace("{count}", String(holdingGroups.length))}
           />
           <CompactMetric
             label={dict.dashboardHome.quoteCoverageLabel}
@@ -111,11 +120,16 @@ export function PortfolioClient() {
               return (
                 <HoldingsTable
                   holdings={dashboard.holdings}
+                  holdingGroups={holdingGroups}
+                  instruments={dashboard.instruments}
+                  accounts={dashboard.accounts}
                   dict={dict}
                   locale={locale}
                   recomputingSymbols={mutations.recomputingSymbols}
                   showFreshnessBadge={!isSharedContext}
                   variant="compact"
+                  allocationBasis={allocationBasis}
+                  onAllocationBasisChange={setAllocationBasis}
                 />
               );
             case "dividends-section":

@@ -148,6 +148,10 @@ test.describe("anonymous public view: dto contract", () => {
     await anonymousShareTokensApi.assert.publicViewContainsTicker(namedBody, "6770");
     await anonymousShareTokensApi.assert.publicViewContainsTicker(namedBody, "5880");
     await anonymousShareTokensApi.assert.mxAssertTruthy(
+      namedBody.holdingGroups.some((holding) => holding.ticker === "6770" && holding.marketCode === "TW"),
+      "public view includes aggregated holding group for 6770.TW",
+    );
+    await anonymousShareTokensApi.assert.mxAssertTruthy(
       !namedBody.holdings.some((holding) => holding.ticker === "6669"),
       "zero-quantity holding is filtered",
     );

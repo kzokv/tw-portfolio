@@ -50,6 +50,15 @@ export interface TSeededTransactionInput {
   type?: "BUY" | "SELL";
 }
 
+export interface TSeededAccount {
+  id: string;
+  userId: string;
+  name: string;
+  feeProfileId: string;
+  defaultCurrency: "TWD" | "USD" | "AUD" | "KRW";
+  accountType: "broker" | "bank" | "wallet";
+}
+
 /**
  * Creates a real `users` row with a known email via the /__e2e/oauth-session
  * endpoint. Uses a fresh APIRequestContext so the minted session cookie is
@@ -110,6 +119,30 @@ export async function seedResolvedShareFromAdmin(
       throw new Error(`expected resolved share for known grantee email, got pending: ${granteeEmail}`);
     }
     return { shareId: body.share.id };
+  });
+}
+
+export async function seedAccountForUser(
+  userId: string,
+  input: {
+    name: string;
+    defaultCurrency?: TSeededAccount["defaultCurrency"];
+    accountType?: TSeededAccount["accountType"];
+  },
+): Promise<TSeededAccount> {
+  return withFreshContext(async (ctx) => {
+    const response = await ctx.post(new URL("/accounts", TestEnv.apiBaseUrl).href, {
+      data: {
+        name: input.name,
+        defaultCurrency: input.defaultCurrency ?? "TWD",
+        accountType: input.accountType ?? "broker",
+      },
+      headers: { "x-user-id": userId },
+    });
+    if (!response.ok()) {
+      throw new Error(`seed account failed: ${response.status()} ${await response.text()}`);
+    }
+    return (await response.json()) as TSeededAccount;
   });
 }
 

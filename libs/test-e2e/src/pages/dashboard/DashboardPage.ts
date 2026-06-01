@@ -80,12 +80,12 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       ),
       holdingRow: (ticker: string) =>
         this.withDescription(
-          this.locate("holdings-table").locator("tbody tr").filter({ hasText: ticker }),
+          this.locate("holdings-table").locator(`tbody tr[data-testid^="holding-group-row-${ticker}-"]`).first(),
           `Holding Row ${ticker}`,
         ),
       holdingDailyChangeCell: (ticker: string) =>
         this.withDescription(
-          this.locate("holdings-table").locator("tbody tr").filter({ hasText: ticker }).locator("td").nth(5),
+          this.locate("holdings-table").locator(`[data-testid^="holding-group-daily-change-${ticker}-"]`).first(),
           `Holding Daily Change Cell ${ticker}`,
         ),
       biggestMoverRow: (ticker: string) =>

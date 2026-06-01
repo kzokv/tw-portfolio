@@ -37,7 +37,35 @@ export class PortfolioAssert extends BaseAssert {
   }
 
   @Step()
+  async holdingGroupRowIsVisible(ticker: string, marketCode: string): Promise<void> {
+    await expect(this.el.holdingGroupRow(ticker, marketCode)).toBeVisible();
+  }
+
+  @Step()
+  async holdingChildRowIsVisible(ticker: string, marketCode: string, accountId: string): Promise<void> {
+    await expect(this.el.holdingChildRow(ticker, marketCode, accountId)).toBeVisible();
+  }
+
+  @Step()
+  async holdingChildRowIsHidden(ticker: string, marketCode: string, accountId: string): Promise<void> {
+    await expect(this.el.holdingChildRow(ticker, marketCode, accountId)).toHaveCount(0);
+  }
+
+  @Step()
   async holdingLinkIsVisible(symbol: string): Promise<void> {
     await expect(this.el.holdingLink(symbol)).toBeVisible();
+  }
+
+  @Step()
+  async holdingsFilterControlsAreVisible(): Promise<void> {
+    await expect(this.el.filterMarket).toBeVisible();
+    await expect(this.el.filterAccount).toBeVisible();
+    await expect(this.el.filterStatus).toBeVisible();
+    await expect(this.el.filterColumns).toBeVisible();
+  }
+
+  @Step()
+  async allocationBasisCostBasisIsSelected(): Promise<void> {
+    await expect(this.el.allocationBasisCostBasis).toHaveAttribute("aria-pressed", "true");
   }
 }

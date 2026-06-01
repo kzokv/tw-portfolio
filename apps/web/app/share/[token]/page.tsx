@@ -47,7 +47,17 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
   const view = await fetchPublicShare(token);
   if (!view) notFound();
 
-  const holdings = view.holdings;
+  const holdings = Array.isArray((view as PublicShareViewDto & { holdingGroups?: PublicShareViewDto["holdingGroups"] }).holdingGroups)
+    ? view.holdingGroups
+    : view.holdings.map((row) => ({
+        ticker: row.ticker,
+        marketCode: "TW" as const,
+        quantity: row.quantity,
+        accountCount: 1,
+        marketValueAmount: row.marketValueAmount,
+        marketValueCurrency: row.marketValueCurrency,
+        allocationPercent: row.allocationPercent,
+      }));
   const summaryValues = view.summary.totalValueByCurrency;
   const summaryReturns = view.summary.returnByCurrency;
 
@@ -165,6 +175,12 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                     <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colTicker}
                     </th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {copy.colMarket}
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {copy.colAccounts}
+                    </th>
                     <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colShares}
                     </th>
@@ -178,8 +194,20 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                 </thead>
                 <tbody className="divide-y divide-border">
                   {holdings.map((row) => (
-                    <tr key={row.ticker} data-testid={`public-share-holding-${row.ticker}`}>
-                      <td className="px-4 py-3 text-sm font-medium text-foreground">{row.ticker}</td>
+                    <tr key={`${row.ticker}-${row.marketCode}`} data-testid={`public-share-holding-${row.ticker}-${row.marketCode}`}>
+                      <td
+                        className="px-4 py-3 text-sm font-medium text-foreground"
+                        data-testid={`public-share-holding-group-${row.ticker}-${row.marketCode}`}
+                      >
+                        {row.ticker}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{row.marketCode}</td>
+                      <td
+                        className="px-4 py-3 text-right text-sm text-muted-foreground"
+                        data-testid={`public-share-holding-accounts-${row.ticker}-${row.marketCode}`}
+                      >
+                        {formatNumber(row.accountCount, locale)}
+                      </td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                         {formatNumber(row.quantity, locale, 4)}
                       </td>

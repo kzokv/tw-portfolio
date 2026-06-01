@@ -25,6 +25,16 @@ export interface TPublicShareHolding {
   allocationPercent: number;
 }
 
+export interface TPublicShareHoldingGroup {
+  ticker: string;
+  marketCode: "TW" | "US" | "AU" | "KR";
+  quantity: number;
+  accountCount: number;
+  marketValueAmount: number;
+  marketValueCurrency: string;
+  allocationPercent: number;
+}
+
 export interface TPublicShareSummary {
   totalValueByCurrency: Array<{ currency: string; amount: number }>;
   returnByCurrency: Array<{ currency: string; returnPercent: number }>;
@@ -34,6 +44,7 @@ export interface TPublicShareViewBody {
   ownerDisplayName: string;
   expiresAt: string;
   holdings: TPublicShareHolding[];
+  holdingGroups: TPublicShareHoldingGroup[];
   summary: TPublicShareSummary;
   quoteAsOf: string | null;
 }
