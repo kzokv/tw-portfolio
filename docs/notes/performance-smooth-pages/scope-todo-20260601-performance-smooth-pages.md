@@ -64,7 +64,7 @@ The worktree now implements the first production baseline:
 
 - `AppShell` no longer calls `useDashboardData()` and no longer gates all routes on `/dashboard/overview`.
 - `/settings` uses a targeted `getUserSettings()` persistence read with `Server-Timing` instead of full store hydration.
-- `/portfolio` reads primary content from `/portfolio/page-data`; this endpoint deliberately omits dashboard summary/actions/settings and does not fetch quote/freshness/FX enrichment.
+- `/portfolio` reads primary content from `/portfolio/page-data`; this endpoint deliberately omits dashboard summary/actions/settings and FX translation, while preserving cached quote snapshots and freshness fields for holdings.
 - Shell quick search reads `/portfolio/instrument-index` before falling back to the broader instrument catalog, so the command palette no longer depends on dashboard overview.
 - `/transactions` renders primary content from recent transactions plus lightweight shell account config instead of dashboard overview.
 - `/cash-ledger` no longer fetches dashboard overview for locale, seeds account metadata for first paint, and uses targeted read paths for ledger rows and account balances.
@@ -160,9 +160,14 @@ Focused checks run locally in this worktree:
 Sample local timing evidence from memory-backed unit routes:
 
 - `/settings`: `Server-Timing` included `user_settings;dur=...`; observed total around 1.23ms in the focused test.
-- `/portfolio/page-data`: `Server-Timing` included `build_portfolio_page_data;dur=...`; observed total around 70ms in the focused test.
+- `/portfolio/page-data`: `Server-Timing` included `load_quotes`, `build_portfolio_page_data`, `freshness`, and `build_holding_groups`; observed total around 70ms in the focused test before quote regression coverage and around 1ms in the added cached-quote regression case.
 - `/portfolio/cash-ledger`: `Server-Timing` included `list_cash_ledger`, `cash_ledger_enrichment`, and `map_response`.
 - `/accounts?includeBalances=true`: `Server-Timing` included `accounts_with_balances`.
+
+Cloud Codex review follow-up:
+
+- Fixed PR #201 review finding about `/portfolio/page-data` dropping quote/freshness fields by reusing the dashboard quote snapshot input/resolution flow, applying freshness enrichment, rebuilding holding groups after enrichment, and adding route-level regression coverage.
+- Focused check: `npm run test --prefix apps/api -- --run test/unit/smooth-page-read-paths.test.ts` — passed, 3 tests.
 
 Full repo gates run locally in this worktree:
 
