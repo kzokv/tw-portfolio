@@ -196,7 +196,7 @@ function buildOverviewHoldings(
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
 }
 
-function buildOverviewHoldingGroups(
+export function buildOverviewHoldingGroups(
   store: Store,
   holdings: ReadonlyArray<DashboardOverviewHoldingDto>,
 ): DashboardOverviewHoldingGroupDto[] {

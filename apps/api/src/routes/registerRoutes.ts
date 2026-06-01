@@ -64,7 +64,7 @@ import {
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
-import { buildDashboardOverview } from "../services/dashboard.js";
+import { buildDashboardOverview, buildOverviewHoldingGroups } from "../services/dashboard.js";
 import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
 import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
@@ -4271,8 +4271,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       overview.summary.asOf,
       app.persistence,
     );
+    const holdingGroups = buildOverviewHoldingGroups(store, overview.holdings);
     const translatedHoldingGroups = await translateOverviewHoldingGroups(
-      overview.holdingGroups,
+      holdingGroups,
       reportingCurrency,
       holdingAllocationBasis,
       overview.summary.asOf,
