@@ -3253,7 +3253,7 @@ describePostgres("postgres migrations", () => {
     ).rejects.toThrow();
   });
 
-  it("KZO-210: migrations 057-061 add connector, capability, draft, and MCP OAuth persistence tables", async () => {
+  it("KZO-210: migrations 057-063 add connector, capability, draft, and MCP OAuth persistence tables", async () => {
     await applyNumberedMigrations();
 
     const tables = await pool.query<{ tablename: string }>(
@@ -3401,6 +3401,23 @@ describePostgres("postgres migrations", () => {
          AND contype = 'u'`,
     );
     expect(draftRowUnique.rows.some((row) => row.def.includes("(batch_id, row_number)"))).toBe(true);
+
+    const capabilityChecks = await pool.query<{ table_name: string; def: string }>(
+      `SELECT c.conrelid::regclass::text AS table_name, pg_get_constraintdef(c.oid) AS def
+       FROM pg_constraint c
+       WHERE c.conrelid::regclass::text = ANY($1::text[])
+         AND c.contype = 'c'
+       ORDER BY c.conrelid::regclass::text, c.conname`,
+      [[
+        "ai_connector_connection_scopes",
+        "pending_share_invite_capabilities",
+        "portfolio_share_capabilities",
+      ]],
+    );
+    expect(capabilityChecks.rows).toHaveLength(3);
+    for (const row of capabilityChecks.rows) {
+      expect(row.def).toContain("'account:manage'");
+    }
   });
 
   it("KZO-210: pending invite capabilities materialize onto the share grant", async () => {

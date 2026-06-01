@@ -1475,4 +1475,19 @@ describePostgres("MCP OAuth Postgres replacement semantics", () => {
       revocationReason: "replaced_by_oauth_authorization",
     });
   });
+
+  it("persists account-management connector scopes", async () => {
+    await persistence!.saveAiConnectorConnection({
+      id: "account-manage-connection",
+      userId: "user-1",
+      provider: "chatgpt",
+      displayName: "ChatGPT",
+      status: "active",
+      scopes: ["portfolio:mcp_read", "account:manage"],
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const connection = await persistence!.getAiConnectorConnection("account-manage-connection");
+    expect(connection?.scopes).toEqual(["account:manage", "portfolio:mcp_read"]);
+  });
 });
