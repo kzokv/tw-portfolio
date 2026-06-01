@@ -164,6 +164,45 @@ describe("dashboard components", () => {
     expect(html).toContain("NT$1,185,472");
   });
 
+  it("uses reporting-currency P&L amounts for grouped and child holding rows", () => {
+    const usdHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      accountId: "acc-us",
+      accountName: "US Brokerage",
+      ticker: "AAPL",
+      quantity: 10,
+      costBasisAmount: 1_000,
+      currency: "USD",
+      averageCostPerShare: 100,
+      currentUnitPrice: 120,
+      marketValueAmount: 1_200,
+      unrealizedPnlAmount: 200,
+    };
+    const group = buildHoldingGroupsFromHoldings({ holdings: [usdHolding] })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "TWD" as const,
+      reportingCostBasisAmount: 32_000,
+      reportingMarketValueAmount: 38_400,
+      reportingUnrealizedPnlAmount: 6_400,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "TWD" as const,
+        reportingCostBasisAmount: 32_000,
+        reportingMarketValueAmount: 38_400,
+        reportingUnrealizedPnlAmount: 6_400,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={[usdHolding]} holdingGroups={[reportingGroup]} dict={dict} locale="en" />,
+    );
+
+    expect(html).toContain("NT$6,400");
+    expect(html).not.toContain("NT$200");
+  });
+
   it("aggregates account counts in compact holdings rows", () => {
     const compactHoldings: DashboardOverviewHoldingDto[] = [
       holdings[0]!,

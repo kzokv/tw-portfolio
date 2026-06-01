@@ -528,6 +528,7 @@ function HoldingGroupRow({
   const allocation = getAmountForAllocationBasis(group, allocationBasis);
   const marketValueAmount = group.reportingMarketValueAmount ?? group.marketValueAmount;
   const costBasisAmount = group.reportingCostBasisAmount ?? group.costBasisAmount;
+  const unrealizedPnlAmount = group.reportingUnrealizedPnlAmount ?? group.unrealizedPnlAmount;
   const reportingCurrency = group.reportingCurrency ?? group.currency;
 
   return (
@@ -580,8 +581,8 @@ function HoldingGroupRow({
         </td>
       ) : null}
       {visibleColumns.includes("pnl") ? (
-        <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(group.unrealizedPnlAmount))}>
-          {group.unrealizedPnlAmount != null ? formatCurrencyAmount(group.unrealizedPnlAmount, reportingCurrency, locale) : "-"}
+        <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(unrealizedPnlAmount))}>
+          {unrealizedPnlAmount != null ? formatCurrencyAmount(unrealizedPnlAmount, reportingCurrency, locale) : "-"}
           {group.changePercent != null ? <div className="text-xs">{formatPercent(group.changePercent, locale)}</div> : null}
         </td>
       ) : null}
@@ -636,6 +637,7 @@ function HoldingChildRow({
   const allocation = getAmountForAllocationBasis(child, allocationBasis);
   const marketValueAmount = child.reportingMarketValueAmount ?? child.marketValueAmount;
   const costBasisAmount = child.reportingCostBasisAmount ?? child.costBasisAmount;
+  const unrealizedPnlAmount = child.reportingUnrealizedPnlAmount ?? child.unrealizedPnlAmount;
   const reportingCurrency = child.reportingCurrency ?? child.currency;
 
   return (
@@ -678,8 +680,8 @@ function HoldingChildRow({
         </td>
       ) : null}
       {visibleColumns.includes("pnl") ? (
-        <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(child.unrealizedPnlAmount))}>
-          {child.unrealizedPnlAmount != null ? formatCurrencyAmount(child.unrealizedPnlAmount, reportingCurrency, locale) : "-"}
+        <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(unrealizedPnlAmount))}>
+          {unrealizedPnlAmount != null ? formatCurrencyAmount(unrealizedPnlAmount, reportingCurrency, locale) : "-"}
           {child.changePercent != null ? <div className="text-xs">{formatPercent(child.changePercent, locale)}</div> : null}
         </td>
       ) : null}

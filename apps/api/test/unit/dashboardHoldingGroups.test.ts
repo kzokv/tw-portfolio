@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuoteSnapshot } from "@vakwen/domain";
 import type { DashboardOverviewHoldingGroupDto } from "../../../../libs/shared-types/src/index.js";
-import { buildDashboardOverview } from "../../src/services/dashboard.js";
+import { buildDashboardOverview, buildOverviewHoldingGroups } from "../../src/services/dashboard.js";
 import { translateOverviewHoldingGroups } from "../../src/services/dashboardReportingCurrency.js";
 import type { Persistence } from "../../src/persistence/types.js";
 import type { Store } from "../../src/types/store.js";
@@ -206,5 +206,34 @@ describe("dashboard holdingGroups", () => {
     expect(usGroup.reportingAllocationPercent).toBeCloseTo(24.2424);
     expect(usGroup.children[0]?.allocationBasisUsed).toBe("cost_basis");
     expect(usGroup.children[0]?.allocationBasisFallbackReason).toBe("missing_quote");
+  });
+
+  it("rebuilds grouped rows from freshness-enriched holdings", () => {
+    const store = makeStore({
+      accounts: [
+        { id: "acc-us-1", name: "US One", defaultCurrency: "USD" },
+        { id: "acc-us-2", name: "US Two", defaultCurrency: "USD" },
+      ],
+      holdings: [
+        { accountId: "acc-us-1", ticker: "AAPL", quantity: 1, costBasisAmount: 100, currency: "USD" },
+        { accountId: "acc-us-2", ticker: "AAPL", quantity: 2, costBasisAmount: 200, currency: "USD" },
+      ],
+    });
+    const overview = buildDashboardOverview(store, {
+      integrityIssue: null,
+      quotes: [],
+    });
+    const staleHolding = overview.holdings.find((holding) => holding.accountId === "acc-us-1");
+    if (!staleHolding) throw new Error("Expected acc-us-1 holding");
+    staleHolding.freshness = "stale_red";
+    staleHolding.freshnessTooltip = "Last quote 14 days ago";
+
+    const holdingGroups = buildOverviewHoldingGroups(store, overview.holdings);
+    const group = findGroup(holdingGroups, "AAPL", "US");
+
+    expect(group.freshness).toBe("stale_red");
+    expect(group.freshnessTooltip).toBe("Last quote 14 days ago");
+    expect(group.children.find((child) => child.accountId === "acc-us-1")?.freshness).toBe("stale_red");
+    expect(group.children.find((child) => child.accountId === "acc-us-2")?.freshness).toBe("current");
   });
 });
