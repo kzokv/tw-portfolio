@@ -122,6 +122,65 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     ]);
   });
 
+  it("filters ticker transaction history by market code", async () => {
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "US Brokerage",
+        defaultCurrency: "USD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const usdAccount = accountResponse.json() as { id: string };
+
+    const twTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-market-filter-tw" },
+      payload: transactionPayload({
+        ticker: "ABC",
+        marketCode: "TW",
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-01",
+      }),
+    });
+    expect(twTrade.statusCode).toBe(200);
+
+    const usTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-market-filter-us" },
+      payload: transactionPayload({
+        accountId: usdAccount.id,
+        ticker: "ABC",
+        marketCode: "US",
+        priceCurrency: "USD",
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(usTrade.statusCode).toBe(200);
+
+    const usHistoryResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions?ticker=abc&marketCode=US",
+    });
+    expect(usHistoryResponse.statusCode).toBe(200);
+    expect(usHistoryResponse.json()).toEqual([
+      expect.objectContaining({ ticker: "ABC", marketCode: "US", accountId: usdAccount.id }),
+    ]);
+
+    const twHistoryResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions?ticker=abc&marketCode=TW",
+    });
+    expect(twHistoryResponse.statusCode).toBe(200);
+    expect(twHistoryResponse.json()).toEqual([
+      expect.objectContaining({ ticker: "ABC", marketCode: "TW", accountId: "acc-1" }),
+    ]);
+  });
+
   it("supports limiting transaction history without changing newest-first ordering", async () => {
     await app.inject({
       method: "POST",

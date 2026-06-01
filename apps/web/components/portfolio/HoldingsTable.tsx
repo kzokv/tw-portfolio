@@ -750,10 +750,24 @@ function DailyChangeCell({
   locale: LocaleCode;
   testId: string;
 }) {
-  if (quoteStatus === "missing" || change === null) {
+  if (quoteStatus === "missing") {
     return (
       <td className="px-4 py-3 text-right font-medium text-amber-600" data-testid={testId}>
         {dict.dashboardHome.quoteStatusMissing}
+      </td>
+    );
+  }
+
+  if (change === null) {
+    return (
+      <td className="px-4 py-3 text-right font-medium text-muted-foreground" data-testid={testId}>
+        <div>-</div>
+        <div className="text-xs">
+          {changePercent != null ? formatPercent(changePercent, locale) : "-"}
+          {quoteStatus === "provisional" ? (
+            <span className="ml-1" aria-label={dict.dashboardHome.quoteStatusProvisional}>{"\u23f1"}</span>
+          ) : null}
+        </div>
       </td>
     );
   }

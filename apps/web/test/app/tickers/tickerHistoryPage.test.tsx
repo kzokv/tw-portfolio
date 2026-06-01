@@ -43,16 +43,19 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     statsBar,
     ticker,
     transactionAccountFilter,
+    transactionMarketFilter,
   }: {
     instrument: { ticker?: string } | null;
     statsBar: React.ReactNode;
     ticker: string;
     transactionAccountFilter?: string;
+    transactionMarketFilter?: string;
   }) => (
     <section
       data-testid="ticker-history-client"
       data-instrument-ticker={instrument?.ticker ?? ""}
       data-transaction-account-filter={transactionAccountFilter ?? ""}
+      data-transaction-market-filter={transactionMarketFilter ?? ""}
       data-ticker={ticker}
     >
       {statsBar}
@@ -141,18 +144,20 @@ describe("TickerHistoryPage", () => {
 
     const element = await TickerHistoryPage({
       params: Promise.resolve({ ticker: "2330" }),
-      searchParams: Promise.resolve({ accountId: "acc-2" }),
+      searchParams: Promise.resolve({ accountId: "acc-2", marketCode: "tw" }),
     });
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain('data-testid="ticker-history-client"');
     expect(html).toContain('data-ticker="2330"');
     expect(html).toContain('data-transaction-account-filter="acc-2"');
-    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2" });
+    expect(html).toContain('data-transaction-market-filter="TW"');
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
     expect(fetchTickerDetailsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         ticker: "2330",
         accountId: "acc-2",
+        marketCode: "TW",
         transactions: [],
         instrument: null,
       }),

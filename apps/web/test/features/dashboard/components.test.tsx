@@ -164,6 +164,25 @@ describe("dashboard components", () => {
     expect(html).toContain("NT$1,185,472");
   });
 
+  it("renders unavailable daily change without labeling current quotes as missing", () => {
+    const currentWithoutPreviousClose: DashboardOverviewHoldingDto[] = [
+      {
+        ...holdings[0]!,
+        change: null,
+        changePercent: null,
+        previousClose: null,
+        quoteStatus: "current",
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={currentWithoutPreviousClose} dict={dict} locale="en" />,
+    );
+
+    expect(html).toContain('data-testid="holding-group-daily-change-2330-TW"');
+    expect(html).not.toContain(dict.dashboardHome.quoteStatusMissing);
+  });
+
   it("uses reporting-currency P&L amounts for grouped and child holding rows", () => {
     const usdHolding: DashboardOverviewHoldingDto = {
       ...holdings[0]!,

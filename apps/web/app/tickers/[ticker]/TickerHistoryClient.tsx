@@ -7,6 +7,7 @@ import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, W
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type {
   LocaleCode,
+  MarketCode,
   TransactionHistoryItemDto,
   AccountDto,
   FeeProfileBindingDto,
@@ -53,6 +54,7 @@ interface TickerHistoryClientProps {
   details: TickerDetailsModel;
   isDemo: boolean;
   transactionAccountFilter?: string;
+  transactionMarketFilter?: MarketCode;
   holdingGroup: DashboardOverviewHoldingGroupDto | null;
 }
 
@@ -100,6 +102,7 @@ export function TickerHistoryClient({
   details,
   isDemo,
   transactionAccountFilter,
+  transactionMarketFilter,
   holdingGroup,
 }: TickerHistoryClientProps) {
   const router = useRouter();
@@ -158,10 +161,11 @@ export function TickerHistoryClient({
     const nextTransactions = await fetchTransactionHistory({
       ticker,
       accountId: transactionAccountFilter,
+      marketCode: transactionMarketFilter,
     });
     setDisplayTransactions(nextTransactions);
     router.refresh();
-  }, [router, ticker, transactionAccountFilter]);
+  }, [router, ticker, transactionAccountFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
@@ -184,7 +188,11 @@ export function TickerHistoryClient({
           // for this ticker. Edit-mode locks both chip + ticker (D9a) so the
           // value is fixed; on Record (instrumentReadOnly=false) the user may
           // still pivot via the chip.
-          marketCode: (transactions[0]?.marketCode as TransactionInput["marketCode"]) ?? null,
+          marketCode: (
+            transactionMarketFilter
+            ?? transactions[0]?.marketCode
+            ?? details.identity.marketCode
+          ) as TransactionInput["marketCode"],
           quantity: 1000,
           unitPrice: 100,
           priceCurrency: transactions[0]?.priceCurrency ?? "TWD",
@@ -196,7 +204,16 @@ export function TickerHistoryClient({
         feeProfiles,
         feeProfileBindings,
       ),
-    [accountId, accounts, feeProfileBindings, feeProfiles, ticker, transactions],
+    [
+      accountId,
+      accounts,
+      details.identity.marketCode,
+      feeProfileBindings,
+      feeProfiles,
+      ticker,
+      transactionMarketFilter,
+      transactions,
+    ],
   );
 
   const submission = useTransactionSubmission({
