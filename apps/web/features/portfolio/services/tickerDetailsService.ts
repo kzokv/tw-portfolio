@@ -6,6 +6,7 @@ import type {
 } from "@vakwen/shared-types";
 import { getJson } from "../../../lib/api";
 import type { DashboardSnapshot } from "../../dashboard/types";
+import { findHoldingGroup, resolveHoldingGroups, type DashboardOverviewHoldingGroupDto } from "../holdingGroups";
 
 export interface TickerDetailStat {
   label: string;
@@ -81,6 +82,7 @@ export interface TickerDetailsModel {
 interface FetchTickerDetailsOptions {
   ticker: string;
   accountId?: string;
+  marketCode?: string;
   dashboard: DashboardSnapshot;
   transactions: TransactionHistoryItemDto[];
   instrument: InstrumentCatalogItemDto | null;
@@ -90,15 +92,29 @@ function findHolding(
   dashboard: DashboardSnapshot,
   ticker: string,
   accountId?: string,
-): DashboardOverviewHoldingDto | undefined {
-  return dashboard.holdings.find(
-    (holding) => holding.ticker === ticker && (!accountId || holding.accountId === accountId),
-  );
+  marketCode?: string,
+): DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined {
+  if (accountId) {
+    return dashboard.holdings.find(
+      (holding) => holding.ticker === ticker && holding.accountId === accountId,
+    );
+  }
+
+  return findHoldingGroup(
+    resolveHoldingGroups({
+      holdings: dashboard.holdings,
+      holdingGroups: dashboard.holdingGroups,
+      instruments: dashboard.instruments,
+      accounts: dashboard.accounts,
+    }),
+    ticker,
+    marketCode,
+  ) ?? undefined;
 }
 
 function buildFallbackChartPoints(
   transactions: TransactionHistoryItemDto[],
-  holding: DashboardOverviewHoldingDto | undefined,
+  holding: DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined,
 ): TickerDetailChartPoint[] {
   const chronological = [...transactions].sort((left, right) =>
     left.tradeDate.localeCompare(right.tradeDate) || left.id.localeCompare(right.id),
@@ -150,7 +166,7 @@ function buildFallbackChartPoints(
 
 function buildFallbackFundamentals(
   instrument: InstrumentCatalogItemDto | null,
-  holding: DashboardOverviewHoldingDto | undefined,
+  holding: DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined,
 ): TickerFundamentalsPanel[] {
   return [
     {
@@ -227,11 +243,12 @@ function buildFallbackFundamentals(
 function buildFallbackTickerDetails({
   ticker,
   accountId,
+  marketCode,
   dashboard,
   transactions,
   instrument,
 }: FetchTickerDetailsOptions): TickerDetailsModel {
-  const holding = findHolding(dashboard, ticker, accountId);
+  const holding = findHolding(dashboard, ticker, accountId, marketCode);
   const realizedPnl = transactions.reduce((sum, transaction) => sum + (transaction.realizedPnlAmount ?? 0), 0);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
@@ -245,7 +262,7 @@ function buildFallbackTickerDetails({
     identity: {
       ticker,
       name: instrument?.name ?? null,
-      marketCode: instrument?.marketCode ?? transactions[0]?.marketCode ?? "TW",
+      marketCode: marketCode ?? instrument?.marketCode ?? transactions[0]?.marketCode ?? "TW",
       instrumentType: instrument?.instrumentType ?? transactions[0]?.instrumentType ?? null,
       currency,
     },
@@ -259,7 +276,7 @@ function buildFallbackTickerDetails({
       freshnessTooltip: holding?.freshnessTooltip ?? null,
     },
     position: {
-      accountScope: accountId ?? "all",
+      accountScope: accountId ?? marketCode ?? "all",
       quantity: holding?.quantity ?? 0,
       averageCost: holding?.averageCostPerShare ?? null,
       costBasis: holding?.costBasisAmount ?? null,
@@ -435,7 +452,7 @@ export async function fetchTickerDetails(
   if (options.accountId) {
     params.set("accountId", options.accountId);
   }
-  const marketCode = options.instrument?.marketCode ?? options.transactions[0]?.marketCode;
+  const marketCode = options.marketCode ?? options.instrument?.marketCode ?? options.transactions[0]?.marketCode;
   if (marketCode) {
     params.set("marketCode", marketCode);
   }

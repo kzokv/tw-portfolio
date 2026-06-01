@@ -16,6 +16,7 @@ import { RecentTransactionsCard } from "../../../components/dashboard/RecentTran
 import { AddTransactionCard } from "../../../components/portfolio/AddTransactionCard";
 import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import { TransactionHistoryTable } from "../../../components/portfolio/TransactionHistoryTable";
+import { buildHoldingGroupsFromHoldings } from "../../../features/portfolio/holdingGroups";
 import { getDictionary } from "../../../lib/i18n";
 
 vi.mock("recharts", () => ({
@@ -151,14 +152,58 @@ describe("dashboard components", () => {
   it("renders holdings with a current-price column and history link", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);
 
-    expect(html).toContain("Current Price");
+    expect(html).toContain("Price");
     expect(html).toContain("Market Value");
-    expect(html).toContain("Unrealized P&amp;L");
-    expect(html).toContain("href=\"/tickers/2330?accountId=acc-1\"");
+    expect(html).toContain("P&amp;L");
+    expect(html).toContain("Total Cost");
+    expect(html).toContain("Last Posted");
+    expect(html).toContain("href=\"/tickers/2330?marketCode=TW\"");
+    expect(html).toContain("href=\"/tickers/2330?marketCode=TW&amp;accountId=acc-1\"");
     expect(html).toContain("NT$610");
+    expect(html).toContain("NT$1,220,000");
+    expect(html).toContain("NT$1,185,472");
   });
 
-  it("keeps account names visible in compact holdings rows", () => {
+  it("uses reporting-currency P&L amounts for grouped and child holding rows", () => {
+    const usdHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      accountId: "acc-us",
+      accountName: "US Brokerage",
+      ticker: "AAPL",
+      quantity: 10,
+      costBasisAmount: 1_000,
+      currency: "USD",
+      averageCostPerShare: 100,
+      currentUnitPrice: 120,
+      marketValueAmount: 1_200,
+      unrealizedPnlAmount: 200,
+    };
+    const group = buildHoldingGroupsFromHoldings({ holdings: [usdHolding] })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "TWD" as const,
+      reportingCostBasisAmount: 32_000,
+      reportingMarketValueAmount: 38_400,
+      reportingUnrealizedPnlAmount: 6_400,
+      children: group.children.map((child) => ({
+        ...child,
+        reportingCurrency: "TWD" as const,
+        reportingCostBasisAmount: 32_000,
+        reportingMarketValueAmount: 38_400,
+        reportingUnrealizedPnlAmount: 6_400,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <HoldingsTable holdings={[usdHolding]} holdingGroups={[reportingGroup]} dict={dict} locale="en" />,
+    );
+
+    expect(html).toContain("NT$6,400");
+    expect(html).not.toContain("NT$200");
+  });
+
+  it("aggregates account counts in compact holdings rows", () => {
     const compactHoldings: DashboardOverviewHoldingDto[] = [
       holdings[0]!,
       {
@@ -175,9 +220,8 @@ describe("dashboard components", () => {
       <HoldingsTable holdings={compactHoldings} dict={dict} locale="en" variant="compact" />,
     );
 
-    expect(html).toContain("Account / Currency");
-    expect(html).toContain("Main Brokerage");
-    expect(html).toContain("Retirement Brokerage");
+    expect(html).toContain("Accounts");
+    expect(html).toContain("2");
     expect(html).toContain("TWD");
   });
 
@@ -245,7 +289,14 @@ describe("dashboard components", () => {
   });
 
   it("renders allocation snapshot legend and recent transactions card", () => {
-    const allocationHtml = renderToStaticMarkup(<AllocationSnapshotCard holdings={holdings} dict={dict} locale="en" />);
+    const allocationHtml = renderToStaticMarkup(
+      <AllocationSnapshotCard
+        groups={buildHoldingGroupsFromHoldings({ holdings })}
+        dict={dict}
+        locale="en"
+        allocationBasis="market_value"
+      />,
+    );
     expect(allocationHtml).toContain("Allocation Snapshot");
     expect(allocationHtml).toContain("2330");
 

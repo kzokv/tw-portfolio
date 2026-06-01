@@ -44,6 +44,17 @@ describe("PublicSharePage", () => {
               allocationPercent: 50.6,
             },
           ],
+          holdingGroups: [
+            {
+              ticker: "2330.TW",
+              marketCode: "TW",
+              quantity: 500,
+              accountCount: 2,
+              marketValueAmount: 625000,
+              marketValueCurrency: "TWD",
+              allocationPercent: 50.6,
+            },
+          ],
           summary: {
             totalValueByCurrency: [{ currency: "TWD", amount: 1234567 }],
             returnByCurrency: [{ currency: "TWD", returnPercent: 14.2 }],
@@ -61,7 +72,7 @@ describe("PublicSharePage", () => {
     expect(html).toContain('data-testid="public-share-summary-return"');
     expect(html).toContain('data-testid="public-share-total-TWD"');
     expect(html).toContain('data-testid="public-share-return-TWD"');
-    expect(html).toContain('data-testid="public-share-holding-2330.TW"');
+    expect(html).toContain('data-testid="public-share-holding-2330.TW-TW"');
     expect(html).toContain('data-testid="public-share-expires-at"');
     expect(html).toContain('data-testid="public-share-quote-as-of"');
     expect(html).not.toContain("costBasisAmount");
@@ -86,6 +97,7 @@ describe("PublicSharePage", () => {
           expiresAt: "2026-05-18T10:00:00.000Z",
           quoteAsOf: null,
           holdings: [],
+          holdingGroups: [],
           summary: {
             totalValueByCurrency: [{ currency: "USD", amount: 0 }],
             returnByCurrency: [{ currency: "USD", returnPercent: 0 }],

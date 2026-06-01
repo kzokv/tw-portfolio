@@ -1,12 +1,14 @@
 import type {
   DashboardOverviewDto,
+  DashboardOverviewHoldingChildDto,
+  DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewRecentDividendDto,
   DashboardOverviewUpcomingDividendDto,
   IntegrityIssueDto,
   InstrumentOptionDto,
 } from "@vakwen/shared-types";
-import { marketCodeFor } from "@vakwen/shared-types";
+import { currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
 import { deriveEligibleQuantity } from "./dividends.js";
@@ -111,6 +113,7 @@ export function buildDashboardOverview(
       openIssueCount: integrityIssue ? 1 : 0,
     },
     holdings,
+    holdingGroups: buildOverviewHoldingGroups(store, holdings),
     dividends,
     actions: {
       integrityIssue,
@@ -191,6 +194,147 @@ function buildOverviewHoldings(
       };
     })
     .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
+}
+
+export function buildOverviewHoldingGroups(
+  store: Store,
+  holdings: ReadonlyArray<DashboardOverviewHoldingDto>,
+): DashboardOverviewHoldingGroupDto[] {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const groups = new Map<string, DashboardOverviewHoldingGroupDto>();
+  const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
+
+  for (const holding of holdings) {
+    const account = accountById.get(holding.accountId);
+    const marketCode = account ? marketCodeFor(account.defaultCurrency) : marketCodeFor(holding.currency);
+    const groupKey = `${holding.ticker}:${marketCode}:${holding.currency}`;
+    const child: DashboardOverviewHoldingChildDto = {
+      accountId: holding.accountId,
+      accountName: holding.accountName,
+      ticker: holding.ticker,
+      marketCode,
+      quantity: holding.quantity,
+      costBasisAmount: holding.costBasisAmount,
+      currency: holding.currency,
+      averageCostPerShare: holding.averageCostPerShare,
+      currentUnitPrice: holding.currentUnitPrice,
+      marketValueAmount: holding.marketValueAmount,
+      unrealizedPnlAmount: holding.unrealizedPnlAmount,
+      allocationPct: holding.allocationPct,
+      change: holding.change,
+      changePercent: holding.changePercent,
+      previousClose: holding.previousClose,
+      quoteStatus: holding.quoteStatus,
+      nextDividendDate: holding.nextDividendDate,
+      lastDividendPostedDate: holding.lastDividendPostedDate,
+      freshness: holding.freshness,
+      freshnessTooltip: holding.freshnessTooltip,
+      reportingCurrency: account?.defaultCurrency ?? currencyFor(marketCode),
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingAllocationPercent: null,
+      fxStatus: "complete",
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    };
+
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.quantity += child.quantity;
+      existing.costBasisAmount += child.costBasisAmount;
+      existing.marketValueAmount = existing.marketValueAmount === null || child.marketValueAmount === null
+        ? null
+        : roundToDecimal(existing.marketValueAmount + child.marketValueAmount, 2);
+      existing.unrealizedPnlAmount = existing.unrealizedPnlAmount === null || child.unrealizedPnlAmount === null
+        ? null
+        : roundToDecimal(existing.unrealizedPnlAmount + child.unrealizedPnlAmount, 2);
+      existing.nextDividendDate = minDate(existing.nextDividendDate, child.nextDividendDate);
+      existing.lastDividendPostedDate = maxDate(existing.lastDividendPostedDate, child.lastDividendPostedDate);
+      existing.quoteStatus = mergeQuoteStatus(existing.quoteStatus, child.quoteStatus);
+      existing.freshness = mergeFreshness(existing.freshness, child.freshness);
+      existing.freshnessTooltip = existing.freshnessTooltip ?? child.freshnessTooltip;
+      existing.children.push(child);
+      existing.accountCount = existing.children.length;
+      existing.averageCostPerShare = existing.quantity > 0
+        ? roundToDecimal(existing.costBasisAmount / existing.quantity, 2)
+        : 0;
+      existing.allocationPct = totalCostAmount > 0
+        ? (existing.costBasisAmount / totalCostAmount) * 100
+        : null;
+      continue;
+    }
+
+    groups.set(groupKey, {
+      ticker: child.ticker,
+      marketCode,
+      quantity: child.quantity,
+      costBasisAmount: child.costBasisAmount,
+      currency: child.currency,
+      averageCostPerShare: child.averageCostPerShare,
+      currentUnitPrice: child.currentUnitPrice,
+      marketValueAmount: child.marketValueAmount,
+      unrealizedPnlAmount: child.unrealizedPnlAmount,
+      allocationPct: totalCostAmount > 0 ? (child.costBasisAmount / totalCostAmount) * 100 : null,
+      change: child.change,
+      changePercent: child.changePercent,
+      previousClose: child.previousClose,
+      quoteStatus: child.quoteStatus,
+      nextDividendDate: child.nextDividendDate,
+      lastDividendPostedDate: child.lastDividendPostedDate,
+      freshness: child.freshness,
+      freshnessTooltip: child.freshnessTooltip,
+      accountCount: 1,
+      reportingCurrency: child.reportingCurrency,
+      reportingCostBasisAmount: null,
+      reportingMarketValueAmount: null,
+      reportingUnrealizedPnlAmount: null,
+      reportingAllocationPercent: null,
+      fxStatus: "complete",
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+      children: [child],
+    });
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      children: [...group.children].sort(
+        (left, right) => right.costBasisAmount - left.costBasisAmount || left.accountId.localeCompare(right.accountId),
+      ),
+    }))
+    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
+}
+
+function minDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left <= right ? left : right;
+}
+
+function maxDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left >= right ? left : right;
+}
+
+function mergeQuoteStatus(
+  left: DashboardOverviewHoldingDto["quoteStatus"],
+  right: DashboardOverviewHoldingDto["quoteStatus"],
+): DashboardOverviewHoldingDto["quoteStatus"] {
+  if (left === "missing" || right === "missing") return "missing";
+  if (left === "provisional" || right === "provisional") return "provisional";
+  return "current";
+}
+
+function mergeFreshness(
+  left: DashboardOverviewHoldingDto["freshness"],
+  right: DashboardOverviewHoldingDto["freshness"],
+): DashboardOverviewHoldingDto["freshness"] {
+  if (left === "stale_red" || right === "stale_red") return "stale_red";
+  if (left === "stale_amber" || right === "stale_amber") return "stale_amber";
+  return "current";
 }
 
 const UPCOMING_DIVIDEND_WINDOW_DAYS = 60;

@@ -1,5 +1,15 @@
 import { roundToDecimal } from "@vakwen/domain";
-import { currencyFor, marketCodeFor, type DashboardOverviewRecentDividendDto, type DashboardOverviewUpcomingDividendDto, type MarketCode, type TickerDetailsDto, type TransactionHistoryItemDto } from "@vakwen/shared-types";
+import {
+  currencyFor,
+  marketCodeFor,
+  type DashboardOverviewHoldingChildDto,
+  type DashboardOverviewHoldingGroupDto,
+  type DashboardOverviewRecentDividendDto,
+  type DashboardOverviewUpcomingDividendDto,
+  type MarketCode,
+  type TickerDetailsDto,
+  type TransactionHistoryItemDto,
+} from "@vakwen/shared-types";
 import type { PersistedTickerFundamentalsRecord, Persistence } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvents } from "./accountingStore.js";
@@ -96,6 +106,23 @@ export async function buildTickerDetails(
   const unrealizedPnlAmount = marketValueAmount !== null ? roundToDecimal(marketValueAmount - costBasisAmount, 2) : null;
   const realizedPnlAmount = filteredTransactions.reduce((sum, trade) => sum + (trade.realizedPnlAmount ?? 0), 0);
   const currency = filteredHoldings[0]?.currency ?? filteredTransactions[0]?.priceCurrency ?? currencyFor(resolvedMarketCode);
+  const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, scopedAccountIds);
+  const recentDividends = buildRecentDividends(input.store, normalizedTicker, scopedAccountIds);
+  const accountBreakdown = buildAccountBreakdown({
+    holdings: filteredHoldings,
+    accountById,
+    marketCode: resolvedMarketCode,
+    quote,
+    upcomingDividends,
+    recentDividends,
+  });
+  const holdingGroup = buildHoldingGroup({
+    ticker: normalizedTicker,
+    marketCode: resolvedMarketCode,
+    currency,
+    quote,
+    accountBreakdown,
+  });
 
   const details: TickerDetailsDto = {
     identity: {
@@ -133,9 +160,11 @@ export async function buildTickerDetails(
     },
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById)),
     dividends: {
-      upcoming: buildUpcomingDividends(input.store, normalizedTicker, scopedAccountIds),
-      recent: buildRecentDividends(input.store, normalizedTicker, scopedAccountIds),
+      upcoming: upcomingDividends,
+      recent: recentDividends,
     },
+    holdingGroup,
+    accountBreakdown,
     fundamentals: input.fundamentalsRecord?.fundamentals ?? createEmptyTickerFundamentals(),
     fundamentalsRefresh: buildFundamentalsRefresh(input.fundamentalsRecord, input.now ?? new Date()),
   };
@@ -144,6 +173,146 @@ export async function buildTickerDetails(
     details,
     marketCode: resolvedMarketCode,
   };
+}
+
+function buildAccountBreakdown(input: {
+  holdings: ReturnType<typeof listHoldings>;
+  accountById: ReadonlyMap<string, Store["accounts"][number]>;
+  marketCode: MarketCode;
+  quote: TickerDetailsDto["quote"];
+  upcomingDividends: DashboardOverviewUpcomingDividendDto[];
+  recentDividends: DashboardOverviewRecentDividendDto[];
+}): DashboardOverviewHoldingChildDto[] {
+  const reportingCurrency = currencyFor(input.marketCode);
+  const allocationBasisUsed = input.quote.currentUnitPrice === null ? "cost_basis" : "market_value";
+  const rows = input.holdings.map((holding) => {
+    const marketValueAmount = input.quote.currentUnitPrice !== null
+      ? roundToDecimal(holding.quantity * input.quote.currentUnitPrice, 2)
+      : null;
+    return {
+      accountId: holding.accountId,
+      accountName: input.accountById.get(holding.accountId)?.name ?? holding.accountId,
+      ticker: holding.ticker,
+      marketCode: input.marketCode,
+      quantity: holding.quantity,
+      costBasisAmount: holding.costBasisAmount,
+      currency: holding.currency,
+      averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
+      currentUnitPrice: input.quote.currentUnitPrice,
+      marketValueAmount,
+      unrealizedPnlAmount: marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2),
+      allocationPct: null,
+      change: input.quote.change,
+      changePercent: input.quote.changePercent,
+      previousClose: input.quote.previousClose,
+      quoteStatus: input.quote.quoteStatus,
+      nextDividendDate: minNullableDate(
+        input.upcomingDividends
+          .filter((dividend) => dividend.accountId === holding.accountId)
+          .map((dividend) => dividend.paymentDate ?? dividend.exDividendDate),
+      ),
+      lastDividendPostedDate: maxNullableDate(
+        input.recentDividends
+          .filter((dividend) => dividend.accountId === holding.accountId)
+          .map((dividend) => dividend.postedAt),
+      ),
+      freshness: "current" as const,
+      freshnessTooltip: null,
+      reportingCurrency,
+      reportingCostBasisAmount: holding.costBasisAmount,
+      reportingMarketValueAmount: marketValueAmount,
+      reportingUnrealizedPnlAmount: marketValueAmount === null ? null : roundToDecimal(marketValueAmount - holding.costBasisAmount, 2),
+      reportingAllocationPercent: null,
+      fxStatus: "complete" as const,
+      allocationBasisUsed,
+      allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" as const : null,
+    } satisfies DashboardOverviewHoldingChildDto;
+  });
+
+  const allocationTotal = rows.reduce((sum, row) => {
+    const value = allocationBasisUsed === "market_value"
+      ? row.reportingMarketValueAmount
+      : row.reportingCostBasisAmount;
+    return sum + (value ?? 0);
+  }, 0);
+
+  return rows
+    .map((row) => {
+      const value = allocationBasisUsed === "market_value"
+        ? row.reportingMarketValueAmount
+        : row.reportingCostBasisAmount;
+      return {
+        ...row,
+        allocationPct: allocationTotal > 0 && value !== null ? (value / allocationTotal) * 100 : null,
+        reportingAllocationPercent: allocationTotal > 0 && value !== null
+          ? roundToDecimal((value / allocationTotal) * 100, 4)
+          : null,
+      };
+    })
+    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.accountId.localeCompare(right.accountId));
+}
+
+function buildHoldingGroup(input: {
+  ticker: string;
+  marketCode: MarketCode;
+  currency: string;
+  quote: TickerDetailsDto["quote"];
+  accountBreakdown: DashboardOverviewHoldingChildDto[];
+}): DashboardOverviewHoldingGroupDto | null {
+  if (input.accountBreakdown.length === 0) return null;
+
+  const quantity = input.accountBreakdown.reduce((sum, child) => sum + child.quantity, 0);
+  const costBasisAmount = roundToDecimal(
+    input.accountBreakdown.reduce((sum, child) => sum + child.costBasisAmount, 0),
+    2,
+  );
+  const marketValueAmount = input.quote.currentUnitPrice !== null
+    ? roundToDecimal(quantity * input.quote.currentUnitPrice, 2)
+    : null;
+  const unrealizedPnlAmount = marketValueAmount === null
+    ? null
+    : roundToDecimal(marketValueAmount - costBasisAmount, 2);
+  const reportingCurrency = currencyFor(input.marketCode);
+  const allocationBasisUsed = input.quote.currentUnitPrice === null ? "cost_basis" : "market_value";
+
+  return {
+    ticker: input.ticker,
+    marketCode: input.marketCode,
+    quantity,
+    costBasisAmount,
+    currency: input.currency,
+    averageCostPerShare: quantity > 0 ? roundToDecimal(costBasisAmount / quantity, 2) : 0,
+    currentUnitPrice: input.quote.currentUnitPrice,
+    marketValueAmount,
+    unrealizedPnlAmount,
+    allocationPct: null,
+    change: input.quote.change,
+    changePercent: input.quote.changePercent,
+    previousClose: input.quote.previousClose,
+    quoteStatus: input.quote.quoteStatus,
+    nextDividendDate: minNullableDate(input.accountBreakdown.map((child) => child.nextDividendDate)),
+    lastDividendPostedDate: maxNullableDate(input.accountBreakdown.map((child) => child.lastDividendPostedDate)),
+    freshness: "current",
+    freshnessTooltip: null,
+    accountCount: new Set(input.accountBreakdown.map((child) => child.accountId)).size,
+    reportingCurrency,
+    reportingCostBasisAmount: costBasisAmount,
+    reportingMarketValueAmount: marketValueAmount,
+    reportingUnrealizedPnlAmount: unrealizedPnlAmount,
+    reportingAllocationPercent: null,
+    fxStatus: "complete",
+    allocationBasisUsed,
+    allocationBasisFallbackReason: input.quote.currentUnitPrice === null ? "missing_quote" : null,
+    children: input.accountBreakdown,
+  };
+}
+
+function minNullableDate(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => Boolean(value)).sort()[0] ?? null;
+}
+
+function maxNullableDate(values: Array<string | null>): string | null {
+  return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
 }
 
 function resolveMarketCode(input: {

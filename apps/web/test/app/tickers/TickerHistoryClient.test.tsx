@@ -182,6 +182,7 @@ describe("TickerHistoryClient", () => {
         details={details}
         isDemo={false}
         transactionAccountFilter="acc-2"
+        holdingGroup={null}
       />,
     );
 

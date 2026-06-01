@@ -3,7 +3,7 @@ import {
   seedSingleAnonymousShareToken,
   seedQuoteBars,
 } from "./helpers/anonymousShare.js";
-import { seedTransactionForUser, seedUser } from "./helpers/sharing.js";
+import { seedAccountForUser, seedTransactionForUser, seedUser } from "./helpers/sharing.js";
 
 // NOTE: seedQuoteBars appends to a global (non-per-user) array in MemoryPersistence.
 // Use tickers not shared with other E2E specs (6770, 5880, 6669) to prevent
@@ -20,12 +20,22 @@ test.describe("anonymous public share: rendered page", () => {
       name: "Anon Public E2E Owner",
       role: "member",
     });
+    const secondaryAccount = await seedAccountForUser(owner.userId, {
+      name: "Anon Public Secondary Broker",
+    });
 
     await seedTransactionForUser(owner.userId, {
       ticker: "6770",
       quantity: 100,
       unitPrice: 500,
       tradeDate: "2026-01-02",
+    });
+    await seedTransactionForUser(owner.userId, {
+      accountId: secondaryAccount.id,
+      ticker: "6770",
+      quantity: 25,
+      unitPrice: 520,
+      tradeDate: "2026-01-03",
     });
     await seedTransactionForUser(owner.userId, {
       ticker: "5880",
@@ -89,8 +99,10 @@ test.describe("anonymous public share: rendered page", () => {
     await anonymousShare.assert.totalValueIsVisible();
     await anonymousShare.assert.totalReturnIsVisible();
     await anonymousShare.assert.holdingsSectionIsVisible();
-    await anonymousShare.assert.holdingRowVisible("6770");
-    await anonymousShare.assert.holdingRowVisible("5880");
+    await anonymousShare.assert.holdingGroupRowVisible("6770", "TW");
+    await anonymousShare.assert.holdingGroupAccountsCountIs("6770", "TW", "2");
+    await anonymousShare.assert.holdingGroupRowVisible("5880", "TW");
+    await anonymousShare.assert.holdingGroupAccountsCountIs("5880", "TW", "1");
     await anonymousShare.assert.holdingRowHidden("6669");
     await anonymousShare.assert.disclosureIsVisible();
     await anonymousShare.assert.domDoesNotContainCostBasis();

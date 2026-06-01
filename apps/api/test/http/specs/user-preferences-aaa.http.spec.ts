@@ -107,6 +107,37 @@ test.describe("user preferences API (KZO-159)", () => {
     await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {});
   });
 
+  test("[user-prefs]: PATCH /user-preferences { holdingAllocationBasis } → 200 echoes and GET returns same", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-holding-allocation-basis-sub",
+      email: "user-prefs-holding-allocation-basis@example.com",
+      name: "Prefs Holding Allocation Basis",
+      role: "member",
+    });
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { holdingAllocationBasis: "cost_basis" },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, {
+      holdingAllocationBasis: "cost_basis",
+    });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, {
+      holdingAllocationBasis: "cost_basis",
+    });
+  });
+
   test("[user-prefs]: GET /user-preferences/effective-ranges → source=default when no user pref, no admin override", async ({
     request,
     adminApi,

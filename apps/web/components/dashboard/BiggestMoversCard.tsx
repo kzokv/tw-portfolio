@@ -3,22 +3,22 @@
 // lives inside the hero block per scope-grill lock G5.
 
 import Link from "next/link";
-import type { DashboardOverviewHoldingDto, LocaleCode } from "@vakwen/shared-types";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import type { DashboardOverviewHoldingGroupDto } from "../../features/portfolio/holdingGroups";
 import { cn, formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
 
 interface BiggestMoversCardProps {
-  holdings: DashboardOverviewHoldingDto[];
+  groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
-  // Reserved for future i18n adoption — keys not yet on AppDictionary.
-  dict?: AppDictionary;
+  dict: AppDictionary;
 }
 
 const TOP_N = 5;
 
-export function BiggestMoversCard({ holdings, locale }: BiggestMoversCardProps) {
-  const eligible = holdings.filter(
+export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardProps) {
+  const eligible = groups.filter(
     (h) => h.changePercent !== null && h.quoteStatus !== "missing",
   );
 
@@ -28,12 +28,10 @@ export function BiggestMoversCard({ holdings, locale }: BiggestMoversCardProps) 
     .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0))
     .slice(0, TOP_N);
 
-  // Labels intentionally hard-coded English for v1 — i18n keys not yet on
-  // AppDictionary. Polish (en + zh-TW) tracked as a follow-up.
   return (
     <Card className="p-5" data-testid="dashboard-biggest-movers">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Biggest movers
+        {dict.dashboardHome.biggestMoversTitle}
       </p>
 
       {movers.length === 0 ? (
@@ -41,7 +39,7 @@ export function BiggestMoversCard({ holdings, locale }: BiggestMoversCardProps) 
           className="mt-4 text-sm text-muted-foreground"
           data-testid="dashboard-biggest-movers-empty"
         >
-          No moving holdings to show.
+          {dict.dashboardHome.biggestMoversEmpty}
         </p>
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
@@ -49,15 +47,15 @@ export function BiggestMoversCard({ holdings, locale }: BiggestMoversCardProps) 
             const tone = (h.changePercent ?? 0) > 0 ? "text-emerald-600" : (h.changePercent ?? 0) < 0 ? "text-rose-600" : "text-foreground";
             return (
               <li
-                key={`${h.accountId}-${h.ticker}`}
+                key={`${h.marketCode}-${h.ticker}`}
                 className="flex items-center justify-between gap-3"
-                data-testid={`dashboard-biggest-movers-row-${h.ticker}`}
+                data-testid={`dashboard-biggest-movers-row-${h.ticker}-${h.marketCode}`}
               >
                 <Link
-                  href={`/tickers/${encodeURIComponent(h.ticker)}?accountId=${encodeURIComponent(h.accountId)}`}
+                  href={`/tickers/${encodeURIComponent(h.ticker)}?marketCode=${encodeURIComponent(h.marketCode)}`}
                   className="font-mono text-sm font-medium text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
                 >
-                  {h.ticker}
+                  {h.ticker} <span className="text-xs text-muted-foreground">· {h.marketCode}</span>
                 </Link>
                 <div className="flex items-center gap-3 text-right">
                   <span className={cn("font-mono text-sm font-medium tabular-nums", tone)}>
@@ -65,7 +63,7 @@ export function BiggestMoversCard({ holdings, locale }: BiggestMoversCardProps) 
                   </span>
                   {h.change !== null ? (
                     <span className={cn("font-mono text-xs tabular-nums", tone)}>
-                      {formatCurrencyAmount(h.change, h.currency, locale)}
+                      {formatCurrencyAmount(h.change, h.reportingCurrency ?? h.currency, locale)}
                     </span>
                   ) : null}
                 </div>

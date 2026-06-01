@@ -51,6 +51,16 @@ export class AnonymousShareAssert extends BaseAssert {
   }
 
   @Step()
+  async holdingGroupRowVisible(ticker: string, marketCode: string): Promise<void> {
+    await expect(this.el.holdingGroup(ticker, marketCode)).toBeVisible();
+  }
+
+  @Step()
+  async holdingGroupAccountsCountIs(ticker: string, marketCode: string, expected: string): Promise<void> {
+    await expect(this.el.holdingGroupAccounts(ticker, marketCode)).toHaveText(expected);
+  }
+
+  @Step()
   async totalValueIsVisible(): Promise<void> {
     await expect(this.el.totalValue).toBeVisible();
   }

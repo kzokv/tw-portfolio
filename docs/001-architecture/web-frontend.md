@@ -191,6 +191,21 @@ The same `<SortableRangeList>` primitive (`components/settings/SortableRangeList
 
 ---
 
+## Grouped Holdings Table
+
+Dashboard and portfolio both render `components/portfolio/HoldingsTable.tsx` against grouped holdings:
+
+- API-preferred data comes from `DashboardOverviewDto.holdingGroups`; the component can fall back to deriving groups from compatibility `holdings` rows when older payloads are encountered.
+- Parent rows are grouped by ticker plus market code and show aggregate quantity, weighted average cost, current price, market value/cost-basis allocation, P&L, dividend date, quote freshness, and missing-quote allocation fallback labels.
+- Child rows mirror the parent table columns at account level and link to `/tickers/{ticker}?marketCode={marketCode}&accountId={accountId}`. Parent rows link to `/tickers/{ticker}?marketCode={marketCode}`.
+- Display mode uses a shadcn-style `ToggleGroup`: aggregated, expanded, and account-only. Portfolio defaults to aggregated compact mode; dashboard defaults to expanded grouped rows.
+- Toolbar controls use dropdown/checkbox primitives for market, account, quote status, and visible columns. Search filters ticker, market, account name, and account id.
+- Allocation basis uses `Market value | Cost basis`, reads/writes `holdingAllocationBasis` through `/user-preferences`, and stores a localStorage fallback under `vakwen-holdings-allocation-basis`.
+
+Dashboard allocation and biggest-movers cards consume grouped holdings so a ticker/market appears once across multiple accounts. Ticker pages consume `holdingGroup` and `accountBreakdown` for aggregate/account-scoped views.
+
+---
+
 ## Demo Mode Components
 
 | Component | Location | Purpose |

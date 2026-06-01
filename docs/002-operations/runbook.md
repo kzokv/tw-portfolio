@@ -1752,7 +1752,7 @@ Admins can configure the default dashboard timeframe list at **`/admin` → Sett
 - `user_id` is TEXT to match `users.id` PK type. `ON DELETE CASCADE` cleans up on user deletion; no manual purge needed.
 - No audit log. Prefs are user-owned settings, not admin-auditable actions.
 - 8 KB JSONB cap enforced at the route layer (Fastify `bodyLimit: 8192` per-route + hard re-check after parse). Oversized bodies → `413 payload_too_large`.
-- Currently recognized top-level keys: `dashboard_performance_ranges` (`string[] | null`), `card_order` (`object | null`). Unknown top-level keys → `400 unknown_preference_key`. **KZO-161 (158C)** will extend the recognized key set.
+- Currently recognized top-level keys: `dashboardPerformanceRanges` (`string[] | null`), `cardOrder` (`object | null`), `reportingCurrency` (`"TWD" | "USD" | "AUD" | "KRW" | null`), `holdingAllocationBasis` (`"market_value" | "cost_basis" | null`), plus UI display keys such as `themeAccent` and `density`. Unknown top-level keys → `400 unknown_preference_key`; invalid enum values → `400 invalid_preference`.
 
 ### `GET /user-preferences/effective-ranges`
 
