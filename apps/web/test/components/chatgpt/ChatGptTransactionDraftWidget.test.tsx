@@ -244,6 +244,41 @@ describe("ChatGptTransactionDraftWidget", () => {
     expect(document.body.textContent).toContain("Post selected");
   });
 
+  it("filters the server posting preview to the current ready selection", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: ["row-2"], editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-1"]')).toBeNull();
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-2"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Manual zero commission differs from calculated fee");
+  });
+
+  it("falls back to client preview rows when the server preview lacks the selected row", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: ["row-4"], editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-4"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("0050");
+  });
+
   it("prefills unresolved account edits from accountNameInput and shows row validation details", async () => {
     const initial = buildMockTransactionDraftWidgetData();
 

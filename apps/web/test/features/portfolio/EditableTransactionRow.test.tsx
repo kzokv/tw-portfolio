@@ -38,6 +38,14 @@ describe("EditableTransactionRow", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  const setInputValue = (selector: string, value: string) => {
+    const input = document.querySelector(selector) as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return input;
+  };
+
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -69,13 +77,6 @@ describe("EditableTransactionRow", () => {
       );
     });
 
-    const setInputValue = (selector: string, value: string) => {
-      const input = document.querySelector(selector) as HTMLInputElement;
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-      setter?.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    };
-
     await act(async () => {
       setInputValue('[data-testid="edit-commission-input"]', "0");
       setInputValue('[data-testid="edit-tax-input"]', "0");
@@ -88,5 +89,70 @@ describe("EditableTransactionRow", () => {
 
     expect(onSave).toHaveBeenCalledWith({ commissionAmount: 0, taxAmount: 0 });
     expect(document.body.textContent).toContain("Main Brokerage");
+  });
+
+  it("keeps fee overrides integer-only to match API validation", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => {
+      root.render(
+        <table>
+          <tbody>
+            <tr>
+              <EditableTransactionRow
+                transaction={transaction}
+                locale="en"
+                dict={getDictionary("en")}
+                onSave={onSave}
+                onCancel={() => undefined}
+              />
+            </tr>
+          </tbody>
+        </table>,
+      );
+    });
+
+    const commissionInput = document.querySelector('[data-testid="edit-commission-input"]') as HTMLInputElement;
+    const taxInput = document.querySelector('[data-testid="edit-tax-input"]') as HTMLInputElement;
+    expect(commissionInput.step).toBe("1");
+    expect(commissionInput.inputMode).toBe("numeric");
+    expect(taxInput.step).toBe("1");
+    expect(taxInput.inputMode).toBe("numeric");
+
+    await act(async () => {
+      setInputValue('[data-testid="edit-commission-input"]', "12.5");
+      setInputValue('[data-testid="edit-tax-input"]', "3.25");
+    });
+
+    expect(commissionInput.value).toBe("7");
+    expect(taxInput.value).toBe("5");
+
+    const saveButton = document.querySelector('[data-testid="edit-save-button"]') as HTMLButtonElement;
+    await act(async () => {
+      saveButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onSave).toHaveBeenCalledWith({});
+  });
+
+  it("uses integer-only fee controls on the mobile editor", async () => {
+    await act(async () => {
+      root.render(
+        <EditableTransactionRow
+          transaction={transaction}
+          locale="en"
+          dict={getDictionary("en")}
+          onSave={vi.fn().mockResolvedValue(undefined)}
+          onCancel={() => undefined}
+          isMobile
+        />,
+      );
+    });
+
+    const commissionInput = document.querySelector('[data-testid="edit-commission-input"]') as HTMLInputElement;
+    const taxInput = document.querySelector('[data-testid="edit-tax-input"]') as HTMLInputElement;
+    expect(commissionInput.step).toBe("1");
+    expect(commissionInput.inputMode).toBe("numeric");
+    expect(taxInput.step).toBe("1");
+    expect(taxInput.inputMode).toBe("numeric");
   });
 });

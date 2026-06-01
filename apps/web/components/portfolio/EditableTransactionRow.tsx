@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ChangeEvent } from "react";
 import type { LocaleCode, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPatch } from "../../features/portfolio/hooks/useTransactionMutations";
@@ -49,6 +50,18 @@ export function EditableTransactionRow({
   }
 
   const inputBase = "rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400";
+  const setIntegerAmount = (
+    setter: (value: string) => void,
+    currentValue: string,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const nextValue = event.target.value;
+    if (/^\d*$/.test(nextValue)) {
+      setter(nextValue);
+      return;
+    }
+    event.currentTarget.value = currentValue;
+  };
 
   if (isMobile) {
     return (
@@ -93,9 +106,10 @@ export function EditableTransactionRow({
             <input
               type="number"
               min="0"
-              step="0.01"
+              step="1"
+              inputMode="numeric"
               value={commissionAmount}
-              onChange={(e) => setCommissionAmount(e.target.value)}
+              onChange={(e) => setIntegerAmount(setCommissionAmount, commissionAmount, e)}
               className={`mt-1 block w-full ${inputBase}`}
               data-testid="edit-commission-input"
             />
@@ -105,9 +119,10 @@ export function EditableTransactionRow({
             <input
               type="number"
               min="0"
-              step="0.01"
+              step="1"
+              inputMode="numeric"
               value={taxAmount}
-              onChange={(e) => setTaxAmount(e.target.value)}
+              onChange={(e) => setIntegerAmount(setTaxAmount, taxAmount, e)}
               className={`mt-1 block w-full ${inputBase}`}
               data-testid="edit-tax-input"
             />
@@ -188,9 +203,10 @@ export function EditableTransactionRow({
         <input
           type="number"
           min="0"
-          step="0.01"
+          step="1"
+          inputMode="numeric"
           value={commissionAmount}
-          onChange={(e) => setCommissionAmount(e.target.value)}
+          onChange={(e) => setIntegerAmount(setCommissionAmount, commissionAmount, e)}
           className={`w-[100px] text-right ${inputBase}`}
           data-testid="edit-commission-input"
         />
@@ -199,9 +215,10 @@ export function EditableTransactionRow({
         <input
           type="number"
           min="0"
-          step="0.01"
+          step="1"
+          inputMode="numeric"
           value={taxAmount}
-          onChange={(e) => setTaxAmount(e.target.value)}
+          onChange={(e) => setIntegerAmount(setTaxAmount, taxAmount, e)}
           className={`w-[100px] text-right ${inputBase}`}
           data-testid="edit-tax-input"
         />

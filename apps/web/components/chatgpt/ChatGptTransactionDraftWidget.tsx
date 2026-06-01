@@ -192,13 +192,25 @@ function buildFallbackPostingPreview(rows: TransactionDraftRowDto[]): ChatGptPos
       ],
     };
   });
+  return {
+    title: "Draft posting preview",
+    rows: previewRows,
+    summaryRows: buildPostingPreviewSummaryRows(previewRows),
+    warnings: [],
+  };
+}
+
+function buildPostingPreviewSummaryRows(
+  rows: ChatGptPostingPreviewSection["rows"],
+): ChatGptPostingPreviewSection["summaryRows"] {
   const summaryMap = new Map<string, ChatGptPostingPreviewSection["summaryRows"][number]>();
-  for (const row of previewRows) {
-    const key = `${row.accountId ?? "unknown"}:${row.priceCurrency ?? "UNK"}`;
+  for (const row of rows) {
+    const currency = row.priceCurrency ?? row.netCashImpactCurrency ?? "UNK";
+    const key = `${row.accountId ?? "unknown"}:${currency}`;
     const current = summaryMap.get(key) ?? {
       accountId: row.accountId ?? null,
       accountName: row.accountName ?? null,
-      currency: row.priceCurrency ?? "UNK",
+      currency,
       totalBuysAmount: 0,
       totalSellsAmount: 0,
       totalCommissionAmount: 0,
@@ -207,17 +219,31 @@ function buildFallbackPostingPreview(rows: TransactionDraftRowDto[]): ChatGptPos
     };
     const gross = (row.quantity ?? 0) * (row.unitPrice ?? 0);
     if (row.side === "SELL") current.totalSellsAmount = (current.totalSellsAmount ?? 0) + gross;
-    else current.totalBuysAmount = (current.totalBuysAmount ?? 0) + gross;
+    else if (row.side === "BUY") current.totalBuysAmount = (current.totalBuysAmount ?? 0) + gross;
     current.totalCommissionAmount = (current.totalCommissionAmount ?? 0) + (row.commissionAmount ?? 0);
     current.totalTaxAmount = (current.totalTaxAmount ?? 0) + (row.taxAmount ?? 0);
     current.netCashImpactAmount = (current.netCashImpactAmount ?? 0) + (row.netCashImpactAmount ?? 0);
     summaryMap.set(key, current);
   }
+  return [...summaryMap.values()];
+}
+
+function buildPostingPreviewForRows(
+  data: ChatGptTransactionDraftWidgetDto | null,
+  rows: TransactionDraftRowDto[],
+): ChatGptPostingPreviewSection {
+  const serverPreview = readPostingPreview(data);
+  if (!serverPreview) return buildFallbackPostingPreview(rows);
+
+  const fallbackRowsById = new Map(buildFallbackPostingPreview(rows).rows.map((row) => [row.rowId, row]));
+  const serverRowsById = new Map(serverPreview.rows.map((row) => [row.rowId, row]));
+  const previewRows = rows.flatMap((row) => serverRowsById.get(row.id) ?? fallbackRowsById.get(row.id) ?? []);
+
   return {
-    title: "Draft posting preview",
+    title: serverPreview.title ?? "Draft posting preview",
     rows: previewRows,
-    summaryRows: [...summaryMap.values()],
-    warnings: [],
+    summaryRows: buildPostingPreviewSummaryRows(previewRows),
+    warnings: serverPreview.warnings,
   };
 }
 
@@ -268,6 +294,10 @@ export function ChatGptTransactionDraftWidget({
     () => data?.rows.filter((row) => selectedRowIds.has(row.id)) ?? [],
     [data?.rows, selectedRowIds],
   );
+  const readySelectedRows = useMemo(
+    () => selectedRows.filter((row) => row.state === "ready"),
+    [selectedRows],
+  );
   const accountOptions = useMemo(() => readAccountOptions(data), [data]);
   const accountSelectOptions = useMemo(() => {
     if (!editDraft.accountName || accountOptions.some((account) => account.name === editDraft.accountName)) {
@@ -282,10 +312,9 @@ export function ChatGptTransactionDraftWidget({
     ];
   }, [accountOptions, editDraft.accountName]);
   const postingPreview = useMemo(
-    () => readPostingPreview(data) ?? buildFallbackPostingPreview(selectedRows),
-    [data, selectedRows],
+    () => buildPostingPreviewForRows(data, readySelectedRows),
+    [data, readySelectedRows],
   );
-  const readySelectedRows = selectedRows.filter((row) => row.state === "ready");
   const needsReviewCount = data?.rows.filter((row) => row.state !== "ready" && row.state !== "confirmed").length ?? 0;
   const readySelectedTwdGross = twdGross(readySelectedRows);
   const typedPhrase = postingResult?.typedConfirmationPhrase
@@ -789,7 +818,7 @@ export function ChatGptTransactionDraftWidget({
                             </TableHeader>
                             <TableBody>
                               {postingPreview.rows.map((row) => (
-                                <TableRow key={row.rowId}>
+                                <TableRow key={row.rowId} data-testid={`chatgpt-widget-preview-row-${row.rowId}`}>
                                   <TableCell>
                                     <div className="font-medium text-slate-900">{row.accountName ?? "Unassigned"}</div>
                                     {row.warnings?.length ? <div className="mt-1 text-xs text-amber-700">{row.warnings[0]}</div> : null}
