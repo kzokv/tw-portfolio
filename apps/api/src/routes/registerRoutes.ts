@@ -3153,14 +3153,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // route key is also removed from `WRITER_ROLE_ROUTE_KEYS` and
   // `WRITE_CONTEXT_GUARD_ROUTE_KEYS` above (it would otherwise be dead config).
 
-  app.get("/settings/fee-config", async (req) => {
-    const { store } = await loadUserStore(app, req);
-    return {
-      accounts: store.accounts,
-      feeProfiles: store.feeProfiles,
-      feeProfileBindings: store.feeProfileBindings,
-      integrityIssue: getStoreIntegrityIssue(store),
-    };
+  app.get("/settings/fee-config", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/settings/fee-config", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      return {
+        accounts: store.accounts,
+        feeProfiles: store.feeProfiles,
+        feeProfileBindings: store.feeProfileBindings,
+        integrityIssue: getStoreIntegrityIssue(store),
+      };
+    });
   });
 
   app.put("/settings/fee-config", async (req) => {

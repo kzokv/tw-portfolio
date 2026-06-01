@@ -2,8 +2,11 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import type {
+  AccountDto,
   AccountDefaultCurrency,
   AccountType,
+  FeeProfileBindingDto,
+  FeeProfileDto,
   LocaleCode,
 } from "@vakwen/shared-types";
 import type { IntegrityIssue } from "../../features/dashboard/types";
@@ -29,6 +32,11 @@ export interface AppShellData {
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  refreshPortfolioConfig: () => Promise<void>;
+  isPortfolioConfigLoading: boolean;
   integrityIssue: IntegrityIssue | null;
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;

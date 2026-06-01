@@ -12,10 +12,6 @@ vi.mock("../../../lib/sidebar-cookie", () => ({
   readSidebarStateCookie: vi.fn(),
 }));
 
-vi.mock("../../../features/dashboard/services/dashboardService", () => ({
-  fetchDashboardSnapshot: vi.fn(),
-}));
-
 vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendCalendarSnapshot: vi.fn(),
   fetchDividendLedgerReview: vi.fn(),
@@ -47,7 +43,6 @@ vi.mock("../../../components/dividends/DividendReviewClient", () => ({
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
-import { fetchDashboardSnapshot } from "../../../features/dashboard/services/dashboardService";
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendLedgerReview,
@@ -58,7 +53,6 @@ import DividendsPage from "../../../app/dividends/page";
 const requireSessionMock = vi.mocked(requireSession);
 const getJsonMock = vi.mocked(getJson);
 const readSidebarStateCookieMock = vi.mocked(readSidebarStateCookie);
-const fetchDashboardSnapshotMock = vi.mocked(fetchDashboardSnapshot);
 const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapshot);
 const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
 const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
@@ -67,12 +61,13 @@ describe("DividendsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireSessionMock.mockResolvedValue({ isDemo: false } as never);
-    getJsonMock.mockResolvedValue({} as never);
+    getJsonMock.mockImplementation((async (path: string) => {
+      if (path === "/settings") return { locale: "en" };
+      if (path === "/settings/fee-config") return { accounts: [{ id: "acc-1", name: "Main" }] };
+      if (path === "/profile") return {};
+      return {};
+    }) as never);
     readSidebarStateCookieMock.mockResolvedValue(false as never);
-    fetchDashboardSnapshotMock.mockResolvedValue({
-      settings: { locale: "en" },
-      accounts: [{ id: "acc-1", name: "Main" }],
-    } as never);
     fetchDividendCalendarSnapshotMock.mockResolvedValue({ events: [], ledgerEntries: [] } as never);
     fetchDividendLedgerReviewMock.mockResolvedValue({
       ledgerEntries: [],
@@ -100,6 +95,7 @@ describe("DividendsPage", () => {
     expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
     expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
+    expect(getJsonMock).toHaveBeenCalledWith("/settings/fee-config");
   });
 
   it("ledger first render skips inactive calendar fetches", async () => {
