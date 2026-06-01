@@ -21,6 +21,8 @@ import { DividendsSection } from "./DividendsSection";
 import { PortfolioTrendCard } from "./PortfolioTrendCard";
 import { ReturnPercentCard } from "./ReturnPercentCard";
 import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
+import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
+import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 
 export function DashboardClient() {
   const {
@@ -42,6 +44,7 @@ export function DashboardClient() {
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("dashboard");
+  const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({ range: performanceRange, enabled: true });
 
@@ -77,7 +80,13 @@ export function DashboardClient() {
     );
   }
 
-  const largestHolding = dashboard.holdings[0] ?? null;
+  const holdingGroups = resolveHoldingGroups({
+    holdings: dashboard.holdings,
+    holdingGroups: dashboard.holdingGroups,
+    instruments: dashboard.instruments,
+    accounts: dashboard.accounts,
+  });
+  const largestHolding = holdingGroups[0] ?? null;
 
   return (
     <div className="stagger grid min-w-0 gap-6">
@@ -110,7 +119,7 @@ export function DashboardClient() {
         data-testid="dashboard-hero-block"
       >
         <DashboardHero summary={dashboard.summary} locale={locale} dict={dict} />
-        <BiggestMoversCard holdings={dashboard.holdings} locale={locale} />
+        <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
 
       <RouteHeroPanel
@@ -131,7 +140,7 @@ export function DashboardClient() {
             value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
               ? formatPercent(largestHolding.allocationPct, locale)
               : "-",
-            detail: largestHolding ? `${largestHolding.accountName?.trim() || largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty,
+            detail: largestHolding ? `${largestHolding.ticker} / ${largestHolding.marketCode}` : dict.dashboardHome.holdingsEmpty,
           },
           {
             label: dict.dashboardHome.unrealizedPnlLabel,
@@ -204,9 +213,10 @@ export function DashboardClient() {
             case "allocation-snapshot":
               return (
                 <AllocationSnapshotCard
-                  holdings={dashboard.holdings}
+                  groups={holdingGroups}
                   locale={locale}
                   dict={dict}
+                  allocationBasis={allocationBasis}
                 />
               );
             case "return-percent":
@@ -223,10 +233,15 @@ export function DashboardClient() {
               return (
                 <HoldingsTable
                   holdings={dashboard.holdings}
+                  holdingGroups={holdingGroups}
+                  instruments={dashboard.instruments}
+                  accounts={dashboard.accounts}
                   dict={dict}
                   locale={locale}
                   recomputingSymbols={mutations.recomputingSymbols}
                   showFreshnessBadge={!isSharedContext}
+                  allocationBasis={allocationBasis}
+                  onAllocationBasisChange={setAllocationBasis}
                 />
               );
             case "dividends-section":

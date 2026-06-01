@@ -75,6 +75,7 @@ export class AnonymousShareTokensApiAssert extends ApiBaseAssert {
     );
     await this.mxAssertTruthy(typeof body.expiresAt === "string", "expiresAt is string");
     await this.mxAssertTruthy(Array.isArray(body.holdings), "holdings is array");
+    await this.mxAssertTruthy(Array.isArray(body.holdingGroups), "holdingGroups is array");
     await this.mxAssertTruthy(
       body.summary !== null && typeof body.summary === "object",
       "summary is object",
@@ -105,6 +106,12 @@ export class AnonymousShareTokensApiAssert extends ApiBaseAssert {
         `holdings sorted descending at index ${index}`,
       );
     }
+    for (let index = 1; index < body.holdingGroups.length; index += 1) {
+      await this.mxAssertTruthy(
+        body.holdingGroups[index - 1]!.marketValueAmount >= body.holdingGroups[index]!.marketValueAmount,
+        `holdingGroups sorted descending at index ${index}`,
+      );
+    }
   }
 
   @Step()
@@ -112,6 +119,10 @@ export class AnonymousShareTokensApiAssert extends ApiBaseAssert {
     await this.mxAssertTruthy(
       body.holdings.every((holding) => holding.quantity > 0),
       "public view filters zero-quantity holdings",
+    );
+    await this.mxAssertTruthy(
+      body.holdingGroups.every((holding) => holding.quantity > 0),
+      "public view filters zero-quantity holding groups",
     );
   }
 

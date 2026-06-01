@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type {
   LocaleCode,
   TransactionHistoryItemDto,
@@ -36,6 +36,7 @@ import { requestRepair } from "../../../features/settings/services/repairService
 import { getCooldownRemainingMinutes } from "../../../features/settings/utils/cooldown";
 import { useSharedContextOwnerId } from "../../../hooks/useSharedContextOwnerId";
 import { resolveTransactionDraftAccount } from "../../../features/dashboard/types";
+import type { DashboardOverviewHoldingGroupDto } from "../../../features/portfolio/holdingGroups";
 import { useBreadcrumb } from "../../../components/layout/BreadcrumbProvider";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 
@@ -52,6 +53,7 @@ interface TickerHistoryClientProps {
   details: TickerDetailsModel;
   isDemo: boolean;
   transactionAccountFilter?: string;
+  holdingGroup: DashboardOverviewHoldingGroupDto | null;
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -98,6 +100,7 @@ export function TickerHistoryClient({
   details,
   isDemo,
   transactionAccountFilter,
+  holdingGroup,
 }: TickerHistoryClientProps) {
   const router = useRouter();
   // Per-page breadcrumb override (spec amendment #21). Display label uses the
@@ -135,6 +138,9 @@ export function TickerHistoryClient({
   const accountScopeDisplayName = transactionAccountFilter
     ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
     : dict.tickerHistory.allAccountsLabel;
+  const aggregateScopeLabel = holdingGroup
+    ? `${holdingGroup.marketCode} · ${formatNumber(holdingGroup.accountCount, locale)}`
+    : details.identity.marketCode;
 
   useEffect(() => {
     setIsClientReady(true);
@@ -318,6 +324,16 @@ export function TickerHistoryClient({
     ...point,
     axisLabel: point.label === "Now" ? point.label : formatDateLabel(point.date, locale),
   }));
+  const accountContributionData = useMemo(
+    () => (holdingGroup?.children ?? []).map((child) => ({
+      accountId: child.accountId,
+      label: child.accountName?.trim() || child.accountId,
+      quantity: child.quantity,
+      averageCost: child.averageCostPerShare,
+      contribution: child.marketValueAmount ?? child.costBasisAmount,
+    })),
+    [holdingGroup],
+  );
   const floatingSummary = (
     <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
       <Card className="min-w-0 rounded-2xl p-4">
@@ -662,10 +678,53 @@ export function TickerHistoryClient({
                     <p className="mt-1 text-base font-semibold text-slate-950">{accountScopeDisplayName}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                    <p className="text-sm text-slate-500">{dict.tickerHistory.entriesLabel}</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{formatNumber(displayTransactions.length, locale)}</p>
+                    <p className="text-sm text-slate-500">{dict.tickerHistory.aggregateScopeLabel}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{aggregateScopeLabel}</p>
                   </div>
                 </div>
+              </Card>
+              <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-account-breakdown">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.accountBreakdownTitle}</p>
+                <h3 className="mt-2 text-base font-semibold text-slate-950">{dict.tickerHistory.accountBreakdownContributionTitle}</h3>
+                <p className="mt-1 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownSubtitle}</p>
+                {accountContributionData.length === 0 ? (
+                  <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">{dict.tickerHistory.accountBreakdownEmpty}</p>
+                ) : (
+                  <>
+                    <div className="mt-4 h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={accountContributionData} layout="vertical" margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                          <XAxis type="number" hide />
+                          <YAxis type="category" dataKey="label" width={88} tickLine={false} axisLine={false} />
+                          <Tooltip formatter={(value) => typeof value === "number" ? formatCurrencyAmount(value, currency, locale) : value} />
+                          <Bar dataKey="contribution" fill="#2563eb" radius={[6, 6, 6, 6]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          <tr>
+                            <th className="px-4 py-2.5">{dict.tickerHistory.accountBreakdownAccountLabel}</th>
+                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.quantityLabel}</th>
+                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.avgCostLabel}</th>
+                            <th className="px-4 py-2.5 text-right">{dict.tickerHistory.accountContributionLabel}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {accountContributionData.map((row) => (
+                            <tr key={row.accountId} className="border-t border-slate-200">
+                              <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                              <td className="px-4 py-3 text-right text-slate-600">{formatNumber(row.quantity, locale)}</td>
+                              <td className="px-4 py-3 text-right text-slate-600">{formatCurrencyAmount(row.averageCost, currency, locale)}</td>
+                              <td className="px-4 py-3 text-right font-medium text-slate-900">{formatCurrencyAmount(row.contribution, currency, locale)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </Card>
             </div>
           </TabsContent>

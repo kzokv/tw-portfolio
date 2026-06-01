@@ -238,6 +238,8 @@ export interface AppDictionary {
         holdingsSubtitle: string;
         holdingsEmpty: string;
         colTicker: string;
+        colMarket: string;
+        colAccounts: string;
         colShares: string;
         colMarketValue: string;
         colAllocation: string;
@@ -346,6 +348,12 @@ export interface AppDictionary {
     snapshotsReturnPercentSeriesLabel: string;
     snapshotsProvisionalWarning: string;
     snapshotsEmpty: string;
+    biggestMoversTitle: string;
+    biggestMoversEmpty: string;
+    allocationBasisLabel: string;
+    allocationBasisMarketValue: string;
+    allocationBasisCostBasis: string;
+    allocationFallbackLabel: string;
   };
   tickerHistory: {
     eyebrow: string;
@@ -392,6 +400,13 @@ export interface AppDictionary {
     repairToastFailed: string;
     repairButtonCooldownTooltip: string;
     noHoldingData: string;
+    aggregateScopeLabel: string;
+    accountBreakdownTitle: string;
+    accountBreakdownSubtitle: string;
+    accountBreakdownContributionTitle: string;
+    accountBreakdownEmpty: string;
+    accountContributionLabel: string;
+    accountBreakdownAccountLabel: string;
   };
   feedback: {
     requestFailedPrefix: string;
@@ -1061,6 +1076,39 @@ export interface AppDictionary {
     quantityTerm: string;
     currencyTerm: string;
     totalCostTerm: string;
+    displayModeLabel: string;
+    displayModeAggregated: string;
+    displayModeExpanded: string;
+    displayModeAccounts: string;
+    marketFilterLabel: string;
+    accountFilterLabel: string;
+    statusFilterLabel: string;
+    columnsLabel: string;
+    columnsSummary: string;
+    allMarketsOption: string;
+    allAccountsOption: string;
+    allStatusesOption: string;
+    statusCurrent: string;
+    statusProvisional: string;
+    statusMissing: string;
+    parentAccountCountLabel: string;
+    dividendTerm: string;
+    pnlTerm: string;
+    avgCostTerm: string;
+    priceTerm: string;
+    marketValueTerm: string;
+    allocationTerm: string;
+    noResults: string;
+    showingTickers: string;
+    accountChildLabel: string;
+    columnAccounts: string;
+    columnAvgCost: string;
+    columnPrice: string;
+    columnMarketValue: string;
+    columnPnl: string;
+    columnAllocation: string;
+    columnDividend: string;
+    quoteMissing: string;
   };
   feeProfiles: {
     title: string;

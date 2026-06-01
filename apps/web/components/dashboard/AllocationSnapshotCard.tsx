@@ -1,8 +1,9 @@
 "use client";
 
-import type { DashboardOverviewHoldingDto, LocaleCode } from "@vakwen/shared-types";
 import { Cell, Pie, PieChart } from "recharts";
+import type { LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import { getAmountForAllocationBasis, type DashboardOverviewHoldingGroupDto, type HoldingAllocationBasis } from "../../features/portfolio/holdingGroups";
 import { formatCurrencyAmount, formatPercent } from "../../lib/utils";
 import { Card } from "../ui/Card";
 import { ChartContainer, type ChartConfig } from "../ui/shadcn/chart";
@@ -17,9 +18,10 @@ const CHART_TOKEN_KEYS = [
 ] as const;
 
 interface AllocationSnapshotCardProps {
-  holdings: DashboardOverviewHoldingDto[];
+  groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
   dict: AppDictionary;
+  allocationBasis: HoldingAllocationBasis;
 }
 
 interface Segment {
@@ -44,10 +46,10 @@ function segmentColor(index: number): string {
   return `hsl(var(--${tokenKey}))`;
 }
 
-export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSnapshotCardProps) {
-  const segments = buildAllocationSegments(holdings, dict);
+export function AllocationSnapshotCard({ groups, locale, dict, allocationBasis }: AllocationSnapshotCardProps) {
+  const segments = buildAllocationSegments(groups, dict, allocationBasis);
   const totalAmount = segments.reduce((sum, segment) => sum + segment.amount, 0);
-  const currency = holdings[0]?.currency ?? "TWD";
+  const currency = groups[0]?.reportingCurrency ?? groups[0]?.currency ?? "TWD";
   const chartConfig = buildChartConfig(segments);
 
   return (
@@ -92,7 +94,9 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
                 aria-hidden="true"
               >
                 <div className="px-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{dict.dashboardHome.marketValueLabel}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    {allocationBasis === "market_value" ? dict.dashboardHome.marketValueLabel : dict.dashboardHome.totalCostLabel}
+                  </p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">{formatCurrencyAmount(totalAmount, currency, locale)}</p>
                 </div>
               </div>
@@ -126,11 +130,15 @@ export function AllocationSnapshotCard({ holdings, locale, dict }: AllocationSna
   );
 }
 
-function buildAllocationSegments(holdings: DashboardOverviewHoldingDto[], dict: AppDictionary): Segment[] {
-  const ranked = holdings
-    .map((holding) => ({
-      label: holding.ticker,
-      amount: holding.marketValueAmount ?? holding.costBasisAmount,
+function buildAllocationSegments(
+  groups: DashboardOverviewHoldingGroupDto[],
+  dict: AppDictionary,
+  allocationBasis: HoldingAllocationBasis,
+): Segment[] {
+  const ranked = groups
+    .map((group) => ({
+      label: `${group.ticker} · ${group.marketCode}`,
+      amount: getAmountForAllocationBasis(group, allocationBasis).amount,
     }))
     .filter((holding) => holding.amount > 0)
     .sort((left, right) => right.amount - left.amount);

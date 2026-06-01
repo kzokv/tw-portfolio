@@ -17,6 +17,8 @@ export interface TAnonymousShareElements extends TElementLocatorHelpers {
   robotsNoIndexMeta: Locator;
   body: Locator;
   holding: (ticker: string) => Locator;
+  holdingGroup: (ticker: string, marketCode: string) => Locator;
+  holdingGroupAccounts: (ticker: string, marketCode: string) => Locator;
   totalByCurrency: (currency: string) => Locator;
 }
 
@@ -42,7 +44,20 @@ export class AnonymousSharePage extends BasePage<TAnonymousShareElements> {
       ),
       body: this.withDescription(this.scope.locator("body"), "Public Share Body"),
       holding: (ticker: string) =>
-        this.locate(`public-share-holding-${ticker}`, `Public Share Holding ${ticker}`),
+        this.withDescription(
+          this.scope.locator(`[data-testid^="public-share-holding-${ticker}-"]`),
+          `Public Share Holding ${ticker}`,
+        ),
+      holdingGroup: (ticker: string, marketCode: string) =>
+        this.locate(
+          `public-share-holding-group-${ticker}-${marketCode}`,
+          `Public Share Holding Group ${ticker}/${marketCode}`,
+        ),
+      holdingGroupAccounts: (ticker: string, marketCode: string) =>
+        this.locate(
+          `public-share-holding-accounts-${ticker}-${marketCode}`,
+          `Public Share Holding Accounts ${ticker}/${marketCode}`,
+        ),
       totalByCurrency: (currency: string) =>
         this.locate(`public-share-total-${currency}`, `Public Share Total ${currency}`),
     };

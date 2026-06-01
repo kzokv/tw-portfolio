@@ -273,6 +273,15 @@ type PublicShareViewDto = {
     marketValueCurrency: string;
     allocationPercent: number;
   }>;
+  holdingGroups: Array<{
+    ticker: string;
+    marketCode: string;
+    quantity: number;
+    accountCount: number;
+    marketValueAmount: number;
+    marketValueCurrency: string;
+    allocationPercent: number;
+  }>;
   summary: {
     totalValueByCurrency: Array<{ currency: string; amount: number }>;
     returnByCurrency: Array<{ currency: string; returnPercent: number }>;
@@ -290,7 +299,7 @@ type PublicShareViewDto = {
 3. **Active token lookup** — `revoked_at IS NULL AND expires_at > NOW()` only.
 4. **Owner active check** — soft-deleted or deactivated owner → 404.
 5. **Load store + resolve quotes** via `loadUserStoreForUserId(app, ownerUserId)`. This helper intentionally drops the `req` dependency so the public route never touches request-scoped identity.
-6. **Build DTO** via `buildPublicShareView(store, quotes, ownerDisplayName, expiresAt)` — zero-quantity holdings are filtered, rows without quotes are dropped, per-currency totals and returns are aggregated over the quote-available subset.
+6. **Build DTO** via `buildPublicShareView(store, quotes, ownerDisplayName, expiresAt)` — zero-quantity holdings are filtered, rows without quotes are dropped, `holdingGroups` aggregates by ticker/market and exposes account counts without account identities, and per-currency totals/returns are aggregated over the quote-available subset.
 7. **Response headers** — `Cache-Control: private, no-store, max-age=0`.
 
 Every failure mode after the rate check surfaces as identical `{ error: "token_not_found" }` with status 404; there is no existence oracle.
@@ -301,6 +310,7 @@ Every failure mode after the rate check surfaces as identical `{ error: "token_n
 - **Path redaction in logs.** Fastify's `req` serializer rewrites `/share/{22-char base62}` → `/share/[REDACTED]` in request logs. Tokens may still appear in upstream proxy/access logs outside the API boundary.
 - **No caching, no indexing.** The Next.js page declares `dynamic = "force-dynamic"` and `robots: { index: false, follow: false }`. `next.config.mjs` adds `Cache-Control: private, no-store, max-age=0`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer` for `/share/:token*`.
 - **MUST-NOT gates.** The API handler never reads `req.cookies` / `req.headers.cookie` / `req.headers['x-user-id']` / `req.headers['x-context-user-id']`. The Next.js page never calls `cookies()` and never forwards auth headers on its API fetch.
+- **Grouped public rows remain public-safe.** `holdingGroups` intentionally omits cost basis, average cost, unrealized P&L, and child account rows. The account count is the only account-level signal exposed publicly.
 - **Audit entries are token-id only.** `share_token_created` / `share_token_revoked` metadata carries `tokenId` (the stable PK) and never the plaintext `token`.
 
 ### Web Surface

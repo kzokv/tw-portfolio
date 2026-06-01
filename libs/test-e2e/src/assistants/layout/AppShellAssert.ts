@@ -969,10 +969,15 @@ export class AppShellAssert extends BaseAssert {
       expectedSlugs.map(async (slug) => {
         const el = this.el.testId(`card-${slug}`);
         const box = await el.boundingBox();
-        return { slug, top: box?.y ?? 0 };
+        return { slug, left: box?.x ?? 0, top: box?.y ?? 0 };
       }),
     );
-    const sorted = [...cards].sort((a, b) => a.top - b.top);
+    const rowTolerancePx = 8;
+    const sorted = [...cards].sort((a, b) => {
+      const topDelta = a.top - b.top;
+      if (Math.abs(topDelta) > rowTolerancePx) return topDelta;
+      return a.left - b.left;
+    });
     const actualOrder = sorted.map((c) => c.slug);
     expect(actualOrder, "card render order").toEqual(expectedSlugs);
   }

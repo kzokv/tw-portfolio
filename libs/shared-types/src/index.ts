@@ -293,6 +293,7 @@ export interface FeeProfileDto {
 export const ACCOUNT_DEFAULT_CURRENCIES = ["TWD", "USD", "AUD", "KRW"] as const;
 export const MARKET_CODES = ["TW", "US", "AU", "KR"] as const;
 export const MARKET_FILTER_CODES = [...MARKET_CODES, "ALL"] as const;
+export const HOLDING_ALLOCATION_BASES = ["market_value", "cost_basis"] as const;
 
 // KZO-167: per-account currency + account type metadata. Both are added
 // here (not on a separate `Account` interface in apps/api/src/types/store.ts)
@@ -300,6 +301,7 @@ export const MARKET_FILTER_CODES = [...MARKET_CODES, "ALL"] as const;
 // DTO. New value semantics are gated by D7 lockdown at the route layer.
 export type AccountDefaultCurrency = (typeof ACCOUNT_DEFAULT_CURRENCIES)[number];
 export type AccountType = "broker" | "bank" | "wallet";
+export type HoldingAllocationBasis = (typeof HOLDING_ALLOCATION_BASES)[number];
 
 export interface AccountDto {
   id: string;
@@ -409,6 +411,68 @@ export interface DashboardOverviewHoldingDto {
   freshnessTooltip: string | null;
 }
 
+export interface DashboardOverviewHoldingChildDto {
+  accountId: string;
+  accountName?: string;
+  ticker: string;
+  marketCode: MarketCode;
+  quantity: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
+  averageCostPerShare: number;
+  currentUnitPrice: number | null;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  allocationPct: number | null;
+  change: number | null;
+  changePercent: number | null;
+  previousClose: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  nextDividendDate: string | null;
+  lastDividendPostedDate: string | null;
+  freshness: "current" | "stale_amber" | "stale_red";
+  freshnessTooltip: string | null;
+  reportingCurrency: AccountDefaultCurrency;
+  reportingCostBasisAmount: number | null;
+  reportingMarketValueAmount: number | null;
+  reportingUnrealizedPnlAmount: number | null;
+  reportingAllocationPercent: number | null;
+  fxStatus: "complete" | "partial" | "missing";
+  allocationBasisUsed: HoldingAllocationBasis;
+  allocationBasisFallbackReason: "missing_quote" | null;
+}
+
+export interface DashboardOverviewHoldingGroupDto {
+  ticker: string;
+  marketCode: MarketCode;
+  quantity: number;
+  costBasisAmount: number;
+  currency: CurrencyCode;
+  averageCostPerShare: number;
+  currentUnitPrice: number | null;
+  marketValueAmount: number | null;
+  unrealizedPnlAmount: number | null;
+  allocationPct: number | null;
+  change: number | null;
+  changePercent: number | null;
+  previousClose: number | null;
+  quoteStatus: "current" | "provisional" | "missing";
+  nextDividendDate: string | null;
+  lastDividendPostedDate: string | null;
+  freshness: "current" | "stale_amber" | "stale_red";
+  freshnessTooltip: string | null;
+  accountCount: number;
+  reportingCurrency: AccountDefaultCurrency;
+  reportingCostBasisAmount: number | null;
+  reportingMarketValueAmount: number | null;
+  reportingUnrealizedPnlAmount: number | null;
+  reportingAllocationPercent: number | null;
+  fxStatus: "complete" | "partial" | "missing";
+  allocationBasisUsed: HoldingAllocationBasis;
+  allocationBasisFallbackReason: "missing_quote" | null;
+  children: DashboardOverviewHoldingChildDto[];
+}
+
 export interface DashboardOverviewUpcomingDividendDto {
   accountId: string;
   accountName?: string;
@@ -446,6 +510,7 @@ export interface DashboardOverviewDto {
   settings: UserSettings;
   summary: DashboardOverviewSummaryDto;
   holdings: DashboardOverviewHoldingDto[];
+  holdingGroups: DashboardOverviewHoldingGroupDto[];
   dividends: {
     upcoming: DashboardOverviewUpcomingDividendDto[];
     recent: DashboardOverviewRecentDividendDto[];
@@ -520,6 +585,9 @@ export const dashboardPerformanceRangesSchema: z.ZodType<string[]> = z
     (arr) => new Set(arr).size === arr.length,
     { message: "ranges_list_duplicate" },
   );
+
+export const holdingAllocationBasisSchema: z.ZodType<HoldingAllocationBasis> = z.enum(HOLDING_ALLOCATION_BASES);
+export const DEFAULT_HOLDING_ALLOCATION_BASIS: HoldingAllocationBasis = "market_value";
 
 // ─── Phase 2: theme accent + density ──────────────────────────────────────
 // Per ui-reshape design §3.2 (presets) and decisions #14 (custom). Status
@@ -693,6 +761,8 @@ export interface TickerDetailsDto {
     upcoming: DashboardOverviewUpcomingDividendDto[];
     recent: DashboardOverviewRecentDividendDto[];
   };
+  holdingGroup: DashboardOverviewHoldingGroupDto | null;
+  accountBreakdown: DashboardOverviewHoldingChildDto[];
   fundamentals: TickerFundamentalsDto;
   fundamentalsRefresh: TickerFundamentalsRefreshDto;
 }
@@ -1447,6 +1517,16 @@ export interface PublicShareHoldingDto {
   allocationPercent: number;
 }
 
+export interface PublicShareHoldingGroupDto {
+  ticker: string;
+  marketCode: MarketCode;
+  quantity: number;
+  accountCount: number;
+  marketValueAmount: number;
+  marketValueCurrency: CurrencyCode;
+  allocationPercent: number;
+}
+
 export interface PublicShareTotalByCurrencyDto {
   currency: CurrencyCode;
   amount: number;
@@ -1461,6 +1541,7 @@ export interface PublicShareViewDto {
   ownerDisplayName: string;
   expiresAt: string;
   holdings: PublicShareHoldingDto[];
+  holdingGroups: PublicShareHoldingGroupDto[];
   summary: {
     totalValueByCurrency: PublicShareTotalByCurrencyDto[];
     returnByCurrency: PublicShareReturnByCurrencyDto[];

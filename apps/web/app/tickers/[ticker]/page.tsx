@@ -13,14 +13,15 @@ import { fetchRepairInstrument } from "../../../features/settings/services/repai
 import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
+import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfolio/holdingGroups";
 
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
-  searchParams: Promise<{ accountId?: string }>;
+  searchParams: Promise<{ accountId?: string; marketCode?: string }>;
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId }, session, profile, sidebarOpen] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, marketCode }, session, profile, sidebarOpen] = await Promise.all([
     params,
     searchParams,
     requireSession(),
@@ -29,6 +30,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
+  const scopedMarketCode = marketCode?.trim() ? marketCode.trim().toUpperCase() : undefined;
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
@@ -59,9 +61,20 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   const locale = dashboard.settings?.locale ?? "en";
   const dict = getDictionary(locale);
+  const holdingGroup = findHoldingGroup(
+    resolveHoldingGroups({
+      holdings: dashboard.holdings,
+      holdingGroups: dashboard.holdingGroups,
+      instruments: dashboard.instruments,
+      accounts: dashboard.accounts,
+    }),
+    ticker,
+    scopedMarketCode,
+  );
   const details = await fetchTickerDetails({
     ticker,
     accountId: scopedAccountId,
+    marketCode: scopedMarketCode,
     dashboard,
     transactions,
     instrument,
@@ -83,6 +96,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           feeProfiles={dashboard.feeProfiles}
           feeProfileBindings={dashboard.feeProfileBindings}
           details={details}
+          holdingGroup={holdingGroup}
         />
       </AppShell>
     </Suspense>

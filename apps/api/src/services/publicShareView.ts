@@ -5,7 +5,9 @@ import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
 
 interface HoldingWithQuote {
+  accountId: string;
   ticker: string;
+  marketCode: ReturnType<typeof marketCodeFor>;
   quantity: number;
   currency: string;
   costBasisAmount: number;
@@ -31,10 +33,13 @@ export function buildPublicShareView(
   for (const holding of store.accounting.projections.holdings) {
     if (holding.quantity <= 0) continue;
     const market = accountMarket.get(holding.accountId);
+    if (!market) continue;
     const quote = quotes[quoteSnapshotKey(holding.ticker, market)] ?? quotes[holding.ticker];
     if (!quote) continue;
     withQuotes.push({
+      accountId: holding.accountId,
       ticker: holding.ticker,
+      marketCode: market,
       quantity: holding.quantity,
       currency: holding.currency,
       costBasisAmount: holding.costBasisAmount,
@@ -67,6 +72,16 @@ export function buildPublicShareView(
       };
     });
 
+  const holdingGroups = [...groupPublicShareHoldings(withQuotes).values()]
+    .sort((a, b) => b.marketValueAmount - a.marketValueAmount)
+    .map((row) => {
+      const total = totalsByCurrency.get(row.marketValueCurrency)?.marketValue ?? 0;
+      return {
+        ...row,
+        allocationPercent: total > 0 ? roundTo2((row.marketValueAmount / total) * 100) : 0,
+      };
+    });
+
   const totalValueByCurrency = [...totalsByCurrency.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([currency, agg]) => ({ currency, amount: roundTo2(agg.marketValue) }));
@@ -90,10 +105,36 @@ export function buildPublicShareView(
     ownerDisplayName,
     expiresAt,
     holdings,
+    holdingGroups,
     summary: {
       totalValueByCurrency,
       returnByCurrency,
     },
     quoteAsOf,
   };
+}
+
+function groupPublicShareHoldings(rows: HoldingWithQuote[]): Map<string, PublicShareViewDto["holdingGroups"][number]> {
+  const groups = new Map<string, PublicShareViewDto["holdingGroups"][number]>();
+  for (const row of rows) {
+    const key = `${row.ticker}:${row.marketCode}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.quantity += row.quantity;
+      existing.accountCount += 1;
+      existing.marketValueAmount = roundTo2(existing.marketValueAmount + row.marketValueAmount);
+      continue;
+    }
+
+    groups.set(key, {
+      ticker: row.ticker,
+      marketCode: row.marketCode,
+      quantity: row.quantity,
+      accountCount: 1,
+      marketValueAmount: row.marketValueAmount,
+      marketValueCurrency: row.currency,
+      allocationPercent: 0,
+    });
+  }
+  return groups;
 }

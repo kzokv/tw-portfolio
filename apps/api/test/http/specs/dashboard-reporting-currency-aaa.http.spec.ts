@@ -66,6 +66,7 @@ interface DashboardOverviewBody {
     openIssueCount: number;
   };
   holdings: unknown[];
+  holdingGroups: unknown[];
 }
 
 interface DashboardPerformanceBody {
@@ -104,6 +105,7 @@ test.describe("dashboard reporting currency (KZO-180)", () => {
 
     await adminApi.assert.mxAssertEqual(body.summary.reportingCurrency, "TWD", "default reporting currency");
     await adminApi.assert.mxAssertEqual(body.summary.fxStatus, "complete", "fxStatus on empty portfolio");
+    await adminApi.assert.mxAssertTruthy(Array.isArray(body.holdingGroups), "holdingGroups is array");
     // Per scope-todo D7: `totalCostCurrency` is dropped from the wire DTO.
     await adminApi.assert.mxAssertEqual(
       Object.prototype.hasOwnProperty.call(body.summary, "totalCostCurrency"),

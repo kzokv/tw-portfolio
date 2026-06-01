@@ -31,10 +31,13 @@ import { resolveRangeBounds, roundToDecimal } from "@vakwen/domain";
 import type { DailyBar, QuoteSnapshot } from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
+  DashboardOverviewHoldingChildDto,
+  DashboardOverviewHoldingGroupDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewRecentDividendDto,
   DashboardOverviewSummaryDto,
   DashboardOverviewUpcomingDividendDto,
+  HoldingAllocationBasis,
   DashboardPerformanceDto,
   DashboardPerformancePointDto,
   DashboardPerformanceRange,
@@ -274,6 +277,36 @@ export async function translateOverviewSummary(
     upcomingDividendAmount: finalUpcomingDividend,
     openIssueCount: summary.openIssueCount,
   };
+}
+
+export async function translateOverviewHoldingGroups(
+  holdingGroups: ReadonlyArray<DashboardOverviewHoldingGroupDto>,
+  reportingCurrency: AccountDefaultCurrency,
+  allocationBasis: HoldingAllocationBasis,
+  asOfDate: string,
+  persistence: Persistence,
+): Promise<DashboardOverviewHoldingGroupDto[]> {
+  const sourceCurrencies = [...new Set(holdingGroups.map((group) => group.currency))];
+  const fxMap = await buildFxRateMap(
+    sourceCurrencies,
+    reportingCurrency,
+    asOfDate,
+    persistence,
+  );
+
+  const translatedGroups = holdingGroups.map((group) =>
+    translateHoldingGroup(group, reportingCurrency, fxMap.get(group.currency) ?? null),
+  );
+  const groupAllocations = deriveAllocationDetails(translatedGroups, allocationBasis);
+  const childAllocations = deriveAllocationDetails(
+    translatedGroups.flatMap((group) => group.children),
+    allocationBasis,
+  );
+
+  return translatedGroups.map((group) => ({
+    ...applyAllocationDetails(group, groupAllocations),
+    children: group.children.map((child) => applyAllocationDetails(child, childAllocations)),
+  }));
 }
 
 /**
@@ -562,4 +595,128 @@ async function buildFxAwareSyntheticPerformance(
   }
 
   return points;
+}
+
+function translateHoldingGroup(
+  group: DashboardOverviewHoldingGroupDto,
+  reportingCurrency: AccountDefaultCurrency,
+  fx: number | null,
+): DashboardOverviewHoldingGroupDto {
+  return {
+    ...translateHoldingRow(group, reportingCurrency, fx),
+    children: group.children.map((child) => translateHoldingRow(child, reportingCurrency, fx)),
+  };
+}
+
+function translateHoldingRow<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(
+  row: T,
+  reportingCurrency: AccountDefaultCurrency,
+  fx: number | null,
+): T {
+  return {
+    ...row,
+    reportingCurrency,
+    reportingCostBasisAmount: fx === null ? null : roundToDecimal(row.costBasisAmount * fx, 2),
+    reportingMarketValueAmount:
+      fx === null || row.marketValueAmount === null ? null : roundToDecimal(row.marketValueAmount * fx, 2),
+    reportingUnrealizedPnlAmount:
+      fx === null || row.unrealizedPnlAmount === null ? null : roundToDecimal(row.unrealizedPnlAmount * fx, 2),
+    reportingAllocationPercent: null,
+    fxStatus: fx === null ? "missing" : "complete",
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+  };
+}
+
+function deriveAllocationDetails<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(
+  rows: ReadonlyArray<T>,
+  allocationBasis: HoldingAllocationBasis,
+): Map<string, {
+  reportingAllocationPercent: number | null;
+  allocationBasisUsed: HoldingAllocationBasis;
+  allocationBasisFallbackReason: "missing_quote" | null;
+}> {
+  const resolved = rows.map((row) => {
+    const detail = resolveAllocationValue(row, allocationBasis);
+    return { row, ...detail };
+  });
+  const total = resolved.reduce((sum, row) => sum + (row.value ?? 0), 0);
+
+  return new Map(
+    resolved.map((entry) => [
+      allocationRowKey(entry.row),
+      {
+        reportingAllocationPercent: total > 0 && entry.value !== null
+          ? roundToDecimal((entry.value / total) * 100, 4)
+          : null,
+        allocationBasisUsed: entry.allocationBasisUsed,
+        allocationBasisFallbackReason: entry.allocationBasisFallbackReason,
+      },
+    ]),
+  );
+}
+
+function resolveAllocationValue(
+  row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto,
+  allocationBasis: HoldingAllocationBasis,
+): {
+  value: number | null;
+  allocationBasisUsed: HoldingAllocationBasis;
+  allocationBasisFallbackReason: "missing_quote" | null;
+} {
+  if (allocationBasis === "cost_basis") {
+    return {
+      value: row.reportingCostBasisAmount,
+      allocationBasisUsed: "cost_basis",
+      allocationBasisFallbackReason: null,
+    };
+  }
+
+  if (row.reportingMarketValueAmount !== null) {
+    return {
+      value: row.reportingMarketValueAmount,
+      allocationBasisUsed: "market_value",
+      allocationBasisFallbackReason: null,
+    };
+  }
+
+  if (row.quoteStatus === "missing" && row.reportingCostBasisAmount !== null) {
+    return {
+      value: row.reportingCostBasisAmount,
+      allocationBasisUsed: "cost_basis",
+      allocationBasisFallbackReason: "missing_quote",
+    };
+  }
+
+  return {
+    value: null,
+    allocationBasisUsed: "market_value",
+    allocationBasisFallbackReason: null,
+  };
+}
+
+function applyAllocationDetails<T extends DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto>(
+  row: T,
+  detailsByKey: ReadonlyMap<string, {
+    reportingAllocationPercent: number | null;
+    allocationBasisUsed: HoldingAllocationBasis;
+    allocationBasisFallbackReason: "missing_quote" | null;
+  }>,
+): T {
+  const details = detailsByKey.get(allocationRowKey(row));
+  if (!details) return row;
+  return {
+    ...row,
+    reportingAllocationPercent: details.reportingAllocationPercent,
+    allocationBasisUsed: details.allocationBasisUsed,
+    allocationBasisFallbackReason: details.allocationBasisFallbackReason,
+  };
+}
+
+function allocationRowKey(
+  row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto,
+): string {
+  return "children" in row
+    ? `${row.ticker}:${row.marketCode}:group`
+    : `${row.accountId}:${row.ticker}:${row.marketCode}:child`;
 }
