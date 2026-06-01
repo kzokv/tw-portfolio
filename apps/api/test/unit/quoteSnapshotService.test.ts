@@ -22,11 +22,11 @@ const FIXTURE_BARS_ZEROPREV = [
 
 // KZO-191: US/AU fixtures for multi-market provisional coverage
 const FIXTURE_BARS_AAPL = [
-  { ticker: "AAPL", barDate: "2026-03-27", open: 170, high: 173, low: 169, close: 172, volume: 50000000, source: "test", ingestedAt: "2026-03-27T22:00:00Z" },
+  { ticker: "AAPL", marketCode: "US", barDate: "2026-03-27", open: 170, high: 173, low: 169, close: 172, volume: 50000000, source: "test", ingestedAt: "2026-03-27T22:00:00Z" },
 ];
 
 const FIXTURE_BARS_BHP = [
-  { ticker: "BHP", barDate: "2026-03-25", open: 44, high: 45, low: 43.5, close: 44.5, volume: 8000000, source: "test", ingestedAt: "2026-03-25T07:00:00Z" },
+  { ticker: "BHP", marketCode: "AU", barDate: "2026-03-25", open: 44, high: 45, low: 43.5, close: 44.5, volume: 8000000, source: "test", ingestedAt: "2026-03-25T07:00:00Z" },
 ];
 
 const EMPTY_SETTLED = new Map<string, string>();
@@ -182,6 +182,29 @@ describe("resolveQuoteSnapshots", () => {
     );
 
     expect(result["BHP"]!.isProvisional).toBe(true);
+  });
+
+  it("TC-U10b: cross-listed bare ticker keeps AU and US snapshots separate", async () => {
+    persistence._seedDailyBars([
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-28", open: 44, high: 45, low: 43, close: 44.5, volume: 8000000, source: "au", ingestedAt: "2026-03-28T07:00:00Z" },
+      { ticker: "BHP", marketCode: "AU", barDate: "2026-03-27", open: 43, high: 44, low: 42, close: 43.5, volume: 7000000, source: "au", ingestedAt: "2026-03-27T07:00:00Z" },
+      { ticker: "BHP", marketCode: "US", barDate: "2026-03-28", open: 58, high: 59, low: 57, close: 58.25, volume: 3000000, source: "us", ingestedAt: "2026-03-28T22:00:00Z" },
+      { ticker: "BHP", marketCode: "US", barDate: "2026-03-27", open: 57, high: 58, low: 56, close: 57.25, volume: 2800000, source: "us", ingestedAt: "2026-03-27T22:00:00Z" },
+    ]);
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "BHP", marketCode: "AU" }, { ticker: "BHP", marketCode: "US" }],
+      persistence,
+      new Map([["AU", "2026-03-28"], ["US", "2026-03-28"]]),
+    );
+
+    expect(result["BHP:AU"]?.close).toBe(44.5);
+    expect(result["BHP:AU"]?.previousClose).toBe(43.5);
+    expect(result["BHP:AU"]?.source).toBe("au");
+    expect(result["BHP:US"]?.close).toBe(58.25);
+    expect(result["BHP:US"]?.previousClose).toBe(57.25);
+    expect(result["BHP:US"]?.source).toBe("us");
+    expect(result["BHP"]).toBeUndefined();
   });
 
   it("TC-U11 (KZO-191): pair without marketCode → isProvisional=false regardless of settledByMarket", async () => {

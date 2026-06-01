@@ -1,5 +1,7 @@
 import type { QuoteSnapshot } from "@vakwen/domain";
+import { marketCodeFor } from "@vakwen/shared-types";
 import type { PublicShareViewDto } from "@vakwen/shared-types";
+import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 import type { Store } from "../types/store.js";
 
 interface HoldingWithQuote {
@@ -22,9 +24,14 @@ export function buildPublicShareView(
   expiresAt: string,
 ): PublicShareViewDto {
   const withQuotes: HoldingWithQuote[] = [];
+  const accountMarket = new Map(store.accounts.map((account) => [
+    account.id,
+    marketCodeFor(account.defaultCurrency),
+  ]));
   for (const holding of store.accounting.projections.holdings) {
     if (holding.quantity <= 0) continue;
-    const quote = quotes[holding.ticker];
+    const market = accountMarket.get(holding.accountId);
+    const quote = quotes[quoteSnapshotKey(holding.ticker, market)] ?? quotes[holding.ticker];
     if (!quote) continue;
     withQuotes.push({
       ticker: holding.ticker,

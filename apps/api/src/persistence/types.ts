@@ -29,7 +29,7 @@ import type {
   Store,
   InstrumentDef,
 } from "../types/store.js";
-import type { DailyBar, MarketCode } from "@vakwen/domain";
+import type { DailyBar, DailyBarWithMarket, MarketCode } from "@vakwen/domain";
 import type {
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -1498,6 +1498,10 @@ export interface Persistence {
     fields: { displayName?: string | null; pictureUrl?: string | null },
   ): Promise<ProfileDto>;
   getLatestBars(tickers: string[], limit: number): Promise<DailyBar[]>;
+  getLatestBarsByTickerMarket(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+    limit: number,
+  ): Promise<DailyBarWithMarket[]>;
   /**
    * KZO-173: distinct `bar_date` values from `market_data.daily_bars` for the
    * given market, on or after `fromDate` inclusive. Ordered ascending.

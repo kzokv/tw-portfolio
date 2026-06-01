@@ -40,6 +40,7 @@ import type {
   DashboardPerformanceRange,
 } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
+import { quoteSnapshotKey } from "./market-data/quoteSnapshotService.js";
 
 interface PreTranslationOverviewSummary {
   asOf: string;
@@ -373,6 +374,7 @@ interface SyntheticPosition {
   costBasisAmount: number;
   /** Native currency from the first BUY trade for this (account, ticker). */
   currency: string;
+  marketCode: string;
 }
 
 async function buildFxAwareSyntheticPerformance(
@@ -393,7 +395,11 @@ async function buildFxAwareSyntheticPerformance(
   const earliest = trades.length > 0 ? trades[0].tradeDate : undefined;
   const { startDate, endDate } = resolveRangeBounds(range, asOf, earliest);
   const positions = new Map<string, SyntheticPosition>();
-  const quoteByTicker = new Map(quotes.map((q) => [q.ticker, q]));
+  const quoteByKey = new Map(quotes.flatMap((q): Array<[string, QuoteSnapshot]> => {
+    const entries: Array<[string, QuoteSnapshot]> = [[quoteSnapshotKey(q.ticker, q.marketCode), q]];
+    if (!q.marketCode) entries.push([q.ticker, q]);
+    return entries;
+  }));
   let tradeIndex = 0;
 
   function applyTrade(trade: (typeof trades)[number]): void {
@@ -402,6 +408,7 @@ async function buildFxAwareSyntheticPerformance(
       quantity: 0,
       costBasisAmount: 0,
       currency: trade.priceCurrency,
+      marketCode: trade.marketCode,
     };
     if (trade.type === "BUY") {
       positions.set(key, {
@@ -412,6 +419,7 @@ async function buildFxAwareSyntheticPerformance(
           trade.commissionAmount +
           trade.taxAmount,
         currency: prev.currency, // first-BUY wins; matches snapshot walker's invariant
+        marketCode: prev.marketCode,
       });
       return;
     }
@@ -431,6 +439,7 @@ async function buildFxAwareSyntheticPerformance(
       quantity: nextQty,
       costBasisAmount: nextCost,
       currency: prev.currency,
+      marketCode: prev.marketCode,
     });
   }
 
@@ -501,7 +510,9 @@ async function buildFxAwareSyntheticPerformance(
         ? key.slice(key.lastIndexOf(":") + 1)
         : key;
       const historicalClose = closeByTickerDate.get(symbol)?.get(currentDate);
-      const quote = historicalClose === undefined ? quoteByTicker.get(symbol) : undefined;
+      const quote = historicalClose === undefined
+        ? quoteByKey.get(quoteSnapshotKey(symbol, pos.marketCode)) ?? quoteByKey.get(symbol)
+        : undefined;
       const close = historicalClose ?? (
         quote && quote.asOf.slice(0, 10) === currentDate ? quote.close : null
       );

@@ -1651,15 +1651,17 @@ async function buildQuoteSnapshotInputs(
   tickers: ReadonlyArray<string>,
   now: Date = new Date(),
 ): Promise<{ pairs: QuoteSnapshotPair[]; settledByMarket: Map<MarketCode, string> }> {
-  const tickerToMarket = new Map<string, MarketCode>();
+  const tickerToMarkets = new Map<string, Set<MarketCode>>();
   for (const inst of store.instruments) {
-    if (inst.marketCode === "TW" || inst.marketCode === "US" || inst.marketCode === "AU") {
-      tickerToMarket.set(inst.ticker, inst.marketCode);
+    if ((MARKET_CODES as readonly string[]).includes(inst.marketCode)) {
+      const markets = tickerToMarkets.get(inst.ticker) ?? new Set<MarketCode>();
+      markets.add(inst.marketCode);
+      tickerToMarkets.set(inst.ticker, markets);
     }
   }
-  const pairs: QuoteSnapshotPair[] = tickers.map((ticker) => {
-    const marketCode = tickerToMarket.get(ticker);
-    return marketCode ? { ticker, marketCode } : { ticker };
+  const pairs: QuoteSnapshotPair[] = tickers.flatMap((ticker) => {
+    const markets = tickerToMarkets.get(ticker);
+    return markets ? [...markets].map((marketCode) => ({ ticker, marketCode })) : [{ ticker }];
   });
   const distinctMarkets = new Set<MarketCode>();
   for (const pair of pairs) {

@@ -5,7 +5,7 @@ import { createStore } from "../../src/services/store.js";
 import { buildPublicShareView } from "../../src/services/publicShareView.js";
 
 function seedStoreWithHoldings(
-  holdings: Array<{ accountId?: string; ticker: string; quantity: number; costBasisAmount: number; currency: "TWD" | "USD" }>,
+  holdings: Array<{ accountId?: string; ticker: string; quantity: number; costBasisAmount: number; currency: "TWD" | "USD" | "AUD" }>,
 ): Store {
   const store = createStore();
   store.accounting.projections.holdings = holdings.map((h) => ({
@@ -189,5 +189,40 @@ describe("buildPublicShareView", () => {
 
     // Assert
     expect(view.quoteAsOf).toBe("2026-04-18");
+  });
+
+  it("uses market-qualified quotes for cross-listed bare tickers", () => {
+    const store = seedStoreWithHoldings([
+      { accountId: "acc-aud", ticker: "BHP", quantity: 10, costBasisAmount: 400, currency: "AUD" },
+      { accountId: "acc-usd", ticker: "BHP", quantity: 10, costBasisAmount: 500, currency: "USD" },
+    ]);
+    store.accounts.push(
+      {
+        id: "acc-aud",
+        name: "AUD",
+        userId: "user-1",
+        feeProfileId: store.feeProfiles[0]!.id,
+        defaultCurrency: "AUD",
+        accountType: "broker",
+      },
+      {
+        id: "acc-usd",
+        name: "USD",
+        userId: "user-1",
+        feeProfileId: store.feeProfiles[0]!.id,
+        defaultCurrency: "USD",
+        accountType: "broker",
+      },
+    );
+    const quotes: Record<string, QuoteSnapshot | null> = {
+      "BHP:AU": { ...quote("BHP", 44), marketCode: "AU" },
+      "BHP:US": { ...quote("BHP", 58), marketCode: "US" },
+    };
+
+    const view = buildPublicShareView(store, quotes, ownerDisplayName, expiresAt);
+
+    const totals = new Map(view.summary.totalValueByCurrency.map((row) => [row.currency, row.amount]));
+    expect(totals.get("AUD")).toBe(440);
+    expect(totals.get("USD")).toBe(580);
   });
 });
