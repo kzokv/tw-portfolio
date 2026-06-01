@@ -4130,6 +4130,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
     const { store } = await loadUserStore(app, req);
@@ -4137,6 +4138,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const items = listTradeEvents(store)
       .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
       .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+      .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
       .sort(compareTransactionsForHistory)
       .map((trade) => mapTransactionHistoryItem(trade, accountById));
     return query.limit ? items.slice(0, query.limit) : items;

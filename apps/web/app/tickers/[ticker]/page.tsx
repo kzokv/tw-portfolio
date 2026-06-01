@@ -10,7 +10,7 @@ import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
-import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
+import { MARKET_CODES, type InstrumentCatalogItemDto, type MarketCode } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfolio/holdingGroups";
@@ -18,6 +18,12 @@ import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfo
 interface TickerHistoryPageProps {
   params: Promise<{ ticker: string }>;
   searchParams: Promise<{ accountId?: string; marketCode?: string }>;
+}
+
+function normalizeMarketCode(value?: string): MarketCode | undefined {
+  const normalized = value?.trim().toUpperCase();
+  if (!normalized) return undefined;
+  return (MARKET_CODES as readonly string[]).includes(normalized) ? (normalized as MarketCode) : undefined;
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
@@ -30,7 +36,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
-  const scopedMarketCode = marketCode?.trim() ? marketCode.trim().toUpperCase() : undefined;
+  const scopedMarketCode = normalizeMarketCode(marketCode);
 
   let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
@@ -39,7 +45,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   try {
     [dashboard, transactions, instrument] = await Promise.all([
       fetchDashboardSnapshot(),
-      fetchTransactionHistory({ ticker, accountId: scopedAccountId }),
+      fetchTransactionHistory({ ticker, accountId: scopedAccountId, marketCode: scopedMarketCode }),
       fetchRepairInstrument(ticker),
     ]);
   } catch {
@@ -91,6 +97,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           instrument={instrument}
           isDemo={session.isDemo}
           transactionAccountFilter={scopedAccountId}
+          transactionMarketFilter={scopedMarketCode}
           accountId={scopedAccountId ?? dashboard.accounts[0]?.id ?? ""}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}

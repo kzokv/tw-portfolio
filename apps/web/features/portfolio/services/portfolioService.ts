@@ -64,6 +64,7 @@ export async function submitTransaction(input: TransactionInput): Promise<void> 
 export async function fetchTransactionHistory(filters: {
   ticker?: string;
   accountId?: string;
+  marketCode?: MarketCode;
   limit?: number;
 }): Promise<TransactionHistoryItemDto[]> {
   const params = new URLSearchParams();
@@ -74,6 +75,10 @@ export async function fetchTransactionHistory(filters: {
 
   if (filters.accountId) {
     params.set("accountId", filters.accountId);
+  }
+
+  if (filters.marketCode) {
+    params.set("marketCode", filters.marketCode);
   }
 
   if (filters.limit) {
