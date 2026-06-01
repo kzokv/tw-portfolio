@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import type { LocaleCode } from "@vakwen/shared-types";
+import type {
+  AccountDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  LocaleCode,
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type {
   AppShellData,
@@ -21,6 +26,11 @@ interface BuildAppShellDataValueOptions {
   recomputeAction: ReturnType<typeof useRecomputeActionType>;
   openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  refreshPortfolioConfig: () => Promise<void>;
+  isPortfolioConfigLoading: boolean;
   integrityIssue: IntegrityIssue | null;
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;
@@ -44,6 +54,11 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     recomputeAction,
     openRecomputeConfirm,
     transactionAccountOptions,
+    accounts,
+    feeProfiles,
+    feeProfileBindings,
+    refreshPortfolioConfig,
+    isPortfolioConfigLoading,
     integrityIssue,
     showIntegrityDialog,
     setShowIntegrityDialog,
@@ -62,6 +77,11 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       recomputeAction,
       openRecomputeConfirm,
       transactionAccountOptions,
+      accounts,
+      feeProfiles,
+      feeProfileBindings,
+      refreshPortfolioConfig,
+      isPortfolioConfigLoading,
       integrityIssue,
       showIntegrityDialog,
       setShowIntegrityDialog,
@@ -70,15 +90,20 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       contextRefreshSignal,
     }),
     [
+      accounts,
       contextRefreshSignal,
+      feeProfileBindings,
+      feeProfiles,
       generateSnapshots,
       integrityIssue,
       isGeneratingSnapshots,
+      isPortfolioConfigLoading,
       isSharedContext,
       locale,
       mutations,
       openRecomputeConfirm,
       recomputeAction,
+      refreshPortfolioConfig,
       setShowIntegrityDialog,
       showIntegrityDialog,
       transactionAccountOptions,

@@ -11,7 +11,6 @@ import {
 } from "../../components/dividends/dividendsTabsUtils";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
-import { fetchDashboardSnapshot } from "../../features/dashboard/services/dashboardService";
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendLedgerReview,
@@ -56,8 +55,8 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const locale: LocaleCode = settings?.locale ?? "en";
   let accounts: AccountDto[] = [];
   try {
-    const dashboard = await fetchDashboardSnapshot();
-    accounts = dashboard.accounts ?? [];
+    const config = await getJson<{ accounts: AccountDto[] }>("/settings/fee-config");
+    accounts = config.accounts ?? [];
   } catch {
     // Fall back to viewer settings locale; page-specific client fetches recover.
   }

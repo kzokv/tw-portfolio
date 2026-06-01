@@ -182,6 +182,34 @@ Full repo gates run locally in this worktree:
 
 Fresh deployed shared-portfolio before/after browser timings are still pending because these changes have not been deployed yet.
 
+## Follow-up: Dev Deployment Sweep On 2026-06-02
+
+Captured via the Codex Chrome Extension against `https://vakwen-dev-web.kzokvdevs.dpdns.org` using the already-open authenticated `/transactions` tab. Direct API tab navigation was blocked by Chrome policy for `vakwen-dev-api.kzokvdevs.dpdns.org`, so attribution used route-visible timing plus code-path inspection.
+
+| Route | Warm usable content | Finding |
+|---|---:|---|
+| `/transactions` | ~0.8s | Healthy; no dashboard dependency observed. |
+| `/cash-ledger` | ~1.3s | Healthy after prior split. |
+| `/dashboard` | ~11.6s | Still slow by its own `/dashboard/overview` + quote/freshness/translation work. |
+| `/portfolio` | ~10.0s | Still slow by `/portfolio/page-data` quote/freshness work preserved by the review fix. |
+| `/settings/accounts` | ~10.0s before this follow-up | Still called `useDashboardData()`, so Accounts waited for `/dashboard/overview`. Fixed in this follow-up by consuming AppShell's narrow fee/account config. |
+| `/dividends` | ~10.2s before this follow-up | Server page called `fetchDashboardSnapshot()` only to get accounts. Fixed in this follow-up by reading `/settings/fee-config` instead. |
+| `/settings/profile`, `/settings/tickers` | ~0.8-1.0s warm | Healthy. |
+| `/settings/display` | ~4.4s warm | Some route/chunk or settings-shell delay remains, but it does not use dashboard data. |
+
+Follow-up fixes:
+
+- Exposed AppShell's narrow account/fee-profile config through `AppShellDataContext` so route children can reuse it without extra dashboard reads.
+- Rewired `AccountsSettingsClient` from `useDashboardData()` to the shell account config.
+- Replaced `/dividends` server-side `fetchDashboardSnapshot()` with `/settings/fee-config` for account filter metadata.
+- Added `Server-Timing` coverage for `/settings/fee-config`.
+
+Remaining performance work:
+
+- Split dashboard and portfolio into primary/secondary data phases: render stale/cached holdings immediately, then stream or fetch quote freshness, FX translation, performance series, and freshness badges as secondary updates.
+- Add deployed API timing access that is visible from app-origin fetches or logs for `/dashboard/overview`, `/dashboard/performance`, `/portfolio/page-data`, `/settings/fee-config`, and dividend review endpoints.
+- Keep the baseline rule: a secondary route must not import `useDashboardData()` or `fetchDashboardSnapshot()` for account/profile/filter metadata.
+
 ## PR Notes
 
 This work is repo/process/performance improvement without a Linear ticket. Per repo rules, use the waiver path for PR metadata:
