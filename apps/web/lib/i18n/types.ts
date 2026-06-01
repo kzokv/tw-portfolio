@@ -973,6 +973,7 @@ export interface AppDictionary {
     accountTypeBroker: string;
     accountTypeBank: string;
     accountTypeWallet: string;
+    accountLabelLoading: string;
     emptyState: string;
     summaryTotalLabel: string;
     filterDateFrom: string;

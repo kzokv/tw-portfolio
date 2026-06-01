@@ -1,5 +1,8 @@
 import { getJson, postJson } from "../../../lib/api";
 import type {
+  AccountDto,
+  DashboardOverviewDto,
+  InstrumentOptionDto,
   InstrumentCatalogItemDto,
   MarketCode,
   TransactionHistoryItemDto,
@@ -22,6 +25,17 @@ export interface RecomputeConfirmResponse {
 export interface TransactionInstrumentCatalogResponse {
   instruments: InstrumentCatalogItemDto[];
 }
+
+export interface PortfolioInstrumentIndexResponse {
+  instruments: InstrumentOptionDto[];
+}
+
+export type PortfolioPageData = Pick<
+  DashboardOverviewDto,
+  "holdings" | "holdingGroups" | "dividends" | "instruments"
+> & {
+  accounts: AccountDto[];
+};
 
 export interface MarketDataPriceResponse {
   close: number;
@@ -87,6 +101,14 @@ export async function fetchTransactionHistory(filters: {
 
   const query = params.toString();
   return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
+}
+
+export async function fetchPortfolioPageData(): Promise<PortfolioPageData> {
+  return getJson<PortfolioPageData>("/portfolio/page-data");
+}
+
+export async function fetchPortfolioInstrumentIndex(): Promise<PortfolioInstrumentIndexResponse> {
+  return getJson<PortfolioInstrumentIndexResponse>("/portfolio/instrument-index");
 }
 
 // KZO-169: when `marketCode` is provided (TW/US/AU), the server filters the

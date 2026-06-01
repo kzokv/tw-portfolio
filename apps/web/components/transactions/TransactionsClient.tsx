@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
+import { formatNumber } from "../../lib/utils";
 import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
-import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
@@ -29,12 +28,9 @@ export function TransactionsClient({
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<"posted" | "ai-inbox">(initialTab);
   const {
-    dashboard,
     uiDict: dict,
     locale,
     isSharedContext,
-    isBootstrapping,
-    isI18nReady,
     transactionSubmission,
     transactionAccountOptions,
     contextRefreshSignal,
@@ -59,22 +55,21 @@ export function TransactionsClient({
     void recentTransactions.refresh();
   }, [contextRefreshSignal, recentTransactions.refresh]);
 
-  if (isBootstrapping || !isI18nReady) {
-    return (
-      <>
-        <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
-        <DashboardLoading />
-      </>
-    );
-  }
-
-  const quotedHoldingCount = dashboard.holdings.filter((holding) => holding.currentUnitPrice !== null).length;
-  const quoteCoverageValue = dashboard.holdings.length === 0
-    ? "-"
-    : formatPercent((quotedHoldingCount / dashboard.holdings.length) * 100, locale);
-  const quoteCoverageDetail = dashboard.holdings.length === 0
-    ? dict.dashboardHome.holdingsEmpty
-    : `${formatNumber(quotedHoldingCount, locale)} / ${formatNumber(dashboard.holdings.length, locale)}`;
+  // TODO(performance-smooth-pages): switch these summary cards to a dedicated
+  // transactions read-model endpoint when the backend exposes one. For now we
+  // keep `/transactions` independent from `/dashboard/overview` by deriving
+  // lightweight metrics from recent transactions + shell account config.
+  const recentCountValue = recentTransactions.isLoading
+    ? "..."
+    : formatNumber(recentTransactions.items.length, locale);
+  const uniqueTickerCount = recentTransactions.isLoading
+    ? "..."
+    : formatNumber(new Set(recentTransactions.items.map((item) => `${item.ticker}:${item.marketCode ?? "na"}`)).size, locale);
+  const accountCountValue = transactionAccountOptions.length > 0
+    ? formatNumber(transactionAccountOptions.length, locale)
+    : recentTransactions.isLoading
+      ? "..."
+      : "0";
 
   function handleTabChange(next: string) {
     const tab = next === "ai-inbox" ? "ai-inbox" : "posted";
@@ -128,23 +123,23 @@ export function TransactionsClient({
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <CompactMetric
             label={dict.dashboardHome.accountCountLabel}
-            value={formatNumber(dashboard.summary.accountCount, locale)}
+            value={accountCountValue}
             detail={dict.navigation.transactionsLabel}
           />
           <CompactMetric
-            label={dict.dashboardHome.holdingCountLabel}
-            value={formatNumber(dashboard.summary.holdingCount, locale)}
-            detail={dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount))}
+            label={dict.transactions.recentLedgerTitle}
+            value={recentCountValue}
+            detail={dict.transactions.recentLedgerDescription}
           />
           <CompactMetric
-            label={dict.dashboardHome.issueCountLabel}
-            value={formatNumber(dashboard.summary.openIssueCount, locale)}
-            detail={dashboard.summary.openIssueCount > 0 ? dict.dialogs.integrityTitle : dict.dashboardHome.actionHealthyTitle}
+            label={dict.holdings.tickerTerm}
+            value={uniqueTickerCount}
+            detail={dict.transactions.verificationDescription}
           />
           <CompactMetric
-            label={dict.dashboardHome.quoteCoverageLabel}
-            value={quoteCoverageValue}
-            detail={quoteCoverageDetail}
+            label={dict.transactions.verificationTitle}
+            value={activeTab === "ai-inbox" ? "AI" : dict.navigation.transactionsLabel}
+            detail={isSharedContext ? dict.switcher.readonlyDescription : dict.navigation.transactionsDescription}
           />
         </div>
       </section>
@@ -199,21 +194,19 @@ export function TransactionsClient({
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">{dict.transactions.verificationDescription}</p>
                       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         <CompactMetric
-                          label={dict.dashboardHome.marketValueLabel}
-                          value={dashboard.summary.marketValueAmount !== null
-                            ? formatCurrencyAmount(dashboard.summary.marketValueAmount, dashboard.summary.reportingCurrency, locale)
-                            : dict.dashboardHome.noMarketValue}
-                          detail={dict.dashboardHome.marketValueLabel}
+                          label={dict.dashboardHome.accountCountLabel}
+                          value={accountCountValue}
+                          detail={dict.navigation.transactionsLabel}
                         />
                         <CompactMetric
-                          label={dict.dashboardHome.totalCostLabel}
-                          value={formatCurrencyAmount(dashboard.summary.totalCostAmount, dashboard.summary.reportingCurrency, locale)}
-                          detail={dict.dashboardHome.totalCostLabel}
+                          label={dict.transactions.recentLedgerTitle}
+                          value={recentCountValue}
+                          detail={dict.transactions.recentLedgerDescription}
                         />
                         <CompactMetric
-                          label={dict.dashboardHome.holdingCountLabel}
-                          value={formatNumber(dashboard.summary.holdingCount, locale)}
-                          detail={dict.holdings.entries.replace("{count}", String(dashboard.summary.holdingCount))}
+                          label={dict.holdings.tickerTerm}
+                          value={uniqueTickerCount}
+                          detail={dict.transactions.verificationDescription}
                         />
                       </div>
                     </Card>

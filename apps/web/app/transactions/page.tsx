@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import type { UserSettings } from "@vakwen/shared-types";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
 import { TransactionsClient } from "../../components/transactions/TransactionsClient";
@@ -21,14 +22,21 @@ export default async function TransactionsPage({ searchParams }: TransactionsPag
   const tab = firstParam(sp.tab) === "ai-inbox" ? "ai-inbox" as const : "posted" as const;
   const batchId = firstParam(sp.batch);
   const contextId = firstParam(sp.context);
-  const [session, profile, sidebarOpen] = await Promise.all([
+  const [session, profile, sidebarOpen, settings] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
+    getJson<UserSettings>("/settings").catch(() => null),
   ]);
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="transactions" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
+      <AppShell
+        section="transactions"
+        isDemo={session.isDemo}
+        localeOverride={settings?.locale ?? "en"}
+        initialProfile={profile}
+        initialSidebarOpen={sidebarOpen}
+      >
         <TransactionsClient initialTab={tab} initialBatchId={batchId} initialContextId={contextId} />
       </AppShell>
     </Suspense>

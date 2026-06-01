@@ -27,6 +27,7 @@ import type {
   AiConnectorScope,
   DashboardPerformanceRange,
   IntegrityIssueDto,
+  InstrumentOptionDto,
   MarketCode as SharedMarketCode,
   ShareCapability,
   TransactionAiInboxBadgeDto,
@@ -59,8 +60,6 @@ import type { QuoteSnapshot } from "@vakwen/domain";
 import { resolveQuoteSnapshots, type QuoteSnapshotPair } from "../services/market-data/quoteSnapshotService.js";
 import {
   listCorporateActions,
-  listDividendDeductionEntries,
-  listDividendLedgerEntries,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
@@ -90,6 +89,7 @@ import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
+import { ReadPathTiming } from "../services/readPathTiming.js";
 import {
   createFxTransfer,
   estimateFxTransfer,
@@ -105,7 +105,7 @@ import { seedDemoTransactions } from "../services/demoData.js";
 import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refresh.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
-import { ensureInstrumentDefinition, isInstrumentQuoteable, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
+import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/appConfig/repairCooldown.js";
 import { getEffectiveAccountHardPurgeDays } from "../services/appConfig/accountLifecycle.js";
@@ -1168,6 +1168,18 @@ async function loadUserStore(app: FastifyInstance, req: FastifyRequest) {
   return loadUserStoreForUserId(app, contextUserId);
 }
 
+async function withReadPathTiming<T>(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  route: string,
+  handler: (timing: ReadPathTiming) => Promise<T>,
+): Promise<T> {
+  const timing = new ReadPathTiming();
+  const payload = await handler(timing);
+  timing.attach(req, reply, route, payload);
+  return payload;
+}
+
 async function resolveCookieBackedAuthContext(
   app: FastifyInstance,
   req: FastifyRequest,
@@ -1559,37 +1571,6 @@ function requireAccount(store: Store, accountId: string) {
   return account;
 }
 
-function buildLiveBalancesByAccount(
-  store: Store,
-): Map<string, Array<{ currency: string; amount: number }>> {
-  const reversedIds = new Set<string>();
-  for (const entry of store.accounting.facts.cashLedgerEntries) {
-    if (entry.reversalOfCashLedgerEntryId) {
-      reversedIds.add(entry.reversalOfCashLedgerEntryId);
-    }
-  }
-
-  const balances = new Map<string, Map<string, number>>();
-  for (const entry of store.accounting.facts.cashLedgerEntries) {
-    if (entry.reversalOfCashLedgerEntryId) continue;
-    if (reversedIds.has(entry.id)) continue;
-    const currencyMap = balances.get(entry.accountId) ?? new Map<string, number>();
-    currencyMap.set(entry.currency, (currencyMap.get(entry.currency) ?? 0) + entry.amount);
-    balances.set(entry.accountId, currencyMap);
-  }
-
-  const result = new Map<string, Array<{ currency: string; amount: number }>>();
-  for (const [accountId, currencyMap] of balances.entries()) {
-    result.set(
-      accountId,
-      [...currencyMap.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([currency, amount]) => ({ currency, amount: roundToDecimal(amount, 2) })),
-    );
-  }
-  return result;
-}
-
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1718,7 +1699,6 @@ type FxTransferMutationResult =
   | CreateFxTransferResult
   | UpdateFxTransferResult
   | ReverseFxTransferResult;
-type CashLedgerStoreEntry = Store["accounting"]["facts"]["cashLedgerEntries"][number];
 
 // KZO-168 D11: emit a dedicated `currency_wallet_recomputed` event after FX
 // transfer mutations. Reusing the trade-event `recompute_complete` shape would
@@ -2560,16 +2540,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/settings", async (req) => {
-    const { store } = await loadUserStore(app, req);
+  app.get("/settings", async (req, reply) => {
     // ui-enhancement — surface the effective account-hard-purge grace period
     // (Tier B) to the user-facing client so the "Recently deleted" countdown
     // renders the admin-overridden value, not a hardcoded 30. The resolver
     // walks DB override → env default; admin tunes via PATCH /admin/settings.
-    return {
-      ...store.settings,
-      effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
-    };
+    return withReadPathTiming(req, reply, "/settings", async (timing) => {
+      const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const settings = await timing.measure("user_settings", "db", () =>
+        app.persistence.getUserSettings(contextUserId));
+      return {
+        ...settings,
+        effectiveAccountHardPurgeDays: getEffectiveAccountHardPurgeDays(),
+      };
+    });
   });
 
   app.patch("/settings", async (req) => {
@@ -3230,18 +3214,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/accounts", async (req) => {
+  app.get("/accounts", async (req, reply) => {
     const query = z.object({
       includeBalances: z.coerce.boolean().default(false),
     }).parse(req.query);
-    const { store } = await loadUserStore(app, req);
     if (query.includeBalances) {
-      const balancesByAccount = buildLiveBalancesByAccount(store);
-      return store.accounts.map((account) => ({
-        ...account,
-        liveBalance: balancesByAccount.get(account.id) ?? [],
-      }));
+      return withReadPathTiming(req, reply, "/accounts?includeBalances=true", async (timing) => {
+        const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+        return timing.measure("accounts_with_balances", "db", () =>
+          app.persistence.listAccountsWithLiveBalances(contextUserId),
+        );
+      });
     }
+    const { store } = await loadUserStore(app, req);
     return store.accounts;
   });
 
@@ -4144,6 +4129,47 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return query.limit ? items.slice(0, query.limit) : items;
   });
 
+  app.get("/portfolio/page-data", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/portfolio/page-data", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const overview = await timing.measure("build_portfolio_page_data", "app", () =>
+        Promise.resolve(buildDashboardOverview(store, {
+          integrityIssue: null,
+          quotes: [],
+        })));
+
+      return {
+        holdings: overview.holdings,
+        holdingGroups: overview.holdingGroups,
+        dividends: overview.dividends,
+        instruments: overview.instruments,
+        accounts: overview.accounts,
+      };
+    });
+  });
+
+  app.get("/portfolio/instrument-index", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/portfolio/instrument-index", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const instruments = await timing.measure("map_instruments", "app", () =>
+        Promise.resolve(
+          listTransactionInstruments(store.instruments)
+            .map((instrument): InstrumentOptionDto | null => {
+              if (instrument.type === null) return null;
+              return {
+                ticker: instrument.ticker,
+                instrumentType: instrument.type,
+                marketCode: instrument.marketCode,
+                isProvisional: instrument.isProvisional === true,
+              };
+            })
+            .filter((instrument): instrument is InstrumentOptionDto => instrument !== null),
+        ));
+
+      return { instruments };
+    });
+  });
+
   app.get("/portfolio/holdings", async (req) => {
     const { store, userId } = await loadUserStore(app, req);
     assertStoreIntegrity(store);
@@ -4219,109 +4245,98 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return response;
   });
 
-  app.get("/dashboard/overview", async (req) => {
-    const { store, userId } = await loadUserStore(app, req);
-    const holdings = listHoldings(store, userId);
-    const symbols = [...new Set(
-      holdings
-        .map((holding) => holding.ticker)
-        .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
-    )];
-    // KZO-180 review L1: prefs read parallelized with the quote-snapshot fetch
-    // (both are I/O against the same persistence backend; neither depends on
-    // the other). Saves one round-trip on the hot dashboard path.
-    // KZO-191: pair/settled-map construction folded into the parallel branch
-    // so the calendar lookups overlap with the persistence read.
-    const [snapshotMap, prefs] = await Promise.all([
-      (async () => {
-        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-      })(),
-      app.persistence.getUserPreferences(userId),
-    ]);
-    const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+  app.get("/dashboard/overview", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/dashboard/overview", async (timing) => {
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
+      const symbols = [...new Set(
+        holdings
+          .map((holding) => holding.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        (async () => {
+          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+        })(),
+        app.persistence.getUserPreferences(userId),
+      ]));
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
 
-    // KZO-180: build the native overview, then translate the summary KPIs into
-    // the user's reporting currency. Per-holding rows on `holdings[]` and
-    // per-event rows on `dividends.*` stay native (D3) — the UI uses each
-    // holding's own currency for those labels.
-    const overview = buildDashboardOverview(store, {
-      integrityIssue: getStoreIntegrityIssue(store),
-      quotes,
-    });
-    // KZO-177: server-classified freshness. Mutates `overview.holdings` with
-    // `freshness` + `freshnessTooltip`. Skipped silently for callers without a
-    // trading calendar cache (defensive — `app.tradingCalendarCache` is decorated
-    // unconditionally by `registerTradingCalendarCache`).
-    if (app.tradingCalendarCache) {
-      try {
-        await enrichHoldingsWithFreshness(overview.holdings, store, {
-          persistence: app.persistence,
-          tradingCalendar: app.tradingCalendarCache,
-        });
-      } catch (err) {
-        app.log.warn({ err }, "dashboard_freshness_enrichment_failed");
+      const overview = await timing.measure("build_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
+        integrityIssue: getStoreIntegrityIssue(store),
+        quotes,
+      })));
+      if (app.tradingCalendarCache) {
+        try {
+          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
+            persistence: app.persistence,
+            tradingCalendar: app.tradingCalendarCache,
+          }));
+        } catch (err) {
+          app.log.warn({ err }, "dashboard_freshness_enrichment_failed");
+        }
       }
-    }
-    const reportingCurrency = resolveReportingCurrency(prefs);
-    const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
-    const translatedSummary = await translateOverviewSummary(
-      overview.summary,
-      overview.holdings,
-      overview.dividends,
-      reportingCurrency,
-      overview.summary.asOf,
-      app.persistence,
-    );
-    const holdingGroups = buildOverviewHoldingGroups(store, overview.holdings);
-    const translatedHoldingGroups = await translateOverviewHoldingGroups(
-      holdingGroups,
-      reportingCurrency,
-      holdingAllocationBasis,
-      overview.summary.asOf,
-      app.persistence,
-    );
-    return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
+      const translatedSummary = await timing.measure("translate_summary", "db", () => translateOverviewSummary(
+        overview.summary,
+        overview.holdings,
+        overview.dividends,
+        reportingCurrency,
+        overview.summary.asOf,
+        app.persistence,
+      ));
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
+    });
   });
 
-  app.get("/dashboard/performance", async (req) => {
+  app.get("/dashboard/performance", async (req, reply) => {
     // KZO-159 (158A): validate `range` against the per-user effective list
     // (user pref → admin → hardcoded default). Requests with a `range` value
     // that's not in the effective list are rejected with 400.
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    // KZO-180 review M2: read prefs once, thread into resolveEffectiveRanges
-    // so the resolver doesn't issue a duplicate row read for the same user.
-    const prefs = await app.persistence.getUserPreferences(userId);
-    const { ranges } = await resolveEffectiveRanges(app.persistence, userId, prefs);
-    const reportingCurrency = resolveReportingCurrency(prefs);
-    const rangeEnumValues = ranges as [string, ...string[]];
-    const query = z.object({
-      range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
-    }).parse(req.query);
-    const { store } = await loadUserStore(app, req);
-    const symbols = [...new Set(
-      store.accounting.facts.tradeEvents
-        .map((trade) => trade.ticker)
-        .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
-    )];
-    const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
-    const snapshotMap = await resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
-    const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
-
-    // KZO-180: replaces `buildDashboardPerformance` with the FX-aware aggregator.
-    // The aggregator reads `daily_holding_snapshots` first (FX-aware via the
-    // persistence method's LATERAL JOIN with D8 self-pair guard), then falls
-    // back to a synthetic FX-aware path when no snapshots exist.
-    const asOf = quotes[0]?.asOf ?? new Date().toISOString();
-    return translatePerformancePoints(
-      userId,
-      query.range as DashboardPerformanceRange,
-      asOf,
-      reportingCurrency,
-      app.persistence,
-      store,
-      quotes,
-    );
+    return withReadPathTiming(req, reply, "/dashboard/performance", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
+      const { ranges } = await timing.measure("resolve_ranges", "db", () =>
+        resolveEffectiveRanges(app.persistence, userId, prefs));
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const rangeEnumValues = ranges as [string, ...string[]];
+      const query = z.object({
+        range: z.enum(rangeEnumValues).default(rangeEnumValues[0]),
+      }).parse(req.query);
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const symbols = [...new Set(
+        store.accounting.facts.tradeEvents
+          .map((trade) => trade.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const { pairs, settledByMarket } = await timing.measure("build_quote_inputs", "app", () =>
+        buildQuoteSnapshotInputs(app, store, symbols));
+      const snapshotMap = await timing.measure("load_quotes", "db", () =>
+        resolveQuoteSnapshots(pairs, app.persistence, settledByMarket));
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const asOf = quotes[0]?.asOf ?? new Date().toISOString();
+      return timing.measure("translate_performance", "db", () => translatePerformancePoints(
+        userId,
+        query.range as DashboardPerformanceRange,
+        asOf,
+        reportingCurrency,
+        app.persistence,
+        store,
+        quotes,
+      ));
+    });
   });
 
   app.get("/dividend-events", async (req) => {
@@ -4390,124 +4405,110 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return app.persistence.listDividendLedgerYears(userId);
   });
 
-  app.get("/portfolio/cash-ledger", async (req) => {
+  app.get("/portfolio/cash-ledger", async (req, reply) => {
     const query = cashLedgerQuerySchema.parse(req.query);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return withReadPathTiming(req, reply, "/portfolio/cash-ledger", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const result = await timing.measure("list_cash_ledger", "db", () => app.persistence.listCashLedgerEntries(userId, {
+        fromEntryDate: query.fromEntryDate,
+        toEntryDate: query.toEntryDate,
+        accountId: query.accountId,
+        entryType: query.entryType,
+        page: query.page,
+        limit: query.limit,
+        sortBy: query.sortBy,
+        sortOrder: query.sortOrder,
+      }));
 
-    const result = await app.persistence.listCashLedgerEntries(userId, {
-      fromEntryDate: query.fromEntryDate,
-      toEntryDate: query.toEntryDate,
-      accountId: query.accountId,
-      entryType: query.entryType,
-      page: query.page,
-      limit: query.limit,
-      sortBy: query.sortBy,
-      sortOrder: query.sortOrder,
+      const enrichment = await timing.measure("cash_ledger_enrichment", "db", () => app.persistence.getCashLedgerEnrichment(userId, {
+        accountIds: [...new Set(result.entries.map((entry) => entry.accountId))],
+        relatedTradeEventIds: result.entries
+          .map((entry) => entry.relatedTradeEventId)
+          .filter((value): value is string => Boolean(value)),
+        relatedDividendLedgerEntryIds: result.entries
+          .map((entry) => entry.relatedDividendLedgerEntryId)
+          .filter((value): value is string => Boolean(value)),
+        fxTransferIds: result.entries
+          .map((entry) => entry.fxTransferId)
+          .filter((value): value is string => Boolean(value)),
+      }));
+
+      const enriched = await timing.measure("map_response", "app", () => Promise.resolve(result.entries.map((entry) => {
+        let ticker: string | null = null;
+        let side: "BUY" | "SELL" | null = null;
+        let tradeDetail: {
+          quantity: number;
+          unitPrice: number;
+          commissionAmount: number;
+          taxAmount: number;
+        } | undefined;
+        let dividendDetail: {
+          expectedCashAmount: number;
+          receivedCashAmount: number;
+          deductionTotal: number;
+        } | undefined;
+        let fxTransferDetail: {
+          pairedAccountId: string;
+          pairedAccountName: string;
+          pairedAmount: number;
+          pairedCurrency: string;
+          effectiveRate: number;
+        } | undefined;
+        let fxTransferReversed: boolean | undefined;
+
+        if (entry.relatedTradeEventId) {
+          const trade = enrichment.tradesById.get(entry.relatedTradeEventId);
+          if (trade) {
+            ticker = trade.ticker;
+            side = trade.side;
+            tradeDetail = {
+              quantity: trade.quantity,
+              unitPrice: trade.unitPrice,
+              commissionAmount: trade.commissionAmount,
+              taxAmount: trade.taxAmount,
+            };
+          }
+        }
+
+        if (entry.relatedDividendLedgerEntryId) {
+          const dividend = enrichment.dividendsById.get(entry.relatedDividendLedgerEntryId);
+          if (dividend) {
+            ticker = dividend.ticker;
+            dividendDetail = {
+              expectedCashAmount: dividend.expectedCashAmount,
+              receivedCashAmount: dividend.receivedCashAmount,
+              deductionTotal: dividend.deductionTotal,
+            };
+          }
+        }
+
+        if (entry.fxTransferId) {
+          fxTransferReversed = enrichment.reversedFxTransferIds.has(entry.fxTransferId);
+          const legs = enrichment.fxTransferLegsByTransferId.get(entry.fxTransferId) ?? [];
+          const outLeg = legs.find((leg) => leg.entryType === "FX_TRANSFER_OUT" && !leg.reversalOfCashLedgerEntryId);
+          const inLeg = legs.find((leg) => leg.entryType === "FX_TRANSFER_IN" && !leg.reversalOfCashLedgerEntryId);
+          if (outLeg && inLeg && (entry.entryType === "FX_TRANSFER_OUT" || entry.entryType === "FX_TRANSFER_IN")) {
+            const paired = entry.entryType === "FX_TRANSFER_OUT" ? inLeg : outLeg;
+            fxTransferDetail = {
+              pairedAccountId: paired.accountId,
+              pairedAccountName: paired.accountName,
+              pairedAmount: Math.abs(paired.amount),
+              pairedCurrency: paired.currency,
+              effectiveRate: roundToDecimal(inLeg.amount / Math.abs(outLeg.amount), 8),
+            };
+          }
+        }
+
+        return { ...entry, ticker, side, tradeDetail, dividendDetail, fxTransferDetail, fxTransferReversed };
+      })));
+
+      const summary = result.summary.map((item) => ({
+        ...item,
+        amount: roundToDecimal(item.amount, 2),
+      }));
+
+      return { entries: enriched, summary, total: result.total };
     });
-
-    // Load store for enrichment maps (O(1) lookups)
-    const { store } = await loadUserStore(app, req);
-    const tradeMap = new Map(listTradeEvents(store).map(t => [t.id, t]));
-    const dividendLedgerMap = new Map(listDividendLedgerEntries(store).map(d => [d.id, d]));
-    const dividendEventMap = new Map(store.marketData.dividendEvents.map(e => [e.id, e]));
-    const accountsById = new Map(store.accounts.map((account) => [account.id, account]));
-    const fxOriginalLegsByTransferId = new Map<string, { out?: CashLedgerStoreEntry; in?: CashLedgerStoreEntry }>();
-    const reversedFxTransferIds = new Set<string>();
-    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
-      if (!cashEntry.fxTransferId) continue;
-      if (cashEntry.reversalOfCashLedgerEntryId) {
-        reversedFxTransferIds.add(cashEntry.fxTransferId);
-        continue;
-      }
-      const bucket = fxOriginalLegsByTransferId.get(cashEntry.fxTransferId) ?? {};
-      if (cashEntry.entryType === "FX_TRANSFER_OUT") bucket.out = cashEntry;
-      if (cashEntry.entryType === "FX_TRANSFER_IN") bucket.in = cashEntry;
-      fxOriginalLegsByTransferId.set(cashEntry.fxTransferId, bucket);
-    }
-
-    // Build deduction total map: sum actual DividendDeductionEntry amounts per ledger entry
-    const deductionTotals = new Map<string, number>();
-    for (const d of listDividendDeductionEntries(store)) {
-      deductionTotals.set(d.dividendLedgerEntryId, (deductionTotals.get(d.dividendLedgerEntryId) ?? 0) + d.amount);
-    }
-
-    // Enrich paginated entries
-    const enriched = result.entries.map(entry => {
-      let ticker: string | null = null;
-      let side: "BUY" | "SELL" | null = null;
-      let tradeDetail: {
-        quantity: number;
-        unitPrice: number;
-        commissionAmount: number;
-        taxAmount: number;
-      } | undefined;
-      let dividendDetail: {
-        expectedCashAmount: number;
-        receivedCashAmount: number;
-        deductionTotal: number;
-      } | undefined;
-      let fxTransferDetail: {
-        pairedAccountId: string;
-        pairedAccountName: string;
-        pairedAmount: number;
-        pairedCurrency: string;
-        effectiveRate: number;
-      } | undefined;
-      let fxTransferReversed: boolean | undefined;
-
-      if (entry.relatedTradeEventId) {
-        const trade = tradeMap.get(entry.relatedTradeEventId);
-        if (trade) {
-          ticker = trade.ticker;
-          side = trade.type;
-          tradeDetail = {
-            quantity: trade.quantity,
-            unitPrice: trade.unitPrice,
-            commissionAmount: trade.commissionAmount,
-            taxAmount: trade.taxAmount,
-          };
-        }
-      }
-
-      if (entry.relatedDividendLedgerEntryId) {
-        const dle = dividendLedgerMap.get(entry.relatedDividendLedgerEntryId);
-        if (dle) {
-          const event = dividendEventMap.get(dle.dividendEventId);
-          ticker = event?.ticker ?? null;
-          dividendDetail = {
-            expectedCashAmount: dle.expectedCashAmount,
-            receivedCashAmount: dle.receivedCashAmount,
-            deductionTotal: roundToDecimal(deductionTotals.get(dle.id) ?? 0, 2),
-          };
-        }
-      }
-
-      if (entry.fxTransferId) {
-        fxTransferReversed = reversedFxTransferIds.has(entry.fxTransferId);
-        const pair = fxOriginalLegsByTransferId.get(entry.fxTransferId);
-        if (pair?.out && pair.in && (entry.entryType === "FX_TRANSFER_OUT" || entry.entryType === "FX_TRANSFER_IN")) {
-          const paired = entry.entryType === "FX_TRANSFER_OUT" ? pair.in : pair.out;
-          const pairedAccount = accountsById.get(paired.accountId);
-          fxTransferDetail = {
-            pairedAccountId: paired.accountId,
-            pairedAccountName: pairedAccount?.name ?? paired.accountId,
-            pairedAmount: Math.abs(paired.amount),
-            pairedCurrency: paired.currency,
-            effectiveRate: roundToDecimal(pair.in.amount / Math.abs(pair.out.amount), 8),
-          };
-        }
-      }
-
-      return { ...entry, ticker, side, tradeDetail, dividendDetail, fxTransferDetail, fxTransferReversed };
-    });
-
-    // Round summary amounts
-    const summary = result.summary.map(s => ({
-      ...s,
-      amount: roundToDecimal(s.amount, 2),
-    }));
-
-    return { entries: enriched, summary, total: result.total };
   });
 
   app.post("/portfolio/dividends/postings", async (req) => {
