@@ -4131,16 +4131,39 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/page-data", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/page-data", async (timing) => {
-      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
+      const symbols = [...new Set(
+        holdings
+          .map((holding) => holding.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const snapshotMap = await timing.measure("load_quotes", "db", async () => {
+        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+      });
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
       const overview = await timing.measure("build_portfolio_page_data", "app", () =>
         Promise.resolve(buildDashboardOverview(store, {
           integrityIssue: null,
-          quotes: [],
+          quotes,
         })));
+      if (app.tradingCalendarCache) {
+        try {
+          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
+            persistence: app.persistence,
+            tradingCalendar: app.tradingCalendarCache,
+          }));
+        } catch (err) {
+          app.log.warn({ err }, "portfolio_page_freshness_enrichment_failed");
+        }
+      }
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
 
       return {
         holdings: overview.holdings,
-        holdingGroups: overview.holdingGroups,
+        holdingGroups,
         dividends: overview.dividends,
         instruments: overview.instruments,
         accounts: overview.accounts,
