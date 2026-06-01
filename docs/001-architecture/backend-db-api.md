@@ -7,6 +7,61 @@ Related docs:
 - [Environment Variables](../002-operations/environment-variables.md) — all env vars, schemas, validation
 - [System Architecture](./architecture.md) — monorepo layout, request lifecycle, deployment topology
 
+## Smooth Page Read Baseline
+
+This section defines the backend contract for the authenticated page-performance baseline. Current implementation may still contain legacy `loadStore()`-backed read paths; until the migration is complete, treat the rules below as the design target and record any exceptions in the active performance note.
+
+### Read-path model
+
+| Class | Purpose | Allowed characteristics | Avoid |
+|---|---|---|---|
+| Shell read | identity and shared-context bootstrap used by the web shell | lightweight, stable, reusable across routes, no broad portfolio hydration | piggybacking page summaries, holdings, balances, or chart payloads into shell bootstrap |
+| Primary page read | smallest route-specific read model required for first useful content | targeted query/projection, route-owned DTO, predictable latency budget, human-readable labels included when needed for first render | broad `loadStore()` hydration when the route only needs a projection |
+| Secondary read | follow-up route data that improves depth after first paint | may be separate endpoint or deferred sub-read, still instrumented | becoming a hidden prerequisite for primary content |
+| Enrichment read | quote freshness, FX/reporting overlays, grouped-holding translation, optional metadata | scoped to the component or route that needs it, safe to defer | cross-route coupling that makes unrelated pages wait |
+
+### Endpoint rules
+
+- Hot page reads must expose route-specific contracts instead of relying on global dashboard bootstrap endpoints.
+- Route endpoints should return display-ready metadata required for first render. Example: cash-ledger primary reads must include human account labels rather than forcing a later UUID-to-label repair pass.
+- DTO compatibility may be preserved for existing consumers during migration, but compatibility fields must not force unrelated routes back onto the global shell path.
+- `loadStore()` remains valid for write-heavy, recompute, or domain-consistency flows. Do not remove it from mutation paths purely for symmetry with read-model work.
+
+### Target budgets
+
+| Backend surface | Budget |
+|---|---:|
+| Primary page read endpoint | P95 < 800 ms where realistic |
+| Cash-ledger primary read endpoint | P95 < 1000 ms max |
+| Shell/profile/shared-context bootstrap endpoint(s) | P95 < 300 ms |
+
+If a route cannot meet these targets because of unavoidable data shape complexity, document the exception explicitly in the active performance note and keep the frontend route skeleton behavior aligned with the known delay.
+
+### Timing instrumentation contract
+
+- Hot authenticated read endpoints must emit `Server-Timing` and structured duration logs.
+- Minimum timing dimensions for the smooth-pages work:
+  - total request duration
+  - app/service time
+  - DB/query time where practical
+  - response bytes when cheap to capture
+- Baseline endpoints called out for instrumentation:
+  - `GET /dashboard/overview`
+  - `GET /dashboard/performance`
+  - `GET /portfolio/page-data`
+  - `GET /portfolio/instrument-index`
+  - `GET /portfolio/cash-ledger`
+  - `GET /accounts?includeBalances=true`
+  - any new route-primary endpoint introduced to replace global bootstrap reads
+- Instrumentation should stay production-safe and low-noise. Prefer consistent metric names so frontend/browser evidence can be correlated against backend timing.
+
+### Verification expectations
+
+- Add focused route or integration coverage proving page-primary endpoints do not need unrelated global reads to serve the first useful payload.
+- Add coverage for DTO correctness on fields that affect first render semantics, especially shared-context labels, grouped holdings, and cash-ledger account labels.
+- Performance evidence is not complete until a note or PR shows measured endpoint timings and browser-visible route timings after the implementation lands.
+- When implementation is still in progress, documentation should mark timing tables as design budgets or pre-change baseline measurements, not as achieved results.
+
 ## Database
 
 ### Runtime storage model
@@ -1457,11 +1512,18 @@ Finding:
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/settings` | none | `UserSettings` | `loadStore` | yes |
+| `GET` | `/settings` | none | `UserSettings` | targeted `getUserSettings(contextUserId)` read, `Server-Timing` | yes |
 | `PATCH` | `/settings` | partial `{ locale?, costBasisMethod?, quotePollIntervalSeconds? }` | updated `UserSettings` | `loadStore`, `saveStore` | not used by shipped UI |
 | `PUT` | `/settings/full` | `{ settings, feeProfiles, accounts, feeProfileBindings }` where each `feeProfile` carries `accountId` | `{ settings, accounts, feeProfiles, feeProfileBindings }` | draft merge, `saveStore` | yes |
 | `GET` | `/settings/fee-config` | none | `{ accounts, feeProfiles, feeProfileBindings, integrityIssue }` with flat `feeProfiles[]` plus `accountId` discriminator | `loadStore`, integrity check | yes |
 | `PUT` | `/settings/fee-config` | `{ accounts, feeProfileBindings }` | `{ accounts, feeProfileBindings }` | `loadStore`, validation, `saveStore` | not used by shipped UI |
+
+#### Portfolio page reads
+
+| Method | Path | Request shape | Response shape | Dependencies | Web usage |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/portfolio/page-data` | none | `{ holdings, holdingGroups, dividends, instruments, accounts }` | route-owned portfolio read, `Server-Timing`; intentionally omits dashboard summary/actions/settings | `/portfolio` primary content |
+| `GET` | `/portfolio/instrument-index` | none | `{ instruments }` | route-owned instrument search index, `Server-Timing`; intentionally omits dashboard summary/actions/settings | shell command/search bootstrap |
 
 Key validation:
 - `costBasisMethod` is restricted to `WEIGHTED_AVERAGE`

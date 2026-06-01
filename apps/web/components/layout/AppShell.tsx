@@ -2,21 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import {
-  type DashboardPerformanceRange,
-  type LocaleCode,
-} from "@vakwen/shared-types";
+import { type LocaleCode } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import type { TransactionInput } from "../portfolio/types";
 import { AppShellLayout } from "./AppShellLayout";
 import { BreadcrumbProvider } from "./BreadcrumbProvider";
-import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
 import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 import { useNotifications } from "../../hooks/useNotifications";
-import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
 import { PortfolioSwitcher } from "./PortfolioSwitcher";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { AppShellDataProvider } from "./AppShellDataContext";
@@ -31,6 +26,8 @@ import { useCommandPalette } from "../../hooks/useCommandPalette";
 import { AddTransactionDialog } from "../portfolio/AddTransactionDialog";
 import { FloatingQuickActions } from "../dashboard/FloatingQuickActions";
 import { RecomputeConfirmDialog } from "../portfolio/RecomputeConfirmDialog";
+import { useShellPortfolioConfig } from "./useShellPortfolioConfig";
+import { useShellInstrumentIndex } from "./useShellInstrumentIndex";
 
 type AppSection = "dashboard" | "portfolio" | "transactions" | "dividends" | "cash-ledger";
 
@@ -75,24 +72,18 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const [isClientReady, setIsClientReady] = useState(false);
-  const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
-  // KZO-161 (158C) / KZO-159 — Effective dashboard performance ranges.
-  const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
-  // KZO-161 (158C) F4 — gear icon → customize-ranges popover open state.
-  const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
-
-  const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
+  const portfolioConfig = useShellPortfolioConfig({ initialTransaction: DEFAULT_TRANSACTION });
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation
     && profileData.profile.impersonation.active !== false
     ? profileData.profile.impersonation
     : null;
 
-  const locale: LocaleCode = localeOverride ?? dashboard.settings?.locale ?? "en";
+  const locale: LocaleCode = localeOverride ?? "en";
   const dict = useMemo(() => getDictionary(locale), [locale]);
 
   const sharedContext = useSharedContext({
-    refreshDashboard: dashboard.refresh,
+    refreshDashboard: portfolioConfig.refresh,
     refreshProfile: profileData.refresh,
     dict,
   });
@@ -110,25 +101,22 @@ export function AppShell({
     handleSharingNotification,
   } = sharedContext;
 
-  const hasOwnerEmptyPortfolio = isSharedContext && dashboard.holdings.length === 0;
   // Preserves §8 item 4 — shared-context dictionary remapping for empty
   // portfolio / empty transactions copy.
   const uiDict = useMemo(() => {
     if (!isSharedContext) return dict;
     return {
       ...dict,
-      dashboardHome: hasOwnerEmptyPortfolio
-        ? {
-          ...dict.dashboardHome,
-          holdingsEmpty: dict.switcher.sharedHoldingsEmpty.replace("{owner}", currentSharedOwnerLabel),
-        }
-        : dict.dashboardHome,
+      dashboardHome: {
+        ...dict.dashboardHome,
+        holdingsEmpty: dict.switcher.sharedHoldingsEmpty.replace("{owner}", currentSharedOwnerLabel),
+      },
       transactions: {
         ...dict.transactions,
         recentLedgerEmpty: dict.switcher.sharedTransactionsEmpty.replace("{owner}", currentSharedOwnerLabel),
       },
     };
-  }, [currentSharedOwnerLabel, dict, hasOwnerEmptyPortfolio, isSharedContext]);
+  }, [currentSharedOwnerLabel, dict, isSharedContext]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -138,18 +126,10 @@ export function AppShell({
     setIsClientReady(true);
   }, []);
 
-  // KZO-161 (158C) range-snap guard.
-  useEffect(() => {
-    if (effectiveRanges.length === 0) return;
-    if (!effectiveRanges.includes(performanceRange)) {
-      setPerformanceRange(effectiveRanges[0]);
-    }
-  }, [effectiveRanges, performanceRange]);
-
   const refreshAfterTransaction = useCallback(async () => {
-    await dashboard.refresh();
+    await portfolioConfig.refresh();
     bumpContextRefreshSignal();
-  }, [bumpContextRefreshSignal, dashboard]);
+  }, [bumpContextRefreshSignal, portfolioConfig]);
 
   const transactionSubmission = useTransactionSubmission({
     initialValue: DEFAULT_TRANSACTION,
@@ -184,41 +164,39 @@ export function AppShell({
 
   const transactionAccountOptions = useMemo(
     () =>
-      dashboard.accounts.map((account) => ({
+      portfolioConfig.accounts.map((account) => ({
         id: account.id,
         name: account.name,
         feeProfileName:
-          dashboard.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+          portfolioConfig.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
         defaultCurrency: account.defaultCurrency,
         accountType: account.accountType,
       })),
-    [dashboard.accounts, dashboard.feeProfiles],
+    [portfolioConfig.accounts, portfolioConfig.feeProfiles],
   );
 
-  const isI18nReady = !!dashboard.settings || !!localeOverride;
-
   useEffect(() => {
-    transactionSubmission.setDraftTransaction((previous) => dashboard.synchronizeTransactionDraft(previous));
-  }, [dashboard.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
+    transactionSubmission.setDraftTransaction((previous) => portfolioConfig.synchronizeTransactionDraft(previous));
+  }, [portfolioConfig.synchronizeTransactionDraft, transactionSubmission.setDraftTransaction]);
 
-  const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || dashboard.errorMessage;
+  const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || portfolioConfig.errorMessage;
 
-  const { quickSearchItems } = useAppNavigation(dict, dashboard.instruments);
+  const shellInstruments = useShellInstrumentIndex();
+  const { quickSearchItems } = useAppNavigation(dict, shellInstruments);
 
   const handleClearGlobalError = useCallback(() => {
-    dashboard.setErrorMessage("");
+    portfolioConfig.setErrorMessage("");
     transactionSubmission.setErrorMessage("");
     recomputeAction.setErrorMessage("");
     void (async () => {
-      await dashboard.refresh();
+      await portfolioConfig.refresh();
       bumpContextRefreshSignal();
     })().catch(() => undefined);
-  }, [bumpContextRefreshSignal, dashboard, recomputeAction, transactionSubmission]);
+  }, [bumpContextRefreshSignal, portfolioConfig, recomputeAction, transactionSubmission]);
 
   const handleReportingCurrencySaved = useCallback(() => {
-    void dashboard.refresh();
     bumpContextRefreshSignal();
-  }, [bumpContextRefreshSignal, dashboard]);
+  }, [bumpContextRefreshSignal]);
 
   // Phase 3e — global ⌘K palette state + AlertDialog state for `recompute.all`.
   const commandPalette = useCommandPalette();
@@ -234,22 +212,17 @@ export function AppShell({
   }, []);
 
   const appShellDataValue = useAppShellDataValue({
-    dashboard,
     uiDict,
     locale,
     isSharedContext,
-    isI18nReady,
     transactionSubmission,
     mutations,
     recomputeAction,
     openRecomputeConfirm: handleRecomputeFromPalette,
     transactionAccountOptions,
-    performanceRange,
-    setPerformanceRange,
-    effectiveRanges,
-    refetchEffectiveRanges,
-    customizeRangesOpen,
-    setCustomizeRangesOpen,
+    integrityIssue: portfolioConfig.integrityIssue,
+    showIntegrityDialog: portfolioConfig.showIntegrityDialog,
+    setShowIntegrityDialog: portfolioConfig.setShowIntegrityDialog,
     generateSnapshots: snapshotGeneration.generateSnapshots,
     isGeneratingSnapshots: snapshotGeneration.isGeneratingSnapshots,
     contextRefreshSignal,
@@ -311,8 +284,10 @@ export function AppShell({
             <NavigationFeedbackProvider>
               <AppShellLayout
                 initialSidebarOpen={initialSidebarOpen}
-                dashboard={dashboard}
                 profileData={profileData}
+                integrityIssue={portfolioConfig.integrityIssue}
+                showIntegrityDialog={portfolioConfig.showIntegrityDialog}
+                setShowIntegrityDialog={portfolioConfig.setShowIntegrityDialog}
                 dict={dict}
                 uiDict={uiDict}
                 locale={locale}
@@ -335,7 +310,7 @@ export function AppShell({
                 onClearGlobalError={handleClearGlobalError}
                 isClientReady={isClientReady}
                 switcherLoaded={switcherLoaded}
-                onTimeframesSaved={refetchEffectiveRanges}
+                onTimeframesSaved={() => undefined}
                 onReportingCurrencySaved={handleReportingCurrencySaved}
               >
                 {children ?? null}

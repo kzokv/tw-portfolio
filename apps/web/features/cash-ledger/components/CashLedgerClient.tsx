@@ -35,6 +35,8 @@ import { ConfirmDialog } from "../../../components/admin/ConfirmDialog";
 
 interface CashLedgerClientProps {
   initialData: CashLedgerListResponse;
+  initialAccounts?: AccountWithLiveBalance[];
+  initialAccountMetaReady?: boolean;
   dict: AppDictionary;
   locale: LocaleCode;
 }
@@ -108,12 +110,30 @@ function isFxTransferEntry(entry: EnrichedCashLedgerEntry): boolean {
 // per `.claude/rules/nextjs-i18n-serialization.md` — function values
 // cannot cross the Next.js server→client boundary inside dictionaries.
 
-export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClientProps) {
+function buildAccountMeta(accounts: AccountWithLiveBalance[]): Map<string, AccountOptionInput> {
+  const next = new Map<string, AccountOptionInput>();
+  for (const account of accounts) {
+    next.set(account.id, {
+      name: account.name,
+      defaultCurrency: account.defaultCurrency,
+      accountType: account.accountType,
+    });
+  }
+  return next;
+}
+
+export function CashLedgerClient({
+  initialData,
+  initialAccounts = [],
+  initialAccountMetaReady = false,
+  dict,
+  locale,
+}: CashLedgerClientProps) {
   const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData.entries);
   const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData.summary);
   const [total, setTotal] = useState(initialData.total ?? 0);
   const [drawerEntry, setDrawerEntry] = useState<EnrichedCashLedgerEntry | null>(null);
-  const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>([]);
+  const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>(initialAccounts);
   const [fxDialogOpen, setFxDialogOpen] = useState(false);
   const [fxDialogMode, setFxDialogMode] = useState<"create" | "edit">("create");
   const [fxDialogInitialValue, setFxDialogInitialValue] = useState<FxTransferFormValue | undefined>(undefined);
@@ -121,11 +141,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const [reverseEntry, setReverseEntry] = useState<EnrichedCashLedgerEntry | null>(null);
   const [reversePending, setReversePending] = useState(false);
   const [reverseError, setReverseError] = useState("");
+  const [accountMetaReady, setAccountMetaReady] = useState(initialAccountMetaReady);
 
   // KZO-167: account chip metadata — name, defaultCurrency, accountType.
   // Empty until the GET /accounts fetch resolves; renders fall back to the
   // raw account ID until populated.
-  const [accountMeta, setAccountMeta] = useState<Map<string, AccountOptionInput>>(new Map());
+  const [accountMeta, setAccountMeta] = useState<Map<string, AccountOptionInput>>(
+    () => buildAccountMeta(initialAccounts),
+  );
 
   // Filters
   const [fromEntryDate, setFromEntryDate] = useState("");
@@ -140,17 +163,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const d = dict.cashLedger;
 
   const loadAccounts = useCallback(async () => {
+    // TODO(performance-smooth-pages): switch to a cash-ledger-scoped account
+    // metadata read endpoint once the backend exposes one. We currently reuse
+    // `/accounts?includeBalances=true` to preserve labels without blocking on
+    // `/dashboard/overview`.
     const nextAccounts = await fetchAccounts({ includeBalances: true });
     setAccounts(nextAccounts);
-    const next = new Map<string, AccountOptionInput>();
-    for (const account of nextAccounts) {
-      next.set(account.id, {
-        name: account.name,
-        defaultCurrency: account.defaultCurrency,
-        accountType: account.accountType,
-      });
-    }
-    setAccountMeta(next);
+    setAccountMeta(buildAccountMeta(nextAccounts));
+    setAccountMetaReady(true);
   }, []);
 
   useEffect(() => {
@@ -158,7 +178,8 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
     void loadAccounts()
       .catch(() => {
         if (cancelled) return;
-        // Leave accountMeta empty; dropdown + chips fall back to raw IDs.
+        // Fall back to raw IDs only after the account metadata request fails.
+        setAccountMetaReady(true);
       });
     return () => { cancelled = true; };
   }, [loadAccounts]);
@@ -166,14 +187,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const renderAccountLabel = useCallback(
     (id: string): string => {
       const meta = accountMeta.get(id);
-      if (!meta) return id;
+      if (!meta) return accountMetaReady ? id : dict.cashLedger.accountLabelLoading;
       return formatAccountOption(meta, {
         accountTypeBroker: dict.cashLedger.accountTypeBroker,
         accountTypeBank: dict.cashLedger.accountTypeBank,
         accountTypeWallet: dict.cashLedger.accountTypeWallet,
       });
     },
-    [accountMeta, dict],
+    [accountMeta, accountMetaReady, dict],
   );
 
   const fetchData = useCallback(async (opts: {

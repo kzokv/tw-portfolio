@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
+import type { AccountDto, LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
 import {
   currentMonthQuery,
@@ -45,21 +45,21 @@ function hasExplicitDividendsView(searchParams: Record<string, string | string[]
 }
 
 export default async function DividendsPage({ searchParams }: DividendsPageProps) {
-  const [sp, session, profile, sidebarOpen] = await Promise.all([
+  const [sp, session, profile, sidebarOpen, settings] = await Promise.all([
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
+    getJson<UserSettings>("/settings").catch(() => null),
   ]);
 
-  let locale: LocaleCode = "en";
+  const locale: LocaleCode = settings?.locale ?? "en";
   let accounts: AccountDto[] = [];
   try {
     const dashboard = await fetchDashboardSnapshot();
-    locale = dashboard.settings?.locale ?? "en";
     accounts = dashboard.accounts ?? [];
   } catch {
-    // Fall back to English; client shell will re-fetch.
+    // Fall back to viewer settings locale; page-specific client fetches recover.
   }
 
   const resolvedInitialTab = resolveInitialDividendsTab(sp);
@@ -108,7 +108,13 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
+      <AppShell
+        section="dividends"
+        isDemo={session.isDemo}
+        localeOverride={locale}
+        initialProfile={profile}
+        initialSidebarOpen={sidebarOpen}
+      >
         <DividendsTabsClient
           initialTab={initialTab}
           calendarLabel={dict.dividends.tabs.calendar}

@@ -10,10 +10,6 @@ import type {
 
 vi.mock("../../../features/cash-ledger/services/cashLedgerService", () => ({
   fetchCashLedgerEntries: vi.fn(),
-  // KZO-167: CashLedgerClient now also calls fetchAccounts() on mount to
-  // build the dropdown chip metadata. Stub it with an empty list so the
-  // pagination tests stay focused on the cash-ledger fetch behavior —
-  // the dropdown falls back to raw account IDs when accountMeta is empty.
   fetchAccounts: vi.fn().mockResolvedValue([]),
   // KZO-179: cashLedgerService now exports createAccount (used by the
   // settings drawer's Accounts tab). CashLedgerClient does NOT call it,
@@ -27,9 +23,14 @@ vi.mock("../../../hooks/useEventStream", () => ({
   useEventStream: () => undefined,
 }));
 
-import { fetchCashLedgerEntries } from "../../../features/cash-ledger/services/cashLedgerService";
+import {
+  fetchAccounts,
+  fetchCashLedgerEntries,
+} from "../../../features/cash-ledger/services/cashLedgerService";
+import type { AccountWithLiveBalance } from "../../../features/cash-ledger/services/cashLedgerService";
 
 const mockFetch = vi.mocked(fetchCashLedgerEntries);
+const mockFetchAccounts = vi.mocked(fetchAccounts);
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -61,6 +62,29 @@ function buildResponse(total: number, count: number): CashLedgerListResponse {
   return { entries, summary: [], total };
 }
 
+async function renderCashLedgerClient(
+  root: Root,
+  props: {
+    initialData: CashLedgerListResponse;
+    initialAccounts?: AccountWithLiveBalance[];
+    initialAccountMetaReady?: boolean;
+    locale?: "en";
+  },
+) {
+  await act(async () => {
+    root.render(
+      <CashLedgerClient
+        initialData={props.initialData}
+        initialAccounts={props.initialAccounts}
+        initialAccountMetaReady={props.initialAccountMetaReady}
+        dict={dict}
+        locale={props.locale ?? "en"}
+      />,
+    );
+    await Promise.resolve();
+  });
+}
+
 describe("CashLedgerClient pagination", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -70,6 +94,8 @@ describe("CashLedgerClient pagination", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mockFetch.mockReset();
+    mockFetchAccounts.mockReset();
+    mockFetchAccounts.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -77,9 +103,9 @@ describe("CashLedgerClient pagination", () => {
     container.remove();
   });
 
-  it("renders pagination when total exceeds PAGE_SIZE", () => {
+  it("renders pagination when total exceeds PAGE_SIZE", async () => {
     const data = buildResponse(100, 50);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     const pagination = container.querySelector('[data-testid="pagination"]');
     expect(pagination).toBeTruthy();
@@ -89,26 +115,26 @@ describe("CashLedgerClient pagination", () => {
     expect(pagination!.textContent).toContain("2");
   });
 
-  it("does not render pagination when total fits in one page", () => {
+  it("does not render pagination when total fits in one page", async () => {
     const data = buildResponse(10, 10);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     const pagination = container.querySelector('[data-testid="pagination"]');
     expect(pagination).toBeNull();
   });
 
-  it("disables prev button on page 1", () => {
+  it("disables prev button on page 1", async () => {
     const data = buildResponse(100, 50);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     const prevBtn = container.querySelector('[data-testid="pagination-prev"]') as HTMLButtonElement;
     expect(prevBtn).toBeTruthy();
     expect(prevBtn.disabled).toBe(true);
   });
 
-  it("enables next button when not on last page", () => {
+  it("enables next button when not on last page", async () => {
     const data = buildResponse(100, 50);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     const nextBtn = container.querySelector('[data-testid="pagination-next"]') as HTMLButtonElement;
     expect(nextBtn).toBeTruthy();
@@ -118,7 +144,7 @@ describe("CashLedgerClient pagination", () => {
   it("calls service with page when next is clicked", async () => {
     mockFetch.mockResolvedValue(buildResponse(100, 50));
     const data = buildResponse(100, 50);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     const nextBtn = container.querySelector('[data-testid="pagination-next"]') as HTMLButtonElement;
     await act(async () => nextBtn.click());
@@ -128,9 +154,9 @@ describe("CashLedgerClient pagination", () => {
     );
   });
 
-  it("renders sortable column headers with sort indicators", () => {
+  it("renders sortable column headers with sort indicators", async () => {
     const data = buildResponse(5, 5);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     // entryDate is the default sort column
     const headers = container.querySelectorAll("th");
@@ -143,7 +169,7 @@ describe("CashLedgerClient pagination", () => {
   it("toggles sort direction on clicking active column header", async () => {
     mockFetch.mockResolvedValue(buildResponse(5, 5));
     const data = buildResponse(5, 5);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     // Click the Date header (already active with desc) to toggle to asc
     const headers = container.querySelectorAll("th");
@@ -158,7 +184,7 @@ describe("CashLedgerClient pagination", () => {
   it("sets new column and desc when clicking a different column header", async () => {
     mockFetch.mockResolvedValue(buildResponse(5, 5));
     const data = buildResponse(5, 5);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     // Click the Amount header (not active)
     const headers = container.querySelectorAll("th");
@@ -173,7 +199,7 @@ describe("CashLedgerClient pagination", () => {
   it("resets page to 1 when filter changes trigger refresh", async () => {
     mockFetch.mockResolvedValue(buildResponse(100, 50));
     const data = buildResponse(100, 50);
-    act(() => root.render(<CashLedgerClient initialData={data} dict={dict} locale="en" />));
+    await renderCashLedgerClient(root, { initialData: data });
 
     // Navigate to page 2 first
     const nextBtn = container.querySelector('[data-testid="pagination-next"]') as HTMLButtonElement;
@@ -187,5 +213,72 @@ describe("CashLedgerClient pagination", () => {
     // The most recent call should have page: 1
     const lastCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1]![0];
     expect(lastCall).toEqual(expect.objectContaining({ page: 1 }));
+  });
+
+  it("replaces account ids with display labels after account metadata loads without flashing the raw id", async () => {
+    let resolveAccounts: ((value: AccountWithLiveBalance[]) => void) | null = null;
+    mockFetchAccounts.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAccounts = resolve;
+      }),
+    );
+
+    const accountId = "550e8400-e29b-41d4-a716-446655440000";
+    const data: CashLedgerListResponse = {
+      entries: [buildEntry({ accountId })],
+      summary: [{ accountId, currency: "TWD", amount: 1000 }],
+      total: 1,
+    };
+
+    await renderCashLedgerClient(root, { initialData: data });
+
+    expect(container.textContent).toContain("Loading account...");
+    expect(container.textContent).not.toContain(accountId);
+
+    await act(async () => {
+      resolveAccounts?.([
+        {
+          id: accountId,
+          userId: "user-1",
+          name: "Shared Brokerage",
+          defaultCurrency: "TWD",
+          accountType: "broker",
+          feeProfileId: "fp-1",
+        },
+      ]);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Shared Brokerage (TWD · Broker)");
+    expect(container.textContent).not.toContain(accountId);
+  });
+
+  it("renders seeded account labels on first paint when the server passes account metadata", async () => {
+    mockFetchAccounts.mockReturnValue(new Promise(() => undefined));
+    const accountId = "seeded-account";
+    const data: CashLedgerListResponse = {
+      entries: [buildEntry({ accountId })],
+      summary: [{ accountId, currency: "TWD", amount: 1000 }],
+      total: 1,
+    };
+
+    await renderCashLedgerClient(root, {
+      initialData: data,
+      initialAccounts: [
+        {
+          id: accountId,
+          userId: "user-1",
+          name: "Seeded Brokerage",
+          defaultCurrency: "TWD",
+          accountType: "broker",
+          feeProfileId: "fp-1",
+        },
+      ],
+      initialAccountMetaReady: true,
+    });
+
+    expect(container.textContent).toContain("Seeded Brokerage (TWD · Broker)");
+    expect(container.textContent).not.toContain("Loading account...");
+    expect(container.textContent).not.toContain(accountId);
   });
 });

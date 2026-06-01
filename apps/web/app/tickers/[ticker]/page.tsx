@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import type { UserSettings } from "@vakwen/shared-types";
 import { getDictionary } from "../../../lib/i18n";
 import { fetchDashboardSnapshot } from "../../../features/dashboard/services/dashboardService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
@@ -27,12 +28,13 @@ function normalizeMarketCode(value?: string): MarketCode | undefined {
 }
 
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId, marketCode }, session, profile, sidebarOpen] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, marketCode }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
+    getJson<UserSettings>("/settings").catch(() => null),
   ]);
   const ticker = decodeURIComponent(rawTicker).trim().toUpperCase();
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
@@ -55,7 +57,12 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   if (!dashboard) {
     return (
       <Suspense fallback={<DashboardLoading standalone />}>
-        <AppShell isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
+        <AppShell
+          isDemo={session.isDemo}
+          localeOverride={settings?.locale ?? "en"}
+          initialProfile={profile}
+          initialSidebarOpen={sidebarOpen}
+        >
           <p>
             Failed to load data for {ticker}.{" "}
             <Link href="/portfolio">Back to portfolio</Link>
@@ -65,7 +72,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     );
   }
 
-  const locale = dashboard.settings?.locale ?? "en";
+  const locale = settings?.locale ?? dashboard.settings?.locale ?? "en";
   const dict = getDictionary(locale);
   const holdingGroup = findHoldingGroup(
     resolveHoldingGroups({
@@ -88,7 +95,12 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
+      <AppShell
+        isDemo={session.isDemo}
+        localeOverride={locale}
+        initialProfile={profile}
+        initialSidebarOpen={sidebarOpen}
+      >
         <TickerHistoryClient
           transactions={transactions}
           dict={dict}
