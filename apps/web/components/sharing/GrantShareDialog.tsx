@@ -23,6 +23,7 @@ type GrantStep = "form" | "confirm" | "success";
 
 const CAPABILITY_LABELS: Record<ShareCapability, string> = {
   "portfolio:mcp_read": "App read",
+  "account:manage": "Account manage",
   "transaction_draft:create": "Draft create",
   "transaction_draft:edit": "Draft edit",
   "transaction_draft:archive": "Draft archive",

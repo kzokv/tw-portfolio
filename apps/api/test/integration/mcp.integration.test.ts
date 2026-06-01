@@ -41,6 +41,16 @@ function expectChatGptSafeSchema(schema: unknown): void {
   expect(serialized).not.toContain("\"pattern\"");
 }
 
+function expectedToolOutputTemplate(toolName: string): string {
+  if (toolName === "get_account_manager_component") return `${app.appBaseUrl}/connectors/chatgpt/account-manager`;
+  if (toolName === "get_transaction_draft_batch_component") return `${app.appBaseUrl}/connectors/chatgpt/transaction-draft`;
+  return "ui://widget/vakwen.html";
+}
+
+function expectedToolWidgetAccessible(toolName: string): boolean {
+  return toolName === "get_account_manager_component" || toolName === "get_transaction_draft_batch_component";
+}
+
 async function initializeMcpSession(headers: Record<string, string>) {
   const initialize = await app.inject({
     method: "POST",
@@ -204,6 +214,7 @@ describe("mcp routes", () => {
             securitySchemes?: unknown;
             ui?: { resourceUri?: string; visibility?: string[] };
             "openai/outputTemplate"?: string;
+            "openai/widgetAccessible"?: boolean;
           };
         }>;
       };
@@ -360,6 +371,7 @@ describe("mcp routes", () => {
             securitySchemes?: unknown;
             ui?: { resourceUri?: string; visibility?: string[] };
             "openai/outputTemplate"?: string;
+            "openai/widgetAccessible"?: boolean;
           };
         }>;
       };
@@ -375,11 +387,13 @@ describe("mcp routes", () => {
       expectChatGptSafeSchema(listedTool?.inputSchema);
       expectChatGptSafeSchema(listedTool?.outputSchema);
       expect(listedTool?.annotations).toEqual(tool.annotations);
+      const expectedOutputTemplate = expectedToolOutputTemplate(tool.name);
       expect(listedTool?._meta?.ui).toEqual({
-        resourceUri: "ui://widget/vakwen.html",
+        resourceUri: expectedOutputTemplate,
         visibility: ["model", "app"],
       });
-      expect(listedTool?._meta?.["openai/outputTemplate"]).toBe("ui://widget/vakwen.html");
+      expect(listedTool?._meta?.["openai/outputTemplate"]).toBe(expectedOutputTemplate);
+      expect(listedTool?._meta?.["openai/widgetAccessible"]).toBe(expectedToolWidgetAccessible(tool.name));
     }
 
     const readWidget = await app.inject({

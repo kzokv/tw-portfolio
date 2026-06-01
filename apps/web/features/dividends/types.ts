@@ -46,6 +46,7 @@ export interface DividendLedgerEntryDetails {
   id: string;
   dividendEventId: string;
   accountId: string;
+  accountName?: string | null;
   ticker: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
@@ -80,6 +81,7 @@ export interface DividendLedgerEntryDetails {
 export interface DividendEventListItem {
   id: string;
   accountId: string;
+  accountName?: string | null;
   ticker: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;

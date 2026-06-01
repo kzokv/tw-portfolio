@@ -131,7 +131,7 @@ export function DashboardClient() {
             value: largestHolding?.allocationPct !== null && largestHolding?.allocationPct !== undefined
               ? formatPercent(largestHolding.allocationPct, locale)
               : "-",
-            detail: largestHolding ? `${largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty,
+            detail: largestHolding ? `${largestHolding.accountName?.trim() || largestHolding.accountId} / ${largestHolding.ticker}` : dict.dashboardHome.holdingsEmpty,
           },
           {
             label: dict.dashboardHome.unrealizedPnlLabel,

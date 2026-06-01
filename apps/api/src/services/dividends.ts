@@ -137,6 +137,7 @@ export interface DividendLedgerRecomputeChange {
 export interface DividendEventListItem {
   id: string;
   accountId: string;
+  accountName: string;
   ticker: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
@@ -151,6 +152,7 @@ export interface DividendEventListItem {
 }
 
 export interface DividendLedgerEntryDetails extends DividendLedgerEntry {
+  accountName: string;
   ticker: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
@@ -424,6 +426,7 @@ export function buildDividendEventListItems(
       items.push({
         id: dividendEvent.id,
         accountId: account.id,
+        accountName: account.name,
         ticker: dividendEvent.ticker,
         instrumentType: resolveDividendInstrumentType(store, dividendEvent.ticker),
         eventType: dividendEvent.eventType,
@@ -456,6 +459,7 @@ export function buildDividendLedgerEntryDetails(
   options: { preserveOrder?: boolean } = {},
 ): DividendLedgerEntryDetails[] {
   const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
 
   const mapped = ledgerEntries
     .map((entry) => {
@@ -468,6 +472,7 @@ export function buildDividendLedgerEntryDetails(
       // aligned with current trades via Rule B recompute.
       return {
         ...entry,
+        accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: dividendEvent.ticker,
         instrumentType: resolveDividendInstrumentType(store, dividendEvent.ticker),
         eventType: dividendEvent.eventType,

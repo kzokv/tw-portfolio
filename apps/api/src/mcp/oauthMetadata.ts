@@ -74,7 +74,7 @@ export async function getMcpProtectedResourceMetadata(
   return {
     resource: `${issuer}/mcp`,
     authorization_servers: [issuer],
-    scopes_supported: getInitialMcpScopes(),
+    scopes_supported: getSupportedMcpScopes(),
     bearer_methods_supported: ["header"],
     resource_documentation: `${issuer}/mcp/health`,
   };

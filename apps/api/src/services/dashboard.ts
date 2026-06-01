@@ -147,6 +147,7 @@ function buildOverviewHoldings(
   quoteByKey: Map<string, QuoteSnapshot>,
   dividends: DashboardOverviewDividends,
 ): DashboardOverviewHoldingDto[] {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const accountMarket = new Map(store.accounts.map((account) => [
     account.id,
     marketCodeFor(account.defaultCurrency),
@@ -165,6 +166,7 @@ function buildOverviewHoldings(
       const marketValueAmount = quote ? roundToDecimal(quote.close * holding.quantity, 2) : null;
       return {
         accountId: holding.accountId,
+        accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
         ticker: holding.ticker,
         quantity: holding.quantity,
         costBasisAmount: holding.costBasisAmount,
@@ -245,6 +247,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
         return [
           {
             accountId: account.id,
+            accountName: account.name,
             ticker: event.ticker,
             exDividendDate: event.exDividendDate,
             paymentDate: event.paymentDate,
@@ -260,6 +263,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
 
 function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[] {
   const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const deductionsByLedgerId = new Map<string, number>();
 
   for (const deduction of store.accounting.facts.dividendDeductionEntries) {
@@ -276,6 +280,7 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
       const deductionAmount = deductionsByLedgerId.get(entry.id) ?? 0;
       return {
         accountId: entry.accountId,
+        accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: event?.ticker ?? "UNKNOWN",
         postedAt: entry.bookedAt ?? event?.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,

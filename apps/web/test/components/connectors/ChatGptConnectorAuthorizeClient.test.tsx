@@ -138,4 +138,20 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(document.body.textContent).toContain("Advanced scope. Off by default");
     expect(document.body.textContent).toContain("post_transaction_draft_rows");
   });
+
+  it("shows account management consent as a standard checked scope", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      scopes: ["portfolio:mcp_read", "account:manage", "transaction_draft:create"],
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    const accountLabel = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("Manage accounts"));
+    const accountCheckbox = accountLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+
+    expect(accountCheckbox?.checked).toBe(true);
+    expect(accountCheckbox?.disabled).toBe(false);
+  });
 });

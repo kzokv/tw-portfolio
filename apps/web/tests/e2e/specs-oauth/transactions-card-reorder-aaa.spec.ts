@@ -203,19 +203,20 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
     await appShell.assert.cardDragHandleIsVisible("transactions-status");
     await appShell.assert.cardDragHandleIsVisible("transactions-recent");
 
-    // Actions — drag the AddTransactionCard slot above transactions-recent,
+    // Actions — drag the AddTransactionCard slot above transactions-status,
     // proving the secondary form slot remains reorderable even after the
     // default route hierarchy makes the posted table primary.
-    await appShell.actions.dragCard("transactions-add", "transactions-recent");
+    await appShell.actions.dragCard("transactions-add", "transactions-status");
 
-    // Assert — saved order reflects the new position; transactions-add no
-    // longer leads. Persistence is debounced 250ms; poll until it lands.
+    // Assert — saved order reflects the new position; transactions-add moves
+    // away from its canonical trailing slot. Persistence is debounced 250ms;
+    // poll until it lands.
     await expect
       .poll(
         async () => {
           const order = await getCardOrder(testUserCookieHeader);
-          return order?.transactions?.[0] === "transactions-add"
-            && order?.transactions?.includes("transactions-add") === true;
+          return order?.transactions?.[1] === "transactions-add"
+            && order?.transactions?.[2] === "transactions-status";
         },
         { timeout: 2000, intervals: [300, 500, 700] },
       )

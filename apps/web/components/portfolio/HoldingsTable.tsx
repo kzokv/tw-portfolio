@@ -18,6 +18,10 @@ interface HoldingsTableProps {
   variant?: "default" | "compact";
 }
 
+function holdingAccountLabel(holding: DashboardOverviewHoldingDto): string {
+  return holding.accountName?.trim() || holding.accountId;
+}
+
 export function HoldingsTable({
   holdings,
   dict,
@@ -50,7 +54,9 @@ export function HoldingsTable({
     if (!normalized) return byCurrency;
 
     return byCurrency.filter((holding) =>
-      holding.ticker.toUpperCase().includes(normalized) || holding.accountId.toUpperCase().includes(normalized)
+      holding.ticker.toUpperCase().includes(normalized)
+      || holdingAccountLabel(holding).toUpperCase().includes(normalized)
+      || holding.accountId.toUpperCase().includes(normalized)
     );
   }, [currencyFilter, deferredQuery, holdings]);
 
@@ -175,12 +181,12 @@ export function HoldingsTable({
                   <td className="px-4 py-4 text-muted-foreground">
                     {isCompact ? (
                       <div className="flex min-w-[9rem] flex-col items-start gap-1">
-                        <span className="font-medium text-foreground">{holding.accountId}</span>
+                        <span className="font-medium text-foreground">{holdingAccountLabel(holding)}</span>
                         <span className="inline-flex rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                           {holding.currency}
                         </span>
                       </div>
-                    ) : holding.accountId}
+                    ) : holdingAccountLabel(holding)}
                   </td>
                   <td className="px-4 py-4 text-right">{formatNumber(holding.quantity, locale)}</td>
                   <td className="px-4 py-4 text-right">{formatCurrencyAmount(holding.averageCostPerShare, holding.currency, locale)}</td>

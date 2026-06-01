@@ -64,6 +64,7 @@ import {
 } from "../services/accountingStore.js";
 import { buildDashboardOverview } from "../services/dashboard.js";
 import { enrichHoldingsWithFreshness } from "../services/dashboardFreshness.js";
+import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
@@ -169,6 +170,7 @@ const currencyCodeSchema = z
   .regex(/^[A-Z]{3}$/);
 const aiConnectorScopeValues = [
   "portfolio:mcp_read",
+  "account:manage",
   "transaction_draft:create",
   "transaction_draft:edit",
   "transaction_draft:archive",
@@ -784,6 +786,7 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): Transaction
     state: row.state,
     version: row.version,
     accountId: row.accountId,
+    accountName: row.accountNameInput,
     accountNameInput: row.accountNameInput,
     type: row.tradeType,
     ticker: row.ticker,
@@ -1474,10 +1477,14 @@ function normalizeBindings(rawBindings: Array<z.infer<typeof feeBindingSchema>>)
   return [...deduped.values()];
 }
 
-function mapTransactionHistoryItem(trade: Transaction): TransactionHistoryItemDto {
+function mapTransactionHistoryItem(
+  trade: Transaction,
+  accountById: ReadonlyMap<string, { id: string; name: string }>,
+): TransactionHistoryItemDto {
   return {
     id: trade.id,
     accountId: trade.accountId,
+    accountName: resolveAccountDisplayName(accountById, trade.accountId),
     ticker: trade.ticker,
     marketCode: trade.marketCode,
     instrumentType: trade.instrumentType,
@@ -3787,6 +3794,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const tx = createTransaction(draftStore, userId, {
       ...body,
       id: randomUUID(),
+      feesSource: body.commissionAmount !== undefined || body.taxAmount !== undefined ? "MANUAL" : "CALCULATED",
     });
 
     const claimed = await app.persistence.claimIdempotencyKey(userId, idempotencyKey);
@@ -3891,10 +3899,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     quantity: z.number().int().positive().optional(),
     price: z.number().positive().multipleOf(0.01).optional(),
     side: z.enum(["BUY", "SELL"]).optional(),
+    commissionAmount: z.number().int().nonnegative().optional(),
+    taxAmount: z.number().int().nonnegative().optional(),
     confirmFeeRecalculation: z.boolean().optional(),
     keepManualFees: z.boolean().optional(),
   }).refine(
-    (data) => data.date || data.quantity || data.price || data.side,
+    (data) =>
+      data.date !== undefined
+      || data.quantity !== undefined
+      || data.price !== undefined
+      || data.side !== undefined
+      || data.commissionAmount !== undefined
+      || data.taxAmount !== undefined,
     { message: "At least one field must be provided" },
   );
 
@@ -3960,6 +3976,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       patch.side = body.side;
       changedFields.push("side");
     }
+    if (body.commissionAmount !== undefined && body.commissionAmount !== trade.commissionAmount) {
+      patch.commissionAmount = body.commissionAmount;
+      patch.feesSource = "MANUAL";
+      changedFields.push("commissionAmount");
+    }
+    if (body.taxAmount !== undefined && body.taxAmount !== trade.taxAmount) {
+      patch.taxAmount = body.taxAmount;
+      patch.feesSource = "MANUAL";
+      changedFields.push("taxAmount");
+    }
 
     if (changedFields.length === 0) {
       throw routeError(400, "no_changes", "No fields changed");
@@ -3967,14 +3993,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // Fee recalculation check
     const feeFieldsChanged = changedFields.includes("quantity") || changedFields.includes("price");
+    const explicitFeeOverride = body.commissionAmount !== undefined || body.taxAmount !== undefined;
     if (feeFieldsChanged) {
       const feesSource = trade.feesSource ?? "CALCULATED";
 
-      if (feesSource === "MANUAL" && !body.confirmFeeRecalculation && !body.keepManualFees) {
+      if (!explicitFeeOverride && feesSource === "MANUAL" && !body.confirmFeeRecalculation && !body.keepManualFees) {
         return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
       }
 
-      if (feesSource === "MANUAL" && body.keepManualFees) {
+      if (explicitFeeOverride) {
+        patch.feesSource = "MANUAL";
+      } else if (feesSource === "MANUAL" && body.keepManualFees) {
         // Keep existing fees — no recalculation
       } else {
         // Recalculate fees from bound fee profile
@@ -4099,11 +4128,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
     const { store } = await loadUserStore(app, req);
+    const accountById = new Map(store.accounts.map((account) => [account.id, account]));
     const items = listTradeEvents(store)
       .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
       .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
       .sort(compareTransactionsForHistory)
-      .map(mapTransactionHistoryItem);
+      .map((trade) => mapTransactionHistoryItem(trade, accountById));
     return query.limit ? items.slice(0, query.limit) : items;
   });
 

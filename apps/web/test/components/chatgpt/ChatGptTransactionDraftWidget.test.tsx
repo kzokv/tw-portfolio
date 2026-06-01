@@ -25,7 +25,7 @@ function buttonByText(text: string): HTMLButtonElement {
 function controlByLabel(text: string): HTMLInputElement | HTMLTextAreaElement {
   const label = Array.from(document.querySelectorAll("label"))
     .find((candidate) => candidate.textContent?.includes(text));
-  const control = label?.querySelector("input, textarea");
+  const control = label?.querySelector("input, textarea, select");
   if (!control) throw new Error(`control not found: ${text}`);
   return control as HTMLInputElement | HTMLTextAreaElement;
 }
@@ -109,7 +109,7 @@ describe("ChatGptTransactionDraftWidget", () => {
     expect(setOpenInAppUrl).toHaveBeenCalledWith({ href: initial.deepLinkUrl });
 
     await act(async () => {
-      buttonByText("Post selected rows").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      buttonByText("Post selected").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     await flushEffects();
@@ -165,7 +165,7 @@ describe("ChatGptTransactionDraftWidget", () => {
     await flushEffects();
 
     await act(async () => {
-      buttonByText("Post selected rows").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      buttonByText("Post selected").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
     await flushEffects();
@@ -191,7 +191,15 @@ describe("ChatGptTransactionDraftWidget", () => {
     await act(async () => root.render(<ChatGptTransactionDraftWidget />));
     await flushEffects();
 
-    await setControlValue("Account", "  au-brokerage  ");
+    const select = document.querySelector("select") as HTMLSelectElement;
+    const selectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")?.set;
+    await act(async () => {
+      selectSetter?.call(select, "USD Brokerage");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await setControlValue("Commission", "0");
+    await setControlValue("Tax", "0");
     await setControlValue("Note", "");
     await setControlValue("Source snippet", "");
 
@@ -207,13 +215,88 @@ describe("ChatGptTransactionDraftWidget", () => {
         rowId: "row-3",
         expectedVersion: 2,
         patch: {
-          accountId: "au-brokerage",
+          accountName: "USD Brokerage",
+          commissionAmount: 0,
           marketCode: "AU",
           quantity: 80,
+          taxAmount: 0,
           unitPrice: 43.18,
         },
       }],
     });
+  });
+
+  it("renders account names and posting preview warnings", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: initial.selectedRowIds, editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Cathay TW Brokerage");
+    expect(document.body.textContent).toContain("Manual zero commission differs from calculated fee");
+    expect(document.body.textContent).toContain("Post selected");
+  });
+
+  it("filters the server posting preview to the current ready selection", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: ["row-2"], editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-1"]')).toBeNull();
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-2"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Manual zero commission differs from calculated fee");
+  });
+
+  it("falls back to client preview rows when the server preview lacks the selected row", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "post", selectedRowIds: ["row-4"], editRowId: null, confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(document.querySelector('[data-testid="chatgpt-widget-preview-row-row-4"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("0050");
+  });
+
+  it("prefills unresolved account edits from accountNameInput and shows row validation details", async () => {
+    const initial = buildMockTransactionDraftWidgetData();
+
+    window.openai = {
+      toolOutput: initial,
+      toolResponseMetadata: { widget: initial },
+      widgetState: { mode: "review", selectedRowIds: initial.selectedRowIds, editRowId: "row-3", confirmText: "" },
+      notifyIntrinsicHeight: vi.fn(),
+      setWidgetState: vi.fn(),
+    };
+
+    await act(async () => root.render(<ChatGptTransactionDraftWidget />));
+    await flushEffects();
+
+    expect(controlByLabel("Account").value).toBe("AU Brokerage");
+    expect(controlByLabel("Market").value).toBe("AU");
+    expect(document.body.textContent).toContain("Validation details");
+    expect(document.body.textContent).toContain("Account is ambiguous");
   });
 
   it("shows reconnect guidance when transaction:write has not been granted", async () => {
@@ -237,6 +320,6 @@ describe("ChatGptTransactionDraftWidget", () => {
     await flushEffects();
 
     expect(document.body.textContent).toContain("Reconnect in ChatGPT and opt in during consent");
-    expect(buttonByText("Post selected rows").disabled).toBe(true);
+    expect(buttonByText("Post selected").disabled).toBe(true);
   });
 });

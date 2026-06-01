@@ -184,7 +184,7 @@ describe("scoped recompute via trade mutation", () => {
     await app.inject({
       method: "PATCH",
       url: `/portfolio/transactions/${later.id}`,
-      payload: { quantity: 10 },
+      payload: { quantity: 10, keepManualFees: true },
     });
     await waitForAsync(500);
 
@@ -229,7 +229,7 @@ describe("scoped recompute via trade mutation", () => {
     await app.inject({
       method: "PATCH",
       url: `/portfolio/transactions/${trade2330!.id}`,
-      payload: { quantity: 20 },
+      payload: { quantity: 20, keepManualFees: true },
     });
 
     await waitForAsync(500); // Wait for async recompute

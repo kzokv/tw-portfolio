@@ -6,6 +6,11 @@ async function openHarness(page: Page): Promise<void> {
   await page.getByTestId("chatgpt-transaction-draft-widget").waitFor({ state: "visible" });
 }
 
+async function openAccountManagerHarness(page: Page): Promise<void> {
+  await page.goto("/connectors/chatgpt/account-manager/harness");
+  await page.getByTestId("chatgpt-account-manager-widget").waitFor({ state: "visible" });
+}
+
 async function openWidgetTab(page: Page, name: "Import" | "Review" | "Post"): Promise<void> {
   await page.getByRole("tab", { name }).click();
 }
@@ -113,12 +118,13 @@ test.describe("chatgpt transaction draft widget", () => {
     await clearInitialSelection(page);
 
     await page.getByTestId("chatgpt-widget-edit-row-3").click();
-    await page.getByLabel("Account").fill("au-brokerage");
+    await page.getByLabel("Account").selectOption({ label: "USD Brokerage" });
     await page.getByLabel("Note").fill("Confirmed from broker statement.");
     await page.getByRole("button", { name: "Save row" }).click();
     await page.getByText("Row saved.").waitFor({ state: "visible" });
     await assertHarnessRowPatch(page, "row-3", {
-      accountId: "au-brokerage",
+      accountId: "us-brokerage",
+      accountName: "USD Brokerage",
       note: "Confirmed from broker statement.",
     });
 
@@ -166,6 +172,10 @@ test.describe("chatgpt transaction draft widget", () => {
     await openHarness(page);
     await openWidgetTab(page, "Post");
 
+    await page.getByText("Draft posting preview").waitFor({ state: "visible" });
+    await page.getByText("Cathay TW Brokerage").last().waitFor({ state: "visible" });
+    await page.getByText("Manual zero commission differs from calculated fee").last().waitFor({ state: "visible" });
+
     const postButton = page.getByTestId("chatgpt-widget-post-button");
     const typedInput = page.getByPlaceholder("POST 3 TRADES");
     await typedInput.waitFor({ state: "visible" });
@@ -176,5 +186,33 @@ test.describe("chatgpt transaction draft widget", () => {
 
     await page.getByText("Latest posting result").waitFor({ state: "visible" });
     await page.getByText("Posted 3 rows and created 3 transactions.").waitFor({ state: "visible" });
+  });
+});
+
+test.describe("chatgpt account manager widget", () => {
+  test("[chatgpt account manager]: harness CRUD actions use account names while bridge keeps IDs internal", async ({
+    page,
+  }) => {
+    await openAccountManagerHarness(page);
+
+    await page.getByText("Account names are user-facing labels; IDs remain internal.").waitFor({ state: "visible" });
+    await page.getByLabel("Account name").fill("Sandbox Brokerage");
+    await page.getByLabel("Currency").selectOption("USD");
+    await page.getByLabel("Account type").selectOption("broker");
+    await page.getByRole("button", { name: "Add account" }).click();
+    await page.getByText("Account created.").waitFor({ state: "visible" });
+    await page.getByText("Sandbox Brokerage", { exact: true }).waitFor({ state: "visible" });
+
+    await page.getByTestId("chatgpt-account-edit-acct-us").click();
+    await page.getByLabel("Account name").fill("USD Brokerage Renamed");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.getByText("Account updated.").waitFor({ state: "visible" });
+    await page.getByText("USD Brokerage Renamed", { exact: true }).waitFor({ state: "visible" });
+
+    await page.getByTestId("chatgpt-account-archive-acct-us").click();
+    await page.getByText("Account archived.").waitFor({ state: "visible" });
+
+    await page.getByTestId("chatgpt-account-restore-acct-us").click();
+    await page.getByText("Account restored.").waitFor({ state: "visible" });
   });
 });
