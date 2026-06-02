@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { resolveErrorMessage } from "../../../lib/utils";
 import { fetchDashboardEnrichmentData, fetchDashboardPrimaryData } from "../services/dashboardService";
@@ -67,40 +67,53 @@ export function useDashboardPrimaryData({
   const [showIntegrityDialog, setShowIntegrityDialog] = useState(
     Boolean(initialPrimaryData?.actions.integrityIssue),
   );
+  const requestVersionRef = useRef(0);
 
-  const refreshEnrichment = useCallback(async () => {
+  const startRequest = useCallback(() => {
+    requestVersionRef.current += 1;
+    return requestVersionRef.current;
+  }, []);
+
+  const isCurrentRequest = useCallback((version: number) => version === requestVersionRef.current, []);
+
+  const refreshEnrichment = useCallback(async (version: number) => {
     try {
       const nextSnapshot = await fetchDashboardEnrichmentData();
+      if (!isCurrentRequest(version)) return;
       setSnapshot(nextSnapshot);
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
     } catch {
       // Secondary market/FX/freshness enrichment must not blank primary content.
     }
-  }, []);
+  }, [isCurrentRequest]);
 
   const refresh = useCallback(async () => {
+    const version = startRequest();
     setIsRefreshing(true);
     try {
       const nextSnapshot = await fetchDashboardPrimaryData();
+      if (!isCurrentRequest(version)) return;
       setSnapshot(nextSnapshot);
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
-      void refreshEnrichment();
+      void refreshEnrichment(version);
     } catch (error) {
+      if (!isCurrentRequest(version)) return;
       setErrorMessage(resolveErrorMessage(error));
       throw error;
     } finally {
-      setIsRefreshing(false);
+      if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [refreshEnrichment]);
+  }, [isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
     if (initialPrimaryData !== null) {
+      const version = startRequest();
       setSnapshot(initialPrimaryData);
       setShowIntegrityDialog(Boolean(initialPrimaryData.actions.integrityIssue));
       setIsBootstrapping(false);
-      void refreshEnrichment();
+      void refreshEnrichment(version);
       return;
     }
 
@@ -121,7 +134,7 @@ export function useDashboardPrimaryData({
     return () => {
       mounted = false;
     };
-  }, [initialPrimaryData, refresh]);
+  }, [initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
