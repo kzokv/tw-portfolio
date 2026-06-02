@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import type { UserSettings } from "@vakwen/shared-types";
+import { MARKET_CODES, type InstrumentCatalogItemDto, type MarketCode, type UserSettings } from "@vakwen/shared-types";
 import { getDictionary } from "../../../lib/i18n";
 import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/dashboardService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
@@ -11,7 +11,6 @@ import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import { TickerHistoryClient } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
-import { MARKET_CODES, type InstrumentCatalogItemDto, type MarketCode } from "@vakwen/shared-types";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import { findHoldingGroup, resolveHoldingGroups } from "../../../features/portfolio/holdingGroups";
