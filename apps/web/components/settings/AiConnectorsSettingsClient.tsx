@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
-import type { AiConnectorConnectionDto, AiConnectorScope } from "@vakwen/shared-types";
+import type { AiConnectorAccessLogDto, AiConnectorConnectionDto, AiConnectorScope } from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import {
-  fetchAiConnectors,
+  fetchAiConnectorLogs,
+  fetchAiConnectorSummary,
   revokeAiConnector,
   updateAiConnector,
-  type AiConnectorsResponse,
+  type AiConnectorSummaryResponse,
 } from "../../features/ai-inbox/service";
 import { AI_CONNECTOR_SCOPE_LABELS } from "../connectors/scopeLabels";
 
@@ -53,17 +54,19 @@ function reconnectCopy(scope: AiConnectorScope): string {
 }
 
 export function AiConnectorsSettingsClient() {
-  const [data, setData] = useState<AiConnectorsResponse | null>(null);
+  const [data, setData] = useState<AiConnectorSummaryResponse | null>(null);
+  const [accessLogs, setAccessLogs] = useState<AiConnectorAccessLogDto[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      setData(await fetchAiConnectors());
+      setData(await fetchAiConnectorSummary());
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI connector settings could not be loaded.");
     } finally {
@@ -74,6 +77,23 @@ export function AiConnectorsSettingsClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    try {
+      const result = await fetchAiConnectorLogs(12);
+      setAccessLogs(result.accessLogs);
+    } catch {
+      setAccessLogs([]);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    void loadLogs();
+  }, [data, loadLogs]);
 
   const scopeEnabledByGroup = useMemo(() => ({
     read: data?.policy.groupToggles.read ?? false,
@@ -337,11 +357,15 @@ export function AiConnectorsSettingsClient() {
         ))
       )}
 
-      {data && data.accessLogs.length > 0 ? (
+      {isLoadingLogs ? (
+        <Card className="rounded-[1.5rem]" role="status" aria-live="polite" aria-busy="true">
+          <p className="text-sm text-muted-foreground">Loading recent access...</p>
+        </Card>
+      ) : accessLogs.length > 0 ? (
         <Card className="rounded-[1.5rem]">
           <h2 className="text-base font-semibold text-foreground">Recent access</h2>
           <div className="mt-3 divide-y divide-border">
-            {data.accessLogs.slice(0, 12).map((log) => (
+            {accessLogs.map((log) => (
               <div key={log.id} className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-medium text-foreground">{log.toolName}</span>
                 <span className="text-muted-foreground">{log.accessKind} · {log.result} · {new Date(log.createdAt).toLocaleString()}</span>

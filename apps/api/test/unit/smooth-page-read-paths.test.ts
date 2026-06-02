@@ -63,6 +63,80 @@ describe("smooth page read paths", () => {
     ]);
   });
 
+  it("serves portfolio primary data from an explicit primary route without quote enrichment", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("build_primary_portfolio;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
+    expect(response.headers["server-timing"]).not.toContain("freshness;dur=");
+    const body = response.json();
+    expect(body.summary).toBeUndefined();
+    expect(body.actions).toBeUndefined();
+    expect(body.dividends).toEqual({ upcoming: [], recent: [] });
+    expect(body.holdings).toEqual([
+      expect.objectContaining({
+        ticker: "2330",
+        currentUnitPrice: null,
+        freshness: "current",
+      }),
+    ]);
+  });
+
+  it("serves dashboard primary data from an explicit primary route without quote or FX enrichment", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/primary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("build_primary_overview;dur=");
+    expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
+    expect(response.headers["server-timing"]).not.toContain("translate_summary;dur=");
+    expect(response.headers["server-timing"]).not.toContain("freshness;dur=");
+    const body = response.json();
+    expect(body.summary).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      fxStatus: "missing",
+      marketValueAmount: null,
+    }));
+    expect(body.holdings[0]).toEqual(expect.objectContaining({
+      ticker: "2330",
+      currentUnitPrice: null,
+    }));
+  });
+
+  it("splits AI connector summary from access logs", async () => {
+    const summary = await app.inject({ method: "GET", url: "/ai/connectors/summary" });
+    const logs = await app.inject({ method: "GET", url: "/ai/connectors/logs?limit=5" });
+
+    expect(summary.statusCode).toBe(200);
+    expect(summary.headers["server-timing"]).toContain("load_connector_summary;dur=");
+    expect(summary.json()).toEqual(expect.objectContaining({
+      connections: expect.any(Array),
+      policy: expect.any(Object),
+    }));
+    expect(summary.json().accessLogs).toBeUndefined();
+    expect(logs.statusCode).toBe(200);
+    expect(logs.headers["server-timing"]).toContain("load_connector_logs;dur=");
+    expect(logs.json()).toEqual({ accessLogs: expect.any(Array) });
+  });
+
   it("preserves cached quote and freshness fields in portfolio primary data", async () => {
     (app.persistence as MemoryPersistence)._seedDailyBars([
       {

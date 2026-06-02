@@ -104,7 +104,15 @@ export async function fetchTransactionHistory(filters: {
 }
 
 export async function fetchPortfolioPageData(): Promise<PortfolioPageData> {
-  return getJson<PortfolioPageData>("/portfolio/page-data");
+  return fetchPortfolioEnrichmentData();
+}
+
+export async function fetchPortfolioPrimaryData(): Promise<PortfolioPageData> {
+  return getJson<PortfolioPageData>("/portfolio/primary");
+}
+
+export async function fetchPortfolioEnrichmentData(): Promise<PortfolioPageData> {
+  return getJson<PortfolioPageData>("/portfolio/enrichment");
 }
 
 export async function fetchPortfolioInstrumentIndex(): Promise<PortfolioInstrumentIndexResponse> {

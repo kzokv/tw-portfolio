@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import { resolveErrorMessage } from "../../../lib/utils";
-import { fetchDashboardSnapshot } from "../services/dashboardService";
+import { fetchDashboardEnrichmentData, fetchDashboardPrimaryData } from "../services/dashboardService";
 import { resolveTransactionDraftAccount, type DashboardSnapshot } from "../types";
 
 interface UseDashboardDataOptions {
   initialTransaction: TransactionInput;
+  initialPrimaryData?: DashboardSnapshot | null;
 }
 
 interface UseDashboardDataResult extends DashboardSnapshot {
@@ -55,29 +56,54 @@ const EMPTY_SNAPSHOT: DashboardSnapshot = {
   feeProfileBindings: [],
 };
 
-export function useDashboardData({ initialTransaction }: UseDashboardDataOptions): UseDashboardDataResult {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(EMPTY_SNAPSHOT);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
+export function useDashboardPrimaryData({
+  initialTransaction,
+  initialPrimaryData = null,
+}: UseDashboardDataOptions): UseDashboardDataResult {
+  const [snapshot, setSnapshot] = useState<DashboardSnapshot>(initialPrimaryData ?? EMPTY_SNAPSHOT);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showIntegrityDialog, setShowIntegrityDialog] = useState(false);
+  const [showIntegrityDialog, setShowIntegrityDialog] = useState(
+    Boolean(initialPrimaryData?.actions.integrityIssue),
+  );
+
+  const refreshEnrichment = useCallback(async () => {
+    try {
+      const nextSnapshot = await fetchDashboardEnrichmentData();
+      setSnapshot(nextSnapshot);
+      setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
+      setErrorMessage("");
+    } catch {
+      // Secondary market/FX/freshness enrichment must not blank primary content.
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const nextSnapshot = await fetchDashboardSnapshot();
+      const nextSnapshot = await fetchDashboardPrimaryData();
       setSnapshot(nextSnapshot);
       setShowIntegrityDialog(Boolean(nextSnapshot.actions.integrityIssue));
       setErrorMessage("");
+      void refreshEnrichment();
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));
       throw error;
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [refreshEnrichment]);
 
   useEffect(() => {
+    if (initialPrimaryData !== null) {
+      setSnapshot(initialPrimaryData);
+      setShowIntegrityDialog(Boolean(initialPrimaryData.actions.integrityIssue));
+      setIsBootstrapping(false);
+      void refreshEnrichment();
+      return;
+    }
+
     let mounted = true;
 
     async function load() {
@@ -95,7 +121,7 @@ export function useDashboardData({ initialTransaction }: UseDashboardDataOptions
     return () => {
       mounted = false;
     };
-  }, [refresh]);
+  }, [initialPrimaryData, refresh]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>

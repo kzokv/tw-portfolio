@@ -4173,6 +4173,72 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  app.get("/portfolio/primary", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/portfolio/primary", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const overview = await timing.measure("build_primary_portfolio", "app", () =>
+        Promise.resolve(buildDashboardOverview(store, {
+          integrityIssue: null,
+          quotes: [],
+        })));
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+
+      return {
+        holdings: overview.holdings,
+        holdingGroups,
+        dividends: {
+          upcoming: [],
+          recent: [],
+        },
+        instruments: overview.instruments,
+        accounts: overview.accounts,
+      };
+    });
+  });
+
+  app.get("/portfolio/enrichment", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/portfolio/enrichment", async (timing) => {
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
+      const symbols = [...new Set(
+        holdings
+          .map((holding) => holding.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const snapshotMap = await timing.measure("load_quotes", "db", async () => {
+        const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+        return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+      });
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+      const overview = await timing.measure("build_portfolio_enrichment", "app", () =>
+        Promise.resolve(buildDashboardOverview(store, {
+          integrityIssue: null,
+          quotes,
+        })));
+      if (app.tradingCalendarCache) {
+        try {
+          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
+            persistence: app.persistence,
+            tradingCalendar: app.tradingCalendarCache,
+          }));
+        } catch (err) {
+          app.log.warn({ err }, "portfolio_enrichment_freshness_failed");
+        }
+      }
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+
+      return {
+        holdings: overview.holdings,
+        holdingGroups,
+        dividends: overview.dividends,
+        instruments: overview.instruments,
+        accounts: overview.accounts,
+      };
+    });
+  });
+
   app.get("/portfolio/instrument-index", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/instrument-index", async (timing) => {
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
@@ -4300,6 +4366,82 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           }));
         } catch (err) {
           app.log.warn({ err }, "dashboard_freshness_enrichment_failed");
+        }
+      }
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      const holdingAllocationBasis = resolveHoldingAllocationBasis(prefs);
+      const translatedSummary = await timing.measure("translate_summary", "db", () => translateOverviewSummary(
+        overview.summary,
+        overview.holdings,
+        overview.dividends,
+        reportingCurrency,
+        overview.summary.asOf,
+        app.persistence,
+      ));
+      const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
+        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+      const translatedHoldingGroups = await timing.measure("translate_holding_groups", "db", () =>
+        translateOverviewHoldingGroups(
+          holdingGroups,
+          reportingCurrency,
+          holdingAllocationBasis,
+          overview.summary.asOf,
+          app.persistence,
+        ));
+      return { ...overview, summary: translatedSummary, holdingGroups: translatedHoldingGroups };
+    });
+  });
+
+  app.get("/dashboard/primary", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/dashboard/primary", async (timing) => {
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
+      const overview = await timing.measure("build_primary_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
+        integrityIssue: getStoreIntegrityIssue(store),
+        quotes: [],
+      })));
+      const reportingCurrency = resolveReportingCurrency(prefs);
+      return {
+        ...overview,
+        summary: {
+          ...overview.summary,
+          reportingCurrency,
+          fxStatus: "missing" as const,
+        },
+      };
+    });
+  });
+
+  app.get("/dashboard/enrichment", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/dashboard/enrichment", async (timing) => {
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const holdings = await timing.measure("list_holdings", "app", () => Promise.resolve(listHoldings(store, userId)));
+      const symbols = [...new Set(
+        holdings
+          .map((holding) => holding.ticker)
+          .filter((symbol) => isInstrumentQuoteable(store.instruments.find((item) => item.ticker === symbol))),
+      )];
+      const [snapshotMap, prefs] = await timing.measure("quotes_and_prefs", "db", () => Promise.all([
+        (async () => {
+          const { pairs, settledByMarket } = await buildQuoteSnapshotInputs(app, store, symbols);
+          return resolveQuoteSnapshots(pairs, app.persistence, settledByMarket);
+        })(),
+        app.persistence.getUserPreferences(userId),
+      ]));
+      const quotes = Object.values(snapshotMap).filter((s): s is QuoteSnapshot => s !== null);
+
+      const overview = await timing.measure("build_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
+        integrityIssue: getStoreIntegrityIssue(store),
+        quotes,
+      })));
+      if (app.tradingCalendarCache) {
+        try {
+          await timing.measure("freshness", "db", () => enrichHoldingsWithFreshness(overview.holdings, store, {
+            persistence: app.persistence,
+            tradingCalendar: app.tradingCalendarCache,
+          }));
+        } catch (err) {
+          app.log.warn({ err }, "dashboard_enrichment_freshness_failed");
         }
       }
       const reportingCurrency = resolveReportingCurrency(prefs);
@@ -5160,6 +5302,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/ai/connectors/summary", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/ai/connectors/summary", async (timing) => {
+      const userId = requireSessionUserId(req);
+      const [connections, policy] = await timing.measure("load_connector_summary", "db", () => Promise.all([
+        app.persistence.listAiConnectorConnectionsForUser(userId),
+        app.persistence.getAiConnectorPolicySettings(),
+      ]));
+      return {
+        connections: connections.map(toAiConnectorConnectionDto),
+        policy,
+      };
+    });
+  });
+
+  app.get("/ai/connectors/logs", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/ai/connectors/logs", async (timing) => {
+      const userId = requireSessionUserId(req);
+      const query = z.object({
+        limit: z.coerce.number().int().min(1).max(50).default(12),
+      }).parse(req.query);
+      const accessLogs = await timing.measure("load_connector_logs", "db", () =>
+        app.persistence.listAiConnectorAccessLogsForUser(userId));
+      return {
+        accessLogs: accessLogs.slice(0, query.limit).map(toAiConnectorAccessLogDto),
+      };
+    });
+  });
+
   app.patch("/ai/connectors/:id", async (req) => {
     const userId = requireSessionUserId(req);
     const params = z.object({ id: userScopedIdSchema }).parse(req.params);
@@ -5310,31 +5480,36 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // --- Monitored Symbols ---
 
-  app.get("/instruments", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const query = z
-      .object({
-        search: z.string().trim().min(1).max(100).optional(),
-        type: z.enum(["STOCK", "ETF", "BOND_ETF"]).optional(),
-        // KZO-169: optional `market_code` filter; "ALL" disables filtering.
-        // Default ALL preserves back-compat with existing consumers.
-        market_code: z.enum(MARKET_FILTER_CODES).default("ALL").optional(),
-      })
-      .parse(req.query);
+  app.get("/instruments", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/instruments", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const query = z
+        .object({
+          search: z.string().trim().min(1).max(100).optional(),
+          type: z.enum(["STOCK", "ETF", "BOND_ETF"]).optional(),
+          // KZO-169: optional `market_code` filter; "ALL" disables filtering.
+          // Default ALL preserves back-compat with existing consumers.
+          market_code: z.enum(MARKET_FILTER_CODES).default("ALL").optional(),
+        })
+        .parse(req.query);
 
-    const cooldown = getEffectiveRepairCooldownMinutes();
-    // KZO-169: pass `market_code` through to persistence; treat ALL/undefined
-    // as "no filter".
-    const marketFilter = query.market_code && query.market_code !== "ALL" ? query.market_code : undefined;
-    const rows = await app.persistence.listInstrumentsCatalog(query.search, query.type, marketFilter, userId);
-    return { instruments: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
+      const cooldown = getEffectiveRepairCooldownMinutes();
+      // KZO-169: pass `market_code` through to persistence; treat ALL/undefined
+      // as "no filter".
+      const marketFilter = query.market_code && query.market_code !== "ALL" ? query.market_code : undefined;
+      const rows = await timing.measure("list_instruments_catalog", "db", () =>
+        app.persistence.listInstrumentsCatalog(query.search, query.type, marketFilter, userId));
+      return { instruments: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
+    });
   });
 
-  app.get("/monitored-tickers", async (req) => {
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const cooldown = getEffectiveRepairCooldownMinutes();
-    const rows = await app.persistence.getMonitoredSet(userId);
-    return { tickers: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
+  app.get("/monitored-tickers", async (req, reply) => {
+    return withReadPathTiming(req, reply, "/monitored-tickers", async (timing) => {
+      const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const cooldown = getEffectiveRepairCooldownMinutes();
+      const rows = await timing.measure("get_monitored_set", "db", () => app.persistence.getMonitoredSet(userId));
+      return { tickers: rows.map((r) => ({ ...r, repairAvailableAt: deriveRepairAvailableAt(r.lastRepairAt, cooldown) })) };
+    });
   });
 
   app.put("/monitored-tickers", async (req) => {

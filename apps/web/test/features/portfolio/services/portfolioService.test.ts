@@ -5,7 +5,12 @@ vi.mock("../../../../lib/api", () => ({
   postJson: vi.fn(),
 }));
 
-import { fetchTransactionInstrumentCatalog } from "../../../../features/portfolio/services/portfolioService";
+import {
+  fetchPortfolioEnrichmentData,
+  fetchPortfolioPageData,
+  fetchPortfolioPrimaryData,
+  fetchTransactionInstrumentCatalog,
+} from "../../../../features/portfolio/services/portfolioService";
 import { getJson } from "../../../../lib/api";
 
 // KZO-169 — Frontend Implementer's TDD red specs for slice 5 service-layer
@@ -50,5 +55,36 @@ describe("fetchTransactionInstrumentCatalog — KZO-169 D5c market_code query", 
   it("treats null as omit (no market_code)", async () => {
     await fetchTransactionInstrumentCatalog(null);
     expect(getJson).toHaveBeenCalledWith("/instruments");
+  });
+});
+
+describe("portfolio primary/enrichment service paths", () => {
+  beforeEach(() => {
+    vi.mocked(getJson).mockResolvedValue({
+      holdings: [],
+      holdingGroups: [],
+      dividends: { upcoming: [], recent: [] },
+      instruments: [],
+      accounts: [],
+    });
+  });
+
+  afterEach(() => {
+    vi.mocked(getJson).mockReset();
+  });
+
+  it("fetches first-paint primary data from the explicit primary endpoint", async () => {
+    await fetchPortfolioPrimaryData();
+    expect(getJson).toHaveBeenCalledWith("/portfolio/primary");
+  });
+
+  it("keeps compatibility page data on the enrichment endpoint", async () => {
+    await fetchPortfolioPageData();
+    expect(getJson).toHaveBeenCalledWith("/portfolio/enrichment");
+  });
+
+  it("fetches secondary enrichment from the explicit enrichment endpoint", async () => {
+    await fetchPortfolioEnrichmentData();
+    expect(getJson).toHaveBeenCalledWith("/portfolio/enrichment");
   });
 });

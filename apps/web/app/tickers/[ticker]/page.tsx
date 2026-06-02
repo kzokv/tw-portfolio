@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import type { UserSettings } from "@vakwen/shared-types";
 import { getDictionary } from "../../../lib/i18n";
-import { fetchDashboardSnapshot } from "../../../features/dashboard/services/dashboardService";
+import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/dashboardService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import { DashboardLoading } from "../../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../../components/layout/AppShell";
@@ -40,13 +40,13 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const scopedAccountId = accountId?.trim() ? accountId.trim() : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
 
-  let dashboard: Awaited<ReturnType<typeof fetchDashboardSnapshot>> | null = null;
+  let dashboard: Awaited<ReturnType<typeof fetchDashboardPrimaryData>> | null = null;
   let transactions: Awaited<ReturnType<typeof fetchTransactionHistory>> = [];
   let instrument: InstrumentCatalogItemDto | null = null;
 
   try {
     [dashboard, transactions, instrument] = await Promise.all([
-      fetchDashboardSnapshot(),
+      fetchDashboardPrimaryData(),
       fetchTransactionHistory({ ticker, accountId: scopedAccountId, marketCode: scopedMarketCode }),
       fetchRepairInstrument(ticker),
     ]);

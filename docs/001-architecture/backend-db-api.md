@@ -27,6 +27,19 @@ This section defines the backend contract for the authenticated page-performance
 - DTO compatibility may be preserved for existing consumers during migration, but compatibility fields must not force unrelated routes back onto the global shell path.
 - `loadStore()` remains valid for write-heavy, recompute, or domain-consistency flows. Do not remove it from mutation paths purely for symmetry with read-model work.
 
+### Current primary/enrichment map
+
+| Surface | Primary endpoint | Secondary/enrichment endpoint |
+|---|---|---|
+| Dashboard | `GET /dashboard/primary` | `GET /dashboard/enrichment`, `GET /dashboard/performance` |
+| Portfolio holdings | `GET /portfolio/primary` | `GET /portfolio/enrichment` |
+| Settings tickers | `GET /monitored-tickers` | `GET /instruments` when catalog browse/search opens |
+| AI connector settings | `GET /ai/connectors/summary` | `GET /ai/connectors/logs` |
+
+Compatibility endpoints remain for older callers: `GET /dashboard/overview`, `GET /portfolio/page-data`, and `GET /ai/connectors`. New route-primary UI must use the primary endpoints above.
+
+Temporary exception: `GET /dashboard/primary` and `GET /portfolio/primary` still hydrate the in-memory domain store through `loadStore()` so grouped-holdings accounting semantics stay identical while the route split lands. They deliberately skip quote resolution, freshness classification, FX/reporting translation, performance series, and dividend enrichment. The next backend optimization step is replacing those primary handlers with narrower Postgres projections once the UI contract is stable.
+
 ### Target budgets
 
 | Backend surface | Budget |
@@ -47,10 +60,18 @@ If a route cannot meet these targets because of unavoidable data shape complexit
   - response bytes when cheap to capture
 - Baseline endpoints called out for instrumentation:
   - `GET /dashboard/overview`
+  - `GET /dashboard/primary`
+  - `GET /dashboard/enrichment`
   - `GET /dashboard/performance`
   - `GET /portfolio/page-data`
+  - `GET /portfolio/primary`
+  - `GET /portfolio/enrichment`
   - `GET /portfolio/instrument-index`
   - `GET /portfolio/cash-ledger`
+  - `GET /monitored-tickers`
+  - `GET /instruments`
+  - `GET /ai/connectors/summary`
+  - `GET /ai/connectors/logs`
   - `GET /accounts?includeBalances=true`
   - any new route-primary endpoint introduced to replace global bootstrap reads
 - Instrumentation should stay production-safe and low-noise. Prefer consistent metric names so frontend/browser evidence can be correlated against backend timing.

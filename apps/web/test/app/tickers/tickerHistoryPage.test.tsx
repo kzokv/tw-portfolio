@@ -14,7 +14,7 @@ vi.mock("../../../lib/sidebar-cookie", () => ({
 }));
 
 vi.mock("../../../features/dashboard/services/dashboardService", () => ({
-  fetchDashboardSnapshot: vi.fn(),
+  fetchDashboardPrimaryData: vi.fn(),
 }));
 
 vi.mock("../../../features/portfolio/services/portfolioService", () => ({
@@ -66,7 +66,7 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
-import { fetchDashboardSnapshot } from "../../../features/dashboard/services/dashboardService";
+import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/dashboardService";
 import { fetchTickerDetails } from "../../../features/portfolio/services/tickerDetailsService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
@@ -75,7 +75,7 @@ import TickerHistoryPage from "../../../app/tickers/[ticker]/page";
 const requireSessionMock = vi.mocked(requireSession);
 const getJsonMock = vi.mocked(getJson);
 const readSidebarStateCookieMock = vi.mocked(readSidebarStateCookie);
-const fetchDashboardSnapshotMock = vi.mocked(fetchDashboardSnapshot);
+const fetchDashboardPrimaryDataMock = vi.mocked(fetchDashboardPrimaryData);
 const fetchTickerDetailsMock = vi.mocked(fetchTickerDetails);
 const fetchTransactionHistoryMock = vi.mocked(fetchTransactionHistory);
 const fetchRepairInstrumentMock = vi.mocked(fetchRepairInstrument);
@@ -133,9 +133,11 @@ describe("TickerHistoryPage", () => {
   });
 
   it("passes the normalized ticker scope into ticker details loading", async () => {
-    fetchDashboardSnapshotMock.mockResolvedValue({
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
       settings: { locale: "en" },
       holdings: [],
+      holdingGroups: [],
+      instruments: [],
       accounts: [{ id: "acc-2", name: "Brokerage 2" }],
       dividends: { upcoming: [], recent: [] },
       feeProfiles: [],
@@ -152,6 +154,7 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-ticker="2330"');
     expect(html).toContain('data-transaction-account-filter="acc-2"');
     expect(html).toContain('data-transaction-market-filter="TW"');
+    expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
     expect(fetchTickerDetailsMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,7 +168,7 @@ describe("TickerHistoryPage", () => {
   });
 
   it("renders the shell fallback when dashboard loading fails", async () => {
-    fetchDashboardSnapshotMock.mockRejectedValue(new Error("dashboard unavailable"));
+    fetchDashboardPrimaryDataMock.mockRejectedValue(new Error("dashboard unavailable"));
 
     const element = await TickerHistoryPage({
       params: Promise.resolve({ ticker: "nvda" }),

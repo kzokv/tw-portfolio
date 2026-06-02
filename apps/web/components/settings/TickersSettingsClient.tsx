@@ -40,6 +40,8 @@ export function TickersSettingsClient() {
           selectedTickers={tickers.selectedTickers}
           positionTickers={positionTickerKeys}
           onToggleTicker={tickers.toggleTicker}
+          isLoadingCatalog={tickers.isCatalogLoading}
+          catalogError={tickers.catalogError}
           onBack={() => tickers.setShowCatalog(false)}
           dict={dict}
         />

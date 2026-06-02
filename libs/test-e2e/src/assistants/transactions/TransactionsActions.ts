@@ -124,7 +124,7 @@ export class TransactionsActions extends AppBaseActions {
   @Step()
   async waitForDashboardRefresh(): Promise<import("@playwright/test").Response> {
     return await this.mxWaitForResponse(
-      (r) => r.request().method() === "GET" && r.url().includes("/dashboard/overview") && r.ok(),
+      (r) => r.request().method() === "GET" && r.url().includes("/dashboard/primary") && r.ok(),
     );
   }
 

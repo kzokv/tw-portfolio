@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DashboardPerformanceRange } from "@vakwen/shared-types";
 import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
-import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
+import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
@@ -26,6 +26,7 @@ import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
 import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
+import type { DashboardSnapshot } from "../../features/dashboard/types";
 
 const DEFAULT_TRANSACTION = {
   accountId: "",
@@ -39,7 +40,11 @@ const DEFAULT_TRANSACTION = {
   isDayTrade: false,
 };
 
-export function DashboardClient() {
+export function DashboardClient({
+  initialPrimaryData = null,
+}: {
+  initialPrimaryData?: DashboardSnapshot | null;
+}) {
   const {
     uiDict: dict,
     locale,
@@ -49,7 +54,10 @@ export function DashboardClient() {
     openRecomputeConfirm,
     contextRefreshSignal,
   } = useAppShellData();
-  const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
+  const dashboard = useDashboardPrimaryData({
+    initialTransaction: DEFAULT_TRANSACTION,
+    initialPrimaryData,
+  });
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
