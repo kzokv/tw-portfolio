@@ -8,6 +8,7 @@ import { useSettingsRouteContext } from "./SettingsRouteProvider";
 
 interface SettingsSectionShellProps {
   children: ReactNode;
+  portfolioConfigMode?: "eager" | "lazy";
 }
 
 /**
@@ -15,7 +16,7 @@ interface SettingsSectionShellProps {
  * chrome) around the settings two-pane layout. Each `/settings/{section}`
  * page composes this with its own section-specific client inside `children`.
  */
-export function SettingsSectionShell({ children }: SettingsSectionShellProps) {
+export function SettingsSectionShell({ children, portfolioConfigMode = "eager" }: SettingsSectionShellProps) {
   const { isDemo, locale, profile, initialSidebarOpen } = useSettingsRouteContext();
   const dict = useMemo(() => getDictionary(locale), [locale]);
 
@@ -26,6 +27,7 @@ export function SettingsSectionShell({ children }: SettingsSectionShellProps) {
       activeSectionOverride={null}
       initialProfile={profile}
       initialSidebarOpen={initialSidebarOpen}
+      portfolioConfigMode={portfolioConfigMode}
     >
       <SettingsTwoPaneLayout dict={dict}>{children}</SettingsTwoPaneLayout>
     </AppShell>

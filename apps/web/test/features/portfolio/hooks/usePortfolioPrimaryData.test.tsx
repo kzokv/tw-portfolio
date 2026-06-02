@@ -31,6 +31,28 @@ const initialPrimaryData: PortfolioPageData = {
   integrityIssue: null,
 };
 
+function pageDataWithAccount(id: string): PortfolioPageData {
+  return {
+    ...initialPrimaryData,
+    accounts: [{
+      id,
+      name: id,
+      userId: "user-1",
+      feeProfileId: "fee-1",
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    }],
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function Harness({ initialData = null }: { initialData?: PortfolioPageData | null }) {
   result = usePortfolioPrimaryData(initialData);
   return null;
@@ -78,5 +100,46 @@ describe("usePortfolioPrimaryData", () => {
     expect(fetchPortfolioPrimaryData).toHaveBeenCalledTimes(1);
     expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
     expect(result.isBootstrapping).toBe(false);
+  });
+
+  it("ignores stale enrichment responses after a newer refresh starts", async () => {
+    const staleEnrichment = createDeferred<PortfolioPageData>();
+    const latestEnrichment = createDeferred<PortfolioPageData>();
+    const refreshedPrimary = pageDataWithAccount("latest-primary");
+    const staleSnapshot = pageDataWithAccount("stale-enrichment");
+    const latestSnapshot = pageDataWithAccount("latest-enrichment");
+    vi.mocked(fetchPortfolioPrimaryData).mockResolvedValue(refreshedPrimary);
+    vi.mocked(fetchPortfolioEnrichmentData)
+      .mockReturnValueOnce(staleEnrichment.promise)
+      .mockReturnValueOnce(latestEnrichment.promise);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+
+    await act(async () => {});
+
+    expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.refresh();
+    });
+
+    expect(fetchPortfolioEnrichmentData).toHaveBeenCalledTimes(2);
+    expect(result.data.accounts[0]?.id).toBe("latest-primary");
+
+    await act(async () => {
+      staleEnrichment.resolve(staleSnapshot);
+      await staleEnrichment.promise;
+    });
+
+    expect(result.data.accounts[0]?.id).toBe("latest-primary");
+
+    await act(async () => {
+      latestEnrichment.resolve(latestSnapshot);
+      await latestEnrichment.promise;
+    });
+
+    expect(result.data.accounts[0]?.id).toBe("latest-enrichment");
   });
 });

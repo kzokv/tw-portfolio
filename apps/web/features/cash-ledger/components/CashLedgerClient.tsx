@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
 import type { LocaleCode } from "@vakwen/shared-types";
@@ -34,7 +34,8 @@ import type { FxTransferFormValue } from "../../../components/fx-transfer/AddFxT
 import { ConfirmDialog } from "../../../components/admin/ConfirmDialog";
 
 interface CashLedgerClientProps {
-  initialData: CashLedgerListResponse;
+  initialData: CashLedgerListResponse | null;
+  initialDataReady?: boolean;
   initialAccounts?: AccountWithLiveBalance[];
   initialAccountMetaReady?: boolean;
   dict: AppDictionary;
@@ -124,14 +125,16 @@ function buildAccountMeta(accounts: AccountWithLiveBalance[]): Map<string, Accou
 
 export function CashLedgerClient({
   initialData,
+  initialDataReady = true,
   initialAccounts = [],
   initialAccountMetaReady = false,
   dict,
   locale,
 }: CashLedgerClientProps) {
-  const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData.entries);
-  const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData.summary);
-  const [total, setTotal] = useState(initialData.total ?? 0);
+  const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData?.entries ?? []);
+  const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData?.summary ?? []);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
+  const [isLedgerLoading, setIsLedgerLoading] = useState(!initialDataReady);
   const [drawerEntry, setDrawerEntry] = useState<EnrichedCashLedgerEntry | null>(null);
   const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>(initialAccounts);
   const [fxDialogOpen, setFxDialogOpen] = useState(false);
@@ -142,6 +145,7 @@ export function CashLedgerClient({
   const [reversePending, setReversePending] = useState(false);
   const [reverseError, setReverseError] = useState("");
   const [accountMetaReady, setAccountMetaReady] = useState(initialAccountMetaReady);
+  const initialDataFetchStartedRef = useRef(initialDataReady);
 
   // KZO-167: account chip metadata — name, defaultCurrency, accountType.
   // Empty until the GET /accounts fetch resolves; renders fall back to the
@@ -211,6 +215,7 @@ export function CashLedgerClient({
     const order = opts.order ?? sortOrder;
     const resolvedAccount = "account" in opts ? (opts.account ?? "") : accountId;
     const resolvedEntryTypes = "entryTypes" in opts ? (opts.entryTypes ?? []) : entryTypeFilter;
+    setIsLedgerLoading(true);
     try {
       const data = await fetchCashLedgerEntries({
         fromEntryDate: fromEntryDate || undefined,
@@ -241,8 +246,16 @@ export function CashLedgerClient({
       setTotal(newTotal);
     } catch {
       // Keep current data and UI state on error
+    } finally {
+      setIsLedgerLoading(false);
     }
   }, [fromEntryDate, toEntryDate, accountId, entryTypeFilter, page, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (initialDataFetchStartedRef.current) return;
+    initialDataFetchStartedRef.current = true;
+    void fetchData({ pg: 1 });
+  }, [fetchData]);
 
   // SSE: pre-connect pattern (always enabled). KZO-168: also listen for
   // `currency_wallet_recomputed` so FX-transfer mutations refresh the ledger
@@ -548,7 +561,19 @@ export function CashLedgerClient({
 
       {/* Phase 4 — single-DOM table (drops legacy `lg:hidden` mobile cards).
           Scroll + sticky-date column at narrow viewports per scope-grill. */}
-      {entries.length === 0 ? (
+      {isLedgerLoading && entries.length === 0 ? (
+        <Card>
+          <p
+            className="py-8 text-center text-sm text-muted-foreground"
+            data-testid="cash-ledger-loading"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            Loading cash ledger...
+          </p>
+        </Card>
+      ) : entries.length === 0 ? (
         <Card>
           <p className="py-8 text-center text-sm text-muted-foreground" data-testid="cash-ledger-empty">
             {d.emptyState}

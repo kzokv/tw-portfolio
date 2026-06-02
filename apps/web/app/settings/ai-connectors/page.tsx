@@ -5,7 +5,7 @@ import { AiConnectorsSettingsClient } from "../../../components/settings/AiConne
 
 export default function AiConnectorsSettingsPage() {
   return (
-    <SettingsSectionShell>
+    <SettingsSectionShell portfolioConfigMode="lazy">
       <AiConnectorsSettingsClient />
     </SettingsSectionShell>
   );
