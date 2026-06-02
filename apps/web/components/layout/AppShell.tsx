@@ -212,12 +212,18 @@ export function AppShell({
   const [recomputeDialogOpen, setRecomputeDialogOpen] = useState(false);
 
   const handleAddTransactionFromPalette = useCallback(() => {
-    setAddTransactionDialogOpen(true);
-  }, []);
+    void (async () => {
+      await portfolioConfig.ensureLoaded();
+      setAddTransactionDialogOpen(true);
+    })().catch(() => undefined);
+  }, [portfolioConfig]);
 
   const handleRecomputeFromPalette = useCallback(() => {
-    setRecomputeDialogOpen(true);
-  }, []);
+    void (async () => {
+      await portfolioConfig.ensureLoaded();
+      setRecomputeDialogOpen(true);
+    })().catch(() => undefined);
+  }, [portfolioConfig]);
 
   const appShellDataValue = useAppShellDataValue({
     uiDict,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TransactionInput } from "../portfolio/types";
 import { resolveErrorMessage } from "../../lib/utils";
 import { resolveTransactionDraftAccount } from "../../features/dashboard/types";
@@ -21,6 +21,7 @@ interface UseShellPortfolioConfigResult extends ShellPortfolioConfigDto {
   setErrorMessage: (message: string) => void;
   showIntegrityDialog: boolean;
   setShowIntegrityDialog: (open: boolean) => void;
+  ensureLoaded: () => Promise<void>;
   refresh: () => Promise<void>;
   synchronizeTransactionDraft: (previous: TransactionInput) => TransactionInput;
 }
@@ -41,14 +42,17 @@ export function useShellPortfolioConfig({
   const [isLoading, setIsLoading] = useState(initialConfig === null && fetchMode === "eager");
   const [errorMessage, setErrorMessage] = useState("");
   const [showIntegrityDialog, setShowIntegrityDialog] = useState(Boolean(initialConfig?.integrityIssue));
+  const hasLoadedRef = useRef(initialConfig !== null);
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
 
-  const refresh = useCallback(async () => {
+  const fetchConfig = useCallback(async () => {
     setIsLoading(true);
     try {
       const nextConfig = await fetchShellPortfolioConfig();
       setConfig(nextConfig);
       setShowIntegrityDialog(Boolean(nextConfig.integrityIssue));
       setErrorMessage("");
+      hasLoadedRef.current = true;
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));
       throw error;
@@ -57,11 +61,24 @@ export function useShellPortfolioConfig({
     }
   }, []);
 
+  const ensureLoaded = useCallback(async () => {
+    if (hasLoadedRef.current) return;
+    loadPromiseRef.current ??= fetchConfig().finally(() => {
+      loadPromiseRef.current = null;
+    });
+    await loadPromiseRef.current;
+  }, [fetchConfig]);
+
+  const refresh = useCallback(async () => {
+    await fetchConfig();
+  }, [fetchConfig]);
+
   useEffect(() => {
     if (initialConfig !== null) {
       setConfig(initialConfig);
       setShowIntegrityDialog(Boolean(initialConfig.integrityIssue));
       setIsLoading(false);
+      hasLoadedRef.current = true;
       return;
     }
 
@@ -69,17 +86,18 @@ export function useShellPortfolioConfig({
       setConfig(EMPTY_CONFIG);
       setShowIntegrityDialog(false);
       setIsLoading(false);
+      hasLoadedRef.current = false;
       return;
     }
 
     let mounted = true;
-    void refresh().catch(() => {
+    void ensureLoaded().catch(() => {
       if (!mounted) return;
     });
     return () => {
       mounted = false;
     };
-  }, [fetchMode, initialConfig, refresh]);
+  }, [ensureLoaded, fetchMode, initialConfig]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>
@@ -104,6 +122,7 @@ export function useShellPortfolioConfig({
     setErrorMessage,
     showIntegrityDialog,
     setShowIntegrityDialog,
+    ensureLoaded,
     refresh,
     synchronizeTransactionDraft: config.accounts.length > 0 ? synchronizeTransactionDraft : synchronizeInitialDraft,
   };
