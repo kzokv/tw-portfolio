@@ -59,6 +59,24 @@ const initialPrimaryData: DashboardSnapshot = {
   feeProfileBindings: [],
 };
 
+function snapshotWithMarketValue(marketValueAmount: number): DashboardSnapshot {
+  return {
+    ...initialPrimaryData,
+    summary: {
+      ...initialPrimaryData.summary,
+      marketValueAmount,
+    },
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 function Harness({ initialData = null }: { initialData?: DashboardSnapshot | null }) {
   result = useDashboardPrimaryData({
     initialTransaction,
@@ -111,5 +129,46 @@ describe("useDashboardPrimaryData", () => {
     expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
     expect(result.isBootstrapping).toBe(false);
     expect(result.summary.marketValueAmount).toBe(1500);
+  });
+
+  it("ignores stale enrichment responses after a newer refresh starts", async () => {
+    const staleEnrichment = createDeferred<DashboardSnapshot>();
+    const latestEnrichment = createDeferred<DashboardSnapshot>();
+    const refreshedPrimary = snapshotWithMarketValue(2200);
+    const staleSnapshot = snapshotWithMarketValue(900);
+    const latestSnapshot = snapshotWithMarketValue(2400);
+    vi.mocked(fetchDashboardPrimaryData).mockResolvedValue(refreshedPrimary);
+    vi.mocked(fetchDashboardEnrichmentData)
+      .mockReturnValueOnce(staleEnrichment.promise)
+      .mockReturnValueOnce(latestEnrichment.promise);
+
+    act(() => {
+      root.render(<Harness initialData={initialPrimaryData} />);
+    });
+
+    await act(async () => {});
+
+    expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.refresh();
+    });
+
+    expect(fetchDashboardEnrichmentData).toHaveBeenCalledTimes(2);
+    expect(result.summary.marketValueAmount).toBe(2200);
+
+    await act(async () => {
+      staleEnrichment.resolve(staleSnapshot);
+      await staleEnrichment.promise;
+    });
+
+    expect(result.summary.marketValueAmount).toBe(2200);
+
+    await act(async () => {
+      latestEnrichment.resolve(latestSnapshot);
+      await latestEnrichment.promise;
+    });
+
+    expect(result.summary.marketValueAmount).toBe(2400);
   });
 });
