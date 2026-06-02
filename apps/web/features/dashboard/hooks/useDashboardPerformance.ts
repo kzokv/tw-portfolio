@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DashboardPerformanceDto, DashboardPerformanceRange } from "@vakwen/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
-import { fetchDashboardPerformance } from "../services/dashboardService";
+import { fetchDashboardPerformanceEnrichment } from "../services/dashboardService";
 
 interface UseDashboardPerformanceOptions {
   range: DashboardPerformanceRange;
@@ -27,7 +27,7 @@ export function useDashboardPerformance({
 
     setIsLoading(true);
     try {
-      const next = await fetchDashboardPerformance(range);
+      const next = await fetchDashboardPerformanceEnrichment(range);
       setData(next);
       setErrorMessage("");
     } catch (error) {

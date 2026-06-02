@@ -9,7 +9,9 @@ vi.mock("../../../components/dividends/DividendCalendarClient", () => ({
 }));
 
 vi.mock("../../../components/dividends/DividendReviewClient", () => ({
-  DividendReviewClient: () => <div data-testid="mock-review-client">review</div>,
+  DividendReviewClient: ({ accounts }: { accounts: unknown[] }) => (
+    <div data-testid="mock-review-client" data-accounts-count={String(accounts.length)}>review</div>
+  ),
 }));
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
@@ -18,11 +20,16 @@ vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendLedgerYears: vi.fn(),
 }));
 
+vi.mock("../../../features/settings/services/shellPortfolioConfigService", () => ({
+  fetchShellPortfolioConfig: vi.fn(),
+}));
+
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendLedgerReview,
   fetchDividendLedgerYears,
 } from "../../../features/dividends/services/dividendService";
+import { fetchShellPortfolioConfig } from "../../../features/settings/services/shellPortfolioConfigService";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -50,6 +57,19 @@ describe("DividendsTabsClient", () => {
       },
     });
     vi.mocked(fetchDividendLedgerYears).mockResolvedValue([2026]);
+    vi.mocked(fetchShellPortfolioConfig).mockResolvedValue({
+      accounts: [{
+        id: "acc-1",
+        userId: "user-1",
+        name: "Main",
+        feeProfileId: "fee-1",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      }],
+      feeProfiles: [],
+      feeProfileBindings: [],
+      integrityIssue: null,
+    });
   });
 
   afterEach(() => {
@@ -105,9 +125,12 @@ describe("DividendsTabsClient", () => {
     });
 
     await act(async () => {});
+    await act(async () => {});
 
     expect(fetchDividendLedgerReview).toHaveBeenCalledTimes(1);
     expect(fetchDividendLedgerYears).toHaveBeenCalledTimes(1);
+    expect(fetchShellPortfolioConfig).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="mock-review-client"]')?.getAttribute("data-accounts-count")).toBe("1");
     expect(fetchDividendCalendarSnapshot).not.toHaveBeenCalled();
   });
 });

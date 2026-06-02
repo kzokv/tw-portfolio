@@ -18,6 +18,7 @@ export default function SharingPage() {
       descriptionOverride={dict.sharing.pageDescription}
       activeSectionOverride={null}
       initialProfile={profile}
+      portfolioConfigMode="lazy"
       initialSidebarOpen={initialSidebarOpen}
     >
       <SharingClient

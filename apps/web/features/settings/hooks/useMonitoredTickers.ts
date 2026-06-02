@@ -43,6 +43,8 @@ export interface UseMonitoredTickersReturn {
   saveError: string;
   saveSuccess: string;
   isLoading: boolean;
+  isCatalogLoading: boolean;
+  catalogError: string;
   retryTicker: (ticker: string) => Promise<void>;
   repairMode: boolean;
   setRepairMode: (enabled: boolean) => void;
@@ -65,6 +67,8 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
   const [repairMode, setRepairMode] = useState(false);
   const [repairSelection, setRepairSelection] = useState<Set<string>>(new Set());
   const [isRepairSubmitting, setIsRepairSubmitting] = useState(false);
@@ -86,10 +90,9 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     async function load() {
       setIsLoading(true);
       try {
-        const [tickersRes, catalogRes] = await Promise.all([fetchMonitoredTickers(), fetchInstrumentsCatalog()]);
+        const tickersRes = await fetchMonitoredTickers();
         if (cancelled) return;
         setMonitoredTickers(tickersRes.tickers);
-        setInstruments(catalogRes.instruments);
 
         const manual = new Set(
           tickersRes.tickers
@@ -108,6 +111,32 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!showCatalog || instruments.length > 0) return;
+
+    let cancelled = false;
+
+    async function loadCatalog() {
+      setIsCatalogLoading(true);
+      setCatalogError("");
+      try {
+        const catalogRes = await fetchInstrumentsCatalog();
+        if (cancelled) return;
+        setInstruments(catalogRes.instruments);
+      } catch (err) {
+        if (cancelled) return;
+        setCatalogError(err instanceof Error ? err.message : "Instrument catalog could not be loaded.");
+      } finally {
+        if (!cancelled) setIsCatalogLoading(false);
+      }
+    }
+
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [instruments.length, showCatalog]);
 
   const updateStatus = useCallback((ticker: string, status: string) => {
     setMonitoredTickers((prev) => prev.map((t) => (t.ticker === ticker ? { ...t, barsBackfillStatus: status } : t)));
@@ -336,6 +365,8 @@ export function useMonitoredTickers(open: boolean): UseMonitoredTickersReturn {
     saveError,
     saveSuccess,
     isLoading,
+    isCatalogLoading,
+    catalogError,
     retryTicker,
     repairMode,
     setRepairMode,

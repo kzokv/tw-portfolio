@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { DashboardPerformanceRange } from "@vakwen/shared-types";
 import { formatCurrencyAmount, formatDateLabel, formatNumber, formatPercent } from "../../lib/utils";
+import { useDashboardPrimaryData } from "../../features/dashboard/hooks/useDashboardData";
 import { useDashboardPerformance } from "../../features/dashboard/hooks/useDashboardPerformance";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
@@ -23,28 +25,44 @@ import { ReturnPercentCard } from "./ReturnPercentCard";
 import { CustomizeRangesPopover } from "../settings/CustomizeRangesPopover";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
+import { useEffectiveRanges } from "../../hooks/useEffectiveRanges";
+import type { DashboardSnapshot } from "../../features/dashboard/types";
 
-export function DashboardClient() {
+const DEFAULT_TRANSACTION = {
+  accountId: "",
+  ticker: "",
+  marketCode: null,
+  quantity: 1000,
+  unitPrice: 100,
+  priceCurrency: "TWD" as const,
+  tradeDate: new Date().toISOString().slice(0, 10),
+  type: "BUY" as const,
+  isDayTrade: false,
+};
+
+export function DashboardClient({
+  initialPrimaryData = null,
+}: {
+  initialPrimaryData?: DashboardSnapshot | null;
+}) {
   const {
-    dashboard,
     uiDict: dict,
     locale,
     isSharedContext,
-    isBootstrapping,
-    isI18nReady,
     mutations,
     recomputeAction,
     openRecomputeConfirm,
-    performanceRange,
-    setPerformanceRange,
-    effectiveRanges,
-    refetchEffectiveRanges,
-    customizeRangesOpen,
-    setCustomizeRangesOpen,
     contextRefreshSignal,
   } = useAppShellData();
+  const dashboard = useDashboardPrimaryData({
+    initialTransaction: DEFAULT_TRANSACTION,
+    initialPrimaryData,
+  });
   const resetCount = useCardLayoutResetCount("dashboard");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
+  const [performanceRange, setPerformanceRange] = useState<DashboardPerformanceRange>("1M");
+  const { effectiveRanges, refetch: refetchEffectiveRanges } = useEffectiveRanges();
+  const [customizeRangesOpen, setCustomizeRangesOpen] = useState(false);
   // DashboardClient only mounts on /dashboard; enabled unconditionally true.
   const performance = useDashboardPerformance({ range: performanceRange, enabled: true });
 
@@ -61,6 +79,8 @@ export function DashboardClient() {
   // depth exceeded). The ref form is cycle-safe even if `useDashboardPerformance`
   // later changes its memoization shape.
   const firstSignalRef = useRef(true);
+  const refreshDashboardRef = useRef(dashboard.refresh);
+  refreshDashboardRef.current = dashboard.refresh;
   const refreshPerformanceRef = useRef(performance.refresh);
   refreshPerformanceRef.current = performance.refresh;
   useEffect(() => {
@@ -68,10 +88,18 @@ export function DashboardClient() {
       firstSignalRef.current = false;
       return;
     }
+    void refreshDashboardRef.current();
     void refreshPerformanceRef.current();
   }, [contextRefreshSignal]);
 
-  if (isBootstrapping || !isI18nReady) {
+  useEffect(() => {
+    if (effectiveRanges.length === 0) return;
+    if (!effectiveRanges.includes(performanceRange)) {
+      setPerformanceRange(effectiveRanges[0]);
+    }
+  }, [effectiveRanges, performanceRange]);
+
+  if (dashboard.isBootstrapping) {
     return (
       <>
         <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />

@@ -1,22 +1,12 @@
 import { Suspense } from "react";
-import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
+import type { AccountDto, LocaleCode, ShellPortfolioConfigDto, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
-import {
-  currentMonthQuery,
-  searchParamsToReviewQuery,
-} from "../../components/dividends/dividendsPageQuery";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS,
   resolveInitialDividendsTab,
 } from "../../components/dividends/dividendsTabsUtils";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
-import { fetchDashboardSnapshot } from "../../features/dashboard/services/dashboardService";
-import {
-  fetchDividendCalendarSnapshot,
-  fetchDividendLedgerReview,
-  fetchDividendLedgerYears,
-} from "../../features/dividends/services/dividendService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
@@ -45,70 +35,34 @@ function hasExplicitDividendsView(searchParams: Record<string, string | string[]
 }
 
 export default async function DividendsPage({ searchParams }: DividendsPageProps) {
-  const [sp, session, profile, sidebarOpen] = await Promise.all([
+  const [sp, session, profile, sidebarOpen, settings] = await Promise.all([
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
+    getJson<UserSettings>("/settings").catch(() => null),
   ]);
 
-  let locale: LocaleCode = "en";
-  let accounts: AccountDto[] = [];
-  try {
-    const dashboard = await fetchDashboardSnapshot();
-    locale = dashboard.settings?.locale ?? "en";
-    accounts = dashboard.accounts ?? [];
-  } catch {
-    // Fall back to English; client shell will re-fetch.
-  }
-
+  const locale: LocaleCode = settings?.locale ?? "en";
   const resolvedInitialTab = resolveInitialDividendsTab(sp);
-  const shouldProbeReviewFirst = !hasExplicitDividendsView(sp);
   const dict = getDictionary(locale);
-  const reviewFallback = {
-    ledgerEntries: [],
-    total: 0,
-    aggregates: {
-      totalExpectedCashAmount: {},
-      totalReceivedCashAmount: {},
-      openCount: 0,
-      byMonth: {},
-      byTicker: {},
-    },
-  };
-
-  let initialTab = resolvedInitialTab;
-  let calendarSnapshot = null;
-  let reviewData = null;
-  let years: number[] = [];
-
-  if (resolvedInitialTab === "ledger") {
-    [reviewData, years] = await Promise.all([
-      fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => reviewFallback),
-      fetchDividendLedgerYears().catch(() => []),
-    ]);
-  } else if (shouldProbeReviewFirst) {
-    const reviewPreview = await fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => null);
-    if ((reviewPreview?.aggregates.openCount ?? 0) > 0) {
-      initialTab = "ledger";
-      reviewData = reviewPreview;
-      years = await fetchDividendLedgerYears().catch(() => []);
-    } else {
-      calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
-        events: [],
-        ledgerEntries: [],
-      }));
-    }
-  } else {
-    calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
-      events: [],
-      ledgerEntries: [],
-    }));
-  }
+  const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
+  const accounts: AccountDto[] = initialTab === "ledger"
+    ? await getJson<ShellPortfolioConfigDto>("/settings/fee-config")
+      .then((config) => config.accounts)
+      .catch(() => [])
+    : [];
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
-      <AppShell section="dividends" isDemo={session.isDemo} initialProfile={profile} initialSidebarOpen={sidebarOpen}>
+      <AppShell
+        section="dividends"
+        isDemo={session.isDemo}
+        localeOverride={locale}
+        initialProfile={profile}
+        portfolioConfigMode="lazy"
+        initialSidebarOpen={sidebarOpen}
+      >
         <DividendsTabsClient
           initialTab={initialTab}
           calendarLabel={dict.dividends.tabs.calendar}
@@ -116,9 +70,9 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           dict={dict}
           locale={locale}
           accounts={accounts}
-          initialCalendarSnapshot={calendarSnapshot}
-          initialReviewData={reviewData}
-          initialYears={years}
+          initialCalendarSnapshot={null}
+          initialReviewData={null}
+          initialYears={[]}
         />
       </AppShell>
     </Suspense>

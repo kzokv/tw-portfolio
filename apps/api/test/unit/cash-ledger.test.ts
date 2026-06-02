@@ -407,4 +407,50 @@ describe("GET /portfolio/cash-ledger", () => {
     expect(body.entries[0].tradeDetail).toBeUndefined();
     expect(body.entries[0].dividendDetail).toBeUndefined();
   });
+
+  it("returns paired FX transfer account names and timing headers", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounts.push({
+      id: "acc-2",
+      userId: "user-1",
+      name: "USD Wallet",
+      feeProfileId: store.feeProfiles[0]!.id,
+      defaultCurrency: "USD",
+      accountType: "wallet",
+    });
+
+    await seedCashEntries(
+      makeCashEntry({
+        id: "fx-out",
+        accountId: "acc-1",
+        entryType: "FX_TRANSFER_OUT",
+        amount: -30000,
+        currency: "TWD",
+        fxTransferId: "fx-1",
+      }),
+      makeCashEntry({
+        id: "fx-in",
+        accountId: "acc-2",
+        entryType: "FX_TRANSFER_IN",
+        amount: 1000,
+        currency: "USD",
+        fxTransferId: "fx-1",
+      }),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/portfolio/cash-ledger?accountId=acc-1" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["server-timing"]).toContain("list_cash_ledger;dur=");
+    expect(res.headers["server-timing"]).toContain("cash_ledger_enrichment;dur=");
+    const body = res.json();
+    expect(body.entries).toHaveLength(1);
+    expect(body.entries[0].fxTransferDetail).toEqual({
+      pairedAccountId: "acc-2",
+      pairedAccountName: "USD Wallet",
+      pairedAmount: 1000,
+      pairedCurrency: "USD",
+      effectiveRate: 0.03333333,
+    });
+  });
 });

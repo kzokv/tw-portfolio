@@ -32,6 +32,86 @@
 
 ---
 
+## Smooth Page Performance Baseline
+
+This section is the implementation baseline for authenticated route performance work on `/dashboard`, `/portfolio`, `/transactions`, and `/cash-ledger`. It is intentionally normative: some current code paths still predate this pattern, so treat this as the target contract until implementation evidence in the related performance notes shows full conformance.
+
+### Intent
+
+- The shell should become interactive from lightweight identity and navigation state, not from route-specific portfolio data.
+- Each page should own one primary read model that makes first useful content visible.
+- Secondary and enrichment reads may improve the page after first paint, but they must not block the initial route content.
+- Refreshes should preserve visible content and replace only the affected region with a skeleton or pending state.
+
+### Data boundaries
+
+| Boundary | Owner | Must include | Must not block on |
+|---|---|---|---|
+| Shell data | `AppShell` and shell-scoped providers | profile, locale, shared owner/read-only context, sidebar/topbar labels, notification bootstrap, command/search essentials, global action handlers | dashboard holdings, dashboard summary cards, transactions lists, cash-ledger rows, page-specific account/balance reads |
+| Page primary data | Route entry or route-owned client hook | the smallest route-specific payload required for meaningful content | unrelated route reads, charts, quote freshness decoration, grouped-holding enrichments not needed for the first visible state |
+| Secondary data | Route-owned hooks/components | deferred charts, richer actions, filter options that are not required for first render, non-critical preference sync | the route shell and primary content |
+| Enrichment data | feature-level helpers/services | quote freshness, FX/reporting overlays, account-label decoration, grouped-holding translation, badge/status polish | unrelated routes and the shell bootstrap |
+
+### Route expectations
+
+| Route | Primary content boundary | Allowed secondary/enrichment after first paint |
+|---|---|---|
+| `/dashboard` | dashboard summary, grouped holdings preview, action center, enough shared-context data to explain whose portfolio is visible | performance chart series, richer quote/freshness decoration, non-critical controls |
+| `/portfolio` | grouped holdings page data and allocation-basis-aware table render | deeper quote freshness, optional breakdowns, non-blocking preference refresh |
+| `/transactions` | recent transactions, lightweight account options, route-local status needed to submit/edit safely | richer verification details, non-critical badges, post-render refreshes |
+| `/cash-ledger` | first-page ledger rows, human account labels, balances/filters required to understand the page | later pages, optional aggregates, non-critical enrichment |
+| `/tickers/[ticker]` | ticker-scoped history plus primary holding/account context needed for fallback stats | richer quote, fundamental, and reporting overlays |
+| `/settings/tickers` | monitored ticker list and current selection state | full instrument catalog, browse/search rows, repair metadata beyond monitored rows |
+| `/settings/ai-connectors` | connector summary and policy | recent access logs and expanded history |
+
+### Current route-owned endpoints
+
+- `/dashboard` server-renders from `GET /dashboard/primary`; client enrichment refreshes from `GET /dashboard/enrichment` and chart data from `GET /dashboard/performance`.
+- `/portfolio` server-renders from `GET /portfolio/primary`; client enrichment refreshes from `GET /portfolio/enrichment`.
+- `/transactions` server-renders from `GET /transactions/primary`; the payload seeds recent rows, transaction account options, and AppShell's portfolio config, while AI inbox details remain tab-owned.
+- `/tickers/[ticker]` uses `GET /dashboard/primary` only for primary holding/account context; it must not use dashboard enrichment as a route bootstrap dependency.
+- `/settings/tickers` first loads `GET /monitored-tickers`; `GET /instruments` is triggered only when the catalog surface opens.
+- `/settings/ai-connectors` first loads `GET /ai/connectors/summary`; recent access uses `GET /ai/connectors/logs`.
+- Legacy broad reads such as `GET /dashboard/overview`, `GET /portfolio/page-data`, and `GET /ai/connectors` remain compatibility surfaces and must not become route-primary dependencies for new UI code.
+
+### Shell and route rules
+
+- `AppShell` must not gate route rendering on `/dashboard/overview` or any other page-owned endpoint.
+- Route pages may pass server-provided `initialPortfolioConfig` into `AppShell` when a primary read model already contains account/fee-profile config. This prevents an immediate duplicate `/settings/fee-config` client fetch from delaying first controls.
+- Shared portfolio owner label and read-only state must be derivable from shell/profile/shared-context data before page primary data resolves.
+- Shell command/search bootstrap should use a narrow catalog endpoint such as `/portfolio/instrument-index`, and it must remain non-blocking for route content.
+- A route may reuse data structures that also appear elsewhere, but ownership still belongs to the route that needs them for first useful content.
+- Existing content should remain mounted during refresh whenever the prior state is still valid. Use local skeletons or loading affordances instead of blanking the whole shell.
+- Page components and route-owned hooks should name primary versus secondary fetches clearly so reviewers can tell which data is allowed to block first render.
+
+### Performance budgets
+
+These budgets come from the 2026-06-01 smooth-pages baseline note and are the default bar for future work unless a later note replaces them.
+
+| Surface | Budget |
+|---|---:|
+| Shell/profile/shared context ready | P95 < 300 ms |
+| Dashboard usable primary UI | P95 < 2.5 s |
+| Portfolio usable primary UI | P95 < 2.0 s |
+| Transactions usable primary UI | P95 < 2.0 s |
+| Cash ledger first page usable UI | P95 < 2.5 s |
+| Blank shell without meaningful page content | Never > 1 s without a route skeleton |
+
+### Instrumentation handoff
+
+- Frontend timing must distinguish shell-ready, route-primary-ready, and secondary/enrichment completion. Do not collapse them into one generic "page loaded" mark.
+- When the backend exposes `Server-Timing`, route-level measurement should correlate the browser-visible wait with endpoint durations instead of guessing from one side alone.
+- Timing helpers and test logs should record which route-owned endpoint supplied first useful content so regressions are attributable to the correct boundary.
+
+### Verification expectations
+
+- Add focused tests proving `/portfolio`, `/transactions`, and `/cash-ledger` can render primary content without waiting for `/dashboard/overview`.
+- Add shared-context tests proving owner label and read-only messaging remain visible while route primary data is pending.
+- When implementation is in flight, docs and notes should say whether timing evidence is design-time baseline only or backed by fresh post-change measurements.
+- Do not claim the baseline is satisfied until a follow-up note or PR evidence includes before/after measurements plus the repo-required test suites.
+
+---
+
 ## Auth Middleware
 
 The Next.js middleware (`middleware.ts`) delegates to `proxy.ts` for route protection:

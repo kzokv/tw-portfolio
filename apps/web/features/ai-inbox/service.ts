@@ -30,6 +30,15 @@ export interface AiConnectorsResponse {
   policy: AiConnectorPolicySettingsDto;
 }
 
+export interface AiConnectorSummaryResponse {
+  connections: AiConnectorConnectionDto[];
+  policy: AiConnectorPolicySettingsDto;
+}
+
+export interface AiConnectorLogsResponse {
+  accessLogs: AiConnectorAccessLogDto[];
+}
+
 export interface DraftRowPatch {
   accountId?: string | null;
   accountName?: string | null;
@@ -127,6 +136,14 @@ function buildDraftPostIdempotencyKey(batchId: string): string {
 
 export async function fetchAiConnectors(): Promise<AiConnectorsResponse> {
   return getJson<AiConnectorsResponse>("/ai/connectors");
+}
+
+export async function fetchAiConnectorSummary(): Promise<AiConnectorSummaryResponse> {
+  return getJson<AiConnectorSummaryResponse>("/ai/connectors/summary");
+}
+
+export async function fetchAiConnectorLogs(limit = 12): Promise<AiConnectorLogsResponse> {
+  return getJson<AiConnectorLogsResponse>(`/ai/connectors/logs?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function updateAiConnector(

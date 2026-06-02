@@ -63,7 +63,7 @@ export function BiggestMoversCard({ groups, locale, dict }: BiggestMoversCardPro
                   </span>
                   {h.change !== null ? (
                     <span className={cn("font-mono text-xs tabular-nums", tone)}>
-                      {formatCurrencyAmount(h.change, h.reportingCurrency ?? h.currency, locale)}
+                      {formatCurrencyAmount(h.change, h.currency, locale)}
                     </span>
                   ) : null}
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
 import type { LocaleCode } from "@vakwen/shared-types";
@@ -34,7 +34,10 @@ import type { FxTransferFormValue } from "../../../components/fx-transfer/AddFxT
 import { ConfirmDialog } from "../../../components/admin/ConfirmDialog";
 
 interface CashLedgerClientProps {
-  initialData: CashLedgerListResponse;
+  initialData: CashLedgerListResponse | null;
+  initialDataReady?: boolean;
+  initialAccounts?: AccountWithLiveBalance[];
+  initialAccountMetaReady?: boolean;
   dict: AppDictionary;
   locale: LocaleCode;
 }
@@ -108,12 +111,32 @@ function isFxTransferEntry(entry: EnrichedCashLedgerEntry): boolean {
 // per `.claude/rules/nextjs-i18n-serialization.md` — function values
 // cannot cross the Next.js server→client boundary inside dictionaries.
 
-export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClientProps) {
-  const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData.entries);
-  const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData.summary);
-  const [total, setTotal] = useState(initialData.total ?? 0);
+function buildAccountMeta(accounts: AccountWithLiveBalance[]): Map<string, AccountOptionInput> {
+  const next = new Map<string, AccountOptionInput>();
+  for (const account of accounts) {
+    next.set(account.id, {
+      name: account.name,
+      defaultCurrency: account.defaultCurrency,
+      accountType: account.accountType,
+    });
+  }
+  return next;
+}
+
+export function CashLedgerClient({
+  initialData,
+  initialDataReady = true,
+  initialAccounts = [],
+  initialAccountMetaReady = false,
+  dict,
+  locale,
+}: CashLedgerClientProps) {
+  const [entries, setEntries] = useState<EnrichedCashLedgerEntry[]>(initialData?.entries ?? []);
+  const [summary, setSummary] = useState<CashLedgerSummary[]>(initialData?.summary ?? []);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
+  const [isLedgerLoading, setIsLedgerLoading] = useState(!initialDataReady);
   const [drawerEntry, setDrawerEntry] = useState<EnrichedCashLedgerEntry | null>(null);
-  const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>([]);
+  const [accounts, setAccounts] = useState<AccountWithLiveBalance[]>(initialAccounts);
   const [fxDialogOpen, setFxDialogOpen] = useState(false);
   const [fxDialogMode, setFxDialogMode] = useState<"create" | "edit">("create");
   const [fxDialogInitialValue, setFxDialogInitialValue] = useState<FxTransferFormValue | undefined>(undefined);
@@ -121,11 +144,15 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const [reverseEntry, setReverseEntry] = useState<EnrichedCashLedgerEntry | null>(null);
   const [reversePending, setReversePending] = useState(false);
   const [reverseError, setReverseError] = useState("");
+  const [accountMetaReady, setAccountMetaReady] = useState(initialAccountMetaReady);
+  const initialDataFetchStartedRef = useRef(initialDataReady);
 
   // KZO-167: account chip metadata — name, defaultCurrency, accountType.
   // Empty until the GET /accounts fetch resolves; renders fall back to the
   // raw account ID until populated.
-  const [accountMeta, setAccountMeta] = useState<Map<string, AccountOptionInput>>(new Map());
+  const [accountMeta, setAccountMeta] = useState<Map<string, AccountOptionInput>>(
+    () => buildAccountMeta(initialAccounts),
+  );
 
   // Filters
   const [fromEntryDate, setFromEntryDate] = useState("");
@@ -140,17 +167,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const d = dict.cashLedger;
 
   const loadAccounts = useCallback(async () => {
+    // TODO(performance-smooth-pages): switch to a cash-ledger-scoped account
+    // metadata read endpoint once the backend exposes one. We currently reuse
+    // `/accounts?includeBalances=true` to preserve labels without blocking on
+    // `/dashboard/overview`.
     const nextAccounts = await fetchAccounts({ includeBalances: true });
     setAccounts(nextAccounts);
-    const next = new Map<string, AccountOptionInput>();
-    for (const account of nextAccounts) {
-      next.set(account.id, {
-        name: account.name,
-        defaultCurrency: account.defaultCurrency,
-        accountType: account.accountType,
-      });
-    }
-    setAccountMeta(next);
+    setAccountMeta(buildAccountMeta(nextAccounts));
+    setAccountMetaReady(true);
   }, []);
 
   useEffect(() => {
@@ -158,7 +182,8 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
     void loadAccounts()
       .catch(() => {
         if (cancelled) return;
-        // Leave accountMeta empty; dropdown + chips fall back to raw IDs.
+        // Fall back to raw IDs only after the account metadata request fails.
+        setAccountMetaReady(true);
       });
     return () => { cancelled = true; };
   }, [loadAccounts]);
@@ -166,14 +191,14 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
   const renderAccountLabel = useCallback(
     (id: string): string => {
       const meta = accountMeta.get(id);
-      if (!meta) return id;
+      if (!meta) return accountMetaReady ? id : dict.cashLedger.accountLabelLoading;
       return formatAccountOption(meta, {
         accountTypeBroker: dict.cashLedger.accountTypeBroker,
         accountTypeBank: dict.cashLedger.accountTypeBank,
         accountTypeWallet: dict.cashLedger.accountTypeWallet,
       });
     },
-    [accountMeta, dict],
+    [accountMeta, accountMetaReady, dict],
   );
 
   const fetchData = useCallback(async (opts: {
@@ -190,6 +215,7 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
     const order = opts.order ?? sortOrder;
     const resolvedAccount = "account" in opts ? (opts.account ?? "") : accountId;
     const resolvedEntryTypes = "entryTypes" in opts ? (opts.entryTypes ?? []) : entryTypeFilter;
+    setIsLedgerLoading(true);
     try {
       const data = await fetchCashLedgerEntries({
         fromEntryDate: fromEntryDate || undefined,
@@ -220,8 +246,16 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
       setTotal(newTotal);
     } catch {
       // Keep current data and UI state on error
+    } finally {
+      setIsLedgerLoading(false);
     }
   }, [fromEntryDate, toEntryDate, accountId, entryTypeFilter, page, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (initialDataFetchStartedRef.current) return;
+    initialDataFetchStartedRef.current = true;
+    void fetchData({ pg: 1 });
+  }, [fetchData]);
 
   // SSE: pre-connect pattern (always enabled). KZO-168: also listen for
   // `currency_wallet_recomputed` so FX-transfer mutations refresh the ledger
@@ -527,7 +561,19 @@ export function CashLedgerClient({ initialData, dict, locale }: CashLedgerClient
 
       {/* Phase 4 — single-DOM table (drops legacy `lg:hidden` mobile cards).
           Scroll + sticky-date column at narrow viewports per scope-grill. */}
-      {entries.length === 0 ? (
+      {isLedgerLoading && entries.length === 0 ? (
+        <Card>
+          <p
+            className="py-8 text-center text-sm text-muted-foreground"
+            data-testid="cash-ledger-loading"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            Loading cash ledger...
+          </p>
+        </Card>
+      ) : entries.length === 0 ? (
         <Card>
           <p className="py-8 text-center text-sm text-muted-foreground" data-testid="cash-ledger-empty">
             {d.emptyState}

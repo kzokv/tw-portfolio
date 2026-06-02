@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Lot } from "@vakwen/domain";
+import { roundToDecimal, type Lot } from "@vakwen/domain";
 import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import type {
   AiConnectorProvider,
@@ -54,6 +54,8 @@ import type {
   CreateShareGrantInput,
   ConsumeInviteResult,
   CreateInviteInput,
+  AccountWithLiveBalancesRecord,
+  CashLedgerEnrichmentResult,
   CashLedgerListOptions,
   CashLedgerListResult,
   CatalogInstrument,
@@ -142,6 +144,35 @@ interface MemoryNotification {
   dismissedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function buildLiveBalancesByAccount(store: Store): Map<string, Array<{ currency: string; amount: number }>> {
+  const reversedIds = new Set<string>();
+  for (const entry of store.accounting.facts.cashLedgerEntries) {
+    if (entry.reversalOfCashLedgerEntryId) {
+      reversedIds.add(entry.reversalOfCashLedgerEntryId);
+    }
+  }
+
+  const balances = new Map<string, Map<string, number>>();
+  for (const entry of store.accounting.facts.cashLedgerEntries) {
+    if (entry.reversalOfCashLedgerEntryId) continue;
+    if (reversedIds.has(entry.id)) continue;
+    const currencyMap = balances.get(entry.accountId) ?? new Map<string, number>();
+    currencyMap.set(entry.currency, (currencyMap.get(entry.currency) ?? 0) + entry.amount);
+    balances.set(entry.accountId, currencyMap);
+  }
+
+  const result = new Map<string, Array<{ currency: string; amount: number }>>();
+  for (const [accountId, currencyMap] of balances.entries()) {
+    result.set(
+      accountId,
+      [...currencyMap.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([currency, amount]) => ({ currency, amount: roundToDecimal(amount, 2) })),
+    );
+  }
+  return result;
 }
 
 interface MemoryInstrument {
@@ -1428,10 +1459,18 @@ export class MemoryPersistence implements Persistence {
     return { ...record, metadata: { ...record.metadata } };
   }
 
-  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
-    return this.aiConnectorAccessLogs
-      .filter((record) => record.userId === userId)
-      .map((record) => ({ ...record, metadata: { ...record.metadata } }));
+  async listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: { limit?: number },
+  ): Promise<AiConnectorAccessLogRecord[]> {
+    const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+    const logs: AiConnectorAccessLogRecord[] = [];
+    for (const record of this.aiConnectorAccessLogs) {
+      if (record.userId !== userId) continue;
+      logs.push({ ...record, metadata: { ...record.metadata } });
+      if (logs.length >= limit) break;
+    }
+    return logs;
   }
 
   async saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null> {
@@ -1791,6 +1830,11 @@ export class MemoryPersistence implements Persistence {
 
     this.stores.set(userId, store);
     return store;
+  }
+
+  async getUserSettings(userId: string) {
+    const store = await this.loadStore(userId);
+    return store.settings;
   }
 
   async saveStore(store: Store): Promise<void> {
@@ -2453,6 +2497,105 @@ export class MemoryPersistence implements Persistence {
     const entries = sorted.slice(startIndex, startIndex + opts.limit);
 
     return { entries, total, summary };
+  }
+
+  async listAccountsWithLiveBalances(userId: string): Promise<AccountWithLiveBalancesRecord[]> {
+    const store = await this.loadStore(userId);
+    const balancesByAccount = buildLiveBalancesByAccount(store);
+    return store.accounts.map((account) => ({
+      ...account,
+      liveBalance: balancesByAccount.get(account.id) ?? [],
+    }));
+  }
+
+  async getCashLedgerEnrichment(
+    userId: string,
+    input: {
+      accountIds: string[];
+      relatedTradeEventIds: string[];
+      relatedDividendLedgerEntryIds: string[];
+      fxTransferIds: string[];
+    },
+  ): Promise<CashLedgerEnrichmentResult> {
+    const store = await this.loadStore(userId);
+    const requestedTradeIds = new Set(input.relatedTradeEventIds);
+    const requestedDividendIds = new Set(input.relatedDividendLedgerEntryIds);
+    const requestedFxTransferIds = new Set(input.fxTransferIds);
+
+    const accountNamesById = new Map(
+      store.accounts.map((account) => [account.id, account.name] as const),
+    );
+
+    const tradesById = new Map(
+      store.accounting.facts.tradeEvents
+        .filter((trade) => trade.userId === userId && requestedTradeIds.has(trade.id))
+        .map((trade) => [trade.id, {
+          id: trade.id,
+          ticker: trade.ticker,
+          side: trade.type,
+          quantity: trade.quantity,
+          unitPrice: trade.unitPrice,
+          commissionAmount: trade.commissionAmount,
+          taxAmount: trade.taxAmount,
+        }] as const),
+    );
+
+    const dividendEventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+    const deductionTotals = new Map<string, number>();
+    for (const deduction of store.accounting.facts.dividendDeductionEntries) {
+      if (!requestedDividendIds.has(deduction.dividendLedgerEntryId)) continue;
+      deductionTotals.set(
+        deduction.dividendLedgerEntryId,
+        (deductionTotals.get(deduction.dividendLedgerEntryId) ?? 0) + deduction.amount,
+      );
+    }
+    const dividendsById = new Map(
+      store.accounting.facts.dividendLedgerEntries
+        .filter((entry) => requestedDividendIds.has(entry.id))
+        .map((entry) => [entry.id, {
+          id: entry.id,
+          ticker: dividendEventById.get(entry.dividendEventId)?.ticker ?? null,
+          expectedCashAmount: entry.expectedCashAmount,
+          receivedCashAmount: entry.receivedCashAmount,
+          deductionTotal: roundToDecimal(deductionTotals.get(entry.id) ?? 0, 2),
+        }] as const),
+    );
+
+    const fxTransferLegsByTransferId = new Map<string, Array<{
+      entryId: string;
+      accountId: string;
+      accountName: string;
+      entryType: CashLedgerEntry["entryType"];
+      amount: number;
+      currency: string;
+      reversalOfCashLedgerEntryId?: string;
+    }>>();
+    const reversedFxTransferIds = new Set<string>();
+    for (const entry of store.accounting.facts.cashLedgerEntries) {
+      if (!entry.fxTransferId || !requestedFxTransferIds.has(entry.fxTransferId)) continue;
+      if (entry.reversalOfCashLedgerEntryId) {
+        reversedFxTransferIds.add(entry.fxTransferId);
+      }
+      const legs = fxTransferLegsByTransferId.get(entry.fxTransferId) ?? [];
+      legs.push({
+        entryId: entry.id,
+        accountId: entry.accountId,
+        accountName: accountNamesById.get(entry.accountId) ?? entry.accountId,
+        entryType: entry.entryType,
+        amount: entry.amount,
+        currency: entry.currency,
+        reversalOfCashLedgerEntryId: entry.reversalOfCashLedgerEntryId,
+      });
+      fxTransferLegsByTransferId.set(entry.fxTransferId, legs);
+    }
+
+    return {
+      accountNamesById,
+      tradesById,
+      dividendsById,
+      fxTransferLegsByTransferId,
+      reversedFxTransferIds,
+    };
   }
 
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {

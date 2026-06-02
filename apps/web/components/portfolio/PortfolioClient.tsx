@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/utils";
 import { DashboardLoading } from "../dashboard/DashboardLoading";
@@ -10,21 +11,37 @@ import { SortableCardGrid } from "../layout/SortableCardGrid";
 import { HoldingsTable } from "./HoldingsTable";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
+import { usePortfolioPrimaryData } from "../../features/portfolio/hooks/usePortfolioPageData";
+import type { PortfolioPageData } from "../../features/portfolio/services/portfolioService";
 
-export function PortfolioClient() {
+export function PortfolioClient({
+  initialPrimaryData = null,
+}: {
+  initialPrimaryData?: PortfolioPageData | null;
+}) {
   const {
-    dashboard,
     uiDict: dict,
     locale,
     isSharedContext,
-    isBootstrapping,
-    isI18nReady,
     mutations,
+    contextRefreshSignal,
   } = useAppShellData();
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
+  const firstSignalRef = useRef(true);
+  const refreshPortfolioRef = useRef(portfolio.refresh);
+  refreshPortfolioRef.current = portfolio.refresh;
 
-  if (isBootstrapping || !isI18nReady) {
+  useEffect(() => {
+    if (firstSignalRef.current) {
+      firstSignalRef.current = false;
+      return;
+    }
+    void refreshPortfolioRef.current();
+  }, [contextRefreshSignal]);
+
+  if (portfolio.isBootstrapping) {
     return (
       <>
         <div className="mb-5 h-2 w-full rounded skeleton-line" aria-hidden="true" />
@@ -34,10 +51,10 @@ export function PortfolioClient() {
   }
 
   const holdingGroups = resolveHoldingGroups({
-    holdings: dashboard.holdings,
-    holdingGroups: dashboard.holdingGroups,
-    instruments: dashboard.instruments,
-    accounts: dashboard.accounts,
+    holdings: portfolio.data.holdings,
+    holdingGroups: portfolio.data.holdingGroups,
+    instruments: portfolio.data.instruments,
+    accounts: portfolio.data.accounts,
   });
   const largestHolding = holdingGroups[0] ?? null;
   const quotedHoldingCount = holdingGroups.filter((holding) => holding.currentUnitPrice !== null).length;
@@ -119,10 +136,10 @@ export function PortfolioClient() {
             case "holdings-table":
               return (
                 <HoldingsTable
-                  holdings={dashboard.holdings}
+                  holdings={portfolio.data.holdings}
                   holdingGroups={holdingGroups}
-                  instruments={dashboard.instruments}
-                  accounts={dashboard.accounts}
+                  instruments={portfolio.data.instruments}
+                  accounts={portfolio.data.accounts}
                   dict={dict}
                   locale={locale}
                   recomputingSymbols={mutations.recomputingSymbols}
@@ -135,8 +152,8 @@ export function PortfolioClient() {
             case "dividends-section":
               return (
                 <DividendsSection
-                  upcoming={dashboard.dividends.upcoming}
-                  recent={dashboard.dividends.recent}
+                  upcoming={portfolio.data.dividends.upcoming}
+                  recent={portfolio.data.dividends.recent}
                   dict={dict}
                   locale={locale}
                 />

@@ -45,6 +45,8 @@ interface InstrumentCatalogSheetProps {
   // AU tickers picked via live search; passed through to `useMonitoredTickers`
   // so it can append the synthetic to local state for backfill enrichment.
   onToggleTicker: (key: string, liveItem?: InstrumentCatalogItemDto) => void;
+  isLoadingCatalog?: boolean;
+  catalogError?: string;
   onBack: () => void;
   dict: AppDictionary;
 }
@@ -66,6 +68,8 @@ export function InstrumentCatalogSheet({
   selectedTickers,
   positionTickers,
   onToggleTicker,
+  isLoadingCatalog = false,
+  catalogError = "",
   onBack,
   dict,
 }: InstrumentCatalogSheetProps) {
@@ -231,7 +235,11 @@ export function InstrumentCatalogSheet({
   const showLiveLoading = liveSearchEnabled && liveLoading;
   const showLiveUnavailable = liveSearchEnabled && liveError !== null;
   const showEmptyState =
-    filtered.length === 0 && !showLiveResults && !showLiveLoading && !showLiveUnavailable;
+    !isLoadingCatalog
+    && filtered.length === 0
+    && !showLiveResults
+    && !showLiveLoading
+    && !showLiveUnavailable;
   // Only render the count line when catalog has matches (per scope-todo Phase 2).
   const showCountLine = filtered.length > 0;
 
@@ -249,6 +257,18 @@ export function InstrumentCatalogSheet({
         </button>
         <h3 className="text-sm font-semibold text-slate-800">{dict.settings.tickersCatalogTitle}</h3>
       </div>
+
+      {isLoadingCatalog ? (
+        <p className="pt-3 text-sm text-muted-foreground" data-testid="instrument-catalog-loading">
+          {dict.feedback.loadingSettings}
+        </p>
+      ) : null}
+
+      {catalogError ? (
+        <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+          {catalogError}
+        </div>
+      ) : null}
 
       {/* KZO-188 — Market chip group (above type-filter chips) */}
       <div className="pt-3">

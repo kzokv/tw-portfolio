@@ -40,6 +40,7 @@ import type {
   MonitoredTickerDto,
   NotificationDto,
   ProfileDto,
+  UserSettings,
 } from "@vakwen/shared-types";
 
 /**
@@ -507,6 +508,10 @@ export interface AiConnectorAccessLogRecord {
   createdAt: string;
 }
 
+export interface ListAiConnectorAccessLogsOptions {
+  limit?: number;
+}
+
 export interface AiTransactionDraftBatchRecord {
   id: string;
   ownerUserId: string;
@@ -892,6 +897,52 @@ export interface CashLedgerListResult {
   entries: CashLedgerEntry[];
   total: number;
   summary: { accountId: string; currency: string; amount: number }[];
+}
+
+export interface AccountWithLiveBalancesRecord {
+  id: string;
+  userId: string;
+  name: string;
+  feeProfileId: string;
+  defaultCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
+  accountType: import("@vakwen/shared-types").AccountType;
+  liveBalance: Array<{ currency: string; amount: number }>;
+}
+
+export interface CashLedgerEntryTradeDetailRecord {
+  id: string;
+  ticker: string;
+  side: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  commissionAmount: number;
+  taxAmount: number;
+}
+
+export interface CashLedgerEntryDividendDetailRecord {
+  id: string;
+  ticker: string | null;
+  expectedCashAmount: number;
+  receivedCashAmount: number;
+  deductionTotal: number;
+}
+
+export interface CashLedgerFxTransferLegRecord {
+  entryId: string;
+  accountId: string;
+  accountName: string;
+  entryType: import("../types/store.js").CashLedgerEntryType;
+  amount: number;
+  currency: string;
+  reversalOfCashLedgerEntryId?: string;
+}
+
+export interface CashLedgerEnrichmentResult {
+  accountNamesById: Map<string, string>;
+  tradesById: Map<string, CashLedgerEntryTradeDetailRecord>;
+  dividendsById: Map<string, CashLedgerEntryDividendDetailRecord>;
+  fxTransferLegsByTransferId: Map<string, CashLedgerFxTransferLegRecord[]>;
+  reversedFxTransferIds: Set<string>;
 }
 
 // ── Dividend ledger listing (KZO-135) ─────────────────────────────────────────
@@ -1321,7 +1372,10 @@ export interface Persistence {
     revokedByUserId?: string | null,
   ): Promise<number>;
   appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord>;
-  listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]>;
+  listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: ListAiConnectorAccessLogsOptions,
+  ): Promise<AiConnectorAccessLogRecord[]>;
   saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null>;
   getAiTransactionDraftBatch(id: string): Promise<AiTransactionDraftBatchAggregate | null>;
   listAiTransactionDraftBatchesForOwner(ownerUserId: string): Promise<AiTransactionDraftBatchRecord[]>;
@@ -1475,9 +1529,20 @@ export interface Persistence {
     input: RecordTickerFundamentalsRefreshFailureInput,
   ): Promise<PersistedTickerFundamentalsRecord>;
   listCashLedgerEntries(userId: string, opts: CashLedgerListOptions): Promise<CashLedgerListResult>;
+  listAccountsWithLiveBalances(userId: string): Promise<AccountWithLiveBalancesRecord[]>;
+  getCashLedgerEnrichment(
+    userId: string,
+    input: {
+      accountIds: string[];
+      relatedTradeEventIds: string[];
+      relatedDividendLedgerEntryIds: string[];
+      fxTransferIds: string[];
+    },
+  ): Promise<CashLedgerEnrichmentResult>;
   claimIdempotencyKey(userId: string, key: string): Promise<boolean>;
   releaseIdempotencyKey(userId: string, key: string): Promise<void>;
   getProfile(userId: string): Promise<ProfileDto>;
+  getUserSettings(userId: string): Promise<UserSettings>;
   updateProfileEmail(userId: string, email: string): Promise<ProfileDto>;
   /**
    * ui-reshape Phase 3d S7 — set the user-overridable profile fields

@@ -1,34 +1,39 @@
 "use client";
 
 import { useMemo } from "react";
-import type { DashboardPerformanceRange, LocaleCode } from "@vakwen/shared-types";
+import type {
+  AccountDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  LocaleCode,
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import type {
   AppShellData,
   AppShellTransactionAccountOption,
 } from "./AppShellDataContext";
-import type { useDashboardData as useDashboardDataType } from "../../features/dashboard/hooks/useDashboardData";
+import type { IntegrityIssue } from "../../features/dashboard/types";
 import type { useTransactionSubmission as useTransactionSubmissionType } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { useTransactionMutations as useTransactionMutationsType } from "../../features/portfolio/hooks/useTransactionMutations";
 import type { useRecomputeAction as useRecomputeActionType } from "../../features/portfolio/hooks/useRecomputeAction";
 
 interface BuildAppShellDataValueOptions {
-  dashboard: ReturnType<typeof useDashboardDataType>;
   uiDict: AppDictionary;
   locale: LocaleCode;
   isSharedContext: boolean;
-  isI18nReady: boolean;
   transactionSubmission: ReturnType<typeof useTransactionSubmissionType>;
   mutations: ReturnType<typeof useTransactionMutationsType>;
   recomputeAction: ReturnType<typeof useRecomputeActionType>;
   openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
-  performanceRange: DashboardPerformanceRange;
-  setPerformanceRange: (range: DashboardPerformanceRange) => void;
-  effectiveRanges: DashboardPerformanceRange[];
-  refetchEffectiveRanges: () => void;
-  customizeRangesOpen: boolean;
-  setCustomizeRangesOpen: (open: boolean) => void;
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  refreshPortfolioConfig: () => Promise<void>;
+  isPortfolioConfigLoading: boolean;
+  integrityIssue: IntegrityIssue | null;
+  showIntegrityDialog: boolean;
+  setShowIntegrityDialog: (open: boolean) => void;
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
   contextRefreshSignal: number;
@@ -41,22 +46,22 @@ interface BuildAppShellDataValueOptions {
  */
 export function useAppShellDataValue(options: BuildAppShellDataValueOptions): AppShellData {
   const {
-    dashboard,
     uiDict,
     locale,
     isSharedContext,
-    isI18nReady,
     transactionSubmission,
     mutations,
     recomputeAction,
     openRecomputeConfirm,
     transactionAccountOptions,
-    performanceRange,
-    setPerformanceRange,
-    effectiveRanges,
-    refetchEffectiveRanges,
-    customizeRangesOpen,
-    setCustomizeRangesOpen,
+    accounts,
+    feeProfiles,
+    feeProfileBindings,
+    refreshPortfolioConfig,
+    isPortfolioConfigLoading,
+    integrityIssue,
+    showIntegrityDialog,
+    setShowIntegrityDialog,
     generateSnapshots,
     isGeneratingSnapshots,
     contextRefreshSignal,
@@ -64,44 +69,43 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
 
   return useMemo<AppShellData>(
     () => ({
-      dashboard,
       uiDict,
       locale,
       isSharedContext,
-      isBootstrapping: dashboard.isBootstrapping,
-      isI18nReady,
       transactionSubmission,
       mutations,
       recomputeAction,
       openRecomputeConfirm,
       transactionAccountOptions,
-      performanceRange,
-      setPerformanceRange,
-      effectiveRanges,
-      refetchEffectiveRanges,
-      customizeRangesOpen,
-      setCustomizeRangesOpen,
+      accounts,
+      feeProfiles,
+      feeProfileBindings,
+      refreshPortfolioConfig,
+      isPortfolioConfigLoading,
+      integrityIssue,
+      showIntegrityDialog,
+      setShowIntegrityDialog,
       generateSnapshots,
       isGeneratingSnapshots,
       contextRefreshSignal,
     }),
     [
+      accounts,
       contextRefreshSignal,
-      customizeRangesOpen,
-      dashboard,
-      effectiveRanges,
+      feeProfileBindings,
+      feeProfiles,
       generateSnapshots,
+      integrityIssue,
       isGeneratingSnapshots,
-      isI18nReady,
+      isPortfolioConfigLoading,
       isSharedContext,
       locale,
       mutations,
       openRecomputeConfirm,
-      performanceRange,
       recomputeAction,
-      refetchEffectiveRanges,
-      setCustomizeRangesOpen,
-      setPerformanceRange,
+      refreshPortfolioConfig,
+      setShowIntegrityDialog,
+      showIntegrityDialog,
       transactionAccountOptions,
       transactionSubmission,
       uiDict,

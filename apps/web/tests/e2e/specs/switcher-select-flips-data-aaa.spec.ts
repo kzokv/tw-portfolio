@@ -46,7 +46,7 @@ test.describe("portfolio switcher selection", () => {
     const dashboardRefresh = page.waitForResponse(
       (response) =>
         response.request().method() === "GET"
-        && response.url().includes("/dashboard/overview")
+        && response.url().includes("/dashboard/primary")
         && response.ok(),
     );
 

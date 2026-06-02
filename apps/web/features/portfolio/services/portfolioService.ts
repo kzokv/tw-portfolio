@@ -1,9 +1,16 @@
 import { getJson, postJson } from "../../../lib/api";
 import type {
+  AccountDto,
+  DashboardOverviewDto,
+  FeeProfileBindingDto,
+  FeeProfileDto,
+  InstrumentOptionDto,
   InstrumentCatalogItemDto,
   MarketCode,
+  TransactionPrimaryDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
+import type { IntegrityIssue } from "../../dashboard/types";
 import type { TransactionInput } from "../../../components/portfolio/types";
 
 // KZO-169: market_code query param accepted by GET /instruments. `null` /
@@ -22,6 +29,20 @@ export interface RecomputeConfirmResponse {
 export interface TransactionInstrumentCatalogResponse {
   instruments: InstrumentCatalogItemDto[];
 }
+
+export interface PortfolioInstrumentIndexResponse {
+  instruments: InstrumentOptionDto[];
+}
+
+export type PortfolioPageData = Pick<
+  DashboardOverviewDto,
+  "holdings" | "holdingGroups" | "dividends" | "instruments"
+> & {
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  integrityIssue: IntegrityIssue | null;
+};
 
 export interface MarketDataPriceResponse {
   close: number;
@@ -87,6 +108,26 @@ export async function fetchTransactionHistory(filters: {
 
   const query = params.toString();
   return getJson<TransactionHistoryItemDto[]>(query ? `/portfolio/transactions?${query}` : "/portfolio/transactions");
+}
+
+export async function fetchTransactionsPrimaryData(): Promise<TransactionPrimaryDto> {
+  return getJson<TransactionPrimaryDto>("/transactions/primary");
+}
+
+export async function fetchPortfolioPageData(): Promise<PortfolioPageData> {
+  return fetchPortfolioEnrichmentData();
+}
+
+export async function fetchPortfolioPrimaryData(): Promise<PortfolioPageData> {
+  return getJson<PortfolioPageData>("/portfolio/primary");
+}
+
+export async function fetchPortfolioEnrichmentData(): Promise<PortfolioPageData> {
+  return getJson<PortfolioPageData>("/portfolio/enrichment");
+}
+
+export async function fetchPortfolioInstrumentIndex(): Promise<PortfolioInstrumentIndexResponse> {
+  return getJson<PortfolioInstrumentIndexResponse>("/portfolio/instrument-index");
 }
 
 // KZO-169: when `marketCode` is provided (TW/US/AU), the server filters the

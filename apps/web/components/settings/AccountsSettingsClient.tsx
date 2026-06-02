@@ -6,7 +6,7 @@ import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { ACCOUNT_DEFAULT_CURRENCIES } from "@vakwen/shared-types";
 import { useSettingsRouteContext } from "./SettingsRouteProvider";
 import { getDictionary } from "../../lib/i18n";
-import { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
+import { useAppShellData } from "../layout/AppShellDataContext";
 import { AccountCreateForm } from "../../features/settings/components/AccountCreateForm";
 import { AccountsListSection } from "../../features/settings/components/AccountsListSection";
 import { createAccount } from "../../features/cash-ledger/services/cashLedgerService";
@@ -19,7 +19,6 @@ import type {
   SettingsProfileModel,
   SettingsSecurityBindingModel,
 } from "../../features/settings/types/settingsUi";
-import type { TransactionInput } from "../portfolio/types";
 import { toSettingsFormModel } from "../../features/settings/mappers/settingsMappers";
 
 const PREFILL_CURRENCIES = new Set<AccountDefaultCurrency>(ACCOUNT_DEFAULT_CURRENCIES);
@@ -31,18 +30,6 @@ function parsePrefillCurrency(raw: string | null): AccountDefaultCurrency | unde
   return undefined;
 }
 
-const DEFAULT_TRANSACTION: TransactionInput = {
-  accountId: "",
-  ticker: "",
-  marketCode: null,
-  quantity: 1000,
-  unitPrice: 100,
-  priceCurrency: "TWD",
-  tradeDate: new Date().toISOString().slice(0, 10),
-  type: "BUY",
-  isDayTrade: false,
-};
-
 /**
  * Phase 3d S6 — `/settings/accounts` body.
  *
@@ -53,15 +40,15 @@ const DEFAULT_TRANSACTION: TransactionInput = {
  * per the §8 preservation checklist.
  *
  * Fee-profile editing is local-state with optimistic mutations against the
- * dashboard snapshot — the user clicks "Save profile edit" inline within
+ * shell account config — the user clicks "Save profile edit" inline within
  * each profile card to commit. (The previous omnibus PUT /settings/full
  * tracked dirty state across the entire drawer; in the route world, each
  * profile-card has its own narrow save action.)
  */
 export function AccountsSettingsClient() {
-  const { locale } = useSettingsRouteContext();
+  const { locale, initialSettings } = useSettingsRouteContext();
   const dict = getDictionary(locale);
-  const dashboard = useDashboardData({ initialTransaction: DEFAULT_TRANSACTION });
+  const shellData = useAppShellData();
   // Phase 3d H1 — read the `accountsPrefillCurrency` query param so the
   // KZO-169 NC4 deep-link from the transaction form's "no {currency}
   // account" inline error still pre-selects the right currency on the
@@ -74,19 +61,19 @@ export function AccountsSettingsClient() {
   );
 
   // Build a local working copy of the settings form model from the
-  // dashboard snapshot. AccountsListSection still operates on its own
+  // shell account config. AccountsListSection still operates on its own
   // draft mutators (legacy API surface); we forward changes through to the
   // existing per-resource PATCH endpoints (PATCH /accounts/:id for the
   // default-profile selector; rename is handled by the section internally).
   const initialModel = useMemo(() => {
-    if (!dashboard.settings) return null;
+    if (!initialSettings) return null;
     return toSettingsFormModel(
-      dashboard.settings,
-      dashboard.accounts,
-      dashboard.feeProfiles,
-      dashboard.feeProfileBindings,
+      initialSettings,
+      shellData.accounts,
+      shellData.feeProfiles,
+      shellData.feeProfileBindings,
     );
-  }, [dashboard.settings, dashboard.accounts, dashboard.feeProfiles, dashboard.feeProfileBindings]);
+  }, [initialSettings, shellData.accounts, shellData.feeProfiles, shellData.feeProfileBindings]);
 
   const [accountDrafts, setAccountDrafts] = useState<SettingsAccountBindingModel[]>([]);
   const [profiles, setProfiles] = useState<SettingsProfileModel[]>([]);
@@ -102,14 +89,14 @@ export function AccountsSettingsClient() {
   const handleRenameAccount = useCallback(
     async (accountId: string, name: string) => {
       await renameAccount(accountId, name);
-      await dashboard.refresh();
+      await shellData.refreshPortfolioConfig();
     },
-    [dashboard],
+    [shellData],
   );
 
   // Local mutators — Accounts tab's fee-profile editing is held in local
   // state until the user explicitly clicks the per-profile edit-done button
-  // (which is wired below to `dashboard.refresh()` so the next snapshot
+  // (which is wired below to `refreshPortfolioConfig()` so the next config
   // reflects committed changes). Per-profile PATCH endpoints are part of
   // a follow-up; for this phase we keep the in-section state ephemeral so
   // the rendered UI is functionally consistent with the prior drawer flow.
@@ -155,15 +142,15 @@ export function AccountsSettingsClient() {
             bondEtfSellTaxRateBps: 0,
             commissionChargeMode: "CHARGED_UPFRONT",
           });
-          // Refresh dashboard snapshot so the new profile appears in the
+          // Refresh shell config so the new profile appears in the
           // list via the `initialModel` → `setProfiles` sync effect.
-          await dashboard.refresh();
+          await shellData.refreshPortfolioConfig();
         } catch {
           // Inline error UX deferred — the toast layer surfaces failures.
         }
       })();
     },
-    [dashboard],
+    [shellData],
   );
 
   const removeProfileFromAccount = useCallback(
@@ -207,13 +194,13 @@ export function AccountsSettingsClient() {
               ...rest,
             });
           }
-          await dashboard.refresh();
+          await shellData.refreshPortfolioConfig();
         } catch {
           // Inline error UX deferred — toast layer surfaces failures.
         }
       })();
     },
-    [profiles, dashboard],
+    [profiles, shellData],
   );
 
   const addBinding = useCallback((accountId: string) => {
@@ -240,7 +227,7 @@ export function AccountsSettingsClient() {
     setBindings((current) => current.filter((_, idx) => idx !== index));
   }, []);
 
-  if (!dashboard.settings) {
+  if (!initialSettings) {
     return (
       <div data-testid="settings-section-accounts" className="text-sm text-muted-foreground">
         {dict.feedback.loadingSettings}
@@ -248,33 +235,46 @@ export function AccountsSettingsClient() {
     );
   }
 
+  const hasShellAccountConfig = shellData.accounts.length > 0 || shellData.feeProfiles.length > 0;
+
   return (
     <div className="space-y-4" data-testid="settings-section-accounts">
       <AccountCreateForm
         onCreate={createAccount}
-        onAccountsRefresh={dashboard.refresh}
+        onAccountsRefresh={shellData.refreshPortfolioConfig}
         prefillCurrency={prefillCurrency}
         dict={dict}
       />
-      <AccountsListSection
-        accounts={dashboard.accounts}
-        accountDrafts={accountDrafts}
-        profiles={profiles}
-        feeProfileBindings={bindings}
-        activeLocale={dashboard.settings?.locale ?? locale}
-        onUpdateAccountProfile={updateAccountProfile}
-        onRenameAccount={handleRenameAccount}
-        onAddProfileForAccount={addProfileForAccount}
-        onUpdateProfileField={updateProfileField}
-        onRemoveProfileFromAccount={removeProfileFromAccount}
-        onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
-        onAddBinding={addBinding}
-        onUpdateBinding={updateBinding}
-        onRemoveBinding={removeBinding}
-        onAccountsChanged={dashboard.refresh}
-        effectiveAccountHardPurgeDays={dashboard.settings?.effectiveAccountHardPurgeDays}
-        dict={dict}
-      />
+      {shellData.isPortfolioConfigLoading && !hasShellAccountConfig ? (
+        <div
+          className="rounded-xl border border-border bg-card px-4 py-6 text-sm text-muted-foreground shadow-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          {dict.feedback.loadingSettings}
+        </div>
+      ) : (
+        <AccountsListSection
+          accounts={shellData.accounts}
+          accountDrafts={accountDrafts}
+          profiles={profiles}
+          feeProfileBindings={bindings}
+          activeLocale={initialSettings.locale ?? locale}
+          onUpdateAccountProfile={updateAccountProfile}
+          onRenameAccount={handleRenameAccount}
+          onAddProfileForAccount={addProfileForAccount}
+          onUpdateProfileField={updateProfileField}
+          onRemoveProfileFromAccount={removeProfileFromAccount}
+          onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
+          onAddBinding={addBinding}
+          onUpdateBinding={updateBinding}
+          onRemoveBinding={removeBinding}
+          onAccountsChanged={shellData.refreshPortfolioConfig}
+          effectiveAccountHardPurgeDays={initialSettings.effectiveAccountHardPurgeDays}
+          dict={dict}
+        />
+      )}
     </div>
   );
 }

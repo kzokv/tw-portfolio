@@ -2,14 +2,16 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AiConnectorConnectionDto, AiConnectorPolicySettingsDto } from "@vakwen/shared-types";
-import type { AiConnectorsResponse } from "../../../features/ai-inbox/service";
+import type { AiConnectorSummaryResponse } from "../../../features/ai-inbox/service";
 
-const mockFetchAiConnectors = vi.fn();
+const mockFetchAiConnectorSummary = vi.fn();
+const mockFetchAiConnectorLogs = vi.fn();
 const mockUpdateAiConnector = vi.fn();
 const mockRevokeAiConnector = vi.fn();
 
 vi.mock("../../../features/ai-inbox/service", () => ({
-  fetchAiConnectors: (...args: unknown[]) => mockFetchAiConnectors(...args),
+  fetchAiConnectorLogs: (...args: unknown[]) => mockFetchAiConnectorLogs(...args),
+  fetchAiConnectorSummary: (...args: unknown[]) => mockFetchAiConnectorSummary(...args),
   updateAiConnector: (...args: unknown[]) => mockUpdateAiConnector(...args),
   revokeAiConnector: (...args: unknown[]) => mockRevokeAiConnector(...args),
 }));
@@ -68,9 +70,11 @@ describe("AiConnectorsSettingsClient", () => {
   let root: Root;
 
   beforeEach(() => {
-    mockFetchAiConnectors.mockReset();
+    mockFetchAiConnectorLogs.mockReset();
+    mockFetchAiConnectorSummary.mockReset();
     mockUpdateAiConnector.mockReset();
     mockRevokeAiConnector.mockReset();
+    mockFetchAiConnectorLogs.mockResolvedValue({ accessLogs: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -82,12 +86,11 @@ describe("AiConnectorsSettingsClient", () => {
   });
 
   it("announces policy-disabled scope controls and page-level recovery", async () => {
-    const response: AiConnectorsResponse = {
+    const response: AiConnectorSummaryResponse = {
       connections: [buildConnection()],
-      accessLogs: [],
       policy: buildPolicy({ groupToggles: { read: false, drafts: false, write: false } }),
     };
-    mockFetchAiConnectors.mockResolvedValue(response);
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
@@ -103,12 +106,11 @@ describe("AiConnectorsSettingsClient", () => {
   });
 
   it("exposes pending connector status through a live status region", async () => {
-    const response: AiConnectorsResponse = {
+    const response: AiConnectorSummaryResponse = {
       connections: [buildConnection({ status: "pending", lastUsedAt: null })],
-      accessLogs: [],
       policy: buildPolicy(),
     };
-    mockFetchAiConnectors.mockResolvedValue(response);
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
@@ -118,12 +120,11 @@ describe("AiConnectorsSettingsClient", () => {
   });
 
   it("keeps transaction:write as a reconnect-only advanced scope when it was not granted at consent", async () => {
-    const response: AiConnectorsResponse = {
+    const response: AiConnectorSummaryResponse = {
       connections: [buildConnection()],
-      accessLogs: [],
       policy: buildPolicy(),
     };
-    mockFetchAiConnectors.mockResolvedValue(response);
+    mockFetchAiConnectorSummary.mockResolvedValue(response);
 
     await act(async () => root.render(<AiConnectorsSettingsClient />));
     await flushEffects();
@@ -143,5 +144,36 @@ describe("AiConnectorsSettingsClient", () => {
     expect(postingCheckbox?.checked).toBe(false);
     expect(postingCheckbox?.disabled).toBe(true);
     expect(document.body.textContent).toContain("Reconnect in ChatGPT");
+  });
+
+  it("loads access logs after connector summary renders", async () => {
+    mockFetchAiConnectorSummary.mockResolvedValue({
+      connections: [buildConnection()],
+      policy: buildPolicy(),
+    } satisfies AiConnectorSummaryResponse);
+    mockFetchAiConnectorLogs.mockResolvedValue({
+      accessLogs: [
+        {
+          id: "log-1",
+          connectionId: "conn-1",
+          portfolioContextUserId: "user-1",
+          shareId: null,
+          toolName: "portfolio.read",
+          accessKind: "tool",
+          result: "ok",
+          denialReason: null,
+          createdAt: "2026-06-02T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+    await flushEffects();
+
+    expect(mockFetchAiConnectorSummary).toHaveBeenCalledTimes(1);
+    expect(mockFetchAiConnectorLogs).toHaveBeenCalledWith(12);
+    expect(document.body.textContent).toContain("Recent access");
+    expect(document.body.textContent).toContain("portfolio.read");
   });
 });

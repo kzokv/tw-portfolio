@@ -130,27 +130,32 @@ export function MonitoredTickersSection({
   const positionTickers = useMemo(() => monitoredTickers.filter((s) => s.source === "position"), [monitoredTickers]);
 
   const instrumentMap = useMemo(() => new Map(instruments.map((item) => [monitoredTickerKey(item), item])), [instruments]);
+  const monitoredTickerMap = useMemo(
+    () => new Map(monitoredTickers.map((item) => [monitoredTickerKey(item), item])),
+    [monitoredTickers],
+  );
 
   const manualTickers = useMemo(() => {
     return [...selectedTickers]
       .map((key) => {
         const { ticker, marketCode } = parseMonitoredTickerKey(key);
         const instrument = instrumentMap.get(key);
+        const monitored = monitoredTickerMap.get(key);
         return {
           ticker,
           key,
           // KZO-169 (D7a): include marketCode so the row can render
           // `TICKER · MARKET` for cross-market disambiguation.
-          marketCode: instrument?.marketCode ?? marketCode,
-          name: instrument?.name ?? null,
+          marketCode: instrument?.marketCode ?? monitored?.marketCode ?? marketCode,
+          name: instrument?.name ?? monitored?.name ?? null,
           instrumentType: instrument?.instrumentType ?? null,
-          barsBackfillStatus: instrument?.barsBackfillStatus ?? null,
-          lastRepairAt: instrument?.lastRepairAt ?? null,
-          repairAvailableAt: instrument?.repairAvailableAt ?? null,
+          barsBackfillStatus: instrument?.barsBackfillStatus ?? monitored?.barsBackfillStatus ?? null,
+          lastRepairAt: instrument?.lastRepairAt ?? (monitored as RepairCapableItem | undefined)?.lastRepairAt ?? null,
+          repairAvailableAt: instrument?.repairAvailableAt ?? (monitored as RepairCapableItem | undefined)?.repairAvailableAt ?? null,
         };
       })
       .sort((a, b) => a.ticker.localeCompare(b.ticker));
-  }, [selectedTickers, instrumentMap]);
+  }, [selectedTickers, instrumentMap, monitoredTickerMap]);
 
   const repairCandidates = useMemo(() => {
     const byKey = new Map<string, RepairCapableItem>();
@@ -163,6 +168,22 @@ export function MonitoredTickersSection({
           source: positionKeys.has(key) ? "position" : "manual",
         });
       }
+    }
+
+    for (const key of selectedTickers) {
+      if (byKey.has(key)) continue;
+
+      const { ticker, marketCode } = parseMonitoredTickerKey(key);
+      const monitored = monitoredTickerMap.get(key) as RepairCapableItem | undefined;
+      byKey.set(key, {
+        ticker,
+        marketCode: monitored?.marketCode ?? marketCode,
+        name: monitored?.name ?? null,
+        barsBackfillStatus: monitored?.barsBackfillStatus ?? null,
+        source: "manual",
+        lastRepairAt: monitored?.lastRepairAt ?? null,
+        repairAvailableAt: monitored?.repairAvailableAt ?? null,
+      });
     }
 
     for (const positionTicker of positionTickers) {
@@ -181,7 +202,7 @@ export function MonitoredTickersSection({
     }
 
     return [...byKey.values()].sort((a, b) => monitoredTickerKey(a).localeCompare(monitoredTickerKey(b)));
-  }, [instruments, positionTickers, selectedTickers]);
+  }, [instruments, monitoredTickerMap, positionTickers, selectedTickers]);
 
   const filteredManual = useMemo(() => {
     if (!search) return manualTickers;

@@ -16,16 +16,18 @@ import { ApiClientErrorToast } from "./ApiClientErrorToast";
 import { StatusToast } from "../ui/StatusToast";
 import { cn } from "../../lib/utils";
 import type { QuickSearchItem } from "./QuickSearchPanel";
-import type { useDashboardData as useDashboardDataType } from "../../features/dashboard/hooks/useDashboardData";
 import type { useProfile as useProfileType } from "../../features/profile/hooks/useProfile";
 import { useNavigationFeedback } from "./NavigationFeedbackContext";
 import { ShellNavigationFeedback } from "./ShellNavigationFeedback";
+import type { IntegrityIssue } from "../../features/dashboard/types";
 
 interface AppShellLayoutProps {
   initialSidebarOpen: boolean;
   // Identity
-  dashboard: ReturnType<typeof useDashboardDataType>;
   profileData: ReturnType<typeof useProfileType>;
+  integrityIssue: IntegrityIssue | null;
+  showIntegrityDialog: boolean;
+  setShowIntegrityDialog: (open: boolean) => void;
   // Dictionaries
   dict: AppDictionary;
   uiDict: AppDictionary;
@@ -71,8 +73,10 @@ interface AppShellLayoutProps {
  */
 export function AppShellLayout({
   initialSidebarOpen,
-  dashboard,
   profileData,
+  integrityIssue,
+  showIntegrityDialog,
+  setShowIntegrityDialog,
   dict,
   uiDict,
   locale,
@@ -131,7 +135,7 @@ export function AppShellLayout({
 
       <SidebarInset className="relative flex h-svh min-w-0 max-w-full flex-col overflow-hidden">
         <AppShellTopBarSlot
-          userId={dashboard.settings?.userId}
+          userId={profileData.profile?.userId}
           displayName={profileData.profile?.displayName}
           pictureUrl={profileData.profile?.providerPictureUrl}
           email={profileData.profile?.email}
@@ -182,7 +186,9 @@ export function AppShellLayout({
             data-testid="shell-content-frame"
           >
             <AppShellChrome
-              dashboard={dashboard}
+              integrityIssue={integrityIssue}
+              showIntegrityDialog={showIntegrityDialog}
+              setShowIntegrityDialog={setShowIntegrityDialog}
               uiDict={uiDict}
               locale={locale}
             >

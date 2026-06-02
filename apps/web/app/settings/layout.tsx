@@ -18,21 +18,14 @@ import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/u
  * have a settings row; the section clients tolerate `null`.
  */
 export default async function SettingsLayout({ children }: { children: ReactNode }) {
-  const [session, profile, initialSidebarOpen] = await Promise.all([
+  const [session, profile, initialSidebarOpen, initialSettings] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
+    getJson<UserSettings>("/settings").catch(() => null),
   ]);
 
-  let locale: LocaleCode = "en";
-  let initialSettings: UserSettings | null = null;
-  try {
-    initialSettings = await getJson<UserSettings>("/settings");
-    locale = initialSettings.locale;
-  } catch {
-    locale = "en";
-    initialSettings = null;
-  }
+  const locale: LocaleCode = initialSettings?.locale ?? "en";
 
   return (
     <SettingsRouteProvider

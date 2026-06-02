@@ -7,7 +7,6 @@ test("transaction combobox: search by ticker → submit updates the verification
   await transactions.actions.navigateToTransactions();
 
   const transactionPosted = transactions.actions.waitForTransactionPost();
-  const dashboardRefreshed = transactions.actions.waitForDashboardRefresh();
   const ledgerRefreshed = transactions.actions.waitForLedgerRefresh();
 
   await transactions.actions.selectFirstAccount();
@@ -17,7 +16,6 @@ test("transaction combobox: search by ticker → submit updates the verification
   await transactions.assert.selectedTickerContains(/2330/);
   await transactions.actions.submitTransaction();
   await transactionPosted;
-  await dashboardRefreshed;
   await ledgerRefreshed;
 
   await transactions.assert.transactionStatusContains(/Transaction recorded successfully|交易已成功寫入/);

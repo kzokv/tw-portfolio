@@ -81,6 +81,8 @@ import type {
   CreateShareGrantInput,
   ConsumeInviteResult,
   CreateInviteInput,
+  AccountWithLiveBalancesRecord,
+  CashLedgerEnrichmentResult,
   CashLedgerListOptions,
   CashLedgerListResult,
   CashLedgerSortColumn,
@@ -3101,7 +3103,14 @@ export class PostgresPersistence implements Persistence {
     return mapAiConnectorAccessLogRow(result.rows[0]!);
   }
 
-  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
+  async listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: { limit?: number },
+  ): Promise<AiConnectorAccessLogRecord[]> {
+    const params: [string] | [string, number] = options?.limit === undefined
+      ? [userId]
+      : [userId, options.limit];
+    const limitClause = options?.limit === undefined ? "" : " LIMIT $2";
     const result = await this.pool.query<{
       id: string;
       connection_id: string | null;
@@ -3134,8 +3143,8 @@ export class PostgresPersistence implements Persistence {
               created_at::text AS created_at
        FROM ai_connector_access_logs
        WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId],
+       ORDER BY created_at DESC${limitClause}`,
+      params,
     );
     return result.rows.map((row) => mapAiConnectorAccessLogRow(row));
   }
@@ -4848,6 +4857,38 @@ export class PostgresPersistence implements Persistence {
     syncTradeEventRealizedPnl(store.accounting);
     rebuildHoldingProjection(store);
     return store;
+  }
+
+  async getUserSettings(userId: string) {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query<{
+      id: string;
+      display_name: string | null;
+      locale: Store["settings"]["locale"];
+      cost_basis_method: Store["settings"]["costBasisMethod"];
+      quote_poll_interval_seconds: number;
+    }>(
+      `SELECT id,
+              display_name,
+              locale,
+              cost_basis_method,
+              quote_poll_interval_seconds
+       FROM users
+       WHERE id = $1
+         AND deleted_at IS NULL`,
+      [userId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(`User ${userId} not found`);
+    }
+    return {
+      userId: row.id,
+      displayName: row.display_name ?? null,
+      locale: row.locale,
+      costBasisMethod: row.cost_basis_method,
+      quotePollIntervalSeconds: row.quote_poll_interval_seconds,
+    };
   }
 
   async loadAccountingStore(userId: string): Promise<AccountingStore> {
@@ -8018,6 +8059,275 @@ export class PostgresPersistence implements Persistence {
     }));
 
     return { entries, total, summary };
+  }
+
+  async listAccountsWithLiveBalances(userId: string): Promise<AccountWithLiveBalancesRecord[]> {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query<{
+      id: string;
+      user_id: string;
+      name: string;
+      fee_profile_id: string;
+      default_currency: AccountWithLiveBalancesRecord["defaultCurrency"];
+      account_type: AccountWithLiveBalancesRecord["accountType"];
+      currency: string | null;
+      amount: string | null;
+    }>(
+      `WITH active_accounts AS (
+         SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+       ),
+       reversed_entries AS (
+         SELECT reversal_of_cash_ledger_entry_id AS entry_id
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+           AND reversal_of_cash_ledger_entry_id IS NOT NULL
+       ),
+       balances AS (
+         SELECT entry.account_id, entry.currency, ROUND(SUM(entry.amount)::numeric, 2) AS amount
+         FROM cash_ledger_entries AS entry
+         JOIN active_accounts AS account
+           ON account.id = entry.account_id
+         LEFT JOIN reversed_entries AS reversed
+           ON reversed.entry_id = entry.id
+         WHERE entry.user_id = $1
+           AND entry.reversal_of_cash_ledger_entry_id IS NULL
+           AND reversed.entry_id IS NULL
+         GROUP BY entry.account_id, entry.currency
+       )
+       SELECT account.id,
+              account.user_id,
+              account.name,
+              account.fee_profile_id,
+              account.default_currency,
+              account.account_type,
+              balance.currency,
+              balance.amount::text AS amount
+       FROM active_accounts AS account
+       LEFT JOIN balances AS balance
+         ON balance.account_id = account.id
+       ORDER BY account.id, balance.currency NULLS LAST`,
+      [userId],
+    );
+
+    const accountsById = new Map<string, AccountWithLiveBalancesRecord>();
+    for (const row of result.rows) {
+      const existing = accountsById.get(row.id) ?? {
+        id: row.id,
+        userId: row.user_id,
+        name: row.name,
+        feeProfileId: row.fee_profile_id,
+        defaultCurrency: row.default_currency,
+        accountType: row.account_type,
+        liveBalance: [],
+      };
+      if (row.currency && row.amount !== null) {
+        existing.liveBalance.push({
+          currency: row.currency,
+          amount: Number(row.amount),
+        });
+      }
+      accountsById.set(row.id, existing);
+    }
+
+    return [...accountsById.values()];
+  }
+
+  async getCashLedgerEnrichment(
+    userId: string,
+    input: {
+      accountIds: string[];
+      relatedTradeEventIds: string[];
+      relatedDividendLedgerEntryIds: string[];
+      fxTransferIds: string[];
+    },
+  ): Promise<CashLedgerEnrichmentResult> {
+    await this.ensureDefaultPortfolioData(userId);
+
+    const accountIds = [...new Set(input.accountIds)];
+    const relatedTradeEventIds = [...new Set(input.relatedTradeEventIds)];
+    const relatedDividendLedgerEntryIds = [...new Set(input.relatedDividendLedgerEntryIds)];
+    const fxTransferIds = [...new Set(input.fxTransferIds)];
+
+    const accountNamesPromise = accountIds.length
+      ? this.pool.query<{ id: string; name: string }>(
+          `SELECT id, name
+           FROM accounts
+           WHERE user_id = $1
+             AND deleted_at IS NULL
+             AND id = ANY($2)
+           ORDER BY id`,
+          [userId, accountIds],
+        )
+      : Promise.resolve({ rows: [] as Array<{ id: string; name: string }> });
+
+    const tradesPromise = relatedTradeEventIds.length
+      ? this.pool.query<{
+          id: string;
+          ticker: string;
+          trade_type: "BUY" | "SELL";
+          quantity: string;
+          unit_price: string;
+          commission_amount: string;
+          tax_amount: string;
+        }>(
+          `SELECT trade_event.id,
+                  trade_event.ticker,
+                  trade_event.trade_type,
+                  trade_event.quantity::text AS quantity,
+                  trade_event.unit_price::text AS unit_price,
+                  trade_event.commission_amount::text AS commission_amount,
+                  trade_event.tax_amount::text AS tax_amount
+           FROM trade_events AS trade_event
+           WHERE trade_event.user_id = $1
+             AND trade_event.account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)
+             AND trade_event.id = ANY($2)`,
+          [userId, relatedTradeEventIds],
+        )
+      : Promise.resolve({ rows: [] as Array<{
+          id: string;
+          ticker: string;
+          trade_type: "BUY" | "SELL";
+          quantity: string;
+          unit_price: string;
+          commission_amount: string;
+          tax_amount: string;
+        }> });
+
+    const dividendsPromise = relatedDividendLedgerEntryIds.length
+      ? this.pool.query<{
+          id: string;
+          ticker: string | null;
+          expected_cash_amount: string;
+          received_cash_amount: string;
+          deduction_total: string;
+        }>(
+          `SELECT entry.id,
+                  event.ticker,
+                  entry.expected_cash_amount::text AS expected_cash_amount,
+                  entry.received_cash_amount::text AS received_cash_amount,
+                  COALESCE(SUM(deduction.amount), 0)::text AS deduction_total
+           FROM dividend_ledger_entries AS entry
+           JOIN accounts AS account
+             ON account.id = entry.account_id
+           LEFT JOIN market_data.dividend_events AS event
+             ON event.id = entry.dividend_event_id
+           LEFT JOIN dividend_deduction_entries AS deduction
+             ON deduction.dividend_ledger_entry_id = entry.id
+           WHERE account.user_id = $1
+             AND account.deleted_at IS NULL
+             AND entry.id = ANY($2)
+           GROUP BY entry.id, event.ticker, entry.expected_cash_amount, entry.received_cash_amount`,
+          [userId, relatedDividendLedgerEntryIds],
+        )
+      : Promise.resolve({ rows: [] as Array<{
+          id: string;
+          ticker: string | null;
+          expected_cash_amount: string;
+          received_cash_amount: string;
+          deduction_total: string;
+        }> });
+
+    const fxTransfersPromise = fxTransferIds.length
+      ? this.pool.query<{
+          fx_transfer_id: string;
+          id: string;
+          account_id: string;
+          account_name: string;
+          entry_type: CashLedgerEntry["entryType"];
+          amount: string;
+          currency: string;
+          reversal_of_cash_ledger_entry_id: string | null;
+        }>(
+          `SELECT entry.fx_transfer_id::text AS fx_transfer_id,
+                  entry.id,
+                  entry.account_id,
+                  account.name AS account_name,
+                  entry.entry_type,
+                  entry.amount::text AS amount,
+                  entry.currency,
+                  entry.reversal_of_cash_ledger_entry_id
+           FROM cash_ledger_entries AS entry
+           JOIN accounts AS account
+             ON account.id = entry.account_id
+           WHERE entry.user_id = $1
+             AND account.deleted_at IS NULL
+             AND entry.fx_transfer_id = ANY($2)`,
+          [userId, fxTransferIds],
+        )
+      : Promise.resolve({ rows: [] as Array<{
+          fx_transfer_id: string;
+          id: string;
+          account_id: string;
+          account_name: string;
+          entry_type: CashLedgerEntry["entryType"];
+          amount: string;
+          currency: string;
+          reversal_of_cash_ledger_entry_id: string | null;
+        }> });
+
+    const [accountNamesResult, tradesResult, dividendsResult, fxTransfersResult] = await Promise.all([
+      accountNamesPromise,
+      tradesPromise,
+      dividendsPromise,
+      fxTransfersPromise,
+    ]);
+
+    const accountNamesById = new Map(accountNamesResult.rows.map((row) => [row.id, row.name] as const));
+    const tradesById = new Map(tradesResult.rows.map((row) => [row.id, {
+      id: row.id,
+      ticker: row.ticker,
+      side: row.trade_type,
+      quantity: Number(row.quantity),
+      unitPrice: Number(row.unit_price),
+      commissionAmount: Number(row.commission_amount),
+      taxAmount: Number(row.tax_amount),
+    }] as const));
+    const dividendsById = new Map(dividendsResult.rows.map((row) => [row.id, {
+      id: row.id,
+      ticker: row.ticker,
+      expectedCashAmount: Number(row.expected_cash_amount),
+      receivedCashAmount: Number(row.received_cash_amount),
+      deductionTotal: Number(row.deduction_total),
+    }] as const));
+
+    const fxTransferLegsByTransferId = new Map<string, Array<{
+      entryId: string;
+      accountId: string;
+      accountName: string;
+      entryType: CashLedgerEntry["entryType"];
+      amount: number;
+      currency: string;
+      reversalOfCashLedgerEntryId?: string;
+    }>>();
+    const reversedFxTransferIds = new Set<string>();
+    for (const row of fxTransfersResult.rows) {
+      const legs = fxTransferLegsByTransferId.get(row.fx_transfer_id) ?? [];
+      legs.push({
+        entryId: row.id,
+        accountId: row.account_id,
+        accountName: row.account_name,
+        entryType: row.entry_type,
+        amount: Number(row.amount),
+        currency: row.currency,
+        reversalOfCashLedgerEntryId: row.reversal_of_cash_ledger_entry_id ?? undefined,
+      });
+      if (row.reversal_of_cash_ledger_entry_id) {
+        reversedFxTransferIds.add(row.fx_transfer_id);
+      }
+      fxTransferLegsByTransferId.set(row.fx_transfer_id, legs);
+      accountNamesById.set(row.account_id, row.account_name);
+    }
+
+    return {
+      accountNamesById,
+      tradesById,
+      dividendsById,
+      fxTransferLegsByTransferId,
+      reversedFxTransferIds,
+    };
   }
 
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {

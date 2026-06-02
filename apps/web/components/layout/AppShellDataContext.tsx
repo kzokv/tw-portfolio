@@ -2,12 +2,14 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import type {
+  AccountDto,
   AccountDefaultCurrency,
   AccountType,
-  DashboardPerformanceRange,
+  FeeProfileBindingDto,
+  FeeProfileDto,
   LocaleCode,
 } from "@vakwen/shared-types";
-import type { useDashboardData } from "../../features/dashboard/hooks/useDashboardData";
+import type { IntegrityIssue } from "../../features/dashboard/types";
 import type { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import type { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
 import type { useTransactionSubmission } from "../../features/portfolio/hooks/useTransactionSubmission";
@@ -22,26 +24,22 @@ export interface AppShellTransactionAccountOption {
 }
 
 export interface AppShellData {
-  dashboard: ReturnType<typeof useDashboardData>;
   uiDict: ReturnType<typeof getDictionary>;
   locale: LocaleCode;
   isSharedContext: boolean;
-  isBootstrapping: boolean;
-  isI18nReady: boolean;
   transactionSubmission: ReturnType<typeof useTransactionSubmission>;
   mutations: ReturnType<typeof useTransactionMutations>;
   recomputeAction: ReturnType<typeof useRecomputeAction>;
   openRecomputeConfirm: () => void;
   transactionAccountOptions: AppShellTransactionAccountOption[];
-  // Dashboard performance state stays in AppShell (range-snap effect lives
-  // there); DashboardClient consumes the value and feeds it into
-  // useDashboardPerformance.
-  performanceRange: DashboardPerformanceRange;
-  setPerformanceRange: (range: DashboardPerformanceRange) => void;
-  effectiveRanges: DashboardPerformanceRange[];
-  refetchEffectiveRanges: () => void;
-  customizeRangesOpen: boolean;
-  setCustomizeRangesOpen: (open: boolean) => void;
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  refreshPortfolioConfig: () => Promise<void>;
+  isPortfolioConfigLoading: boolean;
+  integrityIssue: IntegrityIssue | null;
+  showIntegrityDialog: boolean;
+  setShowIntegrityDialog: (open: boolean) => void;
   generateSnapshots: () => Promise<void>;
   isGeneratingSnapshots: boolean;
   // Bumped by AppShell whenever shared-context cookie changes (switcher

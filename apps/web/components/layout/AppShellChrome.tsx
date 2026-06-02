@@ -6,14 +6,12 @@ import { type LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { CardLayoutResetProvider } from "./CardLayoutResetContext";
 import { IntegrityIssueDialog } from "../../features/dashboard/components/IntegrityIssueDialog";
-import type {
-  useDashboardData as useDashboardDataType,
-} from "../../features/dashboard/hooks/useDashboardData";
-
-type DashboardData = ReturnType<typeof useDashboardDataType>;
+import type { IntegrityIssue } from "../../features/dashboard/types";
 
 interface AppShellChromeProps {
-  dashboard: DashboardData;
+  integrityIssue: IntegrityIssue | null;
+  showIntegrityDialog: boolean;
+  setShowIntegrityDialog: (open: boolean) => void;
   /** Locale-aware dictionary used by the integrity dialog. */
   uiDict: AppDictionary;
   locale: LocaleCode;
@@ -28,7 +26,9 @@ interface AppShellChromeProps {
  * dialog's "Open settings" CTA navigates instead of opening a drawer.
  */
 export function AppShellChrome({
-  dashboard,
+  integrityIssue,
+  showIntegrityDialog,
+  setShowIntegrityDialog,
   uiDict,
   locale: _locale,
   children,
@@ -52,9 +52,9 @@ export function AppShellChrome({
       </CardLayoutResetProvider>
 
       <IntegrityIssueDialog
-        issue={dashboard.actions.integrityIssue}
-        open={dashboard.showIntegrityDialog}
-        onOpenChange={dashboard.setShowIntegrityDialog}
+        issue={integrityIssue}
+        open={showIntegrityDialog}
+        onOpenChange={setShowIntegrityDialog}
         onOpenSettings={openSettings}
         dict={uiDict}
       />
