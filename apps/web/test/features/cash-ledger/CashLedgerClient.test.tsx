@@ -65,7 +65,8 @@ function buildResponse(total: number, count: number): CashLedgerListResponse {
 async function renderCashLedgerClient(
   root: Root,
   props: {
-    initialData: CashLedgerListResponse;
+    initialData: CashLedgerListResponse | null;
+    initialDataReady?: boolean;
     initialAccounts?: AccountWithLiveBalance[];
     initialAccountMetaReady?: boolean;
     locale?: "en";
@@ -75,6 +76,7 @@ async function renderCashLedgerClient(
     root.render(
       <CashLedgerClient
         initialData={props.initialData}
+        initialDataReady={props.initialDataReady}
         initialAccounts={props.initialAccounts}
         initialAccountMetaReady={props.initialAccountMetaReady}
         dict={dict}
@@ -280,5 +282,39 @@ describe("CashLedgerClient pagination", () => {
     expect(container.textContent).toContain("Seeded Brokerage (TWD · Broker)");
     expect(container.textContent).not.toContain("Loading account...");
     expect(container.textContent).not.toContain(accountId);
+  });
+
+  it("fetches the initial ledger page on the client when server data is deferred", async () => {
+    let resolveLedger: ((value: CashLedgerListResponse) => void) | null = null;
+    mockFetch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLedger = resolve;
+      }),
+    );
+
+    await renderCashLedgerClient(root, {
+      initialData: null,
+      initialDataReady: false,
+    });
+
+    expect(container.querySelector('[data-testid="cash-ledger-loading"]')).toBeTruthy();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 50,
+      page: 1,
+      sortBy: "entryDate",
+      sortOrder: "desc",
+    }));
+
+    await act(async () => {
+      resolveLedger?.(buildResponse(2, 2));
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-testid="cash-ledger-table"]')).toBeTruthy();
   });
 });

@@ -12,6 +12,7 @@ import {
 interface UseShellPortfolioConfigOptions {
   initialTransaction: TransactionInput;
   initialConfig?: ShellPortfolioConfigDto | null;
+  fetchMode?: "eager" | "lazy";
 }
 
 interface UseShellPortfolioConfigResult extends ShellPortfolioConfigDto {
@@ -34,9 +35,10 @@ const EMPTY_CONFIG: ShellPortfolioConfigDto = {
 export function useShellPortfolioConfig({
   initialTransaction,
   initialConfig = null,
+  fetchMode = "eager",
 }: UseShellPortfolioConfigOptions): UseShellPortfolioConfigResult {
   const [config, setConfig] = useState<ShellPortfolioConfigDto>(initialConfig ?? EMPTY_CONFIG);
-  const [isLoading, setIsLoading] = useState(initialConfig === null);
+  const [isLoading, setIsLoading] = useState(initialConfig === null && fetchMode === "eager");
   const [errorMessage, setErrorMessage] = useState("");
   const [showIntegrityDialog, setShowIntegrityDialog] = useState(Boolean(initialConfig?.integrityIssue));
 
@@ -63,6 +65,13 @@ export function useShellPortfolioConfig({
       return;
     }
 
+    if (fetchMode === "lazy") {
+      setConfig(EMPTY_CONFIG);
+      setShowIntegrityDialog(false);
+      setIsLoading(false);
+      return;
+    }
+
     let mounted = true;
     void refresh().catch(() => {
       if (!mounted) return;
@@ -70,7 +79,7 @@ export function useShellPortfolioConfig({
     return () => {
       mounted = false;
     };
-  }, [initialConfig, refresh]);
+  }, [fetchMode, initialConfig, refresh]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>

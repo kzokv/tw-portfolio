@@ -3,10 +3,6 @@ import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { CashLedgerClient } from "../../features/cash-ledger/components/CashLedgerClient";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
-import {
-  fetchCashLedgerEntries,
-  type AccountWithLiveBalance,
-} from "../../features/cash-ledger/services/cashLedgerService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
@@ -22,16 +18,7 @@ export default async function CashLedgerPage() {
   ]);
 
   const locale: LocaleCode = settings?.locale ?? "en";
-
-  const [dict, initialData, initialAccounts] = await Promise.all([
-    Promise.resolve(getDictionary(locale)),
-    fetchCashLedgerEntries().catch(() => ({
-      entries: [],
-      summary: [],
-      total: 0,
-    })),
-    getJson<AccountWithLiveBalance[]>("/accounts?includeBalances=true").catch(() => null),
-  ]);
+  const dict = getDictionary(locale);
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
@@ -40,12 +27,14 @@ export default async function CashLedgerPage() {
         isDemo={session.isDemo}
         localeOverride={locale}
         initialProfile={profile}
+        portfolioConfigMode="lazy"
         initialSidebarOpen={sidebarOpen}
       >
         <CashLedgerClient
-          initialData={initialData}
-          initialAccounts={initialAccounts ?? []}
-          initialAccountMetaReady={initialAccounts !== null}
+          initialData={null}
+          initialAccounts={[]}
+          initialAccountMetaReady={false}
+          initialDataReady={false}
           dict={dict}
           locale={locale}
         />

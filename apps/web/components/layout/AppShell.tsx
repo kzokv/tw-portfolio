@@ -44,6 +44,7 @@ interface AppShellProps {
   activeSectionOverride?: AppSection | null;
   initialProfile?: ProfileWithImpersonationDto | null;
   initialPortfolioConfig?: ShellPortfolioConfigDto | null;
+  portfolioConfigMode?: "eager" | "lazy";
   /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
   initialSidebarOpen?: boolean;
   children?: React.ReactNode;
@@ -70,6 +71,7 @@ export function AppShell({
   activeSectionOverride: _activeSectionOverride,
   initialProfile = null,
   initialPortfolioConfig = null,
+  portfolioConfigMode = "eager",
   initialSidebarOpen = true,
   children,
 }: AppShellProps) {
@@ -77,6 +79,7 @@ export function AppShell({
   const portfolioConfig = useShellPortfolioConfig({
     initialTransaction: DEFAULT_TRANSACTION,
     initialConfig: initialPortfolioConfig,
+    fetchMode: portfolioConfigMode,
   });
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation

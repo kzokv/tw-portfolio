@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveErrorMessage } from "../../../lib/utils";
 import {
   fetchPortfolioEnrichmentData,
@@ -27,36 +27,49 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
   const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const requestVersionRef = useRef(0);
 
-  const refreshEnrichment = useCallback(async () => {
+  const startRequest = useCallback(() => {
+    requestVersionRef.current += 1;
+    return requestVersionRef.current;
+  }, []);
+
+  const isCurrentRequest = useCallback((version: number) => version === requestVersionRef.current, []);
+
+  const refreshEnrichment = useCallback(async (version: number) => {
     try {
       const next = await fetchPortfolioEnrichmentData();
+      if (!isCurrentRequest(version)) return;
       setData(next);
       setErrorMessage("");
     } catch {
       // Secondary quote/freshness/dividend enrichment must not blank primary content.
     }
-  }, []);
+  }, [isCurrentRequest]);
 
   const refresh = useCallback(async () => {
+    const version = startRequest();
     setIsRefreshing(true);
     try {
       const next = await fetchPortfolioPrimaryData();
+      if (!isCurrentRequest(version)) return;
       setData(next);
       setErrorMessage("");
-      void refreshEnrichment();
+      void refreshEnrichment(version);
     } catch (error) {
+      if (!isCurrentRequest(version)) return;
       setErrorMessage(resolveErrorMessage(error));
     } finally {
-      setIsRefreshing(false);
+      if (isCurrentRequest(version)) setIsRefreshing(false);
     }
-  }, [refreshEnrichment]);
+  }, [isCurrentRequest, refreshEnrichment, startRequest]);
 
   useEffect(() => {
     if (initialPrimaryData !== null) {
+      const version = startRequest();
       setData(initialPrimaryData);
       setIsBootstrapping(false);
-      void refreshEnrichment();
+      void refreshEnrichment(version);
       return;
     }
 
@@ -72,7 +85,7 @@ export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | 
     return () => {
       mounted = false;
     };
-  }, [initialPrimaryData, refresh]);
+  }, [initialPrimaryData, refresh, refreshEnrichment, startRequest]);
 
   return {
     data,

@@ -5,7 +5,7 @@ import { TickersSettingsClient } from "../../../components/settings/TickersSetti
 
 export default function TickersSettingsPage() {
   return (
-    <SettingsSectionShell>
+    <SettingsSectionShell portfolioConfigMode="lazy">
       <TickersSettingsClient />
     </SettingsSectionShell>
   );

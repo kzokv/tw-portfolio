@@ -5,7 +5,7 @@ import { GeneralSettingsClient } from "../../../components/settings/GeneralSetti
 
 export default function GeneralSettingsPage() {
   return (
-    <SettingsSectionShell>
+    <SettingsSectionShell portfolioConfigMode="lazy">
       <GeneralSettingsClient />
     </SettingsSectionShell>
   );

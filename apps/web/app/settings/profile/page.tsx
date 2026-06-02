@@ -5,7 +5,7 @@ import { ProfileSettingsClient } from "../../../components/settings/ProfileSetti
 
 export default function ProfileSettingsPage() {
   return (
-    <SettingsSectionShell>
+    <SettingsSectionShell portfolioConfigMode="lazy">
       <ProfileSettingsClient />
     </SettingsSectionShell>
   );

@@ -1,21 +1,12 @@
 import { Suspense } from "react";
-import type { AccountDto, LocaleCode, UserSettings } from "@vakwen/shared-types";
+import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
-import {
-  currentMonthQuery,
-  searchParamsToReviewQuery,
-} from "../../components/dividends/dividendsPageQuery";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS,
   resolveInitialDividendsTab,
 } from "../../components/dividends/dividendsTabsUtils";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
-import {
-  fetchDividendCalendarSnapshot,
-  fetchDividendLedgerReview,
-  fetchDividendLedgerYears,
-} from "../../features/dividends/services/dividendService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
@@ -53,57 +44,9 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   ]);
 
   const locale: LocaleCode = settings?.locale ?? "en";
-  let accounts: AccountDto[] = [];
-  try {
-    const config = await getJson<{ accounts: AccountDto[] }>("/settings/fee-config");
-    accounts = config.accounts ?? [];
-  } catch {
-    // Fall back to viewer settings locale; page-specific client fetches recover.
-  }
-
   const resolvedInitialTab = resolveInitialDividendsTab(sp);
-  const shouldProbeReviewFirst = !hasExplicitDividendsView(sp);
   const dict = getDictionary(locale);
-  const reviewFallback = {
-    ledgerEntries: [],
-    total: 0,
-    aggregates: {
-      totalExpectedCashAmount: {},
-      totalReceivedCashAmount: {},
-      openCount: 0,
-      byMonth: {},
-      byTicker: {},
-    },
-  };
-
-  let initialTab = resolvedInitialTab;
-  let calendarSnapshot = null;
-  let reviewData = null;
-  let years: number[] = [];
-
-  if (resolvedInitialTab === "ledger") {
-    [reviewData, years] = await Promise.all([
-      fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => reviewFallback),
-      fetchDividendLedgerYears().catch(() => []),
-    ]);
-  } else if (shouldProbeReviewFirst) {
-    const reviewPreview = await fetchDividendLedgerReview(searchParamsToReviewQuery(sp)).catch(() => null);
-    if ((reviewPreview?.aggregates.openCount ?? 0) > 0) {
-      initialTab = "ledger";
-      reviewData = reviewPreview;
-      years = await fetchDividendLedgerYears().catch(() => []);
-    } else {
-      calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
-        events: [],
-        ledgerEntries: [],
-      }));
-    }
-  } else {
-    calendarSnapshot = await fetchDividendCalendarSnapshot(currentMonthQuery()).catch(() => ({
-      events: [],
-      ledgerEntries: [],
-    }));
-  }
+  const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
@@ -112,6 +55,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
         isDemo={session.isDemo}
         localeOverride={locale}
         initialProfile={profile}
+        portfolioConfigMode="lazy"
         initialSidebarOpen={sidebarOpen}
       >
         <DividendsTabsClient
@@ -120,10 +64,10 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           ledgerLabel={dict.dividends.tabs.review}
           dict={dict}
           locale={locale}
-          accounts={accounts}
-          initialCalendarSnapshot={calendarSnapshot}
-          initialReviewData={reviewData}
-          initialYears={years}
+          accounts={[]}
+          initialCalendarSnapshot={null}
+          initialReviewData={null}
+          initialYears={[]}
         />
       </AppShell>
     </Suspense>
