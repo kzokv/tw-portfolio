@@ -1459,10 +1459,18 @@ export class MemoryPersistence implements Persistence {
     return { ...record, metadata: { ...record.metadata } };
   }
 
-  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
-    return this.aiConnectorAccessLogs
-      .filter((record) => record.userId === userId)
-      .map((record) => ({ ...record, metadata: { ...record.metadata } }));
+  async listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: { limit?: number },
+  ): Promise<AiConnectorAccessLogRecord[]> {
+    const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+    const logs: AiConnectorAccessLogRecord[] = [];
+    for (const record of this.aiConnectorAccessLogs) {
+      if (record.userId !== userId) continue;
+      logs.push({ ...record, metadata: { ...record.metadata } });
+      if (logs.length >= limit) break;
+    }
+    return logs;
   }
 
   async saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null> {

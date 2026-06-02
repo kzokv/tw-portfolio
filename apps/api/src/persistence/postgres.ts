@@ -3103,7 +3103,14 @@ export class PostgresPersistence implements Persistence {
     return mapAiConnectorAccessLogRow(result.rows[0]!);
   }
 
-  async listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]> {
+  async listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: { limit?: number },
+  ): Promise<AiConnectorAccessLogRecord[]> {
+    const params: [string] | [string, number] = options?.limit === undefined
+      ? [userId]
+      : [userId, options.limit];
+    const limitClause = options?.limit === undefined ? "" : " LIMIT $2";
     const result = await this.pool.query<{
       id: string;
       connection_id: string | null;
@@ -3136,8 +3143,8 @@ export class PostgresPersistence implements Persistence {
               created_at::text AS created_at
        FROM ai_connector_access_logs
        WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [userId],
+       ORDER BY created_at DESC${limitClause}`,
+      params,
     );
     return result.rows.map((row) => mapAiConnectorAccessLogRow(row));
   }

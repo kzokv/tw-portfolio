@@ -5420,12 +5420,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const userId = requireSessionUserId(req);
     const [connections, accessLogs, policy] = await Promise.all([
       app.persistence.listAiConnectorConnectionsForUser(userId),
-      app.persistence.listAiConnectorAccessLogsForUser(userId),
+      app.persistence.listAiConnectorAccessLogsForUser(userId, { limit: 50 }),
       app.persistence.getAiConnectorPolicySettings(),
     ]);
     return {
       connections: connections.map(toAiConnectorConnectionDto),
-      accessLogs: accessLogs.slice(0, 50).map(toAiConnectorAccessLogDto),
+      accessLogs: accessLogs.map(toAiConnectorAccessLogDto),
       policy,
     };
   });
@@ -5451,9 +5451,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         limit: z.coerce.number().int().min(1).max(50).default(12),
       }).parse(req.query);
       const accessLogs = await timing.measure("load_connector_logs", "db", () =>
-        app.persistence.listAiConnectorAccessLogsForUser(userId));
+        app.persistence.listAiConnectorAccessLogsForUser(userId, { limit: query.limit }));
       return {
-        accessLogs: accessLogs.slice(0, query.limit).map(toAiConnectorAccessLogDto),
+        accessLogs: accessLogs.map(toAiConnectorAccessLogDto),
       };
     });
   });
