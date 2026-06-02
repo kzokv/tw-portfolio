@@ -5,6 +5,9 @@ When adding or changing authenticated page loads, keep `AppShell` and route-owne
 - `AppShell` may bootstrap only lightweight identity/navigation state: profile, locale, shared-owner/read-only context, notifications, command/search essentials, and global actions.
 - Do not make `AppShell` or unrelated pages wait for `/dashboard/overview` or another route-owned endpoint.
 - Each page must own one primary read model that renders first useful content. Put charts, quote/freshness, FX/reporting overlays, and richer status/actions behind secondary or enrichment reads.
+- Prefer explicit route-primary endpoints (`/dashboard/primary`, `/portfolio/primary`, etc.) and explicit enrichment endpoints over broad compatibility reads. Compatibility endpoints such as `/dashboard/overview`, `/portfolio/page-data`, and `/ai/connectors` may remain for older callers, but new route-primary UI must not depend on them.
+- Ticker-detail routes may reuse `/dashboard/primary` for holding/account context, but must not bootstrap from dashboard enrichment or compatibility dashboard overview reads.
+- Server-provided initial primary data should hydrate route-owned client hooks immediately; secondary enrichment may refresh after first paint and replace stale/cached market data without blanking the primary UI.
 - Hot route-primary reads must emit `Server-Timing` and structured duration logs so browser-visible waits can be correlated with backend work.
 - Portfolio-context reads must use `contextUserId`, not session-only identity. Session-owned surfaces such as `/profile` stay session-scoped.
 - Preserve visible content during refreshes; use local skeletons or pending states instead of blanking the shell.

@@ -11,9 +11,14 @@ import { SortableCardGrid } from "../layout/SortableCardGrid";
 import { HoldingsTable } from "./HoldingsTable";
 import { resolveHoldingGroups } from "../../features/portfolio/holdingGroups";
 import { useHoldingAllocationBasis } from "../../features/portfolio/hooks/useHoldingAllocationBasis";
-import { usePortfolioPageData } from "../../features/portfolio/hooks/usePortfolioPageData";
+import { usePortfolioPrimaryData } from "../../features/portfolio/hooks/usePortfolioPageData";
+import type { PortfolioPageData } from "../../features/portfolio/services/portfolioService";
 
-export function PortfolioClient() {
+export function PortfolioClient({
+  initialPrimaryData = null,
+}: {
+  initialPrimaryData?: PortfolioPageData | null;
+}) {
   const {
     uiDict: dict,
     locale,
@@ -21,7 +26,7 @@ export function PortfolioClient() {
     mutations,
     contextRefreshSignal,
   } = useAppShellData();
-  const portfolio = usePortfolioPageData();
+  const portfolio = usePortfolioPrimaryData(initialPrimaryData);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
   const firstSignalRef = useRef(true);

@@ -92,6 +92,32 @@ async function getTestUserCookieHeader(page: Page): Promise<string> {
   return `${sc.name}=${sc.value}`;
 }
 
+async function getTransactionCardDomOrder(page: Page): Promise<string[]> {
+  return page.locator("[data-testid^='card-transactions-']").evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-testid")?.replace("card-", "") ?? ""),
+  );
+}
+
+async function waitForTransactionsAddAboveStatus(page: Page): Promise<boolean> {
+  return page.waitForFunction(() => {
+    const order = Array.from(document.querySelectorAll("[data-testid^='card-transactions-']"))
+      .map((node) => node.getAttribute("data-testid")?.replace("card-", "") ?? "");
+    return order[1] === "transactions-add" && order[2] === "transactions-status";
+  }, { timeout: 1200 }).then(() => true).catch(() => false);
+}
+
+async function moveTransactionsAddAboveStatus(page: Page, drag: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await drag();
+    if (await waitForTransactionsAddAboveStatus(page)) {
+      return;
+    }
+  }
+
+  const order = await getTransactionCardDomOrder(page);
+  throw new Error(`transactions-add did not move above transactions-status after drag attempts; DOM order: ${order.join(", ")}`);
+}
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 test.describe("transactions card reorder (KZO-162)", () => {
@@ -123,7 +149,7 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
 
     // Actions — drag transactions-add above transactions-status. Canonical
     // is [recent, status, add]; after the swap it should be [recent, add, status].
-    await appShell.actions.dragCard("transactions-add", "transactions-status");
+    await moveTransactionsAddAboveStatus(page, () => appShell.actions.dragCard("transactions-add", "transactions-status"));
 
     // Assert — after debounce, the saved cardOrder.transactions reflects the swap.
     await expect
@@ -206,7 +232,7 @@ test("[transactions-A]: drag swap add ↔ status → debounce → state read-bac
     // Actions — drag the AddTransactionCard slot above transactions-status,
     // proving the secondary form slot remains reorderable even after the
     // default route hierarchy makes the posted table primary.
-    await appShell.actions.dragCard("transactions-add", "transactions-status");
+    await moveTransactionsAddAboveStatus(page, () => appShell.actions.dragCard("transactions-add", "transactions-status"));
 
     // Assert — saved order reflects the new position; transactions-add moves
     // away from its canonical trailing slot. Persistence is debounced 250ms;

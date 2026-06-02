@@ -199,8 +199,8 @@ export class SessionActions extends AppBaseActions {
   }
 
   @Step()
-  async stubDashboardOverviewUnauthorized(): Promise<void> {
-    await this.page.route("**/dashboard/overview**", (route) =>
+  async stubDashboardEnrichmentUnauthorized(): Promise<void> {
+    await this.page.route("**/dashboard/enrichment**", (route) =>
       route.fulfill({
         status: 401,
         contentType: "application/json",

@@ -177,14 +177,14 @@ test.describe("POST /auth/token/refresh", () => {
 
 test.describe("401 session expiry", () => {
   test("API 401 response redirects browser to /login without error banner", async ({ login, session }) => {
-    await session.actions.stubDashboardOverviewUnauthorized();
+    await session.actions.stubDashboardEnrichmentUnauthorized();
     await session.actions.navigateToAppPath("/");
     await login.assert.isOnLoginPage();
     await session.assert.noGlobalErrorBanner();
   });
 
-  test("401 on dashboard overview API redirects root page to /login", async ({ login, session }) => {
-    await session.actions.stubDashboardOverviewUnauthorized();
+  test("401 on dashboard enrichment API redirects root page to /login", async ({ login, session }) => {
+    await session.actions.stubDashboardEnrichmentUnauthorized();
     await session.actions.navigateToAppPath("/");
     await login.assert.isOnLoginPage();
   });

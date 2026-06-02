@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { resolveErrorMessage } from "../../../lib/utils";
 import {
-  fetchPortfolioPageData,
+  fetchPortfolioEnrichmentData,
+  fetchPortfolioPrimaryData,
   type PortfolioPageData,
 } from "../services/portfolioService";
 
@@ -18,26 +19,44 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
   accounts: [],
 };
 
-export function usePortfolioPageData() {
-  const [data, setData] = useState<PortfolioPageData>(EMPTY_PORTFOLIO_PAGE_DATA);
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
+export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | null = null) {
+  const [data, setData] = useState<PortfolioPageData>(initialPrimaryData ?? EMPTY_PORTFOLIO_PAGE_DATA);
+  const [isBootstrapping, setIsBootstrapping] = useState(initialPrimaryData === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const refreshEnrichment = useCallback(async () => {
+    try {
+      const next = await fetchPortfolioEnrichmentData();
+      setData(next);
+      setErrorMessage("");
+    } catch {
+      // Secondary quote/freshness/dividend enrichment must not blank primary content.
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const next = await fetchPortfolioPageData();
+      const next = await fetchPortfolioPrimaryData();
       setData(next);
       setErrorMessage("");
+      void refreshEnrichment();
     } catch (error) {
       setErrorMessage(resolveErrorMessage(error));
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [refreshEnrichment]);
 
   useEffect(() => {
+    if (initialPrimaryData !== null) {
+      setData(initialPrimaryData);
+      setIsBootstrapping(false);
+      void refreshEnrichment();
+      return;
+    }
+
     let mounted = true;
     async function load() {
       try {
@@ -50,7 +69,7 @@ export function usePortfolioPageData() {
     return () => {
       mounted = false;
     };
-  }, [refresh]);
+  }, [initialPrimaryData, refresh]);
 
   return {
     data,

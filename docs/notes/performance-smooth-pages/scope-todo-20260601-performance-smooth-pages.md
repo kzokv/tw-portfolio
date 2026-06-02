@@ -210,6 +210,92 @@ Remaining performance work:
 - Add deployed API timing access that is visible from app-origin fetches or logs for `/dashboard/overview`, `/dashboard/performance`, `/portfolio/page-data`, `/settings/fee-config`, and dividend review endpoints.
 - Keep the baseline rule: a secondary route must not import `useDashboardData()` or `fetchDashboardSnapshot()` for account/profile/filter metadata.
 
+## Round 2 Implementation On 2026-06-02
+
+This round implemented the first explicit primary/enrichment split on the same PR branch:
+
+- Added `GET /dashboard/primary` for first-paint dashboard data and `GET /dashboard/enrichment` for quote/freshness/FX-enriched dashboard replacement data.
+- Added `GET /portfolio/primary` for first-paint holdings/account/instrument data and `GET /portfolio/enrichment` for quote/freshness/dividend-enriched portfolio replacement data.
+- Kept compatibility endpoints (`/dashboard/overview`, `/portfolio/page-data`) intact for existing callers, but rewired dashboard, portfolio, and ticker-detail route bootstraps to use explicit primary endpoints for initial data.
+- Updated dashboard and portfolio hooks so server-provided primary payloads render immediately, then secondary enrichment refreshes after first paint.
+- Split AI connector settings reads into `GET /ai/connectors/summary` and `GET /ai/connectors/logs`; the settings page renders connector summary first and loads recent access separately.
+- Changed settings tickers so the primary load calls only `/monitored-tickers`; the full `/instruments` catalog loads when the catalog surface opens, with an explicit error state if catalog load fails.
+- Added `Server-Timing` coverage for `/dashboard/primary`, `/dashboard/enrichment`, `/portfolio/primary`, `/portfolio/enrichment`, `/monitored-tickers`, `/instruments`, `/ai/connectors/summary`, and `/ai/connectors/logs`.
+- Added focused API and web tests for route contracts, service endpoint paths, initial primary hydration, secondary enrichment behavior, lazy catalog loading, catalog error handling, and AI connector summary/log separation.
+
+Known limitation: `/dashboard/primary` and `/portfolio/primary` still use `loadStore()` to preserve grouped-holdings and accounting semantics while the UI contract is split. They intentionally skip quote resolution, freshness classification, FX/reporting translation, chart data, and dividend enrichment. The next backend performance slice should replace those primary handlers with narrow Postgres read models.
+
+## Locked Follow-up Scope On 2026-06-02
+
+These decisions were locked after reviewing the latest `dev` branch, the current PR branch, and the deployed dev route timings. They refine the remaining work without changing the original PR scope.
+
+### Primary versus secondary data
+
+- First meaningful content means route title, shared owner/read-only context, and primary rows/cards are visible. It does not mean every quote, FX, chart, dividend, catalog, or log enrichment has completed.
+- Quote freshness, FX/reporting-currency translation overlays, chart series, dividend enrichment, full instrument catalogs, and deep AI connector logs are secondary unless the page is not understandable without them.
+- Accounting, ownership, and configuration data must be current for primary content. Market, FX, chart, and projection data may be stale temporarily when the UI exposes `asOf`, stale, or refreshing state.
+
+### Route boundaries
+
+- `/dashboard` primary content is owner context, summary cards using cached/latest available values, a grouped-holdings preview sufficient to understand the page, and action-center state. Performance charts, quote freshness, FX refinement, and deeper dividend widgets are secondary.
+- `/portfolio` primary content is grouped holdings table/summary, account and instrument labels needed for display, and allocation-basis behavior. Quote freshness badges, dividend sections, and deeper breakdowns are secondary.
+- `/tickers/[ticker]` primary content is ticker-scoped transaction history plus primary holding/account context needed for fallback stats. It may reuse `GET /dashboard/primary` for that context, but must not bootstrap from dashboard enrichment.
+- `/settings/accounts` primary content is accounts, fee profiles, and bindings from a narrow settings/fee-config read. Live balances and deep integrity checks are secondary.
+- `/settings/tickers` primary content is the monitored ticker list only. Full catalog, browse/search data, and repair metadata are secondary or interaction-triggered.
+- `/settings/ai-connectors` primary content is connector summary plus policy. Access logs and expanded per-connector scopes/tools are secondary, lazy, or paginated.
+
+### Loading architecture
+
+- Use server-provided initial primary data for the pages that are still visibly slow, especially `/dashboard`, `/portfolio`, and `/settings/accounts`, then hydrate client hooks from that payload.
+- Keep secondary/enrichment requests client-side and route-owned.
+- Existing same-owner content should stay mounted during refreshes with local pending states. After mutations, refresh authoritative primary accounting data first, then refresh secondary enrichment in the background.
+- Do not optimistically update complex holdings or cost-basis projections unless the mutation response already contains the authoritative recalculated projection.
+
+### Backend read rules
+
+- Route-primary reads should treat `loadStore()` as forbidden by default. An exception is allowed only when the endpoint contract truly requires full accounting-domain consistency and there is no narrow projection available.
+- Use narrow reads first. Do not use broad response caching as the main fix for `/dashboard/overview` or `/portfolio/page-data`.
+- Caching is acceptable for secondary/enrichment data such as quote freshness, FX/reporting overlays, chart points, dividend widgets, and catalog search results, with narrow invalidation by domain.
+- Prefer explicit primary endpoints over overloading broad endpoints. Candidate routes include `/dashboard/primary`, `/portfolio/primary`, `/dashboard/enrichment`, `/portfolio/enrichment`, `/ai/connectors/summary`, and paginated `/ai/connectors/logs`.
+- Keep existing broad endpoints temporarily for compatibility, but route-primary UI must not depend on them once the split lands.
+
+### AppShell and shared context
+
+- `AppShell` first-paint critical data is limited to session/profile identity, locale/theme/display preferences needed to avoid mismatch, shared owner/read-only state, and minimal nav/sidebar structure.
+- Notifications, AI inbox badge, command-palette instrument index, full sharing switcher list, and global transaction account config must not block route primary content. They can load on idle, in the background, or when the related UI opens.
+- Shared portfolio owner label and read-only state must render from shell/shared-context data while route primary data is pending.
+- Shared-owner switches must invalidate or cancel route primary and secondary requests. Stale data from the previous owner must not remain visible as normal content.
+- All route-primary and secondary API reads must follow the active `contextUserId`, not only the session user id, unless the endpoint is explicitly session-owned.
+
+### Budgets and evidence
+
+- Treat deployed dev/QNAP warm authenticated navigation as the first user-facing budget target:
+  - shell visible/usable: P95 under 1.0s
+  - shared owner/read-only context visible: P95 under 1.0s
+  - `/dashboard` primary content: P95 under 2.5s
+  - `/portfolio` primary content: P95 under 2.5s
+  - `/transactions` primary content: P95 under 2.0s
+  - `/cash-ledger` primary content: P95 under 2.5s
+  - `/settings/accounts` primary content: P95 under 2.0s
+  - `/settings/tickers` monitored-list primary content: P95 under 2.0s
+  - `/settings/ai-connectors` connector-summary primary content: P95 under 2.0s
+- Keep the existing stricter local/API budgets as aspirational backend targets, but do not confuse them with deployed browser UX evidence.
+- Done requires both browser-visible timing and backend/API attribution:
+  - Codex Chrome Extension route walk on the authenticated shared portfolio for Wen-Ping Chuang.
+  - timings for shell visible, owner context visible, primary content visible, and secondary/enrichment settled.
+  - `Server-Timing` or structured logs for each hot primary endpoint.
+  - network assertions proving non-dashboard pages do not wait for `/dashboard/overview`, settings tickers does not call full `/instruments` before monitored-list primary render, AI connectors does not load full logs/details before connector-summary primary render, and `AppShell` does not trigger full catalog work before route primary content.
+
+### Implementation sequence
+
+1. Add or refine instrumentation so AppShell, route-primary, and secondary/enrichment work are measured separately.
+2. Demote AppShell fetches that are not required for first paint.
+3. Add server-provided initial primary data for the still-slow routes.
+4. Split dashboard into primary and secondary/enrichment phases.
+5. Split portfolio into primary and secondary/enrichment phases.
+6. Clean up settings tickers and AI connectors so primary content is small and secondary data is interaction-triggered or paginated.
+7. Add code-level naming boundaries, API tests, hook tests, E2E network assertions, and documentation updates so future pages follow the same pattern.
+
 ## PR Notes
 
 This work is repo/process/performance improvement without a Linear ticket. Per repo rules, use the waiver path for PR metadata:
