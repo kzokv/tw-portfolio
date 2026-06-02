@@ -508,6 +508,10 @@ export interface AiConnectorAccessLogRecord {
   createdAt: string;
 }
 
+export interface ListAiConnectorAccessLogsOptions {
+  limit?: number;
+}
+
 export interface AiTransactionDraftBatchRecord {
   id: string;
   ownerUserId: string;
@@ -1368,7 +1372,10 @@ export interface Persistence {
     revokedByUserId?: string | null,
   ): Promise<number>;
   appendAiConnectorAccessLog(input: AppendAiConnectorAccessLogInput): Promise<AiConnectorAccessLogRecord>;
-  listAiConnectorAccessLogsForUser(userId: string): Promise<AiConnectorAccessLogRecord[]>;
+  listAiConnectorAccessLogsForUser(
+    userId: string,
+    options?: ListAiConnectorAccessLogsOptions,
+  ): Promise<AiConnectorAccessLogRecord[]>;
   saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null>;
   getAiTransactionDraftBatch(id: string): Promise<AiTransactionDraftBatchAggregate | null>;
   listAiTransactionDraftBatchesForOwner(ownerUserId: string): Promise<AiTransactionDraftBatchRecord[]>;

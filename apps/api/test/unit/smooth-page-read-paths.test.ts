@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 
@@ -208,6 +208,11 @@ describe("smooth page read paths", () => {
   });
 
   it("splits AI connector summary from access logs", async () => {
+    const originalListAccessLogs = app.persistence.listAiConnectorAccessLogsForUser.bind(app.persistence);
+    const listAccessLogs = vi
+      .spyOn(app.persistence, "listAiConnectorAccessLogsForUser")
+      .mockImplementation((userId, options) => originalListAccessLogs(userId, options));
+
     const summary = await app.inject({ method: "GET", url: "/ai/connectors/summary" });
     const logs = await app.inject({ method: "GET", url: "/ai/connectors/logs?limit=5" });
 
@@ -221,6 +226,7 @@ describe("smooth page read paths", () => {
     expect(logs.statusCode).toBe(200);
     expect(logs.headers["server-timing"]).toContain("load_connector_logs;dur=");
     expect(logs.json()).toEqual({ accessLogs: expect.any(Array) });
+    expect(listAccessLogs).toHaveBeenCalledWith("user-1", { limit: 5 });
   });
 
   it("preserves cached quote and freshness fields in portfolio primary data", async () => {
