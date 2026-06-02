@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("../../../lib/auth", () => ({
   requireSession: vi.fn(),
@@ -122,10 +123,13 @@ describe("DividendsPage", () => {
     const result = await DividendsPage({
       searchParams: Promise.resolve({ view: "ledger" }),
     });
+    const html = renderToStaticMarkup(result);
 
     expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
     expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+    expect(getJsonMock).toHaveBeenCalledWith("/settings/fee-config");
+    expect(html).toContain('data-accounts-count="1"');
     expect(result).toBeTruthy();
   });
 

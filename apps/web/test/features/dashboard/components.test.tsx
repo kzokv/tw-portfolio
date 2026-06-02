@@ -8,6 +8,7 @@ import type {
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
 import { AllocationSnapshotCard } from "../../../components/dashboard/AllocationSnapshotCard";
+import { BiggestMoversCard } from "../../../components/dashboard/BiggestMoversCard";
 import { PortfolioTrendCard } from "../../../components/dashboard/PortfolioTrendCard";
 import { RecentTransactionsCard } from "../../../components/dashboard/RecentTransactionsCard";
 // Phase 5d — SummarySection deleted; the dashboard hero is now a slim
@@ -220,6 +221,33 @@ describe("dashboard components", () => {
 
     expect(html).toContain("NT$6,400");
     expect(html).not.toContain("NT$200");
+  });
+
+  it("formats biggest mover daily change in native quote currency", () => {
+    const usdHolding: DashboardOverviewHoldingDto = {
+      ...holdings[0]!,
+      ticker: "AAPL",
+      currency: "USD",
+      currentUnitPrice: 120,
+      change: 2.5,
+      changePercent: 2.13,
+      quoteStatus: "current",
+    };
+    const group = buildHoldingGroupsFromHoldings({ holdings: [usdHolding] })[0];
+    if (!group) throw new Error("Expected holding group");
+    const reportingGroup = {
+      ...group,
+      reportingCurrency: "TWD" as const,
+      reportingMarketValueAmount: 3_840,
+      reportingUnrealizedPnlAmount: 640,
+    };
+
+    const html = renderToStaticMarkup(
+      <BiggestMoversCard groups={[reportingGroup]} locale="en" dict={dict} />,
+    );
+
+    expect(html).toContain("$2.50");
+    expect(html).not.toContain("NT$2.50");
   });
 
   it("aggregates account counts in compact holdings rows", () => {

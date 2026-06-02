@@ -35,6 +35,7 @@ import {
   fetchDividendLedgerYears,
   type DividendLedgerReviewResponse,
 } from "../../features/dividends/services/dividendService";
+import { fetchShellPortfolioConfig } from "../../features/settings/services/shellPortfolioConfigService";
 import type { DividendCalendarSnapshot } from "../../features/dividends/types";
 
 interface DividendsTabsClientProps {
@@ -87,6 +88,7 @@ export function DividendsTabsClient({
   const [calendarSnapshot, setCalendarSnapshot] = useState<DividendCalendarSnapshot | null>(initialCalendarSnapshot);
   const [reviewData, setReviewData] = useState<DividendLedgerReviewResponse | null>(initialReviewData);
   const [years, setYears] = useState<number[]>(initialYears);
+  const [ledgerAccounts, setLedgerAccounts] = useState<AccountDto[]>(accounts);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
   const [isLedgerLoading, setIsLedgerLoading] = useState(false);
   const [calendarError, setCalendarError] = useState("");
@@ -117,6 +119,10 @@ export function DividendsTabsClient({
   useEffect(() => {
     setYears(initialYears);
   }, [initialYears]);
+
+  useEffect(() => {
+    setLedgerAccounts(accounts);
+  }, [accounts]);
 
   const handleTabChange = useCallback(
     (next: string) => {
@@ -201,6 +207,28 @@ export function DividendsTabsClient({
     };
   }, [activeTab, reviewData, years]);
 
+  useEffect(() => {
+    if (activeTab !== "ledger" || ledgerAccounts.length > 0) return;
+
+    let cancelled = false;
+    void fetchShellPortfolioConfig()
+      .then((config) => {
+        if (!cancelled) {
+          setLedgerAccounts(config.accounts);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLedgerAccounts([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, ledgerAccounts.length]);
+
+
   return (
     <Tabs
       value={activeTab}
@@ -234,7 +262,7 @@ export function DividendsTabsClient({
             initialData={reviewData}
             dict={dict}
             locale={locale}
-            accounts={accounts}
+            accounts={ledgerAccounts}
             years={years}
           />
         ) : isLedgerLoading ? (

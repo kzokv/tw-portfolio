@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
+import type { AccountDto, LocaleCode, ShellPortfolioConfigDto, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS,
@@ -47,6 +47,11 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const resolvedInitialTab = resolveInitialDividendsTab(sp);
   const dict = getDictionary(locale);
   const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
+  const accounts: AccountDto[] = initialTab === "ledger"
+    ? await getJson<ShellPortfolioConfigDto>("/settings/fee-config")
+      .then((config) => config.accounts)
+      .catch(() => [])
+    : [];
 
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
@@ -64,7 +69,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           ledgerLabel={dict.dividends.tabs.review}
           dict={dict}
           locale={locale}
-          accounts={[]}
+          accounts={accounts}
           initialCalendarSnapshot={null}
           initialReviewData={null}
           initialYears={[]}
