@@ -325,6 +325,44 @@ These decisions were locked after reviewing the latest `dev` branch, the current
 6. Clean up settings tickers and AI connectors so primary content is small and secondary data is interaction-triggered or paginated.
 7. Add code-level naming boundaries, API tests, hook tests, E2E network assertions, and documentation updates so future pages follow the same pattern.
 
+## Post-deployment Chrome Measurement On 2026-06-02
+
+Captured after the latest PR code was deployed to `https://vakwen-dev-web.kzokvdevs.dpdns.org` using the Codex Chrome Extension and the already-open authenticated Chrome tab. The sweep reused the live browser session and walked the app from the sidebar/settings navigation. Timings are wall-clock browser interaction timings from the existing Chrome tab, so they represent user-visible UX on the dev QNAP deployment rather than local unit/API timing.
+
+Definitions:
+
+- Route visible: the URL/path changed and the page title/shell for that route was visible.
+- Data/content ready: primary page content or the route-specific empty state had settled and the loading text disappeared.
+- These are approximate single-run timings and should be treated as directional evidence, not a statistical P95.
+
+| Page | Route visible | Data/content ready | Result | Follow-up |
+|---|---:|---:|---|---|
+| `/dashboard` | ~4.1s | ~5.1s | Improved from the original 25-30s freeze, but still above the 2.5s target. Several cards still showed `Waiting for market value data`, so dashboard enrichment/quote data remains a visible gap. | Continue splitting dashboard primary data from quote/FX/freshness enrichment and add backend timing attribution for dashboard primary/enrichment. |
+| `/portfolio` | ~4.4s | ~9.8-10.8s | Route shell appears before holdings, but full holdings data is still slow. A later sample showed holdings populated; one pass showed quote coverage/quote fields missing while primary data was visible. | Replace remaining broad primary read work with narrower holdings projections and keep quote/freshness as secondary enrichment with clear stale/loading state. |
+| `/transactions` | ~2.2s | ~4.0s | Much smoother and acceptable for shipping, though still above the 2.0s target. | Keep as baseline pattern; tighten only after heavier pages are fixed. |
+| `/cash-ledger` | ~6.8s | ~7.7-8.8s | Still noticeably slow. The route shows a loading state quickly, then ledger rows and account labels appear later. | Optimize cash-ledger first-page/API read path further; verify whether the delay is ledger rows, account balances, or QNAP DB latency. |
+| `/dividends` | ~2.7s | ~11.3-12.3s | Route shell is no longer frozen, but calendar data remains slow even for an empty June 2026 month. | Split calendar primary/empty-state read from review/ledger enrichment and add timing for dividend calendar/review endpoints. |
+| `/sharing` | ~1.3s | ~1.6-2.6s | Healthy after the lazy shell/config split. | No blocker for this release. |
+| `/settings/profile` | ~0.6s | ~1.5-2.5s | Healthy after lazy shell/config split. | No blocker for this release. |
+| `/settings/accounts` | ~0.9s | ~8.2-9.2s | Route appears quickly, but accounts/fee-profile data still takes too long. The form shell appears first; `Your accounts` arrives later. | Keep accounts on narrow `/settings/fee-config`, then optimize that read path and/or progressively render account cards before deeper fee-profile details. |
+
+### Release call
+
+This deployed version is shippable compared with the original main-branch behavior because route transitions now surface shell/skeleton content instead of leaving users staring at a frozen page. The remaining performance debt is still real, but it is narrower and easier to attack:
+
+- QNAP hardware likely amplifies raw API/database latency.
+- The codebase still has expensive page-specific reads on dashboard, portfolio, cash ledger, dividends, and settings/accounts.
+- The next performance follow-up should optimize those data paths rather than reworking the already-improved navigation pattern.
+
+### Follow-up backlog
+
+1. Add browser-visible instrumentation for route visible, primary ready, and secondary settled milestones so future Chrome sweeps are less manual.
+2. Add backend attribution for `/dashboard/primary`, `/dashboard/enrichment`, `/portfolio/primary`, `/portfolio/enrichment`, `/cash-ledger`, dividend calendar/review reads, and `/settings/fee-config`.
+3. Optimize `/settings/fee-config` for accounts by separating account cards from deep fee-profile/binding detail where possible.
+4. Optimize dividend calendar empty-state loading so an empty month does not wait on review/ledger work.
+5. Revisit dashboard/portfolio quote enrichment so missing or pending quote data is explicit and does not make primary content look incomplete.
+6. Keep the release baseline rule: routes may show local loading regions, but the app shell and route title should not block on secondary data.
+
 ## PR Notes
 
 This work is repo/process/performance improvement without a Linear ticket. Per repo rules, use the waiver path for PR metadata:
