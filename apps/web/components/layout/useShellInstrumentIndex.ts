@@ -7,7 +7,7 @@ import {
   fetchTransactionInstrumentCatalog,
 } from "../../features/portfolio/services/portfolioService";
 
-export function useShellInstrumentIndex(): InstrumentOptionDto[] {
+export function useShellInstrumentIndex(refreshSignal = 0): InstrumentOptionDto[] {
   const [instruments, setInstruments] = useState<InstrumentOptionDto[]>([]);
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function useShellInstrumentIndex(): InstrumentOptionDto[] {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshSignal]);
 
   return instruments;
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { type LocaleCode } from "@vakwen/shared-types";
+import { type LocaleCode, type ShellPortfolioConfigDto } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
 import type { TransactionInput } from "../portfolio/types";
 import { AppShellLayout } from "./AppShellLayout";
@@ -43,6 +43,7 @@ interface AppShellProps {
   descriptionOverride?: string;
   activeSectionOverride?: AppSection | null;
   initialProfile?: ProfileWithImpersonationDto | null;
+  initialPortfolioConfig?: ShellPortfolioConfigDto | null;
   /** SSR-resolved sidebar collapsed state (Preserves §8 item 14). */
   initialSidebarOpen?: boolean;
   children?: React.ReactNode;
@@ -68,11 +69,15 @@ export function AppShell({
   descriptionOverride: _descriptionOverride,
   activeSectionOverride: _activeSectionOverride,
   initialProfile = null,
+  initialPortfolioConfig = null,
   initialSidebarOpen = true,
   children,
 }: AppShellProps) {
   const [isClientReady, setIsClientReady] = useState(false);
-  const portfolioConfig = useShellPortfolioConfig({ initialTransaction: DEFAULT_TRANSACTION });
+  const portfolioConfig = useShellPortfolioConfig({
+    initialTransaction: DEFAULT_TRANSACTION,
+    initialConfig: initialPortfolioConfig,
+  });
   const profileData = useProfile(initialProfile);
   const impersonation = profileData.profile?.impersonation
     && profileData.profile.impersonation.active !== false
@@ -181,7 +186,7 @@ export function AppShell({
 
   const globalError = transactionSubmission.errorMessage || recomputeAction.errorMessage || portfolioConfig.errorMessage;
 
-  const shellInstruments = useShellInstrumentIndex();
+  const shellInstruments = useShellInstrumentIndex(contextRefreshSignal);
   const { quickSearchItems } = useAppNavigation(dict, shellInstruments);
 
   const handleClearGlobalError = useCallback(() => {

@@ -17,6 +17,14 @@ export default async function DashboardPage() {
     getJson<UserSettings>("/settings").catch(() => null),
     fetchDashboardPrimaryData().catch(() => null),
   ]);
+  const initialPortfolioConfig = initialPrimaryData
+    ? {
+      accounts: initialPrimaryData.accounts,
+      feeProfiles: initialPrimaryData.feeProfiles,
+      feeProfileBindings: initialPrimaryData.feeProfileBindings,
+      integrityIssue: initialPrimaryData.actions.integrityIssue,
+    }
+    : null;
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
       <AppShell
@@ -24,6 +32,7 @@ export default async function DashboardPage() {
         isDemo={session.isDemo}
         localeOverride={settings?.locale ?? "en"}
         initialProfile={profile}
+        initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
         <DashboardClient initialPrimaryData={initialPrimaryData} />

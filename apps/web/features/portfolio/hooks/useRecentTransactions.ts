@@ -8,14 +8,16 @@ import { fetchTransactionHistory } from "../services/portfolioService";
 interface UseRecentTransactionsOptions {
   limit: number;
   enabled?: boolean;
+  initialItems?: TransactionHistoryItemDto[] | null;
 }
 
 export function useRecentTransactions({
   limit,
   enabled = true,
+  initialItems = null,
 }: UseRecentTransactionsOptions) {
-  const [items, setItems] = useState<TransactionHistoryItemDto[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [items, setItems] = useState<TransactionHistoryItemDto[]>(initialItems ?? []);
+  const [isLoading, setIsLoading] = useState(enabled && initialItems === null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const refresh = useCallback(async () => {
@@ -38,8 +40,22 @@ export function useRecentTransactions({
   }, [enabled, limit]);
 
   useEffect(() => {
+    if (!enabled) {
+      setItems([]);
+      setErrorMessage("");
+      setIsLoading(false);
+      return;
+    }
+
+    if (initialItems !== null) {
+      setItems(initialItems);
+      setErrorMessage("");
+      setIsLoading(false);
+      return;
+    }
+
     void refresh();
-  }, [refresh]);
+  }, [enabled, initialItems, refresh]);
 
   return {
     items,

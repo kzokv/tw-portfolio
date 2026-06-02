@@ -227,14 +227,15 @@ export function AccountsSettingsClient() {
     setBindings((current) => current.filter((_, idx) => idx !== index));
   }, []);
 
-  const hasShellAccountConfig = shellData.accounts.length > 0 || shellData.feeProfiles.length > 0;
-  if (!initialSettings || (shellData.isPortfolioConfigLoading && !hasShellAccountConfig)) {
+  if (!initialSettings) {
     return (
       <div data-testid="settings-section-accounts" className="text-sm text-muted-foreground">
         {dict.feedback.loadingSettings}
       </div>
     );
   }
+
+  const hasShellAccountConfig = shellData.accounts.length > 0 || shellData.feeProfiles.length > 0;
 
   return (
     <div className="space-y-4" data-testid="settings-section-accounts">
@@ -244,25 +245,36 @@ export function AccountsSettingsClient() {
         prefillCurrency={prefillCurrency}
         dict={dict}
       />
-      <AccountsListSection
-        accounts={shellData.accounts}
-        accountDrafts={accountDrafts}
-        profiles={profiles}
-        feeProfileBindings={bindings}
-        activeLocale={initialSettings?.locale ?? locale}
-        onUpdateAccountProfile={updateAccountProfile}
-        onRenameAccount={handleRenameAccount}
-        onAddProfileForAccount={addProfileForAccount}
-        onUpdateProfileField={updateProfileField}
-        onRemoveProfileFromAccount={removeProfileFromAccount}
-        onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
-        onAddBinding={addBinding}
-        onUpdateBinding={updateBinding}
-        onRemoveBinding={removeBinding}
-        onAccountsChanged={shellData.refreshPortfolioConfig}
-        effectiveAccountHardPurgeDays={initialSettings?.effectiveAccountHardPurgeDays}
-        dict={dict}
-      />
+      {shellData.isPortfolioConfigLoading && !hasShellAccountConfig ? (
+        <div
+          className="rounded-xl border border-border bg-card px-4 py-6 text-sm text-muted-foreground shadow-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          {dict.feedback.loadingSettings}
+        </div>
+      ) : (
+        <AccountsListSection
+          accounts={shellData.accounts}
+          accountDrafts={accountDrafts}
+          profiles={profiles}
+          feeProfileBindings={bindings}
+          activeLocale={initialSettings.locale ?? locale}
+          onUpdateAccountProfile={updateAccountProfile}
+          onRenameAccount={handleRenameAccount}
+          onAddProfileForAccount={addProfileForAccount}
+          onUpdateProfileField={updateProfileField}
+          onRemoveProfileFromAccount={removeProfileFromAccount}
+          onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
+          onAddBinding={addBinding}
+          onUpdateBinding={updateBinding}
+          onRemoveBinding={removeBinding}
+          onAccountsChanged={shellData.refreshPortfolioConfig}
+          effectiveAccountHardPurgeDays={initialSettings.effectiveAccountHardPurgeDays}
+          dict={dict}
+        />
+      )}
     </div>
   );
 }

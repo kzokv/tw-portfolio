@@ -33,12 +33,13 @@ This section defines the backend contract for the authenticated page-performance
 |---|---|---|
 | Dashboard | `GET /dashboard/primary` | `GET /dashboard/enrichment`, `GET /dashboard/performance` |
 | Portfolio holdings | `GET /portfolio/primary` | `GET /portfolio/enrichment` |
+| Transactions | `GET /transactions/primary` | `GET /portfolio/transactions`, AI inbox routes |
 | Settings tickers | `GET /monitored-tickers` | `GET /instruments` when catalog browse/search opens |
 | AI connector settings | `GET /ai/connectors/summary` | `GET /ai/connectors/logs` |
 
 Compatibility endpoints remain for older callers: `GET /dashboard/overview`, `GET /portfolio/page-data`, and `GET /ai/connectors`. New route-primary UI must use the primary endpoints above.
 
-Temporary exception: `GET /dashboard/primary` and `GET /portfolio/primary` still hydrate the in-memory domain store through `loadStore()` so grouped-holdings accounting semantics stay identical while the route split lands. They deliberately skip quote resolution, freshness classification, FX/reporting translation, performance series, and dividend enrichment. The next backend optimization step is replacing those primary handlers with narrower Postgres projections once the UI contract is stable.
+Temporary exception: `GET /dashboard/primary`, `GET /portfolio/primary`, and `GET /transactions/primary` still hydrate the in-memory domain store through `loadStore()` so grouped holdings, fee-profile config, and recent transaction ordering stay identical while the route split lands. They deliberately skip quote resolution, freshness classification, FX/reporting translation, performance series, and dividend enrichment. The next backend optimization step is replacing those primary handlers with narrower Postgres projections once the UI contract is stable.
 
 ### Target budgets
 
@@ -67,6 +68,8 @@ If a route cannot meet these targets because of unavoidable data shape complexit
   - `GET /portfolio/primary`
   - `GET /portfolio/enrichment`
   - `GET /portfolio/instrument-index`
+  - `GET /transactions/primary`
+  - `GET /portfolio/transactions`
   - `GET /portfolio/cash-ledger`
   - `GET /monitored-tickers`
   - `GET /instruments`

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { TransactionPrimaryDto } from "@vakwen/shared-types";
 import { formatNumber } from "../../lib/utils";
 import { useRecentTransactions } from "../../features/portfolio/hooks/useRecentTransactions";
 import { RecentTransactionsCard } from "../dashboard/RecentTransactionsCard";
@@ -17,12 +18,14 @@ interface TransactionsClientProps {
   initialTab?: "posted" | "ai-inbox";
   initialBatchId?: string | null;
   initialContextId?: string | null;
+  initialPrimaryData?: TransactionPrimaryDto | null;
 }
 
 export function TransactionsClient({
   initialTab = "posted",
   initialBatchId = null,
   initialContextId = null,
+  initialPrimaryData = null,
 }: TransactionsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -36,9 +39,17 @@ export function TransactionsClient({
     contextRefreshSignal,
   } = useAppShellData();
   const resetCount = useCardLayoutResetCount("transactions");
+  const seededPrimaryData = contextRefreshSignal === 0 ? initialPrimaryData : null;
   // TransactionsClient only mounts on /transactions, so enabled is unconditionally true.
-  const recentTransactions = useRecentTransactions({ limit: 12, enabled: true });
+  const recentTransactions = useRecentTransactions({
+    limit: 12,
+    enabled: true,
+    initialItems: seededPrimaryData?.recentTransactions ?? null,
+  });
   const addPanelRef = useRef<HTMLDivElement | null>(null);
+  const effectiveTransactionAccountOptions = transactionAccountOptions.length > 0
+    ? transactionAccountOptions
+    : seededPrimaryData?.accountOptions ?? [];
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -65,8 +76,8 @@ export function TransactionsClient({
   const uniqueTickerCount = recentTransactions.isLoading
     ? "..."
     : formatNumber(new Set(recentTransactions.items.map((item) => `${item.ticker}:${item.marketCode ?? "na"}`)).size, locale);
-  const accountCountValue = transactionAccountOptions.length > 0
-    ? formatNumber(transactionAccountOptions.length, locale)
+  const accountCountValue = effectiveTransactionAccountOptions.length > 0
+    ? formatNumber(effectiveTransactionAccountOptions.length, locale)
     : recentTransactions.isLoading
       ? "..."
       : "0";
@@ -228,7 +239,7 @@ export function TransactionsClient({
                       </div>
                       <AddTransactionCard
                         value={transactionSubmission.draftTransaction}
-                        accountOptions={transactionAccountOptions}
+                        accountOptions={effectiveTransactionAccountOptions}
                         pending={transactionSubmission.isSubmitting}
                         onChange={(next) => {
                           transactionSubmission.setMessage("");

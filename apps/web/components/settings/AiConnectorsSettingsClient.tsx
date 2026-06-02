@@ -64,36 +64,27 @@ export function AiConnectorsSettingsClient() {
 
   const load = useCallback(async () => {
     setIsLoading(true);
+    setIsLoadingLogs(true);
     setError("");
     try {
-      setData(await fetchAiConnectorSummary());
+      const [summary, logs] = await Promise.all([
+        fetchAiConnectorSummary(),
+        fetchAiConnectorLogs(12).catch(() => ({ accessLogs: [] })),
+      ]);
+      setData(summary);
+      setAccessLogs(logs.accessLogs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI connector settings could not be loaded.");
+      setAccessLogs([]);
     } finally {
       setIsLoading(false);
+      setIsLoadingLogs(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  const loadLogs = useCallback(async () => {
-    setIsLoadingLogs(true);
-    try {
-      const result = await fetchAiConnectorLogs(12);
-      setAccessLogs(result.accessLogs);
-    } catch {
-      setAccessLogs([]);
-    } finally {
-      setIsLoadingLogs(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!data) return;
-    void loadLogs();
-  }, [data, loadLogs]);
 
   const scopeEnabledByGroup = useMemo(() => ({
     read: data?.policy.groupToggles.read ?? false,

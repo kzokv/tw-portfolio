@@ -11,6 +11,7 @@ import {
 
 interface UseShellPortfolioConfigOptions {
   initialTransaction: TransactionInput;
+  initialConfig?: ShellPortfolioConfigDto | null;
 }
 
 interface UseShellPortfolioConfigResult extends ShellPortfolioConfigDto {
@@ -32,11 +33,12 @@ const EMPTY_CONFIG: ShellPortfolioConfigDto = {
 
 export function useShellPortfolioConfig({
   initialTransaction,
+  initialConfig = null,
 }: UseShellPortfolioConfigOptions): UseShellPortfolioConfigResult {
-  const [config, setConfig] = useState<ShellPortfolioConfigDto>(EMPTY_CONFIG);
-  const [isLoading, setIsLoading] = useState(true);
+  const [config, setConfig] = useState<ShellPortfolioConfigDto>(initialConfig ?? EMPTY_CONFIG);
+  const [isLoading, setIsLoading] = useState(initialConfig === null);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showIntegrityDialog, setShowIntegrityDialog] = useState(false);
+  const [showIntegrityDialog, setShowIntegrityDialog] = useState(Boolean(initialConfig?.integrityIssue));
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -54,6 +56,13 @@ export function useShellPortfolioConfig({
   }, []);
 
   useEffect(() => {
+    if (initialConfig !== null) {
+      setConfig(initialConfig);
+      setShowIntegrityDialog(Boolean(initialConfig.integrityIssue));
+      setIsLoading(false);
+      return;
+    }
+
     let mounted = true;
     void refresh().catch(() => {
       if (!mounted) return;
@@ -61,7 +70,7 @@ export function useShellPortfolioConfig({
     return () => {
       mounted = false;
     };
-  }, [refresh]);
+  }, [initialConfig, refresh]);
 
   const synchronizeTransactionDraft = useCallback(
     (previous: TransactionInput) =>

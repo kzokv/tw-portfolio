@@ -26,6 +26,9 @@ const initialPrimaryData: PortfolioPageData = {
   dividends: { upcoming: [], recent: [] },
   instruments: [],
   accounts: [],
+  feeProfiles: [],
+  feeProfileBindings: [],
+  integrityIssue: null,
 };
 
 function Harness({ initialData = null }: { initialData?: PortfolioPageData | null }) {

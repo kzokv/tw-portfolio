@@ -68,6 +68,7 @@ This section is the implementation baseline for authenticated route performance 
 
 - `/dashboard` server-renders from `GET /dashboard/primary`; client enrichment refreshes from `GET /dashboard/enrichment` and chart data from `GET /dashboard/performance`.
 - `/portfolio` server-renders from `GET /portfolio/primary`; client enrichment refreshes from `GET /portfolio/enrichment`.
+- `/transactions` server-renders from `GET /transactions/primary`; the payload seeds recent rows, transaction account options, and AppShell's portfolio config, while AI inbox details remain tab-owned.
 - `/tickers/[ticker]` uses `GET /dashboard/primary` only for primary holding/account context; it must not use dashboard enrichment as a route bootstrap dependency.
 - `/settings/tickers` first loads `GET /monitored-tickers`; `GET /instruments` is triggered only when the catalog surface opens.
 - `/settings/ai-connectors` first loads `GET /ai/connectors/summary`; recent access uses `GET /ai/connectors/logs`.
@@ -76,6 +77,7 @@ This section is the implementation baseline for authenticated route performance 
 ### Shell and route rules
 
 - `AppShell` must not gate route rendering on `/dashboard/overview` or any other page-owned endpoint.
+- Route pages may pass server-provided `initialPortfolioConfig` into `AppShell` when a primary read model already contains account/fee-profile config. This prevents an immediate duplicate `/settings/fee-config` client fetch from delaying first controls.
 - Shared portfolio owner label and read-only state must be derivable from shell/profile/shared-context data before page primary data resolves.
 - Shell command/search bootstrap should use a narrow catalog endpoint such as `/portfolio/instrument-index`, and it must remain non-blocking for route content.
 - A route may reuse data structures that also appear elsewhere, but ownership still belongs to the route that needs them for first useful content.

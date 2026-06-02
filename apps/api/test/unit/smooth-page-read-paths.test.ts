@@ -76,7 +76,8 @@ describe("smooth page read paths", () => {
     const response = await app.inject({ method: "GET", url: "/portfolio/primary" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.headers["server-timing"]).toContain("build_primary_portfolio;dur=");
+    expect(response.headers["server-timing"]).toContain("list_primary_holdings;dur=");
+    expect(response.headers["server-timing"]).toContain("map_instruments;dur=");
     expect(response.headers["server-timing"]).not.toContain("load_quotes;dur=");
     expect(response.headers["server-timing"]).not.toContain("freshness;dur=");
     const body = response.json();
@@ -88,6 +89,18 @@ describe("smooth page read paths", () => {
         ticker: "2330",
         currentUnitPrice: null,
         freshness: "current",
+        quoteStatus: "missing",
+      }),
+    ]);
+    expect(body.instruments).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ticker: "2330",
+        marketCode: "TW",
+      }),
+    ]));
+    expect(body.accounts).toEqual([
+      expect.objectContaining({
+        id: "acc-1",
       }),
     ]);
   });
@@ -112,12 +125,85 @@ describe("smooth page read paths", () => {
     const body = response.json();
     expect(body.summary).toEqual(expect.objectContaining({
       reportingCurrency: "TWD",
-      fxStatus: "missing",
+      fxStatus: "complete",
+      totalCostAmount: 1000,
       marketValueAmount: null,
     }));
+    expect(body.dividends).toEqual({ upcoming: [], recent: [] });
     expect(body.holdings[0]).toEqual(expect.objectContaining({
       ticker: "2330",
       currentUnitPrice: null,
+    }));
+  });
+
+  it("does not label mixed-currency dashboard primary totals as reporting currency", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "AAPL",
+      quantity: 1,
+      costBasisAmount: 100,
+      currency: "USD",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/dashboard/primary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).not.toContain("translate_summary;dur=");
+    expect(response.json().summary).toEqual(expect.objectContaining({
+      reportingCurrency: "TWD",
+      fxStatus: "missing",
+      totalCostAmount: 0,
+      marketValueAmount: null,
+    }));
+  });
+
+  it("serves transactions primary data with recent rows and account options", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.facts.tradeEvents.push({
+      id: "trade-1",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-02",
+      commissionAmount: 20,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      bookedAt: "2026-06-02T09:00:00.000Z",
+    });
+
+    const response = await app.inject({ method: "GET", url: "/transactions/primary" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["server-timing"]).toContain("list_recent_transactions;dur=");
+    expect(response.headers["server-timing"]).toContain("map_account_options;dur=");
+    const body = response.json();
+    expect(body.recentTransactions).toEqual([
+      expect.objectContaining({
+        id: "trade-1",
+        accountId: "acc-1",
+        ticker: "2330",
+      }),
+    ]);
+    expect(body.accountOptions).toEqual([
+      expect.objectContaining({
+        id: "acc-1",
+        feeProfileName: feeProfile.name,
+      }),
+    ]);
+    expect(body.portfolioConfig).toEqual(expect.objectContaining({
+      accounts: expect.arrayContaining([expect.objectContaining({ id: "acc-1" })]),
+      feeProfiles: expect.arrayContaining([expect.objectContaining({ id: feeProfile.id })]),
+      feeProfileBindings: expect.any(Array),
     }));
   });
 
