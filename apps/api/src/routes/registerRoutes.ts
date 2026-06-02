@@ -24,18 +24,23 @@ import {
 } from "../auth/googleOAuth.js";
 import { calculateBuyFees, calculateSellFees, classifyInstrument, roundToDecimal, type FeeProfile } from "@vakwen/domain";
 import type {
+  AccountDefaultCurrency,
   AiConnectorScope,
+  DashboardOverviewDto,
   DashboardPerformanceRange,
   IntegrityIssueDto,
   InstrumentOptionDto,
   MarketCode as SharedMarketCode,
   ShareCapability,
+  ShellPortfolioConfigDto,
   TransactionAiInboxBadgeDto,
+  TransactionAccountOptionDto,
   TransactionDraftBatchDetailDto,
   TransactionDraftBatchDto,
   TransactionDraftRowDto,
   TransactionDraftUnsupportedItemDto,
   TransactionHistoryItemDto,
+  TransactionPrimaryDto,
 } from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
@@ -1521,6 +1526,25 @@ function mapTransactionHistoryItem(
   };
 }
 
+function buildTransactionHistoryItems(
+  store: Store,
+  query: {
+    ticker?: string;
+    accountId?: string;
+    marketCode?: string;
+    limit?: number;
+  } = {},
+): TransactionHistoryItemDto[] {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const items = listTradeEvents(store)
+    .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
+    .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+    .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
+    .sort(compareTransactionsForHistory)
+    .map((trade) => mapTransactionHistoryItem(trade, accountById));
+  return query.limit ? items.slice(0, query.limit) : items;
+}
+
 function compareTransactionsForHistory(left: Transaction, right: Transaction): number {
   return (
     right.tradeDate.localeCompare(left.tradeDate)
@@ -1655,6 +1679,117 @@ async function buildQuoteSnapshotInputs(
     settledByMarket.set(market, await app.tradingCalendarCache.latestSettledTradingDay(market, now));
   }
   return { pairs, settledByMarket };
+}
+
+function mapPortfolioInstrumentOptions(store: Store): InstrumentOptionDto[] {
+  return listTransactionInstruments(store.instruments)
+    .map((instrument): InstrumentOptionDto | null => {
+      if (instrument.type === null) return null;
+      return {
+        ticker: instrument.ticker,
+        instrumentType: instrument.type,
+        marketCode: instrument.marketCode,
+        isProvisional: instrument.isProvisional === true,
+      };
+    })
+    .filter((instrument): instrument is InstrumentOptionDto => instrument !== null);
+}
+
+function buildShellPortfolioConfig(store: Store): ShellPortfolioConfigDto {
+  return {
+    accounts: store.accounts,
+    feeProfiles: store.feeProfiles,
+    feeProfileBindings: store.feeProfileBindings,
+    integrityIssue: getStoreIntegrityIssue(store),
+  };
+}
+
+function buildTransactionAccountOptions(store: Store): TransactionAccountOptionDto[] {
+  return store.accounts.map((account) => ({
+    id: account.id,
+    name: account.name,
+    feeProfileName: store.feeProfiles.find((profile) => profile.id === account.feeProfileId)?.name ?? "",
+    defaultCurrency: account.defaultCurrency,
+    accountType: account.accountType,
+  }));
+}
+
+function buildPortfolioPrimaryHoldings(store: Store, userId: string) {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const holdings = listHoldings(store, userId);
+  const totalCostAmount = holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0);
+
+  return holdings
+    .map((holding) => ({
+      accountId: holding.accountId,
+      accountName: accountById.get(holding.accountId)?.name ?? holding.accountId,
+      ticker: holding.ticker,
+      quantity: holding.quantity,
+      costBasisAmount: holding.costBasisAmount,
+      currency: holding.currency,
+      averageCostPerShare: holding.quantity > 0 ? roundToDecimal(holding.costBasisAmount / holding.quantity, 2) : 0,
+      currentUnitPrice: null,
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      allocationPct: totalCostAmount > 0 ? (holding.costBasisAmount / totalCostAmount) * 100 : null,
+      change: null,
+      changePercent: null,
+      previousClose: null,
+      quoteStatus: "missing" as const,
+      nextDividendDate: null,
+      lastDividendPostedDate: null,
+      freshness: "current" as const,
+      freshnessTooltip: null,
+    }))
+    .sort((left, right) => right.costBasisAmount - left.costBasisAmount || left.ticker.localeCompare(right.ticker));
+}
+
+function buildDashboardPrimaryOverview(
+  store: Store,
+  userId: string,
+  reportingCurrency: AccountDefaultCurrency,
+): DashboardOverviewDto {
+  const holdings = buildPortfolioPrimaryHoldings(store, userId);
+  const holdingGroups = buildOverviewHoldingGroups(store, holdings);
+  const sourceCurrencies = new Set(holdings.map((holding) => holding.currency));
+  const isReportingNative = [...sourceCurrencies].every((currency) => currency === reportingCurrency);
+  const totalCostAmount = isReportingNative
+    ? holdings.reduce((sum, holding) => sum + holding.costBasisAmount, 0)
+    : 0;
+  const integrityIssue = getStoreIntegrityIssue(store);
+
+  return {
+    settings: store.settings,
+    summary: {
+      asOf: new Date().toISOString(),
+      accountCount: store.accounts.length,
+      holdingCount: holdings.length,
+      totalCostAmount,
+      reportingCurrency,
+      fxStatus: isReportingNative ? "complete" : "missing",
+      marketValueAmount: null,
+      unrealizedPnlAmount: null,
+      dailyChangeAmount: null,
+      dailyChangePercent: null,
+      upcomingDividendCount: 0,
+      upcomingDividendAmount: null,
+      openIssueCount: integrityIssue ? 1 : 0,
+    },
+    holdings,
+    holdingGroups,
+    dividends: {
+      upcoming: [],
+      recent: [],
+    },
+    actions: {
+      integrityIssue,
+      recomputeAvailable: true,
+    },
+    instruments: mapPortfolioInstrumentOptions(store),
+    accounts: store.accounts,
+    feeProfiles: store.feeProfiles,
+    feeProfileBindings: store.feeProfileBindings,
+  };
 }
 
 async function opportunisticUpsertDailyBars(
@@ -3156,12 +3291,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/settings/fee-config", async (req, reply) => {
     return withReadPathTiming(req, reply, "/settings/fee-config", async (timing) => {
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      return {
-        accounts: store.accounts,
-        feeProfiles: store.feeProfiles,
-        feeProfileBindings: store.feeProfileBindings,
-        integrityIssue: getStoreIntegrityIssue(store),
-      };
+      return buildShellPortfolioConfig(store);
     });
   });
 
@@ -4113,22 +4243,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  app.get("/portfolio/transactions", async (req) => {
+  app.get("/portfolio/transactions", async (req, reply) => {
     const query = z.object({
       ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
       marketCode: marketCodeSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
-    const { store } = await loadUserStore(app, req);
-    const accountById = new Map(store.accounts.map((account) => [account.id, account]));
-    const items = listTradeEvents(store)
-      .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
-      .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
-      .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
-      .sort(compareTransactionsForHistory)
-      .map((trade) => mapTransactionHistoryItem(trade, accountById));
-    return query.limit ? items.slice(0, query.limit) : items;
+    return withReadPathTiming(req, reply, "/portfolio/transactions", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      return timing.measure("map_transactions", "app", () => Promise.resolve(buildTransactionHistoryItems(store, query)));
+    });
+  });
+
+  app.get("/transactions/primary", async (req, reply): Promise<TransactionPrimaryDto> => {
+    return withReadPathTiming(req, reply, "/transactions/primary", async (timing) => {
+      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const [recentTransactions, accountOptions, portfolioConfig] = await Promise.all([
+        timing.measure("list_recent_transactions", "app", () =>
+          Promise.resolve(buildTransactionHistoryItems(store, { limit: 12 }))),
+        timing.measure("map_account_options", "app", () => Promise.resolve(buildTransactionAccountOptions(store))),
+        timing.measure("map_portfolio_config", "app", () => Promise.resolve(buildShellPortfolioConfig(store))),
+      ]);
+      return {
+        recentTransactions,
+        accountOptions,
+        portfolioConfig,
+      };
+    });
   });
 
   app.get("/portfolio/page-data", async (req, reply) => {
@@ -4169,30 +4311,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         dividends: overview.dividends,
         instruments: overview.instruments,
         accounts: overview.accounts,
+        feeProfiles: overview.feeProfiles,
+        feeProfileBindings: overview.feeProfileBindings,
+        integrityIssue: getStoreIntegrityIssue(store),
       };
     });
   });
 
   app.get("/portfolio/primary", async (req, reply) => {
     return withReadPathTiming(req, reply, "/portfolio/primary", async (timing) => {
-      const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
-      const overview = await timing.measure("build_primary_portfolio", "app", () =>
-        Promise.resolve(buildDashboardOverview(store, {
-          integrityIssue: null,
-          quotes: [],
-        })));
+      const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
+      const holdings = await timing.measure("list_primary_holdings", "app", () =>
+        Promise.resolve(buildPortfolioPrimaryHoldings(store, userId)));
       const holdingGroups = await timing.measure("build_holding_groups", "app", () =>
-        Promise.resolve(buildOverviewHoldingGroups(store, overview.holdings)));
+        Promise.resolve(buildOverviewHoldingGroups(store, holdings)));
+      const instruments = await timing.measure("map_instruments", "app", () =>
+        Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return {
-        holdings: overview.holdings,
+        holdings,
         holdingGroups,
         dividends: {
           upcoming: [],
           recent: [],
         },
-        instruments: overview.instruments,
-        accounts: overview.accounts,
+        instruments,
+        accounts: store.accounts,
+        feeProfiles: store.feeProfiles,
+        feeProfileBindings: store.feeProfileBindings,
+        integrityIssue: getStoreIntegrityIssue(store),
       };
     });
   });
@@ -4235,6 +4382,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         dividends: overview.dividends,
         instruments: overview.instruments,
         accounts: overview.accounts,
+        feeProfiles: overview.feeProfiles,
+        feeProfileBindings: overview.feeProfileBindings,
+        integrityIssue: getStoreIntegrityIssue(store),
       };
     });
   });
@@ -4243,19 +4393,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return withReadPathTiming(req, reply, "/portfolio/instrument-index", async (timing) => {
       const { store } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
       const instruments = await timing.measure("map_instruments", "app", () =>
-        Promise.resolve(
-          listTransactionInstruments(store.instruments)
-            .map((instrument): InstrumentOptionDto | null => {
-              if (instrument.type === null) return null;
-              return {
-                ticker: instrument.ticker,
-                instrumentType: instrument.type,
-                marketCode: instrument.marketCode,
-                isProvisional: instrument.isProvisional === true,
-              };
-            })
-            .filter((instrument): instrument is InstrumentOptionDto => instrument !== null),
-        ));
+        Promise.resolve(mapPortfolioInstrumentOptions(store)));
 
       return { instruments };
     });
@@ -4396,19 +4534,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return withReadPathTiming(req, reply, "/dashboard/primary", async (timing) => {
       const { store, userId } = await timing.measure("load_store", "db", () => loadUserStore(app, req));
       const prefs = await timing.measure("load_prefs", "db", () => app.persistence.getUserPreferences(userId));
-      const overview = await timing.measure("build_primary_overview", "app", () => Promise.resolve(buildDashboardOverview(store, {
-        integrityIssue: getStoreIntegrityIssue(store),
-        quotes: [],
-      })));
       const reportingCurrency = resolveReportingCurrency(prefs);
-      return {
-        ...overview,
-        summary: {
-          ...overview.summary,
-          reportingCurrency,
-          fxStatus: "missing" as const,
-        },
-      };
+      return timing.measure("build_primary_overview", "app", () =>
+        Promise.resolve(buildDashboardPrimaryOverview(store, userId, reportingCurrency)));
     });
   });
 

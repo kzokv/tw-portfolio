@@ -17,6 +17,9 @@ const EMPTY_PORTFOLIO_PAGE_DATA: PortfolioPageData = {
   },
   instruments: [],
   accounts: [],
+  feeProfiles: [],
+  feeProfileBindings: [],
+  integrityIssue: null,
 };
 
 export function usePortfolioPrimaryData(initialPrimaryData: PortfolioPageData | null = null) {

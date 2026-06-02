@@ -3,7 +3,7 @@ import type { UserSettings } from "@vakwen/shared-types";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
 import { PortfolioClient } from "../../components/portfolio/PortfolioClient";
-import { fetchPortfolioPrimaryData, type PortfolioPageData } from "../../features/portfolio/services/portfolioService";
+import { fetchPortfolioPrimaryData } from "../../features/portfolio/services/portfolioService";
 import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
@@ -15,8 +15,16 @@ export default async function PortfolioPage() {
     getJson<ProfileWithImpersonationDto>("/profile"),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings").catch(() => null),
-    fetchPortfolioPrimaryData().catch((): PortfolioPageData | null => null),
+    fetchPortfolioPrimaryData().catch(() => null),
   ]);
+  const initialPortfolioConfig = initialPrimaryData
+    ? {
+      accounts: initialPrimaryData.accounts,
+      feeProfiles: initialPrimaryData.feeProfiles,
+      feeProfileBindings: initialPrimaryData.feeProfileBindings,
+      integrityIssue: initialPrimaryData.integrityIssue,
+    }
+    : null;
   return (
     <Suspense fallback={<DashboardLoading standalone />}>
       <AppShell
@@ -24,6 +32,7 @@ export default async function PortfolioPage() {
         isDemo={session.isDemo}
         localeOverride={settings?.locale ?? "en"}
         initialProfile={profile}
+        initialPortfolioConfig={initialPortfolioConfig}
         initialSidebarOpen={sidebarOpen}
       >
         <PortfolioClient initialPrimaryData={initialPrimaryData} />

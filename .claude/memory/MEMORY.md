@@ -81,6 +81,7 @@
 
 ## Promoted to .claude/rules/ (performance-smooth-pages, 2026-06-01)
 - `smooth-page-performance-boundaries.md` — Authenticated page loads keep `AppShell` lightweight, route primary reads page-owned, enrichment deferred, hot reads instrumented, and portfolio-context reads based on `contextUserId`. Promoted from the deployed shared-portfolio performance incident.
+- 2026-06-02 addendum — route-primary payloads may seed AppShell account/fee-profile config to avoid duplicate first-paint fetches, but seeded shell/route data and command/search indexes must refresh or clear on shared-owner context switches.
 
 ## Promoted to .claude/rules/ (ui-enhancement, 2026-05-14)
 - `agent-team-workflow.md` (addendum) — Architect (and Dispatcher) first-action-on-wake = re-poll inbox+TaskList+state.json, always; 5-stall canonical anti-pattern from ui-enhancement original architect; respawn with pre-baked triage is the canonical recovery

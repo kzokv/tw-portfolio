@@ -525,6 +525,13 @@ export interface DashboardOverviewDto {
   feeProfileBindings: FeeProfileBindingDto[];
 }
 
+export interface ShellPortfolioConfigDto {
+  accounts: AccountDto[];
+  feeProfiles: FeeProfileDto[];
+  feeProfileBindings: FeeProfileBindingDto[];
+  integrityIssue: IntegrityIssueDto | null;
+}
+
 // KZO-159 (158A): `DashboardPerformanceRange` widened from the closed
 // union `"1M" | "3M" | "YTD" | "1Y"` to `string` so that admin + user
 // pref plumbing can extend the default list at runtime. Every consumer
@@ -680,6 +687,20 @@ export interface TransactionHistoryItemDto {
   feeProfileName: string;
   bookedAt: string | null;
   feesSource: "CALCULATED" | "MANUAL";
+}
+
+export interface TransactionAccountOptionDto {
+  id: string;
+  name: string;
+  feeProfileName: string;
+  defaultCurrency: AccountDefaultCurrency;
+  accountType?: AccountType;
+}
+
+export interface TransactionPrimaryDto {
+  recentTransactions: TransactionHistoryItemDto[];
+  accountOptions: TransactionAccountOptionDto[];
+  portfolioConfig: ShellPortfolioConfigDto;
 }
 
 export interface TickerFundamentalsFieldDto<TValue> {

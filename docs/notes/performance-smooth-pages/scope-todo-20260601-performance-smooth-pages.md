@@ -64,9 +64,9 @@ The worktree now implements the first production baseline:
 
 - `AppShell` no longer calls `useDashboardData()` and no longer gates all routes on `/dashboard/overview`.
 - `/settings` uses a targeted `getUserSettings()` persistence read with `Server-Timing` instead of full store hydration.
-- `/portfolio` reads primary content from `/portfolio/page-data`; this endpoint deliberately omits dashboard summary/actions/settings and FX translation, while preserving cached quote snapshots and freshness fields for holdings.
+- `/portfolio` reads first-paint content from `/portfolio/primary`; `/portfolio/page-data` remains a compatibility endpoint for older callers.
 - Shell quick search reads `/portfolio/instrument-index` before falling back to the broader instrument catalog, so the command palette no longer depends on dashboard overview.
-- `/transactions` renders primary content from recent transactions plus lightweight shell account config instead of dashboard overview.
+- `/transactions` renders primary content from `/transactions/primary`, which seeds recent rows, account options, and lightweight shell account config instead of dashboard overview.
 - `/cash-ledger` no longer fetches dashboard overview for locale, seeds account metadata for first paint, and uses targeted read paths for ledger rows and account balances.
 - `/dashboard/overview` remains dashboard-owned and instrumented, preserving grouped-holdings behavior for dashboard consumers.
 
@@ -206,8 +206,8 @@ Follow-up fixes:
 
 Remaining performance work:
 
-- Split dashboard and portfolio into primary/secondary data phases: render stale/cached holdings immediately, then stream or fetch quote freshness, FX translation, performance series, and freshness badges as secondary updates.
-- Add deployed API timing access that is visible from app-origin fetches or logs for `/dashboard/overview`, `/dashboard/performance`, `/portfolio/page-data`, `/settings/fee-config`, and dividend review endpoints.
+- Replace remaining route-primary `loadStore()` exceptions with narrow Postgres projections for `/dashboard/primary`, `/portfolio/primary`, and `/transactions/primary` once the UI contract is stable.
+- Add deployed API timing access that is visible from app-origin fetches or logs for `/dashboard/primary`, `/dashboard/enrichment`, `/portfolio/primary`, `/portfolio/enrichment`, `/transactions/primary`, `/settings/fee-config`, and dividend review endpoints.
 - Keep the baseline rule: a secondary route must not import `useDashboardData()` or `fetchDashboardSnapshot()` for account/profile/filter metadata.
 
 ## Round 2 Implementation On 2026-06-02
@@ -224,6 +224,35 @@ This round implemented the first explicit primary/enrichment split on the same P
 - Added focused API and web tests for route contracts, service endpoint paths, initial primary hydration, secondary enrichment behavior, lazy catalog loading, catalog error handling, and AI connector summary/log separation.
 
 Known limitation: `/dashboard/primary` and `/portfolio/primary` still use `loadStore()` to preserve grouped-holdings and accounting semantics while the UI contract is split. They intentionally skip quote resolution, freshness classification, FX/reporting translation, chart data, and dividend enrichment. The next backend performance slice should replace those primary handlers with narrow Postgres read models.
+
+## Round 3 Implementation On 2026-06-02
+
+This round addressed the remaining PR review findings and the latest deployed-dev observations before the next push:
+
+- Restored server-provided initial primary data for `/dashboard` and `/portfolio`, so first-paint rows/cards can render from the primary payload while client enrichment refreshes after hydration.
+- Added `GET /transactions/primary` and rewired `/transactions` to seed recent rows, account options, and AppShell portfolio config from one route-primary payload.
+- Made AppShell portfolio config seedable from route primary data, avoiding an immediate duplicate `/settings/fee-config` fetch on dashboard, portfolio, and transactions first paint.
+- Added a refresh signal to shell instrument-index loading so shared-owner context switches refresh command/search data instead of reusing stale owner data.
+- Reworked `/dashboard/primary` summary construction so mixed-currency holdings are not mislabeled as reporting-currency totals when FX translation is intentionally skipped for primary data.
+- Preserved `/portfolio/primary` as a quote-light first-paint contract while including fee-profile config and integrity metadata needed by the shell and portfolio client.
+
+Focused verification added in this round:
+
+- `npm run test --prefix apps/api -- smooth-page-read-paths.test.ts` — passed, including `/transactions/primary`, dashboard primary timing, and mixed-currency dashboard-primary coverage.
+- `npm run test --prefix apps/web -- usePortfolioPrimaryData.test.tsx useRecentTransactions.test.tsx useDashboardPrimaryData.test.tsx` — passed, including initial recent-transaction hydration coverage.
+- `npm exec -- tsc -p apps/web/tsconfig.json --noEmit` — passed after updating portfolio primary test fixtures.
+
+Final local gate verification on 2026-06-02:
+
+- `npx eslint .` — passed.
+- `npm run typecheck` — passed.
+- `npm run test --prefix apps/web` — passed: 75 files, 470 tests, duration 253.34s.
+- `npm run test --prefix apps/api` — passed: 133 files passed, 40 skipped; 1394 tests passed, 408 skipped; duration 79.35s.
+- `npm run test:integration:full:host` — passed: 78 files, 755 tests passed, 1 skipped; duration 1745.95s.
+- `npm run test:e2e:bypass:mem --prefix apps/web` — passed: 258 tests passed, 9 skipped; duration 12.6m.
+- `npm run test:e2e:oauth:mem --prefix apps/web` — passed: 130 tests passed; duration 5.1m.
+- `npm run test:http --prefix apps/api` — passed: 274 tests passed, 2 skipped; duration 1.2m.
+- Deployed Codex Chrome Extension verification is intentionally pending until these code changes are deployed and the user asks for browser verification.
 
 ## Locked Follow-up Scope On 2026-06-02
 
