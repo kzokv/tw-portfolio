@@ -5307,6 +5307,18 @@ export class MemoryPersistence implements Persistence {
           if (rowMarketCode !== marketCode) return false;
         }
         if (errorMessageLike && !(row.errorMessage ?? "").toLowerCase().includes(errorMessageLike)) return false;
+        if (options.excludeResolvedMappings && options.providerId && marketCode) {
+          const sourceSymbol =
+            typeof row.context?.ticker === "string"
+              ? row.context.ticker
+              : typeof row.context?.symbol === "string"
+                ? row.context.symbol
+                : (row.errorMessage ?? "").replace(/^.*: /, "");
+          if (sourceSymbol.trim().length > 0) {
+            const key = this._providerResolutionMappingKey(options.providerId, marketCode as MarketCode, sourceSymbol);
+            if (this.providerResolutionMappings.has(key)) return false;
+          }
+        }
         return true;
       })
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
