@@ -5,6 +5,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 
 /** Generates deterministic fixture bars for testing. */
@@ -105,12 +106,22 @@ export class MockFinMindMarketDataProvider implements MarketDataProvider, Instru
     this.calls.push({ method: "reserveCapacity", n });
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.calls.push({ method: "fetchBars", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
     return generateMockBars(ticker);
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     this.calls.push({ method: "fetchDividends", ticker, ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) });
     return generateMockDividends(ticker);
   }

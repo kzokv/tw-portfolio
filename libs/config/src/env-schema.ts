@@ -93,6 +93,7 @@ export const envSchema = z.object({
   // KR uses the same Yahoo-style provider pattern as AU, with Yahoo suffixes
   // (`.KS` / `.KQ`) resolved internally and bare KRX tickers kept at app boundaries.
   YAHOO_KR_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  YAHOO_KR_RESOLVER_MODE: z.enum(["chart_probe_v1", "quote_first"]).default("quote_first"),
   KR_PROVIDER_MOCK: envBool,
   // KZO-194: Twelve Data AU catalog provider. Free-tier endpoints (`/stocks?exchange=ASX`
   // and `/etf?exchange=ASX`) enumerate the full ASX universe; bars/dividends remain on

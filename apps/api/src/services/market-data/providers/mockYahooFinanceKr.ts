@@ -5,6 +5,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 
 interface MockKrTickerSpec {
@@ -99,7 +100,12 @@ export class MockYahooFinanceKrMarketDataProvider implements MarketDataProvider,
     this.calls.push({ method: "reserveCapacity", n });
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     const bareTicker = stripKrSuffix(ticker);
     this.calls.push({
       method: "fetchBars",
@@ -111,7 +117,12 @@ export class MockYahooFinanceKrMarketDataProvider implements MarketDataProvider,
     return spec ? generateMockKrBars(spec, this.fixtureStartDate) : [];
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     const bareTicker = stripKrSuffix(ticker);
     this.calls.push({
       method: "fetchDividends",

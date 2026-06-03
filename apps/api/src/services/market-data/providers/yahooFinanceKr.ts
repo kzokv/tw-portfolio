@@ -6,6 +6,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
@@ -49,7 +50,12 @@ interface YahooQuoteResult {
 
 export interface YahooFinanceKrMarketDataProviderConfig {
   rateLimiter: RateLimiter;
+  resolverMode?: YahooKrResolverMode;
 }
+
+export type YahooKrResolverMode = "chart_probe_v1" | "quote_first";
+
+const DEFAULT_YAHOO_KR_RESOLVER_MODE: YahooKrResolverMode = "quote_first";
 
 const SEOUL_TZ_OFFSET_MS = 9 * 60 * 60 * 1000;
 const KR_SUFFIXES = [".KS", ".KQ"] as const;
@@ -97,10 +103,12 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   private readonly rateLimiter: RateLimiter;
   private readonly client: InstanceType<typeof YahooFinance>;
   private readonly symbolCache = new Map<string, string>();
+  private readonly resolverMode: YahooKrResolverMode;
 
   constructor(config: YahooFinanceKrMarketDataProviderConfig) {
     this.rateLimiter = config.rateLimiter;
     this.client = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+    this.resolverMode = config.resolverMode ?? DEFAULT_YAHOO_KR_RESOLVER_MODE;
   }
 
   private consumeOne(): void {
@@ -156,15 +164,48 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     ) as YahooSearchResult;
   }
 
-  private async resolveYahooSymbol(ticker: string): Promise<string> {
+  private getResolverCandidates(ticker: string): string[] {
     const normalized = ticker.trim().toUpperCase();
     const bare = stripKrSuffix(normalized);
-    const cached = this.symbolCache.get(bare);
-    if (cached) return cached;
-
     const candidates = hasKrSuffix(normalized)
       ? [normalized]
       : KR_SUFFIXES.map((suffix) => `${bare}${suffix}`);
+    return candidates;
+  }
+
+  private getBareTicker(ticker: string): string {
+    return stripKrSuffix(ticker.trim().toUpperCase());
+  }
+
+  private async resolveYahooSymbol(
+    ticker: string,
+    options: MarketDataFetchOptions = {},
+  ): Promise<string> {
+    const bare = this.getBareTicker(ticker);
+    const cached = this.symbolCache.get(bare);
+    if (cached) return cached;
+
+    const candidates = this.getResolverCandidates(ticker);
+    const resolverMode = options.resolverMode ?? this.resolverMode;
+    if (resolverMode === "chart_probe_v1") {
+      for (const symbol of candidates) {
+        try {
+          const chart = await this.chartRaw(symbol, {
+            period1: "2000-01-04",
+            interval: "1d",
+          });
+          if (chart.quotes.length > 0) {
+            this.symbolCache.set(bare, symbol);
+            return symbol;
+          }
+        } catch (err) {
+          if (err instanceof RateLimitedError) throw err;
+        }
+      }
+      throw new Error(`yahoo_finance_kr_symbol_unresolved: ${bare}`);
+    }
+
+    // Legacy fallback path (quote-first): keep existing gate behavior.
     for (const symbol of candidates) {
       try {
         const quote = await this.quoteRaw(symbol);
@@ -180,17 +221,14 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   }
 
   private async resolveYahooQuote(ticker: string): Promise<{ symbol: string; quote: YahooQuoteResult }> {
-    const normalized = ticker.trim().toUpperCase();
-    const bare = stripKrSuffix(normalized);
+    const bare = this.getBareTicker(ticker);
     const cached = this.symbolCache.get(bare);
     if (cached) {
       const quote = await this.quoteRaw(cached);
       if (isKrYahooQuote(cached, quote)) return { symbol: cached, quote };
     }
 
-    const candidates = hasKrSuffix(normalized)
-      ? [normalized]
-      : KR_SUFFIXES.map((suffix) => `${bare}${suffix}`);
+    const candidates = this.getResolverCandidates(ticker);
     for (const symbol of candidates) {
       try {
         const quote = await this.quoteRaw(symbol);
@@ -205,8 +243,13 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     throw new Error(`yahoo_finance_kr_symbol_unresolved: ${bare}`);
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
-    const symbol = await this.resolveYahooSymbol(ticker);
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
+    const symbol = await this.resolveYahooSymbol(ticker, options);
     const bareTicker = stripKrSuffix(ticker);
     const result = await this.chartRaw(symbol, {
       period1: startDate ?? "2000-01-04",
@@ -230,8 +273,13 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
       }));
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
-    const symbol = await this.resolveYahooSymbol(ticker);
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
+    const symbol = await this.resolveYahooSymbol(ticker, options);
     const bareTicker = stripKrSuffix(ticker);
     const result = await this.chartRaw(symbol, {
       period1: startDate ?? "2000-01-04",

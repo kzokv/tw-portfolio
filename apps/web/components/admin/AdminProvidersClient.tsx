@@ -45,11 +45,23 @@ const t: Record<string, string> = {
     "Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance. Fresh deploys process ~2,400 jobs over ~40 min. Cooldown {cooldown}.",
   rerunTooltipTwelveDataAu:
     "Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}.",
+  rerunTooltipYahooFinanceKr:
+    "Warms pending or failed KR bar backfills AND refreshes monitored KR tickers via Yahoo Finance. Quote-first is the safe default; chart_probe_v1 requires acknowledgement. Cooldown {cooldown}.",
+  rerunTooltipTwelveDataKr:
+    "Re-syncs the KR instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}.",
   rerunTooltipFrankfurter:
     "Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown {cooldown}.",
   rerunTooltipAsxGicsCsv:
     "Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown {cooldown}.",
+  resolverModeLabel: "KR resolver mode",
+  resolverModeSafeLabel: "Quote-first (safer, lower upstream noise)",
+  resolverModeProbeLabel: "chart_probe_v1 (repair mode, higher call cost)",
+  resolverModeAckLabel:
+    "I understand this mode is for resolver repair and may increase API calls.",
+  resolverModeAckHint: "Enable only when KR symbols fail resolve in bulk.",
 };
+
+type ResolverMode = "quote_first" | "chart_probe_v1";
 
 /**
  * Convert a kebab-case providerId (e.g. "yahoo-finance-au") into the
@@ -120,13 +132,28 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
   const [isRerunning, setIsRerunning] = useState(false);
   const [cooldownSecondsRemaining, setCooldownSecondsRemaining] = useState<number | null>(null);
   const [localStatus, setLocalStatus] = useState<ProviderHealthStatusDto>(provider);
+  const [resolverMode, setResolverMode] = useState<ResolverMode>("quote_first");
+  const [resolverModeAcknowledged, setResolverModeAcknowledged] = useState(false);
 
   const handleRerun = useCallback(async () => {
     if (isRerunning || cooldownSecondsRemaining !== null) return;
+    if (localStatus.providerId === "yahoo-finance-kr" && resolverMode === "chart_probe_v1" && !resolverModeAcknowledged) {
+      return;
+    }
+
+    const body =
+      localStatus.providerId === "yahoo-finance-kr"
+        ? {
+            resolverMode,
+            ...(resolverMode === "chart_probe_v1"
+              ? { resolverModeRiskAccepted: resolverModeAcknowledged }
+              : {}),
+          }
+        : {};
 
     setIsRerunning(true);
     try {
-      await postJson<void>(`/admin/providers/${encodeURIComponent(localStatus.providerId)}/rerun`, {});
+      await postJson<void>(`/admin/providers/${encodeURIComponent(localStatus.providerId)}/rerun`, body);
       setLocalStatus((prev) => ({ ...prev, lastManualRerunAt: new Date().toISOString() }));
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
@@ -155,7 +182,18 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
     } finally {
       setIsRerunning(false);
     }
-  }, [isRerunning, cooldownSecondsRemaining, localStatus.providerId, localStatus.rerunCooldownMs]);
+  }, [
+    isRerunning,
+    cooldownSecondsRemaining,
+    localStatus.providerId,
+    localStatus.rerunCooldownMs,
+    resolverMode,
+    resolverModeAcknowledged,
+  ]);
+
+  const isKrResolverRepairMode = localStatus.providerId === "yahoo-finance-kr" && resolverMode === "chart_probe_v1";
+  const rerunButtonDisabled =
+    isRerunning || cooldownSecondsRemaining !== null || isKrResolverRepairMode && !resolverModeAcknowledged;
 
   const rerunLabel = isRerunning
     ? t.rerunningLabel
@@ -173,6 +211,12 @@ function useProviderRow(provider: ProviderHealthStatusDto) {
     cooldownSecondsRemaining,
     handleRerun,
     rerunLabel,
+    isKrResolverRepairMode,
+    resolverMode,
+    setResolverMode,
+    resolverModeAcknowledged,
+    setResolverModeAcknowledged,
+    rerunButtonDisabled,
     hasErrors,
   };
 }
@@ -224,12 +268,61 @@ function ProviderTableRow({ provider }: { provider: ProviderHealthStatusDto }) {
     localStatus,
     expanded,
     setExpanded,
-    isRerunning,
-    cooldownSecondsRemaining,
     handleRerun,
     rerunLabel,
+    isKrResolverRepairMode,
+    resolverMode,
+    setResolverMode,
+    resolverModeAcknowledged,
+    setResolverModeAcknowledged,
+    rerunButtonDisabled,
     hasErrors,
   } = useProviderRow(provider);
+
+  const isKrProvider = localStatus.providerId === "yahoo-finance-kr";
+  const renderKrResolverModeControls = isKrProvider
+    ? (
+      <div className="mt-3 grid gap-2 text-xs">
+        <label className="flex items-center gap-2">
+          <span className="text-muted-foreground">{t.resolverModeLabel}</span>
+          <select
+            className="rounded border border-input bg-background px-2 py-1 text-xs"
+            value={resolverMode}
+            onChange={(event) => {
+              const nextMode = event.target.value as ResolverMode;
+              setResolverMode(nextMode);
+              if (nextMode !== "chart_probe_v1") {
+                setResolverModeAcknowledged(false);
+              }
+            }}
+            data-testid={`provider-resolver-mode-${localStatus.providerId}`}
+          >
+            <option value="quote_first">{t.resolverModeSafeLabel}</option>
+            <option value="chart_probe_v1">{t.resolverModeProbeLabel}</option>
+          </select>
+        </label>
+        {isKrResolverRepairMode && (
+          <label className="inline-flex items-center gap-2 rounded border border-amber-300/70 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+            <input
+              type="checkbox"
+              checked={resolverModeAcknowledged}
+              onChange={(event) => setResolverModeAcknowledged(event.target.checked)}
+              data-testid={`provider-resolver-ack-${localStatus.providerId}`}
+            />
+            {t.resolverModeAckLabel}
+          </label>
+        )}
+      </div>
+    )
+    : null;
+
+  const resolverModeNote = isKrResolverRepairMode
+    ? (
+      <p className="mt-1 text-[11px] text-amber-700" data-testid={`provider-resolver-note-${localStatus.providerId}`}>
+        {t.resolverModeAckHint}
+      </p>
+    )
+    : null;
 
   return (
     <>
@@ -288,11 +381,13 @@ function ProviderTableRow({ provider }: { provider: ProviderHealthStatusDto }) {
               size="sm"
               variant="secondary"
               onClick={handleRerun}
-              disabled={isRerunning || cooldownSecondsRemaining !== null}
+              disabled={rerunButtonDisabled}
               data-testid={`provider-rerun-btn-${localStatus.providerId}`}
             >
               {rerunLabel}
             </Button>
+            {isKrProvider ? renderKrResolverModeControls : null}
+            {resolverModeNote}
             {hasErrors && (
               <button
                 type="button"
@@ -327,12 +422,64 @@ function ProviderMobileCard({ provider }: { provider: ProviderHealthStatusDto })
     localStatus,
     expanded,
     setExpanded,
-    isRerunning,
-    cooldownSecondsRemaining,
     handleRerun,
     rerunLabel,
+    isKrResolverRepairMode,
+    resolverMode,
+    setResolverMode,
+    resolverModeAcknowledged,
+    setResolverModeAcknowledged,
+    rerunButtonDisabled,
     hasErrors,
   } = useProviderRow(provider);
+
+  const isKrProvider = localStatus.providerId === "yahoo-finance-kr";
+  const renderKrResolverModeControls = isKrProvider
+    ? (
+      <div className="mt-3 grid gap-2 text-xs">
+        <label className="flex items-center gap-2">
+          <span className="text-muted-foreground">{t.resolverModeLabel}</span>
+          <select
+            className="rounded border border-input bg-background px-2 py-1 text-xs"
+            value={resolverMode}
+            onChange={(event) => {
+              const nextMode = event.target.value as ResolverMode;
+              setResolverMode(nextMode);
+              if (nextMode !== "chart_probe_v1") {
+                setResolverModeAcknowledged(false);
+              }
+            }}
+            data-testid={`provider-resolver-mode-${localStatus.providerId}`}
+          >
+            <option value="quote_first">{t.resolverModeSafeLabel}</option>
+            <option value="chart_probe_v1">{t.resolverModeProbeLabel}</option>
+          </select>
+        </label>
+        {isKrResolverRepairMode && (
+          <label className="inline-flex items-center gap-2 rounded border border-amber-300/70 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+            <input
+              type="checkbox"
+              checked={resolverModeAcknowledged}
+              onChange={(event) => setResolverModeAcknowledged(event.target.checked)}
+              data-testid={`provider-resolver-ack-${localStatus.providerId}`}
+            />
+            {t.resolverModeAckLabel}
+          </label>
+        )}
+      </div>
+    )
+    : null;
+
+  const resolverModeNote = isKrResolverRepairMode
+    ? (
+      <p
+        className="mt-1 text-[11px] text-amber-700"
+        data-testid={`provider-resolver-note-${localStatus.providerId}`}
+      >
+        {t.resolverModeAckHint}
+      </p>
+    )
+    : null;
 
   return (
     <article
@@ -380,12 +527,14 @@ function ProviderMobileCard({ provider }: { provider: ProviderHealthStatusDto })
           size="sm"
           variant="secondary"
           onClick={handleRerun}
-          disabled={isRerunning || cooldownSecondsRemaining !== null}
+          disabled={rerunButtonDisabled}
           data-testid={`provider-rerun-btn-${localStatus.providerId}`}
           className="w-full sm:w-auto"
         >
           {rerunLabel}
         </Button>
+        {isKrProvider ? renderKrResolverModeControls : null}
+        {resolverModeNote}
         {hasErrors && (
           <button
             type="button"

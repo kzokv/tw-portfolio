@@ -140,6 +140,60 @@ describe("enqueueAuCatalogBarsBackfill (KZO-197)", () => {
     expect(boss.send).not.toHaveBeenCalled();
   });
 
+  it("uses the generic market candidate query for KR catalog warm-up", async () => {
+    const boss = { send: vi.fn().mockResolvedValue("job-kr-1") };
+    const persistence = {
+      listAuCatalogBarsBackfillCandidates: vi.fn().mockResolvedValue([
+        { ticker: "AUWARM01", marketCode: "AU" as const },
+      ]),
+      listCatalogBarsBackfillCandidates: vi.fn().mockResolvedValue([
+        { ticker: "005930", marketCode: "KR" as const },
+      ]),
+      createRefreshBatch: vi.fn().mockResolvedValue("batch-kr-001"),
+    };
+    const log = { info: vi.fn() };
+
+    const result = await enqueueAuCatalogBarsBackfill(boss, persistence, log, {
+      trigger: "admin_rerun",
+      marketCode: "KR",
+      resolverMode: "quote_first",
+    });
+
+    expect(result.tickerCount).toBe(1);
+    expect(persistence.listAuCatalogBarsBackfillCandidates).not.toHaveBeenCalled();
+    expect(persistence.listCatalogBarsBackfillCandidates).toHaveBeenCalledWith("KR");
+    expect(boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      expect.objectContaining({
+        ticker: "005930",
+        marketCode: "KR",
+        resolverMode: "quote_first",
+        batchId: "batch-kr-001",
+      }),
+      expect.objectContaining({ singletonKey: "005930:KR" }),
+    );
+  });
+
+  it("rejects non-AU warm-up when the generic market candidate query is unavailable", async () => {
+    const boss = { send: vi.fn().mockResolvedValue("job-kr-1") };
+    const persistence = {
+      listAuCatalogBarsBackfillCandidates: vi.fn().mockResolvedValue([
+        { ticker: "AUWARM01", marketCode: "AU" as const },
+      ]),
+      createRefreshBatch: vi.fn().mockResolvedValue("batch-kr-001"),
+    };
+    const log = { info: vi.fn() };
+
+    await expect(
+      enqueueAuCatalogBarsBackfill(boss, persistence, log, {
+        trigger: "admin_rerun",
+        marketCode: "KR",
+      }),
+    ).rejects.toThrow(/listCatalogBarsBackfillCandidates/);
+    expect(persistence.listAuCatalogBarsBackfillCandidates).not.toHaveBeenCalled();
+    expect(boss.send).not.toHaveBeenCalled();
+  });
+
   it("composite singleton key keeps cross-listed AU rows in distinct slots", async () => {
     // KZO-185 — singleton-key collision class. The composite `${ticker}:AU`
     // format prevents accidental collapse if a future ticket adds non-AU

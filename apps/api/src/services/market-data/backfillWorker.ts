@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { BufferedEventBus } from "../../events/index.js";
 import type { CatalogInstrument, CatalogSyncResult, DelistingRecord } from "../../persistence/types.js";
 import type { InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
-import { historyStartFor, RateLimitedError } from "./types.js";
+import { historyStartFor, RateLimitedError, type MarketDataResolverMode } from "./types.js";
 import { buildCatalogInstruments } from "./catalogSync.js";
 import { upsertDailyBars, upsertDividendEvents } from "./upserts.js";
 import type { ProviderHealthService, ProviderId, ProviderOutcome } from "./providerHealth.js";
@@ -27,6 +27,7 @@ export interface BackfillJobData {
   endDate?: string;
   includeBars?: boolean;
   includeDividends?: boolean;
+  resolverMode?: MarketDataResolverMode;
   batchId?: string;
 }
 
@@ -45,6 +46,7 @@ export const BackfillJobDataSchema = z.object({
   endDate: z.string().optional(),
   includeBars: z.boolean().optional(),
   includeDividends: z.boolean().optional(),
+  resolverMode: z.enum(["chart_probe_v1", "quote_first"]).optional(),
   batchId: z.string().optional(),
 }) satisfies z.ZodType<BackfillJobData>;
 
@@ -173,7 +175,18 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
     // the catch on the try block below only re-throws non-RateLimitedError, so
     // ZodError surfaces cleanly to pg-boss and the job retries up to retryLimit.
     const data = BackfillJobDataSchema.parse(job.data);
-    const { ticker, marketCode: market, userId, trigger, startDate, endDate, includeBars = true, includeDividends = true, batchId } = data;
+    const {
+      ticker,
+      marketCode: market,
+      userId,
+      trigger,
+      startDate,
+      endDate,
+      resolverMode,
+      includeBars = true,
+      includeDividends = true,
+      batchId,
+    } = data;
     // KZO-170 D13: truncate caller-supplied `startDate` to the per-market provider boundary.
     // The TW provider serves bars from 1994-10-01; the US provider serves from 2019-06-01
     // (Phase-1 verified). Without truncation, a backfill request for a US ticker with
@@ -289,8 +302,18 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
 
       let barsCount = 0;
       if (includeBars) {
-        log.info({ ticker, trigger, startDate: effectiveStartDate, endDate }, "backfill_fetching_bars");
-        const bars = (await provider.fetchBars(ticker, effectiveStartDate, endDate))
+        const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
+        log.info(
+          {
+            ticker,
+            trigger,
+            startDate: effectiveStartDate,
+            endDate,
+            ...(resolverMode ? { resolverMode } : {}),
+          },
+          "backfill_fetching_bars",
+        );
+        const bars = (await provider.fetchBars(ticker, effectiveStartDate, endDate, ...providerFetchOptions))
           .map((bar) => ({ ...bar, marketCode: market }));
 
         // Write bars to market_data.daily_bars (upsert)
@@ -307,7 +330,13 @@ export function createBackfillHandler(deps: BackfillWorkerDeps) {
       let dividendsCount = 0;
       if (includeDividends) {
         try {
-          const dividends = (await provider.fetchDividends(ticker, effectiveStartDate, endDate))
+          const providerFetchOptions = resolverMode ? [{ resolverMode }] as const : [];
+          const dividends = (await provider.fetchDividends(
+            ticker,
+            effectiveStartDate,
+            endDate,
+            ...providerFetchOptions,
+          ))
             .map((dividend) => ({ ...dividend, marketCode: market }));
           // Write dividend events (dividend failure → log warning, don't fail job)
           dividendsCount = await upsertDividendEvents(pool, dividends);

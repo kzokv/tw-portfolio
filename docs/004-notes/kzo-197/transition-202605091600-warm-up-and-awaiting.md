@@ -43,11 +43,11 @@ Migration 051 is additive-only (`ADD COLUMN IF NOT EXISTS ... NULL`). Safe to re
 | `apps/api/src/services/appConfig/bounds.ts` | `yahooAuRerunCooldownMs: { min: 1_000, max: 86_400_000 }` | Backend |
 | `apps/api/src/services/appConfig/providerHealth.ts` | NEW `getEffectiveYahooAuRerunCooldownMs()` + `getEffectiveProviderRerunCooldownMs(providerId)` | Backend |
 | `apps/api/src/services/market-data/enqueueAuCatalogBarsBackfill.ts` (NEW) | Helper reading `listAuCatalogBarsBackfillCandidates()`, enqueuing per-ticker with composite singleton key, omitting `startDate` | Backend |
-| `apps/api/src/routes/adminRoutes.ts` (POST rerun) | AU branch runs `enqueueAuCatalogBarsBackfill` + `enqueueDailyRefresh` in parallel; per-provider cooldown resolver; nested audit metadata for AU | Backend |
+| `apps/api/src/routes/adminRoutes.ts` (POST rerun) | Yahoo market branches run catalog warm-up + monitored refresh in parallel; per-provider cooldown resolver; nested audit metadata for AU/KR | Backend |
 | `apps/api/src/routes/adminRoutes.ts` (GET providers) | Derives `'awaiting'` per row; populates `rerunCooldownMs` via resolver | Backend |
 | `libs/shared-types/src/index.ts` | `ProviderHealthStatus` widened to include `'awaiting'`; `ProviderHealthStatusDto` gains required `rerunCooldownMs: number` | Backend |
 | `libs/test-api/src/assistants/providers/ProvidersApiArrange.ts` | `ProviderHealthRowShape.status` includes `"awaiting"`; `rerunCooldownMs: number` added | Backend |
-| `apps/web/components/admin/AdminProvidersClient.tsx` | 4th badge state (`awaiting`); 6 tooltip dict entries; `TooltipInfo` per row/card; `formatCooldownLabel` integration; 429 countdown from `rerunCooldownMs` | Frontend |
+| `apps/web/components/admin/AdminProvidersClient.tsx` | 4th badge state (`awaiting`); 8 tooltip dict entries; provider-help popovers; `formatCooldownLabel` integration; 429 countdown from `rerunCooldownMs`; KR resolver guardrail controls | Frontend |
 | `apps/web/lib/formatCooldownLabel.ts` (NEW) | `formatCooldownLabel(ms): string` — ≤120,000 ms → `"Ns"`, >120,000 ms → `"N min"` | Frontend |
 | `.claude/rules/e2e-shared-memory-bars-ticker-hygiene.md` | Appended KZO-197 `AUWARM*` reservation block | QA |
 
@@ -57,13 +57,15 @@ Migration 051 is additive-only (`ADD COLUMN IF NOT EXISTS ... NULL`). Safe to re
 
 Before KZO-197, clicking "Re-run now" for `yahoo-finance-au` on a fresh deploy was a silent no-op — `enqueueDailyRefresh` returned `tickerCount=0` because no AU tickers were monitored. After KZO-197, the button dispatches a warm-up pass over the catalog, enqueuing one backfill job per `pending`/`failed` AU instrument (approximately 2,400 on a fully-fresh catalog). This fills bars history from `1988-01-28`. Once these jobs complete, each instrument's `bars_backfill_status` advances to `ready`, and subsequent "Re-run now" clicks fall through to the pure monitored-refresh path (the warm-up branch short-circuits on an empty candidate set).
 
-The AU rerun cooldown changed from the global 60 seconds to a 30-minute default (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). This protects against repeated catalog-warm-up triggering while ~2,400 jobs drain at Yahoo's 60/min budget (~40 min wall-clock). Other providers are unaffected — they continue to use the global 60-second cooldown.
+Yahoo market rerun cooldown changed from the global 60 seconds to a 30-minute default (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). This protects against repeated catalog-warm-up triggering while Yahoo jobs drain under the provider budget. Non-Yahoo providers are unaffected — they continue to use the global 60-second cooldown.
 
 The `provider_health_status` table and `provider_health_status` DB CHECK constraint are **unchanged**. The `awaiting` value is computed by the `GET /admin/providers` route projection layer only; it never reaches the DB.
 
-The AU `provider_health_rerun` audit-log entry gains nested `catalogBackfill` and `monitoredRefresh` blocks. The top-level `tickerCount` (sum) and `jobId` (first non-null) are preserved for back-compat. Other providers' audit shapes are unchanged.
+Yahoo market `provider_health_rerun` audit-log entries gain nested `catalogBackfill` and `monitoredRefresh` blocks. The top-level `tickerCount` (sum) and `jobId` (first non-null) are preserved for back-compat. Non-Yahoo providers' audit shapes are unchanged.
 
 **This warm-up is operator-initiated only.** The operator must click "Re-run now" on the admin Providers tab after a fresh deploy. Auto-triggering warm-up post-deploy is explicitly deferred to **KZO-203**. The `awaiting` badge is the visual signal that the warm-up has not yet occurred.
+
+**KR resolver repair guardrail (2026-06-03 review closure):** `yahoo-finance-kr` admin reruns default to explicit `quote_first`. Operators can select `chart_probe_v1` for unresolved KR symbols, but the API requires `resolverModeRiskAccepted=true` and rejects resolver-mode payloads for non-KR providers. Audit metadata records the effective KR `resolverMode` and whether risk acceptance was supplied.
 
 ---
 
@@ -98,15 +100,15 @@ export interface ProviderHealthStatusDto {
 }
 ```
 
-`rerunCooldownMs` is populated server-side by `getEffectiveProviderRerunCooldownMs(providerId)` and reflects the live `app_config` value — AU gets the DB-overridable 30-min default; all other providers get the global 60-second default.
+`rerunCooldownMs` is populated server-side by `getEffectiveProviderRerunCooldownMs(providerId)` and reflects the live `app_config` value — Yahoo market providers get the DB-overridable 30-min default; non-Yahoo providers get the global 60-second default.
 
-### AU `provider_health_rerun` audit metadata (nested, additive)
+### Yahoo market `provider_health_rerun` audit metadata (nested, additive)
 
 ```jsonc
 // Before (all providers)
 { "providerId": "...", "marketCode": "AU", "tickerCount": 22, "jobId": "..." }
 
-// After (yahoo-finance-au only — additive nested blocks)
+// After (yahoo-finance-au / yahoo-finance-kr — additive nested blocks)
 {
   "providerId": "yahoo-finance-au",
   "marketCode": "AU",
@@ -126,11 +128,11 @@ All other providers retain the flat `{ providerId, marketCode, tickerCount, jobI
 | Element | testid | Location |
 |---|---|---|
 | Status badge (desktop, existing) | `provider-status-badge-{id}` | `ProviderRow` |
-| Status badge (card, existing) | `provider-status-badge-card-{id}` | `ProviderCard` |
-| Rerun tooltip-trigger info-icon (desktop) | `provider-rerun-tooltip-trigger-{id}` | `ProviderRow` — NEW |
-| Rerun tooltip-trigger info-icon (card) | `provider-rerun-tooltip-trigger-card-{id}` | `ProviderCard` — NEW |
-| Tooltip content panel (desktop) | `provider-rerun-tooltip-content-{id}` | Radix portal — NEW |
-| Tooltip content panel (card) | `provider-rerun-tooltip-content-card-{id}` | Radix portal (mobile) — NEW |
+| Status badge (card, existing) | `provider-status-badge-{id}` | `ProviderCard` |
+| Provider help trigger (desktop) | `provider-help-trigger-{id}` | `ProviderRow` |
+| Provider help trigger (card) | `provider-help-trigger-{id}` | `ProviderCard` |
+| Provider help content panel (desktop) | `provider-help-popover-{id}` | Radix portal |
+| Provider help content panel (card) | `provider-help-popover-{id}` | Radix portal (mobile) |
 
 `{id}` = unmodified `providerId` string (e.g. `yahoo-finance-au`, `finmind-tw`).
 
@@ -147,9 +149,12 @@ All tooltip entries are flat `Record<string, string>` in `AdminProvidersClient.t
 | `rerunTooltipFinmindUs` | `"Refreshes daily bars + dividends for monitored US tickers via FinMind. Cooldown {cooldown}."` |
 | `rerunTooltipYahooFinanceAu` | `"Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance. Fresh deploys process ~2,400 jobs over ~40 min. Cooldown {cooldown}."` |
 | `rerunTooltipTwelveDataAu` | `"Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}."` |
+| `rerunTooltipYahooFinanceKr` | `"Warms pending or failed KR bar backfills AND refreshes monitored KR tickers via Yahoo Finance. Quote-first is the safe default; chart_probe_v1 requires acknowledgement. Cooldown {cooldown}."` |
+| `rerunTooltipTwelveDataKr` | `"Re-syncs the KR instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}."` |
 | `rerunTooltipFrankfurter` | `"Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown {cooldown}."` |
 | `rerunTooltipAsxGicsCsv` | `"Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown {cooldown}."` |
-| `rerunTooltipTriggerLabel` | `"About this provider's Re-run action"` (button `aria-label`) |
+
+Provider help trigger accessible names come from the visible provider id; there is no generic trigger `aria-label`.
 
 **`formatCooldownLabel(ms)` contract:** ≤ 120,000 ms → `"${Math.round(ms/1000)}s"` (e.g. `"60s"`); > 120,000 ms → `"${Math.round(ms/60000)} min"` (e.g. `"30 min"`). 0 or negative → `"0s"`.
 

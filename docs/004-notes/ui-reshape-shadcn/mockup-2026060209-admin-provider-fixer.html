@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vakwen — Admin · Provider Fixer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./_tokens.css" />
+<style>
+  .layout-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+  }
+  .ops-card .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .metric {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    background: hsl(var(--background));
+  }
+  .metric dt {
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .metric dd {
+    font-size: 24px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .metric .sub {
+    margin-top: 4px;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+  }
+  .metrics {
+    display:grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .guard {
+    border:1px dashed hsl(var(--warning));
+    border-radius:10px;
+    padding: 10px 12px;
+    background: hsl(var(--warning) / 0.08);
+    color: hsl(var(--warning));
+    font-size: 12px;
+    line-height: 1.45;
+    margin-bottom: 12px;
+  }
+  .row {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 10px;
+  }
+  .input,
+  .select {
+    height: 34px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 8px;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-size: 13px;
+    padding: 0 10px;
+  }
+  .select { min-width: 190px; }
+  .input {
+    width: 100%;
+    max-width: 240px;
+  }
+  .small-note {
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    margin-top: 6px;
+    margin-bottom: 0;
+  }
+  .pill {
+    display:inline-flex;
+    align-items:center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 4px 8px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .pill.danger {
+    border-color: hsl(var(--destructive));
+    color: hsl(var(--destructive));
+    background: hsl(var(--destructive) / 0.09);
+  }
+  .pill.success {
+    border-color: hsl(var(--success));
+    color: hsl(var(--success));
+    background: hsl(var(--success) / 0.09);
+  }
+  .log-row {
+    display:grid;
+    grid-template-columns: 170px auto;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid hsl(var(--border));
+    font-size: 12px;
+    font-family: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-phase {
+    color: hsl(var(--muted-foreground));
+  }
+  .mono {
+    font-family: "Geist Mono", "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .btn-danger { border-color: hsl(var(--destructive) / 0.4); background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); }
+  .btn-danger:hover { background: hsl(var(--destructive) / 0.2); }
+  .muted-link {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+    text-decoration: none;
+    border-bottom: 1px dashed hsl(var(--border));
+  }
+  .muted-link:hover { color: hsl(var(--foreground)); }
+  .status-mini {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:18px;
+    height:18px;
+    border-radius:999px;
+    margin-right: 6px;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .status-mini.ok { background: hsl(var(--success)); }
+  .status-mini.warn { background: hsl(var(--warning)); }
+  .status-mini.bad { background: hsl(var(--destructive)); }
+  .progress {
+    height: 8px;
+    border-radius: 999px;
+    background: hsl(var(--muted));
+    overflow: hidden;
+    margin: 8px 0 4px;
+  }
+  .progress > span {
+    display:block;
+    height:100%;
+    border-radius:999px;
+    background: hsl(var(--primary));
+    width: 62%;
+  }
+</style>
+</head>
+<body data-admin data-section="admin-providers" data-crumb-here="Provider fixer">
+<main class="main">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Provider fixer</div>
+      <div class="muted text-sm">Repair and re-run stale provider coverage with guarded bulk controls and operator audit.</div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <button class="btn">↻ Refresh resolver stats</button>
+      <button class="btn btn-primary">📊 Open audit timeline</button>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <dt>Critical unresolved</dt>
+      <dd>1,842</dd>
+      <div class="sub">Across finmind-us, finmind-tw, yahoo-finance-kr</div>
+    </div>
+    <div class="metric">
+      <dt>Active operations</dt>
+      <dd>3</dd>
+      <div class="sub">2 queued, 1 in progress</div>
+    </div>
+    <div class="metric">
+      <dt>Guardrail status</dt>
+      <dd><span class="status-mini ok">✓</span>ENABLED</dd>
+      <div class="sub">Auto-pause, caps, and preview enforced</div>
+    </div>
+  </div>
+
+  <div class="layout-grid">
+    <section class="card ops-card" style="padding:16px;">
+      <div class="row" style="margin-bottom:10px;">
+        <div>
+          <div class="font-semibold">Provider scan / diagnosis</div>
+          <div class="muted text-sm">Resolver mode, unresolved trend, and queued item counts.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm">View unresolved list</button>
+      </div>
+
+      <div class="guard">
+        <strong>Danger level rule:</strong> any operation that can alter more than 500 symbols must use staged execution. Preview token required before execute.
+      </div>
+
+      <div class="toolbar">
+        <label class="muted text-sm">Mode:</label>
+        <select class="select">
+          <option>quote_first (safe default)</option>
+          <option>chart_probe_v1 (repair mode)</option>
+        </select>
+        <label class="muted text-sm">Resolver:</label>
+        <select class="select">
+          <option>yahoo-finance-kr</option>
+          <option>finmind-us</option>
+          <option>finmind-tw</option>
+        </select>
+        <label class="muted text-sm">Error code:</label>
+        <select class="select">
+          <option>yahoo_finance_kr_symbol_unresolved</option>
+          <option>provider_symbol_unresolved</option>
+          <option>catalog_missing</option>
+        </select>
+      </div>
+
+      <div class="card" style="padding:14px; background:hsl(var(--background));">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Market</th>
+              <th>Unresolved</th>
+              <th>Resolver</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="status-mini warn">!</span> yahoo-finance-kr</td>
+              <td>KRX</td>
+              <td>1,120</td>
+              <td>enabled</td>
+              <td><button class="btn btn-sm btn-primary">Diagnose</button></td>
+            </tr>
+            <tr>
+              <td><span class="status-mini warn">!</span> finmind-tw</td>
+              <td>TWSE</td>
+              <td>612</td>
+              <td>disabled</td>
+              <td><button class="btn btn-sm">Diagnose</button></td>
+            </tr>
+            <tr>
+              <td><span class="status-mini bad">!</span> finmind-us</td>
+              <td>NYSE/NASDAQ</td>
+              <td>110</td>
+              <td>auto</td>
+              <td><button class="btn btn-sm">Diagnose</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="toolbar" style="margin-top:12px;">
+        <button class="btn btn-sm btn-danger">✂ Stage resolver repair</button>
+        <button class="btn btn-sm btn-ghost">Save as draft operation</button>
+        <a class="muted-link" href="#">Show KR resolver audit mapping</a>
+      </div>
+
+      <p class="small-note">Current recommendation: use market=KR, error_code=yahoo_finance_kr_symbol_unresolved, then start with Query mode (no execute) to capture preview.</p>
+    </section>
+
+    <section class="card ops-card" style="padding:16px;">
+      <div class="row" style="margin-bottom:12px;">
+        <div>
+          <div class="font-semibold">Staged provider operation</div>
+          <div class="muted text-sm">Safe mode default + explicit operator confirmation.</div>
+        </div>
+        <span class="pill danger">Dangerous</span>
+      </div>
+
+      <div class="toolbar">
+        <input class="input" value="yahoo-finance-kr / symbol_unresolved / market=KR" />
+        <button class="btn btn-sm">Run diagnostics</button>
+      </div>
+      <p class="small-note">Scope is currently query-backed due to large volume. Pagination: 1/184 pages, 10 rows/page in UI.</p>
+
+      <div class="toolbar" style="margin-top:6px;">
+        <select class="select">
+          <option>Preview token: PF-UNSAFE-OK</option>
+          <option>Preview token: PF-EXEC-TRUST</option>
+        </select>
+        <label style="font-size:12px; color:hsl(var(--muted-foreground)); display:flex; align-items:center; gap:6px;"><input type="checkbox" checked /> I understand this can write provider rows</label>
+      </div>
+
+      <table class="dt" style="margin-top:12px;">
+        <thead>
+          <tr>
+            <th>Operation</th>
+            <th>Phase</th>
+            <th>Match</th>
+            <th>Preview</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>OP-20260602-1842</td>
+            <td>preview</td>
+            <td>1,842</td>
+            <td>sample: 120 / 1842</td>
+            <td><button class="btn btn-sm">Execute</button></td>
+          </tr>
+          <tr>
+            <td>OP-20260602-0012</td>
+            <td>staged</td>
+            <td>612</td>
+            <td>sample: 120 / 612</td>
+            <td><button class="btn btn-sm">Execute</button></td>
+          </tr>
+          <tr>
+            <td>OP-20260602-0010</td>
+            <td>running</td>
+            <td>3,210</td>
+            <td>sample: 120 / 3,210</td>
+            <td>
+              <button class="btn btn-sm btn-ghost">Pause</button>
+              <button class="btn btn-sm btn-danger">Cancel</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:12px;">
+        <div class="row" style="margin-bottom:4px;">
+          <span class="muted text-sm">Running operation progress</span>
+          <span class="muted text-sm">62%</span>
+        </div>
+        <div class="progress"><span></span></div>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <span class="pill">Auto-pause: 12/20 minute failures</span>
+        <span class="pill">Snapshot hash: 2d14f…</span>
+        <span class="pill success">Rate cap: 250/min</span>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px; padding:16px;">
+    <div class="font-semibold" style="margin-bottom:8px;">Operator log preview (last 24h)</div>
+    <div class="log-row"><div>2026-06-02T14:42:11Z</div><div class="mono"><span class="log-phase">phase=diagnose</span> provider=yahoo-finance-kr market=KR error_code=yahoo_finance_kr_symbol_unresolved preview_token=PF-UNSAFE-OK matched=112</div></div>
+    <div class="log-row"><div>2026-06-02T14:44:50Z</div><div class="mono"><span class="log-phase">phase=execute</span> operation=OP-20260602-0012 user=admin@example.com snapshot=7b9c2f scope=query page=6/184</div></div>
+    <div class="log-row"><div>2026-06-02T14:48:04Z</div><div class="mono"><span class="log-phase">phase=pause</span> operation=OP-20260602-0010 reason=provider_rate_limit backoff=300ms provider_symbol=yhoo.KR</div></div>
+    <div class="log-row"><div>2026-06-02T14:52:22Z</div><div class="mono"><span class="log-phase">phase=retry</span> operation=OP-20260602-0010 resumed at 184/3210 symbols</div></div>
+  </section>
+</main>
+<script src="./_shell.js"></script>
+</body>
+</html>
