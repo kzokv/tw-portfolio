@@ -43,6 +43,7 @@ const t = {
   dangerousLabel: "Dangerous",
   standardLabel: "Standard confirm",
   runDiagnosticsLabel: "Run diagnostics",
+  selectOperationLabel: "Select",
   executeLabel: "Execute",
   pauseLabel: "Pause",
   resumeLabel: "Resume",
@@ -198,6 +199,12 @@ export function ProviderFixerClient({
     setSelectedOperationId(stagedOperation?.id ?? operations[0]?.id ?? "");
   }, [operations, selectedOperationId, stagedOperation]);
 
+  useEffect(() => {
+    if (!operations.some((operation) => operation.phase === "running" || operation.phase === "paused")) return;
+    const intervalId = window.setInterval(() => router.refresh(), 10_000);
+    return () => window.clearInterval(intervalId);
+  }, [operations, router]);
+
   const selectedOperation =
     operations.find((operation) => operation.id === selectedOperationId) ??
     stagedOperation ??
@@ -310,7 +317,7 @@ export function ProviderFixerClient({
               onClick={() => setSelectedOperationId(row.id)}
               data-testid={`provider-fixer-select-operation-${row.id}`}
             >
-              {t.executeLabel}
+              {t.selectOperationLabel}
             </Button>
           ) : null}
           {row.canPause ? (

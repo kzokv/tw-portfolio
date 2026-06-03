@@ -65,7 +65,7 @@ import {
   getBackfillSingletonKey,
   type BackfillJobData,
 } from "../services/market-data/backfillWorker.js";
-import type { MarketDataResolverMode, ProviderSymbolVerificationResult } from "../services/market-data/types.js";
+import { RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
 import type { MarketCode } from "@vakwen/domain";
 import type {
@@ -668,6 +668,7 @@ async function buildProviderFixerEvidenceSample(
     providerId,
     marketCode,
     errorMessageLike: errorCode,
+    excludeResolvedMappings: providerId === "yahoo-finance-kr" && marketCode === "KR",
     page: 1,
     limit,
   });
@@ -806,6 +807,7 @@ async function providerFixerDiagnostics(
       providerId: id,
       marketCode: inferredMarketCode,
       errorMessageLike: code,
+      excludeResolvedMappings: id === "yahoo-finance-kr" && inferredMarketCode === "KR",
       page: 1,
       limit: 1,
     });
@@ -1131,8 +1133,61 @@ function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
       message: `execute_started provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
       context: { providerId: running.providerId, marketCode: running.marketCode, errorCode: running.errorCode },
     });
-    const result = await executeProviderFixerMappings(app, running, sessionUserId);
-    const backfills = await enqueueProviderFixerBackfills(app, running, result.mappedTickers);
+    let result: Awaited<ReturnType<typeof executeProviderFixerMappings>>;
+    let backfills: Awaited<ReturnType<typeof enqueueProviderFixerBackfills>>;
+    try {
+      result = await executeProviderFixerMappings(app, running, sessionUserId);
+      backfills = await enqueueProviderFixerBackfills(app, running, result.mappedTickers);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Provider fixer execution failed";
+      const isRateLimited = err instanceof RateLimitedError;
+      const interrupted = await app.persistence.updateProviderOperation({
+        id: running.id,
+        phase: isRateLimited ? "paused" : "failed",
+        completedAt: isRateLimited ? null : new Date().toISOString(),
+        metadata: {
+          ...(asRecord(running.metadata) ?? {}),
+          progressPercent: 0,
+          autoPauseFailureCount: isRateLimited ? 1 : undefined,
+          failureReason: message,
+          failureName: err instanceof Error ? err.name : "UnknownError",
+          msUntilAvailable: isRateLimited ? err.msUntilAvailable : undefined,
+        },
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId: interrupted.id,
+        phase: interrupted.phase,
+        level: isRateLimited ? "warning" : "error",
+        message: `${isRateLimited ? "execute_auto_paused_rate_limited" : "execute_failed"} provider=${interrupted.providerId} market=${interrupted.marketCode} reason=${message}`,
+        context: {
+          providerId: interrupted.providerId,
+          marketCode: interrupted.marketCode,
+          errorCode: interrupted.errorCode,
+          errorName: err instanceof Error ? err.name : "UnknownError",
+          errorMessage: message,
+          msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+        },
+      });
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "provider_fixer_operation",
+        ipAddress,
+        metadata: {
+          operationId: interrupted.id,
+          action: isRateLimited ? "execute_auto_pause" : "execute_failed",
+          providerId: interrupted.providerId,
+          marketCode: interrupted.marketCode,
+          dangerous: operationDto.dangerous,
+          errorName: err instanceof Error ? err.name : "UnknownError",
+          errorMessage: message,
+          msUntilAvailable: isRateLimited ? err.msUntilAvailable : null,
+        },
+      });
+      if (isRateLimited) {
+        throw routeError(503, "provider_rate_limited", message);
+      }
+      throw err;
+    }
     const completed = await app.persistence.updateProviderOperation({
       id: running.id,
       phase: "completed",

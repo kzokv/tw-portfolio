@@ -185,6 +185,7 @@ describe("ProviderFixerClient", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   it("renders summary, diagnosis, evidence, and log sections", () => {
@@ -287,5 +288,39 @@ describe("ProviderFixerClient", () => {
     expect(document.querySelector("[data-testid='provider-fixer-danger-badge']")?.textContent ?? "").toMatch(
       /standard confirm/i,
     );
+  });
+
+  it("labels row operations as selection and refreshes while work is active", () => {
+    vi.useFakeTimers();
+    renderClient(root, {
+      operations: [
+        buildOperation({
+          phase: "running",
+          canExecute: false,
+          canPause: true,
+          canCancel: true,
+        }),
+        buildOperation({
+          id: "OP-20260602-SELECT",
+          phase: "preview",
+          canExecute: true,
+          preview: {
+            ...buildOperation().preview,
+            token: "PF-SELECT-ME",
+          },
+        }),
+      ],
+      operationsTotal: 2,
+    });
+
+    const selectButton = document.querySelector(
+      "[data-testid='provider-fixer-select-operation-OP-20260602-SELECT']",
+    ) as HTMLButtonElement | null;
+    expect(selectButton?.textContent).toMatch(/select/i);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(mockRefresh).toHaveBeenCalled();
   });
 });

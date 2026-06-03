@@ -1244,6 +1244,7 @@ export interface ListProviderErrorTrailOptions {
   providerId?: string;
   marketCode?: MarketCode;
   errorMessageLike?: string;
+  excludeResolvedMappings?: boolean;
   page: number;
   limit: number;
 }

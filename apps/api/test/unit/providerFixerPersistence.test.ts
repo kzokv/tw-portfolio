@@ -85,6 +85,16 @@ describe("Provider Fixer persistence contract", () => {
     expect(page.total).toBe(1);
     expect(page.items[0]?.context).toMatchObject({ ticker: "035900", marketCode: "KR" });
     expect(mapping.resolvedSymbol).toBe("035900.KQ");
+    await expect(
+      persistence.listProviderErrorTrailPage({
+        providerId: "yahoo-finance-kr",
+        marketCode: "KR",
+        errorMessageLike: "symbol_unresolved",
+        excludeResolvedMappings: true,
+        page: 1,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({ total: 0, items: [] });
     expect(
       await persistence.getProviderResolutionMapping("yahoo-finance-kr", "KR", "035900"),
     ).toMatchObject({
