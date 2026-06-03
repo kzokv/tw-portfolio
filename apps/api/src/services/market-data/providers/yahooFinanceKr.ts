@@ -7,9 +7,12 @@ import type {
   MarketDataProvider,
   InstrumentCatalogProvider,
   MarketDataFetchOptions,
+  ProviderSymbolVerificationResult,
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
+import type { InstrumentRow } from "../../../persistence/types.js";
+import { yahooSuffixHintFromKrCatalogEvidence } from "./twelveDataKr.js";
 
 interface YahooChartQuote {
   date: Date | null;
@@ -51,6 +54,17 @@ interface YahooQuoteResult {
 export interface YahooFinanceKrMarketDataProviderConfig {
   rateLimiter: RateLimiter;
   resolverMode?: YahooKrResolverMode;
+  persistence?: {
+    getProviderResolutionMapping(
+      providerId: string,
+      marketCode: "KR",
+      sourceSymbol: string,
+    ): Promise<{ resolvedSymbol: string } | null>;
+    getInstrument(ticker: string, marketCode?: string): Promise<Pick<
+      InstrumentRow,
+      "catalogExchangeRaw" | "catalogMicCode" | "typeRaw"
+    > | null>;
+  };
 }
 
 export type YahooKrResolverMode = "chart_probe_v1" | "quote_first";
@@ -104,11 +118,13 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   private readonly client: InstanceType<typeof YahooFinance>;
   private readonly quoteFirstSymbolCache = new Map<string, string>();
   private readonly resolverMode: YahooKrResolverMode;
+  private readonly persistence: YahooFinanceKrMarketDataProviderConfig["persistence"];
 
   constructor(config: YahooFinanceKrMarketDataProviderConfig) {
     this.rateLimiter = config.rateLimiter;
     this.client = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
     this.resolverMode = config.resolverMode ?? DEFAULT_YAHOO_KR_RESOLVER_MODE;
+    this.persistence = config.persistence;
   }
 
   private consumeOne(): void {
@@ -164,12 +180,28 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     ) as YahooSearchResult;
   }
 
-  private getResolverCandidates(ticker: string): string[] {
+  private async getResolverCandidates(ticker: string): Promise<string[]> {
     const normalized = ticker.trim().toUpperCase();
     const bare = stripKrSuffix(normalized);
-    const candidates = hasKrSuffix(normalized)
-      ? [normalized]
-      : KR_SUFFIXES.map((suffix) => `${bare}${suffix}`);
+    if (hasKrSuffix(normalized)) return [normalized];
+
+    const mapped = await this.persistence?.getProviderResolutionMapping(this.providerId, "KR", bare);
+    if (mapped?.resolvedSymbol) {
+      const resolvedSymbol = mapped.resolvedSymbol.trim().toUpperCase();
+      return [resolvedSymbol, ...KR_SUFFIXES.map((suffix) => `${bare}${suffix}`).filter((symbol) => symbol !== resolvedSymbol)];
+    }
+
+    const instrument = await this.persistence?.getInstrument(bare, "KR");
+    const hintedSuffix = yahooSuffixHintFromKrCatalogEvidence(
+      instrument?.catalogExchangeRaw ?? instrument?.typeRaw ?? null,
+      instrument?.catalogMicCode ?? null,
+    );
+    if (hintedSuffix) {
+      const prioritized = `${bare}${hintedSuffix}`;
+      return [prioritized, ...KR_SUFFIXES.map((suffix) => `${bare}${suffix}`).filter((symbol) => symbol !== prioritized)];
+    }
+
+    const candidates = KR_SUFFIXES.map((suffix) => `${bare}${suffix}`);
     return candidates;
   }
 
@@ -183,7 +215,7 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
   ): Promise<string> {
     const bare = this.getBareTicker(ticker);
     const resolverMode = options.resolverMode ?? this.resolverMode;
-    const candidates = this.getResolverCandidates(ticker);
+    const candidates = await this.getResolverCandidates(ticker);
     if (resolverMode === "chart_probe_v1") {
       for (const symbol of candidates) {
         try {
@@ -202,10 +234,13 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     }
 
     // Legacy fallback path (quote-first): keep existing gate behavior.
+    const orderedCandidates = [...candidates];
     const cached = this.quoteFirstSymbolCache.get(bare);
-    if (cached) return cached;
+    if (cached && !orderedCandidates.includes(cached)) {
+      orderedCandidates.push(cached);
+    }
 
-    for (const symbol of candidates) {
+    for (const symbol of orderedCandidates) {
       try {
         const quote = await this.quoteRaw(symbol);
         if (isKrYahooQuote(symbol, quote)) {
@@ -219,16 +254,69 @@ export class YahooFinanceKrMarketDataProvider implements MarketDataProvider, Ins
     throw new Error(`yahoo_finance_kr_symbol_unresolved: ${bare}`);
   }
 
+  async verifyResolvedSymbol(
+    ticker: string,
+    candidateSymbol: string,
+    options: MarketDataFetchOptions = {},
+  ): Promise<ProviderSymbolVerificationResult> {
+    const bare = this.getBareTicker(ticker);
+    const symbol = candidateSymbol.trim().toUpperCase();
+    const resolverMode = options.resolverMode ?? this.resolverMode;
+    if (!hasKrSuffix(symbol) || stripKrSuffix(symbol) !== bare) {
+      return {
+        verified: false,
+        checkedSymbol: symbol,
+        resolverMode,
+        reason: "candidate_symbol_does_not_match_source_ticker",
+      };
+    }
+
+    try {
+      if (resolverMode === "chart_probe_v1") {
+        const chart = await this.chartRaw(symbol, {
+          period1: "2000-01-04",
+          interval: "1d",
+        });
+        return {
+          verified: chart.quotes.length > 0,
+          checkedSymbol: symbol,
+          resolverMode,
+          ...(chart.quotes.length > 0 ? {} : { reason: "no_chart_rows" }),
+        };
+      }
+
+      const quote = await this.quoteRaw(symbol);
+      const verified = isKrYahooQuote(symbol, quote);
+      return {
+        verified,
+        checkedSymbol: symbol,
+        resolverMode,
+        ...(verified ? {} : { reason: "quote_not_korean_exchange" }),
+      };
+    } catch (err) {
+      if (err instanceof RateLimitedError) throw err;
+      return {
+        verified: false,
+        checkedSymbol: symbol,
+        resolverMode,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
   private async resolveYahooQuote(ticker: string): Promise<{ symbol: string; quote: YahooQuoteResult }> {
     const bare = this.getBareTicker(ticker);
+    const candidates = await this.getResolverCandidates(ticker);
+    const orderedCandidates = [...candidates];
     const cached = this.quoteFirstSymbolCache.get(bare);
-    if (cached) {
+    if (cached && candidates[0] === cached) {
       const quote = await this.quoteRaw(cached);
       if (isKrYahooQuote(cached, quote)) return { symbol: cached, quote };
     }
-
-    const candidates = this.getResolverCandidates(ticker);
-    for (const symbol of candidates) {
+    if (cached && !orderedCandidates.includes(cached)) {
+      orderedCandidates.push(cached);
+    }
+    for (const symbol of orderedCandidates) {
       try {
         const quote = await this.quoteRaw(symbol);
         if (isKrYahooQuote(symbol, quote)) {

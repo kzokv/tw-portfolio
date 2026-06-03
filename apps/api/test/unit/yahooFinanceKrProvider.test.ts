@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RateLimiter } from "../../src/services/market-data/rateLimiter.js";
 import { RateLimitedError } from "../../src/services/market-data/types.js";
+import type { YahooFinanceKrMarketDataProviderConfig } from "../../src/services/market-data/providers/index.js";
 
 interface SdkStub {
   chart: ReturnType<typeof vi.fn>;
@@ -59,13 +60,33 @@ describe("YahooFinanceKrMarketDataProvider — real provider against mocked yaho
     vi.restoreAllMocks();
   });
 
-  async function makeProvider(rateLimitPerMinute = 60) {
+  async function makeProvider(
+    rateLimitPerMinute = 60,
+    config: Partial<Omit<YahooFinanceKrMarketDataProviderConfig, "rateLimiter">> = {},
+  ) {
     const { YahooFinanceKrMarketDataProvider } = await import(
       "../../src/services/market-data/providers/index.js"
     );
     return new YahooFinanceKrMarketDataProvider({
       rateLimiter: new RateLimiter(rateLimitPerMinute, 60_000),
+      ...config,
     });
+  }
+
+  function makePersistenceStub(overrides: {
+    resolvedSymbol?: string | null;
+    instrument?: {
+      typeRaw?: string | null;
+      catalogExchangeRaw?: string | null;
+      catalogMicCode?: string | null;
+    } | null;
+  } = {}) {
+    return {
+      getProviderResolutionMapping: vi.fn().mockResolvedValue(
+        overrides.resolvedSymbol ? { resolvedSymbol: overrides.resolvedSymbol } : null,
+      ),
+      getInstrument: vi.fn().mockResolvedValue(overrides.instrument ?? null),
+    };
   }
 
   it("resolves bare KOSPI ticker to .KS, validates via quote(), then charts the suffixed symbol", async () => {
@@ -129,6 +150,85 @@ describe("YahooFinanceKrMarketDataProvider — real provider against mocked yaho
       name: "JYP Entertainment",
       typeRaw: "KRX",
       industryCategory: "EQUITY",
+    });
+  });
+
+  it("prefers durable provider-resolution mappings before cache/probing", async () => {
+    const persistence = makePersistenceStub({ resolvedSymbol: "035900.KQ" });
+    activeSdkStub!.quote.mockResolvedValueOnce({
+      symbol: "035900.KQ",
+      currency: "KRW",
+      exchange: "KOE",
+      shortName: "JYP Entertainment",
+      quoteType: "EQUITY",
+    });
+
+    const provider = await makeProvider(60, { persistence });
+    const metadata = await provider.fetchInstrumentMetadata("035900");
+
+    expect(persistence.getProviderResolutionMapping).toHaveBeenCalledWith(
+      "yahoo-finance-kr",
+      "KR",
+      "035900",
+    );
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(1);
+    expect(activeSdkStub!.quote).toHaveBeenCalledWith("035900.KQ", {}, { validateResult: false });
+    expect(metadata).toMatchObject({ ticker: "035900", name: "JYP Entertainment" });
+  });
+
+  it("uses KR catalog evidence to prioritize the Yahoo suffix when no durable mapping exists", async () => {
+    const persistence = makePersistenceStub({
+      instrument: { catalogExchangeRaw: "KOSDAQ", catalogMicCode: "XKOS" },
+    });
+    activeSdkStub!.quote.mockResolvedValueOnce({
+      symbol: "035900.KQ",
+      currency: "KRW",
+      exchange: "KOE",
+      shortName: "JYP Entertainment",
+      quoteType: "EQUITY",
+    });
+
+    const provider = await makeProvider(60, { persistence });
+    await provider.fetchInstrumentMetadata("035900");
+
+    expect(persistence.getInstrument).toHaveBeenCalledWith("035900", "KR");
+    expect(activeSdkStub!.quote).toHaveBeenCalledTimes(1);
+    expect(activeSdkStub!.quote).toHaveBeenCalledWith("035900.KQ", {}, { validateResult: false });
+  });
+
+  it("verifies a durable mapping candidate with quote_first before admin repair persists it", async () => {
+    activeSdkStub!.quote.mockResolvedValueOnce({
+      symbol: "005930.KS",
+      currency: "KRW",
+      exchange: "KSC",
+      shortName: "Samsung Electronics",
+      quoteType: "EQUITY",
+    });
+
+    const provider = await makeProvider();
+    const result = await provider.verifyResolvedSymbol("005930", "005930.KS", {
+      resolverMode: "quote_first",
+    });
+
+    expect(activeSdkStub!.quote).toHaveBeenCalledWith("005930.KS", {}, { validateResult: false });
+    expect(result).toEqual({
+      verified: true,
+      checkedSymbol: "005930.KS",
+      resolverMode: "quote_first",
+    });
+  });
+
+  it("rejects a mapping candidate whose suffix does not match the source ticker", async () => {
+    const provider = await makeProvider();
+    const result = await provider.verifyResolvedSymbol("005930", "035900.KQ", {
+      resolverMode: "quote_first",
+    });
+
+    expect(activeSdkStub!.quote).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      verified: false,
+      checkedSymbol: "035900.KQ",
+      reason: "candidate_symbol_does_not_match_source_ticker",
     });
   });
 

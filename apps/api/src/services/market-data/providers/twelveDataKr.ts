@@ -36,6 +36,17 @@ interface KoreanExchangeSegment {
   micCode: "XKRX" | "XKOS";
 }
 
+export function yahooSuffixHintFromKrCatalogEvidence(
+  exchangeRaw: string | null | undefined,
+  micCode: string | null | undefined,
+): ".KS" | ".KQ" | null {
+  const exchange = exchangeRaw?.trim().toUpperCase() ?? "";
+  const mic = micCode?.trim().toUpperCase() ?? "";
+  if (exchange === "KOSDAQ" || mic === "XKOS") return ".KQ";
+  if (exchange === "KRX" || mic === "XKRX") return ".KS";
+  return null;
+}
+
 export interface TwelveDataKrCatalogProviderConfig {
   apiKey: string;
   baseUrl: string;
@@ -151,6 +162,8 @@ export class TwelveDataKrCatalogProvider implements InstrumentCatalogProvider {
         typeRaw: "KRX",
         industryCategory: "ETF",
         date: today,
+        catalogExchangeRaw: row.exchange,
+        catalogMicCode: row.mic_code,
       });
     }
 
@@ -164,6 +177,8 @@ export class TwelveDataKrCatalogProvider implements InstrumentCatalogProvider {
         typeRaw: "KRX",
         industryCategory: row.type,
         date: today,
+        catalogExchangeRaw: row.exchange,
+        catalogMicCode: row.mic_code,
       });
     }
 

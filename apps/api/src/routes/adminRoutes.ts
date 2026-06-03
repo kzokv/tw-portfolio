@@ -1,6 +1,18 @@
+import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
-import type { AiConnectorPolicySettingsDto, AppConfigDto } from "@vakwen/shared-types";
+import type {
+  AiConnectorPolicySettingsDto,
+  AppConfigDto,
+  ProviderFixerDashboardDiagnosticsResponse,
+  ProviderFixerDashboardEvidenceSampleDto,
+  ProviderFixerDashboardGuardrailSettingsDto,
+  ProviderFixerDashboardLogEntryDto,
+  ProviderFixerDashboardLogsResponse,
+  ProviderFixerDashboardOperationDto,
+  ProviderFixerDashboardOperationsResponse,
+  ProviderFixerDashboardSummaryResponse,
+} from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
@@ -23,12 +35,19 @@ import { requireAdminRole } from "../lib/routeGuards.js";
 // (cache-correct for both paths — the cache value is the same the rerun
 // gate consults, so DB ⇄ UI stay coherent under live PATCHes).
 import { getEffectiveProviderRerunCooldownMs } from "../services/appConfig/providerHealth.js";
+import { PROVIDER_FIXER_DEFAULTS } from "../services/appConfig/providerFixer.js";
 import { enqueueAuCatalogBarsBackfill } from "../services/market-data/enqueueAuCatalogBarsBackfill.js";
 import { APP_CONFIG_BOUNDS, APP_CONFIG_SECRET_LENGTH } from "../services/appConfig/bounds.js";
 import {
   invalidate as invalidateAppConfigCache,
 } from "../services/appConfig/cache.js";
-import type { AppConfigPlainField, SaveAiConnectorPolicySettingsInput } from "../persistence/types.js";
+import type {
+  AppConfigPlainField,
+  ProviderErrorTrailRow,
+  ProviderOperationPhase,
+  ProviderOperationRecord,
+  SaveAiConnectorPolicySettingsInput,
+} from "../persistence/types.js";
 import {
   assertFreshAuth,
   createMcpFreshAuthToken,
@@ -41,6 +60,13 @@ import {
 import { today_utc } from "../services/market-data/deriveFetchWindow.js";
 import { enqueueDailyRefresh } from "../services/market-data/dailyRefreshEnqueue.js";
 import { CATALOG_SYNC_QUEUE } from "../services/market-data/registerCatalogSyncWorker.js";
+import {
+  BACKFILL_QUEUE,
+  getBackfillSingletonKey,
+  type BackfillJobData,
+} from "../services/market-data/backfillWorker.js";
+import type { MarketDataResolverMode, ProviderSymbolVerificationResult } from "../services/market-data/types.js";
+import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
 import type { MarketCode } from "@vakwen/domain";
 import type {
   AdminProvidersResponse,
@@ -213,6 +239,11 @@ export const patchAdminSettingsSchema = z
     providerRerunCooldownMs: plainBoundedField("providerRerunCooldownMs"),
     // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
     yahooAuRerunCooldownMs: plainBoundedField("yahooAuRerunCooldownMs"),
+    providerFixerDangerousMatchThreshold: plainBoundedField("providerFixerDangerousMatchThreshold"),
+    providerFixerPreviewSampleLimit: plainBoundedField("providerFixerPreviewSampleLimit"),
+    providerFixerUiPageSize: plainBoundedField("providerFixerUiPageSize"),
+    providerFixerAutoPauseFailuresPerMinute: plainBoundedField("providerFixerAutoPauseFailuresPerMinute"),
+    providerFixerPreviewTokenTtlMinutes: plainBoundedField("providerFixerPreviewTokenTtlMinutes"),
 
     // ── KZO-198 Tier 1/2 — backfill ─────────────────────────────────────
     backfillRetryLimit: plainBoundedField("backfillRetryLimit"),
@@ -271,6 +302,11 @@ const TIER1_PLAIN_FIELDS = [
   "providerRerunCooldownMs",
   // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
   "yahooAuRerunCooldownMs",
+  "providerFixerDangerousMatchThreshold",
+  "providerFixerPreviewSampleLimit",
+  "providerFixerUiPageSize",
+  "providerFixerAutoPauseFailuresPerMinute",
+  "providerFixerPreviewTokenTtlMinutes",
   "backfillRetryLimit",
   "backfillRetryDelaySeconds",
   "backfillFinmind402RetryMs",
@@ -359,6 +395,20 @@ function buildAppConfigDtoFromRow(
     // KZO-197 (surfaced in KZO-199 Phase 4): yahoo-finance-au-specific override.
     yahooAuRerunCooldownMs: row.yahooAuRerunCooldownMs,
     effectiveYahooAuRerunCooldownMs: row.yahooAuRerunCooldownMs ?? Env.YAHOO_AU_RERUN_COOLDOWN_MS,
+    providerFixerDangerousMatchThreshold: row.providerFixerDangerousMatchThreshold,
+    effectiveProviderFixerDangerousMatchThreshold:
+      row.providerFixerDangerousMatchThreshold ?? PROVIDER_FIXER_DEFAULTS.dangerousMatchThreshold,
+    providerFixerPreviewSampleLimit: row.providerFixerPreviewSampleLimit,
+    effectiveProviderFixerPreviewSampleLimit:
+      row.providerFixerPreviewSampleLimit ?? PROVIDER_FIXER_DEFAULTS.previewSampleLimit,
+    providerFixerUiPageSize: row.providerFixerUiPageSize,
+    effectiveProviderFixerUiPageSize: row.providerFixerUiPageSize ?? PROVIDER_FIXER_DEFAULTS.uiPageSize,
+    providerFixerAutoPauseFailuresPerMinute: row.providerFixerAutoPauseFailuresPerMinute,
+    effectiveProviderFixerAutoPauseFailuresPerMinute:
+      row.providerFixerAutoPauseFailuresPerMinute ?? PROVIDER_FIXER_DEFAULTS.autoPauseFailuresPerMinute,
+    providerFixerPreviewTokenTtlMinutes: row.providerFixerPreviewTokenTtlMinutes,
+    effectiveProviderFixerPreviewTokenTtlMinutes:
+      row.providerFixerPreviewTokenTtlMinutes ?? PROVIDER_FIXER_DEFAULTS.previewTokenTtlMinutes,
 
     // KZO-198 Tier 1 — backfill
     backfillRetryLimit: row.backfillRetryLimit,
@@ -416,7 +466,831 @@ async function loadAppConfigDto(app: FastifyInstance): Promise<AppConfigDto> {
   return buildAppConfigDtoFromRow(row);
 }
 
+const providerFixerResolverModeSchema = z.enum(["quote_first", "chart_probe_v1"]);
+const providerFixerPhaseSchema = z.enum([
+  "diagnose",
+  "preview",
+  "staged",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+const providerFixerProviderSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z0-9-]+$/);
+const providerFixerErrorCodeSchema = z.string().trim().min(1).max(160);
+const providerFixerMarketCodeSchema = z.enum(MARKET_CODES);
+const providerFixerPreviewBodySchema = z
+  .object({
+    providerId: providerFixerProviderSchema,
+    marketCode: providerFixerMarketCodeSchema.optional(),
+    resolverMode: providerFixerResolverModeSchema.default("quote_first"),
+    errorCode: providerFixerErrorCodeSchema.default("symbol_unresolved"),
+  })
+  .strict();
+const providerFixerOperationBodySchema = z
+  .object({
+    operationId: z.string().trim().min(1).max(120),
+    previewToken: z.string().trim().min(1).max(160).optional(),
+    acknowledged: z.boolean().optional(),
+    typedConfirmation: z.string().trim().max(160).optional(),
+  })
+  .strict();
+const providerFixerOperationParamsSchema = z.object({
+  operationId: z.string().trim().min(1).max(120),
+});
+
+const PROVIDER_FIXER_DEFAULT_PROVIDER_IDS = [
+  "yahoo-finance-kr",
+  "finmind-tw",
+  "finmind-us",
+] as const;
+
+function providerFixerMarketCode(providerId: string, requested?: MarketCode): MarketCode {
+  if (requested) return requested;
+  if (providerId.endsWith("-kr")) return "KR";
+  if (providerId.endsWith("-tw")) return "TW";
+  if (providerId.endsWith("-us")) return "US";
+  if (providerId.endsWith("-au")) return "AU";
+  return "KR";
+}
+
+function providerFixerMarketLabel(marketCode: MarketCode): string {
+  if (marketCode === "KR") return "KRX";
+  if (marketCode === "TW") return "TWSE";
+  if (marketCode === "US") return "NYSE/NASDAQ";
+  return "ASX";
+}
+
+function providerFixerGuardrailsFromConfig(config: AppConfigDto): ProviderFixerDashboardGuardrailSettingsDto {
+  return {
+    dangerousMatchThreshold: config.effectiveProviderFixerDangerousMatchThreshold,
+    previewSampleLimit: config.effectiveProviderFixerPreviewSampleLimit,
+    uiPageSize: config.effectiveProviderFixerUiPageSize,
+    autoPauseFailureThresholdPerMinute: config.effectiveProviderFixerAutoPauseFailuresPerMinute,
+    previewTokenTtlSeconds: config.effectiveProviderFixerPreviewTokenTtlMinutes * 60,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function hashProviderFixerToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function newProviderFixerToken(): string {
+  return `PF-${randomBytes(9).toString("base64url").toUpperCase()}`;
+}
+
+function extractProviderFixerTicker(row: ProviderErrorTrailRow): string | null {
+  const context = asRecord(row.context);
+  const contextTicker =
+    stringField(context?.ticker) ??
+    stringField(context?.symbol) ??
+    stringField(context?.providerSymbol) ??
+    stringField(context?.sourceSymbol);
+  if (contextTicker) return contextTicker.toUpperCase();
+  const match = row.errorMessage?.match(/\b([0-9]{6})(?:\.(?:KS|KQ))?\b/i);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
+async function buildProviderFixerEvidenceRow(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  row: ProviderErrorTrailRow,
+  options: { resolverMode?: MarketDataResolverMode; verifyCandidate?: boolean } = {},
+): Promise<ProviderFixerDashboardEvidenceSampleDto | null> {
+  const ticker = extractProviderFixerTicker(row);
+  if (!ticker) return null;
+  let candidateSymbol: string | null = null;
+  let exchangeHint: string | null = null;
+  let verificationStatus: ProviderFixerDashboardEvidenceSampleDto["verificationStatus"] = "pending";
+
+  if (providerId === "yahoo-finance-kr" && marketCode === "KR") {
+    const bareTicker = ticker.replace(/\.(KS|KQ)$/i, "");
+    const existing = await app.persistence.getProviderResolutionMapping(providerId, "KR", bareTicker);
+    if (existing) {
+      candidateSymbol = existing.resolvedSymbol;
+      exchangeHint = "durable provider_resolution_mappings row";
+      verificationStatus = "verified";
+    } else {
+      const instrument = await app.persistence.getInstrument(bareTicker, "KR");
+      const suffix = yahooSuffixHintFromKrCatalogEvidence(
+        instrument?.catalogExchangeRaw ?? instrument?.typeRaw ?? null,
+        instrument?.catalogMicCode ?? null,
+      );
+      if (suffix) {
+        candidateSymbol = `${bareTicker}${suffix}`;
+        exchangeHint = [
+          instrument?.catalogExchangeRaw ? `Twelve Data exchange=${instrument.catalogExchangeRaw}` : null,
+          instrument?.catalogMicCode ? `mic=${instrument.catalogMicCode}` : null,
+        ].filter(Boolean).join(" / ") || "Twelve Data catalog hint";
+        verificationStatus = "pending";
+      }
+    }
+  }
+
+  let verificationNote: string | null = null;
+  if (candidateSymbol && options.verifyCandidate) {
+    const verification = await verifyProviderFixerCandidate(
+      app,
+      providerId,
+      marketCode,
+      ticker,
+      candidateSymbol,
+      options.resolverMode ?? "quote_first",
+    );
+    verificationStatus = verification.verified ? "verified" : "rejected";
+    verificationNote = verification.verified
+      ? `Yahoo ${verification.resolverMode} verification passed for ${verification.checkedSymbol}.`
+      : `Yahoo ${verification.resolverMode} verification failed for ${verification.checkedSymbol}: ${verification.reason ?? "unknown"}.`;
+  }
+
+  return {
+    symbol: ticker.replace(/\.(KS|KQ)$/i, ""),
+    providerSymbol: ticker,
+    candidateSymbol,
+    exchangeHint,
+    verificationStatus,
+    note: candidateSymbol
+      ? verificationNote ?? "Candidate requires Yahoo verification before durable provider binding."
+      : "No catalog exchange/MIC hint was available; leave unresolved for manual review.",
+  };
+}
+
+async function verifyProviderFixerCandidate(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  ticker: string,
+  candidateSymbol: string,
+  resolverMode: MarketDataResolverMode,
+): Promise<ProviderSymbolVerificationResult> {
+  const provider = app.marketDataRegistry.marketData.get(marketCode);
+  if (provider?.providerId !== providerId || !provider.verifyResolvedSymbol) {
+    return {
+      verified: false,
+      checkedSymbol: candidateSymbol,
+      resolverMode,
+      reason: "provider_symbol_verifier_unavailable",
+    };
+  }
+  return provider.verifyResolvedSymbol(ticker, candidateSymbol, { resolverMode });
+}
+
+async function buildProviderFixerEvidenceSample(
+  app: FastifyInstance,
+  providerId: string,
+  marketCode: MarketCode,
+  errorCode: string,
+  resolverMode: MarketDataResolverMode,
+  limit: number,
+): Promise<{ sample: ProviderFixerDashboardEvidenceSampleDto[]; total: number }> {
+  const page = await app.persistence.listProviderErrorTrailPage({
+    providerId,
+    marketCode,
+    errorMessageLike: errorCode,
+    page: 1,
+    limit,
+  });
+  const rows = await Promise.all(
+    page.items.map((row) => buildProviderFixerEvidenceRow(app, providerId, marketCode, row, {
+      resolverMode: providerId === "yahoo-finance-kr" ? resolverMode : undefined,
+      verifyCandidate: providerId === "yahoo-finance-kr" && marketCode === "KR",
+    })),
+  );
+  return {
+    sample: rows.filter((row): row is ProviderFixerDashboardEvidenceSampleDto => row !== null),
+    total: page.total,
+  };
+}
+
+function evidenceSampleFromOperation(operation: ProviderOperationRecord): ProviderFixerDashboardEvidenceSampleDto[] {
+  const sample = Array.isArray(operation.sample) ? operation.sample : [];
+  return sample
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item): ProviderFixerDashboardEvidenceSampleDto => ({
+      symbol: stringField(item.symbol) ?? "",
+      providerSymbol: stringField(item.providerSymbol) ?? "",
+      candidateSymbol: stringField(item.candidateSymbol),
+      exchangeHint: stringField(item.exchangeHint),
+      verificationStatus:
+        item.verificationStatus === "verified" || item.verificationStatus === "rejected"
+          ? item.verificationStatus
+          : "pending",
+      note: stringField(item.note) ?? "",
+    }))
+    .filter((item) => item.symbol.length > 0 && item.providerSymbol.length > 0);
+}
+
+function providerFixerOperationToDto(
+  operation: ProviderOperationRecord,
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+): ProviderFixerDashboardOperationDto {
+  const metadata = asRecord(operation.metadata) ?? {};
+  const matchCount = operation.matchCount ?? 0;
+  const dangerous = matchCount >= guardrails.dangerousMatchThreshold;
+  const token = stringField(metadata.previewTokenDisplay) ?? operation.id;
+  const confirmationText =
+    stringField(metadata.confirmationText) ?? (dangerous ? `EXECUTE ${matchCount}` : null);
+  const sample = evidenceSampleFromOperation(operation);
+  const pageSize = guardrails.uiPageSize;
+  return {
+    id: operation.id,
+    providerId: operation.providerId,
+    market: providerFixerMarketLabel(operation.marketCode),
+    phase: operation.phase,
+    matchCount,
+    preview: {
+      scopeLabel: operation.scopeQuery ?? `${operation.providerId}:${operation.errorCode ?? "all"}`,
+      queryBacked: matchCount > sample.length,
+      page: 1,
+      totalPages: Math.max(1, Math.ceil(Math.max(matchCount, sample.length) / Math.max(pageSize, 1))),
+      token,
+      tokenExpiresAt: operation.previewExpiresAt ?? operation.createdAt,
+      snapshotHash: operation.snapshotHash ?? "unavailable",
+      matchCount,
+      sampleCount: sample.length,
+      confirmationMode: dangerous ? "typed" : "standard",
+      confirmationText: dangerous ? confirmationText : null,
+      acknowledgementLabel: "I understand this can write provider rows",
+      evidenceSample: sample,
+    },
+    canExecute: operation.phase === "preview" || operation.phase === "staged",
+    canPause: operation.phase === "running",
+    canResume: operation.phase === "paused",
+    canCancel: operation.phase === "preview" || operation.phase === "staged" || operation.phase === "running" || operation.phase === "paused",
+    dangerous,
+    progressPercent: numberField(metadata.progressPercent),
+    autoPauseFailureCount: numberField(metadata.autoPauseFailureCount),
+    autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
+    effectiveRateCapPerMinute: numberField(metadata.effectiveRateCapPerMinute) ?? 250,
+  };
+}
+
+function assertProviderFixerPreviewToken(operation: ProviderOperationRecord, previewToken: string | undefined): void {
+  if (operation.previewExpiresAt && new Date(operation.previewExpiresAt).getTime() <= Date.now()) {
+    throw routeError(400, "provider_fixer_preview_token_expired", "Preview token has expired; run preview again");
+  }
+  if (operation.previewTokenHash && (!previewToken || hashProviderFixerToken(previewToken) !== operation.previewTokenHash)) {
+    throw routeError(400, "provider_fixer_preview_token_mismatch", "Preview token does not match the selected operation");
+  }
+}
+
+async function assertNoOtherProviderFixerExecution(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+): Promise<void> {
+  const active = await app.persistence.listProviderOperations({
+    providerId: operation.providerId,
+    marketCode: operation.marketCode,
+    phases: ["staged", "running", "paused"],
+    page: 1,
+    limit: 50,
+  });
+  const other = active.items.find((row) => row.id !== operation.id);
+  if (other) {
+    throw routeError(
+      409,
+      "provider_fixer_active_execution_exists",
+      "Another Provider Fixer execution is already active for this provider and market",
+    );
+  }
+}
+
+async function providerFixerDiagnostics(
+  app: FastifyInstance,
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+  providerId: string,
+  marketCode: MarketCode,
+  resolverMode: "quote_first" | "chart_probe_v1",
+  errorCode: string,
+): Promise<ProviderFixerDashboardDiagnosticsResponse> {
+  const healthRows = await app.persistence.getAllProviderHealthStatuses();
+  const providerIds = [...new Set([
+    providerId,
+    ...PROVIDER_FIXER_DEFAULT_PROVIDER_IDS,
+    ...healthRows.map((row) => row.providerId),
+  ])];
+  const rows = await Promise.all(providerIds.map(async (id) => {
+    const inferredMarketCode = providerFixerMarketCode(id, id === providerId ? marketCode : undefined);
+    const code =
+      id === "yahoo-finance-kr"
+        ? "yahoo_finance_kr_symbol_unresolved"
+        : id === "finmind-us" || id === "finmind-tw"
+          ? "provider_symbol_unresolved"
+          : errorCode;
+    const page = await app.persistence.listProviderErrorTrailPage({
+      providerId: id,
+      marketCode: inferredMarketCode,
+      errorMessageLike: code,
+      page: 1,
+      limit: 1,
+    });
+    return {
+      providerId: id,
+      market: providerFixerMarketLabel(inferredMarketCode),
+      unresolvedCount: page.total,
+      resolverStatus:
+        id === "yahoo-finance-kr" ? "enabled" as const : page.total > 0 ? "disabled" as const : "auto" as const,
+      severity:
+        page.total >= guardrails.dangerousMatchThreshold ? "critical" as const : page.total > 0 ? "warning" as const : "ok" as const,
+      errorCode: code,
+    };
+  }));
+  return {
+    diagnostics: {
+      resolverMode,
+      providerId,
+      errorCode,
+      recommendation:
+        "Run preview first; execute remains disabled until the preview token and confirmation match the selected operation.",
+      rows: rows.filter((row) => row.unresolvedCount > 0 || PROVIDER_FIXER_DEFAULT_PROVIDER_IDS.includes(row.providerId as typeof PROVIDER_FIXER_DEFAULT_PROVIDER_IDS[number])),
+      guardrails,
+    },
+  };
+}
+
+async function providerFixerSummary(
+  app: FastifyInstance,
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto,
+): Promise<ProviderFixerDashboardSummaryResponse> {
+  const diagnostics = await providerFixerDiagnostics(
+    app,
+    guardrails,
+    "yahoo-finance-kr",
+    "KR",
+    "quote_first",
+    "yahoo_finance_kr_symbol_unresolved",
+  );
+  const operations = await app.persistence.listProviderOperations({
+    page: 1,
+    limit: 1,
+    phases: ["preview", "staged", "running", "paused"],
+  });
+  const running = await app.persistence.listProviderOperations({
+    page: 1,
+    limit: 1,
+    phases: ["running"],
+  });
+  const staged = await app.persistence.listProviderOperations({
+    page: 1,
+    limit: 1,
+    phases: ["preview", "staged"],
+  });
+  const unresolvedRows = diagnostics.diagnostics.rows.filter((row) => row.unresolvedCount > 0);
+  return {
+    summary: {
+      criticalUnresolvedCount: unresolvedRows.reduce((sum, row) => sum + row.unresolvedCount, 0),
+      affectedProviders: unresolvedRows.map((row) => row.providerId),
+      activeOperationsCount: operations.total,
+      queuedOperationsCount: staged.total,
+      runningOperationsCount: running.total,
+      guardrailsEnabled: true,
+      effectiveRateCapPerMinute: 250,
+    },
+    guardrails,
+  };
+}
+
+async function executeProviderFixerMappings(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  actorUserId: string,
+): Promise<{ applied: number; skipped: number; scanned: number; mappedTickers: string[] }> {
+  if (operation.providerId !== "yahoo-finance-kr" || operation.marketCode !== "KR") {
+    return { applied: 0, skipped: 0, scanned: 0, mappedTickers: [] };
+  }
+  let applied = 0;
+  let skipped = 0;
+  let scanned = 0;
+  const mappedTickers: string[] = [];
+  let page = 1;
+  const limit = 200;
+  while (true) {
+    const rows = await app.persistence.listProviderErrorTrailPage({
+      providerId: operation.providerId,
+      marketCode: operation.marketCode,
+      errorMessageLike: operation.errorCode ?? "symbol_unresolved",
+      page,
+      limit,
+    });
+    for (const row of rows.items) {
+      scanned += 1;
+      const evidence = await buildProviderFixerEvidenceRow(app, operation.providerId, operation.marketCode, row, {
+        resolverMode: operation.resolverMode ?? "quote_first",
+        verifyCandidate: true,
+      });
+      if (!evidence?.candidateSymbol || evidence.verificationStatus !== "verified") {
+        skipped += 1;
+        continue;
+      }
+      await app.persistence.upsertProviderResolutionMapping({
+        providerId: operation.providerId,
+        marketCode: "KR",
+        sourceSymbol: evidence.symbol,
+        resolvedSymbol: evidence.candidateSymbol,
+        resolverMode: operation.resolverMode ?? "quote_first",
+        evidence: {
+          exchangeHint: evidence.exchangeHint,
+          note: evidence.note,
+          operationId: operation.id,
+        },
+        verifiedByUserId: actorUserId,
+      });
+      applied += 1;
+      mappedTickers.push(evidence.symbol);
+    }
+    if (page * limit >= rows.total || rows.items.length === 0) break;
+    page += 1;
+  }
+  return { applied, skipped, scanned, mappedTickers };
+}
+
+async function enqueueProviderFixerBackfills(
+  app: FastifyInstance,
+  operation: ProviderOperationRecord,
+  tickers: string[],
+): Promise<{ enqueued: number; skippedExisting: number }> {
+  if (!app.boss || operation.marketCode !== "KR" || tickers.length === 0) {
+    return { enqueued: 0, skippedExisting: 0 };
+  }
+  let enqueued = 0;
+  let skippedExisting = 0;
+  for (const ticker of [...new Set(tickers)]) {
+    const payload = {
+      ticker,
+      marketCode: "KR",
+      trigger: "admin_rerun",
+      resolverMode: operation.resolverMode ?? "quote_first",
+    } satisfies BackfillJobData;
+    const jobId = await app.boss.send(
+      BACKFILL_QUEUE,
+      payload,
+      {
+        singletonKey: getBackfillSingletonKey(ticker, "KR", payload.resolverMode),
+        priority: 10,
+      },
+    );
+    if (jobId === null) {
+      skippedExisting += 1;
+    } else {
+      enqueued += 1;
+    }
+  }
+  return { enqueued, skippedExisting };
+}
+
+function registerProviderFixerAdminRoutes(app: FastifyInstance): void {
+  app.get("/provider-fixer/summary", async (req): Promise<ProviderFixerDashboardSummaryResponse> => {
+    requireAdminRole(req);
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    return providerFixerSummary(app, guardrails);
+  });
+
+  app.get("/provider-fixer/diagnostics", async (req): Promise<ProviderFixerDashboardDiagnosticsResponse> => {
+    requireAdminRole(req);
+    const query = z
+      .object({
+        providerId: providerFixerProviderSchema.default("yahoo-finance-kr"),
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        resolverMode: providerFixerResolverModeSchema.default("quote_first"),
+        errorCode: providerFixerErrorCodeSchema.default("yahoo_finance_kr_symbol_unresolved"),
+      })
+      .parse(req.query ?? {});
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    return providerFixerDiagnostics(
+      app,
+      guardrails,
+      query.providerId,
+      providerFixerMarketCode(query.providerId, query.marketCode),
+      query.resolverMode,
+      query.errorCode,
+    );
+  });
+
+  app.post("/provider-fixer/preview", async (req, reply) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const body = providerFixerPreviewBodySchema.parse(req.body ?? {});
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const marketCode = providerFixerMarketCode(body.providerId, body.marketCode);
+    const { sample, total } = await buildProviderFixerEvidenceSample(
+      app,
+      body.providerId,
+      marketCode,
+      body.errorCode,
+      body.resolverMode,
+      guardrails.previewSampleLimit,
+    );
+    const token = newProviderFixerToken();
+    const dangerous = total >= guardrails.dangerousMatchThreshold;
+    const confirmationText = dangerous ? `EXECUTE ${total}` : null;
+    const now = Date.now();
+    const operation = await app.persistence.createProviderOperation({
+      providerId: body.providerId,
+      marketCode,
+      operationType: "resolver_repair",
+      phase: "preview",
+      errorCode: body.errorCode,
+      resolverMode: body.resolverMode,
+      scopeQuery: `${body.providerId}:${marketCode}:${body.errorCode}`,
+      snapshotHash: hashProviderFixerToken(`${body.providerId}:${marketCode}:${body.errorCode}:${total}:${now}`).slice(0, 12),
+      previewTokenHash: hashProviderFixerToken(token),
+      previewExpiresAt: new Date(now + guardrails.previewTokenTtlSeconds * 1000).toISOString(),
+      matchCount: total,
+      sample,
+      metadata: {
+        previewTokenDisplay: token,
+        confirmationText,
+        effectiveRateCapPerMinute: 250,
+        autoPauseFailureThresholdPerMinute: guardrails.autoPauseFailureThresholdPerMinute,
+      },
+      actorUserId: sessionUserId,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: operation.id,
+      phase: "preview",
+      level: total > 0 ? "info" : "warning",
+      message: `preview provider=${body.providerId} market=${marketCode} error_code=${body.errorCode} matched=${total} sample=${sample.length}`,
+      context: {
+        providerId: body.providerId,
+        marketCode,
+        errorCode: body.errorCode,
+        resolverMode: body.resolverMode,
+        dangerous,
+      },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: operation.id,
+        action: "preview",
+        providerId: body.providerId,
+        marketCode,
+        errorCode: body.errorCode,
+        resolverMode: body.resolverMode,
+        matchCount: total,
+        dangerous,
+      },
+    });
+    reply.code(201);
+    return { operation: providerFixerOperationToDto(operation, guardrails) };
+  });
+
+  app.post("/provider-fixer/stage", async (req) => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const body = providerFixerOperationBodySchema.parse(req.body ?? {});
+    const existing = await app.persistence.getProviderOperation(body.operationId);
+    if (!existing) throw routeError(404, "provider_operation_not_found", "Provider operation not found");
+    if (existing.phase !== "preview") {
+      throw routeError(400, "provider_operation_not_stageable", "Only preview operations can be staged");
+    }
+    assertProviderFixerPreviewToken(existing, body.previewToken);
+    const updated = await app.persistence.updateProviderOperation({
+      id: existing.id,
+      phase: "staged",
+      actorUserId: sessionUserId,
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: updated.id,
+      phase: "staged",
+      level: "info",
+      message: `staged provider=${updated.providerId} market=${updated.marketCode} matched=${updated.matchCount ?? 0}`,
+      context: { providerId: updated.providerId, marketCode: updated.marketCode },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: { operationId: updated.id, action: "stage", providerId: updated.providerId, marketCode: updated.marketCode },
+    });
+    return { operation: providerFixerOperationToDto(updated, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+  });
+
+  async function executeProviderFixerOperation(
+    req: FastifyRequest,
+    operationId: string,
+    body: z.infer<typeof providerFixerOperationBodySchema>,
+  ) {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const existing = await app.persistence.getProviderOperation(operationId);
+    if (!existing) throw routeError(404, "provider_operation_not_found", "Provider operation not found");
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const operationDto = providerFixerOperationToDto(existing, guardrails);
+    if (!operationDto.canExecute) {
+      throw routeError(400, "provider_operation_not_executable", "Selected operation cannot be executed");
+    }
+    assertProviderFixerPreviewToken(existing, body.previewToken);
+    if (body.acknowledged !== true) {
+      throw routeError(400, "provider_fixer_acknowledgement_required", "Execution requires explicit acknowledgement");
+    }
+    if (operationDto.dangerous && body.typedConfirmation !== operationDto.preview.confirmationText) {
+      throw routeError(400, "provider_fixer_typed_confirmation_required", "Dangerous operation requires matching typed confirmation");
+    }
+    await assertNoOtherProviderFixerExecution(app, existing);
+
+    const running = await app.persistence.updateProviderOperation({
+      id: existing.id,
+      phase: "running",
+      actorUserId: sessionUserId,
+      startedAt: new Date().toISOString(),
+      metadata: { ...(asRecord(existing.metadata) ?? {}), progressPercent: 0 },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: running.id,
+      phase: "running",
+      level: "info",
+      message: `execute_started provider=${running.providerId} market=${running.marketCode} matched=${running.matchCount ?? 0}`,
+      context: { providerId: running.providerId, marketCode: running.marketCode, errorCode: running.errorCode },
+    });
+    const result = await executeProviderFixerMappings(app, running, sessionUserId);
+    const backfills = await enqueueProviderFixerBackfills(app, running, result.mappedTickers);
+    const completed = await app.persistence.updateProviderOperation({
+      id: running.id,
+      phase: "completed",
+      completedAt: new Date().toISOString(),
+      metadata: {
+        ...(asRecord(running.metadata) ?? {}),
+        progressPercent: 100,
+        appliedMappingCount: result.applied,
+        skippedMappingCount: result.skipped,
+        scannedRowCount: result.scanned,
+        enqueuedBackfillCount: backfills.enqueued,
+        skippedExistingBackfillCount: backfills.skippedExisting,
+      },
+    });
+    await app.persistence.createProviderOperationLog({
+      operationId: completed.id,
+      phase: "completed",
+      level: result.skipped > 0 ? "warning" : "info",
+      message: `execute_completed provider=${completed.providerId} market=${completed.marketCode} applied=${result.applied} skipped=${result.skipped} scanned=${result.scanned} enqueued_backfills=${backfills.enqueued}`,
+      context: { providerId: completed.providerId, marketCode: completed.marketCode, ...result, backfills },
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "provider_fixer_operation",
+      ipAddress,
+      metadata: {
+        operationId: completed.id,
+        action: "execute",
+        providerId: completed.providerId,
+        marketCode: completed.marketCode,
+        dangerous: operationDto.dangerous,
+        ...result,
+        backfills,
+      },
+    });
+    return { operation: providerFixerOperationToDto(completed, guardrails), result: { ...result, backfills } };
+  }
+
+  app.post("/provider-fixer/execute", async (req) => {
+    const body = providerFixerOperationBodySchema.parse(req.body ?? {});
+    return executeProviderFixerOperation(req, body.operationId, body);
+  });
+
+  app.post("/provider-fixer/operations/:operationId/execute", async (req) => {
+    const params = providerFixerOperationParamsSchema.parse(req.params);
+    const body = providerFixerOperationBodySchema.partial({ operationId: true }).parse(req.body ?? {});
+    return executeProviderFixerOperation(req, params.operationId, { ...body, operationId: params.operationId });
+  });
+
+  for (const [action, from, to] of [
+    ["pause", "running", "paused"],
+    ["resume", "paused", "running"],
+    ["cancel", null, "cancelled"],
+  ] as const) {
+    app.post(`/provider-fixer/operations/:operationId/${action}`, async (req) => {
+      requireAdminRole(req);
+      const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+      const { operationId } = providerFixerOperationParamsSchema.parse(req.params);
+      const existing = await app.persistence.getProviderOperation(operationId);
+      if (!existing) throw routeError(404, "provider_operation_not_found", "Provider operation not found");
+      if (from && existing.phase !== from) {
+        throw routeError(400, `provider_operation_not_${action}able`, `Selected operation cannot be ${action}d`);
+      }
+      if (action === "cancel" && !["preview", "staged", "running", "paused"].includes(existing.phase)) {
+        throw routeError(400, "provider_operation_not_cancellable", "Selected operation cannot be cancelled");
+      }
+      const updated = await app.persistence.updateProviderOperation({
+        id: operationId,
+        phase: to,
+        ...(action === "cancel" ? { cancelledAt: new Date().toISOString() } : {}),
+      });
+      await app.persistence.createProviderOperationLog({
+        operationId,
+        phase: to,
+        level: action === "resume" ? "info" : "warning",
+        message: `${action}d provider=${updated.providerId} market=${updated.marketCode}`,
+        context: { providerId: updated.providerId, marketCode: updated.marketCode },
+      });
+      await app.persistence.appendAuditLog({
+        actorUserId: sessionUserId,
+        action: "provider_fixer_operation",
+        ipAddress,
+        metadata: { operationId, action, providerId: updated.providerId, marketCode: updated.marketCode },
+      });
+      return { operation: providerFixerOperationToDto(updated, providerFixerGuardrailsFromConfig(await loadAppConfigDto(app))) };
+    });
+  }
+
+  app.get("/provider-fixer/operations", async (req): Promise<ProviderFixerDashboardOperationsResponse> => {
+    requireAdminRole(req);
+    const query = z
+      .object({
+        providerId: providerFixerProviderSchema.optional(),
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        phase: providerFixerPhaseSchema.optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const result = await app.persistence.listProviderOperations({
+      providerId: query.providerId,
+      marketCode: query.marketCode,
+      phases: query.phase ? [query.phase as ProviderOperationPhase] : undefined,
+      page: query.page,
+      limit: query.limit,
+    });
+    const guardrails = providerFixerGuardrailsFromConfig(await loadAppConfigDto(app));
+    const operations = result.items.map((operation) => providerFixerOperationToDto(operation, guardrails));
+    return {
+      stagedOperation:
+        operations.find((operation) => operation.phase === "preview" || operation.phase === "staged") ?? null,
+      operations,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
+  });
+
+  app.get("/provider-fixer/logs", async (req): Promise<ProviderFixerDashboardLogsResponse> => {
+    requireAdminRole(req);
+    const query = z
+      .object({
+        providerId: providerFixerProviderSchema.optional(),
+        marketCode: providerFixerMarketCodeSchema.optional(),
+        operationId: z.string().trim().min(1).max(120).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query ?? {});
+    const operationIds = query.operationId
+      ? [query.operationId]
+      : (await app.persistence.listProviderOperations({
+          providerId: query.providerId,
+          marketCode: query.marketCode,
+          page: 1,
+          limit: Math.max(query.limit, 25),
+        })).items.map((operation) => operation.id);
+    const entries = (
+      await Promise.all(operationIds.map(async (operationId) => {
+        const logs = await app.persistence.listProviderOperationLogs({ operationId, page: 1, limit: query.limit });
+        return logs.items.map((log): ProviderFixerDashboardLogEntryDto => ({
+          id: String(log.id),
+          occurredAt: log.createdAt,
+          phase: log.phase,
+          message: log.message,
+          operationId: log.operationId,
+        }));
+      }))
+    ).flat().sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const offset = (query.page - 1) * query.limit;
+    return {
+      items: entries.slice(offset, offset + query.limit),
+      total: entries.length,
+      page: query.page,
+      limit: query.limit,
+    };
+  });
+}
+
 export const adminRoutes: FastifyPluginAsync = async (app) => {
+  registerProviderFixerAdminRoutes(app);
+
   app.get("/users", async (req) => {
     const query = req.query as Record<string, string | undefined>;
     const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1);

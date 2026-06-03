@@ -31,6 +31,13 @@ export const APP_CONFIG_BOUNDS = {
   // generic provider cooldown — 1 s minimum to allow tests to drive sub-cooldown
   // sequences, 24 h maximum to prevent operator-lockout on misconfiguration.
   yahooAuRerunCooldownMs: { min: 1_000, max: 24 * 60 * 60 * 1000 },
+  // Provider Fixer guardrails (KZO-197 addendum). These are admin-tunable
+  // because operator risk appetite differs by deployment and provider quota.
+  providerFixerDangerousMatchThreshold: { min: 1, max: 100_000 },
+  providerFixerPreviewSampleLimit: { min: 1, max: 1_000 },
+  providerFixerUiPageSize: { min: 5, max: 200 },
+  providerFixerAutoPauseFailuresPerMinute: { min: 1, max: 10_000 },
+  providerFixerPreviewTokenTtlMinutes: { min: 1, max: 120 },
 
   // Tier 1 — backfill (UI-editable subset)
   backfillRetryLimit: { min: 0, max: 10 },

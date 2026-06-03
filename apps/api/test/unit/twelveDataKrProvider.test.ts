@@ -7,26 +7,26 @@ type FetchMock = ReturnType<typeof vi.fn>;
 const STOCKS_FIXTURE = {
   status: "ok",
   data: [
-    { symbol: "005930", name: "Samsung Electronics", type: "Common Stock", mic_code: "XKRX" },
-    { symbol: "005935", name: "Samsung Electronics Preferred", type: "Preferred Stock", mic_code: "XKRX" },
-    { symbol: "088260", name: "ESR Kendall Square REIT", type: "REIT", mic_code: "XKRX" },
-    { symbol: "069500", name: "KODEX 200 stock stub", type: "Common Stock", mic_code: "XKRX" },
-    { symbol: "580001", name: "Sample ETN", type: "ETN", mic_code: "XKRX" },
-    { symbol: "550001", name: "Sample Warrant", type: "Warrant", mic_code: "XKRX" },
+    { symbol: "005930", name: "Samsung Electronics", type: "Common Stock", exchange: "KRX", mic_code: "XKRX" },
+    { symbol: "005935", name: "Samsung Electronics Preferred", type: "Preferred Stock", exchange: "KRX", mic_code: "XKRX" },
+    { symbol: "088260", name: "ESR Kendall Square REIT", type: "REIT", exchange: "KRX", mic_code: "XKRX" },
+    { symbol: "069500", name: "KODEX 200 stock stub", type: "Common Stock", exchange: "KRX", mic_code: "XKRX" },
+    { symbol: "580001", name: "Sample ETN", type: "ETN", exchange: "KRX", mic_code: "XKRX" },
+    { symbol: "550001", name: "Sample Warrant", type: "Warrant", exchange: "KRX", mic_code: "XKRX" },
   ],
 };
 
 const ETF_FIXTURE = {
   status: "ok",
   data: [
-    { symbol: "069500", name: "KODEX 200 ETF", mic_code: "XKRX" },
+    { symbol: "069500", name: "KODEX 200 ETF", exchange: "KRX", mic_code: "XKRX" },
   ],
 };
 
 const KOSDAQ_STOCKS_FIXTURE = {
   status: "ok",
   data: [
-    { symbol: "035900", name: "JYP Entertainment", type: "Common Stock", mic_code: "XKOS" },
+    { symbol: "035900", name: "JYP Entertainment", type: "Common Stock", exchange: "KOSDAQ", mic_code: "XKOS" },
   ],
 };
 
@@ -157,11 +157,15 @@ describe("TwelveDataKrCatalogProvider — real provider against stubbed fetch", 
       name: "KODEX 200 ETF",
       typeRaw: "KRX",
       industryCategory: "ETF",
+      catalogExchangeRaw: "KRX",
+      catalogMicCode: "XKRX",
     });
     expect(catalog.find((row) => row.ticker === "035900")).toMatchObject({
       name: "JYP Entertainment",
       typeRaw: "KRX",
       industryCategory: "Common Stock",
+      catalogExchangeRaw: "KOSDAQ",
+      catalogMicCode: "XKOS",
     });
     expect(catalog.some((row) => row.ticker === "580001" || row.ticker === "550001")).toBe(false);
   });

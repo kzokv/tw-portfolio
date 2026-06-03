@@ -46,6 +46,11 @@ export interface AppConfigCacheEntry {
   providerRerunCooldownMs: number | null;
   // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
   yahooAuRerunCooldownMs: number | null;
+  providerFixerDangerousMatchThreshold: number | null;
+  providerFixerPreviewSampleLimit: number | null;
+  providerFixerUiPageSize: number | null;
+  providerFixerAutoPauseFailuresPerMinute: number | null;
+  providerFixerPreviewTokenTtlMinutes: number | null;
 
   // Tier 1 / 2 — backfill
   backfillRetryLimit: number | null;

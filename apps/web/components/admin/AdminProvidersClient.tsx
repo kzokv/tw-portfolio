@@ -1,21 +1,18 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import type { ProviderHealthStatusDto, ProviderHealthStatus } from "@vakwen/shared-types";
-import { postJson, ApiError } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { DataTable, type DataTableColumn } from "../ui/DataTable";
-import { PopoverRoot, PopoverTrigger, PopoverContent } from "../ui/Popover";
+import { PopoverContent, PopoverRoot, PopoverTrigger } from "../ui/Popover";
 import { cn } from "../../lib/utils";
-import { formatCooldownLabel } from "../../lib/formatCooldownLabel";
 
-// i18n strings — string templates only, no function values
-// (per .claude/rules/nextjs-i18n-serialization.md)
-// Flat Record<string, string> — per .claude/rules/i18n-flat-record-dict-settings.md
 const t: Record<string, string> = {
   pageTitle: "Provider Health",
-  pageDescription: "Monitor market data provider status and trigger manual re-runs.",
+  pageDescription: "Read-only provider health overview. Diagnose resolver issues, staged repairs, and guarded executions in Provider fixer.",
+  migrationNote: "Provider repair and rerun controls moved to Provider fixer.",
   providerLabel: "Provider",
   statusLabel: "Status",
   lastSuccessLabel: "Last Success",
@@ -24,51 +21,39 @@ const t: Record<string, string> = {
   errors7dLabel: "Errors (7d)",
   rateLimits24hLabel: "Rate Limits (24h)",
   actionsLabel: "Actions",
-  rerunButtonLabel: "Re-run now",
-  rerunCooldownLabel: "Retry in {seconds}s",
-  rerunningLabel: "Running…",
+  openFixerLabel: "Open fixer",
   collapseErrorsLabel: "Hide errors",
   expandErrorsLabel: "Show {count} errors",
-  noErrorsLabel: "No recent errors",
   statusHealthy: "Healthy",
   statusDegraded: "Degraded",
   statusDown: "Down",
   statusAwaiting: "Awaiting first run",
   neverLabel: "Never",
-  // Per-provider rerun tooltip strings — KZO-197.
-  // {cooldown} placeholder is interpolated via formatCooldownLabel(provider.rerunCooldownMs).
-  rerunTooltipFinmindTw:
-    "Refreshes daily bars + dividends for monitored TW tickers via FinMind. Cooldown {cooldown}.",
-  rerunTooltipFinmindUs:
-    "Refreshes daily bars + dividends for monitored US tickers via FinMind. Cooldown {cooldown}.",
-  rerunTooltipYahooFinanceAu:
-    "Warms uncached AU catalog rows AND refreshes monitored AU tickers via Yahoo Finance. Fresh deploys process ~2,400 jobs over ~40 min. Cooldown {cooldown}.",
-  rerunTooltipTwelveDataAu:
-    "Re-syncs the AU instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}.",
-  rerunTooltipYahooFinanceKr:
-    "Warms pending or failed KR bar backfills AND refreshes monitored KR tickers via Yahoo Finance. Quote-first is the safe default; chart_probe_v1 requires acknowledgement. Cooldown {cooldown}.",
-  rerunTooltipTwelveDataKr:
-    "Re-syncs the KR instrument universe via Twelve Data (catalog metadata only — no bars). Cooldown {cooldown}.",
-  rerunTooltipFrankfurter:
-    "Refreshes today's FX rates from Frankfurter (ECB-backed). Cooldown {cooldown}.",
-  rerunTooltipAsxGicsCsv:
-    "Re-runs ASX GICS sector + industry-group enrichment from the S&P/ASX CSV. Cooldown {cooldown}.",
-  resolverModeLabel: "KR resolver mode",
-  resolverModeSafeLabel: "Quote-first (safer, lower upstream noise)",
-  resolverModeProbeLabel: "chart_probe_v1 (repair mode, higher call cost)",
-  resolverModeAckLabel:
-    "I understand this mode is for resolver repair and may increase API calls.",
-  resolverModeAckHint: "Enable only when KR symbols fail resolve in bulk.",
+  providerInfoFinmindTw:
+    "Monitor TW daily-bar and dividend refresh health here. Use Provider fixer to diagnose unresolved or noisy TW provider failures.",
+  providerInfoFinmindUs:
+    "Monitor US daily-bar and dividend refresh health here. Use Provider fixer to diagnose unresolved or noisy US provider failures.",
+  providerInfoYahooFinanceAu:
+    "Monitor AU Yahoo warm-up and monitored refresh health here. Use Provider fixer for staged repair, diagnostics, and operator logs.",
+  providerInfoTwelveDataAu:
+    "Monitor AU catalog sync health here. Use Provider fixer to inspect diagnostics, operation phases, and audit evidence.",
+  providerInfoYahooFinanceKr:
+    "Monitor KR Yahoo coverage here. Durable KR binding proposals, preview tokens, and guarded repair execution now live in Provider fixer.",
+  providerInfoTwelveDataKr:
+    "Monitor KR catalog sync health here. Use Provider fixer to inspect KR evidence, staged operations, and active batch state.",
+  providerInfoFrankfurter:
+    "Monitor FX refresh health here. Use Provider fixer to inspect provider diagnostics, operation logs, and guardrail posture.",
+  providerInfoAsxGicsCsv:
+    "Monitor ASX enrichment health here. Use Provider fixer when enrichment batches need diagnosis or guarded re-execution.",
 };
 
-type ResolverMode = "quote_first" | "chart_probe_v1";
+const providerDefaultQuery: Record<string, Record<string, string>> = {
+  "yahoo-finance-kr": {
+    resolverMode: "quote_first",
+    errorCode: "yahoo_finance_kr_symbol_unresolved",
+  },
+};
 
-/**
- * Convert a kebab-case providerId (e.g. "yahoo-finance-au") into the
- * PascalCase suffix used in the i18n dict keys ("YahooFinanceAu").
- * Unknown providerIds simply return an empty-suffix key, which the caller
- * handles via the `?? ""` fallback below.
- */
 function pascalCase(input: string): string {
   return input
     .split("-")
@@ -77,10 +62,19 @@ function pascalCase(input: string): string {
     .join("");
 }
 
-function resolveRerunTooltipContent(provider: ProviderHealthStatusDto): string {
-  const key = `rerunTooltip${pascalCase(provider.providerId)}`;
-  const template = t[key] ?? "";
-  return template.replace("{cooldown}", formatCooldownLabel(provider.rerunCooldownMs));
+function resolveProviderInfo(providerId: string): string {
+  return t[`providerInfo${pascalCase(providerId)}`] ?? t.migrationNote;
+}
+
+function buildFixerHref(providerId: string): string {
+  const params = new URLSearchParams({ providerId });
+  const defaults = providerDefaultQuery[providerId];
+  if (defaults) {
+    for (const [key, value] of Object.entries(defaults)) {
+      params.set(key, value);
+    }
+  }
+  return `/admin/provider-fixer?${params.toString()}`;
 }
 
 function formatTimestamp(ts: string | null): string {
@@ -127,100 +121,6 @@ function StatusBadge({
   );
 }
 
-function useProviderRow(provider: ProviderHealthStatusDto) {
-  const [expanded, setExpanded] = useState(false);
-  const [isRerunning, setIsRerunning] = useState(false);
-  const [cooldownSecondsRemaining, setCooldownSecondsRemaining] = useState<number | null>(null);
-  const [localStatus, setLocalStatus] = useState<ProviderHealthStatusDto>(provider);
-  const [resolverMode, setResolverMode] = useState<ResolverMode>("quote_first");
-  const [resolverModeAcknowledged, setResolverModeAcknowledged] = useState(false);
-
-  const handleRerun = useCallback(async () => {
-    if (isRerunning || cooldownSecondsRemaining !== null) return;
-    if (localStatus.providerId === "yahoo-finance-kr" && resolverMode === "chart_probe_v1" && !resolverModeAcknowledged) {
-      return;
-    }
-
-    const body =
-      localStatus.providerId === "yahoo-finance-kr"
-        ? {
-            resolverMode,
-            ...(resolverMode === "chart_probe_v1"
-              ? { resolverModeRiskAccepted: resolverModeAcknowledged }
-              : {}),
-          }
-        : {};
-
-    setIsRerunning(true);
-    try {
-      await postJson<void>(`/admin/providers/${encodeURIComponent(localStatus.providerId)}/rerun`, body);
-      setLocalStatus((prev) => ({ ...prev, lastManualRerunAt: new Date().toISOString() }));
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        // Prefer the server's `Retry-After` advice (the route writes the
-        // *remaining* cooldown in seconds, which can be much shorter than
-        // the configured window if the user clicks near the cooldown's
-        // end). Fall back to `provider.rerunCooldownMs / 1000` only when
-        // the header is absent or unparseable.
-        const headerSeconds = err.retryAfterSeconds;
-        const fallbackSeconds = Math.max(1, Math.ceil(localStatus.rerunCooldownMs / 1000));
-        const retryAfter =
-          typeof headerSeconds === "number" && Number.isFinite(headerSeconds) && headerSeconds > 0
-            ? headerSeconds
-            : fallbackSeconds;
-        setCooldownSecondsRemaining(retryAfter);
-        const interval = setInterval(() => {
-          setCooldownSecondsRemaining((prev) => {
-            if (prev === null || prev <= 1) {
-              clearInterval(interval);
-              return null;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-      }
-    } finally {
-      setIsRerunning(false);
-    }
-  }, [
-    isRerunning,
-    cooldownSecondsRemaining,
-    localStatus.providerId,
-    localStatus.rerunCooldownMs,
-    resolverMode,
-    resolverModeAcknowledged,
-  ]);
-
-  const isKrResolverRepairMode = localStatus.providerId === "yahoo-finance-kr" && resolverMode === "chart_probe_v1";
-  const rerunButtonDisabled =
-    isRerunning || cooldownSecondsRemaining !== null || isKrResolverRepairMode && !resolverModeAcknowledged;
-
-  const rerunLabel = isRerunning
-    ? t.rerunningLabel
-    : cooldownSecondsRemaining !== null
-      ? t.rerunCooldownLabel.replace("{seconds}", String(cooldownSecondsRemaining))
-      : t.rerunButtonLabel;
-
-  const hasErrors = localStatus.recentErrors.length > 0;
-
-  return {
-    localStatus,
-    expanded,
-    setExpanded,
-    isRerunning,
-    cooldownSecondsRemaining,
-    handleRerun,
-    rerunLabel,
-    isKrResolverRepairMode,
-    resolverMode,
-    setResolverMode,
-    resolverModeAcknowledged,
-    setResolverModeAcknowledged,
-    rerunButtonDisabled,
-    hasErrors,
-  };
-}
-
 function ErrorTrail({ provider }: { provider: ProviderHealthStatusDto }) {
   return (
     <div data-testid={`provider-error-trail-${provider.providerId}`}>
@@ -243,9 +143,9 @@ function ErrorTrail({ provider }: { provider: ProviderHealthStatusDto }) {
                 entry.errorClass === "rate_limit" && "bg-amber-100 text-amber-800",
                 entry.errorClass === "http_4xx" && "bg-orange-100 text-orange-800",
                 entry.errorClass === "http_5xx" && "bg-rose-100 text-rose-800",
-                entry.errorClass === "network" && "bg-slate-100 text-slate-700",
+                (entry.errorClass === "network" || entry.errorClass === "other") &&
+                  "bg-slate-100 text-slate-700",
                 entry.errorClass === "parse" && "bg-violet-100 text-violet-800",
-                entry.errorClass === "other" && "bg-slate-100 text-slate-700",
               )}
             >
               {entry.errorClass}
@@ -260,301 +160,86 @@ function ErrorTrail({ provider }: { provider: ProviderHealthStatusDto }) {
   );
 }
 
-// ProviderTableRow — desktop variant (Fragment with primary row + optional
-// error-trail row when expanded). Used as `renderRow` on DataTable so the
-// expandable details row can sit alongside the main row in <tbody>.
+function ProviderHelpTrigger({ providerId }: { providerId: string }) {
+  return (
+    <PopoverRoot>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={`provider-help-trigger-${providerId}`}
+          className="cursor-help rounded text-left break-all hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {providerId}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent data-testid={`provider-help-popover-${providerId}`}>
+        {resolveProviderInfo(providerId)}
+      </PopoverContent>
+    </PopoverRoot>
+  );
+}
+
 function ProviderTableRow({ provider }: { provider: ProviderHealthStatusDto }) {
-  const {
-    localStatus,
-    expanded,
-    setExpanded,
-    handleRerun,
-    rerunLabel,
-    isKrResolverRepairMode,
-    resolverMode,
-    setResolverMode,
-    resolverModeAcknowledged,
-    setResolverModeAcknowledged,
-    rerunButtonDisabled,
-    hasErrors,
-  } = useProviderRow(provider);
-
-  const isKrProvider = localStatus.providerId === "yahoo-finance-kr";
-  const renderKrResolverModeControls = isKrProvider
-    ? (
-      <div className="mt-3 grid gap-2 text-xs">
-        <label className="flex items-center gap-2">
-          <span className="text-muted-foreground">{t.resolverModeLabel}</span>
-          <select
-            className="rounded border border-input bg-background px-2 py-1 text-xs"
-            value={resolverMode}
-            onChange={(event) => {
-              const nextMode = event.target.value as ResolverMode;
-              setResolverMode(nextMode);
-              if (nextMode !== "chart_probe_v1") {
-                setResolverModeAcknowledged(false);
-              }
-            }}
-            data-testid={`provider-resolver-mode-${localStatus.providerId}`}
-          >
-            <option value="quote_first">{t.resolverModeSafeLabel}</option>
-            <option value="chart_probe_v1">{t.resolverModeProbeLabel}</option>
-          </select>
-        </label>
-        {isKrResolverRepairMode && (
-          <label className="inline-flex items-center gap-2 rounded border border-amber-300/70 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-            <input
-              type="checkbox"
-              checked={resolverModeAcknowledged}
-              onChange={(event) => setResolverModeAcknowledged(event.target.checked)}
-              data-testid={`provider-resolver-ack-${localStatus.providerId}`}
-            />
-            {t.resolverModeAckLabel}
-          </label>
-        )}
-      </div>
-    )
-    : null;
-
-  const resolverModeNote = isKrResolverRepairMode
-    ? (
-      <p className="mt-1 text-[11px] text-amber-700" data-testid={`provider-resolver-note-${localStatus.providerId}`}>
-        {t.resolverModeAckHint}
-      </p>
-    )
-    : null;
+  const [expanded, setExpanded] = useState(false);
+  const hasErrors = provider.recentErrors.length > 0;
 
   return (
     <>
       <tr
         className="border-b border-border last:border-0"
-        data-testid={`provider-row-${localStatus.providerId}`}
+        data-testid={`provider-row-${provider.providerId}`}
       >
         <td
-          className="sticky left-0 z-10 bg-card border-r border-border px-4 py-4 font-mono text-sm font-medium text-foreground md:static md:bg-transparent md:border-r-0"
-          title={localStatus.providerId}
+          className="sticky left-0 z-10 border-r border-border bg-card px-4 py-4 font-mono text-sm font-medium text-foreground md:static md:border-r-0 md:bg-transparent"
+          title={provider.providerId}
         >
-          <PopoverRoot>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                data-testid={`provider-help-trigger-${localStatus.providerId}`}
-                className="text-left break-all hover:text-primary cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-              >
-                {localStatus.providerId}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              data-testid={`provider-help-popover-${localStatus.providerId}`}
-            >
-              {resolveRerunTooltipContent(localStatus)}
-            </PopoverContent>
-          </PopoverRoot>
+          <ProviderHelpTrigger providerId={provider.providerId} />
         </td>
         <td className="px-4 py-4">
-          <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
+          <StatusBadge status={provider.status} providerId={provider.providerId} />
         </td>
-        <td
-          className="px-4 py-4 text-sm text-muted-foreground"
-          title={localStatus.lastSuccessfulRun ?? ""}
-        >
-          {formatTimestamp(localStatus.lastSuccessfulRun)}
+        <td className="px-4 py-4 text-sm text-muted-foreground" title={provider.lastSuccessfulRun ?? ""}>
+          {formatTimestamp(provider.lastSuccessfulRun)}
         </td>
-        <td
-          className="px-4 py-4 text-sm text-muted-foreground"
-          title={localStatus.lastFailedRun ?? ""}
-        >
-          {formatTimestamp(localStatus.lastFailedRun)}
+        <td className="px-4 py-4 text-sm text-muted-foreground" title={provider.lastFailedRun ?? ""}>
+          {formatTimestamp(provider.lastFailedRun)}
         </td>
-        <td className="px-4 py-4 text-right text-sm text-foreground">
-          {localStatus.errorCount24h}
-        </td>
-        <td className="px-4 py-4 text-right text-sm text-foreground">
-          {localStatus.errorCount7d}
-        </td>
-        <td className="px-4 py-4 text-right text-sm text-foreground">
-          {localStatus.rateLimitCount24h}
-        </td>
+        <td className="px-4 py-4 text-right text-sm text-foreground">{provider.errorCount24h}</td>
+        <td className="px-4 py-4 text-right text-sm text-foreground">{provider.errorCount7d}</td>
+        <td className="px-4 py-4 text-right text-sm text-foreground">{provider.rateLimitCount24h}</td>
         <td className="px-4 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleRerun}
-              disabled={rerunButtonDisabled}
-              data-testid={`provider-rerun-btn-${localStatus.providerId}`}
-            >
-              {rerunLabel}
+            <Button asChild size="sm" variant="secondary">
+              <Link
+                href={buildFixerHref(provider.providerId)}
+                data-testid={`provider-open-fixer-${provider.providerId}`}
+              >
+                {t.openFixerLabel}
+              </Link>
             </Button>
-            {isKrProvider ? renderKrResolverModeControls : null}
-            {resolverModeNote}
-            {hasErrors && (
+            {hasErrors ? (
               <button
                 type="button"
-                onClick={() => setExpanded((e) => !e)}
+                onClick={() => setExpanded((value) => !value)}
                 className="text-xs text-primary underline decoration-primary/30 underline-offset-2 hover:text-primary/80"
-                data-testid={`provider-errors-toggle-${localStatus.providerId}`}
+                data-testid={`provider-errors-toggle-${provider.providerId}`}
               >
                 {expanded
                   ? t.collapseErrorsLabel
-                  : t.expandErrorsLabel.replace("{count}", String(localStatus.recentErrors.length))}
+                  : t.expandErrorsLabel.replace("{count}", String(provider.recentErrors.length))}
               </button>
-            )}
+            ) : null}
           </div>
         </td>
       </tr>
-      {expanded && hasErrors && (
+      {expanded && hasErrors ? (
         <tr className="border-b border-border bg-muted/30">
           <td colSpan={8} className="px-4 pb-4 pt-2">
-            <ErrorTrail provider={localStatus} />
+            <ErrorTrail provider={provider} />
           </td>
         </tr>
-      )}
+      ) : null}
     </>
-  );
-}
-
-// ProviderMobileCard — mobile variant (<sm). Rendered by DataTable's
-// mobileRow slot. Shares the same testid prefixes as the desktop row —
-// useIsSmallScreen ensures only one is in DOM at any viewport.
-function ProviderMobileCard({ provider }: { provider: ProviderHealthStatusDto }) {
-  const {
-    localStatus,
-    expanded,
-    setExpanded,
-    handleRerun,
-    rerunLabel,
-    isKrResolverRepairMode,
-    resolverMode,
-    setResolverMode,
-    resolverModeAcknowledged,
-    setResolverModeAcknowledged,
-    rerunButtonDisabled,
-    hasErrors,
-  } = useProviderRow(provider);
-
-  const isKrProvider = localStatus.providerId === "yahoo-finance-kr";
-  const renderKrResolverModeControls = isKrProvider
-    ? (
-      <div className="mt-3 grid gap-2 text-xs">
-        <label className="flex items-center gap-2">
-          <span className="text-muted-foreground">{t.resolverModeLabel}</span>
-          <select
-            className="rounded border border-input bg-background px-2 py-1 text-xs"
-            value={resolverMode}
-            onChange={(event) => {
-              const nextMode = event.target.value as ResolverMode;
-              setResolverMode(nextMode);
-              if (nextMode !== "chart_probe_v1") {
-                setResolverModeAcknowledged(false);
-              }
-            }}
-            data-testid={`provider-resolver-mode-${localStatus.providerId}`}
-          >
-            <option value="quote_first">{t.resolverModeSafeLabel}</option>
-            <option value="chart_probe_v1">{t.resolverModeProbeLabel}</option>
-          </select>
-        </label>
-        {isKrResolverRepairMode && (
-          <label className="inline-flex items-center gap-2 rounded border border-amber-300/70 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
-            <input
-              type="checkbox"
-              checked={resolverModeAcknowledged}
-              onChange={(event) => setResolverModeAcknowledged(event.target.checked)}
-              data-testid={`provider-resolver-ack-${localStatus.providerId}`}
-            />
-            {t.resolverModeAckLabel}
-          </label>
-        )}
-      </div>
-    )
-    : null;
-
-  const resolverModeNote = isKrResolverRepairMode
-    ? (
-      <p
-        className="mt-1 text-[11px] text-amber-700"
-        data-testid={`provider-resolver-note-${localStatus.providerId}`}
-      >
-        {t.resolverModeAckHint}
-      </p>
-    )
-    : null;
-
-  return (
-    <article
-      className="rounded-xl border border-border bg-card p-4"
-      data-testid={`provider-row-${localStatus.providerId}`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{t.providerLabel}</p>
-          <p
-            className="mt-1 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-foreground"
-            title={localStatus.providerId}
-          >
-            <PopoverRoot>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  data-testid={`provider-help-trigger-${localStatus.providerId}`}
-                  className="text-left break-all hover:text-primary cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                >
-                  {localStatus.providerId}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                data-testid={`provider-help-popover-${localStatus.providerId}`}
-              >
-                {resolveRerunTooltipContent(localStatus)}
-              </PopoverContent>
-            </PopoverRoot>
-          </p>
-        </div>
-        <StatusBadge status={localStatus.status} providerId={localStatus.providerId} />
-      </div>
-
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <CardDetail label={t.lastSuccessLabel} value={formatTimestamp(localStatus.lastSuccessfulRun)} truncate />
-        <CardDetail label={t.lastFailedLabel} value={formatTimestamp(localStatus.lastFailedRun)} truncate />
-        <CardDetail label={t.errors24hLabel} value={String(localStatus.errorCount24h)} truncate />
-        <CardDetail label={t.errors7dLabel} value={String(localStatus.errorCount7d)} truncate />
-        <CardDetail label={t.rateLimits24hLabel} value={String(localStatus.rateLimitCount24h)} truncate />
-      </dl>
-
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleRerun}
-          disabled={rerunButtonDisabled}
-          data-testid={`provider-rerun-btn-${localStatus.providerId}`}
-          className="w-full sm:w-auto"
-        >
-          {rerunLabel}
-        </Button>
-        {isKrProvider ? renderKrResolverModeControls : null}
-        {resolverModeNote}
-        {hasErrors && (
-          <button
-            type="button"
-            onClick={() => setExpanded((e) => !e)}
-            className="text-xs text-primary underline decoration-primary/30 underline-offset-2 hover:text-primary/80"
-            data-testid={`provider-errors-toggle-${localStatus.providerId}`}
-          >
-            {expanded
-              ? t.collapseErrorsLabel
-              : t.expandErrorsLabel.replace("{count}", String(localStatus.recentErrors.length))}
-          </button>
-        )}
-      </div>
-
-      {expanded && hasErrors && (
-        <div className="mt-3 rounded-xl bg-muted/30 p-3">
-          <ErrorTrail provider={localStatus} />
-        </div>
-      )}
-    </article>
   );
 }
 
@@ -565,7 +250,6 @@ function CardDetail({
 }: {
   label: string;
   value: string;
-  /** KZO-199 iter 3 — opt-in non-wrapping mode for opaque IDs / ISO timestamps. */
   truncate?: boolean;
 }) {
   return (
@@ -581,25 +265,81 @@ function CardDetail({
   );
 }
 
+function ProviderMobileCard({ provider }: { provider: ProviderHealthStatusDto }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasErrors = provider.recentErrors.length > 0;
+
+  return (
+    <article
+      className="rounded-xl border border-border bg-card p-4"
+      data-testid={`provider-row-${provider.providerId}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{t.providerLabel}</p>
+          <p
+            className="mt-1 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-foreground"
+            title={provider.providerId}
+          >
+            <ProviderHelpTrigger providerId={provider.providerId} />
+          </p>
+        </div>
+        <StatusBadge status={provider.status} providerId={provider.providerId} />
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <CardDetail label={t.lastSuccessLabel} value={formatTimestamp(provider.lastSuccessfulRun)} truncate />
+        <CardDetail label={t.lastFailedLabel} value={formatTimestamp(provider.lastFailedRun)} truncate />
+        <CardDetail label={t.errors24hLabel} value={String(provider.errorCount24h)} truncate />
+        <CardDetail label={t.errors7dLabel} value={String(provider.errorCount7d)} truncate />
+        <CardDetail label={t.rateLimits24hLabel} value={String(provider.rateLimitCount24h)} truncate />
+      </dl>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Button asChild size="sm" variant="secondary" className="w-full sm:w-auto">
+          <Link
+            href={buildFixerHref(provider.providerId)}
+            data-testid={`provider-open-fixer-${provider.providerId}`}
+          >
+            {t.openFixerLabel}
+          </Link>
+        </Button>
+        {hasErrors ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="text-xs text-primary underline decoration-primary/30 underline-offset-2 hover:text-primary/80"
+            data-testid={`provider-errors-toggle-${provider.providerId}`}
+          >
+            {expanded
+              ? t.collapseErrorsLabel
+              : t.expandErrorsLabel.replace("{count}", String(provider.recentErrors.length))}
+          </button>
+        ) : null}
+      </div>
+
+      {expanded && hasErrors ? (
+        <div className="mt-3 rounded-xl bg-muted/30 p-3">
+          <ErrorTrail provider={provider} />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 interface AdminProvidersClientProps {
   providers: ProviderHealthStatusDto[];
 }
 
 export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
-  // Phase 4 — DataTable migration (single-DOM responsive).
-  // Header columns defined for the desktop table; per-row rendering routed
-  // through renderRow (because each row may emit an additional details <tr>
-  // for the error-trail expand) and mobileRow (card-stack at <sm).
-  // Both desktop and mobile share the same testid prefixes — useIsSmallScreen
-  // ensures only one variant is in DOM at any viewport.
   const columns: DataTableColumn<ProviderHealthStatusDto>[] = [
-    { key: "provider", header: t.providerLabel, render: (p) => p.providerId, cellClassName: "px-4 py-3.5 align-top" },
-    { key: "status", header: t.statusLabel, render: (p) => p.status, cellClassName: "px-4 py-3.5 align-top" },
-    { key: "lastSuccess", header: t.lastSuccessLabel, render: (p) => formatTimestamp(p.lastSuccessfulRun), cellClassName: "px-4 py-3.5 align-top" },
-    { key: "lastFailed", header: t.lastFailedLabel, render: (p) => formatTimestamp(p.lastFailedRun), cellClassName: "px-4 py-3.5 align-top" },
-    { key: "errors24h", header: t.errors24hLabel, render: (p) => p.errorCount24h, cellClassName: "px-4 py-3.5 align-top" },
-    { key: "errors7d", header: t.errors7dLabel, render: (p) => p.errorCount7d, cellClassName: "px-4 py-3.5 align-top" },
-    { key: "rateLimits24h", header: t.rateLimits24hLabel, render: (p) => p.rateLimitCount24h, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "provider", header: t.providerLabel, render: (provider) => provider.providerId, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "status", header: t.statusLabel, render: (provider) => provider.status, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "lastSuccess", header: t.lastSuccessLabel, render: (provider) => formatTimestamp(provider.lastSuccessfulRun), cellClassName: "px-4 py-3.5 align-top" },
+    { key: "lastFailed", header: t.lastFailedLabel, render: (provider) => formatTimestamp(provider.lastFailedRun), cellClassName: "px-4 py-3.5 align-top" },
+    { key: "errors24h", header: t.errors24hLabel, render: (provider) => provider.errorCount24h, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "errors7d", header: t.errors7dLabel, render: (provider) => provider.errorCount7d, cellClassName: "px-4 py-3.5 align-top" },
+    { key: "rateLimits24h", header: t.rateLimits24hLabel, render: (provider) => provider.rateLimitCount24h, cellClassName: "px-4 py-3.5 align-top" },
     { key: "actions", header: t.actionsLabel, render: () => null, cellClassName: "px-4 py-3.5 align-top" },
   ];
 
@@ -608,17 +348,23 @@ export function AdminProvidersClient({ providers }: AdminProvidersClientProps) {
       <div className="mb-6">
         <p className="text-[11px] uppercase tracking-[0.22em] text-primary/78">{t.pageTitle}</p>
         <h1 className="mt-2 text-2xl text-foreground sm:text-3xl">{t.pageTitle}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{t.pageDescription}</p>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{t.pageDescription}</p>
+        <div
+          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          data-testid="admin-providers-read-only-note"
+        >
+          {t.migrationNote}
+        </div>
       </div>
 
       <DataTable
         data-testid="admin-providers-table"
         data={providers}
         columns={columns}
-        rowKey={(p) => p.providerId}
+        rowKey={(provider) => provider.providerId}
         tableClassName="[&_th]:bg-slate-50/80 [&_th]:px-4 [&_th]:py-3 [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wider [&_th]:text-slate-500 [&_tr]:border-slate-100"
-        renderRow={(p) => <ProviderTableRow provider={p} key={p.providerId} />}
-        mobileRow={(p) => <ProviderMobileCard provider={p} />}
+        renderRow={(provider) => <ProviderTableRow provider={provider} key={provider.providerId} />}
+        mobileRow={(provider) => <ProviderMobileCard provider={provider} />}
       />
     </Card>
   );
