@@ -112,6 +112,8 @@ describe("buildCatalogInstruments", () => {
       finmindDate: "2026-03-31",
       instrumentType: "STOCK",
       marketCode: "TW",
+      catalogExchangeRaw: null,
+      catalogMicCode: null,
     });
   });
 });

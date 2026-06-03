@@ -82,6 +82,13 @@ export interface MarketDataFetchOptions {
   resolverMode?: MarketDataResolverMode;
 }
 
+export interface ProviderSymbolVerificationResult {
+  verified: boolean;
+  checkedSymbol: string;
+  resolverMode: MarketDataResolverMode;
+  reason?: string;
+}
+
 /** Raw instrument info from FinMind TaiwanStockInfo dataset. */
 export interface RawInstrumentInfo {
   ticker: string;
@@ -89,6 +96,8 @@ export interface RawInstrumentInfo {
   typeRaw: string;
   industryCategory: string;
   date: string;
+  catalogExchangeRaw?: string | null;
+  catalogMicCode?: string | null;
 }
 
 /** Raw delisting record from FinMind TaiwanStockDelisting dataset. */
@@ -126,6 +135,16 @@ export interface MarketDataProvider {
     endDate?: string,
     options?: MarketDataFetchOptions,
   ): Promise<DividendRecord[]>;
+  /**
+   * Optional provider-specific verifier for admin repair tooling. Used before
+   * persisting durable provider-resolution bindings so a catalog hint is never
+   * treated as provider truth by itself.
+   */
+  verifyResolvedSymbol?(
+    ticker: string,
+    candidateSymbol: string,
+    options?: MarketDataFetchOptions,
+  ): Promise<ProviderSymbolVerificationResult>;
   /**
    * Pre-flight check that the provider's rate limiter can accommodate `n` requests in this
    * worker invocation. Throws `RateLimitedError` (with `msUntilAvailable` sized for `n` slots)

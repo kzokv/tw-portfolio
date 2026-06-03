@@ -65,5 +65,7 @@ export function buildCatalogInstruments(
     finmindDate: r.date,
     instrumentType: classifyInstrument(r.industryCategory, r.ticker, marketCode),
     marketCode,
+    catalogExchangeRaw: r.catalogExchangeRaw ?? null,
+    catalogMicCode: r.catalogMicCode ?? null,
   }));
 }

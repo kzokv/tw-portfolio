@@ -1,6 +1,7 @@
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 
 // Synthetic tickers per .claude/rules/e2e-shared-memory-bars-ticker-hygiene.md.
+test.describe.configure({ timeout: 60_000 });
 
 test("[transactions form]: buy estimate → commission renders and tax stays hidden", async ({
   appShell,

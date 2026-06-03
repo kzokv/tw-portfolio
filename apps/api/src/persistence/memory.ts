@@ -105,10 +105,21 @@ import type {
   AiTransactionDraftUnsupportedItemRecord,
   AppendAiConnectorAccessLogInput,
   AppendAiTransactionDraftEventInput,
+  CreateProviderOperationInput,
+  CreateProviderOperationLogInput,
+  ListProviderErrorTrailOptions,
+  ListProviderErrorTrailResult,
+  ListProviderOperationLogsOptions,
+  ListProviderOperationLogsResult,
+  ListProviderOperationsOptions,
+  ListProviderOperationsResult,
   ProviderErrorTrailInput,
   ProviderErrorTrailRow,
   ProviderHealthRow,
   ProviderHealthUpsert,
+  ProviderOperationLogRecord,
+  ProviderOperationRecord,
+  ProviderResolutionMappingRecord,
   SaveAiConnectorCredentialInput,
   SaveAiConnectorConnectionInput,
   SaveAiConnectorPolicySettingsInput,
@@ -119,6 +130,8 @@ import type {
   SaveAiTransactionDraftUnsupportedItemInput,
   SetPendingShareInviteCapabilitiesInput,
   SetShareCapabilitiesInput,
+  UpdateProviderOperationInput,
+  UpsertProviderResolutionMappingInput,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -180,7 +193,10 @@ interface MemoryInstrument {
   name: string | null;
   instrumentType: string | null;
   marketCode: string;
+  typeRaw?: string | null;
   industryCategoryRaw?: string | null;
+  catalogExchangeRaw?: string | null;
+  catalogMicCode?: string | null;
   barsBackfillStatus: string;
   lastRepairAt?: string | null;
   delistedAt?: string;
@@ -443,6 +459,10 @@ export class MemoryPersistence implements Persistence {
   /** KZO-177: provider error trail rows; auto-incrementing id stamped at insert. */
   private readonly providerErrorTrail: ProviderErrorTrailRow[] = [];
   private _providerErrorTrailNextId = 1;
+  private readonly providerOperations = new Map<string, ProviderOperationRecord>();
+  private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
+  private _providerOperationLogNextId = 1;
+  private readonly providerResolutionMappings = new Map<string, ProviderResolutionMappingRecord>();
   /**
    * KZO-177 (M2): per-provider promise-chain mutex for the recovery CAS.
    * MemoryPersistence is single-threaded but JS microtasks interleave; without
@@ -3539,6 +3559,10 @@ export class MemoryPersistence implements Persistence {
       marketCode: instrument.marketCode,
       name: instrument.name ?? undefined,
       isProvisional: false,
+      typeRaw: instrument.typeRaw ?? undefined,
+      industryCategoryRaw: instrument.industryCategoryRaw ?? undefined,
+      catalogExchangeRaw: instrument.catalogExchangeRaw ?? null,
+      catalogMicCode: instrument.catalogMicCode ?? null,
       barsBackfillStatus: instrument.barsBackfillStatus as import("@vakwen/domain").BackfillStatus,
       lastRepairAt: instrument.lastRepairAt ?? undefined,
       verificationStatus: "unverified",
@@ -3595,6 +3619,11 @@ export class MemoryPersistence implements Persistence {
     providerErrorTrailRetentionDays: number | null;
     providerRerunCooldownMs: number | null;
     yahooAuRerunCooldownMs: number | null;
+    providerFixerDangerousMatchThreshold: number | null;
+    providerFixerPreviewSampleLimit: number | null;
+    providerFixerUiPageSize: number | null;
+    providerFixerAutoPauseFailuresPerMinute: number | null;
+    providerFixerPreviewTokenTtlMinutes: number | null;
     backfillRetryLimit: number | null;
     backfillRetryDelaySeconds: number | null;
     backfillFinmind402RetryMs: number | null;
@@ -3636,6 +3665,11 @@ export class MemoryPersistence implements Persistence {
       providerRerunCooldownMs: p.providerRerunCooldownMs ?? null,
       // KZO-197 — yahoo-finance-au rerun cooldown override (Tier 1).
       yahooAuRerunCooldownMs: p.yahooAuRerunCooldownMs ?? null,
+      providerFixerDangerousMatchThreshold: p.providerFixerDangerousMatchThreshold ?? null,
+      providerFixerPreviewSampleLimit: p.providerFixerPreviewSampleLimit ?? null,
+      providerFixerUiPageSize: p.providerFixerUiPageSize ?? null,
+      providerFixerAutoPauseFailuresPerMinute: p.providerFixerAutoPauseFailuresPerMinute ?? null,
+      providerFixerPreviewTokenTtlMinutes: p.providerFixerPreviewTokenTtlMinutes ?? null,
       backfillRetryLimit: p.backfillRetryLimit ?? null,
       backfillRetryDelaySeconds: p.backfillRetryDelaySeconds ?? null,
       backfillFinmind402RetryMs: p.backfillFinmind402RetryMs ?? null,
@@ -5256,6 +5290,192 @@ export class MemoryPersistence implements Persistence {
       }
     }
     return removed;
+  }
+
+  async listProviderErrorTrailPage(
+    options: ListProviderErrorTrailOptions,
+  ): Promise<ListProviderErrorTrailResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const marketCode = options.marketCode?.toUpperCase();
+    const errorMessageLike = options.errorMessageLike?.toLowerCase();
+    const filtered = this.providerErrorTrail
+      .filter((row) => {
+        if (options.providerId && row.providerId !== options.providerId) return false;
+        if (marketCode) {
+          const rowMarketCode = typeof row.context?.marketCode === "string" ? row.context.marketCode.toUpperCase() : null;
+          if (rowMarketCode !== marketCode) return false;
+        }
+        if (errorMessageLike && !(row.errorMessage ?? "").toLowerCase().includes(errorMessageLike)) return false;
+        return true;
+      })
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async createProviderOperation(input: CreateProviderOperationInput): Promise<ProviderOperationRecord> {
+    const now = new Date().toISOString();
+    const row: ProviderOperationRecord = {
+      id: input.id ?? randomUUID(),
+      providerId: input.providerId,
+      marketCode: input.marketCode,
+      operationType: input.operationType,
+      phase: input.phase,
+      errorCode: input.errorCode ?? null,
+      resolverMode: input.resolverMode ?? null,
+      scopeQuery: input.scopeQuery ?? null,
+      snapshotHash: input.snapshotHash ?? null,
+      previewTokenHash: input.previewTokenHash ?? null,
+      previewExpiresAt: input.previewExpiresAt ?? null,
+      matchCount: input.matchCount ?? null,
+      sample: input.sample ?? null,
+      metadata: input.metadata ?? null,
+      legacyBatchId: input.legacyBatchId ?? null,
+      actorUserId: input.actorUserId ?? null,
+      startedAt: input.startedAt ?? null,
+      completedAt: input.completedAt ?? null,
+      cancelledAt: input.cancelledAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.providerOperations.set(row.id, row);
+    return { ...row };
+  }
+
+  async updateProviderOperation(input: UpdateProviderOperationInput): Promise<ProviderOperationRecord> {
+    const existing = this.providerOperations.get(input.id);
+    if (!existing) throw routeError(404, "provider_operation_not_found", "provider operation not found");
+    const next: ProviderOperationRecord = {
+      ...existing,
+      ...(input.phase !== undefined ? { phase: input.phase } : {}),
+      ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+      ...(input.resolverMode !== undefined ? { resolverMode: input.resolverMode } : {}),
+      ...(input.scopeQuery !== undefined ? { scopeQuery: input.scopeQuery } : {}),
+      ...(input.snapshotHash !== undefined ? { snapshotHash: input.snapshotHash } : {}),
+      ...(input.previewTokenHash !== undefined ? { previewTokenHash: input.previewTokenHash } : {}),
+      ...(input.previewExpiresAt !== undefined ? { previewExpiresAt: input.previewExpiresAt } : {}),
+      ...(input.matchCount !== undefined ? { matchCount: input.matchCount } : {}),
+      ...(input.sample !== undefined ? { sample: input.sample } : {}),
+      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+      ...(input.legacyBatchId !== undefined ? { legacyBatchId: input.legacyBatchId } : {}),
+      ...(input.actorUserId !== undefined ? { actorUserId: input.actorUserId } : {}),
+      ...(input.startedAt !== undefined ? { startedAt: input.startedAt } : {}),
+      ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+      ...(input.cancelledAt !== undefined ? { cancelledAt: input.cancelledAt } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    this.providerOperations.set(input.id, next);
+    return { ...next };
+  }
+
+  async getProviderOperation(id: string): Promise<ProviderOperationRecord | null> {
+    const row = this.providerOperations.get(id);
+    return row ? { ...row } : null;
+  }
+
+  async listProviderOperations(
+    options: ListProviderOperationsOptions,
+  ): Promise<ListProviderOperationsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const phases = options.phases ? new Set(options.phases) : null;
+    const filtered = [...this.providerOperations.values()]
+      .filter((row) => {
+        if (options.providerId && row.providerId !== options.providerId) return false;
+        if (options.marketCode && row.marketCode !== options.marketCode) return false;
+        if (phases && !phases.has(row.phase)) return false;
+        return true;
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async hasActiveProviderExecution(providerId: string, marketCode: MarketCode): Promise<boolean> {
+    return [...this.providerOperations.values()].some((row) =>
+      row.providerId === providerId
+      && row.marketCode === marketCode
+      && (row.phase === "staged" || row.phase === "running" || row.phase === "paused")
+    );
+  }
+
+  async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {
+    const row: ProviderOperationLogRecord = {
+      id: this._providerOperationLogNextId++,
+      operationId: input.operationId,
+      phase: input.phase,
+      level: input.level,
+      message: input.message,
+      context: input.context ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    this.providerOperationLogs.push(row);
+    return { ...row };
+  }
+
+  async listProviderOperationLogs(
+    options: ListProviderOperationLogsOptions,
+  ): Promise<ListProviderOperationLogsResult> {
+    const page = Math.max(1, Math.floor(options.page) || 1);
+    const limit = Math.min(500, Math.max(1, Math.floor(options.limit) || 50));
+    const filtered = this.providerOperationLogs
+      .filter((row) => row.operationId === options.operationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const offset = (page - 1) * limit;
+    return {
+      items: filtered.slice(offset, offset + limit).map((row) => ({ ...row })),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  }
+
+  async getProviderResolutionMapping(
+    providerId: string,
+    marketCode: MarketCode,
+    sourceSymbol: string,
+  ): Promise<ProviderResolutionMappingRecord | null> {
+    const row = this.providerResolutionMappings.get(
+      this._providerResolutionMappingKey(providerId, marketCode, sourceSymbol),
+    );
+    return row ? { ...row } : null;
+  }
+
+  async upsertProviderResolutionMapping(
+    input: UpsertProviderResolutionMappingInput,
+  ): Promise<ProviderResolutionMappingRecord> {
+    const key = this._providerResolutionMappingKey(input.providerId, input.marketCode, input.sourceSymbol);
+    const now = new Date().toISOString();
+    const existing = this.providerResolutionMappings.get(key);
+    const row: ProviderResolutionMappingRecord = {
+      providerId: input.providerId,
+      marketCode: input.marketCode,
+      sourceSymbol: input.sourceSymbol.trim().toUpperCase(),
+      resolvedSymbol: input.resolvedSymbol.trim().toUpperCase(),
+      resolverMode: input.resolverMode ?? null,
+      evidence: input.evidence ?? null,
+      verifiedAt: input.verifiedAt ?? now,
+      verifiedByUserId: input.verifiedByUserId ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.providerResolutionMappings.set(key, row);
+    return { ...row };
+  }
+
+  private _providerResolutionMappingKey(providerId: string, marketCode: MarketCode, sourceSymbol: string): string {
+    return `${providerId}::${marketCode}::${sourceSymbol.trim().toUpperCase()}`;
   }
 
   async listAdminUserIds(): Promise<string[]> {

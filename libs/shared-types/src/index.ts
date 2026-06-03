@@ -998,6 +998,16 @@ export interface AppConfigDto {
   // KZO-197 — yahoo-finance-au-specific rerun cooldown override.
   yahooAuRerunCooldownMs: number | null;
   effectiveYahooAuRerunCooldownMs: number;
+  providerFixerDangerousMatchThreshold: number | null;
+  effectiveProviderFixerDangerousMatchThreshold: number;
+  providerFixerPreviewSampleLimit: number | null;
+  effectiveProviderFixerPreviewSampleLimit: number;
+  providerFixerUiPageSize: number | null;
+  effectiveProviderFixerUiPageSize: number;
+  providerFixerAutoPauseFailuresPerMinute: number | null;
+  effectiveProviderFixerAutoPauseFailuresPerMinute: number;
+  providerFixerPreviewTokenTtlMinutes: number | null;
+  effectiveProviderFixerPreviewTokenTtlMinutes: number;
 
   // ── KZO-198 Tier 1 — Backfill (UI-editable) ────────────────────────────
   backfillRetryLimit: number | null;
@@ -1045,6 +1055,147 @@ export interface AppConfigDto {
   secretLengthBounds: { min: number; max: number };
 
   updatedAt: string;
+}
+
+// ── Admin Provider Fixer (KZO-197 addendum) ───────────────────────────────
+
+export type ProviderFixerOperationPhase =
+  | "diagnose"
+  | "preview"
+  | "staged"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ProviderFixerRiskLevel = "low" | "dangerous";
+
+export type ProviderFixerOperationType =
+  | "kr_resolver_binding"
+  | "provider_rerun"
+  | "legacy_batch_cancel"
+  | "legacy_batch_pause"
+  | "legacy_batch_resume";
+
+export type ProviderFixerResolverMode = "quote_first" | "chart_probe_v1" | "catalog_hint";
+
+export interface ProviderFixerGuardrailsDto {
+  dangerousMatchThreshold: number;
+  previewSampleLimit: number;
+  uiPageSize: number;
+  autoPauseFailuresPerMinute: number;
+  previewTokenTtlMinutes: number;
+}
+
+export interface ProviderFixerEvidenceRowDto {
+  ticker: string;
+  marketCode: string;
+  providerId: string;
+  errorCode: string;
+  providerSymbol: string | null;
+  candidateSymbol: string | null;
+  catalogExchange: string | null;
+  catalogMicCode: string | null;
+  resolverMode: ProviderFixerResolverMode | null;
+  evidence: Record<string, unknown>;
+  lastErrorMessage: string | null;
+  lastOccurredAt: string | null;
+  riskLevel: ProviderFixerRiskLevel;
+}
+
+export interface ProviderFixerOperationDto {
+  id: string;
+  providerId: string;
+  marketCode: string | null;
+  operationType: ProviderFixerOperationType;
+  phase: ProviderFixerOperationPhase;
+  riskLevel: ProviderFixerRiskLevel;
+  resolverMode: ProviderFixerResolverMode | null;
+  errorCode: string | null;
+  scopeQuery: Record<string, unknown>;
+  snapshotHash: string | null;
+  matchCount: number;
+  sampleCount: number;
+  sampleRows: ProviderFixerEvidenceRowDto[];
+  progress: Record<string, unknown>;
+  activeBatchId: string | null;
+  legacyBatchId: string | null;
+  previewTokenExpiresAt: string | null;
+  requestedByUserId: string | null;
+  confirmedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  stagedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+}
+
+export interface ProviderFixerOperationLogDto {
+  id: number;
+  operationId: string | null;
+  phase: ProviderFixerOperationPhase | null;
+  action: string;
+  level: "info" | "warning" | "error";
+  actorUserId: string | null;
+  providerId: string | null;
+  marketCode: string | null;
+  resolverMode: ProviderFixerResolverMode | null;
+  errorCode: string | null;
+  batchId: string | null;
+  jobId: string | null;
+  counts: Record<string, unknown>;
+  message: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ProviderFixerSummaryDto {
+  unresolvedCount: number;
+  criticalUnresolvedCount: number;
+  activeOperationCount: number;
+  queuedOperationCount: number;
+  guardrails: ProviderFixerGuardrailsDto;
+  effectiveProviderCaps: Array<{ providerId: string; cap: string; value: number | null }>;
+  providers: Array<{
+    providerId: string;
+    marketCode: string | null;
+    unresolvedCount: number;
+    activeOperationCount: number;
+    status: ProviderHealthStatusDto["status"];
+  }>;
+}
+
+export interface ProviderFixerDiagnosticsResponse {
+  items: ProviderFixerEvidenceRowDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderFixerPreviewResponse {
+  previewToken: string;
+  expiresAt: string;
+  snapshotHash: string;
+  matchCount: number;
+  riskLevel: ProviderFixerRiskLevel;
+  typedConfirmationRequired: boolean;
+  sample: ProviderFixerEvidenceRowDto[];
+}
+
+export interface ProviderFixerOperationsResponse {
+  items: ProviderFixerOperationDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderFixerLogsResponse {
+  items: ProviderFixerOperationLogDto[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ── AI connector + MCP draft types (KZO-210+) ──────────────────────────────
@@ -1686,6 +1837,133 @@ export interface ProviderHealthStatusDto {
 
 export interface AdminProvidersResponse {
   providers: ProviderHealthStatusDto[];
+}
+
+// ── Provider fixer dashboard (web-facing slice) ────────────────────────────
+
+export type ProviderFixerDashboardOperationPhase =
+  | "diagnose"
+  | "preview"
+  | "staged"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ProviderFixerDashboardSeverity = "ok" | "warning" | "critical";
+export type ProviderFixerDashboardResolverStatus = "enabled" | "disabled" | "auto";
+export type ProviderFixerDashboardConfirmationMode = "standard" | "typed";
+
+export interface ProviderFixerDashboardSummaryDto {
+  criticalUnresolvedCount: number;
+  affectedProviders: string[];
+  activeOperationsCount: number;
+  queuedOperationsCount: number;
+  runningOperationsCount: number;
+  guardrailsEnabled: boolean;
+  effectiveRateCapPerMinute: number;
+}
+
+export interface ProviderFixerDashboardGuardrailSettingsDto {
+  dangerousMatchThreshold: number;
+  previewSampleLimit: number;
+  uiPageSize: number;
+  autoPauseFailureThresholdPerMinute: number;
+  previewTokenTtlSeconds: number;
+}
+
+export interface ProviderFixerDashboardDiagnosisRowDto {
+  providerId: string;
+  market: string;
+  unresolvedCount: number;
+  resolverStatus: ProviderFixerDashboardResolverStatus;
+  severity: ProviderFixerDashboardSeverity;
+  errorCode: string;
+}
+
+export interface ProviderFixerDashboardDiagnosticsDto {
+  resolverMode: "quote_first" | "chart_probe_v1";
+  providerId: string;
+  errorCode: string;
+  recommendation: string;
+  rows: ProviderFixerDashboardDiagnosisRowDto[];
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+}
+
+export interface ProviderFixerDashboardEvidenceSampleDto {
+  symbol: string;
+  providerSymbol: string;
+  candidateSymbol: string | null;
+  exchangeHint: string | null;
+  verificationStatus: "verified" | "pending" | "rejected";
+  note: string;
+}
+
+export interface ProviderFixerDashboardPreviewDto {
+  scopeLabel: string;
+  queryBacked: boolean;
+  page: number;
+  totalPages: number;
+  token: string;
+  tokenExpiresAt: string;
+  snapshotHash: string;
+  matchCount: number;
+  sampleCount: number;
+  confirmationMode: ProviderFixerDashboardConfirmationMode;
+  confirmationText: string | null;
+  acknowledgementLabel: string;
+  evidenceSample: ProviderFixerDashboardEvidenceSampleDto[];
+}
+
+export interface ProviderFixerDashboardOperationDto {
+  id: string;
+  providerId: string;
+  market: string | null;
+  phase: ProviderFixerDashboardOperationPhase;
+  matchCount: number;
+  preview: ProviderFixerDashboardPreviewDto;
+  canExecute: boolean;
+  canPause: boolean;
+  canResume: boolean;
+  canCancel: boolean;
+  dangerous: boolean;
+  progressPercent: number | null;
+  autoPauseFailureCount: number | null;
+  autoPauseFailureThresholdPerMinute: number | null;
+  effectiveRateCapPerMinute: number | null;
+}
+
+export interface ProviderFixerDashboardLogEntryDto {
+  id: string;
+  occurredAt: string;
+  phase: ProviderFixerDashboardOperationPhase;
+  message: string;
+  operationId: string | null;
+}
+
+export interface ProviderFixerDashboardSummaryResponse {
+  summary: ProviderFixerDashboardSummaryDto;
+  guardrails: ProviderFixerDashboardGuardrailSettingsDto;
+}
+
+export interface ProviderFixerDashboardDiagnosticsResponse {
+  diagnostics: ProviderFixerDashboardDiagnosticsDto;
+}
+
+export interface ProviderFixerDashboardOperationsResponse {
+  stagedOperation: ProviderFixerDashboardOperationDto | null;
+  operations: ProviderFixerDashboardOperationDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ProviderFixerDashboardLogsResponse {
+  items: ProviderFixerDashboardLogEntryDto[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ── Admin instruments / delisting management (KZO-195) ──────────────────────

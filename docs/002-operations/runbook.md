@@ -2034,9 +2034,53 @@ Notifications are posted to all admin users when:
 
 Notifications on `degraded` transitions are intentionally suppressed — `degraded` is informational and does not require immediate operator action.
 
-#### "Re-run now" button
+#### Provider Fixer
 
-The Re-run now button dispatches a provider-wide refresh job:
+The Providers page is a read-only health overview. Use **Open fixer** to diagnose provider errors, stage guarded repair operations, and execute confirmed provider work at `/admin/provider-fixer`.
+
+Provider Fixer flow:
+
+1. **Diagnose:** reads `market_data.provider_error_trail` and shows unresolved counts by provider/market.
+2. **Preview:** stores a query-backed operation with match count, sample rows, snapshot hash, preview token, and expiry. KR samples use Twelve Data catalog evidence to propose `.KS` / `.KQ`, then verify the sample candidate against Yahoo before showing it as verified.
+3. **Execute:** requires the preview token and acknowledgement. Dangerous scopes also require the typed confirmation shown in the preview. Execution writes only Yahoo-verified KR mappings to `market_data.provider_resolution_mappings` and enqueues KR backfill jobs for mapped tickers.
+4. **Audit/logs:** each preview/execute/control action writes a `provider_fixer_operation` audit row and a Provider Fixer operation log row.
+
+Guardrail settings live in `/admin/settings?tab=provider-health`:
+
+| Setting | Purpose |
+|---|---|
+| Provider Fixer dangerous match threshold | Match count at or above this requires typed confirmation |
+| Provider Fixer preview sample limit | Maximum sample rows stored/displayed per preview |
+| Provider Fixer UI page size | Default page size for fixer tables |
+| Provider Fixer auto-pause failures/min | Threshold reserved for worker-level auto-pause controls |
+| Provider Fixer preview token TTL | Preview-token expiry in minutes |
+
+KR binding details:
+
+- Canonical KR catalog tickers stay bare KRX codes such as `005930`.
+- Twelve Data catalog evidence provides deterministic suffix hints: `KOSPI` / `KRX` / `XKRX` → `.KS`, `KOSDAQ` / `XKOS` → `.KQ`.
+- The hint alone is not durable truth. Provider Fixer verifies the candidate through Yahoo (`quote_first` or `chart_probe_v1`) before persisting a mapping.
+- `YahooFinanceKrMarketDataProvider` consults `provider_resolution_mappings` first, then falls back to catalog hints and the current probing modes.
+
+Current limitation: Provider Fixer pause/resume/cancel endpoints update Provider Fixer operation rows. They do not kill an already-running pg-boss backfill worker. Legacy pg-boss batch cancellation is intentionally not exposed until it can avoid stale active-operation locks.
+
+Rollback/recovery:
+
+- Reverting the UI/API change leaves already-written `provider_resolution_mappings` rows in place. They are safe to keep; the KR provider treats them as preferred bindings.
+- To undo a bad KR binding, delete the specific mapping row, then rerun Provider Fixer preview before re-executing:
+
+```sql
+DELETE FROM market_data.provider_resolution_mappings
+WHERE provider_id = 'yahoo-finance-kr'
+  AND market_code = 'KR'
+  AND source_symbol = '<bare_krx_ticker>';
+```
+
+- Already-enqueued KR backfill jobs are idempotent daily-bar/dividend upserts. Let them finish unless the broader pg-boss queue is unhealthy.
+
+#### Back-compatible Re-run API
+
+`POST /admin/providers/:providerId/rerun` remains as a temporary API surface for existing tests and external callers. The admin UI should not call it directly for provider repair. The route dispatches provider-wide refresh jobs:
 
 - **`finmind-tw`:** enqueues daily-refresh for the TW market (all monitored TW tickers).
 - **`finmind-us`:** enqueues daily-refresh for the US market.
@@ -2049,7 +2093,7 @@ The Re-run now button dispatches a provider-wide refresh job:
 
 **Per-provider cooldown (KZO-197/KR):** the cooldown is per-provider. Yahoo market providers (`yahoo-finance-au`, `yahoo-finance-kr`) default to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
 
-**KR resolver repair guardrail:** the `yahoo-finance-kr` row exposes a resolver-mode selector. `quote_first` is the safe default for admin reruns. `chart_probe_v1` is a repair mode for unresolved KR symbols; it probes Yahoo chart data across `.KS` / `.KQ` candidates and may increase upstream calls. The UI requires an acknowledgement checkbox, and the API rejects `chart_probe_v1` unless `resolverModeRiskAccepted=true`. Resolver-mode payloads are rejected for non-KR providers.
+**KR resolver repair guardrail:** `quote_first` is the safe default for KR admin reruns. `chart_probe_v1` is a repair mode for unresolved KR symbols; it probes Yahoo chart data across `.KS` / `.KQ` candidates and may increase upstream calls. The back-compatible API rejects `chart_probe_v1` unless `resolverModeRiskAccepted=true`, and resolver-mode payloads are rejected for non-KR providers.
 
 **Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. For Yahoo market providers, the metadata also includes nested `catalogBackfill: { tickerCount, jobId }` and `monitoredRefresh: { tickerCount, jobId }` blocks (top-level `tickerCount` = sum; back-compat). Visible at `/admin/audit-log`.
 

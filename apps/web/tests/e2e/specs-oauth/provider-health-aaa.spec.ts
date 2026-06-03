@@ -22,7 +22,6 @@
  * Coverage mirrors qa-plan.md §4.1 + §4.2.
  */
 import {
-  expect,
   request as apiRequest,
   type APIRequestContext,
   type Page,
@@ -208,70 +207,67 @@ test.describe.serial("admin /admin/providers (KZO-177)", () => {
       .waitFor({ state: "visible" });
   });
 
-  test("[providers-D]: 'Re-run now' happy path → click fires rerun (lastManualRerunAt persists)", async ({
+  test("[providers-D]: Open fixer link routes provider repair out of the read-only health table", async ({
     page,
     appShell,
   }) => {
     await seedProviderHealthAsBrowser(page, {
-      providerId: "frankfurter",
+      providerId: "yahoo-finance-kr",
       status: "healthy",
       lastSuccessfulRun: new Date().toISOString(),
-      lastManualRerunAt: null,
     });
 
     await appShell.actions.navigateToRoute("/admin/providers");
     await page.waitForLoadState("load");
 
-    const btn = page.getByTestId("provider-rerun-btn-frankfurter");
-    await btn.waitFor({ state: "visible" });
-    await btn.click();
+    await page.getByTestId("admin-providers-read-only-note").waitFor({ state: "visible" });
+    const link = page.getByTestId("provider-open-fixer-yahoo-finance-kr").first();
+    await link.waitFor({ state: "visible" });
+    const href = await link.getAttribute("href");
+    await appShell.assert.mxAssertTruthy(
+      /\/admin\/provider-fixer\?providerId=yahoo-finance-kr&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved/.test(href ?? ""),
+      `KR Open fixer href points to guarded resolver route (got: ${href})`,
+    );
+    await link.click();
 
-    // Memory-backend rerun completes in <50ms, so an "isDisabled after click"
-    // assertion races the optimistic UI flip-back. Verify the click actually
-    // fired by reading lastManualRerunAt via the admin API — server-side
-    // state is the deterministic signal.
-    const cookieHeader = await getTestUserCookieHeader(page);
-    await expect
-      .poll(
-        async () => {
-          return withFreshContext(async (ctx) => {
-            const response = await ctx.get(apiPath("/admin/providers"), {
-              headers: { cookie: cookieHeader },
-            });
-            if (!response.ok()) return null;
-            const body = (await response.json()) as {
-              providers: Array<{ providerId: string; lastManualRerunAt: string | null }>;
-            };
-            const row = body.providers.find((p) => p.providerId === "frankfurter");
-            return row?.lastManualRerunAt ?? null;
-          });
-        },
-        { timeout: 5000, intervals: [200, 400, 800] },
-      )
-      .not.toBeNull();
+    await page.waitForURL(/\/admin\/provider-fixer\?/);
+    await page.getByTestId("provider-fixer-page").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("provider-fixer-provider-select").inputValue(),
+      "yahoo-finance-kr",
+      "Provider Fixer provider select defaults to yahoo-finance-kr",
+    );
   });
 
-  test("[providers-E]: 'Re-run now' within 60s cooldown shows disabled state", async ({
+  test("[providers-E]: Provider fixer preview keeps execute disabled until diagnosis confirmation", async ({
     page,
     appShell,
   }) => {
     await seedProviderHealthAsBrowser(page, {
-      providerId: "finmind-tw",
+      providerId: "yahoo-finance-kr",
       status: "healthy",
       lastSuccessfulRun: new Date().toISOString(),
-      lastManualRerunAt: new Date(Date.now() - 30_000).toISOString(),
     });
 
-    await appShell.actions.navigateToRoute("/admin/providers");
+    await appShell.actions.navigateToRoute(
+      "/admin/provider-fixer?providerId=yahoo-finance-kr&resolverMode=quote_first&errorCode=yahoo_finance_kr_symbol_unresolved",
+    );
     await page.waitForLoadState("load");
 
-    const btn = page.getByTestId("provider-rerun-btn-finmind-tw");
-    await btn.waitFor({ state: "visible" });
-    await btn.click();
+    await page.getByTestId("provider-fixer-page").waitFor({ state: "visible" });
+    await page.getByRole("button", { name: /stage resolver repair/i }).click();
 
+    const execute = page.getByTestId("provider-fixer-execute-button");
+    await execute.waitFor({ state: "visible" });
     await appShell.assert.mxAssertTruthy(
-      await btn.isDisabled(),
-      "rerun button disabled (cooldown)",
+      await execute.isDisabled(),
+      "execute remains disabled before acknowledgement",
+    );
+
+    await page.getByTestId("provider-fixer-confirm-checkbox").check();
+    await appShell.assert.mxAssertTruthy(
+      !(await execute.isDisabled()),
+      "execute unlocks after standard acknowledgement",
     );
   });
 
@@ -349,7 +345,7 @@ test.describe.serial("KZO-197 — admin /admin/providers (awaiting + tooltip)", 
     }
   });
 
-  test("[KZO-197 popover-content]: clicking the AU trigger reveals locked AU copy with formatted cooldown", async ({
+  test("[KZO-197 popover-content]: clicking the AU trigger reveals Provider Fixer migration copy", async ({
     page,
     appShell,
   }) => {
@@ -371,14 +367,13 @@ test.describe.serial("KZO-197 — admin /admin/providers (awaiting + tooltip)", 
     const content = page.getByTestId("provider-help-popover-yahoo-finance-au").first();
     await content.waitFor({ state: "visible" });
     const text = (await content.textContent()) ?? "";
-    // Locked AU copy mentions Yahoo Finance + the 30-min cooldown.
     await appShell.assert.mxAssertTruthy(
-      /yahoo finance/i.test(text),
-      `popover content references Yahoo Finance (got: ${text})`,
+      /provider fixer/i.test(text),
+      `popover content references Provider Fixer (got: ${text})`,
     );
     await appShell.assert.mxAssertTruthy(
-      /cooldown\s+30\s+min/i.test(text),
-      `popover content shows "Cooldown 30 min" (got: ${text})`,
+      /staged repair/i.test(text),
+      `popover content references staged repair (got: ${text})`,
     );
   });
 });

@@ -1,5 +1,6 @@
 import type { EnvConfig } from "@vakwen/config";
 import type { MarketCode } from "@vakwen/domain";
+import type { Persistence } from "../../persistence/types.js";
 import type { FxRateProvider, InstrumentCatalogProvider, MarketDataProvider } from "./types.js";
 import { RateLimiter } from "./rateLimiter.js";
 import {
@@ -69,6 +70,7 @@ interface RegistryLogger {
 export function buildMarketDataRegistry(
   env: EnvConfig,
   log?: RegistryLogger,
+  persistence?: Pick<Persistence, "getInstrument" | "getProviderResolutionMapping">,
 ): MarketDataRegistry {
   function emit(
     providerId: string,
@@ -213,6 +215,7 @@ export function buildMarketDataRegistry(
     : new YahooFinanceKrMarketDataProvider({
         rateLimiter: yahooKrLimiter,
         resolverMode: env.YAHOO_KR_RESOLVER_MODE,
+        persistence,
       });
   emit(
     "yahoo-finance-kr",

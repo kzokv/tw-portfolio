@@ -4,7 +4,7 @@ source: scope-grill
 created: 2026-05-09
 tickets: [KZO-197]
 required_reading: []
-superseded_by: null
+superseded_by: docs/004-notes/kzo-197/scope-todo-202606031320-provider-fixer-kr-binding.md
 ---
 
 # Todo: KZO-197 — AU catalog-bootstrap orphan: provider-health "down" symptom on fresh deploy

@@ -193,7 +193,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     );
   }
 
-  app.marketDataRegistry = buildMarketDataRegistry(Env, app.log);
+  app.marketDataRegistry = buildMarketDataRegistry(Env, app.log, app.persistence);
   app.fundamentalsRegistry = buildFundamentalsRegistry(Env);
   registerTradingCalendarCache(app, { persistence: app.persistence });
   registerProviderHealth(app, { persistence: app.persistence });
