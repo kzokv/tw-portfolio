@@ -111,7 +111,11 @@ import { scheduleTickerFundamentalsRefresh } from "../services/fundamentals/refr
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../services/store.js";
 import { isUniqueViolation } from "../persistence/postgres.js";
 import { ensureInstrumentDefinition, isInstrumentQuoteable, listTransactionInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
-import { BACKFILL_QUEUE, type BackfillJobData } from "../services/market-data/backfillWorker.js";
+import {
+  BACKFILL_QUEUE,
+  getBackfillSingletonKey,
+  type BackfillJobData,
+} from "../services/market-data/backfillWorker.js";
 import { deriveRepairAvailableAt, getEffectiveRepairCooldownMinutes, remainingCooldownMinutes } from "../services/appConfig/repairCooldown.js";
 import { getEffectiveAccountHardPurgeDays } from "../services/appConfig/accountLifecycle.js";
 import { getEffectiveUserPreferencesMaxBytes } from "../services/appConfig/requestLimits.js";
@@ -3944,8 +3948,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // KZO-126: First-trade backfill trigger
     if (app.boss && !isDemo) {
-      // KZO-169: lookup by composite (ticker, marketCode); singletonKey is
-      // composite so BHP/AU and BHP/US don't compete for the same slot.
+      // KZO-169/KZO-197: lookup by composite (ticker, marketCode); singletonKey
+      // uses the canonical helper so market and KR repair scopes stay distinct.
       const instrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
       // Skip if ticker not in catalog, or already ready
       if (instrument && instrument.barsBackfillStatus !== "ready") {
@@ -3957,7 +3961,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             userId,
             trigger: "first_trade",
           } satisfies BackfillJobData,
-          { singletonKey: `${body.ticker}:${body.marketCode}`, priority: 0 },
+          { singletonKey: getBackfillSingletonKey(body.ticker, body.marketCode), priority: 0 },
         );
       }
     }
@@ -4984,9 +4988,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       try {
         const result = await generateHoldingSnapshots(userId, app.persistence, { generationRunId });
 
-        // KZO-185: producer stamps marketCode from the walker's result. Composite
-        // singletonKey `${ticker}:${marketCode}` so BHP/AU + BHP/US don't share
-        // a slot when both surface in the same regen.
+        // KZO-185/KZO-197: producer stamps marketCode from the walker's result.
+        // The canonical singleton key keeps sibling markets and KR repair modes distinct.
         if (app.boss && result.tickersNeedingBackfill.length > 0) {
           for (const { ticker, marketCode } of result.tickersNeedingBackfill) {
             try {
@@ -4998,7 +5001,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
                   trigger: "first_trade",
                   includeBars: true,
                 } satisfies BackfillJobData,
-                { singletonKey: `${ticker}:${marketCode}` },
+                { singletonKey: getBackfillSingletonKey(ticker, marketCode) },
               );
             } catch {
               // Backfill queue unavailable — provisional data remains
@@ -5104,7 +5107,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const result = await generateHoldingSnapshots(userId, app.persistence, {
           generationRunId: snapshotRunId,
         });
-        // KZO-185: producer stamps marketCode + composite singletonKey
+        // KZO-185/KZO-197: producer stamps marketCode + canonical singletonKey
         // (parity with snapshots/generate at line 3899 above and the
         // daily-refresh cron in dailyRefreshEnqueue.ts).
         if (app.boss && result.tickersNeedingBackfill.length > 0) {
@@ -5118,7 +5121,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
                   trigger: "first_trade",
                   includeBars: true,
                 } satisfies BackfillJobData,
-                { singletonKey: `${ticker}:${marketCode}` },
+                { singletonKey: getBackfillSingletonKey(ticker, marketCode) },
               );
             } catch {
               // Backfill queue unavailable — provisional data remains.
@@ -5666,9 +5669,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await app.persistence.replaceManualSelections(userId, body.tickers);
 
-    // KZO-126 / KZO-169: enqueue backfill for genuinely new tickers (demo users
-    // skip FinMind). Singleton key is now `${ticker}:${marketCode}` (G3) so
-    // BHP/AU and BHP/US don't compete for the same singleton slot.
+    // KZO-126 / KZO-169 / KZO-197: enqueue backfill for genuinely new tickers
+    // (demo users skip FinMind). Canonical singleton key keeps sibling-market
+    // and KR repair scopes distinct.
     if (app.boss && !isDemo && result.newTickers.length > 0) {
       for (const sel of body.tickers) {
         if (!result.newTickers.includes(sel.ticker)) continue;
@@ -5680,7 +5683,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             userId,
             trigger: "user_selection",
           } satisfies BackfillJobData,
-          { singletonKey: `${sel.ticker}:${sel.marketCode}`, priority: 0 },
+          { singletonKey: getBackfillSingletonKey(sel.ticker, sel.marketCode), priority: 0 },
         );
       }
     }
@@ -5734,7 +5737,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         userId,
         trigger: "retry",
       } satisfies BackfillJobData,
-      { singletonKey: `${body.ticker}:${instrument.marketCode}`, priority: 0 },
+      {
+        singletonKey: getBackfillSingletonKey(
+          body.ticker,
+          instrument.marketCode as MarketCode,
+        ),
+        priority: 0,
+      },
     );
 
     return { ticker: body.ticker, barsBackfillStatus: "pending" };
@@ -5815,7 +5824,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           includeBars: body.includeBars,
           includeDividends: body.includeDividends,
         } satisfies BackfillJobData,
-        { singletonKey: `${ticker}:${instrument.marketCode}`, priority: 5 },
+        {
+          singletonKey: getBackfillSingletonKey(ticker, instrument.marketCode as MarketCode),
+          priority: 5,
+        },
       );
       queued.push(ticker);
     }

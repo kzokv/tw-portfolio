@@ -103,4 +103,36 @@ describe("daily refresh enqueue", () => {
       { priority: DAILY_REFRESH_PRIORITY, singletonKey: "BHP:US" },
     );
   });
+
+  it("KR resolver repair jobs include resolverMode in singletonKey", async () => {
+    vi.setSystemTime(new Date("2026-03-31T09:30:00Z"));
+    const boss = { send: vi.fn().mockResolvedValue(undefined) };
+    const batchId = "batch-kr-repair-003";
+    const persistence = {
+      getAllMonitoredTickers: vi.fn().mockResolvedValue([
+        { ticker: "005930", marketCode: "KR" },
+      ]),
+      createRefreshBatch: vi.fn().mockResolvedValue(batchId),
+    };
+    const log = { info: vi.fn() };
+
+    await enqueueDailyRefresh(boss, persistence, log, {
+      marketFilter: "KR",
+      trigger: "admin_rerun",
+      resolverMode: "chart_probe_v1",
+    });
+
+    expect(boss.send).toHaveBeenCalledWith(
+      BACKFILL_QUEUE,
+      {
+        ticker: "005930",
+        marketCode: "KR",
+        trigger: "admin_rerun",
+        startDate: "2026-03-24",
+        batchId,
+        resolverMode: "chart_probe_v1",
+      },
+      { priority: DAILY_REFRESH_PRIORITY, singletonKey: "005930:KR:chart_probe_v1" },
+    );
+  });
 });

@@ -2,7 +2,7 @@ import type { PgBoss } from "pg-boss";
 import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 import type { BackfillJobData } from "./backfillWorker.js";
-import { BACKFILL_QUEUE } from "./backfillWorker.js";
+import { BACKFILL_QUEUE, getBackfillSingletonKey } from "./backfillWorker.js";
 import {
   getEffectiveDailyRefreshLookbackDays,
   getEffectiveDailyRefreshPriority,
@@ -63,9 +63,9 @@ export async function enqueueDailyRefresh(
 
   const startDate = getDailyRefreshStartDate();
   await Promise.all(
-    // KZO-185: producer stamps `marketCode` from the persistence result; the
-    // worker's Zod schema rejects any old-shape job. `singletonKey` is the
-    // composite `${ticker}:${marketCode}` so BHP/AU and BHP/US don't collide.
+    // KZO-185/KZO-197: producer stamps `marketCode` from the persistence result;
+    // the worker's Zod schema rejects any old-shape job. `singletonKey` scopes
+    // by market and KR resolver mode so cross-market and repair jobs don't collide.
     filtered.map(({ ticker, marketCode }) =>
       boss.send(
         BACKFILL_QUEUE,
@@ -78,7 +78,10 @@ export async function enqueueDailyRefresh(
           ...(options.resolverMode ? { resolverMode: options.resolverMode } : {}),
         } satisfies BackfillJobData,
         // KZO-198: read live (DB override → env).
-        { priority: getEffectiveDailyRefreshPriority(), singletonKey: `${ticker}:${marketCode}` },
+        {
+          priority: getEffectiveDailyRefreshPriority(),
+          singletonKey: getBackfillSingletonKey(ticker, marketCode, options.resolverMode),
+        },
       ),
     ),
   );

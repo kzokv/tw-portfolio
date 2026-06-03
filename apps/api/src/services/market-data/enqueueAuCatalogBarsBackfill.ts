@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { MarketCode } from "@vakwen/domain";
 import type { Persistence } from "../../persistence/types.js";
 import type { BackfillJobData } from "./backfillWorker.js";
-import { BACKFILL_QUEUE } from "./backfillWorker.js";
+import { BACKFILL_QUEUE, getBackfillSingletonKey } from "./backfillWorker.js";
 import { getEffectiveDailyRefreshPriority } from "../appConfig/backfill.js";
 
 /**
@@ -18,9 +18,9 @@ import { getEffectiveDailyRefreshPriority } from "../appConfig/backfill.js";
  *   - **`startDate` is OMITTED** — the worker resolves
  *     `historyStartFor(marketCode)`. Yahoo per-ticker truncation makes
  *     full-history requests safe for AU/KR (returns the available subrange).
- *   - `singletonKey: \`${ticker}:${marketCode}\`` per
- *     `.claude/rules/pgboss-composite-singleton-key.md` — composite key prevents
- *     a same-ticker market warm-up from colliding with sibling-market backfills.
+ *   - `singletonKey` comes from `getBackfillSingletonKey()` per
+ *     `.claude/rules/pgboss-composite-singleton-key.md` — the key scopes by
+ *     market and KR resolver mode so sibling-market and repair reruns don't collide.
  *   - `priority` from `getEffectiveDailyRefreshPriority()` (Tier 2 admin lever).
  *   - `trigger: 'admin_rerun'` (only the admin Re-run-now route calls this; the
  *     param is forwarded so future callers — e.g. the deferred KZO-203
@@ -105,7 +105,7 @@ export async function enqueueAuCatalogBarsBackfill(
         } satisfies BackfillJobData,
         {
           priority: getEffectiveDailyRefreshPriority(),
-          singletonKey: `${ticker}:${marketCode}`,
+          singletonKey: getBackfillSingletonKey(ticker, marketCode, options.resolverMode),
         },
       ),
     ),
