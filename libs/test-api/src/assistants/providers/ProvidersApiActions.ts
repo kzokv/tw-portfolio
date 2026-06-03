@@ -4,6 +4,7 @@ import { apiUrl } from "@vakwen/test-framework/shared";
 import { ApiBaseActions, headersForCookie } from "../../mixins/index.js";
 import type {
   ProviderHealthSeedInput,
+  ProviderRerunRequestBody,
   ProvidersEndpoint,
 } from "../../endpoints/ProvidersEndpoint.js";
 
@@ -49,13 +50,17 @@ export class ProvidersApiActions extends ApiBaseActions {
   }
 
   @Step()
-  async rerun(providerId: string): Promise<APIResponse> {
-    return this._instance.rerun(providerId, this.authHeaders);
+  async rerun(providerId: string, body?: ProviderRerunRequestBody): Promise<APIResponse> {
+    return this._instance.rerun(providerId, body ?? {}, this.authHeaders);
   }
 
   @Step()
-  async rerunForCookie(cookie: string, providerId: string): Promise<APIResponse> {
-    return this._instance.rerun(providerId, headersForCookie(cookie));
+  async rerunForCookie(
+    cookie: string,
+    providerId: string,
+    body?: ProviderRerunRequestBody,
+  ): Promise<APIResponse> {
+    return this._instance.rerun(providerId, body ?? {}, headersForCookie(cookie));
   }
 
   /**
@@ -63,10 +68,13 @@ export class ProvidersApiActions extends ApiBaseActions {
    * cookie jar doesn't pollute the auth assertion.
    */
   @Step()
-  async rerunAnonymous(providerId: string): Promise<APIResponse> {
+  async rerunAnonymous(
+    providerId: string,
+    body?: ProviderRerunRequestBody,
+  ): Promise<APIResponse> {
     return withFreshContext((ctx) =>
       ctx.post(apiUrl(`/admin/providers/${encodeURIComponent(providerId)}/rerun`), {
-        data: {},
+        data: body ?? {},
       }),
     );
   }

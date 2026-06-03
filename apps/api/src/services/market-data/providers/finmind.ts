@@ -8,6 +8,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
@@ -187,7 +188,12 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
     return body.data;
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.assertCanConsume();
     const rows = await this.fetchDataset<FinMindPriceRow>("TaiwanStockPrice", ticker, startDate, endDate);
     return rows.map((r) => ({
@@ -202,7 +208,12 @@ export class FinMindMarketDataProvider implements MarketDataProvider, Instrument
     }));
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     this.assertCanConsume();
     const rows = await this.fetchDataset<FinMindDividendRow>("TaiwanStockDividend", ticker, startDate, endDate);
     return rows

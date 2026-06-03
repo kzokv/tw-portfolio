@@ -60,6 +60,7 @@ All mockups are self-contained static HTML that load `_tokens.css` (design token
 | [`mockup-202605151230-admin-instruments.html`](./mockup-202605151230-admin-instruments.html) | Admin · Instruments (catalog · backfill state · GICS) |
 | [`mockup-202605151231-admin-invites.html`](./mockup-202605151231-admin-invites.html) | Admin · Invites (issue form + status table) |
 | [`mockup-202605151232-admin-providers.html`](./mockup-202605151232-admin-providers.html) | Admin · Providers (health cards · rotate token · error trail) |
+| [`mockup-2026060209-admin-provider-fixer.html`](./mockup-2026060209-admin-provider-fixer.html) | Admin · Provider fixer (diagnostic + staged operation + guardrails) |
 | [`mockup-202605151233-admin-audit-log.html`](./mockup-202605151233-admin-audit-log.html) | Admin · Audit log (immutable record) |
 
 ## Screenshots
@@ -180,6 +181,12 @@ Rendered at 1440×900 (1280×900 for public share; 1100×800 for auth pages; 144
 |---|---|
 | ![](./screenshots/37-admin-providers-light.png) | ![](./screenshots/38-admin-providers-dark.png) |
 
+### Admin · Provider fixer
+
+| Light | Dark |
+|---|---|
+| ![](./screenshots/41-admin-provider-fixer-light.png) | ![](./screenshots/42-admin-provider-fixer-dark.png) |
+
 ### Admin · Audit log
 
 | Light | Dark |
@@ -194,4 +201,4 @@ From the worktree root:
 bash docs/004-notes/ui-reshape-shadcn/render-screenshots.sh
 ```
 
-40 PNGs land in `screenshots/`. ~30 seconds on macOS host.
+42 PNGs land in `screenshots/`. ~30 seconds on macOS host.

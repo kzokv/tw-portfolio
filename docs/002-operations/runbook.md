@@ -2049,6 +2049,8 @@ The Re-run now button dispatches a provider-wide refresh job:
 
 **Per-provider cooldown (KZO-197/KR):** the cooldown is per-provider. Yahoo market providers (`yahoo-finance-au`, `yahoo-finance-kr`) default to **30 minutes** (DB-tunable via `app_config.yahoo_au_rerun_cooldown_ms`). All other providers default to **60 seconds**. A click inside the cooldown window returns `429 rate_limit_exceeded` with `Retry-After: <cooldown_seconds>`. The active cooldown value for each provider is visible in the `/admin/providers` DTO as `rerunCooldownMs`.
 
+**KR resolver repair guardrail:** the `yahoo-finance-kr` row exposes a resolver-mode selector. `quote_first` is the safe default for admin reruns. `chart_probe_v1` is a repair mode for unresolved KR symbols; it probes Yahoo chart data across `.KS` / `.KQ` candidates and may increase upstream calls. The UI requires an acknowledgement checkbox, and the API rejects `chart_probe_v1` unless `resolverModeRiskAccepted=true`. Resolver-mode payloads are rejected for non-KR providers.
+
 **Audit log:** every Re-run now click writes an `audit_log` row with `action = 'provider_health_rerun'`, `targetType = 'provider'`, `targetId = providerId`, and `metadata: { tickerCount, marketCode }`. For Yahoo market providers, the metadata also includes nested `catalogBackfill: { tickerCount, jobId }` and `monitoredRefresh: { tickerCount, jobId }` blocks (top-level `tickerCount` = sum; back-compat). Visible at `/admin/audit-log`.
 
 **Existing `/admin/fx-rates/refresh` is NOT deprecated** — it remains the path for targeted date-range FX backfills. Re-run now triggers a full current-day FX refresh.

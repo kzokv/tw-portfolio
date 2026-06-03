@@ -6,6 +6,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 import { RateLimitedError } from "../types.js";
 import type { RateLimiter } from "../rateLimiter.js";
@@ -163,7 +164,12 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
     }
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.assertCanConsume();
     const symbol = this.normalizeSymbol(ticker);
     // Cast: yahoo-finance2's `chart()` has multiple overloads; without an explicit
@@ -195,7 +201,12 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
       }));
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     this.assertCanConsume();
     const symbol = this.normalizeSymbol(ticker);
     const result = (await this.client.chart(symbol, {
@@ -328,4 +339,3 @@ export class YahooFinanceAuMarketDataProvider implements MarketDataProvider, Ins
     return out;
   }
 }
-

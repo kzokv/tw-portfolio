@@ -5,6 +5,7 @@ import type {
   RawDelistingRecord,
   MarketDataProvider,
   InstrumentCatalogProvider,
+  MarketDataFetchOptions,
 } from "../types.js";
 
 /**
@@ -158,7 +159,12 @@ export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider,
     this.calls.push({ method: "reserveCapacity", n });
   }
 
-  async fetchBars(ticker: string, startDate?: string, endDate?: string): Promise<RawDailyBar[]> {
+  async fetchBars(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<RawDailyBar[]> {
     this.calls.push({
       method: "fetchBars",
       ticker,
@@ -170,7 +176,12 @@ export class MockYahooFinanceAuMarketDataProvider implements MarketDataProvider,
     return generateMockAuBars(spec, this.fixtureStartDate);
   }
 
-  async fetchDividends(ticker: string, startDate?: string, endDate?: string): Promise<DividendRecord[]> {
+  async fetchDividends(
+    ticker: string,
+    startDate?: string,
+    endDate?: string,
+    _options?: MarketDataFetchOptions,
+  ): Promise<DividendRecord[]> {
     this.calls.push({
       method: "fetchDividends",
       ticker,
